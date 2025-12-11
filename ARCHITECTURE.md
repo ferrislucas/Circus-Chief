@@ -1056,6 +1056,146 @@ claudetools.io/
          message,
        });
      }
+
+     // =========================================
+     // Built-in Command Handlers
+     // These methods handle 'app' execution type commands
+     // =========================================
+
+     /**
+      * Clear conversation history for a session (/clear command)
+      * @param {string} sessionId
+      * @returns {{success: boolean, message?: string, error?: string}}
+      */
+     clearHistory(sessionId) {
+       const activeSession = this.#sessions.get(sessionId);
+       if (!activeSession) {
+         return { success: false, error: 'Session not found' };
+       }
+
+       // Clear messages but keep the session
+       activeSession.session.messages = [];
+       activeSession.session.updatedAt = Date.now();
+
+       broadcast({
+         type: 'session:cleared',
+         sessionId,
+       });
+
+       return { success: true, message: 'Conversation history cleared' };
+     }
+
+     /**
+      * Change the model for a session (/model command)
+      * Note: This requires restarting the Claude query with the new model
+      * @param {string} sessionId
+      * @param {string} modelName - e.g., 'sonnet', 'opus', 'haiku'
+      * @returns {{success: boolean, message?: string, error?: string}}
+      */
+     setModel(sessionId, modelName) {
+       const activeSession = this.#sessions.get(sessionId);
+       if (!activeSession) {
+         return { success: false, error: 'Session not found' };
+       }
+
+       // Map short names to full model IDs
+       const modelMap = {
+         'sonnet': 'claude-sonnet-4-5',
+         'opus': 'claude-opus-4',
+         'haiku': 'claude-haiku',
+       };
+
+       const fullModelId = modelMap[modelName] || modelName;
+       activeSession.session.model = fullModelId;
+       activeSession.session.updatedAt = Date.now();
+
+       broadcast({
+         type: 'session:model-changed',
+         sessionId,
+         model: fullModelId,
+       });
+
+       return { success: true, message: `Model changed to ${fullModelId}` };
+     }
+
+     /**
+      * Get session status and statistics (/status command)
+      * @param {string} sessionId
+      * @returns {{success: boolean, data?: Object, error?: string}}
+      */
+     getStatus(sessionId) {
+       const activeSession = this.#sessions.get(sessionId);
+       if (!activeSession) {
+         return { success: false, error: 'Session not found' };
+       }
+
+       const { session } = activeSession;
+       return {
+         success: true,
+         data: {
+           id: session.id,
+           name: session.name,
+           status: session.status,
+           model: session.model || 'claude-sonnet-4-5',
+           workingDirectory: session.workingDirectory,
+           gitBranch: session.gitBranch,
+           messageCount: session.messages.length,
+           createdAt: session.createdAt,
+           updatedAt: session.updatedAt,
+           runningTime: Date.now() - session.createdAt,
+         },
+       };
+     }
+
+     /**
+      * Get token usage and cost estimates (/cost command)
+      * @param {string} sessionId
+      * @returns {{success: boolean, data?: Object, error?: string}}
+      */
+     getCost(sessionId) {
+       const activeSession = this.#sessions.get(sessionId);
+       if (!activeSession) {
+         return { success: false, error: 'Session not found' };
+       }
+
+       // Note: Actual token counting would require tracking from SDK responses
+       // This is a placeholder structure
+       const { session } = activeSession;
+       return {
+         success: true,
+         data: {
+           sessionId: session.id,
+           inputTokens: session.inputTokens || 0,
+           outputTokens: session.outputTokens || 0,
+           totalTokens: (session.inputTokens || 0) + (session.outputTokens || 0),
+           estimatedCost: session.estimatedCost || 0,
+           currency: 'USD',
+         },
+       };
+     }
+
+     /**
+      * Compact/summarize conversation history (/compact command)
+      * Note: The Claude Agent SDK handles this automatically, but we can
+      * trigger it manually or track when it happens
+      * @param {string} sessionId
+      * @returns {{success: boolean, message?: string, error?: string}}
+      */
+     compactHistory(sessionId) {
+       const activeSession = this.#sessions.get(sessionId);
+       if (!activeSession) {
+         return { success: false, error: 'Session not found' };
+       }
+
+       // The SDK handles compaction automatically when context limits approach
+       // This is mostly informational - we note that compaction was requested
+       activeSession.session.updatedAt = Date.now();
+
+       return {
+         success: true,
+         message: 'Compaction noted. The SDK will automatically compact when needed.',
+       };
+     }
    }
 
    // Export singleton
@@ -2648,9 +2788,18 @@ claudetools.io/
    import { broadcast } from '../websocket.js';
 
    /**
+    * Execution type determines how a command is processed
+    * @typedef {'app' | 'prompt' | 'ui'} CommandExecutionType
+    * - 'app': Handled by our application (built-in commands like /clear, /model)
+    * - 'prompt': Expanded and sent to Claude as a prompt (custom commands)
+    * - 'ui': Handled entirely in the UI, no server action (like /help)
+    */
+
+   /**
     * @typedef {Object} SlashCommand
     * @property {string} name
     * @property {'builtin' | 'project' | 'user' | 'mcp'} source
+    * @property {CommandExecutionType} executionType - How this command should be executed
     * @property {string} [description]
     * @property {string} [argumentHint]
     * @property {string} [content]
@@ -2660,15 +2809,28 @@ claudetools.io/
     * @property {string} [namespace]
     */
 
-   // Built-in commands (subset - full list would be longer)
+   /**
+    * Result of executing a command
+    * @typedef {Object} CommandExecutionResult
+    * @property {boolean} success
+    * @property {'app' | 'prompt' | 'ui'} executionType
+    * @property {string} [message] - For UI display
+    * @property {string} [expandedPrompt] - For prompt-type commands
+    * @property {Object} [data] - Additional data (e.g., help content, status info)
+    * @property {string} [error]
+    */
+
+   // Built-in commands with their execution types
+   // 'app' = handled by our backend, 'ui' = handled by frontend only
    const BUILTIN_COMMANDS = [
-     { name: 'help', source: 'builtin', description: 'Display help information' },
-     { name: 'clear', source: 'builtin', description: 'Clear conversation history' },
-     { name: 'compact', source: 'builtin', description: 'Compress conversation' },
-     { name: 'model', source: 'builtin', description: 'Switch AI model' },
-     { name: 'config', source: 'builtin', description: 'Configure settings' },
-     { name: 'status', source: 'builtin', description: 'Show current status' },
-     { name: 'cost', source: 'builtin', description: 'Display token costs' },
+     { name: 'help', source: 'builtin', executionType: 'ui', description: 'Display help information' },
+     { name: 'clear', source: 'builtin', executionType: 'app', description: 'Clear conversation history', argumentHint: '' },
+     { name: 'compact', source: 'builtin', executionType: 'app', description: 'Compress conversation to save context', argumentHint: '' },
+     { name: 'model', source: 'builtin', executionType: 'app', description: 'Switch AI model', argumentHint: 'model-name (e.g., sonnet, opus)' },
+     { name: 'config', source: 'builtin', executionType: 'ui', description: 'Open configuration panel' },
+     { name: 'status', source: 'builtin', executionType: 'app', description: 'Show session status and statistics' },
+     { name: 'cost', source: 'builtin', executionType: 'app', description: 'Display token usage and costs' },
+     { name: 'stop', source: 'builtin', executionType: 'app', description: 'Stop the current session' },
    ];
 
    class SlashCommandService {
@@ -2683,7 +2845,7 @@ claudetools.io/
      async getCommands(workingDirectory) {
        const commands = [...BUILTIN_COMMANDS];
 
-       // Load project commands
+       // Load project commands (these are always 'prompt' execution type)
        const projectCommands = await this.#loadCommandsFromDir(
          join(workingDirectory, '.claude', 'commands'),
          'project'
@@ -2775,6 +2937,7 @@ claudetools.io/
          return {
            name,
            source,
+           executionType: 'prompt', // Custom commands are always prompt-type
            description: frontmatter.description,
            argumentHint: frontmatter['argument-hint'],
            content: body.trim(),
@@ -2792,7 +2955,7 @@ claudetools.io/
      }
 
      /**
-      * Expand a command with arguments
+      * Expand a custom command with arguments
       * @param {SlashCommand} command
       * @param {string} args - Raw arguments string
       * @returns {string} - Expanded prompt
@@ -2806,7 +2969,7 @@ claudetools.io/
        expanded = expanded.replace(/\$ARGUMENTS/g, args);
 
        // Replace positional parameters $1, $2, etc.
-       const argParts = args.split(/\s+/);
+       const argParts = args.split(/\s+/).filter(Boolean);
        for (let i = 0; i < argParts.length; i++) {
          expanded = expanded.replace(new RegExp(`\\$${i + 1}`, 'g'), argParts[i]);
        }
@@ -2894,6 +3057,7 @@ claudetools.io/
    import { Router } from 'express';
    import { slashCommandService } from '../services/slashCommandService.js';
    import { sessionManager } from '../services/sessionManager.js';
+   import { broadcast } from '../websocket.js';
 
    const router = Router();
 
@@ -2961,6 +3125,7 @@ claudetools.io/
    });
 
    // POST /api/commands/:name/execute - Execute command in session
+   // Handles different execution types: 'app', 'prompt', 'ui'
    router.post('/:name/execute', async (req, res) => {
      const { sessionId, arguments: args } = req.body;
      const session = sessionManager.getSession(sessionId);
@@ -2978,15 +3143,75 @@ claudetools.io/
        return res.status(404).json({ error: 'Command not found' });
      }
 
-     // Expand command and send as message
-     const expandedPrompt = slashCommandService.expandCommand(command, args || '');
-     const success = sessionManager.sendMessage(sessionId, expandedPrompt);
+     // Handle based on execution type
+     switch (command.executionType) {
+       case 'ui':
+         // UI commands are handled client-side, just acknowledge
+         return res.json({
+           success: true,
+           executionType: 'ui',
+           message: `Command /${command.name} should be handled by the UI`,
+         });
 
-     if (!success) {
-       return res.status(400).json({ error: 'Session not waiting for input' });
+       case 'app':
+         // Built-in commands handled by our application
+         let result;
+         switch (command.name) {
+           case 'clear':
+             result = sessionManager.clearHistory(sessionId);
+             break;
+           case 'model':
+             result = sessionManager.setModel(sessionId, args || '');
+             break;
+           case 'status':
+             result = sessionManager.getStatus(sessionId);
+             break;
+           case 'cost':
+             result = sessionManager.getCost(sessionId);
+             break;
+           case 'compact':
+             result = sessionManager.compactHistory(sessionId);
+             break;
+           case 'stop':
+             result = { success: sessionManager.stopSession(sessionId) };
+             break;
+           default:
+             result = { success: false, error: `Unknown app command: ${command.name}` };
+         }
+         return res.json({ ...result, executionType: 'app' });
+
+       case 'prompt':
+         // Custom commands - expand and send to Claude
+         const expandedPrompt = slashCommandService.expandCommand(command, args || '');
+         const success = sessionManager.sendMessage(sessionId, expandedPrompt);
+
+         if (!success) {
+           return res.status(400).json({
+             success: false,
+             error: 'Session not waiting for input',
+           });
+         }
+
+         // Broadcast that a command was executed
+         broadcast({
+           type: 'command:executed',
+           sessionId,
+           commandName: command.name,
+           arguments: args,
+         });
+
+         return res.json({
+           success: true,
+           executionType: 'prompt',
+           expandedPrompt,
+         });
+
+       default:
+         return res.status(400).json({
+           success: false,
+           error: `Unknown execution type: ${command.executionType}`,
+         });
      }
-
-     res.json({ success: true, expandedPrompt });
    });
 
    export default router;
@@ -3202,6 +3427,12 @@ Connect to `ws://localhost:3000/ws`
 // Session diff updated (real-time file changes)
 { type: 'session:diff', sessionId: 'string', files: [{ path: 'string', status: 'M|A|D|R|C|U' }], diff: 'string' }
 
+// Session conversation cleared (via /clear command)
+{ type: 'session:cleared', sessionId: 'string' }
+
+// Session model changed (via /model command)
+{ type: 'session:model-changed', sessionId: 'string', model: 'string' }
+
 // Slash command executed
 { type: 'command:executed', sessionId: 'string', commandName: 'string', arguments: 'string?' }
 
@@ -3341,6 +3572,70 @@ Usage: `/create Button react` → `Create a Button component using react`
  */
 ```
 
+### Command Execution Types
+
+Commands have different execution types that determine how they are processed:
+
+| Type | Description | Examples | Handled By |
+|------|-------------|----------|------------|
+| `prompt` | Expanded and sent to Claude as a prompt | Custom commands (`/fix-issue`, `/review`) | Claude via SDK |
+| `app` | Handled by our application backend | `/clear`, `/model`, `/status`, `/cost` | SessionManager |
+| `ui` | Handled entirely in the frontend UI | `/help`, `/config` | Vue components |
+
+### SDK Integration for Slash Commands
+
+**Important**: Built-in slash commands are CLI features, not SDK features. When using the Claude Agent SDK:
+
+1. **Custom Commands (prompt type)** - Work normally. The command content is expanded with arguments and sent as a prompt to Claude via `sessionManager.sendMessage()`.
+
+2. **Built-in Commands (app type)** - Must be handled by our application:
+   - `/clear` → `sessionManager.clearHistory()` - Clears conversation messages
+   - `/model` → `sessionManager.setModel()` - Changes the model for future queries
+   - `/status` → `sessionManager.getStatus()` - Returns session statistics
+   - `/cost` → `sessionManager.getCost()` - Returns token usage info
+   - `/compact` → SDK handles automatically when context limits approach
+   - `/stop` → `sessionManager.stopSession()` - Aborts the current query
+
+3. **UI Commands** - Never sent to the server, handled by frontend components.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  Command Execution Flow                      │
+└─────────────────────────────────────────────────────────────┘
+
+User types: /command args
+        │
+        ▼
+┌───────────────────┐
+│ CommandPalette    │ ◄── Autocomplete suggestions
+│ (Frontend)        │
+└───────┬───────────┘
+        │
+        ▼
+┌───────────────────┐     ┌─────────────────────────────────┐
+│ Check execution   │────▶│ UI type? Handle in frontend     │
+│ type              │     │ (show help panel, open config)  │
+└───────┬───────────┘     └─────────────────────────────────┘
+        │
+        ▼
+┌───────────────────┐
+│ POST /api/commands│
+│ /:name/execute    │
+└───────┬───────────┘
+        │
+        ▼
+┌───────────────────┐     ┌─────────────────────────────────┐
+│ App type?         │────▶│ Call SessionManager method      │
+│                   │     │ (clearHistory, setModel, etc.)  │
+└───────┬───────────┘     └─────────────────────────────────┘
+        │
+        ▼
+┌───────────────────┐     ┌─────────────────────────────────┐
+│ Prompt type?      │────▶│ Expand with args, send to       │
+│                   │     │ Claude via sendMessage()        │
+└───────────────────┘     └─────────────────────────────────┘
+```
+
 ### Implementation in claudetools.io
 
 The web interface should:
@@ -3348,7 +3643,10 @@ The web interface should:
 1. **Discover Commands** - Scan `.claude/commands/` in the session's working directory and `~/.claude/commands/` for user commands
 2. **Parse Frontmatter** - Extract metadata from YAML frontmatter in command files
 3. **Command Palette** - Provide autocomplete when user types `/` in the message input
-4. **Execute Commands** - Substitute arguments and send expanded prompt to Claude
+4. **Route by Execution Type** - Check `executionType` and handle appropriately:
+   - `ui`: Handle in frontend (show help, open settings)
+   - `app`: Call backend API which invokes SessionManager methods
+   - `prompt`: Expand and send to Claude
 5. **Create/Edit Commands** - Allow users to create and modify custom commands through the UI
 6. **Display Source** - Show whether command is built-in, project, or user-defined
 
