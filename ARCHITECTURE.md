@@ -236,7 +236,8 @@ claudetools.io/
     │       └── services/           # Business logic
     │           ├── sessionManager.js    # Claude session orchestration
     │           ├── toolboxStore.js      # Toolbox item storage
-    │           └── gitService.js        # Git operations
+    │           ├── gitService.js        # Git operations
+    │           └── diffService.js       # Real-time git diff tracking
     │
     ├── web/                        # Frontend Vue application
     │   ├── package.json
@@ -251,7 +252,8 @@ claudetools.io/
     │       │
     │       ├── stores/             # Pinia stores
     │       │   ├── sessions.js     # Session state management
-    │       │   └── toolbox.js      # Toolbox state management
+    │       │   ├── toolbox.js      # Toolbox state management
+    │       │   └── diff.js         # Diff state management
     │       │
     │       ├── composables/        # Vue composition functions
     │       │   ├── useWebSocket.js # WebSocket connection management
@@ -273,7 +275,9 @@ claudetools.io/
     │       │   ├── ToolboxImageItem.vue      # Image toolbox item
     │       │   ├── ToolboxMarkdownItem.vue   # Markdown toolbox item
     │       │   ├── GitWorktreeSelector.vue   # Worktree dropdown
-    │       │   └── GitBranchSelector.vue     # Branch dropdown
+    │       │   ├── GitBranchSelector.vue     # Branch dropdown
+    │       │   ├── DiffViewer.vue            # Unified diff display
+    │       │   └── FileChangesTree.vue       # Changed files list
     │       │
     │       └── assets/             # Static assets
     │           └── styles/
@@ -2315,7 +2319,279 @@ claudetools.io/
 
 ---
 
-### Phase 10: Polish and Documentation
+### Phase 10: Real-Time Diff View
+
+**Goal**: Show real-time git diff of all file changes during a session.
+
+**Steps**:
+
+1. **Install chokidar for file watching**
+   ```bash
+   cd packages/server
+   pnpm add chokidar
+   ```
+
+2. **Create DiffService class (`src/services/diffService.js`)**
+   ```javascript
+   import { exec } from 'child_process';
+   import { promisify } from 'util';
+   import chokidar from 'chokidar';
+   import { broadcast } from '../websocket.js';
+
+   const execAsync = promisify(exec);
+
+   class DiffService {
+     /** @type {Map<string, {baselineCommit: string, watcher: chokidar.FSWatcher, debounceTimer: NodeJS.Timeout | null}>} */
+     #sessions = new Map();
+
+     /**
+      * Start tracking diffs for a session
+      * @param {string} sessionId
+      * @param {string} workingDirectory
+      * @returns {Promise<string | null>} baseline commit SHA or null if not a git repo
+      */
+     async startTracking(sessionId, workingDirectory) {
+       try {
+         // Get current HEAD as baseline
+         const { stdout } = await execAsync('git rev-parse HEAD', {
+           cwd: workingDirectory,
+         });
+         const baselineCommit = stdout.trim();
+
+         // Set up file watcher
+         const watcher = chokidar.watch(workingDirectory, {
+           ignored: [
+             /(^|[\/\\])\../,  // dotfiles
+             /node_modules/,
+             /\.git/,
+           ],
+           persistent: true,
+           ignoreInitial: true,
+         });
+
+         const sessionData = {
+           baselineCommit,
+           workingDirectory,
+           watcher,
+           debounceTimer: null,
+         };
+
+         // Debounced diff broadcast
+         const broadcastDiff = async () => {
+           const diff = await this.getDiff(sessionId);
+           if (diff) {
+             broadcast({
+               type: 'session:diff',
+               sessionId,
+               ...diff,
+             });
+           }
+         };
+
+         // Watch for changes
+         watcher.on('all', () => {
+           // Debounce to avoid spamming during rapid changes
+           if (sessionData.debounceTimer) {
+             clearTimeout(sessionData.debounceTimer);
+           }
+           sessionData.debounceTimer = setTimeout(broadcastDiff, 500);
+         });
+
+         this.#sessions.set(sessionId, sessionData);
+         return baselineCommit;
+       } catch (error) {
+         console.error('Failed to start diff tracking:', error);
+         return null;
+       }
+     }
+
+     /**
+      * Stop tracking diffs for a session
+      * @param {string} sessionId
+      */
+     stopTracking(sessionId) {
+       const sessionData = this.#sessions.get(sessionId);
+       if (sessionData) {
+         sessionData.watcher.close();
+         if (sessionData.debounceTimer) {
+           clearTimeout(sessionData.debounceTimer);
+         }
+         this.#sessions.delete(sessionId);
+       }
+     }
+
+     /**
+      * Get current diff for a session
+      * @param {string} sessionId
+      * @returns {Promise<{files: Array<{path: string, status: string}>, diff: string} | null>}
+      */
+     async getDiff(sessionId) {
+       const sessionData = this.#sessions.get(sessionId);
+       if (!sessionData) return null;
+
+       const { baselineCommit, workingDirectory } = sessionData;
+
+       try {
+         // Get list of changed files
+         const { stdout: filesOutput } = await execAsync(
+           `git diff --name-status ${baselineCommit}`,
+           { cwd: workingDirectory }
+         );
+
+         const files = filesOutput
+           .trim()
+           .split('\n')
+           .filter(line => line.trim())
+           .map(line => {
+             const [status, ...pathParts] = line.split('\t');
+             return {
+               status: status.trim(),  // M, A, D, R, etc.
+               path: pathParts.join('\t').trim(),
+             };
+           });
+
+         // Get unified diff
+         const { stdout: diff } = await execAsync(
+           `git diff ${baselineCommit}`,
+           { cwd: workingDirectory, maxBuffer: 10 * 1024 * 1024 }  // 10MB max
+         );
+
+         return { files, diff };
+       } catch (error) {
+         console.error('Failed to get diff:', error);
+         return null;
+       }
+     }
+
+     /**
+      * Get baseline commit for a session
+      * @param {string} sessionId
+      * @returns {string | null}
+      */
+     getBaseline(sessionId) {
+       return this.#sessions.get(sessionId)?.baselineCommit || null;
+     }
+   }
+
+   export const diffService = new DiffService();
+   ```
+
+3. **Update SessionManager to integrate with DiffService**
+   - In `startSession()`: call `diffService.startTracking()`
+   - Store `baselineCommit` on the session object
+   - In `deleteSession()`: call `diffService.stopTracking()`
+
+4. **Add diff API endpoint (`src/api/sessions.js`)**
+   ```javascript
+   // GET /api/sessions/:id/diff - Get current diff
+   router.get('/:id/diff', async (req, res) => {
+     const diff = await diffService.getDiff(req.params.id);
+     if (!diff) {
+       return res.status(404).json({ error: 'Session not found or not tracking' });
+     }
+     res.json(diff);
+   });
+   ```
+
+5. **Add diff types to shared package**
+   ```javascript
+   /**
+    * A changed file in a diff
+    * @typedef {Object} DiffFile
+    * @property {string} path - File path relative to working directory
+    * @property {'M' | 'A' | 'D' | 'R' | 'C' | 'U'} status - M=modified, A=added, D=deleted, R=renamed, C=copied, U=unmerged
+    */
+
+   /**
+    * Session diff update WebSocket message
+    * @typedef {Object} WsSessionDiffMessage
+    * @property {'session:diff'} type
+    * @property {string} sessionId
+    * @property {DiffFile[]} files - List of changed files
+    * @property {string} diff - Unified diff output
+    */
+   ```
+
+6. **Create Diff store (`src/stores/diff.js`)**
+   ```javascript
+   import { defineStore } from 'pinia';
+   import { ref } from 'vue';
+   import { useApi } from '../composables/useApi.js';
+   import { useWebSocket } from '../composables/useWebSocket.js';
+
+   export const useDiffStore = defineStore('diff', () => {
+     const api = useApi();
+     const { onMessage } = useWebSocket();
+
+     // Map of sessionId -> { files, diff }
+     const diffs = ref(new Map());
+     const loading = ref(false);
+
+     async function fetchDiff(sessionId) {
+       loading.value = true;
+       try {
+         const result = await api.getSessionDiff(sessionId);
+         diffs.value.set(sessionId, result);
+       } finally {
+         loading.value = false;
+       }
+     }
+
+     function getDiff(sessionId) {
+       return diffs.value.get(sessionId);
+     }
+
+     // WebSocket handler for real-time updates
+     onMessage((msg) => {
+       if (msg.type === 'session:diff') {
+         diffs.value.set(msg.sessionId, {
+           files: msg.files,
+           diff: msg.diff,
+         });
+       }
+     });
+
+     return {
+       diffs,
+       loading,
+       fetchDiff,
+       getDiff,
+     };
+   });
+   ```
+
+7. **Create FileChangesTree component**
+   - List changed files with status icons (green +, red -, yellow ~)
+   - Click to scroll to that file in the diff viewer
+   - Show file count summary
+
+8. **Create DiffViewer component**
+   - Render unified diff with syntax highlighting
+   - Color-code additions (green) and deletions (red)
+   - File headers as collapsible sections
+   - Consider using `diff2html` library for rendering
+
+9. **Update SessionDetailView**
+   - Add "Changes" tab alongside conversation
+   - Tab shows FileChangesTree + DiffViewer
+   - Badge on tab showing number of changed files
+   - Fetch diff on tab activation, then receive real-time updates
+
+10. **Add to useApi composable**
+    ```javascript
+    getSessionDiff: (sessionId) =>
+      fetchApi(`/sessions/${sessionId}/diff`),
+    ```
+
+**Deliverables**:
+- Real-time diff tracking starts when session starts
+- Diffs update automatically as files change (debounced 500ms)
+- "Changes" tab shows all file changes since session start
+- Clean unified diff display with syntax highlighting
+
+---
+
+### Phase 11: Polish and Documentation
 
 **Goal**: Final polish, error handling, and user documentation.
 
@@ -2366,6 +2642,7 @@ claudetools.io/
 | GET | `/api/sessions/:id` | Get session details |
 | POST | `/api/sessions/:id/message` | Send message to session |
 | POST | `/api/sessions/:id/stop` | Stop a running session |
+| GET | `/api/sessions/:id/diff` | Get current git diff for session |
 | DELETE | `/api/sessions/:id` | Delete a session |
 
 ### Toolbox API
@@ -2409,6 +2686,9 @@ Connect to `ws://localhost:3000/ws`
 
 // Streaming content
 { type: 'session:stream', sessionId: 'string', messageId: 'string', delta: 'string' }
+
+// Session diff updated (real-time file changes)
+{ type: 'session:diff', sessionId: 'string', files: [{ path: 'string', status: 'M|A|D|R|C|U' }], diff: 'string' }
 
 // Toolbox item added
 { type: 'toolbox:add', item: ToolboxItem }
