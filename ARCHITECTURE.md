@@ -140,7 +140,7 @@ The frontend is a Vue.js 3 single-page application that:
 
 A shared package containing:
 
-- **TypeScript interfaces** used by both server and frontend
+- **JSDoc-annotated type definitions** used by both server and frontend
 - **WebSocket message type definitions**
 - **Constants and enums**
 
@@ -176,11 +176,9 @@ Used for:
 | Technology | Purpose | Why This Choice |
 |------------|---------|-----------------|
 | **Node.js 20+** | Runtime | Required by Claude Agent SDK, excellent async I/O |
-| **TypeScript 5+** | Language | Type safety, better developer experience |
 | **Express 4** | HTTP framework | Simple, well-documented, huge ecosystem |
 | **ws** | WebSocket library | Lightweight, no dependencies, battle-tested |
 | **@anthropic-ai/claude-agent-sdk** | Claude integration | Official SDK for programmatic Claude Code control |
-| **tsx** | Development runner | Fast TypeScript execution without build step |
 
 ### Frontend
 
@@ -188,9 +186,8 @@ Used for:
 |------------|---------|-----------------|
 | **Vue 3** | UI framework | User preference, excellent composition API |
 | **Vite** | Build tool | Fast HMR, native ES modules, excellent DX |
-| **TypeScript** | Language | Consistency with server, type safety |
 | **Vue Router** | Routing | Official Vue router, simple SPA navigation |
-| **Pinia** | State management | Official Vue store, TypeScript-first |
+| **Pinia** | State management | Official Vue store, excellent DX |
 
 ### Development
 
@@ -210,7 +207,6 @@ claudetools.io/
 │
 ├── package.json                    # Root package.json for workspaces
 ├── pnpm-workspace.yaml             # pnpm workspace configuration
-├── tsconfig.base.json              # Shared TypeScript configuration
 ├── .gitignore                      # Git ignore rules
 ├── .prettierrc                     # Prettier configuration
 ├── .eslintrc.cjs                   # ESLint configuration
@@ -221,47 +217,45 @@ claudetools.io/
     │
     ├── server/                     # Backend server package
     │   ├── package.json
-    │   ├── tsconfig.json
     │   │
     │   ├── bin/
-    │   │   └── cli.ts              # CLI entry point for `npx claudetools`
+    │   │   └── cli.js              # CLI entry point for `npx claudetools`
     │   │
     │   └── src/
-    │       ├── index.ts            # Server entry point
-    │       ├── app.ts              # Express application setup
-    │       ├── websocket.ts        # WebSocket server and connection management
-    │       ├── types.ts            # Server-specific types
+    │       ├── index.js            # Server entry point
+    │       ├── app.js              # Express application setup
+    │       ├── websocket.js        # WebSocket server and connection management
+    │       ├── types.js            # Server-specific types (JSDoc)
     │       │
     │       ├── api/                # REST API route handlers
-    │       │   ├── index.ts        # Route registration
-    │       │   ├── sessions.ts     # Session CRUD endpoints
-    │       │   ├── toolbox.ts      # Toolbox endpoints
-    │       │   └── git.ts          # Git information endpoints
+    │       │   ├── index.js        # Route registration
+    │       │   ├── sessions.js     # Session CRUD endpoints
+    │       │   ├── toolbox.js      # Toolbox endpoints
+    │       │   └── git.js          # Git information endpoints
     │       │
     │       └── services/           # Business logic
-    │           ├── sessionManager.ts    # Claude session orchestration
-    │           ├── toolboxStore.ts      # Toolbox item storage
-    │           └── gitService.ts        # Git operations
+    │           ├── sessionManager.js    # Claude session orchestration
+    │           ├── toolboxStore.js      # Toolbox item storage
+    │           └── gitService.js        # Git operations
     │
     ├── web/                        # Frontend Vue application
     │   ├── package.json
-    │   ├── tsconfig.json
-    │   ├── vite.config.ts
+    │   ├── vite.config.js
     │   ├── index.html
     │   │
     │   └── src/
-    │       ├── main.ts             # Vue app entry point
+    │       ├── main.js             # Vue app entry point
     │       ├── App.vue             # Root component
-    │       ├── router.ts           # Vue Router configuration
-    │       ├── types.ts            # Frontend-specific types
+    │       ├── router.js           # Vue Router configuration
+    │       ├── types.js            # Frontend-specific types (JSDoc)
     │       │
     │       ├── stores/             # Pinia stores
-    │       │   ├── sessions.ts     # Session state management
-    │       │   └── toolbox.ts      # Toolbox state management
+    │       │   ├── sessions.js     # Session state management
+    │       │   └── toolbox.js      # Toolbox state management
     │       │
     │       ├── composables/        # Vue composition functions
-    │       │   ├── useWebSocket.ts # WebSocket connection management
-    │       │   └── useApi.ts       # HTTP API client
+    │       │   ├── useWebSocket.js # WebSocket connection management
+    │       │   └── useApi.js       # HTTP API client
     │       │
     │       ├── views/              # Page-level components
     │       │   ├── HomeView.vue         # Main layout with sidebar
@@ -287,13 +281,12 @@ claudetools.io/
     │
     └── shared/                     # Shared types package
         ├── package.json
-        ├── tsconfig.json
         │
         └── src/
-            ├── index.ts            # Package exports
-            ├── types.ts            # Shared type definitions
-            ├── protocol.ts         # WebSocket message types
-            └── constants.ts        # Shared constants
+            ├── index.js            # Package exports
+            ├── types.js            # Shared type definitions (JSDoc)
+            ├── protocol.js         # WebSocket message types
+            └── constants.js        # Shared constants
 ```
 
 ---
@@ -325,28 +318,21 @@ claudetools.io/
      - 'packages/*'
    ```
 
-3. **Create tsconfig.base.json** with shared compiler options
-   - Target: ES2022
-   - Module: NodeNext
-   - Strict mode enabled
-
-4. **Initialize packages/shared**
+3. **Initialize packages/shared**
    - Create package.json with name `@claudetools/shared`
-   - Add TypeScript configuration extending base
-   - Create placeholder type files
+   - Create placeholder type files with JSDoc annotations
 
-5. **Initialize packages/server**
-   - Create package.json with dependencies (express, ws, tsx)
+4. **Initialize packages/server**
+   - Create package.json with dependencies (express, ws)
    - Add dependency on `@claudetools/shared`
-   - Configure TypeScript
-   - Create minimal `src/index.ts` that starts an HTTP server
+   - Create minimal `src/index.js` that starts an HTTP server
 
-6. **Initialize packages/web**
-   - Run `npm create vue@latest` with TypeScript, Vue Router, Pinia
+5. **Initialize packages/web**
+   - Run `npm create vue@latest` with Vue Router, Pinia (no TypeScript)
    - Add dependency on `@claudetools/shared`
    - Configure Vite to proxy API requests to server in dev mode
 
-7. **Verify setup**
+6. **Verify setup**
    - Run `pnpm install` from root
    - Run `pnpm dev` and verify both server and frontend start
    - Verify frontend can reach server API
@@ -364,11 +350,11 @@ claudetools.io/
 
 **Steps**:
 
-1. **Create Express application (`src/app.ts`)**
-   ```typescript
+1. **Create Express application (`src/app.js`)**
+   ```javascript
    import express from 'express';
    import cors from 'cors';
-   import { apiRouter } from './api';
+   import { apiRouter } from './api/index.js';
 
    export function createApp() {
      const app = express();
@@ -392,15 +378,16 @@ claudetools.io/
    }
    ```
 
-2. **Create WebSocket server (`src/websocket.ts`)**
-   ```typescript
+2. **Create WebSocket server (`src/websocket.js`)**
+   ```javascript
    import { WebSocketServer, WebSocket } from 'ws';
-   import type { Server } from 'http';
-   import type { WebSocketMessage } from '@claudetools/shared';
 
-   const clients = new Set<WebSocket>();
+   const clients = new Set();
 
-   export function setupWebSocket(server: Server) {
+   /**
+    * @param {import('http').Server} server
+    */
+   export function setupWebSocket(server) {
      const wss = new WebSocketServer({ server, path: '/ws' });
 
      wss.on('connection', (ws) => {
@@ -422,7 +409,10 @@ claudetools.io/
      return wss;
    }
 
-   export function broadcast(message: WebSocketMessage) {
+   /**
+    * @param {object} message
+    */
+   export function broadcast(message) {
      const data = JSON.stringify(message);
      for (const client of clients) {
        if (client.readyState === WebSocket.OPEN) {
@@ -432,11 +422,11 @@ claudetools.io/
    }
    ```
 
-3. **Create server entry point (`src/index.ts`)**
-   ```typescript
+3. **Create server entry point (`src/index.js`)**
+   ```javascript
    import { createServer } from 'http';
-   import { createApp } from './app';
-   import { setupWebSocket } from './websocket';
+   import { createApp } from './app.js';
+   import { setupWebSocket } from './websocket.js';
 
    const PORT = process.env.PORT || 3000;
 
@@ -450,12 +440,12 @@ claudetools.io/
    });
    ```
 
-4. **Create API route structure (`src/api/index.ts`)**
-   ```typescript
+4. **Create API route structure (`src/api/index.js`)**
+   ```javascript
    import { Router } from 'express';
-   import sessionsRouter from './sessions';
-   import toolboxRouter from './toolbox';
-   import gitRouter from './git';
+   import sessionsRouter from './sessions.js';
+   import toolboxRouter from './toolbox.js';
+   import gitRouter from './git.js';
 
    export const apiRouter = Router();
 
@@ -484,253 +474,274 @@ claudetools.io/
 
 **Steps**:
 
-1. **Define session types (`packages/shared/src/types.ts`)**
-   ```typescript
-   // Session status enum
-   export type SessionStatus =
-     | 'starting'      // Session is being initialized
-     | 'running'       // Claude is actively working
-     | 'waiting'       // Waiting for user input
-     | 'completed'     // Session finished successfully
-     | 'error';        // Session encountered an error
+1. **Define session types (`packages/shared/src/types.js`)**
+   ```javascript
+   /**
+    * Session status
+    * @typedef {'starting' | 'running' | 'waiting' | 'completed' | 'error'} SessionStatus
+    */
 
-   // A single message in a conversation
-   export interface ConversationMessage {
-     id: string;
-     role: 'user' | 'assistant' | 'system';
-     content: string;
-     timestamp: number;
-     // For assistant messages, track tool usage
-     toolUse?: {
-       name: string;
-       input: Record<string, unknown>;
-     }[];
-   }
+   /**
+    * A single message in a conversation
+    * @typedef {Object} ConversationMessage
+    * @property {string} id
+    * @property {'user' | 'assistant' | 'system'} role
+    * @property {string} content
+    * @property {number} timestamp
+    * @property {Array<{name: string, input: Object}>} [toolUse] - For assistant messages
+    */
 
-   // A Claude Code session
-   export interface Session {
-     id: string;
-     name: string;                    // User-provided or auto-generated
-     status: SessionStatus;
-     workingDirectory: string;        // Absolute path
-     gitBranch?: string;              // Current branch if in git repo
-     gitWorktree?: string;            // Worktree name if applicable
-     createdAt: number;               // Unix timestamp
-     updatedAt: number;               // Last activity timestamp
-     messages: ConversationMessage[]; // Full conversation history
-     error?: string;                  // Error message if status is 'error'
-   }
+   /**
+    * A Claude Code session
+    * @typedef {Object} Session
+    * @property {string} id
+    * @property {string} name - User-provided or auto-generated
+    * @property {SessionStatus} status
+    * @property {string} workingDirectory - Absolute path
+    * @property {string} [gitBranch] - Current branch if in git repo
+    * @property {string} [gitWorktree] - Worktree name if applicable
+    * @property {number} createdAt - Unix timestamp
+    * @property {number} updatedAt - Last activity timestamp
+    * @property {ConversationMessage[]} messages - Full conversation history
+    * @property {string} [error] - Error message if status is 'error'
+    */
 
-   // Summary for list views (without full message history)
-   export interface SessionSummary {
-     id: string;
-     name: string;
-     status: SessionStatus;
-     workingDirectory: string;
-     gitBranch?: string;
-     createdAt: number;
-     updatedAt: number;
-     messageCount: number;
-     lastMessage?: string;            // Preview of last message
-   }
+   /**
+    * Summary for list views (without full message history)
+    * @typedef {Object} SessionSummary
+    * @property {string} id
+    * @property {string} name
+    * @property {SessionStatus} status
+    * @property {string} workingDirectory
+    * @property {string} [gitBranch]
+    * @property {number} createdAt
+    * @property {number} updatedAt
+    * @property {number} messageCount
+    * @property {string} [lastMessage] - Preview of last message
+    */
+
+   export const SESSION_STATUSES = ['starting', 'running', 'waiting', 'completed', 'error'];
    ```
 
 2. **Define toolbox types**
-   ```typescript
-   // Types of items that can be in the toolbox
-   export type ToolboxItemType = 'image' | 'markdown' | 'text' | 'json';
+   ```javascript
+   /**
+    * Types of items that can be in the toolbox
+    * @typedef {'image' | 'markdown' | 'text' | 'json'} ToolboxItemType
+    */
 
-   // Base toolbox item
-   export interface ToolboxItemBase {
-     id: string;
-     type: ToolboxItemType;
-     label?: string;                  // Optional user-friendly label
-     sessionId?: string;              // Which session added this (optional)
-     createdAt: number;
-   }
+   /**
+    * Image item (screenshot, diagram, etc.)
+    * @typedef {Object} ToolboxImageItem
+    * @property {string} id
+    * @property {'image'} type
+    * @property {string} mimeType - image/png, image/jpeg, etc.
+    * @property {string} data - Base64-encoded image data
+    * @property {string} [filename]
+    * @property {string} [label]
+    * @property {string} [sessionId]
+    * @property {number} createdAt
+    * @property {number} [width]
+    * @property {number} [height]
+    */
 
-   // Image item (screenshot, diagram, etc.)
-   export interface ToolboxImageItem extends ToolboxItemBase {
-     type: 'image';
-     mimeType: string;                // image/png, image/jpeg, etc.
-     data: string;                    // Base64-encoded image data
-     filename?: string;
-     width?: number;
-     height?: number;
-   }
+   /**
+    * Markdown document
+    * @typedef {Object} ToolboxMarkdownItem
+    * @property {string} id
+    * @property {'markdown'} type
+    * @property {string} content - Raw markdown text
+    * @property {string} [filename]
+    * @property {string} [label]
+    * @property {string} [sessionId]
+    * @property {number} createdAt
+    */
 
-   // Markdown document
-   export interface ToolboxMarkdownItem extends ToolboxItemBase {
-     type: 'markdown';
-     content: string;                 // Raw markdown text
-     filename?: string;
-   }
+   /**
+    * Plain text
+    * @typedef {Object} ToolboxTextItem
+    * @property {string} id
+    * @property {'text'} type
+    * @property {string} content
+    * @property {string} [label]
+    * @property {string} [sessionId]
+    * @property {number} createdAt
+    */
 
-   // Plain text
-   export interface ToolboxTextItem extends ToolboxItemBase {
-     type: 'text';
-     content: string;
-   }
+   /**
+    * JSON data
+    * @typedef {Object} ToolboxJsonItem
+    * @property {string} id
+    * @property {'json'} type
+    * @property {*} data - Parsed JSON
+    * @property {string} [filename]
+    * @property {string} [label]
+    * @property {string} [sessionId]
+    * @property {number} createdAt
+    */
 
-   // JSON data
-   export interface ToolboxJsonItem extends ToolboxItemBase {
-     type: 'json';
-     data: unknown;                   // Parsed JSON
-     filename?: string;
-   }
+   /**
+    * Union type for all toolbox items
+    * @typedef {ToolboxImageItem | ToolboxMarkdownItem | ToolboxTextItem | ToolboxJsonItem} ToolboxItem
+    */
 
-   // Union type for all toolbox items
-   export type ToolboxItem =
-     | ToolboxImageItem
-     | ToolboxMarkdownItem
-     | ToolboxTextItem
-     | ToolboxJsonItem;
+   export const TOOLBOX_ITEM_TYPES = ['image', 'markdown', 'text', 'json'];
    ```
 
 3. **Define git types**
-   ```typescript
-   // Git worktree information
-   export interface GitWorktree {
-     path: string;                    // Absolute path to worktree
-     branch: string;                  // Branch checked out in this worktree
-     isMain: boolean;                 // Is this the main worktree?
-     isBare: boolean;                 // Is this a bare worktree?
-   }
+   ```javascript
+   /**
+    * Git worktree information
+    * @typedef {Object} GitWorktree
+    * @property {string} path - Absolute path to worktree
+    * @property {string} branch - Branch checked out in this worktree
+    * @property {boolean} isMain - Is this the main worktree?
+    * @property {boolean} isBare - Is this a bare worktree?
+    */
 
-   // Git branch information
-   export interface GitBranch {
-     name: string;                    // Branch name
-     isRemote: boolean;               // Is this a remote branch?
-     isCurrent: boolean;              // Is this the current branch?
-     remoteName?: string;             // Remote name if remote branch
-   }
+   /**
+    * Git branch information
+    * @typedef {Object} GitBranch
+    * @property {string} name - Branch name
+    * @property {boolean} isRemote - Is this a remote branch?
+    * @property {boolean} isCurrent - Is this the current branch?
+    * @property {string} [remoteName] - Remote name if remote branch
+    */
    ```
 
-4. **Define WebSocket protocol (`packages/shared/src/protocol.ts`)**
-   ```typescript
+4. **Define WebSocket protocol (`packages/shared/src/protocol.js`)**
+   ```javascript
    // ============================================
    // Server -> Client Messages
    // ============================================
 
-   // Connection established
-   export interface WsConnectedMessage {
-     type: 'connected';
-     timestamp: number;
-   }
+   /**
+    * Connection established
+    * @typedef {Object} WsConnectedMessage
+    * @property {'connected'} type
+    * @property {number} timestamp
+    */
 
-   // Session list updated
-   export interface WsSessionListMessage {
-     type: 'session:list';
-     sessions: SessionSummary[];
-   }
+   /**
+    * Session list updated
+    * @typedef {Object} WsSessionListMessage
+    * @property {'session:list'} type
+    * @property {SessionSummary[]} sessions
+    */
 
-   // Session status changed
-   export interface WsSessionStatusMessage {
-     type: 'session:status';
-     sessionId: string;
-     status: SessionStatus;
-     error?: string;
-   }
+   /**
+    * Session status changed
+    * @typedef {Object} WsSessionStatusMessage
+    * @property {'session:status'} type
+    * @property {string} sessionId
+    * @property {SessionStatus} status
+    * @property {string} [error]
+    */
 
-   // New message in session conversation
-   export interface WsSessionMessageMessage {
-     type: 'session:message';
-     sessionId: string;
-     message: ConversationMessage;
-   }
+   /**
+    * New message in session conversation
+    * @typedef {Object} WsSessionMessageMessage
+    * @property {'session:message'} type
+    * @property {string} sessionId
+    * @property {ConversationMessage} message
+    */
 
-   // Streaming content (partial message)
-   export interface WsSessionStreamMessage {
-     type: 'session:stream';
-     sessionId: string;
-     messageId: string;
-     delta: string;                   // New text to append
-   }
+   /**
+    * Streaming content (partial message)
+    * @typedef {Object} WsSessionStreamMessage
+    * @property {'session:stream'} type
+    * @property {string} sessionId
+    * @property {string} messageId
+    * @property {string} delta - New text to append
+    */
 
-   // Toolbox item added
-   export interface WsToolboxAddMessage {
-     type: 'toolbox:add';
-     item: ToolboxItem;
-   }
+   /**
+    * Toolbox item added
+    * @typedef {Object} WsToolboxAddMessage
+    * @property {'toolbox:add'} type
+    * @property {ToolboxItem} item
+    */
 
-   // Toolbox cleared
-   export interface WsToolboxClearMessage {
-     type: 'toolbox:clear';
-   }
+   /**
+    * Toolbox cleared
+    * @typedef {Object} WsToolboxClearMessage
+    * @property {'toolbox:clear'} type
+    */
 
-   // Toolbox item removed
-   export interface WsToolboxRemoveMessage {
-     type: 'toolbox:remove';
-     itemId: string;
-   }
+   /**
+    * Toolbox item removed
+    * @typedef {Object} WsToolboxRemoveMessage
+    * @property {'toolbox:remove'} type
+    * @property {string} itemId
+    */
 
-   // Union of all server -> client messages
-   export type WsServerMessage =
-     | WsConnectedMessage
-     | WsSessionListMessage
-     | WsSessionStatusMessage
-     | WsSessionMessageMessage
-     | WsSessionStreamMessage
-     | WsToolboxAddMessage
-     | WsToolboxClearMessage
-     | WsToolboxRemoveMessage;
+   /**
+    * Union of all server -> client messages
+    * @typedef {WsConnectedMessage | WsSessionListMessage | WsSessionStatusMessage | WsSessionMessageMessage | WsSessionStreamMessage | WsToolboxAddMessage | WsToolboxClearMessage | WsToolboxRemoveMessage} WsServerMessage
+    */
 
    // ============================================
    // Client -> Server Messages
    // ============================================
 
-   // Subscribe to a specific session's updates
-   export interface WsSubscribeSessionMessage {
-     type: 'subscribe:session';
-     sessionId: string;
-   }
+   /**
+    * Subscribe to a specific session's updates
+    * @typedef {Object} WsSubscribeSessionMessage
+    * @property {'subscribe:session'} type
+    * @property {string} sessionId
+    */
 
-   // Unsubscribe from session updates
-   export interface WsUnsubscribeSessionMessage {
-     type: 'unsubscribe:session';
-     sessionId: string;
-   }
+   /**
+    * Unsubscribe from session updates
+    * @typedef {Object} WsUnsubscribeSessionMessage
+    * @property {'unsubscribe:session'} type
+    * @property {string} sessionId
+    */
 
-   // Union of all client -> server messages
-   export type WsClientMessage =
-     | WsSubscribeSessionMessage
-     | WsUnsubscribeSessionMessage;
+   /**
+    * Union of all client -> server messages
+    * @typedef {WsSubscribeSessionMessage | WsUnsubscribeSessionMessage} WsClientMessage
+    */
    ```
 
 5. **Define API request/response types**
-   ```typescript
-   // POST /api/sessions - Create new session
-   export interface CreateSessionRequest {
-     prompt: string;                  // Initial prompt for Claude
-     name?: string;                   // Optional session name
-     workingDirectory: string;        // Where to run Claude
-     gitBranch?: string;              // Optional branch to checkout
-   }
+   ```javascript
+   /**
+    * POST /api/sessions - Create new session
+    * @typedef {Object} CreateSessionRequest
+    * @property {string} prompt - Initial prompt for Claude
+    * @property {string} [name] - Optional session name
+    * @property {string} workingDirectory - Where to run Claude
+    * @property {string} [gitBranch] - Optional branch to checkout
+    */
 
-   export interface CreateSessionResponse {
-     session: Session;
-   }
+   /**
+    * @typedef {Object} CreateSessionResponse
+    * @property {Session} session
+    */
 
-   // POST /api/sessions/:id/message - Send message to session
-   export interface SendMessageRequest {
-     content: string;
-   }
+   /**
+    * POST /api/sessions/:id/message - Send message to session
+    * @typedef {Object} SendMessageRequest
+    * @property {string} content
+    */
 
-   // POST /api/toolbox - Add item to toolbox (JSON)
-   export interface AddToolboxItemRequest {
-     type: ToolboxItemType;
-     content?: string;                // For text/markdown
-     data?: unknown;                  // For json
-     label?: string;
-     sessionId?: string;
-   }
+   /**
+    * POST /api/toolbox - Add item to toolbox (JSON)
+    * @typedef {Object} AddToolboxItemRequest
+    * @property {ToolboxItemType} type
+    * @property {string} [content] - For text/markdown
+    * @property {*} [data] - For json
+    * @property {string} [label]
+    * @property {string} [sessionId]
+    */
    // Note: Images are uploaded via multipart/form-data, not JSON
    ```
 
 **Deliverables**:
 - All types defined and exported from `@claudetools/shared`
 - Both server and web packages can import and use these types
-- Clear documentation in comments for each type
+- Clear documentation via JSDoc comments for each type
 
 ---
 
@@ -746,7 +757,7 @@ claudetools.io/
    pnpm add @anthropic-ai/claude-agent-sdk
    ```
 
-2. **Create SessionManager class (`src/services/sessionManager.ts`)**
+2. **Create SessionManager class (`src/services/sessionManager.js`)**
 
    This is the most complex service. It must:
    - Start new sessions using `query()`
@@ -756,29 +767,28 @@ claudetools.io/
    - Support sending follow-up messages
    - Clean up completed/errored sessions
 
-   ```typescript
+   ```javascript
    import { query } from '@anthropic-ai/claude-agent-sdk';
    import { randomUUID } from 'crypto';
-   import { broadcast } from '../websocket';
-   import type {
-     Session,
-     SessionStatus,
-     ConversationMessage,
-     SessionSummary
-   } from '@claudetools/shared';
+   import { broadcast } from '../websocket.js';
 
-   interface ActiveSession {
-     session: Session;
-     abortController: AbortController;
-     inputQueue: Array<{ resolve: (value: string) => void }>;
-   }
+   /**
+    * @typedef {Object} ActiveSession
+    * @property {import('@claudetools/shared').Session} session
+    * @property {AbortController} abortController
+    * @property {Array<{resolve: (value: string) => void}>} inputQueue
+    */
 
    class SessionManager {
-     private sessions = new Map<string, ActiveSession>();
+     /** @type {Map<string, ActiveSession>} */
+     #sessions = new Map();
 
-     // Get all sessions as summaries
-     getAllSessions(): SessionSummary[] {
-       return Array.from(this.sessions.values()).map(({ session }) => ({
+     /**
+      * Get all sessions as summaries
+      * @returns {import('@claudetools/shared').SessionSummary[]}
+      */
+     getAllSessions() {
+       return Array.from(this.#sessions.values()).map(({ session }) => ({
          id: session.id,
          name: session.name,
          status: session.status,
@@ -791,22 +801,29 @@ claudetools.io/
        }));
      }
 
-     // Get full session by ID
-     getSession(id: string): Session | undefined {
-       return this.sessions.get(id)?.session;
+     /**
+      * Get full session by ID
+      * @param {string} id
+      * @returns {import('@claudetools/shared').Session | undefined}
+      */
+     getSession(id) {
+       return this.#sessions.get(id)?.session;
      }
 
-     // Start a new session
-     async startSession(options: {
-       prompt: string;
-       name?: string;
-       workingDirectory: string;
-       gitBranch?: string;
-     }): Promise<Session> {
+     /**
+      * Start a new session
+      * @param {Object} options
+      * @param {string} options.prompt
+      * @param {string} [options.name]
+      * @param {string} options.workingDirectory
+      * @param {string} [options.gitBranch]
+      * @returns {Promise<import('@claudetools/shared').Session>}
+      */
+     async startSession(options) {
        const id = randomUUID();
        const now = Date.now();
 
-       const session: Session = {
+       const session = {
          id,
          name: options.name || `Session ${id.slice(0, 8)}`,
          status: 'starting',
@@ -819,7 +836,7 @@ claudetools.io/
 
        const abortController = new AbortController();
 
-       this.sessions.set(id, {
+       this.#sessions.set(id, {
          session,
          abortController,
          inputQueue: [],
@@ -829,24 +846,28 @@ claudetools.io/
        broadcast({ type: 'session:list', sessions: this.getAllSessions() });
 
        // Start the Claude session in background
-       this.runSession(id, options.prompt);
+       this.#runSession(id, options.prompt);
 
        return session;
      }
 
-     // Internal: Run the Claude session
-     private async runSession(sessionId: string, initialPrompt: string) {
-       const activeSession = this.sessions.get(sessionId);
+     /**
+      * Internal: Run the Claude session
+      * @param {string} sessionId
+      * @param {string} initialPrompt
+      */
+     async #runSession(sessionId, initialPrompt) {
+       const activeSession = this.#sessions.get(sessionId);
        if (!activeSession) return;
 
        const { session, abortController } = activeSession;
 
        try {
          // Update status to running
-         this.updateSessionStatus(sessionId, 'running');
+         this.#updateSessionStatus(sessionId, 'running');
 
          // Add user message
-         this.addMessage(sessionId, {
+         this.#addMessage(sessionId, {
            id: randomUUID(),
            role: 'user',
            content: initialPrompt,
@@ -854,7 +875,7 @@ claudetools.io/
          });
 
          // Create async generator for streaming input
-         const inputGenerator = this.createInputGenerator(sessionId);
+         const inputGenerator = this.#createInputGenerator(sessionId);
 
          // Start Claude query
          const stream = query({
@@ -866,7 +887,7 @@ claudetools.io/
            },
          });
 
-         let currentMessageId: string | null = null;
+         let currentMessageId = null;
          let currentContent = '';
 
          for await (const message of stream) {
@@ -881,7 +902,7 @@ claudetools.io/
                }
              }
 
-             this.addMessage(sessionId, {
+             this.#addMessage(sessionId, {
                id: currentMessageId,
                role: 'assistant',
                content: currentContent,
@@ -892,40 +913,48 @@ claudetools.io/
              // TODO: Handle partial updates
            } else if (message.type === 'result') {
              // Session complete
-             this.updateSessionStatus(sessionId, 'waiting');
+             this.#updateSessionStatus(sessionId, 'waiting');
            }
          }
        } catch (error) {
          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-         this.updateSessionStatus(sessionId, 'error', errorMessage);
+         this.#updateSessionStatus(sessionId, 'error', errorMessage);
        }
      }
 
-     // Create async generator for multi-turn input
-     private async *createInputGenerator(sessionId: string) {
-       const activeSession = this.sessions.get(sessionId);
+     /**
+      * Create async generator for multi-turn input
+      * @param {string} sessionId
+      */
+     async *#createInputGenerator(sessionId) {
+       const activeSession = this.#sessions.get(sessionId);
        if (!activeSession) return;
 
        // Yield initial prompt placeholder (already handled)
        // Then wait for subsequent inputs
        while (true) {
-         const input = await new Promise<string>((resolve) => {
+         const input = await new Promise((resolve) => {
            activeSession.inputQueue.push({ resolve });
          });
 
-         yield { type: 'user' as const, content: input };
+         yield { type: 'user', content: input };
        }
      }
 
-     // Send a message to a waiting session
-     sendMessage(sessionId: string, content: string): boolean {
-       const activeSession = this.sessions.get(sessionId);
+     /**
+      * Send a message to a waiting session
+      * @param {string} sessionId
+      * @param {string} content
+      * @returns {boolean}
+      */
+     sendMessage(sessionId, content) {
+       const activeSession = this.#sessions.get(sessionId);
        if (!activeSession || activeSession.session.status !== 'waiting') {
          return false;
        }
 
        // Add user message to history
-       this.addMessage(sessionId, {
+       this.#addMessage(sessionId, {
          id: randomUUID(),
          role: 'user',
          content,
@@ -935,26 +964,34 @@ claudetools.io/
        // Resolve the pending input promise
        const pending = activeSession.inputQueue.shift();
        if (pending) {
-         this.updateSessionStatus(sessionId, 'running');
+         this.#updateSessionStatus(sessionId, 'running');
          pending.resolve(content);
        }
 
        return true;
      }
 
-     // Stop a session
-     stopSession(sessionId: string): boolean {
-       const activeSession = this.sessions.get(sessionId);
+     /**
+      * Stop a session
+      * @param {string} sessionId
+      * @returns {boolean}
+      */
+     stopSession(sessionId) {
+       const activeSession = this.#sessions.get(sessionId);
        if (!activeSession) return false;
 
        activeSession.abortController.abort();
-       this.updateSessionStatus(sessionId, 'completed');
+       this.#updateSessionStatus(sessionId, 'completed');
        return true;
      }
 
-     // Delete a session
-     deleteSession(sessionId: string): boolean {
-       const activeSession = this.sessions.get(sessionId);
+     /**
+      * Delete a session
+      * @param {string} sessionId
+      * @returns {boolean}
+      */
+     deleteSession(sessionId) {
+       const activeSession = this.#sessions.get(sessionId);
        if (!activeSession) return false;
 
        // Stop if running
@@ -962,14 +999,19 @@ claudetools.io/
          activeSession.abortController.abort();
        }
 
-       this.sessions.delete(sessionId);
+       this.#sessions.delete(sessionId);
        broadcast({ type: 'session:list', sessions: this.getAllSessions() });
        return true;
      }
 
-     // Helper: Update session status
-     private updateSessionStatus(sessionId: string, status: SessionStatus, error?: string) {
-       const activeSession = this.sessions.get(sessionId);
+     /**
+      * Helper: Update session status
+      * @param {string} sessionId
+      * @param {import('@claudetools/shared').SessionStatus} status
+      * @param {string} [error]
+      */
+     #updateSessionStatus(sessionId, status, error) {
+       const activeSession = this.#sessions.get(sessionId);
        if (!activeSession) return;
 
        activeSession.session.status = status;
@@ -984,9 +1026,13 @@ claudetools.io/
        });
      }
 
-     // Helper: Add message to session
-     private addMessage(sessionId: string, message: ConversationMessage) {
-       const activeSession = this.sessions.get(sessionId);
+     /**
+      * Helper: Add message to session
+      * @param {string} sessionId
+      * @param {import('@claudetools/shared').ConversationMessage} message
+      */
+     #addMessage(sessionId, message) {
+       const activeSession = this.#sessions.get(sessionId);
        if (!activeSession) return;
 
        activeSession.session.messages.push(message);
@@ -1004,11 +1050,10 @@ claudetools.io/
    export const sessionManager = new SessionManager();
    ```
 
-3. **Implement session API routes (`src/api/sessions.ts`)**
-   ```typescript
+3. **Implement session API routes (`src/api/sessions.js`)**
+   ```javascript
    import { Router } from 'express';
-   import { sessionManager } from '../services/sessionManager';
-   import type { CreateSessionRequest, SendMessageRequest } from '@claudetools/shared';
+   import { sessionManager } from '../services/sessionManager.js';
 
    const router = Router();
 
@@ -1020,7 +1065,7 @@ claudetools.io/
 
    // POST /api/sessions - Create new session
    router.post('/', async (req, res) => {
-     const body = req.body as CreateSessionRequest;
+     const body = req.body;
 
      if (!body.prompt || !body.workingDirectory) {
        return res.status(400).json({
@@ -1052,7 +1097,7 @@ claudetools.io/
 
    // POST /api/sessions/:id/message - Send message to session
    router.post('/:id/message', (req, res) => {
-     const body = req.body as SendMessageRequest;
+     const body = req.body;
 
      if (!body.content) {
        return res.status(400).json({ error: 'content is required' });
@@ -1103,35 +1148,45 @@ claudetools.io/
 
 **Steps**:
 
-1. **Create ToolboxStore class (`src/services/toolboxStore.ts`)**
-   ```typescript
+1. **Create ToolboxStore class (`src/services/toolboxStore.js`)**
+   ```javascript
    import { randomUUID } from 'crypto';
-   import { broadcast } from '../websocket';
-   import type { ToolboxItem, ToolboxItemType } from '@claudetools/shared';
+   import { broadcast } from '../websocket.js';
 
    class ToolboxStore {
-     private items = new Map<string, ToolboxItem>();
+     /** @type {Map<string, import('@claudetools/shared').ToolboxItem>} */
+     #items = new Map();
 
-     // Get all items
-     getAllItems(): ToolboxItem[] {
-       return Array.from(this.items.values())
+     /**
+      * Get all items
+      * @returns {import('@claudetools/shared').ToolboxItem[]}
+      */
+     getAllItems() {
+       return Array.from(this.#items.values())
          .sort((a, b) => b.createdAt - a.createdAt); // Newest first
      }
 
-     // Get item by ID
-     getItem(id: string): ToolboxItem | undefined {
-       return this.items.get(id);
+     /**
+      * Get item by ID
+      * @param {string} id
+      * @returns {import('@claudetools/shared').ToolboxItem | undefined}
+      */
+     getItem(id) {
+       return this.#items.get(id);
      }
 
-     // Add an image item
-     addImage(options: {
-       data: Buffer;
-       mimeType: string;
-       filename?: string;
-       label?: string;
-       sessionId?: string;
-     }): ToolboxItem {
-       const item: ToolboxItem = {
+     /**
+      * Add an image item
+      * @param {Object} options
+      * @param {Buffer} options.data
+      * @param {string} options.mimeType
+      * @param {string} [options.filename]
+      * @param {string} [options.label]
+      * @param {string} [options.sessionId]
+      * @returns {import('@claudetools/shared').ToolboxItem}
+      */
+     addImage(options) {
+       const item = {
          id: randomUUID(),
          type: 'image',
          mimeType: options.mimeType,
@@ -1142,19 +1197,22 @@ claudetools.io/
          createdAt: Date.now(),
        };
 
-       this.items.set(item.id, item);
+       this.#items.set(item.id, item);
        broadcast({ type: 'toolbox:add', item });
        return item;
      }
 
-     // Add a markdown item
-     addMarkdown(options: {
-       content: string;
-       filename?: string;
-       label?: string;
-       sessionId?: string;
-     }): ToolboxItem {
-       const item: ToolboxItem = {
+     /**
+      * Add a markdown item
+      * @param {Object} options
+      * @param {string} options.content
+      * @param {string} [options.filename]
+      * @param {string} [options.label]
+      * @param {string} [options.sessionId]
+      * @returns {import('@claudetools/shared').ToolboxItem}
+      */
+     addMarkdown(options) {
+       const item = {
          id: randomUUID(),
          type: 'markdown',
          content: options.content,
@@ -1164,18 +1222,21 @@ claudetools.io/
          createdAt: Date.now(),
        };
 
-       this.items.set(item.id, item);
+       this.#items.set(item.id, item);
        broadcast({ type: 'toolbox:add', item });
        return item;
      }
 
-     // Add a text item
-     addText(options: {
-       content: string;
-       label?: string;
-       sessionId?: string;
-     }): ToolboxItem {
-       const item: ToolboxItem = {
+     /**
+      * Add a text item
+      * @param {Object} options
+      * @param {string} options.content
+      * @param {string} [options.label]
+      * @param {string} [options.sessionId]
+      * @returns {import('@claudetools/shared').ToolboxItem}
+      */
+     addText(options) {
+       const item = {
          id: randomUUID(),
          type: 'text',
          content: options.content,
@@ -1184,19 +1245,22 @@ claudetools.io/
          createdAt: Date.now(),
        };
 
-       this.items.set(item.id, item);
+       this.#items.set(item.id, item);
        broadcast({ type: 'toolbox:add', item });
        return item;
      }
 
-     // Add a JSON item
-     addJson(options: {
-       data: unknown;
-       filename?: string;
-       label?: string;
-       sessionId?: string;
-     }): ToolboxItem {
-       const item: ToolboxItem = {
+     /**
+      * Add a JSON item
+      * @param {Object} options
+      * @param {*} options.data
+      * @param {string} [options.filename]
+      * @param {string} [options.label]
+      * @param {string} [options.sessionId]
+      * @returns {import('@claudetools/shared').ToolboxItem}
+      */
+     addJson(options) {
+       const item = {
          id: randomUUID(),
          type: 'json',
          data: options.data,
@@ -1206,23 +1270,29 @@ claudetools.io/
          createdAt: Date.now(),
        };
 
-       this.items.set(item.id, item);
+       this.#items.set(item.id, item);
        broadcast({ type: 'toolbox:add', item });
        return item;
      }
 
-     // Remove an item
-     removeItem(id: string): boolean {
-       const existed = this.items.delete(id);
+     /**
+      * Remove an item
+      * @param {string} id
+      * @returns {boolean}
+      */
+     removeItem(id) {
+       const existed = this.#items.delete(id);
        if (existed) {
          broadcast({ type: 'toolbox:remove', itemId: id });
        }
        return existed;
      }
 
-     // Clear all items
-     clear(): void {
-       this.items.clear();
+     /**
+      * Clear all items
+      */
+     clear() {
+       this.#items.clear();
        broadcast({ type: 'toolbox:clear' });
      }
    }
@@ -1230,12 +1300,11 @@ claudetools.io/
    export const toolboxStore = new ToolboxStore();
    ```
 
-2. **Create toolbox API routes (`src/api/toolbox.ts`)**
-   ```typescript
+2. **Create toolbox API routes (`src/api/toolbox.js`)**
+   ```javascript
    import { Router } from 'express';
    import multer from 'multer';
-   import { toolboxStore } from '../services/toolboxStore';
-   import type { AddToolboxItemRequest } from '@claudetools/shared';
+   import { toolboxStore } from '../services/toolboxStore.js';
 
    const router = Router();
 
@@ -1305,7 +1374,7 @@ claudetools.io/
        }
 
        // Handle JSON body
-       const body = req.body as AddToolboxItemRequest;
+       const body = req.body;
 
        if (!body.type) {
          return res.status(400).json({ error: 'type is required' });
@@ -1435,17 +1504,20 @@ claudetools.io/
 
 **Steps**:
 
-1. **Create GitService class (`src/services/gitService.ts`)**
-   ```typescript
+1. **Create GitService class (`src/services/gitService.js`)**
+   ```javascript
    import { exec } from 'child_process';
    import { promisify } from 'util';
-   import type { GitWorktree, GitBranch } from '@claudetools/shared';
 
    const execAsync = promisify(exec);
 
    class GitService {
-     // Check if a directory is a git repository
-     async isGitRepo(directory: string): Promise<boolean> {
+     /**
+      * Check if a directory is a git repository
+      * @param {string} directory
+      * @returns {Promise<boolean>}
+      */
+     async isGitRepo(directory) {
        try {
          await execAsync('git rev-parse --git-dir', { cwd: directory });
          return true;
@@ -1454,20 +1526,24 @@ claudetools.io/
        }
      }
 
-     // Get list of worktrees
-     async getWorktrees(directory: string): Promise<GitWorktree[]> {
+     /**
+      * Get list of worktrees
+      * @param {string} directory
+      * @returns {Promise<import('@claudetools/shared').GitWorktree[]>}
+      */
+     async getWorktrees(directory) {
        try {
          const { stdout } = await execAsync('git worktree list --porcelain', {
            cwd: directory,
          });
 
-         const worktrees: GitWorktree[] = [];
-         let current: Partial<GitWorktree> = {};
+         const worktrees = [];
+         let current = {};
 
          for (const line of stdout.split('\n')) {
            if (line.startsWith('worktree ')) {
              if (current.path) {
-               worktrees.push(current as GitWorktree);
+               worktrees.push(current);
              }
              current = {
                path: line.slice(9),
@@ -1484,7 +1560,7 @@ claudetools.io/
 
          // Don't forget last one
          if (current.path) {
-           worktrees.push(current as GitWorktree);
+           worktrees.push(current);
          }
 
          // Mark main worktree (first non-bare)
@@ -1500,8 +1576,12 @@ claudetools.io/
        }
      }
 
-     // Get list of branches
-     async getBranches(directory: string): Promise<GitBranch[]> {
+     /**
+      * Get list of branches
+      * @param {string} directory
+      * @returns {Promise<import('@claudetools/shared').GitBranch[]>}
+      */
+     async getBranches(directory) {
        try {
          // Get current branch
          const { stdout: currentBranch } = await execAsync(
@@ -1516,8 +1596,8 @@ claudetools.io/
            { cwd: directory }
          );
 
-         const branches: GitBranch[] = [];
-         const seen = new Set<string>();
+         const branches = [];
+         const seen = new Set();
 
          for (const line of stdout.split('\n')) {
            if (!line.trim()) continue;
@@ -1530,7 +1610,7 @@ claudetools.io/
            seen.add(shortName);
 
            // Parse remote name from remote branches
-           let remoteName: string | undefined;
+           let remoteName;
            let branchName = shortName;
 
            if (isRemote) {
@@ -1563,8 +1643,12 @@ claudetools.io/
        }
      }
 
-     // Get current branch name
-     async getCurrentBranch(directory: string): Promise<string | null> {
+     /**
+      * Get current branch name
+      * @param {string} directory
+      * @returns {Promise<string | null>}
+      */
+     async getCurrentBranch(directory) {
        try {
          const { stdout } = await execAsync('git branch --show-current', {
            cwd: directory,
@@ -1575,13 +1659,15 @@ claudetools.io/
        }
      }
 
-     // Create a new worktree
-     async createWorktree(
-       directory: string,
-       path: string,
-       branch: string,
-       createBranch: boolean = false
-     ): Promise<{ success: boolean; error?: string }> {
+     /**
+      * Create a new worktree
+      * @param {string} directory
+      * @param {string} path
+      * @param {string} branch
+      * @param {boolean} [createBranch=false]
+      * @returns {Promise<{success: boolean, error?: string}>}
+      */
+     async createWorktree(directory, path, branch, createBranch = false) {
        try {
          const branchFlag = createBranch ? '-b' : '';
          await execAsync(
@@ -1601,16 +1687,16 @@ claudetools.io/
    export const gitService = new GitService();
    ```
 
-2. **Create git API routes (`src/api/git.ts`)**
-   ```typescript
+2. **Create git API routes (`src/api/git.js`)**
+   ```javascript
    import { Router } from 'express';
-   import { gitService } from '../services/gitService';
+   import { gitService } from '../services/gitService.js';
 
    const router = Router();
 
    // GET /api/git/worktrees?directory=/path/to/repo
    router.get('/worktrees', async (req, res) => {
-     const directory = req.query.directory as string;
+     const directory = req.query.directory;
 
      if (!directory) {
        return res.status(400).json({ error: 'directory query param is required' });
@@ -1627,7 +1713,7 @@ claudetools.io/
 
    // GET /api/git/branches?directory=/path/to/repo
    router.get('/branches', async (req, res) => {
-     const directory = req.query.directory as string;
+     const directory = req.query.directory;
 
      if (!directory) {
        return res.status(400).json({ error: 'directory query param is required' });
@@ -1644,7 +1730,7 @@ claudetools.io/
 
    // GET /api/git/current-branch?directory=/path/to/repo
    router.get('/current-branch', async (req, res) => {
-     const directory = req.query.directory as string;
+     const directory = req.query.directory;
 
      if (!directory) {
        return res.status(400).json({ error: 'directory query param is required' });
@@ -1695,8 +1781,8 @@ claudetools.io/
 
 **Steps**:
 
-1. **Configure Vue Router (`src/router.ts`)**
-   ```typescript
+1. **Configure Vue Router (`src/router.js`)**
+   ```javascript
    import { createRouter, createWebHistory } from 'vue-router';
 
    const routes = [
@@ -1735,14 +1821,13 @@ claudetools.io/
    });
    ```
 
-2. **Create WebSocket composable (`src/composables/useWebSocket.ts`)**
-   ```typescript
-   import { ref, onMounted, onUnmounted } from 'vue';
-   import type { WsServerMessage } from '@claudetools/shared';
+2. **Create WebSocket composable (`src/composables/useWebSocket.js`)**
+   ```javascript
+   import { ref } from 'vue';
 
-   const socket = ref<WebSocket | null>(null);
+   const socket = ref(null);
    const isConnected = ref(false);
-   const messageHandlers = new Set<(msg: WsServerMessage) => void>();
+   const messageHandlers = new Set();
 
    export function useWebSocket() {
      const connect = () => {
@@ -1771,7 +1856,7 @@ claudetools.io/
 
        socket.value.onmessage = (event) => {
          try {
-           const message = JSON.parse(event.data) as WsServerMessage;
+           const message = JSON.parse(event.data);
            for (const handler of messageHandlers) {
              handler(message);
            }
@@ -1786,12 +1871,15 @@ claudetools.io/
        socket.value = null;
      };
 
-     const onMessage = (handler: (msg: WsServerMessage) => void) => {
+     /**
+      * @param {(msg: object) => void} handler
+      */
+     const onMessage = (handler) => {
        messageHandlers.add(handler);
        return () => messageHandlers.delete(handler);
      };
 
-     const send = (message: unknown) => {
+     const send = (message) => {
        if (socket.value?.readyState === WebSocket.OPEN) {
          socket.value.send(JSON.stringify(message));
        }
@@ -1807,14 +1895,16 @@ claudetools.io/
    }
    ```
 
-3. **Create API composable (`src/composables/useApi.ts`)**
-   ```typescript
+3. **Create API composable (`src/composables/useApi.js`)**
+   ```javascript
    const BASE_URL = '/api';
 
-   async function fetchApi<T>(
-     path: string,
-     options?: RequestInit
-   ): Promise<T> {
+   /**
+    * @param {string} path
+    * @param {RequestInit} [options]
+    * @returns {Promise<any>}
+    */
+   async function fetchApi(path, options) {
      const response = await fetch(`${BASE_URL}${path}`, {
        ...options,
        headers: {
@@ -1834,78 +1924,70 @@ claudetools.io/
    export function useApi() {
      return {
        // Sessions
-       getSessions: () =>
-         fetchApi<{ sessions: SessionSummary[] }>('/sessions'),
+       getSessions: () => fetchApi('/sessions'),
 
-       getSession: (id: string) =>
-         fetchApi<{ session: Session }>(`/sessions/${id}`),
+       getSession: (id) => fetchApi(`/sessions/${id}`),
 
-       createSession: (data: CreateSessionRequest) =>
-         fetchApi<{ session: Session }>('/sessions', {
+       createSession: (data) =>
+         fetchApi('/sessions', {
            method: 'POST',
            body: JSON.stringify(data),
          }),
 
-       sendMessage: (sessionId: string, content: string) =>
-         fetchApi<{ success: boolean }>(`/sessions/${sessionId}/message`, {
+       sendMessage: (sessionId, content) =>
+         fetchApi(`/sessions/${sessionId}/message`, {
            method: 'POST',
            body: JSON.stringify({ content }),
          }),
 
-       stopSession: (id: string) =>
-         fetchApi<{ success: boolean }>(`/sessions/${id}/stop`, {
+       stopSession: (id) =>
+         fetchApi(`/sessions/${id}/stop`, {
            method: 'POST',
          }),
 
-       deleteSession: (id: string) =>
-         fetchApi<{ success: boolean }>(`/sessions/${id}`, {
+       deleteSession: (id) =>
+         fetchApi(`/sessions/${id}`, {
            method: 'DELETE',
          }),
 
        // Toolbox
-       getToolboxItems: () =>
-         fetchApi<{ items: ToolboxItem[] }>('/toolbox'),
+       getToolboxItems: () => fetchApi('/toolbox'),
 
-       deleteToolboxItem: (id: string) =>
-         fetchApi<{ success: boolean }>(`/toolbox/${id}`, {
+       deleteToolboxItem: (id) =>
+         fetchApi(`/toolbox/${id}`, {
            method: 'DELETE',
          }),
 
        clearToolbox: () =>
-         fetchApi<{ success: boolean }>('/toolbox', {
+         fetchApi('/toolbox', {
            method: 'DELETE',
          }),
 
        // Git
-       getWorktrees: (directory: string) =>
-         fetchApi<{ worktrees: GitWorktree[] }>(
-           `/git/worktrees?directory=${encodeURIComponent(directory)}`
-         ),
+       getWorktrees: (directory) =>
+         fetchApi(`/git/worktrees?directory=${encodeURIComponent(directory)}`),
 
-       getBranches: (directory: string) =>
-         fetchApi<{ branches: GitBranch[] }>(
-           `/git/branches?directory=${encodeURIComponent(directory)}`
-         ),
+       getBranches: (directory) =>
+         fetchApi(`/git/branches?directory=${encodeURIComponent(directory)}`),
      };
    }
    ```
 
-4. **Create Sessions store (`src/stores/sessions.ts`)**
-   ```typescript
+4. **Create Sessions store (`src/stores/sessions.js`)**
+   ```javascript
    import { defineStore } from 'pinia';
    import { ref, computed } from 'vue';
-   import { useApi } from '../composables/useApi';
-   import { useWebSocket } from '../composables/useWebSocket';
-   import type { Session, SessionSummary, WsServerMessage } from '@claudetools/shared';
+   import { useApi } from '../composables/useApi.js';
+   import { useWebSocket } from '../composables/useWebSocket.js';
 
    export const useSessionsStore = defineStore('sessions', () => {
      const api = useApi();
      const { onMessage } = useWebSocket();
 
-     const sessions = ref<SessionSummary[]>([]);
-     const currentSession = ref<Session | null>(null);
+     const sessions = ref([]);
+     const currentSession = ref(null);
      const loading = ref(false);
-     const error = ref<string | null>(null);
+     const error = ref(null);
 
      // Computed
      const activeSessions = computed(() =>
@@ -1925,7 +2007,7 @@ claudetools.io/
        }
      }
 
-     async function fetchSession(id: string) {
+     async function fetchSession(id) {
        loading.value = true;
        try {
          const result = await api.getSession(id);
@@ -1937,7 +2019,7 @@ claudetools.io/
        }
      }
 
-     async function createSession(data: CreateSessionRequest) {
+     async function createSession(data) {
        loading.value = true;
        try {
          const result = await api.createSession(data);
@@ -1950,7 +2032,7 @@ claudetools.io/
        }
      }
 
-     async function sendMessage(sessionId: string, content: string) {
+     async function sendMessage(sessionId, content) {
        try {
          await api.sendMessage(sessionId, content);
        } catch (e) {
@@ -1960,7 +2042,7 @@ claudetools.io/
      }
 
      // WebSocket message handler
-     onMessage((msg: WsServerMessage) => {
+     onMessage((msg) => {
        switch (msg.type) {
          case 'session:list':
            sessions.value = msg.sessions;
@@ -2001,19 +2083,18 @@ claudetools.io/
    });
    ```
 
-5. **Create Toolbox store (`src/stores/toolbox.ts`)**
-   ```typescript
+5. **Create Toolbox store (`src/stores/toolbox.js`)**
+   ```javascript
    import { defineStore } from 'pinia';
    import { ref } from 'vue';
-   import { useApi } from '../composables/useApi';
-   import { useWebSocket } from '../composables/useWebSocket';
-   import type { ToolboxItem, WsServerMessage } from '@claudetools/shared';
+   import { useApi } from '../composables/useApi.js';
+   import { useWebSocket } from '../composables/useWebSocket.js';
 
    export const useToolboxStore = defineStore('toolbox', () => {
      const api = useApi();
      const { onMessage } = useWebSocket();
 
-     const items = ref<ToolboxItem[]>([]);
+     const items = ref([]);
      const loading = ref(false);
 
      async function fetchItems() {
@@ -2026,7 +2107,7 @@ claudetools.io/
        }
      }
 
-     async function removeItem(id: string) {
+     async function removeItem(id) {
        await api.deleteToolboxItem(id);
      }
 
@@ -2035,7 +2116,7 @@ claudetools.io/
      }
 
      // WebSocket handler
-     onMessage((msg: WsServerMessage) => {
+     onMessage((msg) => {
        switch (msg.type) {
          case 'toolbox:add':
            items.value.unshift(msg.item);
@@ -2152,13 +2233,13 @@ claudetools.io/
 
 **Steps**:
 
-1. **Create CLI script (`packages/server/bin/cli.ts`)**
-   ```typescript
+1. **Create CLI script (`packages/server/bin/cli.js`)**
+   ```javascript
    #!/usr/bin/env node
 
    import { createServer } from 'http';
-   import { createApp } from '../src/app';
-   import { setupWebSocket } from '../src/websocket';
+   import { createApp } from '../src/app.js';
+   import { setupWebSocket } from '../src/websocket.js';
    import open from 'open';
 
    const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -2209,20 +2290,20 @@ claudetools.io/
    {
      "name": "claudetools",
      "version": "0.1.0",
+     "type": "module",
      "bin": {
-       "claudetools": "./dist/bin/cli.js"
+       "claudetools": "./bin/cli.js"
      },
      "scripts": {
-       "build": "tsc && cp -r ../web/dist ./public",
-       "start": "node dist/bin/cli.js",
-       "dev": "tsx watch src/index.ts"
+       "build": "cp -r ../web/dist ./public",
+       "start": "node bin/cli.js",
+       "dev": "node --watch src/index.js"
      }
    }
    ```
 
 3. **Build script for production**
-   - Build web package first
-   - Build server package
+   - Build web package first (runs Vite build)
    - Copy web dist to server public folder
    - Result is a single package that serves both API and frontend
 
@@ -2316,24 +2397,24 @@ Connect to `ws://localhost:3000/ws`
 
 ### Server → Client Messages
 
-```typescript
+```javascript
 // Session list updated
-{ type: 'session:list', sessions: SessionSummary[] }
+{ type: 'session:list', sessions: [SessionSummary] }
 
 // Session status changed
-{ type: 'session:status', sessionId: string, status: SessionStatus, error?: string }
+{ type: 'session:status', sessionId: 'string', status: 'SessionStatus', error: 'string?' }
 
 // New message in conversation
-{ type: 'session:message', sessionId: string, message: ConversationMessage }
+{ type: 'session:message', sessionId: 'string', message: ConversationMessage }
 
 // Streaming content
-{ type: 'session:stream', sessionId: string, messageId: string, delta: string }
+{ type: 'session:stream', sessionId: 'string', messageId: 'string', delta: 'string' }
 
 // Toolbox item added
 { type: 'toolbox:add', item: ToolboxItem }
 
 // Toolbox item removed
-{ type: 'toolbox:remove', itemId: string }
+{ type: 'toolbox:remove', itemId: 'string' }
 
 // Toolbox cleared
 { type: 'toolbox:clear' }
@@ -2341,19 +2422,19 @@ Connect to `ws://localhost:3000/ws`
 
 ### Client → Server Messages
 
-```typescript
+```javascript
 // Subscribe to session updates (future use)
-{ type: 'subscribe:session', sessionId: string }
+{ type: 'subscribe:session', sessionId: 'string' }
 
 // Unsubscribe from session
-{ type: 'unsubscribe:session', sessionId: string }
+{ type: 'unsubscribe:session', sessionId: 'string' }
 ```
 
 ---
 
 ## Data Models
 
-See the [Shared Types and Protocol](#phase-3-shared-types-and-protocol) section for complete TypeScript definitions.
+See the [Shared Types and Protocol](#phase-3-shared-types-and-protocol) section for complete JSDoc type definitions.
 
 ---
 
