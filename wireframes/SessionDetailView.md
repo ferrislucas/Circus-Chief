@@ -1,7 +1,7 @@
 # SessionDetailView Wireframe
 
 The SessionDetailView shows the full conversation for a single Claude Code session,
-with a tabbed sub-navigation for Conversation, Changes (diffs), Toolbox, and Commands.
+with a tabbed sub-navigation for Conversation, Changes (diffs), and Toolbox.
 
 ## Full View with Tab Navigation
 
@@ -13,9 +13,9 @@ with a tabbed sub-navigation for Conversation, Changes (diffs), Toolbox, and Com
 |                                                                    |
 +------------------------------------------------------------------+
 |  TAB NAVIGATION                                                    |
-|  +------------+------------+------------+------------+             |
-|  | Conversation| Changes(3)| Toolbox(2) | Commands  |             |
-|  +------------+------------+------------+------------+-------------+
+|  +------------+------------+------------+                          |
+|  | Conversation| Changes(3)| Toolbox(2) |                          |
+|  +------------+------------+------------+--------------------------+
 |                                                                    |
 |  TAB CONTENT (varies by selected tab)                              |
 |                                                                    |
@@ -29,9 +29,9 @@ with a tabbed sub-navigation for Conversation, Changes (diffs), Toolbox, and Com
 |  [<- Back]  Fix authentication bug                [Running *]      |
 |             /path/to/project  |  Branch: feature/auth-fix          |
 +------------------------------------------------------------------+
-|  +------------+------------+------------+------------+             |
-|  |[*]Conversation| Changes(3)| Toolbox(2) | Commands  |           |
-|  +------------+------------+------------+------------+-------------+
+|  +------------+------------+------------+                          |
+|  |[*]Conversation| Changes(3)| Toolbox(2) |                        |
+|  +------------+------------+------------+--------------------------+
 |                                                                    |
 |  CONVERSATION AREA (scrollable)                                    |
 |  +--------------------------------------------------------------+ |
@@ -79,7 +79,6 @@ with a tabbed sub-navigation for Conversation, Changes (diffs), Toolbox, and Com
 |  +--------------------------------------------------------------+ |
 |  | Type a message... (Shift+Enter for newline)            [Send]| |
 |  +--------------------------------------------------------------+ |
-|  | Type / for commands                                          | |
 +------------------------------------------------------------------+
 ```
 
@@ -90,9 +89,9 @@ with a tabbed sub-navigation for Conversation, Changes (diffs), Toolbox, and Com
 |  [<- Back]  Fix authentication bug                [Running *]      |
 |             /path/to/project  |  Branch: feature/auth-fix          |
 +------------------------------------------------------------------+
-|  +------------+------------+------------+------------+             |
-|  | Conversation|[*]Changes(3)| Toolbox(2) | Commands  |           |
-|  +------------+------------+------------+------------+-------------+
+|  +------------+------------+------------+                          |
+|  | Conversation|[*]Changes(3)| Toolbox(2) |                        |
+|  +------------+------------+------------+--------------------------+
 |                                                                    |
 |  DIFF CONTROLS                                                     |
 |  +--------------------------------------------------------------+ |
@@ -135,9 +134,9 @@ with a tabbed sub-navigation for Conversation, Changes (diffs), Toolbox, and Com
 |  [<- Back]  Fix authentication bug                [Running *]      |
 |             /path/to/project  |  Branch: feature/auth-fix          |
 +------------------------------------------------------------------+
-|  +------------+------------+------------+------------+             |
-|  | Conversation| Changes(3)|[*]Toolbox(2)| Commands  |            |
-|  +------------+------------+------------+------------+-------------+
+|  +------------+------------+------------+                          |
+|  | Conversation| Changes(3)|[*]Toolbox(2)|                         |
+|  +------------+------------+------------+--------------------------+
 |                                                                    |
 |  Filter: [All Types v]  Sort: [Newest v]    View: [Grid] [List]   |
 |                                                                    |
@@ -167,49 +166,6 @@ Empty state:
 |      here as it works on this session.                       |
 |                                                              |
 +--------------------------------------------------------------+
-```
-
-## Commands Tab
-
-```
-+------------------------------------------------------------------+
-|  [<- Back]  Fix authentication bug                [Running *]      |
-|             /path/to/project  |  Branch: feature/auth-fix          |
-+------------------------------------------------------------------+
-|  +------------+------------+------------+------------+             |
-|  | Conversation| Changes(3)| Toolbox(2) |[*]Commands |            |
-|  +------------+------------+------------+------------+-------------+
-|                                                                    |
-|  Search: [Search commands...______]            [+ New Command]     |
-|                                                                    |
-|  BUILT-IN COMMANDS                                                 |
-|  +--------------------------------------------------------------+ |
-|  |  /help                                                       | |
-|  |  Show available commands and help information     [builtin]  | |
-|  +--------------------------------------------------------------+ |
-|  |  /clear                                                      | |
-|  |  Clear conversation history                       [builtin]  | |
-|  +--------------------------------------------------------------+ |
-|  |  /model                                                      | |
-|  |  Change the AI model (sonnet, opus, haiku)        [builtin]  | |
-|  +--------------------------------------------------------------+ |
-|                                                                    |
-|  PROJECT COMMANDS (.claude/commands/)                              |
-|  +--------------------------------------------------------------+ |
-|  |  /fix-issue                                                  | |
-|  |  Fix a GitHub issue by number                     [project]  | |
-|  +--------------------------------------------------------------+ |
-|  |  /review-pr                                                  | |
-|  |  Review a pull request                            [project]  | |
-|  +--------------------------------------------------------------+ |
-|                                                                    |
-|  PERSONAL COMMANDS (~/.claude/commands/)                           |
-|  +--------------------------------------------------------------+ |
-|  |  /security-review                                 [Edit][X]  | |
-|  |  Perform security audit on the codebase           [user]     | |
-|  +--------------------------------------------------------------+ |
-|                                                                    |
-+------------------------------------------------------------------+
 ```
 
 ## Message Components
@@ -283,7 +239,6 @@ Style: Left-aligned, neutral background (e.g., gray)
 +------------------------------------------------------------------+
 | [                                                        ] [Send] |
 | Type a message... (Shift+Enter for newline)                       |
-| Type / for commands                                               |
 +------------------------------------------------------------------+
 ```
 
@@ -292,21 +247,6 @@ Style: Left-aligned, neutral background (e.g., gray)
 +------------------------------------------------------------------+
 | [Session is running... waiting for response            ] [Send]   |
 |                                                         (disabled)|
-+------------------------------------------------------------------+
-```
-
-### Command Palette Active
-```
-+------------------------------------------------------------------+
-| [/                                                       ] [Send] |
-+------------------------------------------------------------------+
-| COMMANDS                                                          |
-| +--------------------------------------------------------------+ |
-| | /clear        Clear conversation history              builtin | |
-| | /model        Change the model                        builtin | |
-| | /fix-issue    Fix a GitHub issue                     project | |
-| | /optimize     Optimize code performance              project | |
-| +--------------------------------------------------------------+ |
 +------------------------------------------------------------------+
 ```
 
@@ -402,51 +342,13 @@ Unchanged:      No background
 Line numbers:   Gray, non-selectable
 ```
 
-## Command Components
-
-### Command Card
-```
-+------------------------------------------------------------------+
-|  /command-name                                       [Edit] [X]    |
-|  Description of what this command does              [project]      |
-|  Arguments: arg1 (required), arg2 (optional)                       |
-+------------------------------------------------------------------+
-
-Badges:
-- [builtin] - Gray badge, system commands (no edit/delete)
-- [project] - Blue badge, team-shared commands
-- [user]    - Purple badge, personal commands
-```
-
-### New/Edit Command Modal
-```
-+------------------------------------------------------------------+
-|  CREATE NEW COMMAND                                    [X] Close   |
-+------------------------------------------------------------------+
-|  COMMAND NAME *                                                    |
-|  [my-command                                                   ]   |
-|                                                                    |
-|  DESCRIPTION *                                                     |
-|  [Brief description...                                         ]   |
-|                                                                    |
-|  PROMPT CONTENT *                                                  |
-|  [Use $ARGUMENTS for user input...                             ]   |
-|                                                                    |
-|  SAVE LOCATION                                                     |
-|  ( ) Project (.claude/commands/)                                   |
-|  (*) Personal (~/.claude/commands/)                                |
-|                                                                    |
-|                                            [Cancel]  [Save Command]|
-+------------------------------------------------------------------+
-```
-
 ## Interactions
 
 1. **Back Button**
    - Returns to SessionListView
 
 2. **Tab Switching**
-   - Click tab to switch between Conversation, Changes, Toolbox, Commands
+   - Click tab to switch between Conversation, Changes, Toolbox
    - Badge on tabs shows counts (file changes, toolbox items)
    - URL updates to reflect current tab (e.g., /sessions/:id/changes)
 
@@ -469,17 +371,6 @@ Badges:
    - [X] button to delete item
    - Filter/sort controls
    - Grid/list view toggle
-
-7. **Commands** (Commands tab)
-   - Search to filter commands
-   - Click command to see details
-   - Edit/delete custom commands
-   - Create new commands
-
-8. **Command Palette** (Conversation tab input)
-   - Triggered by `/` at start of message
-   - Arrow keys to navigate
-   - Enter to select command
 
 ## Responsive Behavior
 
@@ -505,4 +396,3 @@ Badges:
 - Toolbox items animate in when added
 - Changes tab updates when files are modified
 - Tab badges update in real-time
-- Commands list updates when files change

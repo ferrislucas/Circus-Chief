@@ -7,13 +7,13 @@
 3. [Solution Overview](#solution-overview)
 4. [Architecture](#architecture)
 5. [Technology Stack](#technology-stack)
-6. [Project Structure](#project-structure)
-7. [Implementation Phases](#implementation-phases)
-8. [API Specification](#api-specification)
-9. [WebSocket Protocol](#websocket-protocol)
-10. [Data Models](#data-models)
-11. [Wireframes](#wireframes)
-12. [Slash Commands](#slash-commands)
+6. [Styling Guidelines](#styling-guidelines)
+7. [Project Structure](#project-structure)
+8. [Implementation Phases](#implementation-phases)
+9. [API Specification](#api-specification)
+10. [WebSocket Protocol](#websocket-protocol)
+11. [Data Models](#data-models)
+12. [Wireframes](#wireframes)
 13. [Security Considerations](#security-considerations)
 14. [Future Scaling](#future-scaling)
 
@@ -187,6 +187,7 @@ Used for:
 | **Vite** | Build tool | Fast HMR, native ES modules, excellent DX |
 | **Vue Router** | Routing | Official Vue router, simple SPA navigation |
 | **Pinia** | State management | Official Vue store, excellent DX |
+| **Tailwind CSS** | Styling framework | Utility-first CSS, rapid prototyping, consistent design system |
 
 ### Development
 
@@ -196,6 +197,270 @@ Used for:
 | **ESLint** | Linting |
 | **Prettier** | Code formatting |
 | **concurrently** | Run server and frontend in parallel |
+
+---
+
+## Styling Guidelines
+
+### Design Philosophy
+
+The application uses a **minimalist retro aesthetic** with a **dark mode style**. The design emphasizes simplicity, clarity, and a nostalgic feel reminiscent of classic terminal interfaces and early computing while maintaining modern usability.
+
+### Core Principles
+
+1. **Dark Mode First** - The entire application is designed around a dark color scheme. No light mode variant.
+2. **Minimalist UI** - Reduce visual clutter; every element should serve a purpose
+3. **Retro Feel** - Subtle nods to classic computing: monospace fonts for code, muted color accents, clean geometric shapes
+4. **High Contrast** - Ensure readability with sufficient contrast between text and backgrounds
+5. **Consistent Spacing** - Use Tailwind's spacing scale consistently throughout
+
+### Technology: Tailwind CSS
+
+All styling is implemented using **Tailwind CSS** utility classes. This provides:
+- Consistent design tokens across the application
+- Rapid development without context-switching to CSS files
+- Easy dark mode implementation via class utilities
+- Small production bundle with PurgeCSS
+
+### Color Palette
+
+| Purpose | Tailwind Class | Hex Value | Usage |
+|---------|----------------|-----------|-------|
+| **Background (Primary)** | `bg-gray-900` | `#111827` | Main app background |
+| **Background (Secondary)** | `bg-gray-800` | `#1f2937` | Cards, panels, elevated surfaces |
+| **Background (Tertiary)** | `bg-gray-700` | `#374151` | Hover states, borders |
+| **Text (Primary)** | `text-gray-100` | `#f3f4f6` | Main body text |
+| **Text (Secondary)** | `text-gray-400` | `#9ca3af` | Secondary text, labels |
+| **Text (Muted)** | `text-gray-500` | `#6b7280` | Placeholders, hints |
+| **Accent (Primary)** | `text-cyan-400` | `#22d3ee` | Links, interactive elements |
+| **Accent (Success)** | `text-emerald-400` | `#34d399` | Success states, additions |
+| **Accent (Warning)** | `text-amber-400` | `#fbbf24` | Warnings, pending states |
+| **Accent (Error)** | `text-red-400` | `#f87171` | Errors, deletions |
+| **Border** | `border-gray-700` | `#374151` | Standard borders |
+| **Border (Subtle)** | `border-gray-800` | `#1f2937` | Subtle dividers |
+
+### Typography
+
+| Element | Tailwind Classes | Notes |
+|---------|------------------|-------|
+| **Headings** | `font-semibold text-gray-100` | Use sparingly, h1-h3 only |
+| **Body Text** | `text-gray-300 text-sm` | Default body text |
+| **Code/Mono** | `font-mono text-gray-200` | Code blocks, session output |
+| **Labels** | `text-xs text-gray-500 uppercase tracking-wide` | Form labels, section headers |
+| **Links** | `text-cyan-400 hover:text-cyan-300` | Interactive text elements |
+
+**Font Stack:**
+```css
+/* Sans-serif (default) */
+font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+/* Monospace (code, terminal output) */
+font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+```
+
+### Component Patterns
+
+#### Cards/Panels
+```html
+<div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+  <!-- Card content -->
+</div>
+```
+
+#### Buttons
+```html
+<!-- Primary Button -->
+<button class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-sm font-medium transition-colors">
+  Action
+</button>
+
+<!-- Secondary Button -->
+<button class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-4 py-2 rounded text-sm font-medium transition-colors">
+  Secondary
+</button>
+
+<!-- Ghost Button -->
+<button class="text-gray-400 hover:text-gray-200 hover:bg-gray-700 px-3 py-1.5 rounded text-sm transition-colors">
+  Ghost
+</button>
+```
+
+#### Form Inputs
+```html
+<input
+  type="text"
+  class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+  placeholder="Enter text..."
+/>
+```
+
+#### Status Badges
+```html
+<!-- Running -->
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-900/50 text-emerald-400 border border-emerald-700">
+  Running
+</span>
+
+<!-- Waiting -->
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-900/50 text-amber-400 border border-amber-700">
+  Waiting
+</span>
+
+<!-- Error -->
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-900/50 text-red-400 border border-red-700">
+  Error
+</span>
+```
+
+### Spacing Guidelines
+
+Use Tailwind's default spacing scale consistently:
+
+| Scale | Size | Usage |
+|-------|------|-------|
+| `1` | 0.25rem (4px) | Tight spacing within components |
+| `2` | 0.5rem (8px) | Standard inner padding |
+| `3` | 0.75rem (12px) | Medium spacing |
+| `4` | 1rem (16px) | Standard component padding |
+| `6` | 1.5rem (24px) | Section spacing |
+| `8` | 2rem (32px) | Large section gaps |
+
+### Animation & Transitions
+
+Keep animations subtle and purposeful:
+
+```html
+<!-- Standard transition -->
+<div class="transition-colors duration-150">
+
+<!-- Hover lift effect (use sparingly) -->
+<div class="transition-transform duration-150 hover:-translate-y-0.5">
+
+<!-- Fade in -->
+<div class="animate-fade-in">
+```
+
+**Custom animations to add in `tailwind.config.js`:**
+```javascript
+module.exports = {
+  theme: {
+    extend: {
+      animation: {
+        'fade-in': 'fadeIn 0.2s ease-out',
+        'pulse-subtle': 'pulse 2s ease-in-out infinite',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+      },
+    },
+  },
+}
+```
+
+### Tailwind Configuration
+
+**`tailwind.config.js`:**
+```javascript
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    './index.html',
+    './src/**/*.{vue,js,ts,jsx,tsx}',
+  ],
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Fira Code', 'ui-monospace', 'monospace'],
+      },
+      colors: {
+        // Extend with custom brand colors if needed
+      },
+      animation: {
+        'fade-in': 'fadeIn 0.2s ease-out',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+      },
+    },
+  },
+  plugins: [],
+}
+```
+
+### CSS File Structure
+
+**`packages/web/src/assets/styles/main.css`:**
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base layer customizations */
+@layer base {
+  body {
+    @apply bg-gray-900 text-gray-200 antialiased;
+  }
+
+  /* Scrollbar styling for the retro feel */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-900;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-700 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-600;
+  }
+}
+
+/* Component layer for reusable patterns */
+@layer components {
+  .btn-primary {
+    @apply bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-sm font-medium transition-colors;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-700 hover:bg-gray-600 text-gray-200 px-4 py-2 rounded text-sm font-medium transition-colors;
+  }
+
+  .card {
+    @apply bg-gray-800 border border-gray-700 rounded-lg;
+  }
+
+  .input {
+    @apply w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500;
+  }
+}
+```
+
+### Do's and Don'ts
+
+**Do:**
+- Use Tailwind utility classes directly in components
+- Maintain consistent spacing using the defined scale
+- Use semantic color names (e.g., `text-gray-400` not hardcoded hex)
+- Keep the interface clean and uncluttered
+- Use transitions for interactive state changes
+
+**Don't:**
+- Add inline styles or custom CSS unless absolutely necessary
+- Use bright, saturated colors that break the muted retro aesthetic
+- Over-animate or add unnecessary visual effects
+- Mix different spacing scales inconsistently
+- Create light mode variants (dark mode only)
 
 ---
 
@@ -230,15 +495,13 @@ claudetools.io/
     │       │   ├── index.js        # Route registration
     │       │   ├── sessions.js     # Session CRUD endpoints
     │       │   ├── toolbox.js      # Toolbox endpoints
-    │       │   ├── git.js          # Git information endpoints
-    │       │   └── commands.js     # Slash command endpoints
+    │       │   └── git.js          # Git information endpoints
     │       │
     │       └── services/           # Business logic
     │           ├── sessionManager.js    # Claude session orchestration
     │           ├── toolboxStore.js      # Toolbox item storage
     │           ├── gitService.js        # Git operations
-    │           ├── diffService.js       # Real-time git diff tracking
-    │           └── slashCommandService.js # Slash command discovery and parsing
+    │           └── diffService.js       # Real-time git diff tracking
     │
     ├── web/                        # Frontend Vue application
     │   ├── package.json
@@ -255,7 +518,6 @@ claudetools.io/
     │       │   ├── sessions.js     # Session state management
     │       │   ├── toolbox.js      # Toolbox state management
     │       │   ├── diff.js         # Diff state management
-    │       │   ├── commands.js     # Slash commands state management
     │       │   └── notes.js        # Session notes state management
     │       │
     │       ├── composables/        # Vue composition functions
@@ -264,7 +526,7 @@ claudetools.io/
     │       │
     │       ├── views/              # Page-level components
     │       │   ├── SessionListView.vue  # Session list (default view)
-    │       │   ├── SessionDetailView.vue # Session with tabs (Conversation/Changes/Toolbox/Commands)
+    │       │   ├── SessionDetailView.vue # Session with tabs (Conversation/Changes/Toolbox)
     │       │   └── NewSessionView.vue   # Create new session form
     │       │
     │       ├── components/         # Reusable components
@@ -279,9 +541,6 @@ claudetools.io/
     │       │   ├── GitBranchSelector.vue     # Branch dropdown
     │       │   ├── DiffViewer.vue            # Unified diff display
     │       │   ├── FileChangesTree.vue       # Changed files list
-    │       │   ├── CommandPalette.vue        # Slash command autocomplete palette
-    │       │   ├── CommandCard.vue           # Single command display card
-    │       │   ├── CommandEditor.vue         # Create/edit custom commands
     │       │   └── SessionNotes.vue          # Session notes display and editor
     │       │
     │       └── assets/             # Static assets
@@ -1949,7 +2208,7 @@ claudetools.io/
        path: '/sessions/:id/:tab?',
        name: 'session-detail',
        component: () => import('./views/SessionDetailView.vue'),
-       // Tab parameter: conversation (default), changes, toolbox, commands
+       // Tab parameter: conversation (default), changes, toolbox
      },
    ];
 
@@ -2314,11 +2573,10 @@ claudetools.io/
    - Click to navigate to detail
 
 4. **SessionDetailView.vue** - Session with tabbed interface
-   - Tab navigation: Conversation, Changes, Toolbox, Commands
+   - Tab navigation: Conversation, Changes, Toolbox
    - Conversation tab: Messages + input (default)
    - Changes tab: Diff viewer for file changes
    - Toolbox tab: Session-specific shared items
-   - Commands tab: Available slash commands
 
 5. **ConversationMessage.vue** - Single message
    - Different styling for user/assistant
@@ -2330,7 +2588,6 @@ claudetools.io/
    - Textarea with send button
    - Submit on Enter (Shift+Enter for newline)
    - Disabled when session not waiting
-   - Command palette on `/`
 
 7. **NewSessionView.vue** - Create session form
    - Prompt textarea
@@ -2353,11 +2610,6 @@ claudetools.io/
 10. **ToolboxMarkdownItem.vue** - Markdown display
     - Render markdown with syntax highlighting
     - Scrollable if long
-
-11. **CommandCard.vue** - Slash command display (in Commands tab)
-    - Command name and description
-    - Source badge (builtin/project/user)
-    - Edit/delete for custom commands
 
 **Deliverables**:
 - All views implemented and functional
@@ -2786,30 +3038,6 @@ claudetools.io/
     ```javascript
     getSessionDiff: (sessionId) =>
       fetchApi(`/sessions/${sessionId}/diff`),
-
-    // Slash Commands
-    getCommands: (directory) =>
-      fetchApi(`/commands?directory=${encodeURIComponent(directory)}`),
-
-    getCommand: (directory, name) =>
-      fetchApi(`/commands/${name}?directory=${encodeURIComponent(directory)}`),
-
-    createCommand: (data) =>
-      fetchApi('/commands', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-
-    deleteCommand: (directory, name) =>
-      fetchApi(`/commands/${name}?directory=${encodeURIComponent(directory)}`, {
-        method: 'DELETE',
-      }),
-
-    executeCommand: (name, sessionId, args) =>
-      fetchApi(`/commands/${name}/execute`, {
-        method: 'POST',
-        body: JSON.stringify({ sessionId, arguments: args }),
-      }),
     ```
 
 **Deliverables**:
@@ -2820,556 +3048,7 @@ claudetools.io/
 
 ---
 
-### Phase 11: Slash Commands Support
-
-**Goal**: Implement full slash command support including discovery, autocomplete, execution, and custom command management.
-
-**Steps**:
-
-1. **Install gray-matter for frontmatter parsing**
-   ```bash
-   cd packages/server
-   pnpm add gray-matter
-   ```
-
-2. **Create SlashCommandService class (`src/services/slashCommandService.js`)**
-   ```javascript
-   import { readdir, readFile } from 'fs/promises';
-   import { join, basename } from 'path';
-   import matter from 'gray-matter';
-   import { broadcast } from '../websocket.js';
-
-   /**
-    * Execution type determines how a command is processed
-    * @typedef {'app' | 'prompt' | 'ui'} CommandExecutionType
-    * - 'app': Handled by our application (built-in commands like /clear, /model)
-    * - 'prompt': Expanded and sent to Claude as a prompt (custom commands)
-    * - 'ui': Handled entirely in the UI, no server action (like /help)
-    */
-
-   /**
-    * @typedef {Object} SlashCommand
-    * @property {string} name
-    * @property {'builtin' | 'project' | 'user' | 'mcp'} source
-    * @property {CommandExecutionType} executionType - How this command should be executed
-    * @property {string} [description]
-    * @property {string} [argumentHint]
-    * @property {string} [content]
-    * @property {string} [filePath]
-    * @property {string[]} [allowedTools]
-    * @property {string} [model]
-    * @property {string} [namespace]
-    */
-
-   /**
-    * Result of executing a command
-    * @typedef {Object} CommandExecutionResult
-    * @property {boolean} success
-    * @property {'app' | 'prompt' | 'ui'} executionType
-    * @property {string} [message] - For UI display
-    * @property {string} [expandedPrompt] - For prompt-type commands
-    * @property {Object} [data] - Additional data (e.g., help content, status info)
-    * @property {string} [error]
-    */
-
-   // Built-in commands with their execution types
-   // 'app' = handled by our backend, 'ui' = handled by frontend only
-   const BUILTIN_COMMANDS = [
-     { name: 'help', source: 'builtin', executionType: 'ui', description: 'Display help information' },
-     { name: 'clear', source: 'builtin', executionType: 'app', description: 'Clear conversation history', argumentHint: '' },
-     { name: 'compact', source: 'builtin', executionType: 'app', description: 'Compress conversation to save context', argumentHint: '' },
-     { name: 'model', source: 'builtin', executionType: 'app', description: 'Switch AI model', argumentHint: 'model-name (e.g., sonnet, opus)' },
-     { name: 'config', source: 'builtin', executionType: 'ui', description: 'Open configuration panel' },
-     { name: 'status', source: 'builtin', executionType: 'app', description: 'Show session status and statistics' },
-     { name: 'cost', source: 'builtin', executionType: 'app', description: 'Display token usage and costs' },
-     { name: 'stop', source: 'builtin', executionType: 'app', description: 'Stop the current session' },
-   ];
-
-   class SlashCommandService {
-     /** @type {Map<string, SlashCommand[]>} workingDirectory -> commands */
-     #commandCache = new Map();
-
-     /**
-      * Get all available commands for a working directory
-      * @param {string} workingDirectory
-      * @returns {Promise<SlashCommand[]>}
-      */
-     async getCommands(workingDirectory) {
-       const commands = [...BUILTIN_COMMANDS];
-
-       // Load project commands (these are always 'prompt' execution type)
-       const projectCommands = await this.#loadCommandsFromDir(
-         join(workingDirectory, '.claude', 'commands'),
-         'project'
-       );
-       commands.push(...projectCommands);
-
-       // Load user commands
-       const homeDir = process.env.HOME || process.env.USERPROFILE;
-       if (homeDir) {
-         const userCommands = await this.#loadCommandsFromDir(
-           join(homeDir, '.claude', 'commands'),
-           'user'
-         );
-         commands.push(...userCommands);
-       }
-
-       // Cache for quick lookup
-       this.#commandCache.set(workingDirectory, commands);
-
-       return commands;
-     }
-
-     /**
-      * Get a specific command by name
-      * @param {string} workingDirectory
-      * @param {string} name
-      * @returns {Promise<SlashCommand | undefined>}
-      */
-     async getCommand(workingDirectory, name) {
-       const commands = await this.getCommands(workingDirectory);
-       return commands.find(cmd => cmd.name === name);
-     }
-
-     /**
-      * Load commands from a directory
-      * @param {string} dir
-      * @param {'project' | 'user'} source
-      * @param {string} [namespace]
-      * @returns {Promise<SlashCommand[]>}
-      */
-     async #loadCommandsFromDir(dir, source, namespace = '') {
-       const commands = [];
-
-       try {
-         const entries = await readdir(dir, { withFileTypes: true });
-
-         for (const entry of entries) {
-           const fullPath = join(dir, entry.name);
-
-           if (entry.isDirectory()) {
-             // Recurse into subdirectories for namespacing
-             const subCommands = await this.#loadCommandsFromDir(
-               fullPath,
-               source,
-               entry.name
-             );
-             commands.push(...subCommands);
-           } else if (entry.name.endsWith('.md')) {
-             const command = await this.#parseCommandFile(fullPath, source, namespace);
-             if (command) {
-               commands.push(command);
-             }
-           }
-         }
-       } catch (error) {
-         // Directory doesn't exist - that's fine
-         if (error.code !== 'ENOENT') {
-           console.error(`Error loading commands from ${dir}:`, error);
-         }
-       }
-
-       return commands;
-     }
-
-     /**
-      * Parse a command file
-      * @param {string} filePath
-      * @param {'project' | 'user'} source
-      * @param {string} namespace
-      * @returns {Promise<SlashCommand | null>}
-      */
-     async #parseCommandFile(filePath, source, namespace) {
-       try {
-         const content = await readFile(filePath, 'utf-8');
-         const { data: frontmatter, content: body } = matter(content);
-
-         const name = basename(filePath, '.md');
-
-         return {
-           name,
-           source,
-           executionType: 'prompt', // Custom commands are always prompt-type
-           description: frontmatter.description,
-           argumentHint: frontmatter['argument-hint'],
-           content: body.trim(),
-           filePath,
-           allowedTools: frontmatter['allowed-tools']
-             ? [frontmatter['allowed-tools']]
-             : undefined,
-           model: frontmatter.model,
-           namespace: namespace || undefined,
-         };
-       } catch (error) {
-         console.error(`Error parsing command file ${filePath}:`, error);
-         return null;
-       }
-     }
-
-     /**
-      * Expand a custom command with arguments
-      * @param {SlashCommand} command
-      * @param {string} args - Raw arguments string
-      * @returns {string} - Expanded prompt
-      */
-     expandCommand(command, args) {
-       if (!command.content) return args;
-
-       let expanded = command.content;
-
-       // Replace $ARGUMENTS with full args string
-       expanded = expanded.replace(/\$ARGUMENTS/g, args);
-
-       // Replace positional parameters $1, $2, etc.
-       const argParts = args.split(/\s+/).filter(Boolean);
-       for (let i = 0; i < argParts.length; i++) {
-         expanded = expanded.replace(new RegExp(`\\$${i + 1}`, 'g'), argParts[i]);
-       }
-
-       return expanded;
-     }
-
-     /**
-      * Create a new custom command
-      * @param {string} workingDirectory
-      * @param {Object} options
-      * @param {string} options.name
-      * @param {string} options.content
-      * @param {string} [options.description]
-      * @param {string} [options.argumentHint]
-      * @param {boolean} [options.isUserCommand] - Save to ~/.claude/commands instead
-      * @returns {Promise<SlashCommand>}
-      */
-     async createCommand(workingDirectory, options) {
-       const { writeFile, mkdir } = await import('fs/promises');
-
-       const baseDir = options.isUserCommand
-         ? join(process.env.HOME || process.env.USERPROFILE, '.claude', 'commands')
-         : join(workingDirectory, '.claude', 'commands');
-
-       await mkdir(baseDir, { recursive: true });
-
-       // Build frontmatter
-       const frontmatter = {};
-       if (options.description) frontmatter.description = options.description;
-       if (options.argumentHint) frontmatter['argument-hint'] = options.argumentHint;
-
-       // Build file content
-       let fileContent = '';
-       if (Object.keys(frontmatter).length > 0) {
-         fileContent = `---\n`;
-         for (const [key, value] of Object.entries(frontmatter)) {
-           fileContent += `${key}: ${JSON.stringify(value)}\n`;
-         }
-         fileContent += `---\n\n`;
-       }
-       fileContent += options.content;
-
-       const filePath = join(baseDir, `${options.name}.md`);
-       await writeFile(filePath, fileContent, 'utf-8');
-
-       // Clear cache and broadcast update
-       this.#commandCache.delete(workingDirectory);
-       const commands = await this.getCommands(workingDirectory);
-       broadcast({ type: 'command:list', commands });
-
-       return commands.find(cmd => cmd.name === options.name);
-     }
-
-     /**
-      * Delete a custom command
-      * @param {string} workingDirectory
-      * @param {string} name
-      * @returns {Promise<boolean>}
-      */
-     async deleteCommand(workingDirectory, name) {
-       const { unlink } = await import('fs/promises');
-       const command = await this.getCommand(workingDirectory, name);
-
-       if (!command || !command.filePath || command.source === 'builtin') {
-         return false;
-       }
-
-       await unlink(command.filePath);
-
-       // Clear cache and broadcast update
-       this.#commandCache.delete(workingDirectory);
-       const commands = await this.getCommands(workingDirectory);
-       broadcast({ type: 'command:list', commands });
-
-       return true;
-     }
-   }
-
-   export const slashCommandService = new SlashCommandService();
-   ```
-
-3. **Create commands API routes (`src/api/commands.js`)**
-   ```javascript
-   import { Router } from 'express';
-   import { slashCommandService } from '../services/slashCommandService.js';
-   import { sessionManager } from '../services/sessionManager.js';
-   import { broadcast } from '../websocket.js';
-
-   const router = Router();
-
-   // GET /api/commands?directory=/path/to/project
-   router.get('/', async (req, res) => {
-     const directory = req.query.directory;
-     if (!directory) {
-       return res.status(400).json({ error: 'directory query param required' });
-     }
-
-     const commands = await slashCommandService.getCommands(directory);
-     res.json({ commands });
-   });
-
-   // GET /api/commands/:name?directory=/path/to/project
-   router.get('/:name', async (req, res) => {
-     const directory = req.query.directory;
-     if (!directory) {
-       return res.status(400).json({ error: 'directory query param required' });
-     }
-
-     const command = await slashCommandService.getCommand(directory, req.params.name);
-     if (!command) {
-       return res.status(404).json({ error: 'Command not found' });
-     }
-
-     res.json({ command });
-   });
-
-   // POST /api/commands - Create new command
-   router.post('/', async (req, res) => {
-     const { directory, name, content, description, argumentHint, isUserCommand } = req.body;
-
-     if (!directory || !name || !content) {
-       return res.status(400).json({ error: 'directory, name, and content required' });
-     }
-
-     try {
-       const command = await slashCommandService.createCommand(directory, {
-         name,
-         content,
-         description,
-         argumentHint,
-         isUserCommand,
-       });
-       res.status(201).json({ command });
-     } catch (error) {
-       res.status(500).json({ error: 'Failed to create command' });
-     }
-   });
-
-   // DELETE /api/commands/:name?directory=/path/to/project
-   router.delete('/:name', async (req, res) => {
-     const directory = req.query.directory;
-     if (!directory) {
-       return res.status(400).json({ error: 'directory query param required' });
-     }
-
-     const success = await slashCommandService.deleteCommand(directory, req.params.name);
-     if (!success) {
-       return res.status(404).json({ error: 'Command not found or cannot be deleted' });
-     }
-
-     res.json({ success: true });
-   });
-
-   // POST /api/commands/:name/execute - Execute command in session
-   // Handles different execution types: 'app', 'prompt', 'ui'
-   router.post('/:name/execute', async (req, res) => {
-     const { sessionId, arguments: args } = req.body;
-     const session = sessionManager.getSession(sessionId);
-
-     if (!session) {
-       return res.status(404).json({ error: 'Session not found' });
-     }
-
-     const command = await slashCommandService.getCommand(
-       session.workingDirectory,
-       req.params.name
-     );
-
-     if (!command) {
-       return res.status(404).json({ error: 'Command not found' });
-     }
-
-     // Handle based on execution type
-     switch (command.executionType) {
-       case 'ui':
-         // UI commands are handled client-side, just acknowledge
-         return res.json({
-           success: true,
-           executionType: 'ui',
-           message: `Command /${command.name} should be handled by the UI`,
-         });
-
-       case 'app':
-         // Built-in commands handled by our application
-         let result;
-         switch (command.name) {
-           case 'clear':
-             result = sessionManager.clearHistory(sessionId);
-             break;
-           case 'model':
-             result = sessionManager.setModel(sessionId, args || '');
-             break;
-           case 'status':
-             result = sessionManager.getStatus(sessionId);
-             break;
-           case 'cost':
-             result = sessionManager.getCost(sessionId);
-             break;
-           case 'compact':
-             result = sessionManager.compactHistory(sessionId);
-             break;
-           case 'stop':
-             result = { success: sessionManager.stopSession(sessionId) };
-             break;
-           default:
-             result = { success: false, error: `Unknown app command: ${command.name}` };
-         }
-         return res.json({ ...result, executionType: 'app' });
-
-       case 'prompt':
-         // Custom commands - expand and send to Claude
-         const expandedPrompt = slashCommandService.expandCommand(command, args || '');
-         const success = sessionManager.sendMessage(sessionId, expandedPrompt);
-
-         if (!success) {
-           return res.status(400).json({
-             success: false,
-             error: 'Session not waiting for input',
-           });
-         }
-
-         // Broadcast that a command was executed
-         broadcast({
-           type: 'command:executed',
-           sessionId,
-           commandName: command.name,
-           arguments: args,
-         });
-
-         return res.json({
-           success: true,
-           executionType: 'prompt',
-           expandedPrompt,
-         });
-
-       default:
-         return res.status(400).json({
-           success: false,
-           error: `Unknown execution type: ${command.executionType}`,
-         });
-     }
-   });
-
-   export default router;
-   ```
-
-4. **Create Commands store (`src/stores/commands.js`)**
-   ```javascript
-   import { defineStore } from 'pinia';
-   import { ref, computed } from 'vue';
-   import { useApi } from '../composables/useApi.js';
-   import { useWebSocket } from '../composables/useWebSocket.js';
-
-   export const useCommandsStore = defineStore('commands', () => {
-     const api = useApi();
-     const { onMessage } = useWebSocket();
-
-     const commands = ref([]);
-     const loading = ref(false);
-
-     // Computed getters
-     const builtinCommands = computed(() =>
-       commands.value.filter(cmd => cmd.source === 'builtin')
-     );
-
-     const projectCommands = computed(() =>
-       commands.value.filter(cmd => cmd.source === 'project')
-     );
-
-     const userCommands = computed(() =>
-       commands.value.filter(cmd => cmd.source === 'user')
-     );
-
-     // Actions
-     async function fetchCommands(directory) {
-       loading.value = true;
-       try {
-         const result = await api.getCommands(directory);
-         commands.value = result.commands;
-       } finally {
-         loading.value = false;
-       }
-     }
-
-     function filterCommands(query) {
-       if (!query) return commands.value;
-       const lowerQuery = query.toLowerCase();
-       return commands.value.filter(cmd =>
-         cmd.name.toLowerCase().includes(lowerQuery) ||
-         cmd.description?.toLowerCase().includes(lowerQuery)
-       );
-     }
-
-     // WebSocket handler
-     onMessage((msg) => {
-       if (msg.type === 'command:list') {
-         commands.value = msg.commands;
-       }
-     });
-
-     return {
-       commands,
-       loading,
-       builtinCommands,
-       projectCommands,
-       userCommands,
-       fetchCommands,
-       filterCommands,
-     };
-   });
-   ```
-
-5. **Create CommandPalette component**
-   - Trigger on `/` keystroke in MessageInput
-   - Show filtered list of commands as user types
-   - Display command name, description, source badge
-   - Keyboard navigation (arrow keys, Enter to select)
-   - Insert selected command into input
-
-6. **Create CommandsView**
-   - List all available commands grouped by source
-   - Show command details on click
-   - "New Command" button opens CommandEditor
-   - Delete button for custom commands
-
-7. **Create CommandEditor component**
-   - Form fields: name, description, argument-hint, content
-   - Toggle for project vs user command
-   - Markdown preview for content
-   - Save/cancel buttons
-
-8. **Update MessageInput component**
-   - Detect `/` at start of input
-   - Show CommandPalette overlay
-   - Handle command selection and argument input
-   - Execute command on submit
-
-**Deliverables**:
-- Full slash command discovery from file system
-- Command palette with autocomplete
-- Custom command creation/editing UI
-- Command execution with argument substitution
-- Real-time command list updates via WebSocket
-
----
-
-### Phase 12: Polish and Documentation
+### Phase 11: Polish and Documentation
 
 **Goal**: Final polish, error handling, and user documentation.
 
@@ -3409,7 +3088,7 @@ claudetools.io/
 
 ---
 
-### Phase 13: Session Notes
+### Phase 12: Session Notes
 
 **Goal**: Allow users to add, edit, and view notes on sessions. Notes provide a way to capture context, decisions, or reminders about a session that aren't part of the conversation.
 
@@ -4086,17 +3765,6 @@ claudetools.io/
 | GET | `/api/git/current-branch` | Get current branch |
 | POST | `/api/git/worktrees` | Create new worktree |
 
-### Slash Commands API
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/commands` | List all available slash commands |
-| GET | `/api/commands/:name` | Get single command details |
-| POST | `/api/commands` | Create new custom command |
-| PUT | `/api/commands/:name` | Update existing command |
-| DELETE | `/api/commands/:name` | Delete custom command |
-| POST | `/api/commands/:name/execute` | Execute a slash command in a session |
-
 ---
 
 ## WebSocket Protocol
@@ -4122,18 +3790,6 @@ Connect to `ws://localhost:3000/ws`
 
 // Session diff updated (real-time file changes)
 { type: 'session:diff', sessionId: 'string', files: [{ path: 'string', status: 'M|A|D|R|C|U' }], diff: 'string' }
-
-// Session conversation cleared (via /clear command)
-{ type: 'session:cleared', sessionId: 'string' }
-
-// Session model changed (via /model command)
-{ type: 'session:model-changed', sessionId: 'string', model: 'string' }
-
-// Slash command executed
-{ type: 'command:executed', sessionId: 'string', commandName: 'string', arguments: 'string?' }
-
-// Slash commands list updated (when commands are created/deleted)
-{ type: 'command:list', commands: [SlashCommand] }
 
 // Note added to session
 { type: 'session:note:added', sessionId: 'string', note: SessionNote }
@@ -4185,7 +3841,7 @@ Visual wireframes for each view in the application are available in the [`wirefr
 |------|-------------|-----------|
 | **AppLayout** | Mobile-friendly layout with top navigation bar | [AppLayout.md](wireframes/AppLayout.md) |
 | **SessionListView** | List of all Claude Code sessions with status, filtering, and sorting (default route `/`) | [SessionListView.md](wireframes/SessionListView.md) |
-| **SessionDetailView** | Session view with tabbed sub-navigation (Conversation, Changes, Toolbox, Commands) | [SessionDetailView.md](wireframes/SessionDetailView.md) |
+| **SessionDetailView** | Session view with tabbed sub-navigation (Conversation, Changes, Toolbox) | [SessionDetailView.md](wireframes/SessionDetailView.md) |
 | **NewSessionView** | Form for creating new sessions with git configuration | [NewSessionView.md](wireframes/NewSessionView.md) |
 
 ### Wireframe Contents
@@ -4198,191 +3854,6 @@ Each wireframe document includes:
 - **Interaction descriptions** - User actions and expected behaviors
 - **Responsive behavior** - How layouts adapt to different screen sizes
 - **Real-time updates** - How WebSocket events affect the UI
-
----
-
-## Slash Commands
-
-Slash commands are a core feature of Claude Code that allow users to trigger specific workflows and behaviors with a simple `/command-name` syntax. claudetools.io must support both built-in and custom slash commands to provide a complete Claude Code experience.
-
-### What are Slash Commands?
-
-Slash commands are directives that control Claude's behavior during a session. They range from built-in system commands to custom user-defined prompts stored as Markdown files.
-
-**Types of Commands:**
-
-1. **Built-in Commands** - System commands provided by Claude Code (e.g., `/help`, `/clear`, `/model`)
-2. **Project Commands** - Custom commands in `.claude/commands/` directory, shared with the team
-3. **Personal Commands** - Custom commands in `~/.claude/commands/`, private to the user
-4. **MCP Commands** - Commands exposed by MCP (Model Context Protocol) servers
-
-### Command File Structure
-
-Custom slash commands are Markdown files with optional YAML frontmatter:
-
-```markdown
----
-description: Brief description of what the command does
-argument-hint: "issue-number (required), priority (optional)"
-allowed-tools: Bash(enabled)
-model: claude-sonnet-4-5
----
-
-Your prompt content here. This instruction executes when the command is invoked.
-
-Fix issue #$ARGUMENTS by:
-1. Understanding the ticket
-2. Locating relevant code
-3. Implementing the solution
-4. Adding tests
-```
-
-### Frontmatter Fields
-
-| Field | Required | Purpose | Example |
-|-------|----------|---------|---------|
-| `description` | For programmatic use | Brief command overview | `"Review a pull request"` |
-| `argument-hint` | No | Guidance for expected arguments | `"issue-number (required)"` |
-| `allowed-tools` | No | Permitted tools (inherits by default) | `Bash(enabled)` |
-| `model` | No | Override model for this command | `claude-sonnet-4-5` |
-
-### Command Storage Locations
-
-```
-# Project commands (shared with team via git)
-.claude/commands/
-├── fix-issue.md          → /fix-issue
-├── optimize.md           → /optimize
-└── frontend/
-    └── component.md      → /component (labeled "project:frontend")
-
-# Personal commands (user's home directory)
-~/.claude/commands/
-├── security-review.md    → /security-review (labeled "user")
-└── my-workflow.md        → /my-workflow (labeled "user")
-```
-
-### Argument Handling
-
-Commands support multiple argument approaches:
-
-**1. Capture All Arguments (`$ARGUMENTS`)**
-```markdown
-Fix issue #$ARGUMENTS
-```
-Usage: `/fix-issue 123` → `Fix issue #123`
-
-**2. Positional Parameters (`$1`, `$2`, etc.)**
-```markdown
-Create a $1 component using $2
-```
-Usage: `/create Button react` → `Create a Button component using react`
-
-### Built-in Commands Reference
-
-| Category | Commands |
-|----------|----------|
-| **Conversation** | `/clear`, `/compact`, `/resume`, `/rewind` |
-| **Configuration** | `/config`, `/model`, `/settings`, `/status` |
-| **Development** | `/review`, `/security-review`, `/bug`, `/sandbox` |
-| **Information** | `/help`, `/context`, `/cost`, `/stats`, `/usage` |
-| **Account** | `/login`, `/logout`, `/permissions` |
-
-### SlashCommand Data Model
-
-```javascript
-/**
- * A slash command definition
- * @typedef {Object} SlashCommand
- * @property {string} name - Command name without leading slash
- * @property {'builtin' | 'project' | 'user' | 'mcp'} source - Where command originates
- * @property {string} [description] - Brief description
- * @property {string} [argumentHint] - Expected arguments hint
- * @property {string} [content] - Full prompt content (for custom commands)
- * @property {string} [filePath] - Path to command file (for custom commands)
- * @property {string[]} [allowedTools] - Tool permissions
- * @property {string} [model] - Model override
- * @property {string} [namespace] - Subdirectory namespace (e.g., "frontend")
- */
-```
-
-### Command Execution Types
-
-Commands have different execution types that determine how they are processed:
-
-| Type | Description | Examples | Handled By |
-|------|-------------|----------|------------|
-| `prompt` | Expanded and sent to Claude as a prompt | Custom commands (`/fix-issue`, `/review`) | Claude via SDK |
-| `app` | Handled by our application backend | `/clear`, `/model`, `/status`, `/cost` | SessionManager |
-| `ui` | Handled entirely in the frontend UI | `/help`, `/config` | Vue components |
-
-### SDK Integration for Slash Commands
-
-**Important**: Built-in slash commands are CLI features, not SDK features. When using the Claude Agent SDK:
-
-1. **Custom Commands (prompt type)** - Work normally. The command content is expanded with arguments and sent as a prompt to Claude via `sessionManager.sendMessage()`.
-
-2. **Built-in Commands (app type)** - Must be handled by our application:
-   - `/clear` → `sessionManager.clearHistory()` - Clears conversation messages
-   - `/model` → `sessionManager.setModel()` - Changes the model for future queries
-   - `/status` → `sessionManager.getStatus()` - Returns session statistics
-   - `/cost` → `sessionManager.getCost()` - Returns token usage info
-   - `/compact` → SDK handles automatically when context limits approach
-   - `/stop` → `sessionManager.stopSession()` - Aborts the current query
-
-3. **UI Commands** - Never sent to the server, handled by frontend components.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                  Command Execution Flow                      │
-└─────────────────────────────────────────────────────────────┘
-
-User types: /command args
-        │
-        ▼
-┌───────────────────┐
-│ CommandPalette    │ ◄── Autocomplete suggestions
-│ (Frontend)        │
-└───────┬───────────┘
-        │
-        ▼
-┌───────────────────┐     ┌─────────────────────────────────┐
-│ Check execution   │────▶│ UI type? Handle in frontend     │
-│ type              │     │ (show help panel, open config)  │
-└───────┬───────────┘     └─────────────────────────────────┘
-        │
-        ▼
-┌───────────────────┐
-│ POST /api/commands│
-│ /:name/execute    │
-└───────┬───────────┘
-        │
-        ▼
-┌───────────────────┐     ┌─────────────────────────────────┐
-│ App type?         │────▶│ Call SessionManager method      │
-│                   │     │ (clearHistory, setModel, etc.)  │
-└───────┬───────────┘     └─────────────────────────────────┘
-        │
-        ▼
-┌───────────────────┐     ┌─────────────────────────────────┐
-│ Prompt type?      │────▶│ Expand with args, send to       │
-│                   │     │ Claude via sendMessage()        │
-└───────────────────┘     └─────────────────────────────────┘
-```
-
-### Implementation in claudetools.io
-
-The web interface should:
-
-1. **Discover Commands** - Scan `.claude/commands/` in the session's working directory and `~/.claude/commands/` for user commands
-2. **Parse Frontmatter** - Extract metadata from YAML frontmatter in command files
-3. **Command Palette** - Provide autocomplete when user types `/` in the message input
-4. **Route by Execution Type** - Check `executionType` and handle appropriately:
-   - `ui`: Handle in frontend (show help, open settings)
-   - `app`: Call backend API which invokes SessionManager methods
-   - `prompt`: Expand and send to Claude
-5. **Create/Edit Commands** - Allow users to create and modify custom commands through the UI
-6. **Display Source** - Show whether command is built-in, project, or user-defined
 
 ---
 
