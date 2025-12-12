@@ -9,7 +9,7 @@ This layout is defined in `App.vue` and wraps all views.
 +------------------------------------------------------------------+
 |  HEADER / TOP NAV                                                 |
 |  +--------------------------------------------------------------+ |
-|  |  [logo] claudetools.io    [Sessions]  [+ New]    [Connected] | |
+|  |  [logo] claudetools.io    [Projects]  [+ New]    [Connected] | |
 |  +--------------------------------------------------------------+ |
 +------------------------------------------------------------------+
 |                                                                    |
@@ -21,9 +21,11 @@ This layout is defined in `App.vue` and wraps all views.
 |  |                                                              | |
 |  |  Content rendered based on current route:                    | |
 |  |                                                              | |
-|  |  - SessionListView (/ - default)                             | |
+|  |  - ProjectListView (/ - default)                             | |
+|  |  - ProjectEditView (/projects/new, /projects/:id/edit)       | |
+|  |  - SessionListView (/projects/:projectId/sessions)           | |
 |  |  - SessionDetailView (/sessions/:id)                         | |
-|  |  - NewSessionView (/sessions/new)                            | |
+|  |  - NewSessionView (/projects/:projectId/sessions/new)        | |
 |  |                                                              | |
 |  +--------------------------------------------------------------+ |
 |                                                                    |
@@ -37,15 +39,15 @@ This layout is defined in `App.vue` and wraps all views.
 |                                                                    |
 |  [Claude Icon]  claudetools.io                                    |
 |                                                                    |
-|                           [Sessions]  [+ New Session]  [*] Connected|
+|                           [Projects]  [+ New Project]  [*] Connected|
 |                                                                    |
 +------------------------------------------------------------------+
 
 Legend:
 - [Claude Icon]: Application logo/branding
 - "claudetools.io": Application name
-- [Sessions]: Navigate to session list (active when on /, /sessions/:id)
-- [+ New Session]: Primary action, routes to /sessions/new
+- [Projects]: Navigate to project list (active when on /)
+- [+ New Project]: Primary action, routes to /projects/new
 - [*] Connected: WebSocket connection status indicator
   - Green dot = Connected
   - Red dot = Disconnected (with reconnect attempt info)
@@ -72,8 +74,8 @@ Legend:
 
 [=] Hamburger menu reveals:
 +--------------------------------+
-|  Sessions                      |
-|  + New Session                 |
+|  Projects                      |
+|  + New Project                 |
 +--------------------------------+
 ```
 
@@ -81,7 +83,7 @@ Legend:
 
 ```
 +------------------------------------------------------------------+
-|  [logo] claudetools.io          [Sessions] [+ New]    [Connected] |
+|  [logo] claudetools.io          [Projects] [+ New]    [Connected] |
 +------------------------------------------------------------------+
 |                                                                    |
 |  MAIN CONTENT AREA (full width)                                    |
@@ -93,7 +95,7 @@ Legend:
 
 ```
 +------------------------------------------------------------------+
-|  [logo] claudetools.io          [Sessions] [+ New]    [Connected] |
+|  [logo] claudetools.io          [Projects] [+ New]    [Connected] |
 +------------------------------------------------------------------+
 |                                                                    |
 |  MAIN CONTENT AREA (max-width container, centered)                 |
@@ -113,15 +115,15 @@ Reconnecting: [Yellow Dot] Reconnecting (3)...
 ## Interactions
 
 1. **Logo Click**
-   - Returns to session list (home)
+   - Returns to project list (home)
 
-2. **Sessions Nav**
-   - Routes to SessionListView (/)
-   - Active state when on any session route
+2. **Projects Nav**
+   - Routes to ProjectListView (/)
+   - Active state when on any project route
 
-3. **New Session Button**
+3. **New Project Button**
    - Primary action button (accent color)
-   - Routes to NewSessionView (/sessions/new)
+   - Routes to ProjectEditView (/projects/new)
 
 4. **Connection Status**
    - Click to see connection details (optional)

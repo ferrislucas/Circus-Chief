@@ -1,7 +1,8 @@
 # NewSessionView Wireframe
 
-The NewSessionView provides a form for creating a new Claude Code session.
-It includes fields for the prompt, working directory, and optional git configuration.
+The NewSessionView provides a form for creating a new Claude Code session within a project.
+The working directory is inherited from the project, so users only need to provide
+a name, initial prompt, and optional git configuration.
 
 ## Full View
 
@@ -9,10 +10,11 @@ It includes fields for the prompt, working directory, and optional git configura
 +------------------------------------------------------------------+
 |                                                                    |
 |  [<- Back]  New Session                                            |
+|             in My Web App                                          |
 |                                                                    |
 +------------------------------------------------------------------+
 |                                                                    |
-|  Create a new Claude Code session to start working on a task.      |
+|  Working directory: /Users/developer/projects/my-web-app           |
 |                                                                    |
 +------------------------------------------------------------------+
 |                                                                    |
@@ -38,14 +40,6 @@ It includes fields for the prompt, working directory, and optional git configura
 |                                                                    |
 +------------------------------------------------------------------+
 |                                                                    |
-|  WORKING DIRECTORY *                                               |
-|  +--------------------------------------------------------------+ |
-|  | [/Users/developer/projects/my-app               ] [Browse]   | |
-|  +--------------------------------------------------------------+ |
-|  Where Claude will execute commands and make changes.              |
-|                                                                    |
-+------------------------------------------------------------------+
-|                                                                    |
 |  GIT CONFIGURATION (optional)                                      |
 |  +--------------------------------------------------------------+ |
 |  |                                                              | |
@@ -53,9 +47,9 @@ It includes fields for the prompt, working directory, and optional git configura
 |  |  +----------------------------------------------------------+| |
 |  |  | [Select worktree...                               v]     || |
 |  |  +----------------------------------------------------------+| |
-|  |  |  /Users/developer/projects/my-app (main)                 || |
-|  |  |  /Users/developer/projects/my-app-feature                || |
-|  |  |  /Users/developer/projects/my-app-hotfix                 || |
+|  |  |  /Users/developer/projects/my-web-app (main)             || |
+|  |  |  /Users/developer/projects/my-web-app-feature            || |
+|  |  |  /Users/developer/projects/my-web-app-hotfix             || |
 |  |  +----------------------------------------------------------+| |
 |  |                                                              | |
 |  |  Branch:                                                     | |
@@ -78,21 +72,29 @@ It includes fields for the prompt, working directory, and optional git configura
 |                                                                    |
 +------------------------------------------------------------------+
 |                                                                    |
-|  EXECUTION MODE                                                    |
-|  +--------------------------------------------------------------+ |
-|  |                                                              | |
-|  |  ( ) Plan      - Claude creates a plan before making changes | |
-|  |  (•) Standard  - Normal mode with tool confirmations         | |
-|  |  ( ) Yolo      - Execute without confirmations (use caution) | |
-|  |                                                              | |
-|  +--------------------------------------------------------------+ |
-|  Controls how Claude executes tools and makes changes.             |
-|                                                                    |
-+------------------------------------------------------------------+
-|                                                                    |
 |                                           [Cancel]  [Create Session]|
 |                                                                    |
 +------------------------------------------------------------------+
+```
+
+## Header with Project Context
+
+```
++------------------------------------------------------------------+
+|                                                                    |
+|  [<- Back]  New Session                                            |
+|             in {Project Name}                                      |
+|                                                                    |
++------------------------------------------------------------------+
+|                                                                    |
+|  Working directory: /absolute/path/from/project                    |
+|                                                                    |
++------------------------------------------------------------------+
+
+Legend:
+- [<- Back]: Returns to SessionListView for this project
+- "in {Project Name}": Shows which project the session belongs to
+- Working directory: Read-only display of project's working directory
 ```
 
 ## Form Fields Detail
@@ -131,27 +133,6 @@ It includes fields for the prompt, working directory, and optional git configura
 +------------------------------------------------------------------+
 ```
 
-### Working Directory
-```
-+------------------------------------------------------------------+
-| WORKING DIRECTORY *                                     Required   |
-+------------------------------------------------------------------+
-| +---------------------------------------------------+ +--------+ |
-| | /path/to/directory                                | | Browse | |
-| +---------------------------------------------------+ +--------+ |
-|                                                                    |
-| Help text: "Where Claude will execute commands and make changes."  |
-| Validation: Must be valid absolute path, must exist                |
-| Browse button: Opens system file picker (if supported)             |
-+------------------------------------------------------------------+
-
-Recent directories (shown below input):
-+------------------------------------------------------------------+
-| Recent:                                                            |
-| [/Users/dev/project-a] [/Users/dev/project-b] [/Users/dev/work]   |
-+------------------------------------------------------------------+
-```
-
 ### Git Configuration
 
 #### Worktree Selector
@@ -170,7 +151,7 @@ Recent directories (shown below input):
 | +--------------------------------------------------------------+ |
 |                                                                    |
 | - Shows only if directory is a git repo with worktrees            |
-| - Selecting a worktree updates the working directory               |
+| - Selecting a worktree updates the effective working directory     |
 +------------------------------------------------------------------+
 ```
 
@@ -223,32 +204,6 @@ Recent directories (shown below input):
 +------------------------------------------------------------------+
 ```
 
-### Execution Mode Selector
-```
-+------------------------------------------------------------------+
-| EXECUTION MODE                                                     |
-+------------------------------------------------------------------+
-| +--------------------------------------------------------------+ |
-| |                                                              | |
-| |  ( ) Plan      - Claude creates a plan before making changes | |
-| |  (•) Standard  - Normal mode with tool confirmations         | |
-| |  ( ) Yolo      - Execute without confirmations (use caution) | |
-| |                                                              | |
-| +--------------------------------------------------------------+ |
-|                                                                    |
-| Help text: "Controls how Claude executes tools and makes changes." |
-| Default: Standard                                                  |
-|                                                                    |
-| Mode Descriptions:                                                 |
-| - Plan: Claude will analyze the task, create a detailed plan,     |
-|   and wait for your approval before making any file changes.       |
-| - Standard: Claude asks for confirmation before running tools      |
-|   that modify files or execute commands. Recommended for most use. |
-| - Yolo: Claude executes all tools without confirmation. Use with   |
-|   caution - best for trusted, well-defined tasks in safe envs.     |
-+------------------------------------------------------------------+
-```
-
 ## States
 
 ### Loading State (fetching git info)
@@ -281,14 +236,6 @@ Recent directories (shown below input):
 | +--------------------------------------------------------------+ |
 | [!] This field is required                              (red text)|
 +------------------------------------------------------------------+
-
-+------------------------------------------------------------------+
-| WORKING DIRECTORY *                                     Required   |
-| +--------------------------------------------------------------+ |
-| | /invalid/path                                                | |
-| +--------------------------------------------------------------+ |
-| [!] Directory does not exist                            (red text)|
-+------------------------------------------------------------------+
 ```
 
 ### Submitting State
@@ -311,39 +258,36 @@ Recent directories (shown below input):
    - Supports markdown preview (optional toggle)
    - Auto-resizes with content
 
-3. **Working Directory**
-   - Required text input
-   - Browse button opens file picker dialog
-   - Validates path exists on blur
-   - Recent directories shown as quick-select chips
-
-4. **Worktree Selector**
+3. **Worktree Selector**
    - Appears only for git repos
-   - Selecting worktree updates working directory path
+   - Selecting worktree updates effective working directory
    - Shows branch associated with each worktree
 
-5. **Branch Selector**
+4. **Branch Selector**
    - Appears only for git repos
    - Groups local and remote branches
    - Checkmark indicates current branch
 
-6. **Create New Branch**
+5. **Create New Branch**
    - Checkbox to toggle
    - When enabled, shows branch name and base branch inputs
    - Validates branch name format
 
-7. **Execution Mode**
-   - Radio button group with three options: Plan, Standard, Yolo
-   - Standard is selected by default
-   - Selecting Yolo shows a warning tooltip about running without confirmations
-   - Mode is passed to the session and can be changed later via `/mode` command
-
-8. **Cancel Button**
-   - Returns to SessionListView
+6. **Cancel Button**
+   - Returns to SessionListView for this project
    - Confirms if form has changes (optional)
 
-9. **Create Session Button**
+7. **Create Session Button**
    - Validates all required fields
    - Shows loading state while creating
    - Navigates to SessionDetailView on success
    - Shows error toast on failure
+
+## Execution Mode Note
+
+The execution mode (Plan/Standard/Yolo) is NOT set during session creation.
+Instead, users can toggle the mode at any time from the SessionDetailView
+when interacting with the session. This allows more flexibility to change
+modes as the task evolves.
+
+The default mode for new sessions is "Standard".
