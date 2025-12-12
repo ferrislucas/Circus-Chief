@@ -257,7 +257,8 @@ claudetools.io/
     │       │   ├── sessions.js     # Session state management
     │       │   ├── toolbox.js      # Toolbox state management
     │       │   ├── diff.js         # Diff state management
-    │       │   └── commands.js     # Slash commands state management
+    │       │   ├── commands.js     # Slash commands state management
+    │       │   └── notes.js        # Session notes state management
     │       │
     │       ├── composables/        # Vue composition functions
     │       │   ├── useWebSocket.js # WebSocket connection management
@@ -285,7 +286,8 @@ claudetools.io/
     │       │   ├── FileChangesTree.vue       # Changed files list
     │       │   ├── CommandPalette.vue        # Slash command autocomplete palette
     │       │   ├── CommandCard.vue           # Single command display card
-    │       │   └── CommandEditor.vue         # Create/edit custom commands
+    │       │   ├── CommandEditor.vue         # Create/edit custom commands
+    │       │   └── SessionNotes.vue          # Session notes display and editor
     │       │
     │       └── assets/             # Static assets
     │           └── styles/
@@ -3426,6 +3428,643 @@ claudetools.io/
 
 ---
 
+### Phase 13: Session Notes
+
+**Goal**: Allow users to add, edit, and view notes on sessions. Notes provide a way to capture context, decisions, or reminders about a session that aren't part of the conversation.
+
+**Steps**:
+
+1. **Update Session type to include notes (`packages/shared/src/types.js`)**
+   ```javascript
+   /**
+    * A note attached to a session
+    * @typedef {Object} SessionNote
+    * @property {string} id
+    * @property {string} content - Markdown content
+    * @property {number} createdAt - Unix timestamp
+    * @property {number} updatedAt - Unix timestamp
+    */
+
+   /**
+    * A Claude Code session
+    * @typedef {Object} Session
+    * @property {string} id
+    * @property {string} name - User-provided or auto-generated
+    * @property {SessionStatus} status
+    * @property {string} workingDirectory - Absolute path
+    * @property {string} [gitBranch] - Current branch if in git repo
+    * @property {string} [gitWorktree] - Worktree name if applicable
+    * @property {number} createdAt - Unix timestamp
+    * @property {number} updatedAt - Last activity timestamp
+    * @property {ConversationMessage[]} messages - Full conversation history
+    * @property {SessionNote[]} notes - Notes attached to this session
+    * @property {string} [prUrl] - URL of linked pull request
+    * @property {string} [error] - Error message if status is 'error'
+    */
+   ```
+
+2. **Add notes WebSocket messages (`packages/shared/src/protocol.js`)**
+   ```javascript
+   /**
+    * Note added to session
+    * @typedef {Object} WsSessionNoteAddedMessage
+    * @property {'session:note:added'} type
+    * @property {string} sessionId
+    * @property {SessionNote} note
+    */
+
+   /**
+    * Note updated in session
+    * @typedef {Object} WsSessionNoteUpdatedMessage
+    * @property {'session:note:updated'} type
+    * @property {string} sessionId
+    * @property {SessionNote} note
+    */
+
+   /**
+    * Note deleted from session
+    * @typedef {Object} WsSessionNoteDeletedMessage
+    * @property {'session:note:deleted'} type
+    * @property {string} sessionId
+    * @property {string} noteId
+    */
+
+   /**
+    * PR URL updated for session
+    * @typedef {Object} WsSessionPrUrlUpdatedMessage
+    * @property {'session:pr-url:updated'} type
+    * @property {string} sessionId
+    * @property {string | null} prUrl - The PR URL or null if removed
+    */
+   ```
+
+3. **Add notes methods to SessionManager (`src/services/sessionManager.js`)**
+   ```javascript
+   /**
+    * Add a note to a session
+    * @param {string} sessionId
+    * @param {string} content - Markdown content
+    * @returns {SessionNote | null}
+    */
+   addNote(sessionId, content) {
+     const activeSession = this.#sessions.get(sessionId);
+     if (!activeSession) return null;
+
+     const note = {
+       id: randomUUID(),
+       content,
+       createdAt: Date.now(),
+       updatedAt: Date.now(),
+     };
+
+     if (!activeSession.session.notes) {
+       activeSession.session.notes = [];
+     }
+     activeSession.session.notes.push(note);
+     activeSession.session.updatedAt = Date.now();
+
+     broadcast({
+       type: 'session:note:added',
+       sessionId,
+       note,
+     });
+
+     return note;
+   }
+
+   /**
+    * Update an existing note
+    * @param {string} sessionId
+    * @param {string} noteId
+    * @param {string} content - New markdown content
+    * @returns {SessionNote | null}
+    */
+   updateNote(sessionId, noteId, content) {
+     const activeSession = this.#sessions.get(sessionId);
+     if (!activeSession || !activeSession.session.notes) return null;
+
+     const note = activeSession.session.notes.find(n => n.id === noteId);
+     if (!note) return null;
+
+     note.content = content;
+     note.updatedAt = Date.now();
+     activeSession.session.updatedAt = Date.now();
+
+     broadcast({
+       type: 'session:note:updated',
+       sessionId,
+       note,
+     });
+
+     return note;
+   }
+
+   /**
+    * Delete a note from a session
+    * @param {string} sessionId
+    * @param {string} noteId
+    * @returns {boolean}
+    */
+   deleteNote(sessionId, noteId) {
+     const activeSession = this.#sessions.get(sessionId);
+     if (!activeSession || !activeSession.session.notes) return false;
+
+     const index = activeSession.session.notes.findIndex(n => n.id === noteId);
+     if (index === -1) return false;
+
+     activeSession.session.notes.splice(index, 1);
+     activeSession.session.updatedAt = Date.now();
+
+     broadcast({
+       type: 'session:note:deleted',
+       sessionId,
+       noteId,
+     });
+
+     return true;
+   }
+
+   /**
+    * Get all notes for a session
+    * @param {string} sessionId
+    * @returns {SessionNote[] | null}
+    */
+   getNotes(sessionId) {
+     const activeSession = this.#sessions.get(sessionId);
+     if (!activeSession) return null;
+     return activeSession.session.notes || [];
+   }
+
+   /**
+    * Set or clear the PR URL for a session
+    * @param {string} sessionId
+    * @param {string | null} prUrl - The PR URL or null to clear
+    * @returns {boolean} - true if successful
+    */
+   setPrUrl(sessionId, prUrl) {
+     const activeSession = this.#sessions.get(sessionId);
+     if (!activeSession) return false;
+
+     activeSession.session.prUrl = prUrl || null;
+     activeSession.session.updatedAt = Date.now();
+
+     broadcast({
+       type: 'session:pr-url:updated',
+       sessionId,
+       prUrl: activeSession.session.prUrl,
+     });
+
+     return true;
+   }
+
+   /**
+    * Get the PR URL for a session
+    * @param {string} sessionId
+    * @returns {string | null}
+    */
+   getPrUrl(sessionId) {
+     const activeSession = this.#sessions.get(sessionId);
+     if (!activeSession) return null;
+     return activeSession.session.prUrl || null;
+   }
+   ```
+
+4. **Add notes API routes (`src/api/sessions.js`)**
+   ```javascript
+   // GET /api/sessions/:id/notes - List all notes for a session
+   router.get('/:id/notes', (req, res) => {
+     const notes = sessionManager.getNotes(req.params.id);
+     if (notes === null) {
+       return res.status(404).json({ error: 'Session not found' });
+     }
+     res.json({ notes });
+   });
+
+   // POST /api/sessions/:id/notes - Add a note to a session
+   router.post('/:id/notes', (req, res) => {
+     const { content } = req.body;
+
+     if (!content) {
+       return res.status(400).json({ error: 'content is required' });
+     }
+
+     const note = sessionManager.addNote(req.params.id, content);
+     if (!note) {
+       return res.status(404).json({ error: 'Session not found' });
+     }
+     res.status(201).json({ note });
+   });
+
+   // PUT /api/sessions/:id/notes/:noteId - Update a note
+   router.put('/:id/notes/:noteId', (req, res) => {
+     const { content } = req.body;
+
+     if (!content) {
+       return res.status(400).json({ error: 'content is required' });
+     }
+
+     const note = sessionManager.updateNote(req.params.id, req.params.noteId, content);
+     if (!note) {
+       return res.status(404).json({ error: 'Session or note not found' });
+     }
+     res.json({ note });
+   });
+
+   // DELETE /api/sessions/:id/notes/:noteId - Delete a note
+   router.delete('/:id/notes/:noteId', (req, res) => {
+     const success = sessionManager.deleteNote(req.params.id, req.params.noteId);
+     if (!success) {
+       return res.status(404).json({ error: 'Session or note not found' });
+     }
+     res.json({ success: true });
+   });
+
+   // GET /api/sessions/:id/pr-url - Get the PR URL for a session
+   router.get('/:id/pr-url', (req, res) => {
+     const session = sessionManager.getSession(req.params.id);
+     if (!session) {
+       return res.status(404).json({ error: 'Session not found' });
+     }
+     res.json({ prUrl: session.prUrl || null });
+   });
+
+   // PUT /api/sessions/:id/pr-url - Set or update the PR URL for a session
+   router.put('/:id/pr-url', (req, res) => {
+     const { prUrl } = req.body;
+
+     const success = sessionManager.setPrUrl(req.params.id, prUrl);
+     if (!success) {
+       return res.status(404).json({ error: 'Session not found' });
+     }
+     res.json({ prUrl: prUrl || null });
+   });
+
+   // DELETE /api/sessions/:id/pr-url - Remove the PR URL from a session
+   router.delete('/:id/pr-url', (req, res) => {
+     const success = sessionManager.setPrUrl(req.params.id, null);
+     if (!success) {
+       return res.status(404).json({ error: 'Session not found' });
+     }
+     res.json({ success: true });
+   });
+   ```
+
+5. **Create notes store (`src/stores/notes.js`)**
+   ```javascript
+   import { defineStore } from 'pinia';
+   import { ref, computed } from 'vue';
+   import { useApi } from '../composables/useApi.js';
+   import { useWebSocket } from '../composables/useWebSocket.js';
+
+   export const useNotesStore = defineStore('notes', () => {
+     const api = useApi();
+     const { onMessage } = useWebSocket();
+
+     // Map of sessionId -> notes array
+     const notesBySession = ref(new Map());
+     const loading = ref(false);
+     const error = ref(null);
+
+     async function fetchNotes(sessionId) {
+       loading.value = true;
+       error.value = null;
+       try {
+         const result = await api.getSessionNotes(sessionId);
+         notesBySession.value.set(sessionId, result.notes);
+       } catch (e) {
+         error.value = e.message;
+       } finally {
+         loading.value = false;
+       }
+     }
+
+     async function addNote(sessionId, content) {
+       try {
+         const result = await api.addSessionNote(sessionId, content);
+         const notes = notesBySession.value.get(sessionId) || [];
+         notes.push(result.note);
+         notesBySession.value.set(sessionId, notes);
+         return result.note;
+       } catch (e) {
+         error.value = e.message;
+         throw e;
+       }
+     }
+
+     async function updateNote(sessionId, noteId, content) {
+       try {
+         const result = await api.updateSessionNote(sessionId, noteId, content);
+         const notes = notesBySession.value.get(sessionId) || [];
+         const index = notes.findIndex(n => n.id === noteId);
+         if (index !== -1) {
+           notes[index] = result.note;
+         }
+         return result.note;
+       } catch (e) {
+         error.value = e.message;
+         throw e;
+       }
+     }
+
+     async function deleteNote(sessionId, noteId) {
+       try {
+         await api.deleteSessionNote(sessionId, noteId);
+         const notes = notesBySession.value.get(sessionId) || [];
+         const index = notes.findIndex(n => n.id === noteId);
+         if (index !== -1) {
+           notes.splice(index, 1);
+         }
+       } catch (e) {
+         error.value = e.message;
+         throw e;
+       }
+     }
+
+     function getNotes(sessionId) {
+       return notesBySession.value.get(sessionId) || [];
+     }
+
+     // WebSocket handlers for real-time updates
+     onMessage((msg) => {
+       if (msg.type === 'session:note:added') {
+         const notes = notesBySession.value.get(msg.sessionId) || [];
+         notes.push(msg.note);
+         notesBySession.value.set(msg.sessionId, notes);
+       } else if (msg.type === 'session:note:updated') {
+         const notes = notesBySession.value.get(msg.sessionId) || [];
+         const index = notes.findIndex(n => n.id === msg.note.id);
+         if (index !== -1) {
+           notes[index] = msg.note;
+         }
+       } else if (msg.type === 'session:note:deleted') {
+         const notes = notesBySession.value.get(msg.sessionId) || [];
+         const index = notes.findIndex(n => n.id === msg.noteId);
+         if (index !== -1) {
+           notes.splice(index, 1);
+         }
+       }
+     });
+
+     return {
+       notesBySession,
+       loading,
+       error,
+       fetchNotes,
+       addNote,
+       updateNote,
+       deleteNote,
+       getNotes,
+     };
+   });
+   ```
+
+6. **Create SessionNotes component (`src/components/SessionNotes.vue`)**
+   ```vue
+   <script setup>
+   import { ref, onMounted, computed } from 'vue';
+   import { useNotesStore } from '../stores/notes.js';
+
+   const props = defineProps({
+     sessionId: { type: String, required: true },
+   });
+
+   const notesStore = useNotesStore();
+   const newNoteContent = ref('');
+   const editingNoteId = ref(null);
+   const editContent = ref('');
+
+   const notes = computed(() => notesStore.getNotes(props.sessionId));
+
+   onMounted(() => {
+     notesStore.fetchNotes(props.sessionId);
+   });
+
+   async function handleAddNote() {
+     if (!newNoteContent.value.trim()) return;
+     await notesStore.addNote(props.sessionId, newNoteContent.value);
+     newNoteContent.value = '';
+   }
+
+   function startEditing(note) {
+     editingNoteId.value = note.id;
+     editContent.value = note.content;
+   }
+
+   async function saveEdit(noteId) {
+     if (!editContent.value.trim()) return;
+     await notesStore.updateNote(props.sessionId, noteId, editContent.value);
+     editingNoteId.value = null;
+     editContent.value = '';
+   }
+
+   function cancelEdit() {
+     editingNoteId.value = null;
+     editContent.value = '';
+   }
+
+   async function handleDeleteNote(noteId) {
+     if (confirm('Are you sure you want to delete this note?')) {
+       await notesStore.deleteNote(props.sessionId, noteId);
+     }
+   }
+
+   function formatDate(timestamp) {
+     return new Date(timestamp).toLocaleString();
+   }
+   </script>
+
+   <template>
+     <div class="session-notes">
+       <h3>Notes</h3>
+
+       <!-- Add note form -->
+       <div class="add-note">
+         <textarea
+           v-model="newNoteContent"
+           placeholder="Add a note..."
+           rows="3"
+         />
+         <button @click="handleAddNote" :disabled="!newNoteContent.trim()">
+           Add Note
+         </button>
+       </div>
+
+       <!-- Notes list -->
+       <div class="notes-list">
+         <div v-if="notes.length === 0" class="empty-state">
+           No notes yet. Add a note to capture context or reminders about this session.
+         </div>
+
+         <div v-for="note in notes" :key="note.id" class="note-card">
+           <template v-if="editingNoteId === note.id">
+             <textarea v-model="editContent" rows="3" />
+             <div class="note-actions">
+               <button @click="saveEdit(note.id)">Save</button>
+               <button @click="cancelEdit">Cancel</button>
+             </div>
+           </template>
+           <template v-else>
+             <div class="note-content" v-html="note.content" />
+             <div class="note-meta">
+               <span class="note-date">{{ formatDate(note.updatedAt) }}</span>
+               <div class="note-actions">
+                 <button @click="startEditing(note)">Edit</button>
+                 <button @click="handleDeleteNote(note.id)" class="delete">Delete</button>
+               </div>
+             </div>
+           </template>
+         </div>
+       </div>
+     </div>
+   </template>
+
+   <style scoped>
+   .session-notes {
+     padding: 1rem;
+   }
+
+   .add-note {
+     margin-bottom: 1rem;
+   }
+
+   .add-note textarea {
+     width: 100%;
+     padding: 0.5rem;
+     border: 1px solid #ddd;
+     border-radius: 4px;
+     margin-bottom: 0.5rem;
+     font-family: inherit;
+   }
+
+   .notes-list {
+     display: flex;
+     flex-direction: column;
+     gap: 0.75rem;
+   }
+
+   .note-card {
+     padding: 0.75rem;
+     border: 1px solid #e0e0e0;
+     border-radius: 4px;
+     background: #fafafa;
+   }
+
+   .note-content {
+     margin-bottom: 0.5rem;
+     white-space: pre-wrap;
+   }
+
+   .note-meta {
+     display: flex;
+     justify-content: space-between;
+     align-items: center;
+     font-size: 0.85rem;
+     color: #666;
+   }
+
+   .note-actions {
+     display: flex;
+     gap: 0.5rem;
+   }
+
+   .note-actions button {
+     padding: 0.25rem 0.5rem;
+     font-size: 0.85rem;
+     cursor: pointer;
+   }
+
+   .note-actions button.delete {
+     color: #d32f2f;
+   }
+
+   .empty-state {
+     color: #666;
+     font-style: italic;
+     padding: 1rem;
+     text-align: center;
+   }
+   </style>
+   ```
+
+7. **Update SessionDetailView to include notes section**
+   - Import and add `<SessionNotes :session-id="session.id" />` component
+   - Display notes section below or alongside the conversation view
+
+8. **Update useApi composable with notes methods**
+   ```javascript
+   // Add to useApi.js
+   async function getSessionNotes(sessionId) {
+     const response = await fetch(`${baseUrl}/api/sessions/${sessionId}/notes`);
+     return response.json();
+   }
+
+   async function addSessionNote(sessionId, content) {
+     const response = await fetch(`${baseUrl}/api/sessions/${sessionId}/notes`, {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ content }),
+     });
+     return response.json();
+   }
+
+   async function updateSessionNote(sessionId, noteId, content) {
+     const response = await fetch(`${baseUrl}/api/sessions/${sessionId}/notes/${noteId}`, {
+       method: 'PUT',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ content }),
+     });
+     return response.json();
+   }
+
+   async function deleteSessionNote(sessionId, noteId) {
+     const response = await fetch(`${baseUrl}/api/sessions/${sessionId}/notes/${noteId}`, {
+       method: 'DELETE',
+     });
+     return response.json();
+   }
+
+   async function getSessionPrUrl(sessionId) {
+     const response = await fetch(`${baseUrl}/api/sessions/${sessionId}/pr-url`);
+     return response.json();
+   }
+
+   async function setSessionPrUrl(sessionId, prUrl) {
+     const response = await fetch(`${baseUrl}/api/sessions/${sessionId}/pr-url`, {
+       method: 'PUT',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ prUrl }),
+     });
+     return response.json();
+   }
+
+   async function deleteSessionPrUrl(sessionId) {
+     const response = await fetch(`${baseUrl}/api/sessions/${sessionId}/pr-url`, {
+       method: 'DELETE',
+     });
+     return response.json();
+   }
+   ```
+
+9. **Display PR link in SessionDetailView**
+   - Show the PR URL as a clickable link when present
+   - Provide an "Add PR Link" button when no PR is linked
+   - Allow editing/removing the PR link
+   - The PR link should be prominently displayed in the session header/metadata area
+
+**Deliverables**:
+- Users can add notes to any session
+- Notes are displayed on the session detail/show view
+- Notes support markdown content
+- Notes can be edited and deleted
+- Real-time sync via WebSocket when notes are modified
+- Notes persist with the session
+- Users can link a PR URL to any session
+- PR URL is displayed as a clickable link on the session detail view
+- PR link can be added, updated, or removed
+- Real-time sync via WebSocket when PR URL is modified
+
+---
+
 ## API Specification
 
 ### Sessions API
@@ -3439,6 +4078,13 @@ claudetools.io/
 | POST | `/api/sessions/:id/stop` | Stop a running session |
 | GET | `/api/sessions/:id/diff` | Get current git diff for session |
 | DELETE | `/api/sessions/:id` | Delete a session |
+| GET | `/api/sessions/:id/notes` | List all notes for a session |
+| POST | `/api/sessions/:id/notes` | Add a note to a session |
+| PUT | `/api/sessions/:id/notes/:noteId` | Update a note |
+| DELETE | `/api/sessions/:id/notes/:noteId` | Delete a note |
+| GET | `/api/sessions/:id/pr-url` | Get the PR URL for a session |
+| PUT | `/api/sessions/:id/pr-url` | Set or update the PR URL |
+| DELETE | `/api/sessions/:id/pr-url` | Remove the PR URL |
 
 ### Toolbox API
 
@@ -3507,6 +4153,18 @@ Connect to `ws://localhost:3000/ws`
 
 // Slash commands list updated (when commands are created/deleted)
 { type: 'command:list', commands: [SlashCommand] }
+
+// Note added to session
+{ type: 'session:note:added', sessionId: 'string', note: SessionNote }
+
+// Note updated in session
+{ type: 'session:note:updated', sessionId: 'string', note: SessionNote }
+
+// Note deleted from session
+{ type: 'session:note:deleted', sessionId: 'string', noteId: 'string' }
+
+// PR URL updated for session
+{ type: 'session:pr-url:updated', sessionId: 'string', prUrl: 'string | null' }
 
 // Toolbox item added
 { type: 'toolbox:add', item: ToolboxItem }
