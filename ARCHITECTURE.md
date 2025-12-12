@@ -7,15 +7,16 @@
 3. [Solution Overview](#solution-overview)
 4. [Architecture](#architecture)
 5. [Technology Stack](#technology-stack)
-6. [Project Structure](#project-structure)
-7. [Implementation Phases](#implementation-phases)
-8. [API Specification](#api-specification)
-9. [WebSocket Protocol](#websocket-protocol)
-10. [Data Models](#data-models)
-11. [Wireframes](#wireframes)
-12. [Slash Commands](#slash-commands)
-13. [Security Considerations](#security-considerations)
-14. [Future Scaling](#future-scaling)
+6. [Styling Guidelines](#styling-guidelines)
+7. [Project Structure](#project-structure)
+8. [Implementation Phases](#implementation-phases)
+9. [API Specification](#api-specification)
+10. [WebSocket Protocol](#websocket-protocol)
+11. [Data Models](#data-models)
+12. [Wireframes](#wireframes)
+13. [Slash Commands](#slash-commands)
+14. [Security Considerations](#security-considerations)
+15. [Future Scaling](#future-scaling)
 
 ---
 
@@ -187,6 +188,7 @@ Used for:
 | **Vite** | Build tool | Fast HMR, native ES modules, excellent DX |
 | **Vue Router** | Routing | Official Vue router, simple SPA navigation |
 | **Pinia** | State management | Official Vue store, excellent DX |
+| **Tailwind CSS** | Styling framework | Utility-first CSS, rapid prototyping, consistent design system |
 
 ### Development
 
@@ -196,6 +198,270 @@ Used for:
 | **ESLint** | Linting |
 | **Prettier** | Code formatting |
 | **concurrently** | Run server and frontend in parallel |
+
+---
+
+## Styling Guidelines
+
+### Design Philosophy
+
+The application uses a **minimalist retro aesthetic** with a **dark mode style**. The design emphasizes simplicity, clarity, and a nostalgic feel reminiscent of classic terminal interfaces and early computing while maintaining modern usability.
+
+### Core Principles
+
+1. **Dark Mode First** - The entire application is designed around a dark color scheme. No light mode variant.
+2. **Minimalist UI** - Reduce visual clutter; every element should serve a purpose
+3. **Retro Feel** - Subtle nods to classic computing: monospace fonts for code, muted color accents, clean geometric shapes
+4. **High Contrast** - Ensure readability with sufficient contrast between text and backgrounds
+5. **Consistent Spacing** - Use Tailwind's spacing scale consistently throughout
+
+### Technology: Tailwind CSS
+
+All styling is implemented using **Tailwind CSS** utility classes. This provides:
+- Consistent design tokens across the application
+- Rapid development without context-switching to CSS files
+- Easy dark mode implementation via class utilities
+- Small production bundle with PurgeCSS
+
+### Color Palette
+
+| Purpose | Tailwind Class | Hex Value | Usage |
+|---------|----------------|-----------|-------|
+| **Background (Primary)** | `bg-gray-900` | `#111827` | Main app background |
+| **Background (Secondary)** | `bg-gray-800` | `#1f2937` | Cards, panels, elevated surfaces |
+| **Background (Tertiary)** | `bg-gray-700` | `#374151` | Hover states, borders |
+| **Text (Primary)** | `text-gray-100` | `#f3f4f6` | Main body text |
+| **Text (Secondary)** | `text-gray-400` | `#9ca3af` | Secondary text, labels |
+| **Text (Muted)** | `text-gray-500` | `#6b7280` | Placeholders, hints |
+| **Accent (Primary)** | `text-cyan-400` | `#22d3ee` | Links, interactive elements |
+| **Accent (Success)** | `text-emerald-400` | `#34d399` | Success states, additions |
+| **Accent (Warning)** | `text-amber-400` | `#fbbf24` | Warnings, pending states |
+| **Accent (Error)** | `text-red-400` | `#f87171` | Errors, deletions |
+| **Border** | `border-gray-700` | `#374151` | Standard borders |
+| **Border (Subtle)** | `border-gray-800` | `#1f2937` | Subtle dividers |
+
+### Typography
+
+| Element | Tailwind Classes | Notes |
+|---------|------------------|-------|
+| **Headings** | `font-semibold text-gray-100` | Use sparingly, h1-h3 only |
+| **Body Text** | `text-gray-300 text-sm` | Default body text |
+| **Code/Mono** | `font-mono text-gray-200` | Code blocks, session output |
+| **Labels** | `text-xs text-gray-500 uppercase tracking-wide` | Form labels, section headers |
+| **Links** | `text-cyan-400 hover:text-cyan-300` | Interactive text elements |
+
+**Font Stack:**
+```css
+/* Sans-serif (default) */
+font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+/* Monospace (code, terminal output) */
+font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+```
+
+### Component Patterns
+
+#### Cards/Panels
+```html
+<div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+  <!-- Card content -->
+</div>
+```
+
+#### Buttons
+```html
+<!-- Primary Button -->
+<button class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-sm font-medium transition-colors">
+  Action
+</button>
+
+<!-- Secondary Button -->
+<button class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-4 py-2 rounded text-sm font-medium transition-colors">
+  Secondary
+</button>
+
+<!-- Ghost Button -->
+<button class="text-gray-400 hover:text-gray-200 hover:bg-gray-700 px-3 py-1.5 rounded text-sm transition-colors">
+  Ghost
+</button>
+```
+
+#### Form Inputs
+```html
+<input
+  type="text"
+  class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+  placeholder="Enter text..."
+/>
+```
+
+#### Status Badges
+```html
+<!-- Running -->
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-900/50 text-emerald-400 border border-emerald-700">
+  Running
+</span>
+
+<!-- Waiting -->
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-900/50 text-amber-400 border border-amber-700">
+  Waiting
+</span>
+
+<!-- Error -->
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-900/50 text-red-400 border border-red-700">
+  Error
+</span>
+```
+
+### Spacing Guidelines
+
+Use Tailwind's default spacing scale consistently:
+
+| Scale | Size | Usage |
+|-------|------|-------|
+| `1` | 0.25rem (4px) | Tight spacing within components |
+| `2` | 0.5rem (8px) | Standard inner padding |
+| `3` | 0.75rem (12px) | Medium spacing |
+| `4` | 1rem (16px) | Standard component padding |
+| `6` | 1.5rem (24px) | Section spacing |
+| `8` | 2rem (32px) | Large section gaps |
+
+### Animation & Transitions
+
+Keep animations subtle and purposeful:
+
+```html
+<!-- Standard transition -->
+<div class="transition-colors duration-150">
+
+<!-- Hover lift effect (use sparingly) -->
+<div class="transition-transform duration-150 hover:-translate-y-0.5">
+
+<!-- Fade in -->
+<div class="animate-fade-in">
+```
+
+**Custom animations to add in `tailwind.config.js`:**
+```javascript
+module.exports = {
+  theme: {
+    extend: {
+      animation: {
+        'fade-in': 'fadeIn 0.2s ease-out',
+        'pulse-subtle': 'pulse 2s ease-in-out infinite',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+      },
+    },
+  },
+}
+```
+
+### Tailwind Configuration
+
+**`tailwind.config.js`:**
+```javascript
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    './index.html',
+    './src/**/*.{vue,js,ts,jsx,tsx}',
+  ],
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Fira Code', 'ui-monospace', 'monospace'],
+      },
+      colors: {
+        // Extend with custom brand colors if needed
+      },
+      animation: {
+        'fade-in': 'fadeIn 0.2s ease-out',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+      },
+    },
+  },
+  plugins: [],
+}
+```
+
+### CSS File Structure
+
+**`packages/web/src/assets/styles/main.css`:**
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base layer customizations */
+@layer base {
+  body {
+    @apply bg-gray-900 text-gray-200 antialiased;
+  }
+
+  /* Scrollbar styling for the retro feel */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-900;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-700 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-600;
+  }
+}
+
+/* Component layer for reusable patterns */
+@layer components {
+  .btn-primary {
+    @apply bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-sm font-medium transition-colors;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-700 hover:bg-gray-600 text-gray-200 px-4 py-2 rounded text-sm font-medium transition-colors;
+  }
+
+  .card {
+    @apply bg-gray-800 border border-gray-700 rounded-lg;
+  }
+
+  .input {
+    @apply w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500;
+  }
+}
+```
+
+### Do's and Don'ts
+
+**Do:**
+- Use Tailwind utility classes directly in components
+- Maintain consistent spacing using the defined scale
+- Use semantic color names (e.g., `text-gray-400` not hardcoded hex)
+- Keep the interface clean and uncluttered
+- Use transitions for interactive state changes
+
+**Don't:**
+- Add inline styles or custom CSS unless absolutely necessary
+- Use bright, saturated colors that break the muted retro aesthetic
+- Over-animate or add unnecessary visual effects
+- Mix different spacing scales inconsistently
+- Create light mode variants (dark mode only)
 
 ---
 
