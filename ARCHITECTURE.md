@@ -3458,6 +3458,7 @@ claudetools.io/
     * @property {number} updatedAt - Last activity timestamp
     * @property {ConversationMessage[]} messages - Full conversation history
     * @property {SessionNote[]} notes - Notes attached to this session
+    * @property {string} [prUrl] - URL of linked pull request
     * @property {string} [error] - Error message if status is 'error'
     */
    ```
@@ -3486,6 +3487,14 @@ claudetools.io/
     * @property {'session:note:deleted'} type
     * @property {string} sessionId
     * @property {string} noteId
+    */
+
+   /**
+    * PR URL updated for session
+    * @typedef {Object} WsSessionPrUrlUpdatedMessage
+    * @property {'session:pr-url:updated'} type
+    * @property {string} sessionId
+    * @property {string | null} prUrl - The PR URL or null if removed
     */
    ```
 
@@ -3585,6 +3594,39 @@ claudetools.io/
      if (!activeSession) return null;
      return activeSession.session.notes || [];
    }
+
+   /**
+    * Set or clear the PR URL for a session
+    * @param {string} sessionId
+    * @param {string | null} prUrl - The PR URL or null to clear
+    * @returns {boolean} - true if successful
+    */
+   setPrUrl(sessionId, prUrl) {
+     const activeSession = this.#sessions.get(sessionId);
+     if (!activeSession) return false;
+
+     activeSession.session.prUrl = prUrl || null;
+     activeSession.session.updatedAt = Date.now();
+
+     broadcast({
+       type: 'session:pr-url:updated',
+       sessionId,
+       prUrl: activeSession.session.prUrl,
+     });
+
+     return true;
+   }
+
+   /**
+    * Get the PR URL for a session
+    * @param {string} sessionId
+    * @returns {string | null}
+    */
+   getPrUrl(sessionId) {
+     const activeSession = this.#sessions.get(sessionId);
+     if (!activeSession) return null;
+     return activeSession.session.prUrl || null;
+   }
    ```
 
 4. **Add notes API routes (`src/api/sessions.js`)**
@@ -3633,6 +3675,35 @@ claudetools.io/
      const success = sessionManager.deleteNote(req.params.id, req.params.noteId);
      if (!success) {
        return res.status(404).json({ error: 'Session or note not found' });
+     }
+     res.json({ success: true });
+   });
+
+   // GET /api/sessions/:id/pr-url - Get the PR URL for a session
+   router.get('/:id/pr-url', (req, res) => {
+     const session = sessionManager.getSession(req.params.id);
+     if (!session) {
+       return res.status(404).json({ error: 'Session not found' });
+     }
+     res.json({ prUrl: session.prUrl || null });
+   });
+
+   // PUT /api/sessions/:id/pr-url - Set or update the PR URL for a session
+   router.put('/:id/pr-url', (req, res) => {
+     const { prUrl } = req.body;
+
+     const success = sessionManager.setPrUrl(req.params.id, prUrl);
+     if (!success) {
+       return res.status(404).json({ error: 'Session not found' });
+     }
+     res.json({ prUrl: prUrl || null });
+   });
+
+   // DELETE /api/sessions/:id/pr-url - Remove the PR URL from a session
+   router.delete('/:id/pr-url', (req, res) => {
+     const success = sessionManager.setPrUrl(req.params.id, null);
+     if (!success) {
+       return res.status(404).json({ error: 'Session not found' });
      }
      res.json({ success: true });
    });
@@ -3951,7 +4022,34 @@ claudetools.io/
      });
      return response.json();
    }
+
+   async function getSessionPrUrl(sessionId) {
+     const response = await fetch(`${baseUrl}/api/sessions/${sessionId}/pr-url`);
+     return response.json();
+   }
+
+   async function setSessionPrUrl(sessionId, prUrl) {
+     const response = await fetch(`${baseUrl}/api/sessions/${sessionId}/pr-url`, {
+       method: 'PUT',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ prUrl }),
+     });
+     return response.json();
+   }
+
+   async function deleteSessionPrUrl(sessionId) {
+     const response = await fetch(`${baseUrl}/api/sessions/${sessionId}/pr-url`, {
+       method: 'DELETE',
+     });
+     return response.json();
+   }
    ```
+
+9. **Display PR link in SessionDetailView**
+   - Show the PR URL as a clickable link when present
+   - Provide an "Add PR Link" button when no PR is linked
+   - Allow editing/removing the PR link
+   - The PR link should be prominently displayed in the session header/metadata area
 
 **Deliverables**:
 - Users can add notes to any session
@@ -3960,6 +4058,10 @@ claudetools.io/
 - Notes can be edited and deleted
 - Real-time sync via WebSocket when notes are modified
 - Notes persist with the session
+- Users can link a PR URL to any session
+- PR URL is displayed as a clickable link on the session detail view
+- PR link can be added, updated, or removed
+- Real-time sync via WebSocket when PR URL is modified
 
 ---
 
@@ -3980,6 +4082,9 @@ claudetools.io/
 | POST | `/api/sessions/:id/notes` | Add a note to a session |
 | PUT | `/api/sessions/:id/notes/:noteId` | Update a note |
 | DELETE | `/api/sessions/:id/notes/:noteId` | Delete a note |
+| GET | `/api/sessions/:id/pr-url` | Get the PR URL for a session |
+| PUT | `/api/sessions/:id/pr-url` | Set or update the PR URL |
+| DELETE | `/api/sessions/:id/pr-url` | Remove the PR URL |
 
 ### Toolbox API
 
@@ -4057,6 +4162,9 @@ Connect to `ws://localhost:3000/ws`
 
 // Note deleted from session
 { type: 'session:note:deleted', sessionId: 'string', noteId: 'string' }
+
+// PR URL updated for session
+{ type: 'session:pr-url:updated', sessionId: 'string', prUrl: 'string | null' }
 
 // Toolbox item added
 { type: 'toolbox:add', item: ToolboxItem }
