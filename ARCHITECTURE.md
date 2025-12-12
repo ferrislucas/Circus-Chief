@@ -12,12 +12,10 @@
 8. [API Specification](#api-specification)
 9. [WebSocket Protocol](#websocket-protocol)
 10. [Data Models](#data-models)
-11. [Frontend Specification](#frontend-specification)
-12. [Claude Agent SDK Integration](#claude-agent-sdk-integration)
-13. [Git Integration](#git-integration)
-14. [Slash Commands](#slash-commands)
-15. [Security Considerations](#security-considerations)
-16. [Future Scaling](#future-scaling)
+11. [Wireframes](#wireframes)
+12. [Slash Commands](#slash-commands)
+13. [Security Considerations](#security-considerations)
+14. [Future Scaling](#future-scaling)
 
 ---
 
@@ -3533,6 +3531,34 @@ Connect to `ws://localhost:3000/ws`
 ## Data Models
 
 See the [Shared Types and Protocol](#phase-3-shared-types-and-protocol) section for complete JSDoc type definitions.
+
+---
+
+## Wireframes
+
+Visual wireframes for each view in the application are available in the [`wireframes/`](wireframes/) directory. These ASCII-art wireframes document the UI layout, component structure, states, and interactions for each view.
+
+### View Wireframes
+
+| View | Description | Wireframe |
+|------|-------------|-----------|
+| **HomeView** | Main layout with header, sidebar navigation, and content area | [HomeView.md](wireframes/HomeView.md) |
+| **SessionListView** | List of all Claude Code sessions with status, filtering, and sorting | [SessionListView.md](wireframes/SessionListView.md) |
+| **SessionDetailView** | Conversation view with messages, input, and diff tab | [SessionDetailView.md](wireframes/SessionDetailView.md) |
+| **NewSessionView** | Form for creating new sessions with git configuration | [NewSessionView.md](wireframes/NewSessionView.md) |
+| **ToolboxView** | Grid/list display of shared items (images, markdown, JSON, text) | [ToolboxView.md](wireframes/ToolboxView.md) |
+| **CommandsView** | Slash commands browser and editor | [CommandsView.md](wireframes/CommandsView.md) |
+
+### Wireframe Contents
+
+Each wireframe document includes:
+
+- **Layout diagrams** - ASCII art showing component structure and positioning
+- **Component specifications** - Detailed breakdown of individual UI components
+- **State variations** - Loading, empty, error, and success states
+- **Interaction descriptions** - User actions and expected behaviors
+- **Responsive behavior** - How layouts adapt to different screen sizes
+- **Real-time updates** - How WebSocket events affect the UI
 
 ---
 
