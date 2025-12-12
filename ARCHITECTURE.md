@@ -2719,10 +2719,79 @@ claudetools.io/
    - Show file count summary
 
 8. **Create DiffViewer component**
-   - Render unified diff with syntax highlighting
-   - Color-code additions (green) and deletions (red)
-   - File headers as collapsible sections
-   - Consider using `diff2html` library for rendering
+
+   **Library Selection: diff2html**
+
+   For rendering git diffs in the browser, we will use the [diff2html](https://diff2html.xyz/) library. This choice was made after evaluating several options:
+
+   | Library | Pros | Cons | Verdict |
+   |---------|------|------|---------|
+   | **diff2html** | Framework-agnostic, excellent default styling, supports unified & side-by-side views, active maintenance, syntax highlighting via highlight.js | Larger bundle (~50KB gzipped with highlight.js) | **Recommended** |
+   | **react-diff-view** | Excellent React integration, customizable themes | React-specific (we use Vue) | Not suitable |
+   | **monaco-editor** | Full VS Code experience, inline editing | Very heavy (~2MB), overkill for read-only display | Too heavy |
+   | **Custom implementation** | Full control, minimal bundle | Significant development time, edge cases | Not worth the effort |
+
+   **Installation:**
+   ```bash
+   cd packages/web
+   pnpm add diff2html
+   ```
+
+   **Component Implementation (`src/components/DiffViewer.vue`):**
+   ```vue
+   <script setup>
+   import { computed } from 'vue';
+   import { html } from 'diff2html';
+   import 'diff2html/bundles/css/diff2html.min.css';
+
+   const props = defineProps({
+     diff: { type: String, required: true },
+     outputFormat: { type: String, default: 'line-by-line' }, // or 'side-by-side'
+   });
+
+   const diffHtml = computed(() => {
+     if (!props.diff) return '';
+     return html(props.diff, {
+       drawFileList: false,
+       matching: 'lines',
+       outputFormat: props.outputFormat,
+       renderNothingWhenEmpty: true,
+     });
+   });
+   </script>
+
+   <template>
+     <div class="diff-viewer" v-html="diffHtml" />
+   </template>
+
+   <style>
+   .diff-viewer {
+     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+     font-size: 13px;
+     line-height: 1.4;
+   }
+   </style>
+   ```
+
+   **Key Features to Implement:**
+   - Toggle between unified (line-by-line) and split (side-by-side) views
+   - Syntax highlighting for code based on file extension
+   - Collapsible file sections for multi-file diffs
+   - Line numbers with clickable anchors
+   - Color-coded additions (green background) and deletions (red background)
+   - "No changes" empty state
+
+   **diff2html Configuration Options:**
+   ```javascript
+   const diffOptions = {
+     outputFormat: 'line-by-line',  // or 'side-by-side'
+     drawFileList: true,            // show file list header
+     matching: 'lines',             // match similar lines
+     matchWordsThreshold: 0.25,     // word match sensitivity
+     maxLineLengthHighlight: 10000, // max line length for highlighting
+     renderNothingWhenEmpty: true,  // hide component if no diff
+   };
+   ```
 
 9. **Update SessionDetailView**
    - Add "Changes" tab alongside conversation
