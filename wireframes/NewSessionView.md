@@ -78,6 +78,18 @@ It includes fields for the prompt, working directory, and optional git configura
 |                                                                    |
 +------------------------------------------------------------------+
 |                                                                    |
+|  EXECUTION MODE                                                    |
+|  +--------------------------------------------------------------+ |
+|  |                                                              | |
+|  |  ( ) Plan      - Claude creates a plan before making changes | |
+|  |  (•) Standard  - Normal mode with tool confirmations         | |
+|  |  ( ) Yolo      - Execute without confirmations (use caution) | |
+|  |                                                              | |
+|  +--------------------------------------------------------------+ |
+|  Controls how Claude executes tools and makes changes.             |
+|                                                                    |
++------------------------------------------------------------------+
+|                                                                    |
 |                                           [Cancel]  [Create Session]|
 |                                                                    |
 +------------------------------------------------------------------+
@@ -211,6 +223,32 @@ Recent directories (shown below input):
 +------------------------------------------------------------------+
 ```
 
+### Execution Mode Selector
+```
++------------------------------------------------------------------+
+| EXECUTION MODE                                                     |
++------------------------------------------------------------------+
+| +--------------------------------------------------------------+ |
+| |                                                              | |
+| |  ( ) Plan      - Claude creates a plan before making changes | |
+| |  (•) Standard  - Normal mode with tool confirmations         | |
+| |  ( ) Yolo      - Execute without confirmations (use caution) | |
+| |                                                              | |
+| +--------------------------------------------------------------+ |
+|                                                                    |
+| Help text: "Controls how Claude executes tools and makes changes." |
+| Default: Standard                                                  |
+|                                                                    |
+| Mode Descriptions:                                                 |
+| - Plan: Claude will analyze the task, create a detailed plan,     |
+|   and wait for your approval before making any file changes.       |
+| - Standard: Claude asks for confirmation before running tools      |
+|   that modify files or execute commands. Recommended for most use. |
+| - Yolo: Claude executes all tools without confirmation. Use with   |
+|   caution - best for trusted, well-defined tasks in safe envs.     |
++------------------------------------------------------------------+
+```
+
 ## States
 
 ### Loading State (fetching git info)
@@ -294,11 +332,17 @@ Recent directories (shown below input):
    - When enabled, shows branch name and base branch inputs
    - Validates branch name format
 
-7. **Cancel Button**
+7. **Execution Mode**
+   - Radio button group with three options: Plan, Standard, Yolo
+   - Standard is selected by default
+   - Selecting Yolo shows a warning tooltip about running without confirmations
+   - Mode is passed to the session and can be changed later via `/mode` command
+
+8. **Cancel Button**
    - Returns to SessionListView
    - Confirms if form has changes (optional)
 
-8. **Create Session Button**
+9. **Create Session Button**
    - Validates all required fields
    - Shows loading state while creating
    - Navigates to SessionDetailView on success
