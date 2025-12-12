@@ -262,8 +262,7 @@ claudetools.io/
     │       │   └── useApi.js       # HTTP API client
     │       │
     │       ├── views/              # Page-level components
-    │       │   ├── HomeView.vue         # Main layout with sidebar
-    │       │   ├── SessionListView.vue  # Session list (sidebar content)
+    │       │   ├── SessionListView.vue  # Session list (default view)
     │       │   ├── SessionDetailView.vue # Single session conversation
     │       │   ├── NewSessionView.vue   # Create new session form
     │       │   ├── ToolboxView.vue      # Toolbox item display
@@ -1938,35 +1937,28 @@ claudetools.io/
    const routes = [
      {
        path: '/',
-       name: 'home',
-       component: () => import('./views/HomeView.vue'),
-       children: [
-         {
-           path: '',
-           name: 'session-list',
-           component: () => import('./views/SessionListView.vue'),
-         },
-         {
-           path: 'sessions/new',
-           name: 'new-session',
-           component: () => import('./views/NewSessionView.vue'),
-         },
-         {
-           path: 'sessions/:id',
-           name: 'session-detail',
-           component: () => import('./views/SessionDetailView.vue'),
-         },
-         {
-           path: 'toolbox',
-           name: 'toolbox',
-           component: () => import('./views/ToolboxView.vue'),
-         },
-         {
-           path: 'commands',
-           name: 'commands',
-           component: () => import('./views/CommandsView.vue'),
-         },
-       ],
+       name: 'session-list',
+       component: () => import('./views/SessionListView.vue'),
+     },
+     {
+       path: '/sessions/new',
+       name: 'new-session',
+       component: () => import('./views/NewSessionView.vue'),
+     },
+     {
+       path: '/sessions/:id',
+       name: 'session-detail',
+       component: () => import('./views/SessionDetailView.vue'),
+     },
+     {
+       path: '/toolbox',
+       name: 'toolbox',
+       component: () => import('./views/ToolboxView.vue'),
+     },
+     {
+       path: '/commands',
+       name: 'commands',
+       component: () => import('./views/CommandsView.vue'),
      },
    ];
 
@@ -2312,12 +2304,12 @@ claudetools.io/
 
 **Steps**:
 
-1. **HomeView.vue** - Main layout with sidebar
+1. **App.vue** - Main layout with sidebar
    - Left sidebar: Session list, navigation
-   - Main area: Router view for detail content
+   - Main area: Router view for content
    - Header: App title, connection status
 
-2. **SessionListView.vue** - List of sessions
+2. **SessionListView.vue** - List of sessions (default route `/`)
    - Fetch sessions on mount
    - Display SessionCard for each
    - "New Session" button
@@ -3542,8 +3534,8 @@ Visual wireframes for each view in the application are available in the [`wirefr
 
 | View | Description | Wireframe |
 |------|-------------|-----------|
-| **HomeView** | Main layout with header, sidebar navigation, and content area | [HomeView.md](wireframes/HomeView.md) |
-| **SessionListView** | List of all Claude Code sessions with status, filtering, and sorting | [SessionListView.md](wireframes/SessionListView.md) |
+| **AppLayout** | Main layout with header, sidebar navigation, and content area | [AppLayout.md](wireframes/AppLayout.md) |
+| **SessionListView** | List of all Claude Code sessions with status, filtering, and sorting (default route `/`) | [SessionListView.md](wireframes/SessionListView.md) |
 | **SessionDetailView** | Conversation view with messages, input, and diff tab | [SessionDetailView.md](wireframes/SessionDetailView.md) |
 | **NewSessionView** | Form for creating new sessions with git configuration | [NewSessionView.md](wireframes/NewSessionView.md) |
 | **ToolboxView** | Grid/list display of shared items (images, markdown, JSON, text) | [ToolboxView.md](wireframes/ToolboxView.md) |

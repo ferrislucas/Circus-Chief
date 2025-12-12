@@ -1,7 +1,9 @@
-# HomeView Wireframe
+# AppLayout Wireframe
 
-The HomeView is the main layout container that provides the overall structure for the application.
-It contains a sidebar, header, and main content area.
+The application uses a consistent layout with a header and sidebar navigation.
+This layout is defined in `App.vue` and wraps all views.
+
+## Full Layout
 
 ```
 +------------------------------------------------------------------+
@@ -19,7 +21,7 @@ It contains a sidebar, header, and main content area.
 |  A     |  |                                                      ||
 |  R     |  |  Content rendered based on current route:            ||
 |        |  |                                                      ||
-|  +---+ |  |  - SessionListView (default)                         ||
+|  +---+ |  |  - SessionListView (/ - default)                     ||
 |  |   | |  |  - SessionDetailView (/sessions/:id)                 ||
 |  | N | |  |  - NewSessionView (/sessions/new)                    ||
 |  | A | |  |  - ToolboxView (/toolbox)                            ||
