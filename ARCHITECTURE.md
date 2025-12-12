@@ -12,12 +12,10 @@
 8. [API Specification](#api-specification)
 9. [WebSocket Protocol](#websocket-protocol)
 10. [Data Models](#data-models)
-11. [Frontend Specification](#frontend-specification)
-12. [Claude Agent SDK Integration](#claude-agent-sdk-integration)
-13. [Git Integration](#git-integration)
-14. [Slash Commands](#slash-commands)
-15. [Security Considerations](#security-considerations)
-16. [Future Scaling](#future-scaling)
+11. [Wireframes](#wireframes)
+12. [Slash Commands](#slash-commands)
+13. [Security Considerations](#security-considerations)
+14. [Future Scaling](#future-scaling)
 
 ---
 
@@ -265,12 +263,9 @@ claudetools.io/
     │       │   └── useApi.js       # HTTP API client
     │       │
     │       ├── views/              # Page-level components
-    │       │   ├── HomeView.vue         # Main layout with sidebar
-    │       │   ├── SessionListView.vue  # Session list (sidebar content)
-    │       │   ├── SessionDetailView.vue # Single session conversation
-    │       │   ├── NewSessionView.vue   # Create new session form
-    │       │   ├── ToolboxView.vue      # Toolbox item display
-    │       │   └── CommandsView.vue     # Slash commands browser/manager
+    │       │   ├── SessionListView.vue  # Session list (default view)
+    │       │   ├── SessionDetailView.vue # Session with tabs (Conversation/Changes/Toolbox/Commands)
+    │       │   └── NewSessionView.vue   # Create new session form
     │       │
     │       ├── components/         # Reusable components
     │       │   ├── SessionCard.vue           # Session list item
@@ -1942,35 +1937,19 @@ claudetools.io/
    const routes = [
      {
        path: '/',
-       name: 'home',
-       component: () => import('./views/HomeView.vue'),
-       children: [
-         {
-           path: '',
-           name: 'session-list',
-           component: () => import('./views/SessionListView.vue'),
-         },
-         {
-           path: 'sessions/new',
-           name: 'new-session',
-           component: () => import('./views/NewSessionView.vue'),
-         },
-         {
-           path: 'sessions/:id',
-           name: 'session-detail',
-           component: () => import('./views/SessionDetailView.vue'),
-         },
-         {
-           path: 'toolbox',
-           name: 'toolbox',
-           component: () => import('./views/ToolboxView.vue'),
-         },
-         {
-           path: 'commands',
-           name: 'commands',
-           component: () => import('./views/CommandsView.vue'),
-         },
-       ],
+       name: 'session-list',
+       component: () => import('./views/SessionListView.vue'),
+     },
+     {
+       path: '/sessions/new',
+       name: 'new-session',
+       component: () => import('./views/NewSessionView.vue'),
+     },
+     {
+       path: '/sessions/:id/:tab?',
+       name: 'session-detail',
+       component: () => import('./views/SessionDetailView.vue'),
+       // Tab parameter: conversation (default), changes, toolbox, commands
      },
    ];
 
@@ -2316,12 +2295,12 @@ claudetools.io/
 
 **Steps**:
 
-1. **HomeView.vue** - Main layout with sidebar
-   - Left sidebar: Session list, navigation
-   - Main area: Router view for detail content
-   - Header: App title, connection status
+1. **App.vue** - Main layout with top navigation
+   - Top nav bar: Logo, Sessions link, New Session button, connection status
+   - Main area: Router view for content
+   - Mobile-friendly responsive design
 
-2. **SessionListView.vue** - List of sessions
+2. **SessionListView.vue** - List of sessions (default route `/`)
    - Fetch sessions on mount
    - Display SessionCard for each
    - "New Session" button
@@ -2334,11 +2313,12 @@ claudetools.io/
    - Timestamp
    - Click to navigate to detail
 
-4. **SessionDetailView.vue** - Conversation view
-   - Fetch full session on mount
-   - List of ConversationMessage components
-   - Auto-scroll to bottom on new messages
-   - MessageInput at bottom (enabled when status is 'waiting')
+4. **SessionDetailView.vue** - Session with tabbed interface
+   - Tab navigation: Conversation, Changes, Toolbox, Commands
+   - Conversation tab: Messages + input (default)
+   - Changes tab: Diff viewer for file changes
+   - Toolbox tab: Session-specific shared items
+   - Commands tab: Available slash commands
 
 5. **ConversationMessage.vue** - Single message
    - Different styling for user/assistant
@@ -2350,6 +2330,7 @@ claudetools.io/
    - Textarea with send button
    - Submit on Enter (Shift+Enter for newline)
    - Disabled when session not waiting
+   - Command palette on `/`
 
 7. **NewSessionView.vue** - Create session form
    - Prompt textarea
@@ -2358,25 +2339,25 @@ claudetools.io/
    - GitBranchSelector dropdown
    - Submit button
 
-8. **ToolboxView.vue** - Toolbox display
-   - Grid/list of ToolboxItem components
-   - Clear all button
-   - Empty state when no items
-
-9. **ToolboxItem.vue** - Single toolbox item
+8. **ToolboxItem.vue** - Single toolbox item (in Toolbox tab)
    - Routes to specific renderer based on type
    - Delete button
    - Label display
    - Timestamp
 
-10. **ToolboxImageItem.vue** - Image display
-    - Render base64 image
-    - Click to expand/zoom
-    - Filename if available
+9. **ToolboxImageItem.vue** - Image display
+   - Render base64 image
+   - Click to expand/zoom
+   - Filename if available
 
-11. **ToolboxMarkdownItem.vue** - Markdown display
+10. **ToolboxMarkdownItem.vue** - Markdown display
     - Render markdown with syntax highlighting
     - Scrollable if long
+
+11. **CommandCard.vue** - Slash command display (in Commands tab)
+    - Command name and description
+    - Source badge (builtin/project/user)
+    - Edit/delete for custom commands
 
 **Deliverables**:
 - All views implemented and functional
@@ -4191,6 +4172,32 @@ Connect to `ws://localhost:3000/ws`
 ## Data Models
 
 See the [Shared Types and Protocol](#phase-3-shared-types-and-protocol) section for complete JSDoc type definitions.
+
+---
+
+## Wireframes
+
+Visual wireframes for each view in the application are available in the [`wireframes/`](wireframes/) directory. These ASCII-art wireframes document the UI layout, component structure, states, and interactions for each view.
+
+### View Wireframes
+
+| View | Description | Wireframe |
+|------|-------------|-----------|
+| **AppLayout** | Mobile-friendly layout with top navigation bar | [AppLayout.md](wireframes/AppLayout.md) |
+| **SessionListView** | List of all Claude Code sessions with status, filtering, and sorting (default route `/`) | [SessionListView.md](wireframes/SessionListView.md) |
+| **SessionDetailView** | Session view with tabbed sub-navigation (Conversation, Changes, Toolbox, Commands) | [SessionDetailView.md](wireframes/SessionDetailView.md) |
+| **NewSessionView** | Form for creating new sessions with git configuration | [NewSessionView.md](wireframes/NewSessionView.md) |
+
+### Wireframe Contents
+
+Each wireframe document includes:
+
+- **Layout diagrams** - ASCII art showing component structure and positioning
+- **Component specifications** - Detailed breakdown of individual UI components
+- **State variations** - Loading, empty, error, and success states
+- **Interaction descriptions** - User actions and expected behaviors
+- **Responsive behavior** - How layouts adapt to different screen sizes
+- **Real-time updates** - How WebSocket events affect the UI
 
 ---
 
