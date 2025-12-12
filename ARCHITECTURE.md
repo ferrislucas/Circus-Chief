@@ -263,10 +263,8 @@ claudetools.io/
     │       │
     │       ├── views/              # Page-level components
     │       │   ├── SessionListView.vue  # Session list (default view)
-    │       │   ├── SessionDetailView.vue # Single session conversation
-    │       │   ├── NewSessionView.vue   # Create new session form
-    │       │   ├── ToolboxView.vue      # Toolbox item display
-    │       │   └── CommandsView.vue     # Slash commands browser/manager
+    │       │   ├── SessionDetailView.vue # Session with tabs (Conversation/Changes/Toolbox/Commands)
+    │       │   └── NewSessionView.vue   # Create new session form
     │       │
     │       ├── components/         # Reusable components
     │       │   ├── SessionCard.vue           # Session list item
@@ -1946,19 +1944,10 @@ claudetools.io/
        component: () => import('./views/NewSessionView.vue'),
      },
      {
-       path: '/sessions/:id',
+       path: '/sessions/:id/:tab?',
        name: 'session-detail',
        component: () => import('./views/SessionDetailView.vue'),
-     },
-     {
-       path: '/toolbox',
-       name: 'toolbox',
-       component: () => import('./views/ToolboxView.vue'),
-     },
-     {
-       path: '/commands',
-       name: 'commands',
-       component: () => import('./views/CommandsView.vue'),
+       // Tab parameter: conversation (default), changes, toolbox, commands
      },
    ];
 
@@ -2304,10 +2293,10 @@ claudetools.io/
 
 **Steps**:
 
-1. **App.vue** - Main layout with sidebar
-   - Left sidebar: Session list, navigation
+1. **App.vue** - Main layout with top navigation
+   - Top nav bar: Logo, Sessions link, New Session button, connection status
    - Main area: Router view for content
-   - Header: App title, connection status
+   - Mobile-friendly responsive design
 
 2. **SessionListView.vue** - List of sessions (default route `/`)
    - Fetch sessions on mount
@@ -2322,11 +2311,12 @@ claudetools.io/
    - Timestamp
    - Click to navigate to detail
 
-4. **SessionDetailView.vue** - Conversation view
-   - Fetch full session on mount
-   - List of ConversationMessage components
-   - Auto-scroll to bottom on new messages
-   - MessageInput at bottom (enabled when status is 'waiting')
+4. **SessionDetailView.vue** - Session with tabbed interface
+   - Tab navigation: Conversation, Changes, Toolbox, Commands
+   - Conversation tab: Messages + input (default)
+   - Changes tab: Diff viewer for file changes
+   - Toolbox tab: Session-specific shared items
+   - Commands tab: Available slash commands
 
 5. **ConversationMessage.vue** - Single message
    - Different styling for user/assistant
@@ -2338,6 +2328,7 @@ claudetools.io/
    - Textarea with send button
    - Submit on Enter (Shift+Enter for newline)
    - Disabled when session not waiting
+   - Command palette on `/`
 
 7. **NewSessionView.vue** - Create session form
    - Prompt textarea
@@ -2346,25 +2337,25 @@ claudetools.io/
    - GitBranchSelector dropdown
    - Submit button
 
-8. **ToolboxView.vue** - Toolbox display
-   - Grid/list of ToolboxItem components
-   - Clear all button
-   - Empty state when no items
-
-9. **ToolboxItem.vue** - Single toolbox item
+8. **ToolboxItem.vue** - Single toolbox item (in Toolbox tab)
    - Routes to specific renderer based on type
    - Delete button
    - Label display
    - Timestamp
 
-10. **ToolboxImageItem.vue** - Image display
-    - Render base64 image
-    - Click to expand/zoom
-    - Filename if available
+9. **ToolboxImageItem.vue** - Image display
+   - Render base64 image
+   - Click to expand/zoom
+   - Filename if available
 
-11. **ToolboxMarkdownItem.vue** - Markdown display
+10. **ToolboxMarkdownItem.vue** - Markdown display
     - Render markdown with syntax highlighting
     - Scrollable if long
+
+11. **CommandCard.vue** - Slash command display (in Commands tab)
+    - Command name and description
+    - Source badge (builtin/project/user)
+    - Edit/delete for custom commands
 
 **Deliverables**:
 - All views implemented and functional
@@ -3534,12 +3525,10 @@ Visual wireframes for each view in the application are available in the [`wirefr
 
 | View | Description | Wireframe |
 |------|-------------|-----------|
-| **AppLayout** | Main layout with header, sidebar navigation, and content area | [AppLayout.md](wireframes/AppLayout.md) |
+| **AppLayout** | Mobile-friendly layout with top navigation bar | [AppLayout.md](wireframes/AppLayout.md) |
 | **SessionListView** | List of all Claude Code sessions with status, filtering, and sorting (default route `/`) | [SessionListView.md](wireframes/SessionListView.md) |
-| **SessionDetailView** | Conversation view with messages, input, and diff tab | [SessionDetailView.md](wireframes/SessionDetailView.md) |
+| **SessionDetailView** | Session view with tabbed sub-navigation (Conversation, Changes, Toolbox, Commands) | [SessionDetailView.md](wireframes/SessionDetailView.md) |
 | **NewSessionView** | Form for creating new sessions with git configuration | [NewSessionView.md](wireframes/NewSessionView.md) |
-| **ToolboxView** | Grid/list display of shared items (images, markdown, JSON, text) | [ToolboxView.md](wireframes/ToolboxView.md) |
-| **CommandsView** | Slash commands browser and editor | [CommandsView.md](wireframes/CommandsView.md) |
 
 ### Wireframe Contents
 

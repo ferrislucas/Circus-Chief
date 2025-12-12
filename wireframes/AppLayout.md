@@ -1,114 +1,105 @@
 # AppLayout Wireframe
 
-The application uses a consistent layout with a header and sidebar navigation.
+The application uses a mobile-friendly layout with top navigation.
 This layout is defined in `App.vue` and wraps all views.
 
 ## Full Layout
 
 ```
 +------------------------------------------------------------------+
-|  HEADER                                                           |
+|  HEADER / TOP NAV                                                 |
 |  +--------------------------------------------------------------+ |
-|  |  [logo] claudetools.io           [Connected] [Settings]      | |
+|  |  [logo] claudetools.io    [Sessions]  [+ New]    [Connected] | |
 |  +--------------------------------------------------------------+ |
 +------------------------------------------------------------------+
-|        |                                                          |
-|  S     |  MAIN CONTENT AREA                                       |
-|  I     |                                                          |
-|  D     |  +------------------------------------------------------+|
-|  E     |  |                                                      ||
-|  B     |  |  <router-view>                                       ||
-|  A     |  |                                                      ||
-|  R     |  |  Content rendered based on current route:            ||
-|        |  |                                                      ||
-|  +---+ |  |  - SessionListView (/ - default)                     ||
-|  |   | |  |  - SessionDetailView (/sessions/:id)                 ||
-|  | N | |  |  - NewSessionView (/sessions/new)                    ||
-|  | A | |  |  - ToolboxView (/toolbox)                            ||
-|  | V | |  |  - CommandsView (/commands)                          ||
-|  |   | |  |                                                      ||
-|  +---+ |  |                                                      ||
-|        |  |                                                      ||
-|        |  |                                                      ||
-|        |  +------------------------------------------------------+|
-|        |                                                          |
+|                                                                    |
+|  MAIN CONTENT AREA                                                 |
+|                                                                    |
+|  +--------------------------------------------------------------+ |
+|  |                                                              | |
+|  |  <router-view>                                               | |
+|  |                                                              | |
+|  |  Content rendered based on current route:                    | |
+|  |                                                              | |
+|  |  - SessionListView (/ - default)                             | |
+|  |  - SessionDetailView (/sessions/:id)                         | |
+|  |  - NewSessionView (/sessions/new)                            | |
+|  |                                                              | |
+|  +--------------------------------------------------------------+ |
+|                                                                    |
 +------------------------------------------------------------------+
 ```
 
-## Header Section
+## Header / Top Navigation
 
 ```
 +------------------------------------------------------------------+
 |                                                                    |
 |  [Claude Icon]  claudetools.io                                    |
 |                                                                    |
-|                                        [*] Connected    [Gear]    |
+|                           [Sessions]  [+ New Session]  [*] Connected|
 |                                                                    |
 +------------------------------------------------------------------+
 
 Legend:
 - [Claude Icon]: Application logo/branding
 - "claudetools.io": Application name
+- [Sessions]: Navigate to session list (active when on /, /sessions/:id)
+- [+ New Session]: Primary action, routes to /sessions/new
 - [*] Connected: WebSocket connection status indicator
   - Green dot = Connected
   - Red dot = Disconnected (with reconnect attempt info)
-- [Gear]: Settings button (future feature)
 ```
 
-## Sidebar Section
+## Mobile Layout (<768px)
 
 ```
-+------------------+
-|                  |
-|  NAVIGATION      |
-|                  |
-|  +------------+  |
-|  | Sessions   |  |  <-- Active state when on session routes
-|  +------------+  |
-|  +------------+  |
-|  | Toolbox    |  |  <-- Active state when on /toolbox
-|  +------------+  |
-|  +------------+  |
-|  | Commands   |  |  <-- Active state when on /commands
-|  +------------+  |
-|                  |
-|  +-----------+   |
-|  | + New     |   |  <-- Creates new session
-|  | Session   |   |
-|  +-----------+   |
-|                  |
-|  SESSION LIST    |
-|  (when expanded) |
-|                  |
-|  +------------+  |
-|  | Session 1  |  |
-|  | [Running]  |  |
-|  +------------+  |
-|  +------------+  |
-|  | Session 2  |  |
-|  | [Waiting]  |  |
-|  +------------+  |
-|  +------------+  |
-|  | Session 3  |  |
-|  | [Complete] |  |
-|  +------------+  |
-|                  |
-+------------------+
++--------------------------------+
+|  [=]  claudetools.io    [*]    |
++--------------------------------+
+|                                |
+|  MAIN CONTENT AREA             |
+|                                |
+|  +----------------------------+|
+|  |                            ||
+|  |  <router-view>             ||
+|  |                            ||
+|  |  Full width content        ||
+|  |                            ||
+|  +----------------------------+|
+|                                |
++--------------------------------+
+
+[=] Hamburger menu reveals:
++--------------------------------+
+|  Sessions                      |
+|  + New Session                 |
++--------------------------------+
 ```
 
-## Responsive Behavior
+## Tablet Layout (768px - 1024px)
 
-### Desktop (>1024px)
-- Sidebar always visible (fixed width ~280px)
-- Main content fills remaining space
+```
++------------------------------------------------------------------+
+|  [logo] claudetools.io          [Sessions] [+ New]    [Connected] |
++------------------------------------------------------------------+
+|                                                                    |
+|  MAIN CONTENT AREA (full width)                                    |
+|                                                                    |
++------------------------------------------------------------------+
+```
 
-### Tablet (768px - 1024px)
-- Sidebar collapsible with hamburger menu
-- Main content takes full width when sidebar hidden
+## Desktop Layout (>1024px)
 
-### Mobile (<768px)
-- Sidebar becomes bottom navigation or slide-out drawer
-- Full-screen content area
+```
++------------------------------------------------------------------+
+|  [logo] claudetools.io          [Sessions] [+ New]    [Connected] |
++------------------------------------------------------------------+
+|                                                                    |
+|  MAIN CONTENT AREA (max-width container, centered)                 |
+|                                                                    |
++------------------------------------------------------------------+
+```
 
 ## Component States
 
@@ -121,18 +112,22 @@ Reconnecting: [Yellow Dot] Reconnecting (3)...
 
 ## Interactions
 
-1. **Sidebar Navigation**
-   - Click nav item to route to that section
-   - Active item highlighted with accent color/background
+1. **Logo Click**
+   - Returns to session list (home)
 
-2. **Session Quick Access**
-   - Session list in sidebar for quick switching
-   - Clicking session navigates to SessionDetailView
+2. **Sessions Nav**
+   - Routes to SessionListView (/)
+   - Active state when on any session route
 
 3. **New Session Button**
-   - Primary action button, always visible in sidebar
-   - Routes to NewSessionView
+   - Primary action button (accent color)
+   - Routes to NewSessionView (/sessions/new)
 
 4. **Connection Status**
    - Click to see connection details (optional)
    - Shows reconnect attempt count when disconnected
+
+5. **Mobile Hamburger Menu**
+   - Slides in from left or drops down
+   - Contains navigation items
+   - Closes on route change or outside click

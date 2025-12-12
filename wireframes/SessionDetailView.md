@@ -1,9 +1,9 @@
 # SessionDetailView Wireframe
 
 The SessionDetailView shows the full conversation for a single Claude Code session,
-along with a tabbed interface to view file changes (diffs).
+with a tabbed sub-navigation for Conversation, Changes (diffs), Toolbox, and Commands.
 
-## Full View with Conversation Tab
+## Full View with Tab Navigation
 
 ```
 +------------------------------------------------------------------+
@@ -12,10 +12,26 @@ along with a tabbed interface to view file changes (diffs).
 |             /path/to/project  |  Branch: feature/auth-fix          |
 |                                                                    |
 +------------------------------------------------------------------+
-|  TABS                                                              |
-|  +------------------+------------------+                           |
-|  | [*] Conversation | [ ] Changes (3)  |                          |
-|  +------------------+------------------+---------------------------+
+|  TAB NAVIGATION                                                    |
+|  +------------+------------+------------+------------+             |
+|  | Conversation| Changes(3)| Toolbox(2) | Commands  |             |
+|  +------------+------------+------------+------------+-------------+
+|                                                                    |
+|  TAB CONTENT (varies by selected tab)                              |
+|                                                                    |
++------------------------------------------------------------------+
+```
+
+## Conversation Tab (Default)
+
+```
++------------------------------------------------------------------+
+|  [<- Back]  Fix authentication bug                [Running *]      |
+|             /path/to/project  |  Branch: feature/auth-fix          |
++------------------------------------------------------------------+
+|  +------------+------------+------------+------------+             |
+|  |[*]Conversation| Changes(3)| Toolbox(2) | Commands  |           |
+|  +------------+------------+------------+------------+-------------+
 |                                                                    |
 |  CONVERSATION AREA (scrollable)                                    |
 |  +--------------------------------------------------------------+ |
@@ -56,18 +72,6 @@ along with a tabbed interface to view file changes (diffs).
 |  |  |  ```                                                     || |
 |  |  +----------------------------------------------------------+| |
 |  |                                                              | |
-|  |  +----------------------------------------------------------+| |
-|  |  | USER MESSAGE                                   10:35 AM  || |
-|  |  +----------------------------------------------------------+| |
-|  |  |  Great! Can you also add unit tests for this?            || |
-|  |  +----------------------------------------------------------+| |
-|  |                                                              | |
-|  |  +----------------------------------------------------------+| |
-|  |  | ASSISTANT MESSAGE                              10:35 AM  || |
-|  |  +----------------------------------------------------------+| |
-|  |  |  [Typing indicator...]                                   || |
-|  |  +----------------------------------------------------------+| |
-|  |                                                              | |
 |  +--------------------------------------------------------------+ |
 |                                                                    |
 +------------------------------------------------------------------+
@@ -79,19 +83,16 @@ along with a tabbed interface to view file changes (diffs).
 +------------------------------------------------------------------+
 ```
 
-## Changes Tab View (Diff)
+## Changes Tab (Diff View)
 
 ```
 +------------------------------------------------------------------+
-|                                                                    |
 |  [<- Back]  Fix authentication bug                [Running *]      |
 |             /path/to/project  |  Branch: feature/auth-fix          |
-|                                                                    |
 +------------------------------------------------------------------+
-|  TABS                                                              |
-|  +------------------+------------------+                           |
-|  | [ ] Conversation | [*] Changes (3)  |                          |
-|  +------------------+------------------+---------------------------+
+|  +------------+------------+------------+------------+             |
+|  | Conversation|[*]Changes(3)| Toolbox(2) | Commands  |           |
+|  +------------+------------+------------+------------+-------------+
 |                                                                    |
 |  DIFF CONTROLS                                                     |
 |  +--------------------------------------------------------------+ |
@@ -123,15 +124,89 @@ along with a tabbed interface to view file changes (diffs).
 |  |   53                                                         | |
 |  |   54    return validateToken(token);                         | |
 |  +--------------------------------------------------------------+ |
-|  | src/services/auth.test.js (new file)                         | |
+|                                                                    |
++------------------------------------------------------------------+
+```
+
+## Toolbox Tab
+
+```
++------------------------------------------------------------------+
+|  [<- Back]  Fix authentication bug                [Running *]      |
+|             /path/to/project  |  Branch: feature/auth-fix          |
++------------------------------------------------------------------+
+|  +------------+------------+------------+------------+             |
+|  | Conversation| Changes(3)|[*]Toolbox(2)| Commands  |            |
+|  +------------+------------+------------+------------+-------------+
+|                                                                    |
+|  Filter: [All Types v]  Sort: [Newest v]    View: [Grid] [List]   |
+|                                                                    |
 |  +--------------------------------------------------------------+ |
-|  | + 1   import { refreshToken } from './auth';                 | |
-|  | + 2                                                          | |
-|  | + 3   describe('refreshToken', () => {                       | |
-|  | + 4     it('should refresh expired tokens', async () => {    | |
-|  | + 5       // ...                                             | |
-|  | + 6     });                                                  | |
-|  | + 7   });                                                    | |
+|  |                                                              | |
+|  |  +-------------------+  +-------------------+                 | |
+|  |  | [IMAGE PREVIEW]   |  | [JSON ICON]       |                 | |
+|  |  |                   |  |                   |                 | |
+|  |  | Screenshot.png    |  | test-results.json |                 | |
+|  |  |                   |  |                   |                 | |
+|  |  | Test failure #1   |  | Test Results      |                 | |
+|  |  | 2m ago       [X]  |  | 5m ago       [X]  |                 | |
+|  |  +-------------------+  +-------------------+                 | |
+|  |                                                              | |
+|  +--------------------------------------------------------------+ |
+|                                                                    |
++------------------------------------------------------------------+
+
+Empty state:
++--------------------------------------------------------------+
+|                                                              |
+|                    [Toolbox Icon]                            |
+|                                                              |
+|                 Toolbox is empty                             |
+|                                                              |
+|      Claude will add screenshots, documents, and data        |
+|      here as it works on this session.                       |
+|                                                              |
++--------------------------------------------------------------+
+```
+
+## Commands Tab
+
+```
++------------------------------------------------------------------+
+|  [<- Back]  Fix authentication bug                [Running *]      |
+|             /path/to/project  |  Branch: feature/auth-fix          |
++------------------------------------------------------------------+
+|  +------------+------------+------------+------------+             |
+|  | Conversation| Changes(3)| Toolbox(2) |[*]Commands |            |
+|  +------------+------------+------------+------------+-------------+
+|                                                                    |
+|  Search: [Search commands...______]            [+ New Command]     |
+|                                                                    |
+|  BUILT-IN COMMANDS                                                 |
+|  +--------------------------------------------------------------+ |
+|  |  /help                                                       | |
+|  |  Show available commands and help information     [builtin]  | |
+|  +--------------------------------------------------------------+ |
+|  |  /clear                                                      | |
+|  |  Clear conversation history                       [builtin]  | |
+|  +--------------------------------------------------------------+ |
+|  |  /model                                                      | |
+|  |  Change the AI model (sonnet, opus, haiku)        [builtin]  | |
+|  +--------------------------------------------------------------+ |
+|                                                                    |
+|  PROJECT COMMANDS (.claude/commands/)                              |
+|  +--------------------------------------------------------------+ |
+|  |  /fix-issue                                                  | |
+|  |  Fix a GitHub issue by number                     [project]  | |
+|  +--------------------------------------------------------------+ |
+|  |  /review-pr                                                  | |
+|  |  Review a pull request                            [project]  | |
+|  +--------------------------------------------------------------+ |
+|                                                                    |
+|  PERSONAL COMMANDS (~/.claude/commands/)                           |
+|  +--------------------------------------------------------------+ |
+|  |  /security-review                                 [Edit][X]  | |
+|  |  Perform security audit on the codebase           [user]     | |
 |  +--------------------------------------------------------------+ |
 |                                                                    |
 +------------------------------------------------------------------+
@@ -256,6 +331,50 @@ Starting:   [Spinner] Starting session...
 +------------------------------------------------------------------+
 ```
 
+## Toolbox Item Components
+
+### Image Item Card
+```
++---------------------------+
+|   [IMAGE THUMBNAIL]       |
+|   (max-height: 150px)     |
++---------------------------+
+| filename.png              |
+| Label: Test Screenshot    |
+| 2 minutes ago        [X]  |
++---------------------------+
+```
+
+### JSON/Markdown/Text Item Card
+```
++---------------------------+
+|   +-------------------+   |
+|   | Preview content   |   |
+|   | truncated...      |   |
+|   +-------------------+   |
++---------------------------+
+| filename.json             |
+| Label: Test Results       |
+| 5 minutes ago        [X]  |
++---------------------------+
+```
+
+### Expanded Item Modal
+```
++------------------------------------------------------------------+
+|  filename.png                                       [X] Close      |
++------------------------------------------------------------------+
+|                                                                    |
+|                     [FULL SIZE CONTENT]                            |
+|                     (image, markdown rendered, JSON formatted)     |
+|                                                                    |
++------------------------------------------------------------------+
+| Type: image/png  |  Size: 1920x1080  |  Added: 10:32 AM           |
++------------------------------------------------------------------+
+|                      [Download]  [Copy]                            |
++------------------------------------------------------------------+
+```
+
 ## Diff Viewer Details
 
 ### File Status Icons
@@ -283,30 +402,107 @@ Unchanged:      No background
 Line numbers:   Gray, non-selectable
 ```
 
+## Command Components
+
+### Command Card
+```
++------------------------------------------------------------------+
+|  /command-name                                       [Edit] [X]    |
+|  Description of what this command does              [project]      |
+|  Arguments: arg1 (required), arg2 (optional)                       |
++------------------------------------------------------------------+
+
+Badges:
+- [builtin] - Gray badge, system commands (no edit/delete)
+- [project] - Blue badge, team-shared commands
+- [user]    - Purple badge, personal commands
+```
+
+### New/Edit Command Modal
+```
++------------------------------------------------------------------+
+|  CREATE NEW COMMAND                                    [X] Close   |
++------------------------------------------------------------------+
+|  COMMAND NAME *                                                    |
+|  [my-command                                                   ]   |
+|                                                                    |
+|  DESCRIPTION *                                                     |
+|  [Brief description...                                         ]   |
+|                                                                    |
+|  PROMPT CONTENT *                                                  |
+|  [Use $ARGUMENTS for user input...                             ]   |
+|                                                                    |
+|  SAVE LOCATION                                                     |
+|  ( ) Project (.claude/commands/)                                   |
+|  (*) Personal (~/.claude/commands/)                                |
+|                                                                    |
+|                                            [Cancel]  [Save Command]|
++------------------------------------------------------------------+
+```
+
 ## Interactions
 
 1. **Back Button**
    - Returns to SessionListView
 
 2. **Tab Switching**
-   - Click tab to switch between Conversation and Changes
-   - Badge on Changes tab shows file count
+   - Click tab to switch between Conversation, Changes, Toolbox, Commands
+   - Badge on tabs shows counts (file changes, toolbox items)
+   - URL updates to reflect current tab (e.g., /sessions/:id/changes)
 
-3. **Message Sending**
+3. **Message Sending** (Conversation tab)
    - Enter key sends message (when session is waiting)
    - Shift+Enter for newlines
    - Disabled when session is running
 
-4. **Auto-scroll**
+4. **Auto-scroll** (Conversation tab)
    - Conversation auto-scrolls to bottom on new messages
    - User can scroll up to view history
    - "New messages" button appears when scrolled up
 
-5. **Diff Navigation**
+5. **Diff Navigation** (Changes tab)
    - Click file in tree to scroll to that file's diff
    - Collapse/expand file sections
-   - Copy diff to clipboard (optional)
 
-6. **Tool Use Expansion**
-   - Click tool indicator to expand/collapse details
-   - Show full bash output when expanded
+6. **Toolbox Items** (Toolbox tab)
+   - Click item to expand in modal
+   - [X] button to delete item
+   - Filter/sort controls
+   - Grid/list view toggle
+
+7. **Commands** (Commands tab)
+   - Search to filter commands
+   - Click command to see details
+   - Edit/delete custom commands
+   - Create new commands
+
+8. **Command Palette** (Conversation tab input)
+   - Triggered by `/` at start of message
+   - Arrow keys to navigate
+   - Enter to select command
+
+## Responsive Behavior
+
+### Mobile (<768px)
+- Tabs become scrollable horizontal strip
+- Full-width content
+- Stacked toolbox items (1 column)
+- Message input fixed at bottom
+
+### Tablet (768px - 1024px)
+- All tabs visible
+- 2-column toolbox grid
+- Side-by-side diff available
+
+### Desktop (>1024px)
+- Full tab bar
+- 3-4 column toolbox grid
+- Wider diff view
+
+## Real-time Updates
+
+- New messages appear instantly via WebSocket
+- Toolbox items animate in when added
+- Changes tab updates when files are modified
+- Tab badges update in real-time
+- Commands list updates when files change
