@@ -3,7 +3,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import apiRouter from './api/index.js';
-import { MAX_JSON_SIZE } from '@claudetools/shared';
+import { MAX_JSON_SIZE, DEFAULT_WEB_PORT } from '@claudetools/shared';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -47,7 +47,7 @@ export function createApp(options = {}) {
   } else {
     // Development: redirect root to Vite dev server
     app.get('/', (_req, res) => {
-      res.redirect('http://localhost:5173');
+      res.redirect(`http://localhost:${DEFAULT_WEB_PORT}`);
     });
   }
 
