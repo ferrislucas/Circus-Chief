@@ -18,5 +18,8 @@
     "eslint-plugin-vue": "9",
     "prettier": "^3.2.4",
     "vue-eslint-parser": "9"
+  },
+  "dependencies": {
+    "playwright": "^1.57.0"
   }
 }
