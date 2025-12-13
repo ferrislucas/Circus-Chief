@@ -45,9 +45,10 @@ export function createApp(options = {}) {
       res.sendFile(join(staticPath, 'index.html'));
     });
   } else {
-    // Development: redirect root to Vite dev server
-    app.get('/', (_req, res) => {
-      res.redirect(`http://localhost:${DEFAULT_WEB_PORT}`);
+    // Development: redirect root to Vite dev server (use request host, not localhost)
+    app.get('/', (req, res) => {
+      const host = req.hostname;
+      res.redirect(`http://${host}:${DEFAULT_WEB_PORT}`);
     });
   }
 
