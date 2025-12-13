@@ -917,7 +917,75 @@ claudetools.io/
     */
    ```
 
-4. **Define WebSocket protocol (`packages/shared/src/protocol.js`)**
+4. **Define tool template types**
+   ```javascript
+   /**
+    * Tool template scope - determines where the tool is available
+    * - 'global': Available across all sessions, executed as shell commands
+    * - 'project': Available within a specific project's sessions
+    * @typedef {'global' | 'project'} ToolTemplateScope
+    */
+
+   /**
+    * Payload type for project tool templates
+    * - 'command': Executes as a shell command in a background process
+    * - 'prompt': Populates the session message input with the payload
+    * @typedef {'command' | 'prompt'} ToolTemplatePayloadType
+    */
+
+   /**
+    * Base tool template properties shared by all template types
+    * @typedef {Object} ToolTemplateBase
+    * @property {string} id - Unique identifier
+    * @property {string} name - Display name for the tool
+    * @property {string} payload - The command or prompt text
+    * @property {number} createdAt - Unix timestamp
+    * @property {number} updatedAt - Unix timestamp
+    */
+
+   /**
+    * Global tool template - available across all sessions
+    * Global tools always have payloadType 'command' and execute shell commands
+    * @typedef {Object} GlobalToolTemplate
+    * @property {string} id
+    * @property {'global'} scope
+    * @property {string} name - Display name for the tool
+    * @property {string} payload - The shell command to execute
+    * @property {'command'} payloadType - Always 'command' for global tools
+    * @property {number} createdAt
+    * @property {number} updatedAt
+    */
+
+   /**
+    * Project tool template - available within a specific project
+    * @typedef {Object} ProjectToolTemplate
+    * @property {string} id
+    * @property {'project'} scope
+    * @property {string} projectId - The project this template belongs to
+    * @property {string} name - Display name for the tool
+    * @property {string} payload - The command or prompt text
+    * @property {ToolTemplatePayloadType} payloadType - 'command' or 'prompt'
+    * @property {number} createdAt
+    * @property {number} updatedAt
+    */
+
+   /**
+    * Union type for all tool templates
+    * @typedef {GlobalToolTemplate | ProjectToolTemplate} ToolTemplate
+    */
+
+   /**
+    * Tool templates JSON structure
+    * A JSON object with a single key 'tools' containing an array of tool templates
+    * @typedef {Object} ToolTemplatesConfig
+    * @property {ToolTemplate[]} tools - Array of tool templates
+    */
+
+   export const TOOL_TEMPLATE_SCOPES = ['global', 'project'];
+   export const TOOL_TEMPLATE_PAYLOAD_TYPES = ['command', 'prompt'];
+   ```
+
+5. **Define WebSocket protocol (`packages/shared/src/protocol.js`)**
    ```javascript
    // ============================================
    // Server -> Client Messages
@@ -4491,6 +4559,23 @@ claudetools.io/
 | GET | `/api/git/current-branch` | Get current branch |
 | POST | `/api/git/worktrees` | Create new worktree |
 
+### Tool Templates API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/tools` | List all global tool templates |
+| POST | `/api/tools` | Create new global tool template |
+| GET | `/api/tools/:id` | Get global tool template details |
+| PUT | `/api/tools/:id` | Update global tool template |
+| DELETE | `/api/tools/:id` | Delete global tool template |
+| POST | `/api/tools/:id/execute` | Execute a global tool template command |
+| GET | `/api/projects/:projectId/tools` | List project tool templates |
+| POST | `/api/projects/:projectId/tools` | Create project tool template |
+| GET | `/api/projects/:projectId/tools/:toolId` | Get project tool template details |
+| PUT | `/api/projects/:projectId/tools/:toolId` | Update project tool template |
+| DELETE | `/api/projects/:projectId/tools/:toolId` | Delete project tool template |
+| POST | `/api/projects/:projectId/tools/:toolId/execute` | Execute a project tool template |
+
 ---
 
 ## WebSocket Protocol
@@ -4580,12 +4665,18 @@ Visual wireframes for each view in the application are available in the [`wirefr
 
 | View | Description | Wireframe |
 |------|-------------|-----------|
-| **AppLayout** | Mobile-friendly layout with top navigation bar | [AppLayout.md](wireframes/AppLayout.md) |
+| **AppLayout** | Mobile-friendly layout with top navigation bar (Projects, Tools, Settings) | [AppLayout.md](wireframes/AppLayout.md) |
 | **ProjectListView** | List of all projects with session counts (default route `/`) | [ProjectListView.md](wireframes/ProjectListView.md) |
-| **ProjectEditView** | Form for creating/editing projects with working directory | [ProjectEditView.md](wireframes/ProjectEditView.md) |
+| **ProjectEditView** | Form for creating/editing projects with working directory and project tools | [ProjectEditView.md](wireframes/ProjectEditView.md) |
 | **SessionListView** | List of sessions within a project | [SessionListView.md](wireframes/SessionListView.md) |
-| **SessionDetailView** | Session view with tabbed sub-navigation (Conversation, Changes, Canvas) and mode toggle | [SessionDetailView.md](wireframes/SessionDetailView.md) |
+| **SessionDetailView** | Session view with tabbed sub-navigation (Conversation, Changes, Canvas, Tools) and mode toggle | [SessionDetailView.md](wireframes/SessionDetailView.md) |
 | **NewSessionView** | Form for creating new sessions within a project (git configuration) | [NewSessionView.md](wireframes/NewSessionView.md) |
+| **SettingsView** | Application settings showing global and project tool templates | [SettingsView.md](wireframes/SettingsView.md) |
+| **ToolsGlobalView** | List of global tool templates with create button | [ToolsGlobalView.md](wireframes/ToolsGlobalView.md) |
+| **NewGlobalToolTemplateView** | Form for creating a new global tool template | [NewGlobalToolTemplateView.md](wireframes/NewGlobalToolTemplateView.md) |
+| **EditGlobalToolTemplateView** | Form for editing/deleting a global tool template | [EditGlobalToolTemplateView.md](wireframes/EditGlobalToolTemplateView.md) |
+| **NewProjectToolTemplateView** | Form for creating a new project tool template | [NewProjectToolTemplateView.md](wireframes/NewProjectToolTemplateView.md) |
+| **EditProjectToolTemplateView** | Form for editing/deleting a project tool template | [EditProjectToolTemplateView.md](wireframes/EditProjectToolTemplateView.md) |
 
 ### Wireframe Contents
 
