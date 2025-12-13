@@ -1,7 +1,8 @@
 # ProjectEditView Wireframe
 
 The ProjectEditView provides a form for creating a new project or editing an existing one.
-A project defines a working directory where all its sessions will run.
+A project defines a working directory where all its sessions will run. When editing,
+additional sections for project tool templates are displayed.
 
 ## Create New Project View
 
@@ -72,6 +73,25 @@ A project defines a working directory where all its sessions will run.
 |                                                                    |
 +------------------------------------------------------------------+
 |                                                                    |
+|  PROJECT TOOL TEMPLATES                               (id="tools") |
+|  +--------------------------------------------------------------+ |
+|  |                                                              | |
+|  |  Tool templates for sessions in this project. Prompt tools    | |
+|  |  populate the message input; command tools run shell commands.| |
+|  |                                                              | |
+|  |  +--------------------------------------------------------+  | |
+|  |  | [>] Run Tests          command    npm test             |  | |
+|  |  +--------------------------------------------------------+  | |
+|  |  | [>] Code Review        prompt     Review this code...  |  | |
+|  |  +--------------------------------------------------------+  | |
+|  |  | [>] Deploy Staging     command    ./deploy.sh staging  |  | |
+|  |  +--------------------------------------------------------+  | |
+|  |                                                              | |
+|  |                       [+ New Project Tool Template]          | |
+|  +--------------------------------------------------------------+ |
+|                                                                    |
++------------------------------------------------------------------+
+|                                                                    |
 |                                           [Cancel]  [Save Changes] |
 |                                                                    |
 +------------------------------------------------------------------+
@@ -113,6 +133,44 @@ Recent directories (shown below input):
 | Recent:                                                            |
 | [/Users/dev/project-a] [/Users/dev/project-b] [/Users/dev/work]   |
 +------------------------------------------------------------------+
+```
+
+### Project Tool Templates (Edit view only)
+```
++------------------------------------------------------------------+
+| PROJECT TOOL TEMPLATES                                             |
++------------------------------------------------------------------+
+| +--------------------------------------------------------------+ |
+| |  Tool templates for sessions in this project. Prompt tools    | |
+| |  populate the message input; command tools run shell commands.| |
+| +--------------------------------------------------------------+ |
+|                                                                    |
+| Tool list item:                                                    |
+| +--------------------------------------------------------------+ |
+| | [>] Tool Name       type (command/prompt)    payload...       | |
+| +--------------------------------------------------------------+ |
+|                                                                    |
+| - Click row to navigate to EditProjectToolTemplateView            |
+| - Type badge shows "command" or "prompt"                          |
+| - Payload shown truncated with ellipsis                           |
+|                                                                    |
+| [+ New Project Tool Template] button navigates to                  |
+| NewProjectToolTemplateView                                         |
++------------------------------------------------------------------+
+
+Empty state (no tools configured):
++--------------------------------------------------------------+
+|                                                              |
+|                    [Tools Icon]                              |
+|                                                              |
+|        No project tool templates configured                   |
+|                                                              |
+|  Create tool templates to run commands or send prompts        |
+|  from sessions in this project.                              |
+|                                                              |
+|          [+ Create Project Tool Template]                     |
+|                                                              |
++--------------------------------------------------------------+
 ```
 
 ## States
@@ -170,12 +228,17 @@ Recent directories (shown below input):
    - Recent directories shown as quick-select chips
    - Pre-filled with existing value when editing
 
-3. **Cancel Button**
+3. **Project Tool Templates** (Edit view only)
+   - Click tool row to navigate to EditProjectToolTemplateView
+   - Click "New Project Tool Template" to navigate to NewProjectToolTemplateView
+   - Section scrollable if many tools configured
+
+4. **Cancel Button**
    - Returns to ProjectListView (if creating)
    - Returns to SessionListView for this project (if editing)
    - Confirms if form has unsaved changes
 
-4. **Create Project / Save Changes Button**
+5. **Create Project / Save Changes Button**
    - Validates all required fields
    - Shows loading state while creating/saving
    - On success:

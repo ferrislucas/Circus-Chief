@@ -9,7 +9,7 @@ This layout is defined in `App.vue` and wraps all views.
 +------------------------------------------------------------------+
 |  HEADER / TOP NAV                                                 |
 |  +--------------------------------------------------------------+ |
-|  |  [logo] claudetools.io    [Projects]  [+ New]    [Connected] | |
+|  |  [logo] claudetools.io  [Projects] [Tools] [+ New] [*] [Cog] | |
 |  +--------------------------------------------------------------+ |
 +------------------------------------------------------------------+
 |                                                                    |
@@ -26,6 +26,12 @@ This layout is defined in `App.vue` and wraps all views.
 |  |  - SessionListView (/projects/:projectId/sessions)           | |
 |  |  - SessionDetailView (/sessions/:id)                         | |
 |  |  - NewSessionView (/projects/:projectId/sessions/new)        | |
+|  |  - ToolsGlobalView (/tools)                                  | |
+|  |  - NewGlobalToolTemplateView (/tools/new)                    | |
+|  |  - EditGlobalToolTemplateView (/tools/:id/edit)              | |
+|  |  - SettingsView (/settings)                                  | |
+|  |  - NewProjectToolTemplateView (/projects/:id/tools/new)      | |
+|  |  - EditProjectToolTemplateView (/projects/:id/tools/:toolId) | |
 |  |                                                              | |
 |  +--------------------------------------------------------------+ |
 |                                                                    |
@@ -39,7 +45,7 @@ This layout is defined in `App.vue` and wraps all views.
 |                                                                    |
 |  [Claude Icon]  claudetools.io                                    |
 |                                                                    |
-|                           [Projects]  [+ New Project]  [*] Connected|
+|            [Projects] [Tools] [+ New Project]  [*] Connected [Cog]|
 |                                                                    |
 +------------------------------------------------------------------+
 
@@ -47,17 +53,19 @@ Legend:
 - [Claude Icon]: Application logo/branding
 - "claudetools.io": Application name
 - [Projects]: Navigate to project list (active when on /)
+- [Tools]: Navigate to global tools list (/tools)
 - [+ New Project]: Primary action, routes to /projects/new
 - [*] Connected: WebSocket connection status indicator
   - Green dot = Connected
   - Red dot = Disconnected (with reconnect attempt info)
+- [Cog]: Settings icon, routes to /settings
 ```
 
 ## Mobile Layout (<768px)
 
 ```
 +--------------------------------+
-|  [=]  claudetools.io    [*]    |
+|  [=]  claudetools.io  [*] [Cog]|
 +--------------------------------+
 |                                |
 |  MAIN CONTENT AREA             |
@@ -75,6 +83,7 @@ Legend:
 [=] Hamburger menu reveals:
 +--------------------------------+
 |  Projects                      |
+|  Tools                         |
 |  + New Project                 |
 +--------------------------------+
 ```
@@ -83,7 +92,7 @@ Legend:
 
 ```
 +------------------------------------------------------------------+
-|  [logo] claudetools.io          [Projects] [+ New]    [Connected] |
+|  [logo] claudetools.io    [Projects] [Tools] [+ New] [*] [Cog]    |
 +------------------------------------------------------------------+
 |                                                                    |
 |  MAIN CONTENT AREA (full width)                                    |
@@ -95,7 +104,7 @@ Legend:
 
 ```
 +------------------------------------------------------------------+
-|  [logo] claudetools.io          [Projects] [+ New]    [Connected] |
+|  [logo] claudetools.io    [Projects] [Tools] [+ New] [*] [Cog]    |
 +------------------------------------------------------------------+
 |                                                                    |
 |  MAIN CONTENT AREA (max-width container, centered)                 |
@@ -121,15 +130,23 @@ Reconnecting: [Yellow Dot] Reconnecting (3)...
    - Routes to ProjectListView (/)
    - Active state when on any project route
 
-3. **New Project Button**
+3. **Tools Nav**
+   - Routes to ToolsGlobalView (/tools)
+   - Active state when on /tools or /tools/*
+
+4. **New Project Button**
    - Primary action button (accent color)
    - Routes to ProjectEditView (/projects/new)
 
-4. **Connection Status**
+5. **Connection Status**
    - Click to see connection details (optional)
    - Shows reconnect attempt count when disconnected
 
-5. **Mobile Hamburger Menu**
+6. **Settings Cog**
+   - Routes to SettingsView (/settings)
+   - Active state when on /settings
+
+7. **Mobile Hamburger Menu**
    - Slides in from left or drops down
-   - Contains navigation items
+   - Contains navigation items (Projects, Tools, + New Project)
    - Closes on route change or outside click

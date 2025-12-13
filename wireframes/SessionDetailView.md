@@ -1,7 +1,7 @@
 # SessionDetailView Wireframe
 
 The SessionDetailView shows the full conversation for a single Claude Code session,
-with a tabbed sub-navigation for Conversation, Changes (diffs), and Canvas.
+with a tabbed sub-navigation for Conversation, Changes (diffs), Canvas, and Tools.
 
 ## Full View with Tab Navigation
 
@@ -13,9 +13,9 @@ with a tabbed sub-navigation for Conversation, Changes (diffs), and Canvas.
 |                                                                    |
 +------------------------------------------------------------------+
 |  TAB NAVIGATION                                                    |
-|  +------------+------------+------------+                          |
-|  | Conversation| Changes(3)| Canvas(2) |                          |
-|  +------------+------------+------------+--------------------------+
+|  +------------+------------+------------+------------+             |
+|  | Conversation| Changes(3)| Canvas(2) |   Tools   |             |
+|  +------------+------------+------------+------------+-------------+
 |                                                                    |
 |  TAB CONTENT (varies by selected tab)                              |
 |                                                                    |
@@ -164,6 +164,70 @@ Empty state:
 |                                                              |
 |      Claude will add screenshots, documents, and data        |
 |      here as it works on this session.                       |
+|                                                              |
++--------------------------------------------------------------+
+```
+
+## Tools Tab
+
+The Tools tab displays project tool templates that can be executed within the session context.
+
+```
++------------------------------------------------------------------+
+|  [<- Back]  Fix authentication bug                [Running *]      |
+|             /path/to/project  |  Branch: feature/auth-fix          |
++------------------------------------------------------------------+
+|  +------------+------------+------------+------------+             |
+|  | Conversation| Changes(3)| Canvas(2) |[*]Tools   |             |
+|  +------------+------------+------------+------------+-------------+
+|                                                                    |
+|  PROJECT TOOLS                                                     |
+|  +--------------------------------------------------------------+ |
+|  |                                                              | |
+|  |  +--------------------------------------------------------+  | |
+|  |  | [Run Tests]  [________________________] (input field)  |  | |
+|  |  +--------------------------------------------------------+  | |
+|  |                                                              | |
+|  |  +--------------------------------------------------------+  | |
+|  |  | [Deploy]     [________________________] (input field)  |  | |
+|  |  +--------------------------------------------------------+  | |
+|  |                                                              | |
+|  |  +--------------------------------------------------------+  | |
+|  |  | [Lint]       [________________________] (input field)  |  | |
+|  |  +--------------------------------------------------------+  | |
+|  |                                                              | |
+|  +--------------------------------------------------------------+ |
+|                                                                    |
++------------------------------------------------------------------+
+
+Tool Item Detail:
++--------------------------------------------------------------+
+| [Button: Tool Name]  [Input field for arguments]              |
++--------------------------------------------------------------+
+
+Button states:
+- Default: Clickable, accent color
+- Running: Disabled, shows spinner, muted color
+- After click (command type): Button disabled until command completes
+
+Behavior:
+- Command type tools: Clicking runs the command with input appended
+  in a background process. Button is disabled during execution.
+- Prompt type tools: Clicking puts the payload + input into the
+  Message input on Conversation tab and switches to that tab with
+  focus on the message input control.
+
+Empty state:
++--------------------------------------------------------------+
+|                                                              |
+|                    [Tools Icon]                              |
+|                                                              |
+|              No project tools configured                      |
+|                                                              |
+|      Configure tools in the project settings to run           |
+|      commands or send prompts from this session.              |
+|                                                              |
+|              [Configure Project Tools]                        |
 |                                                              |
 +--------------------------------------------------------------+
 ```
@@ -377,9 +441,9 @@ Line numbers:   Gray, non-selectable
    - Returns to SessionListView for the project
 
 2. **Tab Switching**
-   - Click tab to switch between Conversation, Changes, Canvas
+   - Click tab to switch between Conversation, Changes, Canvas, Tools
    - Badge on tabs shows counts (file changes, canvas items)
-   - URL updates to reflect current tab (e.g., /sessions/:id/changes)
+   - URL updates to reflect current tab (e.g., /sessions/:id/changes, /sessions/:id/tools)
 
 3. **Mode Selector** (Conversation tab)
    - Dropdown above message input to select execution mode
@@ -409,6 +473,17 @@ Line numbers:   Gray, non-selectable
    - [X] button to delete item
    - Filter/sort controls
    - Grid/list view toggle
+
+8. **Tools** (Tools tab)
+   - Each tool displays as a button with an adjacent input field
+   - Command type tools:
+     - Click button to run command with input value appended
+     - Command runs in background process (non-blocking)
+     - Button disabled while command is running
+   - Prompt type tools:
+     - Click button to populate Message input with payload + input value
+     - Switches to Conversation tab with focus on message input
+   - "Configure Project Tools" button navigates to project settings
 
 ## Responsive Behavior
 
