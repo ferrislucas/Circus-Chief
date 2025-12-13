@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 import apiRouter from './api/index.js';
 import { MAX_JSON_SIZE, DEFAULT_WEB_PORT } from '@claudetools/shared';
 
@@ -45,11 +46,15 @@ export function createApp(options = {}) {
       res.sendFile(join(staticPath, 'index.html'));
     });
   } else {
-    // Development: redirect root to Vite dev server (use request host, not localhost)
-    app.get('/', (req, res) => {
-      const host = req.get('host')?.split(':')[0] || 'localhost';
-      res.redirect(`http://${host}:${DEFAULT_WEB_PORT}`);
-    });
+    // Development: proxy all non-API requests to Vite dev server
+    app.use(
+      '/',
+      createProxyMiddleware({
+        target: `http://localhost:${DEFAULT_WEB_PORT}`,
+        changeOrigin: true,
+        ws: true,
+      })
+    );
   }
 
   // Error handler
