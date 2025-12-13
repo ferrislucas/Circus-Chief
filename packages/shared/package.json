@@ -1,0 +1,16 @@
+{
+  "name": "@claudetools/shared",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./types": "./src/types.js",
+    "./protocol": "./src/protocol.js",
+    "./constants": "./src/constants.js",
+    "./contracts/*": "./src/contracts/*.js"
+  },
+  "dependencies": {
+    "zod": "^3.22.4"
+  }
+}

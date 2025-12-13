@@ -1,0 +1,191 @@
+<template>
+  <div class="conversation-tab">
+    <div class="messages" ref="messagesContainer">
+      <div
+        v-for="message in sessionsStore.messages"
+        :key="message.id"
+        :class="['message', `message-${message.role}`]"
+      >
+        <div class="message-header">
+          <span class="message-role">{{ message.role }}</span>
+          <span class="message-time">{{ formatTime(message.timestamp) }}</span>
+        </div>
+        <div class="message-content">{{ message.content }}</div>
+        <div v-if="message.toolUse?.length" class="message-tools">
+          <details v-for="(tool, idx) in message.toolUse" :key="idx">
+            <summary>Tool: {{ tool.name }}</summary>
+            <pre>{{ JSON.stringify(tool.input, null, 2) }}</pre>
+          </details>
+        </div>
+      </div>
+    </div>
+
+    <form v-if="canSendMessage" @submit.prevent="handleSend" class="input-form">
+      <textarea
+        v-model="input"
+        class="form-input form-textarea"
+        placeholder="Send a follow-up message..."
+        rows="3"
+        @keydown.enter.ctrl="handleSend"
+      ></textarea>
+      <button type="submit" class="btn btn-primary" :disabled="!input.trim() || sending">
+        <span v-if="sending" class="loading-spinner"></span>
+        Send
+      </button>
+    </form>
+
+    <div v-else-if="sessionsStore.currentSession?.status === 'running'" class="status-message">
+      <span class="loading-spinner"></span>
+      Claude is working...
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, nextTick, watch } from 'vue';
+import { useSessionsStore } from '../stores/sessions.js';
+import { useUiStore } from '../stores/ui.js';
+
+const props = defineProps({
+  sessionId: { type: String, required: true },
+});
+
+const sessionsStore = useSessionsStore();
+const uiStore = useUiStore();
+
+const input = ref('');
+const sending = ref(false);
+const messagesContainer = ref(null);
+
+const canSendMessage = computed(() => {
+  return sessionsStore.currentSession?.status === 'waiting';
+});
+
+watch(
+  () => sessionsStore.messages.length,
+  () => {
+    nextTick(() => {
+      if (messagesContainer.value) {
+        messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+      }
+    });
+  }
+);
+
+function formatTime(timestamp) {
+  return new Date(timestamp).toLocaleTimeString();
+}
+
+async function handleSend() {
+  if (!input.value.trim() || sending.value) return;
+
+  sending.value = true;
+  try {
+    await sessionsStore.sendMessage(props.sessionId, input.value);
+    input.value = '';
+  } catch (err) {
+    uiStore.error(err.message);
+  } finally {
+    sending.value = false;
+  }
+}
+</script>
+
+<style scoped>
+.conversation-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 500px;
+  padding: 1rem 0;
+}
+
+.message {
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border-radius: var(--border-radius);
+  background-color: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+}
+
+.message-user {
+  background-color: rgba(88, 166, 255, 0.1);
+  border-color: rgba(88, 166, 255, 0.3);
+}
+
+.message-assistant {
+  background-color: var(--color-background-soft);
+}
+
+.message-system {
+  background-color: rgba(139, 148, 158, 0.1);
+  border-color: rgba(139, 148, 158, 0.3);
+}
+
+.message-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.message-role {
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-transform: capitalize;
+}
+
+.message-time {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.message-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-tools {
+  margin-top: 0.75rem;
+}
+
+.message-tools details {
+  margin-top: 0.5rem;
+}
+
+.message-tools summary {
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+}
+
+.message-tools pre {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.input-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.input-form textarea {
+  flex: 1;
+}
+
+.status-message {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  color: var(--color-text-soft);
+  border-top: 1px solid var(--color-border);
+}
+</style>
