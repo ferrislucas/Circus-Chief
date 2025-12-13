@@ -1,10 +1,21 @@
 import { createServer } from 'http';
+import { parseArgs } from 'node:util';
 import { createApp, getViteProxy } from './app.js';
 import { initDatabase } from './database.js';
 import { initWebSocket } from './websocket.js';
 import { DEFAULT_SERVER_PORT } from '@claudetools/shared';
 
-const port = process.env.PORT || DEFAULT_SERVER_PORT;
+const { values } = parseArgs({
+  options: {
+    port: {
+      type: 'string',
+      short: 'p',
+      default: String(DEFAULT_SERVER_PORT),
+    },
+  },
+});
+
+const port = parseInt(values.port, 10);
 const production = process.env.NODE_ENV === 'production';
 const dbPath = process.env.DB_PATH || 'claudetools.db';
 
