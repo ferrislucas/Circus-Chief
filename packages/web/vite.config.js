@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     port: DEFAULT_WEB_PORT,
+    host: true,
     hmr: {
       // Use the Express server port for HMR when proxied
       clientPort: DEFAULT_SERVER_PORT,
