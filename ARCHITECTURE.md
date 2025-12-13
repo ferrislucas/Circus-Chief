@@ -1066,8 +1066,13 @@ claudetools.io/
     * @property {string} name - User-provided or auto-generated
     * @property {SessionStatus} status
     * @property {ClaudeMode} mode - Execution mode (plan, standard, yolo)
+    * @property {string} [model] - Claude model ID (e.g., 'claude-sonnet-4-5')
     * @property {string} [gitBranch] - Current branch if in git repo
-    * @property {string} [gitWorktree] - Worktree name if applicable
+    * @property {string} [gitWorktree] - Worktree path if applicable
+    * @property {string} [prUrl] - Linked pull request URL
+    * @property {number} [inputTokens] - Input tokens used
+    * @property {number} [outputTokens] - Output tokens used
+    * @property {number} [estimatedCost] - Estimated cost in USD
     * @property {number} createdAt - Unix timestamp
     * @property {number} updatedAt - Last activity timestamp
     * @property {ConversationMessage[]} messages - Full conversation history
@@ -1359,9 +1364,9 @@ claudetools.io/
    /**
     * POST /api/sessions - Create new session
     * @typedef {Object} CreateSessionRequest
+    * @property {string} projectId - The project to create the session in (inherits workingDirectory from project)
     * @property {string} prompt - Initial prompt for Claude
     * @property {string} [name] - Optional session name
-    * @property {string} workingDirectory - Where to run Claude
     * @property {string} [gitBranch] - Optional branch to checkout
     * @property {ClaudeMode} [mode] - Claude Code execution mode (plan, standard, yolo). Defaults to 'standard'
     */
