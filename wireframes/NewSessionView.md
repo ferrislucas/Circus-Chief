@@ -40,6 +40,15 @@ a name, initial prompt, and optional git configuration.
 |                                                                    |
 +------------------------------------------------------------------+
 |                                                                    |
+|  EXECUTION MODE                                                    |
+|  +--------------------------------------------------------------+ |
+|  | ( ) Plan     - Creates a plan before making changes           | |
+|  | (•) Standard - Normal mode with tool confirmations (default)  | |
+|  | ( ) Yolo     - Execute without confirmations                  | |
+|  +--------------------------------------------------------------+ |
+|                                                                    |
++------------------------------------------------------------------+
+|                                                                    |
 |  GIT CONFIGURATION (optional)                                      |
 |  +--------------------------------------------------------------+ |
 |  |                                                              | |
@@ -130,6 +139,30 @@ Legend:
 | Placeholder: "Describe what you want Claude to help you with..."   |
 | Help text: "Be specific about the task and desired outcome."       |
 | Validation: Required, min 10 characters                            |
++------------------------------------------------------------------+
+```
+
+### Execution Mode
+```
++------------------------------------------------------------------+
+| EXECUTION MODE                                                     |
++------------------------------------------------------------------+
+| +--------------------------------------------------------------+ |
+| | ( ) Plan     - Creates a plan before making changes           | |
+| | (•) Standard - Normal mode with tool confirmations (default)  | |
+| | ( ) Yolo     - Execute without confirmations                  | |
+| +--------------------------------------------------------------+ |
+|                                                                    |
+| Radio button group with descriptions                               |
+| Default: Standard                                                  |
+|                                                                    |
+| Mode descriptions:                                                 |
+| - Plan: Claude analyzes the task and creates a detailed plan,     |
+|   waiting for approval before making any file changes.             |
+| - Standard: Claude asks for confirmation before running tools      |
+|   that modify files or execute commands. Recommended for most use. |
+| - Yolo: Claude executes all tools without confirmation. Use with   |
+|   caution - best for trusted, well-defined tasks.                  |
 +------------------------------------------------------------------+
 ```
 
@@ -285,9 +318,15 @@ Legend:
 
 ## Execution Mode Note
 
-The execution mode (Plan/Standard/Yolo) is NOT set during session creation.
-Instead, users can toggle the mode at any time from the SessionDetailView
-when interacting with the session. This allows more flexibility to change
-modes as the task evolves.
+The execution mode (Plan/Standard/Yolo) can be selected during session creation.
+The default mode is "Standard". Users can also change the mode at any time from
+the SessionDetailView when interacting with the session, allowing flexibility
+to change modes as the task evolves.
 
-The default mode for new sessions is "Standard".
+Mode descriptions:
+- **Plan**: Claude analyzes the task and creates a detailed plan, waiting for
+  your approval before making any file changes.
+- **Standard**: Claude asks for confirmation before running tools that modify
+  files or execute commands. Recommended for most use.
+- **Yolo**: Claude executes all tools without confirmation. Use with caution -
+  best for trusted, well-defined tasks.

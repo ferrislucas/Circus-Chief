@@ -464,6 +464,267 @@ module.exports = {
 - Mix different spacing scales inconsistently
 - Create light mode variants (dark mode only)
 
+### Loading State Patterns
+
+Consistent loading states provide feedback during async operations. Use these patterns throughout the application.
+
+#### Full Page Loading
+Use when the entire view is loading (initial page load, navigation):
+```html
+<div class="flex flex-col items-center justify-center min-h-[400px] text-gray-400">
+  <svg class="animate-spin h-8 w-8 mb-4" viewBox="0 0 24 24">
+    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+  </svg>
+  <span class="text-sm">Loading sessions...</span>
+</div>
+```
+
+#### Inline Loading
+Use when refreshing content while preserving existing UI:
+```html
+<div class="flex items-center justify-between p-4 border-b border-gray-700">
+  <h2 class="text-lg font-semibold text-gray-100">Sessions</h2>
+  <div class="flex items-center gap-2 text-gray-400 text-sm">
+    <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24">...</svg>
+    <span>Refreshing...</span>
+  </div>
+</div>
+<!-- Existing content remains visible, optionally with opacity-50 -->
+```
+
+#### Button Loading
+Use when a button action is processing:
+```html
+<!-- Default state -->
+<button class="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded text-sm font-medium transition-colors">
+  Create Session
+</button>
+
+<!-- Loading state -->
+<button class="bg-cyan-600/50 text-white/70 px-4 py-2 rounded text-sm font-medium cursor-not-allowed flex items-center gap-2" disabled>
+  <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24">...</svg>
+  Creating...
+</button>
+```
+
+#### Skeleton Loading
+Use for content-heavy areas to show layout structure:
+```html
+<div class="space-y-3">
+  <!-- Skeleton card -->
+  <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 animate-pulse">
+    <div class="h-4 bg-gray-700 rounded w-3/4 mb-2"></div>
+    <div class="h-3 bg-gray-700 rounded w-1/2"></div>
+  </div>
+  <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 animate-pulse">
+    <div class="h-4 bg-gray-700 rounded w-2/3 mb-2"></div>
+    <div class="h-3 bg-gray-700 rounded w-1/3"></div>
+  </div>
+</div>
+```
+
+#### Operations Requiring Loading States
+
+| Operation | Loading Pattern | Notes |
+|-----------|-----------------|-------|
+| Initial page load | Full page | Show spinner with context text |
+| List refresh | Inline | Preserve content, show spinner in header |
+| Form submission | Button | Disable button, show spinner |
+| Message sending | Button + typing indicator | Disable input, show "Claude is thinking..." |
+| File upload | Progress bar | Show upload percentage |
+| Session creation | Button + redirect | Button loading, then navigate |
+| Long-running tools | Inline status | Show tool name and elapsed time |
+
+### Error State Patterns
+
+Consistent error handling improves user experience and helps users recover from failures.
+
+#### Toast/Notification Errors
+Use for temporary, dismissible errors that don't block the UI:
+```html
+<!-- Toast container (fixed position, top-right) -->
+<div class="fixed top-4 right-4 z-50 space-y-2">
+  <!-- Error toast -->
+  <div class="bg-red-900/90 border border-red-700 rounded-lg p-4 shadow-lg max-w-sm animate-fade-in">
+    <div class="flex items-start gap-3">
+      <svg class="h-5 w-5 text-red-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+      </svg>
+      <div class="flex-1">
+        <p class="text-sm font-medium text-red-200">Failed to send message</p>
+        <p class="text-xs text-red-300 mt-1">Network connection lost. Please try again.</p>
+      </div>
+      <button class="text-red-400 hover:text-red-300">
+        <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">...</svg>
+      </button>
+    </div>
+    <div class="mt-3 flex gap-2">
+      <button class="text-xs bg-red-800 hover:bg-red-700 text-red-200 px-3 py-1 rounded">Retry</button>
+      <button class="text-xs text-red-400 hover:text-red-300 px-3 py-1">Dismiss</button>
+    </div>
+  </div>
+</div>
+```
+
+#### Inline Errors (Form Validation)
+Use for field-level validation errors:
+```html
+<div class="space-y-1">
+  <label class="text-xs text-gray-500 uppercase tracking-wide">Session Name</label>
+  <input
+    type="text"
+    class="w-full bg-gray-900 border border-red-500 rounded px-3 py-2 text-gray-200 placeholder-gray-500 focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400"
+    value="My Session"
+  />
+  <p class="text-xs text-red-400 flex items-center gap-1">
+    <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">...</svg>
+    Session name already exists
+  </p>
+</div>
+```
+
+#### Full Page Errors
+Use for critical failures that prevent the page from functioning:
+```html
+<div class="flex flex-col items-center justify-center min-h-[400px] text-center p-8">
+  <svg class="h-16 w-16 text-red-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+  </svg>
+  <h2 class="text-xl font-semibold text-gray-100 mb-2">Connection Lost</h2>
+  <p class="text-gray-400 mb-6 max-w-md">
+    Unable to connect to the server. Please check that the server is running and try again.
+  </p>
+  <button class="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-2 rounded text-sm font-medium transition-colors">
+    Retry Connection
+  </button>
+</div>
+```
+
+#### Session Error State
+Use when a Claude session encounters an error:
+```html
+<div class="bg-red-900/20 border border-red-700 rounded-lg p-6 mx-4 my-4">
+  <div class="flex items-start gap-3">
+    <svg class="h-6 w-6 text-red-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">...</svg>
+    <div class="flex-1">
+      <h3 class="text-lg font-medium text-red-200">Session Error</h3>
+      <p class="text-sm text-red-300 mt-1">
+        Claude encountered an error: "Rate limit exceeded. Please try again in 60 seconds."
+      </p>
+      <div class="mt-4 flex gap-3">
+        <button class="bg-red-800 hover:bg-red-700 text-red-200 px-4 py-2 rounded text-sm font-medium transition-colors">
+          Retry Last Message
+        </button>
+        <button class="text-red-400 hover:text-red-300 px-4 py-2 text-sm">
+          Start New Session
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+#### Error Types and Recommended Patterns
+
+| Error Type | Pattern | Auto-dismiss | Retry Available |
+|------------|---------|--------------|-----------------|
+| Network error | Toast | No | Yes |
+| Validation error | Inline | No | N/A |
+| Server error (5xx) | Toast | No | Yes |
+| Not found (404) | Full page or Toast | No | No |
+| Session error | Session error state | No | Yes |
+| WebSocket disconnect | Toast + reconnect | No | Auto-retry |
+| File upload failed | Toast | 5 seconds | Yes |
+| Rate limit | Session error state | No | Yes (with timer) |
+
+### Keyboard Shortcuts
+
+The application supports keyboard shortcuts for common actions. All shortcuts use the platform-appropriate modifier key (Cmd on macOS, Ctrl on Windows/Linux).
+
+#### Global Shortcuts
+
+| Shortcut | Action | Notes |
+|----------|--------|-------|
+| `Cmd/Ctrl + K` | Open command palette | Available from any view |
+| `Escape` | Close modal/dropdown | Closes the topmost overlay |
+| `Cmd/Ctrl + N` | New session | Opens new session form |
+| `Cmd/Ctrl + /` | Toggle sidebar | If sidebar is implemented |
+
+#### Session View Shortcuts
+
+| Shortcut | Action | Notes |
+|----------|--------|-------|
+| `Enter` | Send message | When message input is focused |
+| `Shift + Enter` | New line in message | Insert newline without sending |
+| `Cmd/Ctrl + Enter` | Send message | Alternative send shortcut |
+| `Up Arrow` | Edit last message | When input is empty |
+| `Cmd/Ctrl + 1` | Conversation tab | Switch to conversation |
+| `Cmd/Ctrl + 2` | Changes tab | Switch to diff view |
+| `Cmd/Ctrl + 3` | Canvas tab | Switch to canvas |
+| `Cmd/Ctrl + 4` | Tools tab | Switch to tools |
+| `Cmd/Ctrl + 5` | Notes tab | Switch to notes |
+
+#### Form Shortcuts
+
+| Shortcut | Action | Notes |
+|----------|--------|-------|
+| `Cmd/Ctrl + S` | Save/Submit | In edit views and forms |
+| `Cmd/Ctrl + Backspace` | Delete | With confirmation dialog |
+| `Tab` | Next field | Standard form navigation |
+| `Shift + Tab` | Previous field | Reverse navigation |
+
+#### Slash Command Shortcuts
+
+| Shortcut | Action | Notes |
+|----------|--------|-------|
+| `/` | Open command autocomplete | At start of message input |
+| `Tab` | Complete command | Select first match |
+| `Arrow Up/Down` | Navigate commands | In autocomplete list |
+
+#### Accessibility Considerations
+
+- All interactive elements are keyboard accessible via Tab navigation
+- Focus is visually indicated with `focus:ring-2 focus:ring-cyan-500`
+- Modal focus is trapped within the modal when open
+- Focus returns to trigger element when modal closes
+- Skip links available for screen reader users
+- ARIA labels provided for all icon-only buttons
+- Keyboard shortcuts shown in tooltips where applicable
+
+#### Implementation Notes
+
+```javascript
+// Example keyboard shortcut handler
+function useKeyboardShortcuts() {
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const isMod = e.metaKey || e.ctrlKey;
+
+      // Cmd/Ctrl + K - Command palette
+      if (isMod && e.key === 'k') {
+        e.preventDefault();
+        openCommandPalette();
+      }
+
+      // Escape - Close modal
+      if (e.key === 'Escape') {
+        closeTopModal();
+      }
+
+      // Tab navigation (Cmd/Ctrl + 1-5)
+      if (isMod && e.key >= '1' && e.key <= '5') {
+        e.preventDefault();
+        switchToTab(parseInt(e.key) - 1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+}
+```
+
 ---
 
 ## Project Structure
@@ -2494,7 +2755,27 @@ claudetools.io/
        path: '/sessions/:id/:tab?',
        name: 'session-detail',
        component: () => import('./views/SessionDetailView.vue'),
-       // Tab parameter: conversation (default), changes, canvas
+       // Tab parameter: conversation (default), changes, canvas, tools, notes
+     },
+     {
+       path: '/settings',
+       name: 'settings',
+       component: () => import('./views/SettingsView.vue'),
+     },
+     {
+       path: '/tools',
+       name: 'tools-global',
+       component: () => import('./views/ToolsGlobalView.vue'),
+     },
+     {
+       path: '/tools/new',
+       name: 'tool-new',
+       component: () => import('./views/NewGlobalToolTemplateView.vue'),
+     },
+     {
+       path: '/tools/:id/edit',
+       name: 'tool-edit',
+       component: () => import('./views/EditGlobalToolTemplateView.vue'),
      },
    ];
 
