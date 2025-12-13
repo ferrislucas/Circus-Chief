@@ -217,7 +217,7 @@ The container uses `network_mode: host` to access services running on the host m
 | Host Service | Container Access |
 |-------------|------------------|
 | Frontend (Vite) | `http://localhost:5173` |
-| Backend (Express) | `http://localhost:3000` |
+| Backend (Express) | `http://localhost:5000` |
 | Any other service | `http://localhost:<port>` |
 
 **Note for macOS/Windows**: Docker Desktop requires using `host.docker.internal` instead of `localhost`. The entrypoint script will auto-detect and configure this.
