@@ -20,7 +20,10 @@ fi
 
 # Function to run playwright tests
 run_tests() {
-    cd /tests
+    cd /tools
+
+    # Make @playwright/test available to test files in /tests
+    export NODE_PATH="/tools/node_modules:${NODE_PATH:-}"
 
     # Check if playwright.config exists in tests or use mounted one
     if [ -f "/app/playwright.config.ts" ]; then
@@ -34,6 +37,7 @@ run_tests() {
     # Build test command
     local test_args=("$@")
 
+    # Run tests from /tools where @playwright/test is installed
     npx playwright test $CONFIG_ARG "${test_args[@]}"
 }
 

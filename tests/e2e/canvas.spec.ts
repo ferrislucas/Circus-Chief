@@ -30,7 +30,7 @@ test.describe('Canvas Management', () => {
     await page.goto(`/sessions/${session.id}/canvas`);
 
     await expect(page.getByText('Test Label')).toBeVisible();
-    await expect(page.getByText('markdown')).toBeVisible();
+    await expect(page.locator('.canvas-item-type').getByText('markdown')).toBeVisible();
   });
 
   test('can delete canvas item', async ({ page }) => {
@@ -67,7 +67,7 @@ test.describe('Canvas Management', () => {
 
     await expect(page.getByText('Text Item')).toBeVisible();
     await expect(page.getByText('JSON Item')).toBeVisible();
-    await expect(page.getByText('text')).toBeVisible();
-    await expect(page.getByText('json')).toBeVisible();
+    await expect(page.locator('.canvas-item-type').getByText('text')).toBeVisible();
+    await expect(page.locator('.canvas-item-type').getByText('json')).toBeVisible();
   });
 });

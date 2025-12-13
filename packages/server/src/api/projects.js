@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { projects, sessions } from '../database.js';
-import { CreateProjectRequest, UpdateProjectRequest } from '@claudetools/shared/contracts/projects.js';
+import { CreateProjectRequest, UpdateProjectRequest } from '@claudetools/shared/contracts/projects';
 
 const router = Router();
 
