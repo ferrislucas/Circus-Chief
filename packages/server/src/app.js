@@ -9,6 +9,13 @@ import { MAX_JSON_SIZE, DEFAULT_WEB_PORT } from '@claudetools/shared';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Store vite proxy for WebSocket upgrade handling
+let viteProxy = null;
+
+export function getViteProxy() {
+  return viteProxy;
+}
+
 /**
  * Create Express application
  * @param {Object} options
@@ -47,14 +54,12 @@ export function createApp(options = {}) {
     });
   } else {
     // Development: proxy all non-API requests to Vite dev server
-    app.use(
-      '/',
-      createProxyMiddleware({
-        target: `http://localhost:${DEFAULT_WEB_PORT}`,
-        changeOrigin: true,
-        ws: true,
-      })
-    );
+    viteProxy = createProxyMiddleware({
+      target: `http://localhost:${DEFAULT_WEB_PORT}`,
+      changeOrigin: true,
+      ws: true,
+    });
+    app.use('/', viteProxy);
   }
 
   // Error handler
