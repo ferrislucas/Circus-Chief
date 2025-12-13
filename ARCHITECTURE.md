@@ -1015,6 +1015,14 @@ claudetools.io/
     */
 
    /**
+    * Session updated (e.g., renamed)
+    * @typedef {Object} WsSessionUpdatedMessage
+    * @property {'session:updated'} type
+    * @property {string} sessionId
+    * @property {Session} session
+    */
+
+   /**
     * New message in session conversation
     * @typedef {Object} WsSessionMessageMessage
     * @property {'session:message'} type
@@ -1053,7 +1061,7 @@ claudetools.io/
 
    /**
     * Union of all server -> client messages
-    * @typedef {WsConnectedMessage | WsSessionListMessage | WsSessionStatusMessage | WsSessionMessageMessage | WsSessionStreamMessage | WsCanvasAddMessage | WsCanvasClearMessage | WsCanvasRemoveMessage} WsServerMessage
+    * @typedef {WsConnectedMessage | WsSessionListMessage | WsSessionStatusMessage | WsSessionUpdatedMessage | WsSessionMessageMessage | WsSessionStreamMessage | WsCanvasAddMessage | WsCanvasClearMessage | WsCanvasRemoveMessage} WsServerMessage
     */
 
    // ============================================
@@ -1106,6 +1114,12 @@ claudetools.io/
     * POST /api/sessions/:id/message - Send message to session
     * @typedef {Object} SendMessageRequest
     * @property {string} content
+    */
+
+   /**
+    * PUT /api/sessions/:id - Update session
+    * @typedef {Object} UpdateSessionRequest
+    * @property {string} [name] - New session name
     */
 
    /**
@@ -1367,6 +1381,29 @@ claudetools.io/
 
        activeSession.abortController.abort();
        this.#updateSessionStatus(sessionId, 'completed');
+       return true;
+     }
+
+     /**
+      * Update session properties (e.g., rename)
+      * @param {string} sessionId
+      * @param {{ name?: string }} updates
+      * @returns {boolean}
+      */
+     updateSession(sessionId, updates) {
+       const activeSession = this.#sessions.get(sessionId);
+       if (!activeSession) return false;
+
+       if (updates.name) {
+         activeSession.session.name = updates.name;
+       }
+       activeSession.session.updatedAt = Date.now();
+
+       broadcast({
+         type: 'session:updated',
+         sessionId,
+         session: activeSession.session,
+       });
        return true;
      }
 
@@ -1705,6 +1742,23 @@ claudetools.io/
      }
 
      res.json({ success: true });
+   });
+
+   // PUT /api/sessions/:id - Update session (e.g., rename)
+   router.put('/:id', (req, res) => {
+     const { name } = req.body;
+
+     if (!name || typeof name !== 'string' || name.trim().length === 0) {
+       return res.status(400).json({ error: 'name is required and must be a non-empty string' });
+     }
+
+     const success = sessionManager.updateSession(req.params.id, { name: name.trim() });
+     if (!success) {
+       return res.status(404).json({ error: 'Session not found' });
+     }
+
+     const session = sessionManager.getSession(req.params.id);
+     res.json({ session });
    });
 
    // POST /api/sessions/:id/stop - Stop a session
@@ -4555,9 +4609,11 @@ claudetools.io/
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/api/sessions` | List all sessions (cross-project) |
 | GET | `/api/projects/:projectId/sessions` | List sessions in a project |
 | POST | `/api/projects/:projectId/sessions` | Create new session in project |
 | GET | `/api/sessions/:id` | Get session details |
+| PUT | `/api/sessions/:id` | Update session (name) |
 | POST | `/api/sessions/:id/message` | Send message to session |
 | POST | `/api/sessions/:id/mode` | Change execution mode (plan/standard/yolo) |
 | POST | `/api/sessions/:id/stop` | Stop a running session |
@@ -4570,6 +4626,10 @@ claudetools.io/
 | GET | `/api/sessions/:id/pr-url` | Get the PR URL for a session |
 | PUT | `/api/sessions/:id/pr-url` | Set or update the PR URL |
 | DELETE | `/api/sessions/:id/pr-url` | Remove the PR URL |
+
+**Session Listing Endpoints:**
+- `GET /api/sessions` - Returns all sessions across all projects. Use for cross-project views such as "all active sessions" dashboard or global search.
+- `GET /api/projects/:projectId/sessions` - Returns sessions within a specific project. Use for project-specific session lists when the user is viewing a particular project.
 
 ### Canvas API
 
@@ -4623,6 +4683,9 @@ Connect to `ws://localhost:3000/ws`
 
 // Session status changed
 { type: 'session:status', sessionId: 'string', status: 'SessionStatus', error: 'string?' }
+
+// Session updated (e.g., renamed)
+{ type: 'session:updated', sessionId: 'string', session: Session }
 
 // New message in conversation
 { type: 'session:message', sessionId: 'string', message: ConversationMessage }
