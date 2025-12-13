@@ -725,6 +725,60 @@ Line numbers:   Gray, non-selectable
     - Stop Session: Stops running session (shows confirmation)
     - Delete Session: Deletes session (shows confirmation with warning)
 
+## Delete Session Confirmation Dialog
+
+When user clicks "Delete Session" from the actions menu:
+
+### Standard Confirmation (session completed or idle)
+
+```
++--------------------------------------------------------------+
+|                     Delete Session?                           |
+|                                                              |
+|  Are you sure you want to delete "Fix authentication bug"?   |
+|                                                              |
+|  This will permanently delete:                               |
+|  - 24 conversation messages                                  |
+|  - 3 canvas items (screenshots, documents)                   |
+|  - 1 session note                                            |
+|                                                              |
+|  This action cannot be undone.                               |
+|                                                              |
+|                        [Cancel]  [Delete Session]            |
++--------------------------------------------------------------+
+```
+
+### Active Session Warning (session running or waiting for input)
+
+```
++--------------------------------------------------------------+
+|                   Delete Active Session?                      |
+|                                                              |
+|  Are you sure you want to delete "Fix authentication bug"?   |
+|                                                              |
+|  This session is currently running.                          |
+|  Deleting it will stop Claude and discard all work in        |
+|  progress.                                                   |
+|                                                              |
+|  This will permanently delete:                               |
+|  - 24 conversation messages                                  |
+|  - 3 canvas items (screenshots, documents)                   |
+|  - 1 session note                                            |
+|                                                              |
+|  This action cannot be undone.                               |
+|                                                              |
+|                        [Cancel]  [Delete Session]            |
++--------------------------------------------------------------+
+```
+
+### Dialog Behavior
+- Counts are dynamically populated based on actual session data
+- If a count is zero, that line is omitted (e.g., no "0 canvas items" line)
+- Active session warning appears when session status is "running" or "waiting"
+- "Delete Session" button uses destructive styling (red background)
+- Cancel dismisses dialog without action
+- Dialog is modal (blocks interaction with page behind)
+
 ## Responsive Behavior
 
 ### Mobile (<768px)

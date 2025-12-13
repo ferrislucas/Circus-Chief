@@ -195,7 +195,7 @@ Used for:
 
 | Technology | Purpose |
 |------------|---------|
-| **pnpm** | Package manager with workspace support |
+| **yarn** | Package manager with workspace support |
 | **ESLint** | Linting |
 | **Prettier** | Code formatting |
 | **concurrently** | Run server and frontend in parallel |
@@ -733,7 +733,7 @@ function useKeyboardShortcuts() {
 claudetools.io/
 │
 ├── package.json                    # Root package.json for workspaces
-├── pnpm-workspace.yaml             # pnpm workspace configuration
+├── yarn.lock                       # yarn lockfile
 ├── .gitignore                      # Git ignore rules
 ├── .prettierrc                     # Prettier configuration
 ├── .eslintrc.cjs                   # ESLint configuration
@@ -842,17 +842,18 @@ claudetools.io/
      "name": "claudetools",
      "private": true,
      "scripts": {
-       "dev": "concurrently \"pnpm --filter server dev\" \"pnpm --filter web dev\"",
-       "build": "pnpm -r build",
-       "start": "pnpm --filter server start"
+       "dev": "concurrently \"yarn workspace server dev\" \"yarn workspace web dev\"",
+       "build": "yarn workspaces run build",
+       "start": "yarn workspace server start"
      }
    }
    ```
 
-2. **Create pnpm-workspace.yaml**
-   ```yaml
-   packages:
-     - 'packages/*'
+2. **Configure yarn workspaces in root package.json**
+   ```json
+   {
+     "workspaces": ["packages/*"]
+   }
    ```
 
 3. **Initialize packages/shared**
@@ -870,13 +871,13 @@ claudetools.io/
    - Configure Vite to proxy API requests to server in dev mode
 
 6. **Verify setup**
-   - Run `pnpm install` from root
-   - Run `pnpm dev` and verify both server and frontend start
+   - Run `yarn install` from root
+   - Run `yarn dev` and verify both server and frontend start
    - Verify frontend can reach server API
 
 **Deliverables**:
 - All three packages exist and build without errors
-- `pnpm dev` starts both server (port 5000) and frontend (port 5173)
+- `yarn dev` starts both server (port 5000) and frontend (port 5173)
 - Frontend dev server proxies `/api/*` and `/ws` to server
 
 ---
@@ -1309,6 +1310,7 @@ claudetools.io/
     * Canvas item added
     * @typedef {Object} WsCanvasAddMessage
     * @property {'canvas:add'} type
+    * @property {string} sessionId - Session the item was added to
     * @property {CanvasItem} item
     */
 
@@ -1316,12 +1318,14 @@ claudetools.io/
     * Canvas cleared
     * @typedef {Object} WsCanvasClearMessage
     * @property {'canvas:clear'} type
+    * @property {string} sessionId - Session that was cleared
     */
 
    /**
     * Canvas item removed
     * @typedef {Object} WsCanvasRemoveMessage
     * @property {'canvas:remove'} type
+    * @property {string} sessionId - Session the item was removed from
     * @property {string} itemId
     */
 
@@ -1416,7 +1420,7 @@ claudetools.io/
 1. **Install Claude Agent SDK**
    ```bash
    cd packages/server
-   pnpm add @anthropic-ai/claude-agent-sdk
+   yarn add @anthropic-ai/claude-agent-sdk
    ```
 
 2. **Create SessionManager class (`src/services/sessionManager.js`)**
@@ -3316,7 +3320,7 @@ claudetools.io/
 1. **Install chokidar for file watching**
    ```bash
    cd packages/server
-   pnpm add chokidar
+   yarn add chokidar
    ```
 
 2. **Create DiffService class (`src/services/diffService.js`)**
@@ -3569,7 +3573,7 @@ claudetools.io/
    **Installation:**
    ```bash
    cd packages/web
-   pnpm add diff2html
+   yarn add diff2html
    ```
 
    **Component Implementation (`src/components/DiffViewer.vue`):**
@@ -3657,7 +3661,7 @@ claudetools.io/
 1. **Install gray-matter for frontmatter parsing**
    ```bash
    cd packages/server
-   pnpm add gray-matter
+   yarn add gray-matter
    ```
 
 2. **Create SlashCommandService class (`src/services/slashCommandService.js`)**
@@ -5010,13 +5014,13 @@ Connect to `ws://localhost:5000/ws`
 { type: 'session:pr-url:updated', sessionId: 'string', prUrl: 'string | null' }
 
 // Canvas item added
-{ type: 'canvas:add', item: CanvasItem }
+{ type: 'canvas:add', sessionId: 'string', item: CanvasItem }
 
 // Canvas item removed
-{ type: 'canvas:remove', itemId: 'string' }
+{ type: 'canvas:remove', sessionId: 'string', itemId: 'string' }
 
 // Canvas cleared
-{ type: 'canvas:clear' }
+{ type: 'canvas:clear', sessionId: 'string' }
 ```
 
 ### Client → Server Messages
