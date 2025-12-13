@@ -67,6 +67,11 @@ jobs:
       - name: Build Playwright Docker image
         run: docker compose -f docker-compose.playwright.yml build playwright
 
+      - name: Create output directories
+        run: |
+          mkdir -p playwright-report screenshots
+          chmod 777 playwright-report screenshots
+
       - name: Start backend server
         run: |
           yarn workspace @claudetools/server start &
@@ -80,7 +85,7 @@ jobs:
           npx wait-on http://localhost:5173 --timeout 30000
 
       - name: Run Playwright tests
-        run: ./scripts/pw.sh test
+        run: ./scripts/pw.sh test --project=chromium
         env:
           BASE_URL: http://localhost:5173
           API_URL: http://localhost:5000
