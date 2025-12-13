@@ -1,23 +1,48 @@
 # SessionDetailView Wireframe
 
 The SessionDetailView shows the full conversation for a single Claude Code session,
-with a tabbed sub-navigation for Conversation, Changes (diffs), Canvas, and Tools.
+with a tabbed sub-navigation for Conversation, Changes (diffs), Canvas, Tools, and Notes.
 
 ## Full View with Tab Navigation
 
 ```
 +------------------------------------------------------------------+
 |                                                                    |
-|  [<- Back]  Fix authentication bug                [Running *]      |
+|  [<- Back]  Fix authentication bug           [Running *]  [...]    |
 |             /path/to/project  |  Branch: feature/auth-fix          |
+|             PR: #123 (linked)                                       |
 |                                                                    |
 +------------------------------------------------------------------+
 |  TAB NAVIGATION                                                    |
-|  +------------+------------+------------+------------+             |
-|  | Conversation| Changes(3)| Canvas(2) |   Tools   |             |
-|  +------------+------------+------------+------------+-------------+
+|  +------------+------------+------------+--------+--------+        |
+|  | Conversation| Changes(3)| Canvas(2) | Tools | Notes(1)|        |
+|  +------------+------------+------------+--------+--------+--------+
 |                                                                    |
 |  TAB CONTENT (varies by selected tab)                              |
+|                                                                    |
++------------------------------------------------------------------+
+
+Legend:
+- [...] Session actions menu (rename, link PR, stop, delete)
+- PR: #123 (linked) - Shows linked pull request if set
+```
+
+## Session Header Actions Menu
+
+```
+Clicking [...] reveals dropdown:
++------------------------------------------------------------------+
+|                                                                    |
+|  [<- Back]  Fix authentication bug           [Running *]  [...]    |
+|                                                    |               |
+|                                                    v               |
+|                                            +---------------+       |
+|                                            | Rename        |       |
+|                                            | Link PR       |       |
+|                                            | -----------   |       |
+|                                            | Stop Session  |       |
+|                                            | Delete Session|       |
+|                                            +---------------+       |
 |                                                                    |
 +------------------------------------------------------------------+
 ```
@@ -230,6 +255,142 @@ Empty state:
 |              [Configure Project Tools]                        |
 |                                                              |
 +--------------------------------------------------------------+
+```
+
+## Notes Tab
+
+The Notes tab allows users to add free-form notes about a session. Notes are useful
+for capturing context, decisions, or reminders that aren't part of the conversation.
+
+```
++------------------------------------------------------------------+
+|  [<- Back]  Fix authentication bug           [Running *]  [...]    |
+|             /path/to/project  |  Branch: feature/auth-fix          |
++------------------------------------------------------------------+
+|  +------------+------------+------------+--------+--------+        |
+|  | Conversation| Changes(3)| Canvas(2) | Tools |[*]Notes(1)|       |
+|  +------------+------------+------------+--------+--------+--------+
+|                                                                    |
+|  SESSION NOTES                                     [+ Add Note]    |
+|  +--------------------------------------------------------------+ |
+|  |                                                              | |
+|  |  +----------------------------------------------------------+| |
+|  |  | Note 1                                       [Edit] [X]  || |
+|  |  +----------------------------------------------------------+| |
+|  |  |                                                          || |
+|  |  |  ## Decision Made                                        || |
+|  |  |  After discussing with the team, we decided to use       || |
+|  |  |  the refresh token approach instead of silent auth.      || |
+|  |  |                                                          || |
+|  |  |  **Reason**: Better security and simpler implementation  || |
+|  |  |                                                          || |
+|  |  |                                      Added 2 hours ago   || |
+|  |  +----------------------------------------------------------+| |
+|  |                                                              | |
+|  +--------------------------------------------------------------+ |
+|                                                                    |
++------------------------------------------------------------------+
+```
+
+### Add/Edit Note Modal
+
+```
++------------------------------------------------------------------+
+|                                                                    |
+|  +--------------------------------------------------------------+ |
+|  |                                                              | |
+|  |                    Add Note / Edit Note                       | |
+|  |                                                              | |
+|  |  +----------------------------------------------------------+| |
+|  |  |                                                          || |
+|  |  |  ## My Note Title                                        || |
+|  |  |                                                          || |
+|  |  |  Some **markdown** content here...                       || |
+|  |  |                                                          || |
+|  |  |                                                          || |
+|  |  |                                                          || |
+|  |  +----------------------------------------------------------+| |
+|  |  (Supports markdown formatting)                              | |
+|  |                                                              | |
+|  |                              [Cancel]  [Save Note]           | |
+|  |                                                              | |
+|  +--------------------------------------------------------------+ |
+|                                                                    |
++------------------------------------------------------------------+
+```
+
+### Empty State (No Notes)
+
+```
++--------------------------------------------------------------+
+|                                                              |
+|                    [Notes Icon]                              |
+|                                                              |
+|                   No notes yet                                |
+|                                                              |
+|      Add notes to capture decisions, context, or              |
+|      reminders about this session.                            |
+|                                                              |
+|                    [+ Add Note]                               |
+|                                                              |
++--------------------------------------------------------------+
+```
+
+## Link PR Modal
+
+When user clicks "Link PR" from the session actions menu:
+
+```
++------------------------------------------------------------------+
+|                                                                    |
+|  +--------------------------------------------------------------+ |
+|  |                                                              | |
+|  |                    Link Pull Request                          | |
+|  |                                                              | |
+|  |  PR URL:                                                     | |
+|  |  +----------------------------------------------------------+| |
+|  |  | https://github.com/org/repo/pull/123                     || |
+|  |  +----------------------------------------------------------+| |
+|  |  Enter the URL of the pull request created from this session | |
+|  |                                                              | |
+|  |                              [Cancel]  [Link PR]             | |
+|  |                                                              | |
+|  +--------------------------------------------------------------+ |
+|                                                                    |
++------------------------------------------------------------------+
+
+When PR is linked, it appears in the session header:
++------------------------------------------------------------------+
+|  [<- Back]  Fix authentication bug           [Running *]  [...]    |
+|             /path/to/project  |  Branch: feature/auth-fix          |
+|             PR: #123 [view] [unlink]                                |
++------------------------------------------------------------------+
+
+- [view] opens PR in new tab
+- [unlink] removes the PR link
+```
+
+## Rename Session Modal
+
+When user clicks "Rename" from the session actions menu:
+
+```
++------------------------------------------------------------------+
+|                                                                    |
+|  +--------------------------------------------------------------+ |
+|  |                                                              | |
+|  |                    Rename Session                             | |
+|  |                                                              | |
+|  |  Session Name:                                               | |
+|  |  +----------------------------------------------------------+| |
+|  |  | Fix authentication bug                                   || |
+|  |  +----------------------------------------------------------+| |
+|  |                                                              | |
+|  |                              [Cancel]  [Save]                | |
+|  |                                                              | |
+|  +--------------------------------------------------------------+ |
+|                                                                    |
++------------------------------------------------------------------+
 ```
 
 ## Message Components
@@ -484,6 +645,18 @@ Line numbers:   Gray, non-selectable
      - Click button to populate Message input with payload + input value
      - Switches to Conversation tab with focus on message input
    - "Configure Project Tools" button navigates to project settings
+
+9. **Notes** (Notes tab)
+   - Click "Add Note" to create a new note
+   - Click existing note to edit inline
+   - Notes support markdown formatting
+   - Delete note via [X] button with confirmation
+
+10. **Session Actions Menu** ([...] button)
+    - Rename: Opens inline edit field for session name
+    - Link PR: Opens modal to enter PR URL
+    - Stop Session: Stops running session (shows confirmation)
+    - Delete Session: Deletes session (shows confirmation with warning)
 
 ## Responsive Behavior
 

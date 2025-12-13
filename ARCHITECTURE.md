@@ -1738,7 +1738,9 @@ claudetools.io/
 
 ### Phase 5: Canvas Service
 
-**Goal**: Implement the canvas storage and API for Claude Code to add items.
+**Goal**: Implement session-scoped canvas storage and API for Claude Code to add items.
+
+**Design Note**: Canvas items are scoped per-session. Each session has its own canvas, and items are stored with the session they belong to. This allows users to see exactly what artifacts Claude Code created during a specific session.
 
 **Steps**:
 
@@ -1748,146 +1750,176 @@ claudetools.io/
    import { broadcast } from '../websocket.js';
 
    class CanvasStore {
-     /** @type {Map<string, import('@claudetools/shared').CanvasItem>} */
-     #items = new Map();
+     /** @type {Map<string, Map<string, import('@claudetools/shared').CanvasItem>>} sessionId -> (itemId -> item) */
+     #sessionItems = new Map();
 
      /**
-      * Get all items
+      * Get all items for a session
+      * @param {string} sessionId
       * @returns {import('@claudetools/shared').CanvasItem[]}
       */
-     getAllItems() {
-       return Array.from(this.#items.values())
+     getSessionItems(sessionId) {
+       const items = this.#sessionItems.get(sessionId);
+       if (!items) return [];
+       return Array.from(items.values())
          .sort((a, b) => b.createdAt - a.createdAt); // Newest first
      }
 
      /**
-      * Get item by ID
-      * @param {string} id
+      * Get item by ID within a session
+      * @param {string} sessionId
+      * @param {string} itemId
       * @returns {import('@claudetools/shared').CanvasItem | undefined}
       */
-     getItem(id) {
-       return this.#items.get(id);
+     getItem(sessionId, itemId) {
+       return this.#sessionItems.get(sessionId)?.get(itemId);
      }
 
      /**
-      * Add an image item
+      * Ensure session map exists
+      * @param {string} sessionId
+      */
+     #ensureSession(sessionId) {
+       if (!this.#sessionItems.has(sessionId)) {
+         this.#sessionItems.set(sessionId, new Map());
+       }
+     }
+
+     /**
+      * Add an image item to a session
+      * @param {string} sessionId
       * @param {Object} options
       * @param {Buffer} options.data
       * @param {string} options.mimeType
       * @param {string} [options.filename]
       * @param {string} [options.label]
-      * @param {string} [options.sessionId]
       * @returns {import('@claudetools/shared').CanvasItem}
       */
-     addImage(options) {
+     addImage(sessionId, options) {
+       this.#ensureSession(sessionId);
        const item = {
          id: randomUUID(),
          type: 'image',
+         sessionId,
          mimeType: options.mimeType,
          data: options.data.toString('base64'),
          filename: options.filename,
          label: options.label,
-         sessionId: options.sessionId,
          createdAt: Date.now(),
        };
 
-       this.#items.set(item.id, item);
-       broadcast({ type: 'canvas:add', item });
+       this.#sessionItems.get(sessionId).set(item.id, item);
+       broadcast({ type: 'canvas:add', sessionId, item });
        return item;
      }
 
      /**
-      * Add a markdown item
+      * Add a markdown item to a session
+      * @param {string} sessionId
       * @param {Object} options
       * @param {string} options.content
       * @param {string} [options.filename]
       * @param {string} [options.label]
-      * @param {string} [options.sessionId]
       * @returns {import('@claudetools/shared').CanvasItem}
       */
-     addMarkdown(options) {
+     addMarkdown(sessionId, options) {
+       this.#ensureSession(sessionId);
        const item = {
          id: randomUUID(),
          type: 'markdown',
+         sessionId,
          content: options.content,
          filename: options.filename,
          label: options.label,
-         sessionId: options.sessionId,
          createdAt: Date.now(),
        };
 
-       this.#items.set(item.id, item);
-       broadcast({ type: 'canvas:add', item });
+       this.#sessionItems.get(sessionId).set(item.id, item);
+       broadcast({ type: 'canvas:add', sessionId, item });
        return item;
      }
 
      /**
-      * Add a text item
+      * Add a text item to a session
+      * @param {string} sessionId
       * @param {Object} options
       * @param {string} options.content
       * @param {string} [options.label]
-      * @param {string} [options.sessionId]
       * @returns {import('@claudetools/shared').CanvasItem}
       */
-     addText(options) {
+     addText(sessionId, options) {
+       this.#ensureSession(sessionId);
        const item = {
          id: randomUUID(),
          type: 'text',
+         sessionId,
          content: options.content,
          label: options.label,
-         sessionId: options.sessionId,
          createdAt: Date.now(),
        };
 
-       this.#items.set(item.id, item);
-       broadcast({ type: 'canvas:add', item });
+       this.#sessionItems.get(sessionId).set(item.id, item);
+       broadcast({ type: 'canvas:add', sessionId, item });
        return item;
      }
 
      /**
-      * Add a JSON item
+      * Add a JSON item to a session
+      * @param {string} sessionId
       * @param {Object} options
       * @param {*} options.data
       * @param {string} [options.filename]
       * @param {string} [options.label]
-      * @param {string} [options.sessionId]
       * @returns {import('@claudetools/shared').CanvasItem}
       */
-     addJson(options) {
+     addJson(sessionId, options) {
+       this.#ensureSession(sessionId);
        const item = {
          id: randomUUID(),
          type: 'json',
+         sessionId,
          data: options.data,
          filename: options.filename,
          label: options.label,
-         sessionId: options.sessionId,
          createdAt: Date.now(),
        };
 
-       this.#items.set(item.id, item);
-       broadcast({ type: 'canvas:add', item });
+       this.#sessionItems.get(sessionId).set(item.id, item);
+       broadcast({ type: 'canvas:add', sessionId, item });
        return item;
      }
 
      /**
-      * Remove an item
-      * @param {string} id
+      * Remove an item from a session
+      * @param {string} sessionId
+      * @param {string} itemId
       * @returns {boolean}
       */
-     removeItem(id) {
-       const existed = this.#items.delete(id);
+     removeItem(sessionId, itemId) {
+       const items = this.#sessionItems.get(sessionId);
+       if (!items) return false;
+       const existed = items.delete(itemId);
        if (existed) {
-         broadcast({ type: 'canvas:remove', itemId: id });
+         broadcast({ type: 'canvas:remove', sessionId, itemId });
        }
        return existed;
      }
 
      /**
-      * Clear all items
+      * Clear all items for a session
+      * @param {string} sessionId
       */
-     clear() {
-       this.#items.clear();
-       broadcast({ type: 'canvas:clear' });
+     clearSession(sessionId) {
+       this.#sessionItems.delete(sessionId);
+       broadcast({ type: 'canvas:clear', sessionId });
+     }
+
+     /**
+      * Delete all canvas data for a session (called when session is deleted)
+      * @param {string} sessionId
+      */
+     deleteSessionData(sessionId) {
+       this.#sessionItems.delete(sessionId);
      }
    }
 
@@ -1895,6 +1927,9 @@ claudetools.io/
    ```
 
 2. **Create canvas API routes (`src/api/canvas.js`)**
+
+   Canvas routes are nested under sessions since canvas is session-scoped:
+
    ```javascript
    import { Router } from 'express';
    import multer from 'multer';
@@ -1910,14 +1945,16 @@ claudetools.io/
      },
    });
 
-   // GET /api/canvas - List all items
-   router.get('/', (req, res) => {
-     const items = canvasStore.getAllItems();
+   // GET /api/sessions/:sessionId/canvas - List all items for a session
+   router.get('/:sessionId/canvas', (req, res) => {
+     const items = canvasStore.getSessionItems(req.params.sessionId);
      res.json({ items });
    });
 
-   // POST /api/canvas - Add item (supports both JSON and multipart)
-   router.post('/', upload.single('file'), (req, res) => {
+   // POST /api/sessions/:sessionId/canvas - Add item to session (supports both JSON and multipart)
+   router.post('/:sessionId/canvas', upload.single('file'), (req, res) => {
+     const sessionId = req.params.sessionId;
+
      try {
        // Handle file upload
        if (req.file) {
@@ -1925,23 +1962,21 @@ claudetools.io/
 
          // Image upload
          if (mimeType.startsWith('image/')) {
-           const item = canvasStore.addImage({
+           const item = canvasStore.addImage(sessionId, {
              data: req.file.buffer,
              mimeType,
              filename: req.file.originalname,
              label: req.body.label,
-             sessionId: req.body.sessionId,
            });
            return res.status(201).json({ item });
          }
 
          // Markdown file
          if (mimeType === 'text/markdown' || req.file.originalname.endsWith('.md')) {
-           const item = canvasStore.addMarkdown({
+           const item = canvasStore.addMarkdown(sessionId, {
              content: req.file.buffer.toString('utf-8'),
              filename: req.file.originalname,
              label: req.body.label,
-             sessionId: req.body.sessionId,
            });
            return res.status(201).json({ item });
          }
@@ -1949,20 +1984,18 @@ claudetools.io/
          // JSON file
          if (mimeType === 'application/json' || req.file.originalname.endsWith('.json')) {
            const data = JSON.parse(req.file.buffer.toString('utf-8'));
-           const item = canvasStore.addJson({
+           const item = canvasStore.addJson(sessionId, {
              data,
              filename: req.file.originalname,
              label: req.body.label,
-             sessionId: req.body.sessionId,
            });
            return res.status(201).json({ item });
          }
 
          // Plain text fallback
-         const item = canvasStore.addText({
+         const item = canvasStore.addText(sessionId, {
            content: req.file.buffer.toString('utf-8'),
            label: req.body.label || req.file.originalname,
-           sessionId: req.body.sessionId,
          });
          return res.status(201).json({ item });
        }
@@ -1980,10 +2013,9 @@ claudetools.io/
            if (!body.content) {
              return res.status(400).json({ error: 'content is required for markdown' });
            }
-           item = canvasStore.addMarkdown({
+           item = canvasStore.addMarkdown(sessionId, {
              content: body.content,
              label: body.label,
-             sessionId: body.sessionId,
            });
            break;
 
@@ -1991,10 +2023,9 @@ claudetools.io/
            if (!body.content) {
              return res.status(400).json({ error: 'content is required for text' });
            }
-           item = canvasStore.addText({
+           item = canvasStore.addText(sessionId, {
              content: body.content,
              label: body.label,
-             sessionId: body.sessionId,
            });
            break;
 
@@ -2002,10 +2033,9 @@ claudetools.io/
            if (body.data === undefined) {
              return res.status(400).json({ error: 'data is required for json' });
            }
-           item = canvasStore.addJson({
+           item = canvasStore.addJson(sessionId, {
              data: body.data,
              label: body.label,
-             sessionId: body.sessionId,
            });
            break;
 
@@ -2020,27 +2050,27 @@ claudetools.io/
      }
    });
 
-   // GET /api/canvas/:id - Get single item
-   router.get('/:id', (req, res) => {
-     const item = canvasStore.getItem(req.params.id);
+   // GET /api/sessions/:sessionId/canvas/:itemId - Get single item
+   router.get('/:sessionId/canvas/:itemId', (req, res) => {
+     const item = canvasStore.getItem(req.params.sessionId, req.params.itemId);
      if (!item) {
        return res.status(404).json({ error: 'Item not found' });
      }
      res.json({ item });
    });
 
-   // DELETE /api/canvas/:id - Remove item
-   router.delete('/:id', (req, res) => {
-     const success = canvasStore.removeItem(req.params.id);
+   // DELETE /api/sessions/:sessionId/canvas/:itemId - Remove item
+   router.delete('/:sessionId/canvas/:itemId', (req, res) => {
+     const success = canvasStore.removeItem(req.params.sessionId, req.params.itemId);
      if (!success) {
        return res.status(404).json({ error: 'Item not found' });
      }
      res.json({ success: true });
    });
 
-   // DELETE /api/canvas - Clear all items
-   router.delete('/', (req, res) => {
-     canvasStore.clear();
+   // DELETE /api/sessions/:sessionId/canvas - Clear all items for session
+   router.delete('/:sessionId/canvas', (req, res) => {
+     canvasStore.clearSession(req.params.sessionId);
      res.json({ success: true });
    });
 
@@ -2049,21 +2079,21 @@ claudetools.io/
 
 3. **Usage examples for Claude Code**
 
-   Claude Code can add items to the canvas using curl:
+   Claude Code can add items to the session canvas using curl. Note that `SESSION_ID` must be provided to scope items to the correct session:
 
    ```bash
-   # Add an image (screenshot)
-   curl -X POST http://localhost:3000/api/canvas \
+   # Add an image (screenshot) to a session
+   curl -X POST http://localhost:3000/api/sessions/$SESSION_ID/canvas \
      -F "file=@screenshot.png" \
      -F "label=Test failure screenshot"
 
-   # Add markdown document
-   curl -X POST http://localhost:3000/api/canvas \
+   # Add markdown document to a session
+   curl -X POST http://localhost:3000/api/sessions/$SESSION_ID/canvas \
      -F "file=@plan.md" \
      -F "label=Project Plan v2"
 
-   # Add markdown via JSON
-   curl -X POST http://localhost:3000/api/canvas \
+   # Add markdown via JSON to a session
+   curl -X POST http://localhost:3000/api/sessions/$SESSION_ID/canvas \
      -H "Content-Type: application/json" \
      -d '{
        "type": "markdown",
@@ -2071,8 +2101,8 @@ claudetools.io/
        "label": "Implementation Plan"
      }'
 
-   # Add JSON data
-   curl -X POST http://localhost:3000/api/canvas \
+   # Add JSON data to a session
+   curl -X POST http://localhost:3000/api/sessions/$SESSION_ID/canvas \
      -H "Content-Type: application/json" \
      -d '{
        "type": "json",
@@ -2080,15 +2110,16 @@ claudetools.io/
        "label": "Test Results"
      }'
 
-   # Clear canvas
-   curl -X DELETE http://localhost:3000/api/canvas
+   # Clear session canvas
+   curl -X DELETE http://localhost:3000/api/sessions/$SESSION_ID/canvas
    ```
 
 **Deliverables**:
-- CanvasStore manages items in memory
+- CanvasStore manages items in memory, scoped per session
 - API accepts both file uploads and JSON
-- Items broadcast to browsers in real-time
+- Items broadcast to browsers in real-time with session context
 - Claude Code can add items via simple curl commands
+- Canvas data is cleaned up when sessions are deleted
 
 ---
 
@@ -3870,7 +3901,7 @@ claudetools.io/
 
 ---
 
-### Phase 12: Session Notes
+### Phase 13: Session Notes
 
 **Goal**: Allow users to add, edit, and view notes on sessions. Notes provide a way to capture context, decisions, or reminders about a session that aren't part of the conversation.
 

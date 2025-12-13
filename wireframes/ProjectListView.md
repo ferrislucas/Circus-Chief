@@ -54,7 +54,7 @@ This is the default view when navigating to the root path or "Projects" navigati
 ```
 +------------------------------------------------------------------+
 |                                                                    |
-|  [Folder Icon]   Project Name                           [Edit] [X] |
+|  [Folder Icon]   Project Name                  [+ Session] [Edit] [X]|
 |                                                                    |
 |  Working Directory: /absolute/path/to/directory                    |
 |                                                                    |
@@ -66,6 +66,7 @@ This is the default view when navigating to the root path or "Projects" navigati
 ### Card Information
 - **Folder Icon**: Visual indicator for project
 - **Project Name**: User-defined project name
+- **[+ Session]**: Quick action button to create a new session in this project
 - **Working Directory**: The absolute path where sessions run
 - **Session Count**: Total number of sessions in the project
 - **Active Count**: Number of running/waiting sessions
@@ -142,18 +143,23 @@ Dropdown options:
    - Primary action button (accent color)
    - Routes to ProjectEditView (/projects/new)
 
-3. **Edit Button (on hover)**
+3. **New Session Button [+ Session]**
+   - Quick action to create a session in this project
+   - Routes directly to NewSessionView for that project (/projects/:id/sessions/new)
+   - Stops propagation (does not trigger card click navigation)
+
+4. **Edit Button (on hover)**
    - Opens ProjectEditView for editing (/projects/:id/edit)
 
-4. **Delete Button (on hover)**
+5. **Delete Button (on hover)**
    - Shows confirmation dialog
    - Warns about deleting all associated sessions
    - On confirm, deletes project and all sessions
 
-5. **Project Actions (on hover)**
+6. **Project Actions (on hover)**
    ```
    +------------------------------------------------------------------+
-   |  Project Card                                         [Edit] [X]  |
+   |  Project Card                            [+ Session] [Edit] [X]  |
    |  ...                                                              |
    +------------------------------------------------------------------+
 
