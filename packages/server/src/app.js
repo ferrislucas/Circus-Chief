@@ -47,7 +47,7 @@ export function createApp(options = {}) {
   } else {
     // Development: redirect root to Vite dev server (use request host, not localhost)
     app.get('/', (req, res) => {
-      const host = req.hostname;
+      const host = req.get('host')?.split(':')[0] || 'localhost';
       res.redirect(`http://${host}:${DEFAULT_WEB_PORT}`);
     });
   }
