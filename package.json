@@ -1,0 +1,19 @@
+{
+  "name": "claudetools-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"yarn workspace @claudetools/server dev\" \"yarn workspace @claudetools/web dev\"",
+    "build": "yarn workspace @claudetools/web build && yarn workspace @claudetools/server build",
+    "test": "yarn workspaces foreach -A run test",
+    "test:e2e": "./scripts/pw.sh test",
+    "lint": "eslint packages/*/src"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "eslint": "^8.56.0",
+    "prettier": "^3.2.4"
+  }
+}

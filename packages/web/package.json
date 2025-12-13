@@ -1,0 +1,24 @@
+{
+  "name": "@claudetools/web",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@claudetools/shared": "1.0.0",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.15",
+    "vue-router": "^4.2.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.3",
+    "jsdom": "^24.0.0",
+    "vite": "^5.0.12",
+    "vitest": "^1.2.2"
+  }
+}
