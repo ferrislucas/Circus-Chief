@@ -22,16 +22,18 @@ RUN mkdir -p /screenshots /reports /tests
 # Copy tools
 COPY tools/ /tools/
 
-# Install tool dependencies
+# Install tool dependencies (pin to match base image version)
 WORKDIR /tools
-RUN npm init -y && npm install playwright
+RUN npm init -y && npm install playwright@1.40.0
 
 # Return to app directory
 WORKDIR /app
 
-# Copy and set up entrypoint
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Copy and set up entrypoint (must be readable/executable by all users)
+COPY --chmod=755 entrypoint.sh /entrypoint.sh
+
+# Ensure directories are accessible by pwuser
+RUN chown -R pwuser:pwuser /screenshots /reports /tests /tools
 
 # Default user is 'pwuser' (non-root) from base image
 USER pwuser
