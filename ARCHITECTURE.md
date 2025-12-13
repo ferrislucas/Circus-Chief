@@ -876,7 +876,7 @@ claudetools.io/
 
 **Deliverables**:
 - All three packages exist and build without errors
-- `pnpm dev` starts both server (port 3000) and frontend (port 5173)
+- `pnpm dev` starts both server (port 5000) and frontend (port 5173)
 - Frontend dev server proxies `/api/*` and `/ws` to server
 
 ---
@@ -965,7 +965,7 @@ claudetools.io/
    import { createApp } from './app.js';
    import { setupWebSocket } from './websocket.js';
 
-   const PORT = process.env.PORT || 3000;
+   const PORT = process.env.PORT || 5000;
 
    const app = createApp();
    const server = createServer(app);
@@ -2403,17 +2403,17 @@ claudetools.io/
 
    ```bash
    # Add an image (screenshot) to a session
-   curl -X POST http://localhost:3000/api/sessions/$SESSION_ID/canvas \
+   curl -X POST http://localhost:5000/api/sessions/$SESSION_ID/canvas \
      -F "file=@screenshot.png" \
      -F "label=Test failure screenshot"
 
    # Add markdown document to a session
-   curl -X POST http://localhost:3000/api/sessions/$SESSION_ID/canvas \
+   curl -X POST http://localhost:5000/api/sessions/$SESSION_ID/canvas \
      -F "file=@plan.md" \
      -F "label=Project Plan v2"
 
    # Add markdown via JSON to a session
-   curl -X POST http://localhost:3000/api/sessions/$SESSION_ID/canvas \
+   curl -X POST http://localhost:5000/api/sessions/$SESSION_ID/canvas \
      -H "Content-Type: application/json" \
      -d '{
        "type": "markdown",
@@ -2422,7 +2422,7 @@ claudetools.io/
      }'
 
    # Add JSON data to a session
-   curl -X POST http://localhost:3000/api/sessions/$SESSION_ID/canvas \
+   curl -X POST http://localhost:5000/api/sessions/$SESSION_ID/canvas \
      -H "Content-Type: application/json" \
      -d '{
        "type": "json",
@@ -2431,7 +2431,7 @@ claudetools.io/
      }'
 
    # Clear session canvas
-   curl -X DELETE http://localhost:3000/api/sessions/$SESSION_ID/canvas
+   curl -X DELETE http://localhost:5000/api/sessions/$SESSION_ID/canvas
    ```
 
 **Deliverables**:
@@ -3234,7 +3234,7 @@ claudetools.io/
    import { setupWebSocket } from '../src/websocket.js';
    import open from 'open';
 
-   const PORT = parseInt(process.env.PORT || '3000', 10);
+   const PORT = parseInt(process.env.PORT || '5000', 10);
 
    async function main() {
      const app = createApp();
@@ -4959,7 +4959,7 @@ claudetools.io/
 
 ### Connection
 
-Connect to `ws://localhost:3000/ws`
+Connect to `ws://localhost:5000/ws`
 
 ### Server → Client Messages
 
@@ -5318,12 +5318,12 @@ Current design is in-memory. For persistence:
 
 ```bash
 # Add screenshot
-curl -X POST http://localhost:3000/api/canvas \
+curl -X POST http://localhost:5000/api/canvas \
   -F "file=@screenshot.png" \
   -F "label=Login page failure"
 
 # Add markdown plan
-curl -X POST http://localhost:3000/api/canvas \
+curl -X POST http://localhost:5000/api/canvas \
   -H "Content-Type: application/json" \
   -d '{
     "type": "markdown",
@@ -5332,7 +5332,7 @@ curl -X POST http://localhost:3000/api/canvas \
   }'
 
 # Add test results JSON
-curl -X POST http://localhost:3000/api/canvas \
+curl -X POST http://localhost:5000/api/canvas \
   -H "Content-Type: application/json" \
   -d '{
     "type": "json",
@@ -5341,20 +5341,20 @@ curl -X POST http://localhost:3000/api/canvas \
   }'
 
 # Clear canvas
-curl -X DELETE http://localhost:3000/api/canvas
+curl -X DELETE http://localhost:5000/api/canvas
 ```
 
 ### Session Operations
 
 ```bash
 # List sessions
-curl http://localhost:3000/api/sessions
+curl http://localhost:5000/api/sessions
 
 # Get session details
-curl http://localhost:3000/api/sessions/{id}
+curl http://localhost:5000/api/sessions/{id}
 
 # Send message (if session is waiting)
-curl -X POST http://localhost:3000/api/sessions/{id}/message \
+curl -X POST http://localhost:5000/api/sessions/{id}/message \
   -H "Content-Type: application/json" \
   -d '{"content": "Yes, proceed with the refactoring"}'
 ```

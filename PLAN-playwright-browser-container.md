@@ -18,7 +18,7 @@ A Docker container providing browser automation capabilities for development and
 │  ┌─────────────────┐     ┌─────────────────────────────┐   │
 │  │ Dev Server      │     │ Playwright Container        │   │
 │  │ (localhost:5173)│◄────│                             │   │
-│  │ (localhost:3000)│     │  • Chromium/Firefox/WebKit  │   │
+│  │ (localhost:5000)│     │  • Chromium/Firefox/WebKit  │   │
 │  └─────────────────┘     │  • Playwright Test Runner   │   │
 │                          │  • Screenshot Tool          │   │
 │  ┌─────────────────┐     │  • Node.js Runtime          │   │
