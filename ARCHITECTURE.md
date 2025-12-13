@@ -24,7 +24,7 @@
 claudetools.io is a local-first web application that provides a visual interface for managing Claude Code sessions. It allows users to:
 
 1. **View and manage Claude Code sessions** - Start, monitor, and interact with multiple Claude Code sessions from a web browser
-2. **Share a visual "toolbox" canvas** - Claude Code can place images, documents, and other artifacts in a shared space that users can view in real-time
+2. **Share a visual canvas** - Claude Code can place images, documents, and other artifacts in a shared canvas that users can view in real-time
 3. **Interact with active sessions** - Send messages to Claude Code sessions that are waiting for user input
 
 The application runs entirely on the user's local machine, with no external infrastructure required. The web browser connects to a local server that manages Claude Code sessions via the Claude Agent SDK.
@@ -45,10 +45,10 @@ When using Claude Code in a terminal:
 ### Use Cases This Solves
 
 **Use Case 1: Playwright Test Debugging**
-> Claude Code runs Playwright tests. Several tests fail. Claude Code captures screenshots of the failures and puts them in the toolbox. The user immediately sees the screenshots in their browser without leaving their workflow.
+> Claude Code runs Playwright tests. Several tests fail. Claude Code captures screenshots of the failures and puts them in the canvas. The user immediately sees the screenshots in their browser without leaving their workflow.
 
 **Use Case 2: Collaborative Document Editing**
-> Claude Code is iterating on a project plan with the user. As Claude refines the document, it places updated versions in the toolbox. The user watches the document evolve in real-time with proper markdown rendering.
+> Claude Code is iterating on a project plan with the user. As Claude refines the document, it places updated versions in the canvas. The user watches the document evolve in real-time with proper markdown rendering.
 
 **Use Case 3: Multi-Session Management**
 > A developer has Claude Code working on three different features across three git worktrees. They can see all sessions in a sidebar, click between them to view progress, and send follow-up instructions to any session that's waiting.
@@ -63,7 +63,7 @@ The solution consists of a single local server that:
 
 1. **Serves a Vue.js web application** to the browser
 2. **Manages Claude Code sessions** via the Claude Agent SDK
-3. **Provides a REST API** for session and toolbox operations
+3. **Provides a REST API** for session and canvas operations
 4. **Maintains WebSocket connections** to push real-time updates to browsers
 
 ### Why Local-First?
@@ -88,7 +88,7 @@ We chose a local-first architecture because:
 │  │  Vue.js App  │◀───▶│  ┌─────────┐  ┌────────────────────┐    │   │
 │  │              │ WS  │  │ Express │  │  Session Manager   │    │   │
 │  │  - Sessions  │     │  │  REST   │  │                    │    │   │
-│  │  - Toolbox   │◀───▶│  │  API    │  │  ┌──────────────┐  │    │   │
+│  │  - Canvas    │◀───▶│  │  API    │  │  ┌──────────────┐  │    │   │
 │  │  - Chat      │HTTP │  │         │  │  │ Claude SDK   │  │    │   │
 │  │              │     │  └─────────┘  │  │   query()    │  │    │   │
 │  └──────────────┘     │               │  └──────┬───────┘  │    │   │
@@ -102,7 +102,7 @@ We chose a local-first architecture because:
 │                       │               └────────────────────┘    │   │
 │                       │                                         │   │
 │                       │  ┌─────────────────────────────────┐    │   │
-│                       │  │         Toolbox Store           │    │   │
+│                       │  │         Canvas Store            │    │   │
 │                       │  │  (in-memory + optional disk)    │    │   │
 │                       │  └─────────────────────────────────┘    │   │
 │                       └─────────────────────────────────────────┘   │
@@ -120,7 +120,7 @@ We chose a local-first architecture because:
 The server is a Node.js application that:
 
 - **Serves the Vue.js frontend** as static files
-- **Provides REST API endpoints** for CRUD operations on sessions and toolbox items
+- **Provides REST API endpoints** for CRUD operations on sessions and canvas items
 - **Manages WebSocket connections** for real-time updates
 - **Orchestrates Claude Code sessions** using the Claude Agent SDK
 - **Interfaces with Git** to list worktrees and branches
@@ -131,7 +131,7 @@ The frontend is a Vue.js 3 single-page application that:
 
 - **Displays a list of sessions** with status indicators
 - **Shows conversation history** for selected sessions
-- **Renders toolbox items** (images, markdown, text)
+- **Renders canvas items** (images, markdown, text)
 - **Provides forms** to start new sessions with git context
 - **Allows sending messages** to sessions waiting for input
 
@@ -149,7 +149,7 @@ A shared package containing:
 
 Used for:
 - CRUD operations (create session, delete session, etc.)
-- Fetching initial state (list of sessions, toolbox items)
+- Fetching initial state (list of sessions, canvas items)
 - One-off actions (send message to session)
 
 #### WebSocket
@@ -157,7 +157,7 @@ Used for:
 Used for:
 - Real-time conversation streaming (as Claude responds)
 - Session status updates (started, waiting, completed)
-- New toolbox items (pushed immediately when added)
+- New canvas items (pushed immediately when added)
 - Session list changes (new session started, session ended)
 
 ### Why Both HTTP and WebSocket?
@@ -188,6 +188,8 @@ Used for:
 | **Vue Router** | Routing | Official Vue router, simple SPA navigation |
 | **Pinia** | State management | Official Vue store, excellent DX |
 | **Tailwind CSS** | Styling framework | Utility-first CSS, rapid prototyping, consistent design system |
+| **marked** | Markdown rendering | Fast, lightweight markdown parser for rendering assistant messages and canvas items |
+| **highlight.js** | Syntax highlighting | Code block syntax highlighting in markdown content |
 
 ### Development
 
@@ -493,13 +495,15 @@ claudetools.io/
     │       │
     │       ├── api/                # REST API route handlers
     │       │   ├── index.js        # Route registration
+    │       │   ├── projects.js     # Project CRUD endpoints
     │       │   ├── sessions.js     # Session CRUD endpoints
-    │       │   ├── toolbox.js      # Toolbox endpoints
+    │       │   ├── canvas.js      # Canvas endpoints
     │       │   └── git.js          # Git information endpoints
     │       │
     │       └── services/           # Business logic
+    │           ├── projectManager.js    # Project management
     │           ├── sessionManager.js    # Claude session orchestration
-    │           ├── toolboxStore.js      # Toolbox item storage
+    │           ├── canvasStore.js      # Canvas item storage
     │           ├── gitService.js        # Git operations
     │           └── diffService.js       # Real-time git diff tracking
     │
@@ -515,8 +519,9 @@ claudetools.io/
     │       ├── types.js            # Frontend-specific types (JSDoc)
     │       │
     │       ├── stores/             # Pinia stores
+    │       │   ├── projects.js    # Project state management
     │       │   ├── sessions.js     # Session state management
-    │       │   ├── toolbox.js      # Toolbox state management
+    │       │   ├── canvas.js      # Canvas state management
     │       │   ├── diff.js         # Diff state management
     │       │   └── notes.js        # Session notes state management
     │       │
@@ -525,18 +530,21 @@ claudetools.io/
     │       │   └── useApi.js       # HTTP API client
     │       │
     │       ├── views/              # Page-level components
-    │       │   ├── SessionListView.vue  # Session list (default view)
-    │       │   ├── SessionDetailView.vue # Session with tabs (Conversation/Changes/Toolbox)
+    │       │   ├── ProjectListView.vue  # Project list (default view)
+    │       │   ├── ProjectEditView.vue  # Create/edit project form
+    │       │   ├── SessionListView.vue  # Session list within a project
+    │       │   ├── SessionDetailView.vue # Session with tabs (Conversation/Changes/Canvas)
     │       │   └── NewSessionView.vue   # Create new session form
     │       │
     │       ├── components/         # Reusable components
+    │       │   ├── ProjectCard.vue           # Project list item
     │       │   ├── SessionCard.vue           # Session list item
     │       │   ├── SessionStatusBadge.vue    # Status indicator
     │       │   ├── ConversationMessage.vue   # Single message display
     │       │   ├── MessageInput.vue          # User input field
-    │       │   ├── ToolboxItem.vue           # Single toolbox item
-    │       │   ├── ToolboxImageItem.vue      # Image toolbox item
-    │       │   ├── ToolboxMarkdownItem.vue   # Markdown toolbox item
+    │       │   ├── CanvasItem.vue           # Single canvas item
+    │       │   ├── CanvasImageItem.vue      # Image canvas item
+    │       │   ├── CanvasMarkdownItem.vue   # Markdown canvas item
     │       │   ├── GitWorktreeSelector.vue   # Worktree dropdown
     │       │   ├── GitBranchSelector.vue     # Branch dropdown
     │       │   ├── DiffViewer.vue            # Unified diff display
@@ -712,13 +720,13 @@ claudetools.io/
    ```javascript
    import { Router } from 'express';
    import sessionsRouter from './sessions.js';
-   import toolboxRouter from './toolbox.js';
+   import canvasRouter from './canvas.js';
    import gitRouter from './git.js';
 
    export const apiRouter = Router();
 
    apiRouter.use('/sessions', sessionsRouter);
-   apiRouter.use('/toolbox', toolboxRouter);
+   apiRouter.use('/canvas', canvasRouter);
    apiRouter.use('/git', gitRouter);
    ```
 
@@ -726,7 +734,7 @@ claudetools.io/
 
 6. **Add file upload support**
    - Install `multer` for multipart form handling
-   - Configure for toolbox file uploads
+   - Configure for canvas file uploads
 
 **Deliverables**:
 - Server starts and responds to `/api/health`
@@ -744,6 +752,28 @@ claudetools.io/
 
 1. **Define session types (`packages/shared/src/types.js`)**
    ```javascript
+   /**
+    * A project groups related Claude Code sessions under a common working directory
+    * @typedef {Object} Project
+    * @property {string} id
+    * @property {string} name - User-provided project name
+    * @property {string} workingDirectory - Absolute path for all sessions in this project
+    * @property {number} createdAt - Unix timestamp
+    * @property {number} updatedAt - Last activity timestamp
+    */
+
+   /**
+    * Summary for project list views
+    * @typedef {Object} ProjectSummary
+    * @property {string} id
+    * @property {string} name
+    * @property {string} workingDirectory
+    * @property {number} sessionCount - Number of sessions in this project
+    * @property {number} activeSessionCount - Number of running/waiting sessions
+    * @property {number} createdAt
+    * @property {number} updatedAt
+    */
+
    /**
     * Session status
     * @typedef {'starting' | 'running' | 'waiting' | 'completed' | 'error'} SessionStatus
@@ -771,10 +801,10 @@ claudetools.io/
     * A Claude Code session
     * @typedef {Object} Session
     * @property {string} id
+    * @property {string} projectId - The project this session belongs to
     * @property {string} name - User-provided or auto-generated
     * @property {SessionStatus} status
     * @property {ClaudeMode} mode - Execution mode (plan, standard, yolo)
-    * @property {string} workingDirectory - Absolute path
     * @property {string} [gitBranch] - Current branch if in git repo
     * @property {string} [gitWorktree] - Worktree name if applicable
     * @property {number} createdAt - Unix timestamp
@@ -787,10 +817,10 @@ claudetools.io/
     * Summary for list views (without full message history)
     * @typedef {Object} SessionSummary
     * @property {string} id
+    * @property {string} projectId - The project this session belongs to
     * @property {string} name
     * @property {SessionStatus} status
     * @property {ClaudeMode} mode - Execution mode (plan, standard, yolo)
-    * @property {string} workingDirectory
     * @property {string} [gitBranch]
     * @property {number} createdAt
     * @property {number} updatedAt
@@ -801,16 +831,16 @@ claudetools.io/
    export const SESSION_STATUSES = ['starting', 'running', 'waiting', 'completed', 'error'];
    ```
 
-2. **Define toolbox types**
+2. **Define canvas types**
    ```javascript
    /**
-    * Types of items that can be in the toolbox
-    * @typedef {'image' | 'markdown' | 'text' | 'json'} ToolboxItemType
+    * Types of items that can be in the canvas
+    * @typedef {'image' | 'markdown' | 'text' | 'json'} CanvasItemType
     */
 
    /**
     * Image item (screenshot, diagram, etc.)
-    * @typedef {Object} ToolboxImageItem
+    * @typedef {Object} CanvasImageItem
     * @property {string} id
     * @property {'image'} type
     * @property {string} mimeType - image/png, image/jpeg, etc.
@@ -825,7 +855,7 @@ claudetools.io/
 
    /**
     * Markdown document
-    * @typedef {Object} ToolboxMarkdownItem
+    * @typedef {Object} CanvasMarkdownItem
     * @property {string} id
     * @property {'markdown'} type
     * @property {string} content - Raw markdown text
@@ -837,7 +867,7 @@ claudetools.io/
 
    /**
     * Plain text
-    * @typedef {Object} ToolboxTextItem
+    * @typedef {Object} CanvasTextItem
     * @property {string} id
     * @property {'text'} type
     * @property {string} content
@@ -848,7 +878,7 @@ claudetools.io/
 
    /**
     * JSON data
-    * @typedef {Object} ToolboxJsonItem
+    * @typedef {Object} CanvasJsonItem
     * @property {string} id
     * @property {'json'} type
     * @property {*} data - Parsed JSON
@@ -859,11 +889,11 @@ claudetools.io/
     */
 
    /**
-    * Union type for all toolbox items
-    * @typedef {ToolboxImageItem | ToolboxMarkdownItem | ToolboxTextItem | ToolboxJsonItem} ToolboxItem
+    * Union type for all canvas items
+    * @typedef {CanvasImageItem | CanvasMarkdownItem | CanvasTextItem | CanvasJsonItem} CanvasItem
     */
 
-   export const TOOLBOX_ITEM_TYPES = ['image', 'markdown', 'text', 'json'];
+   export const CANVAS_ITEM_TYPES = ['image', 'markdown', 'text', 'json'];
    ```
 
 3. **Define git types**
@@ -934,28 +964,28 @@ claudetools.io/
     */
 
    /**
-    * Toolbox item added
-    * @typedef {Object} WsToolboxAddMessage
-    * @property {'toolbox:add'} type
-    * @property {ToolboxItem} item
+    * Canvas item added
+    * @typedef {Object} WsCanvasAddMessage
+    * @property {'canvas:add'} type
+    * @property {CanvasItem} item
     */
 
    /**
-    * Toolbox cleared
-    * @typedef {Object} WsToolboxClearMessage
-    * @property {'toolbox:clear'} type
+    * Canvas cleared
+    * @typedef {Object} WsCanvasClearMessage
+    * @property {'canvas:clear'} type
     */
 
    /**
-    * Toolbox item removed
-    * @typedef {Object} WsToolboxRemoveMessage
-    * @property {'toolbox:remove'} type
+    * Canvas item removed
+    * @typedef {Object} WsCanvasRemoveMessage
+    * @property {'canvas:remove'} type
     * @property {string} itemId
     */
 
    /**
     * Union of all server -> client messages
-    * @typedef {WsConnectedMessage | WsSessionListMessage | WsSessionStatusMessage | WsSessionMessageMessage | WsSessionStreamMessage | WsToolboxAddMessage | WsToolboxClearMessage | WsToolboxRemoveMessage} WsServerMessage
+    * @typedef {WsConnectedMessage | WsSessionListMessage | WsSessionStatusMessage | WsSessionMessageMessage | WsSessionStreamMessage | WsCanvasAddMessage | WsCanvasClearMessage | WsCanvasRemoveMessage} WsServerMessage
     */
 
    // ============================================
@@ -1011,9 +1041,9 @@ claudetools.io/
     */
 
    /**
-    * POST /api/toolbox - Add item to toolbox (JSON)
-    * @typedef {Object} AddToolboxItemRequest
-    * @property {ToolboxItemType} type
+    * POST /api/canvas - Add item to canvas (JSON)
+    * @typedef {Object} AddCanvasItemRequest
+    * @property {CanvasItemType} type
     * @property {string} [content] - For text/markdown
     * @property {*} [data] - For json
     * @property {string} [label]
@@ -1534,21 +1564,27 @@ claudetools.io/
      res.json({ sessions });
    });
 
-   // POST /api/sessions - Create new session
-   router.post('/', async (req, res) => {
+   // POST /api/projects/:projectId/sessions - Create new session in project
+   router.post('/projects/:projectId/sessions', async (req, res) => {
      const body = req.body;
+     const project = projectManager.getProject(req.params.projectId);
 
-     if (!body.prompt || !body.workingDirectory) {
+     if (!project) {
+       return res.status(404).json({ error: 'Project not found' });
+     }
+
+     if (!body.prompt) {
        return res.status(400).json({
-         error: 'prompt and workingDirectory are required'
+         error: 'prompt is required'
        });
      }
 
      try {
        const session = await sessionManager.startSession({
+         projectId: req.params.projectId,
          prompt: body.prompt,
          name: body.name,
-         workingDirectory: body.workingDirectory,
+         workingDirectory: project.workingDirectory, // From project
          gitBranch: body.gitBranch,
        });
        res.status(201).json({ session });
@@ -1574,11 +1610,30 @@ claudetools.io/
        return res.status(400).json({ error: 'content is required' });
      }
 
-     const success = sessionManager.sendMessage(req.params.id, body.content);
+     // Mode can be changed with each message (plan, standard, yolo)
+     const success = sessionManager.sendMessage(req.params.id, body.content, body.mode);
      if (!success) {
        return res.status(400).json({
          error: 'Cannot send message - session not waiting for input'
        });
+     }
+
+     res.json({ success: true });
+   });
+
+   // POST /api/sessions/:id/mode - Change session execution mode
+   router.post('/:id/mode', (req, res) => {
+     const body = req.body;
+
+     if (!body.mode || !['plan', 'standard', 'yolo'].includes(body.mode)) {
+       return res.status(400).json({
+         error: 'mode is required and must be plan, standard, or yolo'
+       });
+     }
+
+     const success = sessionManager.setMode(req.params.id, body.mode);
+     if (!success) {
+       return res.status(404).json({ error: 'Session not found' });
      }
 
      res.json({ success: true });
@@ -1613,24 +1668,24 @@ claudetools.io/
 
 ---
 
-### Phase 5: Toolbox Service
+### Phase 5: Canvas Service
 
-**Goal**: Implement the toolbox storage and API for Claude Code to add items.
+**Goal**: Implement the canvas storage and API for Claude Code to add items.
 
 **Steps**:
 
-1. **Create ToolboxStore class (`src/services/toolboxStore.js`)**
+1. **Create CanvasStore class (`src/services/canvasStore.js`)**
    ```javascript
    import { randomUUID } from 'crypto';
    import { broadcast } from '../websocket.js';
 
-   class ToolboxStore {
-     /** @type {Map<string, import('@claudetools/shared').ToolboxItem>} */
+   class CanvasStore {
+     /** @type {Map<string, import('@claudetools/shared').CanvasItem>} */
      #items = new Map();
 
      /**
       * Get all items
-      * @returns {import('@claudetools/shared').ToolboxItem[]}
+      * @returns {import('@claudetools/shared').CanvasItem[]}
       */
      getAllItems() {
        return Array.from(this.#items.values())
@@ -1640,7 +1695,7 @@ claudetools.io/
      /**
       * Get item by ID
       * @param {string} id
-      * @returns {import('@claudetools/shared').ToolboxItem | undefined}
+      * @returns {import('@claudetools/shared').CanvasItem | undefined}
       */
      getItem(id) {
        return this.#items.get(id);
@@ -1654,7 +1709,7 @@ claudetools.io/
       * @param {string} [options.filename]
       * @param {string} [options.label]
       * @param {string} [options.sessionId]
-      * @returns {import('@claudetools/shared').ToolboxItem}
+      * @returns {import('@claudetools/shared').CanvasItem}
       */
      addImage(options) {
        const item = {
@@ -1669,7 +1724,7 @@ claudetools.io/
        };
 
        this.#items.set(item.id, item);
-       broadcast({ type: 'toolbox:add', item });
+       broadcast({ type: 'canvas:add', item });
        return item;
      }
 
@@ -1680,7 +1735,7 @@ claudetools.io/
       * @param {string} [options.filename]
       * @param {string} [options.label]
       * @param {string} [options.sessionId]
-      * @returns {import('@claudetools/shared').ToolboxItem}
+      * @returns {import('@claudetools/shared').CanvasItem}
       */
      addMarkdown(options) {
        const item = {
@@ -1694,7 +1749,7 @@ claudetools.io/
        };
 
        this.#items.set(item.id, item);
-       broadcast({ type: 'toolbox:add', item });
+       broadcast({ type: 'canvas:add', item });
        return item;
      }
 
@@ -1704,7 +1759,7 @@ claudetools.io/
       * @param {string} options.content
       * @param {string} [options.label]
       * @param {string} [options.sessionId]
-      * @returns {import('@claudetools/shared').ToolboxItem}
+      * @returns {import('@claudetools/shared').CanvasItem}
       */
      addText(options) {
        const item = {
@@ -1717,7 +1772,7 @@ claudetools.io/
        };
 
        this.#items.set(item.id, item);
-       broadcast({ type: 'toolbox:add', item });
+       broadcast({ type: 'canvas:add', item });
        return item;
      }
 
@@ -1728,7 +1783,7 @@ claudetools.io/
       * @param {string} [options.filename]
       * @param {string} [options.label]
       * @param {string} [options.sessionId]
-      * @returns {import('@claudetools/shared').ToolboxItem}
+      * @returns {import('@claudetools/shared').CanvasItem}
       */
      addJson(options) {
        const item = {
@@ -1742,7 +1797,7 @@ claudetools.io/
        };
 
        this.#items.set(item.id, item);
-       broadcast({ type: 'toolbox:add', item });
+       broadcast({ type: 'canvas:add', item });
        return item;
      }
 
@@ -1754,7 +1809,7 @@ claudetools.io/
      removeItem(id) {
        const existed = this.#items.delete(id);
        if (existed) {
-         broadcast({ type: 'toolbox:remove', itemId: id });
+         broadcast({ type: 'canvas:remove', itemId: id });
        }
        return existed;
      }
@@ -1764,18 +1819,18 @@ claudetools.io/
       */
      clear() {
        this.#items.clear();
-       broadcast({ type: 'toolbox:clear' });
+       broadcast({ type: 'canvas:clear' });
      }
    }
 
-   export const toolboxStore = new ToolboxStore();
+   export const canvasStore = new CanvasStore();
    ```
 
-2. **Create toolbox API routes (`src/api/toolbox.js`)**
+2. **Create canvas API routes (`src/api/canvas.js`)**
    ```javascript
    import { Router } from 'express';
    import multer from 'multer';
-   import { toolboxStore } from '../services/toolboxStore.js';
+   import { canvasStore } from '../services/canvasStore.js';
 
    const router = Router();
 
@@ -1787,13 +1842,13 @@ claudetools.io/
      },
    });
 
-   // GET /api/toolbox - List all items
+   // GET /api/canvas - List all items
    router.get('/', (req, res) => {
-     const items = toolboxStore.getAllItems();
+     const items = canvasStore.getAllItems();
      res.json({ items });
    });
 
-   // POST /api/toolbox - Add item (supports both JSON and multipart)
+   // POST /api/canvas - Add item (supports both JSON and multipart)
    router.post('/', upload.single('file'), (req, res) => {
      try {
        // Handle file upload
@@ -1802,7 +1857,7 @@ claudetools.io/
 
          // Image upload
          if (mimeType.startsWith('image/')) {
-           const item = toolboxStore.addImage({
+           const item = canvasStore.addImage({
              data: req.file.buffer,
              mimeType,
              filename: req.file.originalname,
@@ -1814,7 +1869,7 @@ claudetools.io/
 
          // Markdown file
          if (mimeType === 'text/markdown' || req.file.originalname.endsWith('.md')) {
-           const item = toolboxStore.addMarkdown({
+           const item = canvasStore.addMarkdown({
              content: req.file.buffer.toString('utf-8'),
              filename: req.file.originalname,
              label: req.body.label,
@@ -1826,7 +1881,7 @@ claudetools.io/
          // JSON file
          if (mimeType === 'application/json' || req.file.originalname.endsWith('.json')) {
            const data = JSON.parse(req.file.buffer.toString('utf-8'));
-           const item = toolboxStore.addJson({
+           const item = canvasStore.addJson({
              data,
              filename: req.file.originalname,
              label: req.body.label,
@@ -1836,7 +1891,7 @@ claudetools.io/
          }
 
          // Plain text fallback
-         const item = toolboxStore.addText({
+         const item = canvasStore.addText({
            content: req.file.buffer.toString('utf-8'),
            label: req.body.label || req.file.originalname,
            sessionId: req.body.sessionId,
@@ -1857,7 +1912,7 @@ claudetools.io/
            if (!body.content) {
              return res.status(400).json({ error: 'content is required for markdown' });
            }
-           item = toolboxStore.addMarkdown({
+           item = canvasStore.addMarkdown({
              content: body.content,
              label: body.label,
              sessionId: body.sessionId,
@@ -1868,7 +1923,7 @@ claudetools.io/
            if (!body.content) {
              return res.status(400).json({ error: 'content is required for text' });
            }
-           item = toolboxStore.addText({
+           item = canvasStore.addText({
              content: body.content,
              label: body.label,
              sessionId: body.sessionId,
@@ -1879,7 +1934,7 @@ claudetools.io/
            if (body.data === undefined) {
              return res.status(400).json({ error: 'data is required for json' });
            }
-           item = toolboxStore.addJson({
+           item = canvasStore.addJson({
              data: body.data,
              label: body.label,
              sessionId: body.sessionId,
@@ -1892,32 +1947,32 @@ claudetools.io/
 
        res.status(201).json({ item });
      } catch (error) {
-       console.error('Toolbox add error:', error);
+       console.error('Canvas add error:', error);
        res.status(500).json({ error: 'Failed to add item' });
      }
    });
 
-   // GET /api/toolbox/:id - Get single item
+   // GET /api/canvas/:id - Get single item
    router.get('/:id', (req, res) => {
-     const item = toolboxStore.getItem(req.params.id);
+     const item = canvasStore.getItem(req.params.id);
      if (!item) {
        return res.status(404).json({ error: 'Item not found' });
      }
      res.json({ item });
    });
 
-   // DELETE /api/toolbox/:id - Remove item
+   // DELETE /api/canvas/:id - Remove item
    router.delete('/:id', (req, res) => {
-     const success = toolboxStore.removeItem(req.params.id);
+     const success = canvasStore.removeItem(req.params.id);
      if (!success) {
        return res.status(404).json({ error: 'Item not found' });
      }
      res.json({ success: true });
    });
 
-   // DELETE /api/toolbox - Clear all items
+   // DELETE /api/canvas - Clear all items
    router.delete('/', (req, res) => {
-     toolboxStore.clear();
+     canvasStore.clear();
      res.json({ success: true });
    });
 
@@ -1926,21 +1981,21 @@ claudetools.io/
 
 3. **Usage examples for Claude Code**
 
-   Claude Code can add items to the toolbox using curl:
+   Claude Code can add items to the canvas using curl:
 
    ```bash
    # Add an image (screenshot)
-   curl -X POST http://localhost:3000/api/toolbox \
+   curl -X POST http://localhost:3000/api/canvas \
      -F "file=@screenshot.png" \
      -F "label=Test failure screenshot"
 
    # Add markdown document
-   curl -X POST http://localhost:3000/api/toolbox \
+   curl -X POST http://localhost:3000/api/canvas \
      -F "file=@plan.md" \
      -F "label=Project Plan v2"
 
    # Add markdown via JSON
-   curl -X POST http://localhost:3000/api/toolbox \
+   curl -X POST http://localhost:3000/api/canvas \
      -H "Content-Type: application/json" \
      -d '{
        "type": "markdown",
@@ -1949,7 +2004,7 @@ claudetools.io/
      }'
 
    # Add JSON data
-   curl -X POST http://localhost:3000/api/toolbox \
+   curl -X POST http://localhost:3000/api/canvas \
      -H "Content-Type: application/json" \
      -d '{
        "type": "json",
@@ -1957,12 +2012,12 @@ claudetools.io/
        "label": "Test Results"
      }'
 
-   # Clear toolbox
-   curl -X DELETE http://localhost:3000/api/toolbox
+   # Clear canvas
+   curl -X DELETE http://localhost:3000/api/canvas
    ```
 
 **Deliverables**:
-- ToolboxStore manages items in memory
+- CanvasStore manages items in memory
 - API accepts both file uploads and JSON
 - Items broadcast to browsers in real-time
 - Claude Code can add items via simple curl commands
@@ -2259,11 +2314,26 @@ claudetools.io/
    const routes = [
      {
        path: '/',
+       name: 'project-list',
+       component: () => import('./views/ProjectListView.vue'),
+     },
+     {
+       path: '/projects/new',
+       name: 'project-new',
+       component: () => import('./views/ProjectEditView.vue'),
+     },
+     {
+       path: '/projects/:id/edit',
+       name: 'project-edit',
+       component: () => import('./views/ProjectEditView.vue'),
+     },
+     {
+       path: '/projects/:projectId/sessions',
        name: 'session-list',
        component: () => import('./views/SessionListView.vue'),
      },
      {
-       path: '/sessions/new',
+       path: '/projects/:projectId/sessions/new',
        name: 'new-session',
        component: () => import('./views/NewSessionView.vue'),
      },
@@ -2271,7 +2341,7 @@ claudetools.io/
        path: '/sessions/:id/:tab?',
        name: 'session-detail',
        component: () => import('./views/SessionDetailView.vue'),
-       // Tab parameter: conversation (default), changes, toolbox
+       // Tab parameter: conversation (default), changes, canvas
      },
    ];
 
@@ -2383,21 +2453,49 @@ claudetools.io/
 
    export function useApi() {
      return {
-       // Sessions
-       getSessions: () => fetchApi('/sessions'),
+       // Projects
+       getProjects: () => fetchApi('/projects'),
 
-       getSession: (id) => fetchApi(`/sessions/${id}`),
+       getProject: (id) => fetchApi(`/projects/${id}`),
 
-       createSession: (data) =>
-         fetchApi('/sessions', {
+       createProject: (data) =>
+         fetchApi('/projects', {
            method: 'POST',
            body: JSON.stringify(data),
          }),
 
-       sendMessage: (sessionId, content) =>
+       updateProject: (id, data) =>
+         fetchApi(`/projects/${id}`, {
+           method: 'PUT',
+           body: JSON.stringify(data),
+         }),
+
+       deleteProject: (id) =>
+         fetchApi(`/projects/${id}`, {
+           method: 'DELETE',
+         }),
+
+       // Sessions
+       getSessions: (projectId) => fetchApi(`/projects/${projectId}/sessions`),
+
+       getSession: (id) => fetchApi(`/sessions/${id}`),
+
+       createSession: (projectId, data) =>
+         fetchApi(`/projects/${projectId}/sessions`, {
+           method: 'POST',
+           body: JSON.stringify(data),
+         }),
+
+       sendMessage: (sessionId, content, mode) =>
          fetchApi(`/sessions/${sessionId}/message`, {
            method: 'POST',
-           body: JSON.stringify({ content }),
+           body: JSON.stringify({ content, mode }),
+         }),
+
+       setSessionMode: (sessionId, mode) =>
+         fetchApi(`/sessions/${sessionId}/mode`, {
+           method: 'POST',
+           body: JSON.stringify({ mode }),
          }),
 
        stopSession: (id) =>
@@ -2410,16 +2508,16 @@ claudetools.io/
            method: 'DELETE',
          }),
 
-       // Toolbox
-       getToolboxItems: () => fetchApi('/toolbox'),
+       // Canvas
+       getCanvasItems: () => fetchApi('/canvas'),
 
-       deleteToolboxItem: (id) =>
-         fetchApi(`/toolbox/${id}`, {
+       deleteCanvasItem: (id) =>
+         fetchApi(`/canvas/${id}`, {
            method: 'DELETE',
          }),
 
-       clearToolbox: () =>
-         fetchApi('/toolbox', {
+       clearCanvas: () =>
+         fetchApi('/canvas', {
            method: 'DELETE',
          }),
 
@@ -2543,14 +2641,14 @@ claudetools.io/
    });
    ```
 
-5. **Create Toolbox store (`src/stores/toolbox.js`)**
+5. **Create Canvas store (`src/stores/canvas.js`)**
    ```javascript
    import { defineStore } from 'pinia';
    import { ref } from 'vue';
    import { useApi } from '../composables/useApi.js';
    import { useWebSocket } from '../composables/useWebSocket.js';
 
-   export const useToolboxStore = defineStore('toolbox', () => {
+   export const useCanvasStore = defineStore('canvas', () => {
      const api = useApi();
      const { onMessage } = useWebSocket();
 
@@ -2560,7 +2658,7 @@ claudetools.io/
      async function fetchItems() {
        loading.value = true;
        try {
-         const result = await api.getToolboxItems();
+         const result = await api.getCanvasItems();
          items.value = result.items;
        } finally {
          loading.value = false;
@@ -2568,25 +2666,25 @@ claudetools.io/
      }
 
      async function removeItem(id) {
-       await api.deleteToolboxItem(id);
+       await api.deleteCanvasItem(id);
      }
 
      async function clearAll() {
-       await api.clearToolbox();
+       await api.clearCanvas();
      }
 
      // WebSocket handler
      onMessage((msg) => {
        switch (msg.type) {
-         case 'toolbox:add':
+         case 'canvas:add':
            items.value.unshift(msg.item);
            break;
 
-         case 'toolbox:remove':
+         case 'canvas:remove':
            items.value = items.value.filter(i => i.id !== msg.itemId);
            break;
 
-         case 'toolbox:clear':
+         case 'canvas:clear':
            items.value = [];
            break;
        }
@@ -2606,7 +2704,7 @@ claudetools.io/
 - Vue Router configured with all routes
 - WebSocket composable for real-time updates
 - API composable for HTTP requests
-- Pinia stores for sessions and toolbox
+- Pinia stores for sessions and canvas
 - Real-time state updates via WebSocket
 
 ---
@@ -2636,10 +2734,10 @@ claudetools.io/
    - Click to navigate to detail
 
 4. **SessionDetailView.vue** - Session with tabbed interface
-   - Tab navigation: Conversation, Changes, Toolbox
+   - Tab navigation: Conversation, Changes, Canvas
    - Conversation tab: Messages + input (default)
    - Changes tab: Diff viewer for file changes
-   - Toolbox tab: Session-specific shared items
+   - Canvas tab: Session-specific shared items
 
 5. **ConversationMessage.vue** - Single message
    - Different styling for user/assistant
@@ -2659,18 +2757,18 @@ claudetools.io/
    - GitBranchSelector dropdown
    - Submit button
 
-8. **ToolboxItem.vue** - Single toolbox item (in Toolbox tab)
+8. **CanvasItem.vue** - Single canvas item (in Canvas tab)
    - Routes to specific renderer based on type
    - Delete button
    - Label display
    - Timestamp
 
-9. **ToolboxImageItem.vue** - Image display
+9. **CanvasImageItem.vue** - Image display
    - Render base64 image
    - Click to expand/zoom
    - Filename if available
 
-10. **ToolboxMarkdownItem.vue** - Markdown display
+10. **CanvasMarkdownItem.vue** - Markdown display
     - Render markdown with syntax highlighting
     - Scrollable if long
 
@@ -3684,7 +3782,7 @@ claudetools.io/
 3. **Empty states**
    - No sessions yet - prompt to create one
    - No messages in session - show waiting indicator
-   - Empty toolbox - explain how to use
+   - Empty canvas - explain how to use
 
 4. **README.md**
    - Quick start guide
@@ -3693,7 +3791,7 @@ claudetools.io/
    - Screenshots
 
 5. **Example usage documentation**
-   - How to add items to toolbox from Claude Code
+   - How to add items to canvas from Claude Code
    - How to integrate with Playwright tests
    - How to share documents
 
@@ -4344,14 +4442,25 @@ claudetools.io/
 
 ## API Specification
 
+### Projects API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/projects` | List all projects |
+| POST | `/api/projects` | Create new project |
+| GET | `/api/projects/:id` | Get project details |
+| PUT | `/api/projects/:id` | Update project |
+| DELETE | `/api/projects/:id` | Delete project (and all its sessions) |
+
 ### Sessions API
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/sessions` | List all sessions |
-| POST | `/api/sessions` | Create new session |
+| GET | `/api/projects/:projectId/sessions` | List sessions in a project |
+| POST | `/api/projects/:projectId/sessions` | Create new session in project |
 | GET | `/api/sessions/:id` | Get session details |
 | POST | `/api/sessions/:id/message` | Send message to session |
+| POST | `/api/sessions/:id/mode` | Change execution mode (plan/standard/yolo) |
 | POST | `/api/sessions/:id/stop` | Stop a running session |
 | GET | `/api/sessions/:id/diff` | Get current git diff for session |
 | DELETE | `/api/sessions/:id` | Delete a session |
@@ -4363,15 +4472,15 @@ claudetools.io/
 | PUT | `/api/sessions/:id/pr-url` | Set or update the PR URL |
 | DELETE | `/api/sessions/:id/pr-url` | Remove the PR URL |
 
-### Toolbox API
+### Canvas API
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/toolbox` | List all toolbox items |
-| POST | `/api/toolbox` | Add item (JSON or multipart) |
-| GET | `/api/toolbox/:id` | Get single item |
-| DELETE | `/api/toolbox/:id` | Remove item |
-| DELETE | `/api/toolbox` | Clear all items |
+| GET | `/api/canvas` | List all canvas items |
+| POST | `/api/canvas` | Add item (JSON or multipart) |
+| GET | `/api/canvas/:id` | Get single item |
+| DELETE | `/api/canvas/:id` | Remove item |
+| DELETE | `/api/canvas` | Clear all items |
 
 ### Git API
 
@@ -4435,14 +4544,14 @@ Connect to `ws://localhost:3000/ws`
 // PR URL updated for session
 { type: 'session:pr-url:updated', sessionId: 'string', prUrl: 'string | null' }
 
-// Toolbox item added
-{ type: 'toolbox:add', item: ToolboxItem }
+// Canvas item added
+{ type: 'canvas:add', item: CanvasItem }
 
-// Toolbox item removed
-{ type: 'toolbox:remove', itemId: 'string' }
+// Canvas item removed
+{ type: 'canvas:remove', itemId: 'string' }
 
-// Toolbox cleared
-{ type: 'toolbox:clear' }
+// Canvas cleared
+{ type: 'canvas:clear' }
 ```
 
 ### Client → Server Messages
@@ -4472,9 +4581,11 @@ Visual wireframes for each view in the application are available in the [`wirefr
 | View | Description | Wireframe |
 |------|-------------|-----------|
 | **AppLayout** | Mobile-friendly layout with top navigation bar | [AppLayout.md](wireframes/AppLayout.md) |
-| **SessionListView** | List of all Claude Code sessions with status, filtering, and sorting (default route `/`) | [SessionListView.md](wireframes/SessionListView.md) |
-| **SessionDetailView** | Session view with tabbed sub-navigation (Conversation, Changes, Toolbox) | [SessionDetailView.md](wireframes/SessionDetailView.md) |
-| **NewSessionView** | Form for creating new sessions with git configuration | [NewSessionView.md](wireframes/NewSessionView.md) |
+| **ProjectListView** | List of all projects with session counts (default route `/`) | [ProjectListView.md](wireframes/ProjectListView.md) |
+| **ProjectEditView** | Form for creating/editing projects with working directory | [ProjectEditView.md](wireframes/ProjectEditView.md) |
+| **SessionListView** | List of sessions within a project | [SessionListView.md](wireframes/SessionListView.md) |
+| **SessionDetailView** | Session view with tabbed sub-navigation (Conversation, Changes, Canvas) and mode toggle | [SessionDetailView.md](wireframes/SessionDetailView.md) |
+| **NewSessionView** | Form for creating new sessions within a project (git configuration) | [NewSessionView.md](wireframes/NewSessionView.md) |
 
 ### Wireframe Contents
 
@@ -4693,7 +4804,7 @@ When scaling to remote access, consider:
 4. **Input validation** - Sanitize all inputs
 5. **File size limits** - Prevent DoS via large uploads
 
-### Toolbox Security
+### Canvas Security
 
 - Validate file types on upload
 - Limit file sizes (default 10MB)
@@ -4718,30 +4829,30 @@ For shared instances:
 
 1. **Session isolation** - Each user sees only their sessions
 2. **Authentication** - User accounts or API keys
-3. **Namespacing** - Separate toolbox per user/session
+3. **Namespacing** - Separate canvas per user/session
 
 ### Persistence
 
 Current design is in-memory. For persistence:
 
-1. **SQLite** - Local database for sessions and toolbox
-2. **File system** - Store toolbox items as files
+1. **SQLite** - Local database for sessions and canvas
+2. **File system** - Store canvas items as files
 3. **Cloud storage** - S3/GCS for remote deployment
 
 ---
 
 ## Appendix: Example Curl Commands
 
-### Toolbox Operations
+### Canvas Operations
 
 ```bash
 # Add screenshot
-curl -X POST http://localhost:3000/api/toolbox \
+curl -X POST http://localhost:3000/api/canvas \
   -F "file=@screenshot.png" \
   -F "label=Login page failure"
 
 # Add markdown plan
-curl -X POST http://localhost:3000/api/toolbox \
+curl -X POST http://localhost:3000/api/canvas \
   -H "Content-Type: application/json" \
   -d '{
     "type": "markdown",
@@ -4750,7 +4861,7 @@ curl -X POST http://localhost:3000/api/toolbox \
   }'
 
 # Add test results JSON
-curl -X POST http://localhost:3000/api/toolbox \
+curl -X POST http://localhost:3000/api/canvas \
   -H "Content-Type: application/json" \
   -d '{
     "type": "json",
@@ -4758,8 +4869,8 @@ curl -X POST http://localhost:3000/api/toolbox \
     "label": "Test Results"
   }'
 
-# Clear toolbox
-curl -X DELETE http://localhost:3000/api/toolbox
+# Clear canvas
+curl -X DELETE http://localhost:3000/api/canvas
 ```
 
 ### Session Operations

@@ -1,7 +1,7 @@
 # SessionDetailView Wireframe
 
 The SessionDetailView shows the full conversation for a single Claude Code session,
-with a tabbed sub-navigation for Conversation, Changes (diffs), and Toolbox.
+with a tabbed sub-navigation for Conversation, Changes (diffs), and Canvas.
 
 ## Full View with Tab Navigation
 
@@ -14,7 +14,7 @@ with a tabbed sub-navigation for Conversation, Changes (diffs), and Toolbox.
 +------------------------------------------------------------------+
 |  TAB NAVIGATION                                                    |
 |  +------------+------------+------------+                          |
-|  | Conversation| Changes(3)| Toolbox(2) |                          |
+|  | Conversation| Changes(3)| Canvas(2) |                          |
 |  +------------+------------+------------+--------------------------+
 |                                                                    |
 |  TAB CONTENT (varies by selected tab)                              |
@@ -30,7 +30,7 @@ with a tabbed sub-navigation for Conversation, Changes (diffs), and Toolbox.
 |             /path/to/project  |  Branch: feature/auth-fix          |
 +------------------------------------------------------------------+
 |  +------------+------------+------------+                          |
-|  |[*]Conversation| Changes(3)| Toolbox(2) |                        |
+|  |[*]Conversation| Changes(3)| Canvas(2) |                        |
 |  +------------+------------+------------+--------------------------+
 |                                                                    |
 |  CONVERSATION AREA (scrollable)                                    |
@@ -90,7 +90,7 @@ with a tabbed sub-navigation for Conversation, Changes (diffs), and Toolbox.
 |             /path/to/project  |  Branch: feature/auth-fix          |
 +------------------------------------------------------------------+
 |  +------------+------------+------------+                          |
-|  | Conversation|[*]Changes(3)| Toolbox(2) |                        |
+|  | Conversation|[*]Changes(3)| Canvas(2) |                        |
 |  +------------+------------+------------+--------------------------+
 |                                                                    |
 |  DIFF CONTROLS                                                     |
@@ -127,7 +127,7 @@ with a tabbed sub-navigation for Conversation, Changes (diffs), and Toolbox.
 +------------------------------------------------------------------+
 ```
 
-## Toolbox Tab
+## Canvas Tab
 
 ```
 +------------------------------------------------------------------+
@@ -135,7 +135,7 @@ with a tabbed sub-navigation for Conversation, Changes (diffs), and Toolbox.
 |             /path/to/project  |  Branch: feature/auth-fix          |
 +------------------------------------------------------------------+
 |  +------------+------------+------------+                          |
-|  | Conversation| Changes(3)|[*]Toolbox(2)|                         |
+|  | Conversation| Changes(3)|[*]Canvas(2)|                         |
 |  +------------+------------+------------+--------------------------+
 |                                                                    |
 |  Filter: [All Types v]  Sort: [Newest v]    View: [Grid] [List]   |
@@ -158,9 +158,9 @@ with a tabbed sub-navigation for Conversation, Changes (diffs), and Toolbox.
 Empty state:
 +--------------------------------------------------------------+
 |                                                              |
-|                    [Toolbox Icon]                            |
+|                    [Canvas Icon]                            |
 |                                                              |
-|                 Toolbox is empty                             |
+|                 Canvas is empty                             |
 |                                                              |
 |      Claude will add screenshots, documents, and data        |
 |      here as it works on this session.                       |
@@ -237,13 +237,42 @@ Style: Left-aligned, neutral background (e.g., gray)
 ### Default (Session Waiting)
 ```
 +------------------------------------------------------------------+
+|  MODE: [Plan v]                                                    |
++------------------------------------------------------------------+
 | [                                                        ] [Send] |
 | Type a message... (Shift+Enter for newline)                       |
 +------------------------------------------------------------------+
 ```
 
+### Mode Selector (above input)
+```
++------------------------------------------------------------------+
+|  MODE: [Standard v]                                                |
++------------------------------------------------------------------+
+
+Dropdown options:
++------------------------------------------------------------------+
+|  MODE:                                                             |
+|  +--------------------------------------------------------------+ |
+|  |  ( ) Plan     - Creates a plan before making changes          | |
+|  |  (•) Standard - Normal mode with tool confirmations           | |
+|  |  ( ) Yolo     - Execute without confirmations                 | |
+|  +--------------------------------------------------------------+ |
++------------------------------------------------------------------+
+
+Mode descriptions shown on hover/select:
+- Plan: Claude will analyze the task and create a detailed plan,
+  waiting for your approval before making any file changes.
+- Standard: Claude asks for confirmation before running tools that
+  modify files or execute commands. Recommended for most use.
+- Yolo: Claude executes all tools without confirmation. Use with
+  caution - best for trusted, well-defined tasks.
+```
+
 ### Disabled (Session Running)
 ```
++------------------------------------------------------------------+
+|  MODE: [Standard] (disabled while running)                         |
 +------------------------------------------------------------------+
 | [Session is running... waiting for response            ] [Send]   |
 |                                                         (disabled)|
@@ -271,7 +300,7 @@ Starting:   [Spinner] Starting session...
 +------------------------------------------------------------------+
 ```
 
-## Toolbox Item Components
+## Canvas Item Components
 
 ### Image Item Card
 ```
@@ -345,28 +374,37 @@ Line numbers:   Gray, non-selectable
 ## Interactions
 
 1. **Back Button**
-   - Returns to SessionListView
+   - Returns to SessionListView for the project
 
 2. **Tab Switching**
-   - Click tab to switch between Conversation, Changes, Toolbox
-   - Badge on tabs shows counts (file changes, toolbox items)
+   - Click tab to switch between Conversation, Changes, Canvas
+   - Badge on tabs shows counts (file changes, canvas items)
    - URL updates to reflect current tab (e.g., /sessions/:id/changes)
 
-3. **Message Sending** (Conversation tab)
+3. **Mode Selector** (Conversation tab)
+   - Dropdown above message input to select execution mode
+   - Options: Plan, Standard, Yolo
+   - Can be changed before each message
+   - Disabled while session is running
+   - Mode change takes effect on next message sent
+   - Current mode indicated by selected option
+
+4. **Message Sending** (Conversation tab)
    - Enter key sends message (when session is waiting)
    - Shift+Enter for newlines
    - Disabled when session is running
+   - Message sent with currently selected mode
 
-4. **Auto-scroll** (Conversation tab)
+5. **Auto-scroll** (Conversation tab)
    - Conversation auto-scrolls to bottom on new messages
    - User can scroll up to view history
    - "New messages" button appears when scrolled up
 
-5. **Diff Navigation** (Changes tab)
+6. **Diff Navigation** (Changes tab)
    - Click file in tree to scroll to that file's diff
    - Collapse/expand file sections
 
-6. **Toolbox Items** (Toolbox tab)
+7. **Canvas Items** (Canvas tab)
    - Click item to expand in modal
    - [X] button to delete item
    - Filter/sort controls
@@ -377,22 +415,22 @@ Line numbers:   Gray, non-selectable
 ### Mobile (<768px)
 - Tabs become scrollable horizontal strip
 - Full-width content
-- Stacked toolbox items (1 column)
+- Stacked canvas items (1 column)
 - Message input fixed at bottom
 
 ### Tablet (768px - 1024px)
 - All tabs visible
-- 2-column toolbox grid
+- 2-column canvas grid
 - Side-by-side diff available
 
 ### Desktop (>1024px)
 - Full tab bar
-- 3-4 column toolbox grid
+- 3-4 column canvas grid
 - Wider diff view
 
 ## Real-time Updates
 
 - New messages appear instantly via WebSocket
-- Toolbox items animate in when added
+- Canvas items animate in when added
 - Changes tab updates when files are modified
 - Tab badges update in real-time

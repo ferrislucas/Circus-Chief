@@ -1,14 +1,15 @@
 # SessionListView Wireframe
 
-The SessionListView displays all Claude Code sessions in a list format.
-This is the default view when navigating to the root path or "Sessions" navigation.
+The SessionListView displays all Claude Code sessions within a specific project.
+This view is accessed by clicking on a project from the ProjectListView.
 
 ## Full View
 
 ```
 +------------------------------------------------------------------+
 |                                                                    |
-|  SESSIONS                                            [+ New Session]|
+|  [<- Projects]  My Web App                          [+ New Session]|
+|                 /Users/dev/projects/my-web-app                     |
 |                                                                    |
 +------------------------------------------------------------------+
 |                                                                    |
@@ -20,8 +21,7 @@ This is the default view when navigating to the root path or "Sessions" navigati
 |  |  Session Card 1                                              | |
 |  |  +----------------------------------------------------------+| |
 |  |  |  [Icon]  Fix authentication bug                          || |
-|  |  |          /path/to/project                   [Running *]  || |
-|  |  |          Branch: feature/auth-fix                        || |
+|  |  |          Branch: feature/auth-fix          [Running *]   || |
 |  |  |                                                          || |
 |  |  |  "Implementing the OAuth2 refresh token flow..."         || |
 |  |  |                                                 2m ago   || |
@@ -32,8 +32,7 @@ This is the default view when navigating to the root path or "Sessions" navigati
 |  |  Session Card 2                                              | |
 |  |  +----------------------------------------------------------+| |
 |  |  |  [Icon]  Add unit tests                                  || |
-|  |  |          /path/to/other-project             [Waiting ?]  || |
-|  |  |          Branch: main                                    || |
+|  |  |          Branch: main                      [Waiting ?]   || |
 |  |  |                                                          || |
 |  |  |  "Ready for your input. What should I test next?"        || |
 |  |  |                                                 5m ago   || |
@@ -44,8 +43,7 @@ This is the default view when navigating to the root path or "Sessions" navigati
 |  |  Session Card 3                                              | |
 |  |  +----------------------------------------------------------+| |
 |  |  |  [Icon]  Refactor database layer                         || |
-|  |  |          /path/to/db-project               [Completed v] || |
-|  |  |          Branch: refactor/db                             || |
+|  |  |          Branch: refactor/db               [Completed v] || |
 |  |  |                                                          || |
 |  |  |  "All database operations have been migrated to..."      || |
 |  |  |                                                 1h ago   || |
@@ -55,14 +53,30 @@ This is the default view when navigating to the root path or "Sessions" navigati
 +------------------------------------------------------------------+
 ```
 
-## Session Card Component
+## Header with Project Context
+
+```
++------------------------------------------------------------------+
+|                                                                    |
+|  [<- Projects]  Project Name                        [+ New Session]|
+|                 /absolute/path/to/working/directory                |
+|                                                                    |
++------------------------------------------------------------------+
+
+Legend:
+- [<- Projects]: Back navigation to ProjectListView
+- Project Name: Name of the current project
+- Working Directory: Shown below project name in smaller text
+- [+ New Session]: Creates new session in this project
+```
+
+## Session Card Component (within project context)
 
 ```
 +------------------------------------------------------------------+
 |                                                                    |
 |  [Session Icon]   Session Name                      [Status Badge] |
 |                                                                    |
-|  Working Directory: /absolute/path/to/directory                    |
 |  Branch: branch-name (if in git repo)                              |
 |                                                                    |
 |  +--------------------------------------------------------------+ |
@@ -72,6 +86,9 @@ This is the default view when navigating to the root path or "Sessions" navigati
 |  12 messages                                             3m ago    |
 |                                                                    |
 +------------------------------------------------------------------+
+
+Note: Working directory is NOT shown on individual session cards
+since all sessions share the project's working directory.
 ```
 
 ### Status Badges
@@ -87,6 +104,11 @@ Error:      [!] Error              (red, exclamation)
 ## Empty State
 
 ```
++------------------------------------------------------------------+
+|                                                                    |
+|  [<- Projects]  My Web App                          [+ New Session]|
+|                 /Users/dev/projects/my-web-app                     |
+|                                                                    |
 +------------------------------------------------------------------+
 |                                                                    |
 |                     [Illustration]                                 |
@@ -107,16 +129,9 @@ Error:      [!] Error              (red, exclamation)
 ```
 +------------------------------------------------------------------+
 |                                                                    |
-|  SESSIONS                                                          |
+|  [<- Projects]  My Web App                                         |
 |                                                                    |
 +------------------------------------------------------------------+
-|                                                                    |
-|  +--------------------------------------------------------------+ |
-|  |  [Skeleton loader - animated gradient]                       | |
-|  |  ████████████████████                         ████████       | |
-|  |  ████████████████████████████                                | |
-|  |  ████████████                                 ████           | |
-|  +--------------------------------------------------------------+ |
 |                                                                    |
 |  +--------------------------------------------------------------+ |
 |  |  [Skeleton loader - animated gradient]                       | |
@@ -138,7 +153,7 @@ Error:      [!] Error              (red, exclamation)
 ## Filter & Sort Options
 
 ### Search
-- Searches session name, working directory, and message content
+- Searches session name and message content
 - Real-time filtering as user types
 - Clear button when text present
 
@@ -154,19 +169,22 @@ Dropdown options:
 
 ## Interactions
 
-1. **Session Card Click**
+1. **Back to Projects**
+   - [<- Projects] link returns to ProjectListView
+
+2. **Session Card Click**
    - Navigate to SessionDetailView for that session
    - Highlight card on hover with subtle background change
 
-2. **New Session Button**
+3. **New Session Button**
    - Primary action button (accent color)
-   - Routes to NewSessionView
+   - Routes to NewSessionView with project context
 
-3. **Status Badge**
+4. **Status Badge**
    - Clicking "Waiting" status shows quick input option (optional enhancement)
    - Clicking "Error" shows error details tooltip
 
-4. **Session Actions (on hover)**
+5. **Session Actions (on hover)**
    ```
    +------------------------------------------------------------------+
    |  Session Card                                         [X] [...]  |
