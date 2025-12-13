@@ -3,7 +3,7 @@ import { ref } from 'vue';
 const BASE_URL = '/api';
 
 /**
- * HTTP client wrapper
+ * HTTP client wrapper - Vue composable
  */
 export function useApi() {
   const loading = ref(false);
@@ -55,149 +55,249 @@ export function useApi() {
   };
 }
 
-// Standalone API functions
-export const api = {
+/**
+ * API client class for making HTTP requests to the backend
+ */
+export class ApiClient {
+  #baseUrl;
+
+  /**
+   * Create a new API client
+   * @param {string} baseUrl - Base URL for API requests
+   */
+  constructor(baseUrl = '/api') {
+    this.#baseUrl = baseUrl;
+  }
+
+  /**
+   * Get the base URL
+   * @returns {string}
+   */
+  get baseUrl() {
+    return this.#baseUrl;
+  }
+
+  /**
+   * Make an HTTP request
+   * @param {string} method - HTTP method
+   * @param {string} path - API path
+   * @param {Object} data - Request body data
+   * @returns {Promise<any>}
+   */
+  async #request(method, path, data = null) {
+    const options = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    };
+
+    if (data && method !== 'GET') {
+      options.body = JSON.stringify(data);
+    }
+
+    const response = await fetch(`${this.#baseUrl}${path}`, options);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP ${response.status}`);
+    }
+
+    if (response.status === 204) {
+      return null;
+    }
+
+    return response.json();
+  }
+
   // Projects
+
+  /**
+   * Get all projects
+   * @returns {Promise<Array>}
+   */
   async getProjects() {
-    const response = await fetch(`${BASE_URL}/projects`);
-    if (!response.ok) throw new Error('Failed to fetch projects');
-    return response.json();
-  },
+    return this.#request('GET', '/projects');
+  }
 
+  /**
+   * Get a project by ID
+   * @param {string} id - Project ID
+   * @returns {Promise<Object>}
+   */
   async getProject(id) {
-    const response = await fetch(`${BASE_URL}/projects/${id}`);
-    if (!response.ok) throw new Error('Failed to fetch project');
-    return response.json();
-  },
+    return this.#request('GET', `/projects/${id}`);
+  }
 
+  /**
+   * Create a new project
+   * @param {Object} data - Project data
+   * @returns {Promise<Object>}
+   */
   async createProject(data) {
-    const response = await fetch(`${BASE_URL}/projects`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!response.ok) throw new Error('Failed to create project');
-    return response.json();
-  },
+    return this.#request('POST', '/projects', data);
+  }
 
+  /**
+   * Update a project
+   * @param {string} id - Project ID
+   * @param {Object} data - Updated project data
+   * @returns {Promise<Object>}
+   */
   async updateProject(id, data) {
-    const response = await fetch(`${BASE_URL}/projects/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!response.ok) throw new Error('Failed to update project');
-    return response.json();
-  },
+    return this.#request('PUT', `/projects/${id}`, data);
+  }
 
+  /**
+   * Delete a project
+   * @param {string} id - Project ID
+   * @returns {Promise<void>}
+   */
   async deleteProject(id) {
-    const response = await fetch(`${BASE_URL}/projects/${id}`, { method: 'DELETE' });
-    if (!response.ok) throw new Error('Failed to delete project');
-  },
+    return this.#request('DELETE', `/projects/${id}`);
+  }
 
   // Sessions
+
+  /**
+   * Get all sessions for a project
+   * @param {string} projectId - Project ID
+   * @returns {Promise<Array>}
+   */
   async getProjectSessions(projectId) {
-    const response = await fetch(`${BASE_URL}/projects/${projectId}/sessions`);
-    if (!response.ok) throw new Error('Failed to fetch sessions');
-    return response.json();
-  },
+    return this.#request('GET', `/projects/${projectId}/sessions`);
+  }
 
+  /**
+   * Create a new session
+   * @param {string} projectId - Project ID
+   * @param {Object} data - Session data
+   * @returns {Promise<Object>}
+   */
   async createSession(projectId, data) {
-    const response = await fetch(`${BASE_URL}/projects/${projectId}/sessions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!response.ok) throw new Error('Failed to create session');
-    return response.json();
-  },
+    return this.#request('POST', `/projects/${projectId}/sessions`, data);
+  }
 
+  /**
+   * Get a session by ID
+   * @param {string} id - Session ID
+   * @returns {Promise<Object>}
+   */
   async getSession(id) {
-    const response = await fetch(`${BASE_URL}/sessions/${id}`);
-    if (!response.ok) throw new Error('Failed to fetch session');
-    return response.json();
-  },
+    return this.#request('GET', `/sessions/${id}`);
+  }
 
+  /**
+   * Get all messages for a session
+   * @param {string} id - Session ID
+   * @returns {Promise<Array>}
+   */
   async getSessionMessages(id) {
-    const response = await fetch(`${BASE_URL}/sessions/${id}/messages`);
-    if (!response.ok) throw new Error('Failed to fetch messages');
-    return response.json();
-  },
+    return this.#request('GET', `/sessions/${id}/messages`);
+  }
 
+  /**
+   * Send a message to a session
+   * @param {string} sessionId - Session ID
+   * @param {string} content - Message content
+   * @returns {Promise<Object>}
+   */
   async sendMessage(sessionId, content) {
-    const response = await fetch(`${BASE_URL}/sessions/${sessionId}/message`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    });
-    if (!response.ok) throw new Error('Failed to send message');
-    return response.json();
-  },
+    return this.#request('POST', `/sessions/${sessionId}/message`, { content });
+  }
 
+  /**
+   * Stop a session
+   * @param {string} id - Session ID
+   * @returns {Promise<Object>}
+   */
   async stopSession(id) {
-    const response = await fetch(`${BASE_URL}/sessions/${id}/stop`, { method: 'POST' });
-    if (!response.ok) throw new Error('Failed to stop session');
-    return response.json();
-  },
+    return this.#request('POST', `/sessions/${id}/stop`);
+  }
 
   // Canvas
-  async getCanvasItems(sessionId) {
-    const response = await fetch(`${BASE_URL}/sessions/${sessionId}/canvas`);
-    if (!response.ok) throw new Error('Failed to fetch canvas items');
-    return response.json();
-  },
 
+  /**
+   * Get all canvas items for a session
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<Array>}
+   */
+  async getCanvasItems(sessionId) {
+    return this.#request('GET', `/sessions/${sessionId}/canvas`);
+  }
+
+  /**
+   * Delete a canvas item
+   * @param {string} sessionId - Session ID
+   * @param {string} itemId - Canvas item ID
+   * @returns {Promise<void>}
+   */
   async deleteCanvasItem(sessionId, itemId) {
-    const response = await fetch(`${BASE_URL}/sessions/${sessionId}/canvas/${itemId}`, {
-      method: 'DELETE',
-    });
-    if (!response.ok) throw new Error('Failed to delete canvas item');
-  },
+    return this.#request('DELETE', `/sessions/${sessionId}/canvas/${itemId}`);
+  }
 
   // Git
-  async getGitStatus(projectId) {
-    const response = await fetch(`${BASE_URL}/git/projects/${projectId}/status`);
-    if (!response.ok) throw new Error('Failed to fetch git status');
-    return response.json();
-  },
 
+  /**
+   * Get git status for a project
+   * @param {string} projectId - Project ID
+   * @returns {Promise<Object>}
+   */
+  async getGitStatus(projectId) {
+    return this.#request('GET', `/git/projects/${projectId}/status`);
+  }
+
+  /**
+   * Get worktrees for a project
+   * @param {string} projectId - Project ID
+   * @returns {Promise<Array>}
+   */
   async getWorktrees(projectId) {
-    const response = await fetch(`${BASE_URL}/git/projects/${projectId}/worktrees`);
-    if (!response.ok) throw new Error('Failed to fetch worktrees');
-    return response.json();
-  },
+    return this.#request('GET', `/git/projects/${projectId}/worktrees`);
+  }
 
   // Notes
+
+  /**
+   * Get all notes for a session
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<Array>}
+   */
   async getSessionNotes(sessionId) {
-    const response = await fetch(`${BASE_URL}/sessions/${sessionId}/notes`);
-    if (!response.ok) throw new Error('Failed to fetch notes');
-    return response.json();
-  },
+    return this.#request('GET', `/sessions/${sessionId}/notes`);
+  }
 
+  /**
+   * Create a note for a session
+   * @param {string} sessionId - Session ID
+   * @param {string} content - Note content
+   * @returns {Promise<Object>}
+   */
   async createNote(sessionId, content) {
-    const response = await fetch(`${BASE_URL}/sessions/${sessionId}/notes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    });
-    if (!response.ok) throw new Error('Failed to create note');
-    return response.json();
-  },
+    return this.#request('POST', `/sessions/${sessionId}/notes`, { content });
+  }
 
+  /**
+   * Update a note
+   * @param {string} sessionId - Session ID
+   * @param {string} noteId - Note ID
+   * @param {string} content - Updated note content
+   * @returns {Promise<Object>}
+   */
   async updateNote(sessionId, noteId, content) {
-    const response = await fetch(`${BASE_URL}/sessions/${sessionId}/notes/${noteId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    });
-    if (!response.ok) throw new Error('Failed to update note');
-    return response.json();
-  },
+    return this.#request('PUT', `/sessions/${sessionId}/notes/${noteId}`, { content });
+  }
 
+  /**
+   * Delete a note
+   * @param {string} sessionId - Session ID
+   * @param {string} noteId - Note ID
+   * @returns {Promise<void>}
+   */
   async deleteNote(sessionId, noteId) {
-    const response = await fetch(`${BASE_URL}/sessions/${sessionId}/notes/${noteId}`, {
-      method: 'DELETE',
-    });
-    if (!response.ok) throw new Error('Failed to delete note');
-  },
-};
+    return this.#request('DELETE', `/sessions/${sessionId}/notes/${noteId}`);
+  }
+}
+
+// Singleton instance for backward compatibility
+export const api = new ApiClient();

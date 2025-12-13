@@ -1,13 +1,159 @@
 import { WebSocketServer } from 'ws';
 import { WS_MESSAGE_TYPES, parseMessage, createMessage } from '@claudetools/shared';
 
-/** @type {Set<import('ws').WebSocket>} */
-const clients = new Set();
+/**
+ * WebSocket manager class for handling WebSocket connections and messaging
+ */
+export class WebSocketManager {
+  /** @type {WebSocketServer|null} */
+  #wss = null;
 
-/** @type {Map<string, Set<import('ws').WebSocket>>} */
-const sessionSubscriptions = new Map();
+  /** @type {Set<import('ws').WebSocket>} */
+  #clients = new Set();
 
-let wss = null;
+  /** @type {Map<string, Set<import('ws').WebSocket>>} */
+  #sessionSubscriptions = new Map();
+
+  /**
+   * Initialize WebSocket server
+   * @param {import('http').Server} server - HTTP server to attach to
+   * @returns {WebSocketServer}
+   */
+  init(server) {
+    this.#wss = new WebSocketServer({ server, path: '/ws' });
+
+    this.#wss.on('connection', (ws) => {
+      this.#clients.add(ws);
+
+      ws.on('message', (data) => {
+        const message = parseMessage(data.toString());
+        if (!message) return;
+
+        this.#handleMessage(ws, message);
+      });
+
+      ws.on('close', () => {
+        this.#clients.delete(ws);
+        // Remove from all session subscriptions
+        for (const subscribers of this.#sessionSubscriptions.values()) {
+          subscribers.delete(ws);
+        }
+      });
+
+      ws.on('error', (error) => {
+        console.error('WebSocket error:', error);
+      });
+    });
+
+    return this.#wss;
+  }
+
+  /**
+   * Handle incoming WebSocket message
+   * @param {import('ws').WebSocket} ws
+   * @param {Object} message
+   */
+  #handleMessage(ws, message) {
+    switch (message.type) {
+      case WS_MESSAGE_TYPES.SUBSCRIBE_SESSION: {
+        const { sessionId } = message;
+        if (!sessionId) return;
+
+        if (!this.#sessionSubscriptions.has(sessionId)) {
+          this.#sessionSubscriptions.set(sessionId, new Set());
+        }
+        this.#sessionSubscriptions.get(sessionId).add(ws);
+        break;
+      }
+
+      case WS_MESSAGE_TYPES.UNSUBSCRIBE_SESSION: {
+        const { sessionId } = message;
+        if (!sessionId) return;
+
+        const subscribers = this.#sessionSubscriptions.get(sessionId);
+        if (subscribers) {
+          subscribers.delete(ws);
+        }
+        break;
+      }
+    }
+  }
+
+  /**
+   * Broadcast message to all connected clients
+   * @param {string} type - Message type
+   * @param {Object} payload - Message payload
+   */
+  broadcast(type, payload) {
+    const message = createMessage(type, payload);
+    for (const client of this.#clients) {
+      if (client.readyState === 1) {
+        // WebSocket.OPEN
+        client.send(message);
+      }
+    }
+  }
+
+  /**
+   * Broadcast message to clients subscribed to a session
+   * @param {string} sessionId - Session ID
+   * @param {string} type - Message type
+   * @param {Object} payload - Message payload
+   */
+  broadcastToSession(sessionId, type, payload) {
+    const subscribers = this.#sessionSubscriptions.get(sessionId);
+    if (!subscribers) return;
+
+    const message = createMessage(type, payload);
+    for (const client of subscribers) {
+      if (client.readyState === 1) {
+        // WebSocket.OPEN
+        client.send(message);
+      }
+    }
+  }
+
+  /**
+   * Get WebSocket server instance
+   * @returns {WebSocketServer|null}
+   */
+  getServer() {
+    return this.#wss;
+  }
+
+  /**
+   * Get all connected clients
+   * @returns {Set<import('ws').WebSocket>}
+   */
+  getClients() {
+    return this.#clients;
+  }
+
+  /**
+   * Get session subscriptions
+   * @returns {Map<string, Set<import('ws').WebSocket>>}
+   */
+  getSessionSubscriptions() {
+    return this.#sessionSubscriptions;
+  }
+
+  /**
+   * Close the WebSocket server
+   */
+  close() {
+    if (this.#wss) {
+      this.#wss.close();
+      this.#wss = null;
+    }
+    this.#clients.clear();
+    this.#sessionSubscriptions.clear();
+  }
+}
+
+// Singleton instance
+const webSocketManager = new WebSocketManager();
+
+// Legacy function exports for backward compatibility
 
 /**
  * Initialize WebSocket server
@@ -15,63 +161,7 @@ let wss = null;
  * @returns {WebSocketServer}
  */
 export function initWebSocket(server) {
-  wss = new WebSocketServer({ server, path: '/ws' });
-
-  wss.on('connection', (ws) => {
-    clients.add(ws);
-
-    ws.on('message', (data) => {
-      const message = parseMessage(data.toString());
-      if (!message) return;
-
-      handleMessage(ws, message);
-    });
-
-    ws.on('close', () => {
-      clients.delete(ws);
-      // Remove from all session subscriptions
-      for (const subscribers of sessionSubscriptions.values()) {
-        subscribers.delete(ws);
-      }
-    });
-
-    ws.on('error', (error) => {
-      console.error('WebSocket error:', error);
-    });
-  });
-
-  return wss;
-}
-
-/**
- * Handle incoming WebSocket message
- * @param {import('ws').WebSocket} ws
- * @param {Object} message
- */
-function handleMessage(ws, message) {
-  switch (message.type) {
-    case WS_MESSAGE_TYPES.SUBSCRIBE_SESSION: {
-      const { sessionId } = message;
-      if (!sessionId) return;
-
-      if (!sessionSubscriptions.has(sessionId)) {
-        sessionSubscriptions.set(sessionId, new Set());
-      }
-      sessionSubscriptions.get(sessionId).add(ws);
-      break;
-    }
-
-    case WS_MESSAGE_TYPES.UNSUBSCRIBE_SESSION: {
-      const { sessionId } = message;
-      if (!sessionId) return;
-
-      const subscribers = sessionSubscriptions.get(sessionId);
-      if (subscribers) {
-        subscribers.delete(ws);
-      }
-      break;
-    }
-  }
+  return webSocketManager.init(server);
 }
 
 /**
@@ -80,13 +170,7 @@ function handleMessage(ws, message) {
  * @param {Object} payload
  */
 export function broadcast(type, payload) {
-  const message = createMessage(type, payload);
-  for (const client of clients) {
-    if (client.readyState === 1) {
-      // WebSocket.OPEN
-      client.send(message);
-    }
-  }
+  webSocketManager.broadcast(type, payload);
 }
 
 /**
@@ -96,16 +180,7 @@ export function broadcast(type, payload) {
  * @param {Object} payload
  */
 export function broadcastToSession(sessionId, type, payload) {
-  const subscribers = sessionSubscriptions.get(sessionId);
-  if (!subscribers) return;
-
-  const message = createMessage(type, payload);
-  for (const client of subscribers) {
-    if (client.readyState === 1) {
-      // WebSocket.OPEN
-      client.send(message);
-    }
-  }
+  webSocketManager.broadcastToSession(sessionId, type, payload);
 }
 
 /**
@@ -113,5 +188,8 @@ export function broadcastToSession(sessionId, type, payload) {
  * @returns {WebSocketServer|null}
  */
 export function getWebSocketServer() {
-  return wss;
+  return webSocketManager.getServer();
 }
+
+// Export the manager instance
+export { webSocketManager };
