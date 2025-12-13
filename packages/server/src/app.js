@@ -40,8 +40,8 @@ export function createApp(options = {}) {
     const staticPath = join(__dirname, '../../web/dist');
     app.use(express.static(staticPath));
 
-    // SPA fallback
-    app.get('*', (_req, res) => {
+    // SPA fallback - use /* to match root path and all other paths
+    app.get('/*', (_req, res) => {
       res.sendFile(join(staticPath, 'index.html'));
     });
   }
