@@ -31,7 +31,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 
-const props = defineProps({
+const _props = defineProps({
   sessionId: { type: String, required: true },
 });
 

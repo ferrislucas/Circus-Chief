@@ -24,7 +24,7 @@ COPY tools/ /tools/
 
 # Install tool dependencies (pin to match base image version)
 WORKDIR /tools
-RUN npm init -y && npm install playwright@1.40.0
+RUN npm init -y && npm install @playwright/test@1.40.0
 
 # Return to app directory
 WORKDIR /app

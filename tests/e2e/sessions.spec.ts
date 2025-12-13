@@ -60,7 +60,7 @@ test.describe('Session Management', () => {
     await page.goto(`/sessions/${session.id}`);
 
     // The initial user message should be visible
-    await expect(page.getByText('Hello Claude')).toBeVisible();
+    await expect(page.locator('.message-content').getByText('Hello Claude', { exact: true })).toBeVisible();
   });
 
   test('can switch between tabs', async ({ page }) => {

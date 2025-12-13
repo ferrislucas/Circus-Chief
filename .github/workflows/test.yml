@@ -45,7 +45,9 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Run unit tests
-        run: yarn test
+        run: |
+          yarn workspace @claudetools/server test
+          yarn workspace @claudetools/web test
 
   e2e-tests:
     name: E2E Tests
@@ -62,37 +64,33 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+      - name: Build Playwright Docker image
+        run: docker compose -f docker-compose.playwright.yml build playwright
 
-      - name: Build packages
-        run: |
-          yarn workspace @claudetools/shared build
-          yarn workspace @claudetools/web build
-
-      - name: Start server
+      - name: Start backend server
         run: |
           yarn workspace @claudetools/server start &
-          npx wait-on http://localhost:5000/api/health --timeout 30000
+          npx wait-on http://localhost:5000/api/projects --timeout 30000
         env:
           NODE_ENV: test
 
-      - name: Serve frontend
+      - name: Start frontend dev server
         run: |
-          npx serve -s packages/web/dist -l 5173 &
+          yarn workspace @claudetools/web dev &
           npx wait-on http://localhost:5173 --timeout 30000
 
       - name: Run Playwright tests
-        run: npx playwright test --config=playwright.config.docker.ts --project=chromium
+        run: ./scripts/pw.sh test
         env:
           BASE_URL: http://localhost:5173
+          API_URL: http://localhost:5000
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
           name: playwright-report
           path: |
-            reports/
+            playwright-report/
             screenshots/
           retention-days: 7

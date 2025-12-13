@@ -12,8 +12,11 @@
     "lint": "eslint packages/*/src"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "concurrently": "^8.2.2",
     "eslint": "^8.56.0",
-    "prettier": "^3.2.4"
+    "eslint-plugin-vue": "9",
+    "prettier": "^3.2.4",
+    "vue-eslint-parser": "9"
   }
 }
