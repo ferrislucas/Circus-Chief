@@ -193,6 +193,73 @@ Empty state:
 +--------------------------------------------------------------+
 ```
 
+### Canvas Controls Specification
+
+#### Filter Dropdown
+```
++--------------------------------------------------------------+
+| Filter: [All Types v]                                         |
++--------------------------------------------------------------+
+| Dropdown options:                                             |
+| +----------------------------------------------------------+ |
+| | All Types     - Shows all canvas items (default)          | |
+| | Images        - type === 'image' (png, jpg, gif, etc.)    | |
+| | Documents     - type === 'markdown'                       | |
+| | Text          - type === 'text'                           | |
+| | Data          - type === 'json'                           | |
+| +----------------------------------------------------------+ |
++--------------------------------------------------------------+
+```
+
+#### Sort Dropdown
+```
++--------------------------------------------------------------+
+| Sort: [Newest v]                                              |
++--------------------------------------------------------------+
+| Dropdown options:                                             |
+| +----------------------------------------------------------+ |
+| | Newest        - createdAt DESC (default)                  | |
+| | Oldest        - createdAt ASC                             | |
+| | Name A-Z      - label/filename ASC                        | |
+| | Name Z-A      - label/filename DESC                       | |
+| +----------------------------------------------------------+ |
++--------------------------------------------------------------+
+```
+
+#### View Toggle
+```
++--------------------------------------------------------------+
+| View: [Grid] [List]                                           |
++--------------------------------------------------------------+
+| Toggle button group (one active at a time)                    |
+|                                                               |
+| Grid View (default):                                          |
+| - Mobile (<768px): 2 columns                                  |
+| - Tablet (768-1024px): 3 columns                              |
+| - Desktop (>1024px): 4 columns                                |
+| - Shows thumbnail/preview, filename, label, timestamp         |
+|                                                               |
+| List View:                                                    |
+| - Single column, full width                                   |
+| - Each row shows: thumbnail (small), filename, type badge,    |
+|   label, timestamp, delete button                             |
+| - More compact, better for many items                         |
++--------------------------------------------------------------+
+```
+
+#### List View Layout
+```
++------------------------------------------------------------------+
+| +--------------------------------------------------------------+ |
+| | [Thumb] screenshot.png    [image]  Test failure   2m ago [X] | |
+| +--------------------------------------------------------------+ |
+| | [Thumb] results.json      [json]   Test Results   5m ago [X] | |
+| +--------------------------------------------------------------+ |
+| | [Thumb] notes.md          [markdown] Session notes 1h ago [X]| |
+| +--------------------------------------------------------------+ |
++------------------------------------------------------------------+
+```
+
 ## Tools Tab
 
 The Tools tab displays project tool templates that can be executed within the session context.
@@ -682,3 +749,123 @@ Line numbers:   Gray, non-selectable
 - Canvas items animate in when added
 - Changes tab updates when files are modified
 - Tab badges update in real-time
+
+## Slash Commands UX
+
+Users can invoke slash commands directly from the message input area. Typing `/` at the start
+of a message triggers the command autocomplete interface.
+
+### Command Autocomplete
+
+```
++------------------------------------------------------------------+
+|  MESSAGE INPUT                                                     |
+|  +--------------------------------------------------------------+ |
+|  | /mo                                                     [Send]| |
+|  +--------------------------------------------------------------+ |
+|  +--------------------------------------------------------------+ |
+|  | COMMANDS                                                      | |
+|  | +----------------------------------------------------------+ | |
+|  | | /model [model]     Change Claude model                    | | |
+|  | | /mode [mode]       Change execution mode                  | | |
+|  | +----------------------------------------------------------+ | |
+|  +--------------------------------------------------------------+ |
++------------------------------------------------------------------+
+
+Behavior:
+- Autocomplete appears when typing "/" at start of message
+- List filters as user types (fuzzy matching)
+- Arrow keys navigate, Enter selects, Escape closes
+- Selected command replaces input text
+- Tab completes to first match
+```
+
+### Available Built-in Commands
+
+```
++------------------------------------------------------------------+
+|  COMMANDS                                                          |
+|  +--------------------------------------------------------------+ |
+|  | BUILT-IN                                                      | |
+|  | /clear         Clear conversation history                     | |
+|  | /model [name]  Change Claude model (e.g., /model sonnet)     | |
+|  | /mode [mode]   Change mode (plan/standard/yolo)               | |
+|  | /status        Show session status                            | |
+|  | /cost          Show token usage and estimated cost            | |
+|  | /compact       Compact conversation history                   | |
+|  |                                                                | |
+|  | PROJECT COMMANDS (if configured)                              | |
+|  | /review        Run code review                                | |
+|  | /test          Run test suite                                 | |
+|  | /deploy        Deploy to staging                              | |
+|  +--------------------------------------------------------------+ |
++------------------------------------------------------------------+
+```
+
+### Command Palette (Alternative)
+
+Users can also open a command palette using `Cmd/Ctrl + K`:
+
+```
++------------------------------------------------------------------+
+|                                                                    |
+|  +--------------------------------------------------------------+ |
+|  |  Command Palette                                         [X]  | |
+|  +--------------------------------------------------------------+ |
+|  |  +----------------------------------------------------------+| |
+|  |  | Search commands...                                       || |
+|  |  +----------------------------------------------------------+| |
+|  |                                                              | |
+|  |  RECENTLY USED                                               | |
+|  |  +----------------------------------------------------------+| |
+|  |  | /model sonnet     Change to Claude Sonnet                || |
+|  |  | /mode plan        Switch to plan mode                    || |
+|  |  +----------------------------------------------------------+| |
+|  |                                                              | |
+|  |  ALL COMMANDS                                                | |
+|  |  +----------------------------------------------------------+| |
+|  |  | /clear            Clear history           [Ctrl+Shift+K] || |
+|  |  | /model [name]     Change model                           || |
+|  |  | /mode [mode]      Change mode                            || |
+|  |  | /status           Show status                  [Ctrl+I]  || |
+|  |  | /cost             Token usage                            || |
+|  |  | /compact          Compact history                        || |
+|  |  +----------------------------------------------------------+| |
+|  +--------------------------------------------------------------+ |
+|                                                                    |
++------------------------------------------------------------------+
+
+Behavior:
+- Opens with Cmd/Ctrl + K keyboard shortcut
+- Search filters all available commands
+- Shows keyboard shortcuts for commands that have them
+- Escape or click outside to close
+- Enter executes selected command
+```
+
+### Command Execution Feedback
+
+```
+After running a command, feedback appears in the conversation:
+
++------------------------------------------------------------------+
+|  +--------------------------------------------------------------+ |
+|  | SYSTEM                                              10:35 AM  | |
+|  +--------------------------------------------------------------+ |
+|  | Model changed to claude-sonnet-4-5                           | |
+|  +--------------------------------------------------------------+ |
++------------------------------------------------------------------+
+
++------------------------------------------------------------------+
+|  +--------------------------------------------------------------+ |
+|  | SYSTEM                                              10:36 AM  | |
+|  +--------------------------------------------------------------+ |
+|  | Token Usage                                                   | |
+|  | Input: 12,450 tokens                                          | |
+|  | Output: 3,200 tokens                                          | |
+|  | Estimated cost: $0.42                                         | |
+|  +--------------------------------------------------------------+ |
++------------------------------------------------------------------+
+
+Style: System messages use muted gray background, italic text
+```
