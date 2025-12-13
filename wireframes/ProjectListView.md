@@ -152,8 +152,7 @@ Dropdown options:
    - Opens ProjectEditView for editing (/projects/:id/edit)
 
 5. **Delete Button (on hover)**
-   - Shows confirmation dialog
-   - Warns about deleting all associated sessions
+   - Shows confirmation dialog with detailed data loss warning
    - On confirm, deletes project and all sessions
 
 6. **Project Actions (on hover)**
@@ -162,11 +161,36 @@ Dropdown options:
    |  Project Card                            [+ Session] [Edit] [X]  |
    |  ...                                                              |
    +------------------------------------------------------------------+
-
-   [X] reveals confirmation:
-   "Delete this project and all 3 sessions?"
-   [Cancel] [Delete]
    ```
+
+## Delete Project Confirmation Dialog
+
+When user clicks the delete [X] button on a project card:
+
+```
++--------------------------------------------------------------+
+|                     Delete Project?                           |
+|                                                              |
+|  Are you sure you want to delete "My Web App"?               |
+|                                                              |
+|  This will permanently delete:                               |
+|  - 5 sessions and their conversation history                 |
+|  - 12 canvas items (screenshots, documents, data)            |
+|  - 3 session notes                                           |
+|  - 2 project tool templates                                  |
+|                                                              |
+|  This action cannot be undone.                               |
+|                                                              |
+|                        [Cancel]  [Delete Project]            |
++--------------------------------------------------------------+
+```
+
+### Dialog Behavior
+- Counts are dynamically populated based on actual project data
+- If a count is zero, that line is omitted (e.g., no "0 session notes" line)
+- "Delete Project" button uses destructive styling (red background)
+- Cancel dismisses dialog without action
+- Dialog is modal (blocks interaction with page behind)
 
 ## Real-time Updates
 

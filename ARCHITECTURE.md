@@ -1309,6 +1309,7 @@ claudetools.io/
     * Canvas item added
     * @typedef {Object} WsCanvasAddMessage
     * @property {'canvas:add'} type
+    * @property {string} sessionId - Session the item was added to
     * @property {CanvasItem} item
     */
 
@@ -1316,12 +1317,14 @@ claudetools.io/
     * Canvas cleared
     * @typedef {Object} WsCanvasClearMessage
     * @property {'canvas:clear'} type
+    * @property {string} sessionId - Session that was cleared
     */
 
    /**
     * Canvas item removed
     * @typedef {Object} WsCanvasRemoveMessage
     * @property {'canvas:remove'} type
+    * @property {string} sessionId - Session the item was removed from
     * @property {string} itemId
     */
 
@@ -5010,13 +5013,13 @@ Connect to `ws://localhost:3000/ws`
 { type: 'session:pr-url:updated', sessionId: 'string', prUrl: 'string | null' }
 
 // Canvas item added
-{ type: 'canvas:add', item: CanvasItem }
+{ type: 'canvas:add', sessionId: 'string', item: CanvasItem }
 
 // Canvas item removed
-{ type: 'canvas:remove', itemId: 'string' }
+{ type: 'canvas:remove', sessionId: 'string', itemId: 'string' }
 
 // Canvas cleared
-{ type: 'canvas:clear' }
+{ type: 'canvas:clear', sessionId: 'string' }
 ```
 
 ### Client → Server Messages

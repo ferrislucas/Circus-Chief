@@ -197,6 +197,9 @@ Dropdown options:
    - View in Terminal (future)
    ```
 
+   Delete Session action shows the same confirmation dialog as in SessionDetailView
+   (see SessionDetailView.md for full dialog specification).
+
 ## Real-time Updates
 
 - New sessions appear at top of list (if sorted by newest)
