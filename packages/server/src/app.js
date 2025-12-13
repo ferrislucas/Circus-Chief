@@ -35,14 +35,19 @@ export function createApp(options = {}) {
   // API routes
   app.use('/api', apiRouter);
 
-  // Static files (production)
+  // Static files and SPA fallback (production)
   if (options.production) {
     const staticPath = join(__dirname, '../../web/dist');
     app.use(express.static(staticPath));
 
-    // SPA fallback - use /* to match root path and all other paths
+    // SPA fallback for client-side routing
     app.get('/*', (_req, res) => {
       res.sendFile(join(staticPath, 'index.html'));
+    });
+  } else {
+    // Development: redirect root to Vite dev server
+    app.get('/', (_req, res) => {
+      res.redirect('http://localhost:5173');
     });
   }
 
