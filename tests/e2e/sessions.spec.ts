@@ -6,6 +6,7 @@ import {
   waitForSessionStatus,
   getSession,
   getProjectSessions,
+  updateSessionStatus,
 } from './helpers';
 
 test.describe('Session Management', () => {
@@ -147,5 +148,248 @@ test.describe('Session Management', () => {
     const apiSession = await getSession(session.id);
     expect(apiSession).not.toBeNull();
     expect(apiSession.mode).toBe('plan');
+  });
+
+  test('displays Stop Session button for active sessions', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test active session',
+      name: 'Active Session',
+    });
+
+    // Update session to running state
+    await updateSessionStatus(session.id, 'running');
+
+    await page.goto(`/sessions/${session.id}`);
+
+    // Verify Stop Session button is visible for running session
+    const stopButton = page.getByRole('button', { name: 'Stop Session' });
+    await expect(stopButton).toBeVisible();
+    await expect(stopButton).toHaveClass(/btn-danger/);
+
+    // Verify status badge shows running
+    await expect(page.locator('.status-badge.status-running')).toBeVisible();
+  });
+
+  test('Stop Session button is hidden for completed sessions', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test completed session',
+      name: 'Completed Session',
+    });
+
+    // Update session to completed state
+    await updateSessionStatus(session.id, 'completed');
+
+    await page.goto(`/sessions/${session.id}`);
+
+    // Verify Stop Session button is NOT visible for completed session
+    const stopButton = page.getByRole('button', { name: 'Stop Session' });
+    await expect(stopButton).not.toBeVisible();
+
+    // Verify status badge shows completed
+    await expect(page.locator('.status-badge.status-completed')).toBeVisible();
+  });
+
+  test('displays message input form when session is waiting', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test waiting session',
+      name: 'Waiting Session',
+    });
+
+    // Update session to waiting state
+    await updateSessionStatus(session.id, 'waiting');
+
+    await page.goto(`/sessions/${session.id}`);
+
+    // Verify status badge shows waiting
+    await expect(page.locator('.status-badge.status-waiting')).toBeVisible();
+
+    // Verify message input form is visible
+    await expect(page.locator('.input-form')).toBeVisible();
+    await expect(page.locator('.input-form textarea')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
+
+    // Verify placeholder text
+    await expect(page.locator('.input-form textarea')).toHaveAttribute(
+      'placeholder',
+      'Send a follow-up message...'
+    );
+  });
+
+  test('message input is hidden when session is running', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test running session',
+      name: 'Running Session',
+    });
+
+    // Update session to running state
+    await updateSessionStatus(session.id, 'running');
+
+    await page.goto(`/sessions/${session.id}`);
+
+    // Verify status badge shows running
+    await expect(page.locator('.status-badge.status-running')).toBeVisible();
+
+    // Verify message input form is NOT visible
+    await expect(page.locator('.input-form')).not.toBeVisible();
+
+    // Verify "Claude is working..." status message is visible
+    await expect(page.locator('.status-message')).toBeVisible();
+    await expect(page.getByText('Claude is working...')).toBeVisible();
+  });
+
+  test('Send button is disabled when message is empty', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test session',
+      name: 'Send Test',
+    });
+
+    // Update to waiting state to show input form
+    await updateSessionStatus(session.id, 'waiting');
+
+    await page.goto(`/sessions/${session.id}`);
+
+    // Wait for form to be visible
+    await expect(page.locator('.input-form')).toBeVisible();
+
+    // Verify Send button is disabled when textarea is empty
+    const sendButton = page.getByRole('button', { name: 'Send' });
+    await expect(sendButton).toBeDisabled();
+
+    // Type something
+    await page.fill('.input-form textarea', 'Hello');
+    await expect(sendButton).toBeEnabled();
+
+    // Clear it
+    await page.fill('.input-form textarea', '');
+    await expect(sendButton).toBeDisabled();
+
+    // Type only whitespace
+    await page.fill('.input-form textarea', '   ');
+    await expect(sendButton).toBeDisabled();
+  });
+
+  test('displays all session modes correctly', async ({ page }) => {
+    // Test standard mode
+    const standardSession = await seedSession(project.id, {
+      prompt: 'Standard test',
+      name: 'Standard Mode',
+      mode: 'standard',
+    });
+
+    await page.goto(`/sessions/${standardSession.id}`);
+    await expect(page.locator('.session-mode')).toHaveText('standard');
+
+    // Test yolo mode
+    const yoloSession = await seedSession(project.id, {
+      prompt: 'Yolo test',
+      name: 'Yolo Mode',
+      mode: 'yolo',
+    });
+
+    await page.goto(`/sessions/${yoloSession.id}`);
+    await expect(page.locator('.session-mode')).toHaveText('yolo');
+
+    // Verify via API
+    const apiYoloSession = await getSession(yoloSession.id);
+    expect(apiYoloSession.mode).toBe('yolo');
+  });
+
+  test('displays session status badge with correct colors', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Status test',
+      name: 'Status Test',
+    });
+
+    // Test running status
+    await updateSessionStatus(session.id, 'running');
+    await page.goto(`/sessions/${session.id}`);
+    await expect(page.locator('.status-badge.status-running')).toBeVisible();
+    await expect(page.locator('.status-badge')).toHaveText('running');
+
+    // Test waiting status
+    await updateSessionStatus(session.id, 'waiting');
+    await page.reload();
+    await expect(page.locator('.status-badge.status-waiting')).toBeVisible();
+    await expect(page.locator('.status-badge')).toHaveText('waiting');
+
+    // Test completed status
+    await updateSessionStatus(session.id, 'completed');
+    await page.reload();
+    await expect(page.locator('.status-badge.status-completed')).toBeVisible();
+    await expect(page.locator('.status-badge')).toHaveText('completed');
+
+    // Test error status
+    await updateSessionStatus(session.id, 'error');
+    await page.reload();
+    await expect(page.locator('.status-badge.status-error')).toBeVisible();
+    await expect(page.locator('.status-badge')).toHaveText('error');
+  });
+
+  test('session list shows clickable session cards that navigate to details', async ({ page }) => {
+    const session1 = await seedSession(project.id, { prompt: 'Task 1', name: 'Session One' });
+    const session2 = await seedSession(project.id, { prompt: 'Task 2', name: 'Session Two' });
+
+    await page.goto(`/projects/${project.id}/sessions`);
+
+    // Find session cards and verify they're clickable links
+    const sessionCards = page.locator('.session-card, .card');
+    await expect(sessionCards).toHaveCount(2);
+
+    // Click on first session and verify navigation
+    await page.click('text=Session One');
+    await expect(page).toHaveURL(`/sessions/${session1.id}`);
+    await expect(page.locator('h1')).toHaveText('Session One');
+
+    // Go back and click second session
+    await page.goBack();
+    await page.click('text=Session Two');
+    await expect(page).toHaveURL(`/sessions/${session2.id}`);
+    await expect(page.locator('h1')).toHaveText('Session Two');
+  });
+
+  test('back link navigates to sessions list', async ({ page }) => {
+    const session = await seedSession(project.id, { prompt: 'Test', name: 'Navigation Test' });
+
+    await page.goto(`/sessions/${session.id}`);
+
+    // Verify back link is visible and has correct text
+    const backLink = page.locator('.back-link');
+    await expect(backLink).toBeVisible();
+    await expect(backLink).toHaveText(/Sessions/);
+
+    // Click back link and verify navigation
+    await backLink.click();
+    await expect(page).toHaveURL(`/projects/${project.id}/sessions`);
+  });
+
+  test('tab URLs are correct and maintain session context', async ({ page }) => {
+    const session = await seedSession(project.id, { prompt: 'Tab test', name: 'Tab URL Test' });
+
+    await page.goto(`/sessions/${session.id}`);
+
+    // Default tab should be conversation
+    await expect(page).toHaveURL(`/sessions/${session.id}`);
+
+    // Each tab link should have correct href
+    await expect(page.locator('a.tab[href*="conversation"]')).toHaveAttribute(
+      'href',
+      `/sessions/${session.id}/conversation`
+    );
+    await expect(page.locator('a.tab[href*="changes"]')).toHaveAttribute(
+      'href',
+      `/sessions/${session.id}/changes`
+    );
+    await expect(page.locator('a.tab[href*="canvas"]')).toHaveAttribute(
+      'href',
+      `/sessions/${session.id}/canvas`
+    );
+    await expect(page.locator('a.tab[href*="notes"]')).toHaveAttribute(
+      'href',
+      `/sessions/${session.id}/notes`
+    );
+
+    // Session name should remain visible after tab switches
+    await page.click('a.tab[href*="canvas"]');
+    await expect(page.locator('h1')).toHaveText('Tab URL Test');
   });
 });

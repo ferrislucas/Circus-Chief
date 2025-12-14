@@ -29,9 +29,21 @@ test.describe('Canvas Management', () => {
 
     await page.goto(`/sessions/${session.id}/canvas`);
 
-    // Verify item label and type are visible
-    await expect(page.getByText('Test Label')).toBeVisible();
-    await expect(page.locator('.canvas-item-type').getByText('markdown')).toBeVisible();
+    // Verify canvas item card structure
+    const canvasItem = page.locator('.canvas-item').filter({ hasText: 'Test Label' });
+    await expect(canvasItem).toBeVisible();
+
+    // Verify item label is within the canvas item
+    await expect(canvasItem.locator('.canvas-item-label, [class*="label"]')).toHaveText('Test Label');
+
+    // Verify item type badge shows correct type
+    await expect(canvasItem.locator('.canvas-item-type')).toHaveText('markdown');
+
+    // Verify delete button is present
+    await expect(canvasItem.locator('button[title="Delete"]')).toBeVisible();
+
+    // Verify empty state is NOT visible
+    await expect(page.getByText('No canvas items yet')).not.toBeVisible();
 
     // Verify via API that the item exists with correct data
     const items = await getCanvasItems(session.id);
@@ -55,17 +67,25 @@ test.describe('Canvas Management', () => {
     expect(items[0].id).toBe(item.id);
 
     await page.goto(`/sessions/${session.id}/canvas`);
-    await expect(page.getByText('To Delete')).toBeVisible();
+
+    // Find the specific canvas item
+    const canvasItem = page.locator('.canvas-item').filter({ hasText: 'To Delete' });
+    await expect(canvasItem).toBeVisible();
 
     // Handle confirmation dialog
     page.on('dialog', (dialog) => dialog.accept());
-    await page.click('button[title="Delete"]');
+
+    // Click delete button within the specific canvas item
+    await canvasItem.locator('button[title="Delete"]').click();
 
     // Verify not visible in UI
     await expect(page.getByText('To Delete')).not.toBeVisible();
 
     // Verify empty state is shown
     await expect(page.getByText('No canvas items yet')).toBeVisible();
+
+    // Verify toast notification for success
+    await expect(page.locator('.toast-success, .toast')).toBeVisible({ timeout: 3000 });
 
     // Verify via API that the item was actually deleted
     items = await getCanvasItems(session.id);
@@ -87,11 +107,22 @@ test.describe('Canvas Management', () => {
 
     await page.goto(`/sessions/${session.id}/canvas`);
 
-    // Verify both items are visible with correct labels and types
-    await expect(page.getByText('Text Item')).toBeVisible();
-    await expect(page.getByText('JSON Item')).toBeVisible();
-    await expect(page.locator('.canvas-item-type').getByText('text')).toBeVisible();
-    await expect(page.locator('.canvas-item-type').getByText('json')).toBeVisible();
+    // Verify correct number of canvas items
+    const canvasItems = page.locator('.canvas-item');
+    await expect(canvasItems).toHaveCount(2);
+
+    // Verify Text Item card structure
+    const textItemCard = page.locator('.canvas-item').filter({ hasText: 'Text Item' });
+    await expect(textItemCard).toBeVisible();
+    await expect(textItemCard.locator('.canvas-item-type')).toHaveText('text');
+    await expect(textItemCard.locator('.canvas-item-content, [class*="content"]')).toContainText(
+      'Plain text content'
+    );
+
+    // Verify JSON Item card structure
+    const jsonItemCard = page.locator('.canvas-item').filter({ hasText: 'JSON Item' });
+    await expect(jsonItemCard).toBeVisible();
+    await expect(jsonItemCard.locator('.canvas-item-type')).toHaveText('json');
 
     // Verify via API that both items exist with correct types
     const items = await getCanvasItems(session.id);
@@ -107,5 +138,60 @@ test.describe('Canvas Management', () => {
     expect(apiJsonItem).toBeTruthy();
     expect(apiJsonItem.type).toBe('json');
     expect(JSON.parse(apiJsonItem.content)).toEqual({ key: 'value' });
+  });
+
+  test('can cancel canvas item deletion', async ({ page }) => {
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Keep this item',
+      label: 'Keep Me',
+    });
+
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    // Handle confirmation dialog - dismiss it
+    page.on('dialog', (dialog) => dialog.dismiss());
+
+    // Click delete button
+    await page.click('button[title="Delete"]');
+
+    // Item should still be visible
+    await expect(page.getByText('Keep Me')).toBeVisible();
+
+    // Empty state should not be visible
+    await expect(page.getByText('No canvas items yet')).not.toBeVisible();
+
+    // Verify via API that item still exists
+    const items = await getCanvasItems(session.id);
+    expect(items.length).toBe(1);
+    expect(items[0].label).toBe('Keep Me');
+  });
+
+  test('displays loading state while fetching canvas items', async ({ page }) => {
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    // Loading state should resolve quickly
+    await expect(page.locator('.loading-state')).not.toBeVisible({ timeout: 5000 });
+
+    // Should show empty state since no items
+    await expect(page.getByText('No canvas items yet')).toBeVisible();
+  });
+
+  test('canvas items display in grid layout', async ({ page }) => {
+    // Add multiple items
+    await seedCanvasItem(session.id, { type: 'text', content: 'Item 1', label: 'First' });
+    await seedCanvasItem(session.id, { type: 'text', content: 'Item 2', label: 'Second' });
+    await seedCanvasItem(session.id, { type: 'text', content: 'Item 3', label: 'Third' });
+
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    // Verify all items are visible
+    await expect(page.locator('.canvas-item')).toHaveCount(3);
+    await expect(page.getByText('First')).toBeVisible();
+    await expect(page.getByText('Second')).toBeVisible();
+    await expect(page.getByText('Third')).toBeVisible();
+
+    // Verify canvas grid container exists
+    await expect(page.locator('.canvas-grid, .canvas-items')).toBeVisible();
   });
 });

@@ -36,6 +36,18 @@ export async function getCanvasItems(sessionId: string) {
   return response.json();
 }
 
+export async function getNotes(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/notes`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function getNote(sessionId: string, noteId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/notes/${noteId}`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
 // ============================================================
 // Seeding Helpers
 // ============================================================
@@ -73,6 +85,26 @@ export async function seedCanvasItem(
     body: JSON.stringify(data),
   });
   if (!response.ok) throw new Error('Failed to seed canvas item');
+  return response.json();
+}
+
+export async function seedNote(sessionId: string, content: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (!response.ok) throw new Error('Failed to seed note');
+  return response.json();
+}
+
+export async function updateSessionStatus(sessionId: string, status: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  if (!response.ok) throw new Error('Failed to update session status');
   return response.json();
 }
 
