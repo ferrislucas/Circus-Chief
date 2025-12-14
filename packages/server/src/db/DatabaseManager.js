@@ -29,7 +29,30 @@ export class DatabaseManager {
     const schema = readFileSync(join(__dirname, '..', 'schema.sql'), 'utf-8');
     this.#db.exec(schema);
 
+    // Run migrations for existing databases
+    this.#runMigrations();
+
     return this.#db;
+  }
+
+  /**
+   * Run database migrations for existing databases
+   * @private
+   */
+  #runMigrations() {
+    // Check if sessions table has the new columns, add them if not
+    const tableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const columns = tableInfo.map((col) => col.name);
+
+    if (!columns.includes('cost_usd')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN cost_usd REAL DEFAULT 0');
+    }
+    if (!columns.includes('claude_session_id')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN claude_session_id TEXT');
+    }
+    if (!columns.includes('model')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN model TEXT');
+    }
   }
 
   /**

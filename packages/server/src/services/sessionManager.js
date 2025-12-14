@@ -1,9 +1,24 @@
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { sessions, messages } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT } from '@claudetools/shared';
 
 /** @type {Map<string, { controller: AbortController, inputResolve: Function | null }>} */
 const activeSessions = new Map();
+
+/**
+ * Build system prompt with canvas instructions
+ * @param {string} sessionId
+ * @returns {string}
+ */
+function buildCanvasSystemPrompt(sessionId) {
+  const apiUrl = process.env.CLAUDETOOLS_API_URL || `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`;
+  return `When you generate artifacts that should be displayed on the canvas (images, markdown documents, code snippets, data visualizations), POST them to:
+POST ${apiUrl}/api/sessions/${sessionId}/canvas
+Body: {"type": "image|markdown|text|json", "content": "...", "title": "..."}
+
+For images, use base64 encoding in the content field.`;
+}
 
 /**
  * Run a Claude session
@@ -20,35 +35,17 @@ export async function runSession(sessionId, prompt, workingDirectory) {
     sessions.update(sessionId, { status: 'running' });
     broadcastSessionStatus(sessionId, 'running');
 
-    // Create async generator for multi-turn input
-    const inputGenerator = createInputGenerator(sessionId);
+    // Note: Initial user message is already created in SessionRepository.create()
 
-    // Import Claude SDK dynamically (allows mocking in tests)
-    let queryFn;
-    try {
-      const sdk = await import('@anthropic-ai/claude-code');
-      queryFn = sdk.query;
-    } catch {
-      // For tests or when SDK is not available, use mock
-      console.log('Claude SDK not available, using mock responses');
-      queryFn = mockQuery;
-    }
-
-    // Set up environment variables for canvas access
-    const env = {
-      ...process.env,
-      CLAUDETOOLS_SESSION_ID: sessionId,
-      CLAUDETOOLS_API_URL: `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`,
-    };
-
-    // Run the query
-    for await (const event of queryFn({
+    // Run the query with the SDK using a simple string prompt
+    for await (const event of query({
       prompt,
-      cwd: workingDirectory,
-      abortController: controller,
-      userMessageGenerator: inputGenerator,
       options: {
-        env,
+        cwd: workingDirectory,
+        abortController: controller,
+        includePartialMessages: true,
+        permissionMode: 'bypassPermissions',
+        appendSystemPrompt: buildCanvasSystemPrompt(sessionId),
       },
     })) {
       if (controller.signal.aborted) break;
@@ -63,6 +60,8 @@ export async function runSession(sessionId, prompt, workingDirectory) {
       broadcastSessionStatus(sessionId, 'completed');
     }
   } catch (error) {
+    console.error('Session error:', error);
+    console.error('Error stack:', error.stack);
     if (!controller.signal.aborted) {
       sessions.update(sessionId, { status: 'error', error: error.message });
       broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { error: error.message });
@@ -117,39 +116,23 @@ export async function stopSession(sessionId) {
 }
 
 /**
- * Create async generator for multi-turn input
- * @param {string} sessionId
- * @returns {AsyncGenerator<string>}
- */
-async function* createInputGenerator(sessionId) {
-  while (true) {
-    const sessionData = activeSessions.get(sessionId);
-    if (!sessionData || sessionData.controller.signal.aborted) {
-      return;
-    }
-
-    // Wait for user input
-    sessions.update(sessionId, { status: 'waiting' });
-    broadcastSessionStatus(sessionId, 'waiting');
-
-    const input = await new Promise((resolve) => {
-      const session = activeSessions.get(sessionId);
-      if (session) {
-        session.inputResolve = resolve;
-      }
-    });
-
-    yield input;
-  }
-}
-
-/**
  * Handle a stream event from Claude SDK
  * @param {string} sessionId
  * @param {Object} event
  */
 async function handleStreamEvent(sessionId, event) {
   switch (event.type) {
+    case 'system': {
+      // Store Claude's session info
+      if (event.subtype === 'init') {
+        sessions.update(sessionId, {
+          claudeSessionId: event.session_id,
+          model: event.model,
+        });
+      }
+      break;
+    }
+
     case 'assistant': {
       // Extract text content from assistant message
       const textContent = event.message?.content
@@ -165,10 +148,29 @@ async function handleStreamEvent(sessionId, event) {
       break;
     }
 
+    case 'stream_event': {
+      // Real-time streaming - handle content_block_delta events
+      if (event.event?.type === 'content_block_delta' && event.event?.delta?.type === 'text_delta') {
+        const partialText = event.event.delta.text;
+        if (partialText) {
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
+            sessionId,
+            text: partialText,
+          });
+        }
+      }
+      break;
+    }
+
     case 'result': {
       if (event.subtype === 'error') {
         sessions.update(sessionId, { status: 'error', error: event.error });
         broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { error: event.error });
+      } else {
+        // Store cost info
+        if (event.total_cost_usd !== undefined) {
+          sessions.update(sessionId, { costUsd: event.total_cost_usd });
+        }
       }
       break;
     }
@@ -182,21 +184,4 @@ async function handleStreamEvent(sessionId, event) {
  */
 function broadcastSessionStatus(sessionId, status) {
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status });
-}
-
-/**
- * Mock query function for testing
- * @param {Object} options
- */
-async function* mockQuery({ prompt }) {
-  // Simulate assistant response
-  yield {
-    type: 'assistant',
-    message: {
-      content: [{ type: 'text', text: `I received your prompt: "${prompt}". This is a mock response.` }],
-    },
-  };
-
-  // Simulate completion
-  yield { type: 'result', subtype: 'success' };
 }

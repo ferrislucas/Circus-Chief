@@ -102,7 +102,7 @@ export class WebSocketManager {
    */
   broadcastToSession(sessionId, type, payload) {
     const subscribers = this.#sessionSubscriptions.get(sessionId);
-    if (!subscribers) return;
+    if (!subscribers || subscribers.size === 0) return;
 
     const message = createMessage(type, payload);
     for (const client of subscribers) {

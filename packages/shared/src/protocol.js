@@ -10,6 +10,7 @@ export const WS_MESSAGE_TYPES = {
   // Server -> Client
   SESSION_STATUS: 'session:status',
   SESSION_MESSAGE: 'session:message',
+  SESSION_PARTIAL: 'session:partial',
   SESSION_ERROR: 'session:error',
   CANVAS_ADD: 'canvas:add',
   CANVAS_REMOVE: 'canvas:remove',

@@ -153,6 +153,16 @@ export function useSessionSubscription(sessionId) {
     return () => off(WS_MESSAGE_TYPES.CANVAS_REMOVE, handler);
   };
 
+  const onPartial = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.text);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_PARTIAL, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_PARTIAL, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -163,6 +173,7 @@ export function useSessionSubscription(sessionId) {
     unsubscribe,
     onStatus,
     onMessage,
+    onPartial,
     onError,
     onCanvasAdd,
     onCanvasRemove,

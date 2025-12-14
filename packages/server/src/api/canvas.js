@@ -27,8 +27,8 @@ router.post('/:id/canvas', upload.single('file'), (req, res) => {
       label: req.body.label || null,
     };
   } else {
-    // JSON body (markdown, text, json)
-    const { type, content, data, label, width, height } = req.body;
+    // JSON body (markdown, text, json, image)
+    const { type, content, data, label, title, width, height } = req.body;
     if (!type) {
       return res.status(400).json({ error: 'Type is required' });
     }
@@ -37,7 +37,7 @@ router.post('/:id/canvas', upload.single('file'), (req, res) => {
       type,
       content: content || null,
       data: typeof data === 'object' ? JSON.stringify(data) : data || null,
-      label: label || null,
+      label: label || title || null, // Support both 'label' and 'title' fields
       width: width || null,
       height: height || null,
     };
