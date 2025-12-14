@@ -23,7 +23,7 @@ test.describe('Project Management', () => {
     await expect(page).toHaveURL('/projects/new');
 
     await page.fill('input[id="name"]', 'Test Project');
-    await page.fill('input[id="workingDirectory"]', '/tmp/test-project');
+    await page.fill('.path-chooser input', '/tmp/test-project');
     await page.click('button:has-text("Create Project")');
 
     // Should redirect to sessions page with project ID in URL

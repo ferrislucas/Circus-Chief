@@ -240,6 +240,18 @@ export class ApiClient {
   async deleteNote(sessionId, noteId) {
     return this.#request('DELETE', `/sessions/${sessionId}/notes/${noteId}`);
   }
+
+  // Filesystem
+
+  /**
+   * Browse a directory
+   * @param {string} path - Directory path to browse (defaults to home directory if empty)
+   * @returns {Promise<{path: string, parent: string|null, entries: Array<{name: string, type: string}>, error: string|null}>}
+   */
+  async browseDirectory(path = '') {
+    const params = path ? `?path=${encodeURIComponent(path)}` : '';
+    return this.#request('GET', `/filesystem/browse${params}`);
+  }
 }
 
 // Singleton instance
