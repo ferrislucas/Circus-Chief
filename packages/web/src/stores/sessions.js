@@ -91,6 +91,23 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
+    async endSession(id) {
+      this.error = null;
+      try {
+        await api.endSession(id);
+        if (this.currentSession?.id === id) {
+          this.currentSession.status = 'completed';
+        }
+        const session = this.sessions.find((s) => s.id === id);
+        if (session) {
+          session.status = 'completed';
+        }
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
     addMessage(message) {
       this.messages.push(message);
     },
