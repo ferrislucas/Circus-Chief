@@ -21,13 +21,7 @@
 
       <div class="form-group">
         <label class="form-label" for="workingDirectory">Working Directory</label>
-        <input
-          id="workingDirectory"
-          v-model="workingDirectory"
-          type="text"
-          class="form-input"
-          required
-        />
+        <PathChooser v-model="workingDirectory" />
       </div>
 
       <div v-if="error" class="error-message">{{ error }}</div>
@@ -51,6 +45,7 @@ import { ref, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useUiStore } from '../stores/ui.js';
+import PathChooser from '../components/PathChooser.vue';
 
 const route = useRoute();
 const router = useRouter();
