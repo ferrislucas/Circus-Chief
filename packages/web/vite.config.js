@@ -7,10 +7,6 @@ export default defineConfig({
   server: {
     port: DEFAULT_WEB_PORT,
     host: true,
-    hmr: {
-      // Use the Express server port for HMR when proxied
-      clientPort: DEFAULT_SERVER_PORT,
-    },
     proxy: {
       '/api': {
         target: `http://localhost:${DEFAULT_SERVER_PORT}`,

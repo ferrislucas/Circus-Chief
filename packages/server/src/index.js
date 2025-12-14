@@ -1,6 +1,6 @@
 import { createServer } from 'http';
 import { parseArgs } from 'node:util';
-import { createApp, getViteProxy } from './app.js';
+import { createApp } from './app.js';
 import { initDatabase } from './database.js';
 import { initWebSocket } from './websocket.js';
 import { DEFAULT_SERVER_PORT } from '@claudetools/shared';
@@ -39,19 +39,6 @@ const server = createServer(app);
 
 // Initialize WebSocket for app
 initWebSocket(server);
-
-// In dev mode, handle Vite HMR WebSocket upgrades
-if (!production) {
-  const viteProxy = getViteProxy();
-  if (viteProxy) {
-    server.on('upgrade', (req, socket, head) => {
-      // Only proxy non-app WebSocket connections (Vite HMR)
-      if (!req.url.startsWith('/ws')) {
-        viteProxy.upgrade(req, socket, head);
-      }
-    });
-  }
-}
 
 // Start server on all interfaces
 server.listen(port, '0.0.0.0', () => {
