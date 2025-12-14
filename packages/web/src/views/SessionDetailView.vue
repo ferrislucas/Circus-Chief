@@ -71,7 +71,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCanvasStore } from '../stores/canvas.js';
@@ -97,17 +97,53 @@ const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCan
   useSessionSubscription(route.params.id);
 
 let cleanups = [];
+const pollIntervalId = ref(null);
 
-onMounted(() => {
-  sessionsStore.fetchSession(route.params.id);
-  sessionsStore.fetchMessages(route.params.id);
+// Poll for updates while session is active (fallback for race conditions)
+function startPolling() {
+  if (pollIntervalId.value) return;
+  pollIntervalId.value = setInterval(async () => {
+    const status = sessionsStore.currentSession?.status;
+    if (status === 'running' || status === 'starting' || status === 'waiting') {
+      await sessionsStore.fetchSession(route.params.id);
+      await sessionsStore.fetchMessages(route.params.id);
+    } else {
+      // Session no longer active, stop polling
+      stopPolling();
+    }
+  }, 2000);
+}
+
+function stopPolling() {
+  if (pollIntervalId.value) {
+    clearInterval(pollIntervalId.value);
+    pollIntervalId.value = null;
+  }
+}
+
+onMounted(async () => {
+  // Subscribe to WebSocket first to minimize race condition window
+  subscribe();
+
+  // Then fetch data - this ensures we don't miss updates
+  await sessionsStore.fetchSession(route.params.id);
+  await sessionsStore.fetchMessages(route.params.id);
   canvasStore.fetchItems(route.params.id);
 
-  subscribe();
+  // Start polling if session is active (handles race condition where session
+  // completes before WebSocket subscription is established)
+  const status = sessionsStore.currentSession?.status;
+  if (status === 'running' || status === 'starting' || status === 'waiting') {
+    startPolling();
+  }
 
   cleanups.push(
     onStatus((status) => {
       sessionsStore.updateSessionStatus(route.params.id, status);
+      // Stop polling when session becomes inactive
+      if (status !== 'running' && status !== 'starting' && status !== 'waiting') {
+        stopPolling();
+      }
     })
   );
 
@@ -137,6 +173,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  stopPolling();
   unsubscribe();
   cleanups.forEach((cleanup) => cleanup());
 });

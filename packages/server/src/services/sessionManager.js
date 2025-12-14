@@ -37,12 +37,9 @@ export async function runSession(sessionId, prompt, workingDirectory) {
 
     // Note: Initial user message is already created in SessionRepository.create()
 
-    // Create async generator for multi-turn input
-    const inputGenerator = createInputGenerator(sessionId, prompt);
-
-    // Run the query with the SDK
+    // Run the query with the SDK using a simple string prompt
     for await (const event of query({
-      prompt: inputGenerator,
+      prompt,
       options: {
         cwd: workingDirectory,
         abortController: controller,
@@ -63,6 +60,8 @@ export async function runSession(sessionId, prompt, workingDirectory) {
       broadcastSessionStatus(sessionId, 'completed');
     }
   } catch (error) {
+    console.error('Session error:', error);
+    console.error('Error stack:', error.stack);
     if (!controller.signal.aborted) {
       sessions.update(sessionId, { status: 'error', error: error.message });
       broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { error: error.message });
@@ -181,18 +180,16 @@ async function handleStreamEvent(sessionId, event) {
       break;
     }
 
-    case 'partial': {
-      // Real-time streaming - broadcast partial text
-      const partialText = event.message?.content
-        ?.filter((c) => c.type === 'text')
-        ?.map((c) => c.text)
-        ?.join('');
-
-      if (partialText) {
-        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
-          sessionId,
-          text: partialText,
-        });
+    case 'stream_event': {
+      // Real-time streaming - handle content_block_delta events
+      if (event.event?.type === 'content_block_delta' && event.event?.delta?.type === 'text_delta') {
+        const partialText = event.event.delta.text;
+        if (partialText) {
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
+            sessionId,
+            text: partialText,
+          });
+        }
       }
       break;
     }
