@@ -41,15 +41,24 @@
         rows="3"
         @keydown.enter.ctrl="handleSend"
       ></textarea>
-      <button type="submit" class="btn btn-primary" :disabled="!input.trim() || sending">
-        <span v-if="sending" class="loading-spinner"></span>
-        Send
-      </button>
+      <div class="input-actions">
+        <button type="submit" class="btn btn-primary" :disabled="!input.trim() || sending">
+          <span v-if="sending" class="loading-spinner"></span>
+          Send
+        </button>
+        <button type="button" class="btn btn-secondary" @click="handleEndSession" :disabled="ending">
+          End Session
+        </button>
+      </div>
     </form>
 
     <div v-else-if="sessionsStore.currentSession?.status === 'running'" class="status-message">
       <span class="loading-spinner"></span>
       Claude is working...
+    </div>
+
+    <div v-else-if="sessionsStore.currentSession?.status === 'completed'" class="status-message status-completed">
+      Session completed
     </div>
   </div>
 </template>
@@ -69,6 +78,7 @@ const uiStore = useUiStore();
 
 const input = ref('');
 const sending = ref(false);
+const ending = ref(false);
 const messagesContainer = ref(null);
 const partialText = ref('');
 
@@ -128,6 +138,19 @@ async function handleSend() {
     uiStore.error(err.message);
   } finally {
     sending.value = false;
+  }
+}
+
+async function handleEndSession() {
+  if (ending.value) return;
+
+  ending.value = true;
+  try {
+    await sessionsStore.endSession(props.sessionId);
+  } catch (err) {
+    uiStore.error(err.message);
+  } finally {
+    ending.value = false;
   }
 }
 </script>
@@ -226,6 +249,22 @@ async function handleSend() {
   flex: 1;
 }
 
+.input-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.btn-secondary {
+  background-color: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-soft);
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-background-mute);
+}
+
 .status-message {
   display: flex;
   align-items: center;
@@ -233,6 +272,10 @@ async function handleSend() {
   padding: 1rem;
   color: var(--color-text-soft);
   border-top: 1px solid var(--color-border);
+}
+
+.status-completed {
+  color: var(--color-success, #10b981);
 }
 
 /* Streaming indicator animation */

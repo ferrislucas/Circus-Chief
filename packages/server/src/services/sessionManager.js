@@ -3,7 +3,7 @@ import { sessions, messages } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT } from '@claudetools/shared';
 
-/** @type {Map<string, { controller: AbortController, inputResolve: Function | null }>} */
+/** @type {Map<string, { controller: AbortController }>} */
 const activeSessions = new Map();
 
 /**
@@ -28,7 +28,7 @@ For images, use base64 encoding in the content field.`;
  */
 export async function runSession(sessionId, prompt, workingDirectory) {
   const controller = new AbortController();
-  activeSessions.set(sessionId, { controller, inputResolve: null });
+  activeSessions.set(sessionId, { controller });
 
   try {
     // Update status to running
@@ -45,7 +45,11 @@ export async function runSession(sessionId, prompt, workingDirectory) {
         abortController: controller,
         includePartialMessages: true,
         permissionMode: 'bypassPermissions',
-        appendSystemPrompt: buildCanvasSystemPrompt(sessionId),
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append: buildCanvasSystemPrompt(sessionId),
+        },
       },
     })) {
       if (controller.signal.aborted) break;
@@ -53,11 +57,11 @@ export async function runSession(sessionId, prompt, workingDirectory) {
       await handleStreamEvent(sessionId, event);
     }
 
-    // Session completed
+    // Session ready for follow-up - set to waiting instead of completed
     const session = activeSessions.get(sessionId);
     if (session && !controller.signal.aborted) {
-      sessions.update(sessionId, { status: 'completed' });
-      broadcastSessionStatus(sessionId, 'completed');
+      sessions.update(sessionId, { status: 'waiting' });
+      broadcastSessionStatus(sessionId, 'waiting');
     }
   } catch (error) {
     console.error('Session error:', error);
@@ -73,31 +77,77 @@ export async function runSession(sessionId, prompt, workingDirectory) {
 }
 
 /**
- * Send a follow-up message to a session
+ * Continue a session with a follow-up message
  * @param {string} sessionId
  * @param {string} content
+ * @param {string} workingDirectory
  */
-export async function sendMessage(sessionId, content) {
-  const sessionData = activeSessions.get(sessionId);
-  if (!sessionData) {
-    throw new Error('Session is not active');
+export async function continueSession(sessionId, content, workingDirectory) {
+  // Check if session is already running
+  if (activeSessions.has(sessionId)) {
+    throw new Error('Session is already processing');
   }
 
-  if (!sessionData.inputResolve) {
-    throw new Error('Session is not waiting for input');
+  // Get the session to retrieve the Claude session ID
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    throw new Error('Session not found');
   }
 
-  // Store the message
-  const message = messages.create(sessionId, 'user', content);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
+  if (!session.claudeSessionId) {
+    throw new Error('Session has no Claude session ID - cannot resume');
+  }
 
-  // Update status
-  sessions.update(sessionId, { status: 'running' });
-  broadcastSessionStatus(sessionId, 'running');
+  const controller = new AbortController();
+  activeSessions.set(sessionId, { controller });
 
-  // Resolve the waiting input generator
-  sessionData.inputResolve(content);
-  sessionData.inputResolve = null;
+  try {
+    // Store the user message
+    const message = messages.create(sessionId, 'user', content);
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
+
+    // Update status to running
+    sessions.update(sessionId, { status: 'running' });
+    broadcastSessionStatus(sessionId, 'running');
+
+    // Resume the session with the new message
+    for await (const event of query({
+      prompt: content,
+      options: {
+        cwd: workingDirectory,
+        abortController: controller,
+        includePartialMessages: true,
+        permissionMode: 'bypassPermissions',
+        resume: session.claudeSessionId,
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append: buildCanvasSystemPrompt(sessionId),
+        },
+      },
+    })) {
+      if (controller.signal.aborted) break;
+
+      await handleStreamEvent(sessionId, event);
+    }
+
+    // Session ready for more follow-ups
+    const activeSession = activeSessions.get(sessionId);
+    if (activeSession && !controller.signal.aborted) {
+      sessions.update(sessionId, { status: 'waiting' });
+      broadcastSessionStatus(sessionId, 'waiting');
+    }
+  } catch (error) {
+    console.error('Continue session error:', error);
+    console.error('Error stack:', error.stack);
+    if (!controller.signal.aborted) {
+      sessions.update(sessionId, { status: 'error', error: error.message });
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { error: error.message });
+    }
+    throw error;
+  } finally {
+    activeSessions.delete(sessionId);
+  }
 }
 
 /**
@@ -111,6 +161,22 @@ export async function stopSession(sessionId) {
   }
 
   sessionData.controller.abort();
+  sessions.update(sessionId, { status: 'completed' });
+  broadcastSessionStatus(sessionId, 'completed');
+}
+
+/**
+ * End a session (mark as completed)
+ * @param {string} sessionId
+ */
+export function endSession(sessionId) {
+  // If actively running, abort first
+  const sessionData = activeSessions.get(sessionId);
+  if (sessionData) {
+    sessionData.controller.abort();
+    activeSessions.delete(sessionId);
+  }
+
   sessions.update(sessionId, { status: 'completed' });
   broadcastSessionStatus(sessionId, 'completed');
 }
