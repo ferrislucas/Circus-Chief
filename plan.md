@@ -2,149 +2,289 @@
 
 ## Overview
 
-Replace the mock `sessionManager.js` implementation with real Claude Code CLI integration using the streaming JSON protocol.
+Replace the mock `sessionManager.js` implementation with the official **`@anthropic-ai/claude-agent-sdk`** which provides proper JS bindings.
 
-## Architecture
+## SDK API
 
-```
-Frontend (Vue)
-    ↓ POST /api/projects/:id/sessions {prompt}
-Server (Express)
-    ├→ Create session in DB
-    └→ Spawn: claude -p --output-format stream-json --verbose --input-format stream-json
-        ├→ Write initial prompt to stdin
-        ├→ Parse stdout line-by-line as JSON
-        ├→ For each event:
-        │   ├→ Store in DB (messages table)
-        │   └→ Broadcast via WebSocket
-        └→ Handle multi-turn via stdin writes
+The SDK exports a `query()` function:
 
-Frontend WebSocket
-    ├→ Receive session:message events
-    ├→ Receive session:status events
-    └→ Update UI in real-time with streaming text
+```typescript
+import { query } from '@anthropic-ai/claude-agent-sdk';
+
+function query(params: {
+  prompt: string | AsyncIterable<SDKUserMessage>;
+  options?: Options;
+}): Query;  // extends AsyncGenerator<SDKMessage, void>
 ```
 
-## Event Types from Claude CLI
+### Key Options
 
-| Type | Subtype | Description | Action |
-|------|---------|-------------|--------|
-| `system` | `init` | Session started | Store session_id, model info |
-| `assistant` | - | Claude's response | Stream to UI, store in DB |
-| `result` | `success`/`error` | Session complete | Store cost, mark completed |
+| Option | Type | Description |
+|--------|------|-------------|
+| `cwd` | `string` | Working directory for the session |
+| `abortController` | `AbortController` | Cancel the query |
+| `permissionMode` | `'default' \| 'acceptEdits' \| 'bypassPermissions'` | Permission handling |
+| `model` | `string` | Model to use (e.g., `'claude-sonnet-4-5-20250929'`) |
+| `includePartialMessages` | `boolean` | Stream partial responses for real-time UI |
+| `systemPrompt` | `string` | Custom system prompt |
+| `env` | `Record<string, string>` | Environment variables |
 
-**Assistant message structure:**
-```json
-{
-  "type": "assistant",
-  "message": {
-    "content": [{"type": "text", "text": "..."}],
-    "model": "claude-opus-4-5-20251101"
-  },
-  "session_id": "uuid"
+### Event Types (SDKMessage)
+
+| Type | Description |
+|------|-------------|
+| `SDKSystemMessage` | Session init with `session_id`, `model`, `tools` |
+| `SDKAssistantMessage` | Claude's response with `message.content` |
+| `SDKUserMessage` | User input (for replay) |
+| `SDKPartialAssistantMessage` | Streaming chunks (when `includePartialMessages: true`) |
+| `SDKResultMessage` | Final result with `total_cost_usd`, `usage` |
+
+### Multi-Turn Conversations
+
+Pass an `AsyncIterable<SDKUserMessage>` as the prompt for multi-turn:
+
+```javascript
+async function* userMessages(initialPrompt) {
+  yield { role: 'user', content: initialPrompt };
+
+  while (true) {
+    const input = await waitForUserInput();  // your logic
+    yield { role: 'user', content: input };
+  }
+}
+
+for await (const event of query({
+  prompt: userMessages("Hello"),
+  options: { cwd: '/path/to/project' }
+})) {
+  // handle events
 }
 ```
 
 ## Implementation Steps
 
-### Step 1: Create Claude Process Service
+### Step 1: Install SDK
 
-New file: `packages/server/src/services/claudeProcess.js`
+```bash
+cd packages/server
+npm install @anthropic-ai/claude-agent-sdk zod
+```
 
-- Spawn `claude` CLI with streaming JSON flags
-- Handle stdin/stdout/stderr streams
-- Parse JSON lines from stdout
-- Emit events for each message type
-- Support multi-turn via stdin writes
-- Handle process lifecycle (kill on abort)
+Note: `zod` is a peer dependency.
 
 ### Step 2: Update Session Manager
 
-Modify: `packages/server/src/services/sessionManager.js`
+**File:** `packages/server/src/services/sessionManager.js`
 
-- Remove SDK import and mock function
-- Use new `claudeProcess` service
-- Update `handleStreamEvent()` for CLI event format
-- Add partial message support for real-time streaming
+```javascript
+import { query } from '@anthropic-ai/claude-agent-sdk';
 
-### Step 3: Add Canvas Endpoint
+export async function runSession(sessionId, prompt, workingDirectory) {
+  const controller = new AbortController();
+  activeSessions.set(sessionId, { controller, inputResolve: null });
 
-New endpoint: `POST /api/sessions/:id/canvas`
+  try {
+    sessions.update(sessionId, { status: 'running' });
+    broadcastSessionStatus(sessionId, 'running');
 
-Claude will be instructed to POST artifacts here:
-```bash
-curl -X POST http://localhost:5000/api/sessions/{sessionId}/canvas \
-  -H "Content-Type: application/json" \
-  -d '{"type":"image","content":"base64...","title":"Screenshot"}'
+    const inputGenerator = createInputGenerator(sessionId, prompt);
+
+    for await (const event of query({
+      prompt: inputGenerator,
+      options: {
+        cwd: workingDirectory,
+        abortController: controller,
+        includePartialMessages: true,  // For real-time streaming
+        permissionMode: 'bypassPermissions',  // Or make configurable
+        systemPrompt: `When you generate artifacts that should be displayed on
+the canvas (images, markdown documents, code snippets, data visualizations),
+POST them to: ${process.env.CLAUDETOOLS_API_URL}/api/sessions/${sessionId}/canvas
+Body: {"type": "image|markdown|text|json", "content": "...", "title": "..."}`,
+      },
+    })) {
+      if (controller.signal.aborted) break;
+      await handleStreamEvent(sessionId, event);
+    }
+
+    // Session completed
+    sessions.update(sessionId, { status: 'completed' });
+    broadcastSessionStatus(sessionId, 'completed');
+  } catch (error) {
+    // ... error handling
+  }
+}
 ```
 
-This is passed to Claude via `--append-system-prompt`:
+### Step 3: Update Event Handler
+
+```javascript
+async function handleStreamEvent(sessionId, event) {
+  switch (event.type) {
+    case 'system': {
+      // Store Claude's session_id, model info
+      sessions.update(sessionId, {
+        claudeSessionId: event.session_id,
+        model: event.model
+      });
+      break;
+    }
+
+    case 'assistant': {
+      const textContent = event.message?.content
+        ?.filter(c => c.type === 'text')
+        ?.map(c => c.text)
+        ?.join('\n');
+
+      if (textContent) {
+        const toolUse = event.message?.content?.filter(c => c.type === 'tool_use');
+        const message = messages.create(sessionId, 'assistant', textContent, toolUse);
+        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
+      }
+      break;
+    }
+
+    case 'partial': {
+      // Real-time streaming - broadcast partial text
+      const partialText = event.message?.content
+        ?.filter(c => c.type === 'text')
+        ?.map(c => c.text)
+        ?.join('');
+
+      if (partialText) {
+        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
+          sessionId,
+          text: partialText
+        });
+      }
+      break;
+    }
+
+    case 'result': {
+      if (event.subtype === 'error') {
+        sessions.update(sessionId, { status: 'error', error: event.error });
+        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { error: event.error });
+      } else {
+        // Store cost info
+        sessions.update(sessionId, { costUsd: event.total_cost_usd });
+      }
+      break;
+    }
+  }
+}
 ```
-When you generate artifacts (images, markdown, code blocks) that should be
-displayed on the canvas, POST them to:
-POST {CLAUDETOOLS_API_URL}/api/sessions/{sessionId}/canvas
-Body: {"type": "image|markdown|text|json", "content": "...", "title": "..."}
+
+### Step 4: Update Input Generator
+
+```javascript
+async function* createInputGenerator(sessionId, initialPrompt) {
+  // Yield initial prompt
+  yield { role: 'user', content: initialPrompt };
+
+  // Store initial message
+  const userMsg = messages.create(sessionId, 'user', initialPrompt);
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message: userMsg });
+
+  while (true) {
+    const sessionData = activeSessions.get(sessionId);
+    if (!sessionData || sessionData.controller.signal.aborted) {
+      return;
+    }
+
+    // Signal waiting for input
+    sessions.update(sessionId, { status: 'waiting' });
+    broadcastSessionStatus(sessionId, 'waiting');
+
+    // Wait for user input
+    const input = await new Promise(resolve => {
+      const session = activeSessions.get(sessionId);
+      if (session) session.inputResolve = resolve;
+    });
+
+    yield { role: 'user', content: input };
+  }
+}
 ```
 
-### Step 4: Update Frontend for Streaming
+### Step 5: Add Canvas POST Endpoint
 
-Modify: `packages/web/src/components/ConversationTab.vue`
+**File:** `packages/server/src/api/canvas.js`
 
-- Show partial messages as they stream in
-- Add typing indicator while Claude is responding
-- Handle `--include-partial-messages` events
+```javascript
+// POST /api/sessions/:id/canvas - For Claude to POST artifacts
+router.post('/sessions/:id/canvas', async (req, res) => {
+  const { id } = req.params;
+  const { type, content, title } = req.body;
 
-### Step 5: Add Cost Tracking
+  const item = canvasItems.create({
+    sessionId: id,
+    type,
+    content,
+    title: title || `Canvas item ${Date.now()}`,
+  });
 
-- Store `total_cost_usd` from result events
-- Display cost in session header
-- Track cumulative cost per project
-
-## Files to Create/Modify
-
-| File | Action | Description |
-|------|--------|-------------|
-| `packages/server/src/services/claudeProcess.js` | Create | Claude CLI process management |
-| `packages/server/src/services/sessionManager.js` | Modify | Use claudeProcess instead of SDK |
-| `packages/server/src/api/canvas.js` | Modify | Add POST endpoint for Claude |
-| `packages/web/src/components/ConversationTab.vue` | Modify | Streaming text support |
-| `packages/server/src/db/schema.sql` | Modify | Add cost_usd column to sessions |
-
-## CLI Command
-
-```bash
-claude -p \
-  --output-format stream-json \
-  --input-format stream-json \
-  --verbose \
-  --include-partial-messages \
-  --append-system-prompt "..." \
-  --cwd {workingDirectory}
+  broadcastToSession(id, WS_MESSAGE_TYPES.CANVAS_ADD, { item });
+  res.json({ success: true, item });
+});
 ```
 
-**Input format (stdin):**
-```json
-{"type":"user","message":{"role":"user","content":"Your prompt here"}}
+### Step 6: Add Partial Message WebSocket Type
+
+**File:** `packages/shared/src/protocol.js`
+
+```javascript
+export const WS_MESSAGE_TYPES = {
+  // ... existing
+  SESSION_PARTIAL: 'session:partial',  // NEW - for streaming
+};
 ```
 
-**Multi-turn:** Write additional JSON lines to stdin when user sends follow-up messages.
+### Step 7: Update Frontend for Streaming
 
-## Environment Variables
+**File:** `packages/web/src/components/ConversationTab.vue`
 
-| Variable | Purpose |
-|----------|---------|
-| `CLAUDETOOLS_SESSION_ID` | Passed to Claude for canvas POSTs |
-| `CLAUDETOOLS_API_URL` | Server URL for canvas endpoint |
+- Add `partialText` ref for current streaming content
+- Listen for `session:partial` WebSocket events
+- Show typing indicator + partial text while streaming
+- Clear partial text when full `assistant` message arrives
 
-## Testing Strategy
+### Step 8: Add Cost Column to Sessions
 
-1. Unit test `claudeProcess.js` with mocked child_process
-2. Integration test full flow with real Claude CLI
-3. E2E test conversation and canvas features
+**File:** `packages/server/src/schema.sql`
+
+```sql
+ALTER TABLE sessions ADD COLUMN cost_usd REAL DEFAULT 0;
+```
+
+## Files to Modify
+
+| File | Changes |
+|------|---------|
+| `packages/server/package.json` | Add `@anthropic-ai/claude-agent-sdk`, `zod` |
+| `packages/server/src/services/sessionManager.js` | Use SDK `query()` function |
+| `packages/server/src/api/canvas.js` | Add POST endpoint |
+| `packages/shared/src/protocol.js` | Add `SESSION_PARTIAL` message type |
+| `packages/web/src/components/ConversationTab.vue` | Handle streaming |
+| `packages/web/src/composables/useWebSocket.js` | Handle `session:partial` |
+| `packages/server/src/schema.sql` | Add `cost_usd` column |
+
+## Environment Setup
+
+The SDK uses the same auth as Claude CLI. Ensure:
+- User is logged in via `claude` CLI, OR
+- `ANTHROPIC_API_KEY` environment variable is set
+
+## Testing
+
+1. Start server with `yarn dev`
+2. Create a new session with a simple prompt
+3. Verify real-time streaming in UI
+4. Test multi-turn conversation (send follow-up)
+5. Test canvas artifact posting
+6. Verify cost tracking
 
 ## Future Enhancements
 
-- MCP server for canvas instead of HTTP endpoint
-- Resume sessions using `--resume {sessionId}`
+- MCP server for canvas (replace HTTP endpoint)
+- Session resume via `--resume` / SDK options
+- Model selection in UI
 - Permission mode selection in UI
-- Model selection per session
