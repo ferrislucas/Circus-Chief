@@ -115,9 +115,9 @@ async function main() {
         console.error('Usage: node screenshot.js <url> [output]');
         console.error('');
         console.error('Example:');
-        console.error('  node screenshot.js http://localhost:5173 homepage.png');
-        console.error('  FULL_PAGE=true node screenshot.js http://localhost:5173 full-page.png');
-        console.error('  DEVICE="iPhone 14" node screenshot.js http://localhost:5173 mobile.png');
+        console.error('  node screenshot.js http://localhost:5000 homepage.png');
+        console.error('  FULL_PAGE=true node screenshot.js http://localhost:5000 full-page.png');
+        console.error('  DEVICE="iPhone 14" node screenshot.js http://localhost:5000 mobile.png');
         process.exit(1);
     }
 

@@ -5,7 +5,7 @@ FROM mcr.microsoft.com/playwright:v1.40.0-jammy
 
 # Set environment defaults
 ENV NODE_ENV=production \
-    BASE_URL=http://localhost:5173 \
+    BASE_URL=http://localhost:5000 \
     BROWSER=chromium \
     HEADLESS=true \
     VIEWPORT_WIDTH=1280 \

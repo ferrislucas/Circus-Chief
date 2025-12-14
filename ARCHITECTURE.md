@@ -877,7 +877,7 @@ claudetools.io/
 
 **Deliverables**:
 - All three packages exist and build without errors
-- `yarn dev` starts both server (port 5000) and frontend (port 5173)
+- `yarn dev` starts the server (port 5000) which serves both API and frontend
 - Frontend dev server proxies `/api/*` and `/ws` to server
 
 ---
