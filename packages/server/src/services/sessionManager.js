@@ -116,38 +116,6 @@ export async function stopSession(sessionId) {
 }
 
 /**
- * Create async generator for multi-turn input
- * @param {string} sessionId
- * @param {string} initialPrompt
- * @returns {AsyncGenerator<{role: string, content: string}>}
- */
-async function* createInputGenerator(sessionId, initialPrompt) {
-  // Yield initial prompt
-  yield { role: 'user', content: initialPrompt };
-
-  while (true) {
-    const sessionData = activeSessions.get(sessionId);
-    if (!sessionData || sessionData.controller.signal.aborted) {
-      return;
-    }
-
-    // Signal waiting for input
-    sessions.update(sessionId, { status: 'waiting' });
-    broadcastSessionStatus(sessionId, 'waiting');
-
-    // Wait for user input
-    const input = await new Promise((resolve) => {
-      const session = activeSessions.get(sessionId);
-      if (session) {
-        session.inputResolve = resolve;
-      }
-    });
-
-    yield { role: 'user', content: input };
-  }
-}
-
-/**
  * Handle a stream event from Claude SDK
  * @param {string} sessionId
  * @param {Object} event
