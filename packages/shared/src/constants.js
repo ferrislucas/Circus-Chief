@@ -1,5 +1,4 @@
-export const DEFAULT_SERVER_PORT = 5001;
-export const DEFAULT_WEB_PORT = 5000;
+export const DEFAULT_SERVER_PORT = 5000;
 
 export const API_PREFIX = '/api';
 export const WS_PATH = '/ws';
