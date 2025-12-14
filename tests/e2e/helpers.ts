@@ -2,6 +2,44 @@ import { Page, expect } from '@playwright/test';
 
 const API_URL = process.env.API_URL || 'http://localhost:5000';
 
+// ============================================================
+// API Verification Helpers
+// ============================================================
+
+export async function getProject(id: string) {
+  const response = await fetch(`${API_URL}/api/projects/${id}`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+export async function getProjects() {
+  const response = await fetch(`${API_URL}/api/projects`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function getSession(id: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${id}`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+export async function getProjectSessions(projectId: string) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function getCanvasItems(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+// ============================================================
+// Seeding Helpers
+// ============================================================
+
 export async function seedProject(name: string, workingDirectory: string) {
   const response = await fetch(`${API_URL}/api/projects`, {
     method: 'POST',
