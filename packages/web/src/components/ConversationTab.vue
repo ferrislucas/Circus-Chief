@@ -18,6 +18,19 @@
           </details>
         </div>
       </div>
+
+      <!-- Streaming partial message -->
+      <div v-if="partialText" class="message message-assistant message-streaming">
+        <div class="message-header">
+          <span class="message-role">assistant</span>
+          <span class="streaming-indicator">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </span>
+        </div>
+        <div class="message-content">{{ partialText }}</div>
+      </div>
     </div>
 
     <form v-if="canSendMessage" @submit.prevent="handleSend" class="input-form">
@@ -42,9 +55,10 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, watch } from 'vue';
+import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
+import { useSessionSubscription } from '../composables/useWebSocket.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -56,19 +70,46 @@ const uiStore = useUiStore();
 const input = ref('');
 const sending = ref(false);
 const messagesContainer = ref(null);
+const partialText = ref('');
 
 const canSendMessage = computed(() => {
   return sessionsStore.currentSession?.status === 'waiting';
 });
 
+// Subscribe to partial messages for streaming
+const { onPartial, onMessage } = useSessionSubscription(props.sessionId);
+let unsubPartial = null;
+let unsubMessage = null;
+
+onMounted(() => {
+  unsubPartial = onPartial((text) => {
+    partialText.value = text;
+    scrollToBottom();
+  });
+
+  // Clear partial text when full message arrives
+  unsubMessage = onMessage(() => {
+    partialText.value = '';
+  });
+});
+
+onUnmounted(() => {
+  if (unsubPartial) unsubPartial();
+  if (unsubMessage) unsubMessage();
+});
+
+function scrollToBottom() {
+  nextTick(() => {
+    if (messagesContainer.value) {
+      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+    }
+  });
+}
+
 watch(
   () => sessionsStore.messages.length,
   () => {
-    nextTick(() => {
-      if (messagesContainer.value) {
-        messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
-      }
-    });
+    scrollToBottom();
   }
 );
 
@@ -120,6 +161,11 @@ async function handleSend() {
 
 .message-assistant {
   background-color: var(--color-background-soft);
+}
+
+.message-streaming {
+  border-color: var(--color-accent);
+  border-style: dashed;
 }
 
 .message-system {
@@ -187,5 +233,39 @@ async function handleSend() {
   padding: 1rem;
   color: var(--color-text-soft);
   border-top: 1px solid var(--color-border);
+}
+
+/* Streaming indicator animation */
+.streaming-indicator {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.streaming-indicator .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--color-accent);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.streaming-indicator .dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.streaming-indicator .dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes pulse {
+  0%, 80%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 </style>

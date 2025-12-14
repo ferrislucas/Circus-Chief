@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   git_worktree TEXT,
   pr_url TEXT,
   error TEXT,
+  cost_usd REAL DEFAULT 0,
+  claude_session_id TEXT,
+  model TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

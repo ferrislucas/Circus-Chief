@@ -21,6 +21,9 @@ export class SessionRepository extends BaseRepository {
       gitWorktree: row.git_worktree,
       prUrl: row.pr_url,
       error: row.error,
+      costUsd: row.cost_usd,
+      claudeSessionId: row.claude_session_id,
+      model: row.model,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -80,6 +83,18 @@ export class SessionRepository extends BaseRepository {
     if (data.error !== undefined) {
       updates.push('error = ?');
       values.push(data.error);
+    }
+    if (data.costUsd !== undefined) {
+      updates.push('cost_usd = ?');
+      values.push(data.costUsd);
+    }
+    if (data.claudeSessionId !== undefined) {
+      updates.push('claude_session_id = ?');
+      values.push(data.claudeSessionId);
+    }
+    if (data.model !== undefined) {
+      updates.push('model = ?');
+      values.push(data.model);
     }
 
     if (updates.length === 0) return this.getById(id);
