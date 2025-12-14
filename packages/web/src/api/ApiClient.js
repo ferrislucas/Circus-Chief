@@ -158,6 +158,15 @@ export class ApiClient {
     return this.#request('POST', `/sessions/${id}/stop`);
   }
 
+  /**
+   * Get git changes for a session
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<{staged: string, unstaged: string}>}
+   */
+  async getSessionChanges(sessionId) {
+    return this.#request('GET', `/sessions/${sessionId}/changes`);
+  }
+
   // Canvas
 
   /**

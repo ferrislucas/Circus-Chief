@@ -29,13 +29,11 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { useSessionsStore } from '../stores/sessions.js';
+import { api } from '../api/ApiClient.js';
 
-const _props = defineProps({
+const props = defineProps({
   sessionId: { type: String, required: true },
 });
-
-const sessionsStore = useSessionsStore();
 
 const staged = ref('');
 const unstaged = ref('');
@@ -44,22 +42,22 @@ const error = ref(null);
 
 const hasChanges = computed(() => staged.value || unstaged.value);
 
-onMounted(async () => {
-  if (!sessionsStore.currentSession?.gitWorktree) {
-    return;
-  }
-
+async function fetchChanges() {
   loading.value = true;
+  error.value = null;
   try {
-    // In a real implementation, this would call the diff service
-    // For now, we'll just show a placeholder
-    staged.value = '';
-    unstaged.value = '';
+    const changes = await api.getSessionChanges(props.sessionId);
+    staged.value = changes.staged || '';
+    unstaged.value = changes.unstaged || '';
   } catch (err) {
     error.value = err.message;
   } finally {
     loading.value = false;
   }
+}
+
+onMounted(() => {
+  fetchChanges();
 });
 </script>
 
