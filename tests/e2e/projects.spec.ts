@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedProject, cleanupAll } from './helpers';
+import { seedProject, cleanupAll, getProject, getProjects } from './helpers';
 
 test.describe('Project Management', () => {
   test.beforeEach(async () => {
@@ -26,8 +26,21 @@ test.describe('Project Management', () => {
     await page.fill('input[id="workingDirectory"]', '/tmp/test-project');
     await page.click('button:has-text("Create Project")');
 
-    // Should redirect to sessions page
-    await expect(page).toHaveURL(/\/projects\/.*\/sessions/);
+    // Should redirect to sessions page with project ID in URL
+    await expect(page).toHaveURL(/\/projects\/[\w-]+\/sessions/);
+
+    // Extract project ID from URL and verify via API
+    const url = page.url();
+    const projectId = url.match(/\/projects\/([\w-]+)\/sessions/)?.[1];
+    expect(projectId).toBeTruthy();
+
+    const project = await getProject(projectId!);
+    expect(project).not.toBeNull();
+    expect(project.name).toBe('Test Project');
+    expect(project.workingDirectory).toBe('/tmp/test-project');
+
+    // Verify project name is visible on the sessions page header
+    await expect(page.getByText('Test Project')).toBeVisible();
   });
 
   test('displays project list', async ({ page }) => {
@@ -49,6 +62,12 @@ test.describe('Project Management', () => {
     await page.click('text=Sessions');
 
     await expect(page).toHaveURL(`/projects/${project.id}/sessions`);
+
+    // Verify project name is visible on sessions page
+    await expect(page.getByText('Test Project')).toBeVisible();
+
+    // Verify empty sessions state is shown
+    await expect(page.getByText('No sessions yet')).toBeVisible();
   });
 
   test('can edit a project', async ({ page }) => {
@@ -63,10 +82,19 @@ test.describe('Project Management', () => {
     await page.click('button:has-text("Save")');
 
     await expect(page).toHaveURL(`/projects/${project.id}/sessions`);
+
+    // Verify updated name is visible on page
+    await expect(page.getByText('Updated Name')).toBeVisible();
+
+    // Verify via API that the change persisted
+    const updated = await getProject(project.id);
+    expect(updated).not.toBeNull();
+    expect(updated.name).toBe('Updated Name');
+    expect(updated.workingDirectory).toBe('/original/path'); // unchanged
   });
 
   test('can delete a project', async ({ page }) => {
-    await seedProject('To Delete', '/tmp/delete');
+    const project = await seedProject('To Delete', '/tmp/delete');
 
     await page.goto('/');
     await expect(page.getByText('To Delete')).toBeVisible();
@@ -79,5 +107,13 @@ test.describe('Project Management', () => {
 
     await expect(page).toHaveURL('/');
     await expect(page.getByText('To Delete')).not.toBeVisible();
+
+    // Verify via API that the project was actually deleted
+    const deleted = await getProject(project.id);
+    expect(deleted).toBeNull();
+
+    // Verify project list is empty
+    const projects = await getProjects();
+    expect(projects.length).toBe(0);
   });
 });
