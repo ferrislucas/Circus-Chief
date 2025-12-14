@@ -43,7 +43,7 @@
     "@babel/helper-string-parser" "^7.27.1"
     "@babel/helper-validator-identifier" "^7.28.5"
 
-"@claudetools/server@file:/var/tmp/vibe-kanban/worktrees/2768-root-route-is-br/packages/server":
+"@claudetools/server@file:/var/tmp/vibe-kanban/worktrees/425b-test-with-remote/packages/server":
   version "1.0.0"
   resolved "file:packages/server"
   dependencies:
@@ -55,13 +55,13 @@
     multer "^1.4.5-lts.1"
     ws "^8.18.0"
 
-"@claudetools/shared@1.0.0", "@claudetools/shared@file:/var/tmp/vibe-kanban/worktrees/2768-root-route-is-br/packages/shared":
+"@claudetools/shared@1.0.0", "@claudetools/shared@file:/var/tmp/vibe-kanban/worktrees/425b-test-with-remote/packages/shared":
   version "1.0.0"
   resolved "file:packages/shared"
   dependencies:
     zod "^3.22.4"
 
-"@claudetools/web@file:/var/tmp/vibe-kanban/worktrees/2768-root-route-is-br/packages/web":
+"@claudetools/web@file:/var/tmp/vibe-kanban/worktrees/425b-test-with-remote/packages/web":
   version "1.0.0"
   resolved "file:packages/web"
   dependencies:

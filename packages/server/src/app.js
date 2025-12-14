@@ -2,19 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { createProxyMiddleware } from 'http-proxy-middleware';
 import apiRouter from './api/index.js';
-import { MAX_JSON_SIZE, DEFAULT_WEB_PORT } from '@claudetools/shared';
+import { MAX_JSON_SIZE } from '@claudetools/shared';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-// Store vite proxy for WebSocket upgrade handling
-let viteProxy = null;
-
-export function getViteProxy() {
-  return viteProxy;
-}
 
 /**
  * Create Express application
@@ -28,10 +20,6 @@ export function createApp(options = {}) {
   // CORS (allow all in dev)
   app.use(cors());
 
-  // Body parsing (JSON with 50MB limit for base64 images)
-  app.use(express.json({ limit: MAX_JSON_SIZE }));
-  app.use(express.urlencoded({ extended: true, limit: MAX_JSON_SIZE }));
-
   // Request logging (dev only)
   if (!options.production) {
     app.use((req, _res, next) => {
@@ -40,10 +28,14 @@ export function createApp(options = {}) {
     });
   }
 
+  // Body parsing
+  app.use(express.json({ limit: MAX_JSON_SIZE }));
+  app.use(express.urlencoded({ extended: true, limit: MAX_JSON_SIZE }));
+
   // API routes
   app.use('/api', apiRouter);
 
-  // Static files and SPA fallback (production)
+  // Static files and SPA fallback (production only - in dev, Vite serves frontend)
   if (options.production) {
     const staticPath = join(__dirname, '../../web/dist');
     app.use(express.static(staticPath));
@@ -52,14 +44,6 @@ export function createApp(options = {}) {
     app.get('/*', (_req, res) => {
       res.sendFile(join(staticPath, 'index.html'));
     });
-  } else {
-    // Development: proxy all non-API requests to Vite dev server
-    viteProxy = createProxyMiddleware({
-      target: `http://localhost:${DEFAULT_WEB_PORT}`,
-      changeOrigin: true,
-      ws: true,
-    });
-    app.use('/', viteProxy);
   }
 
   // Error handler
