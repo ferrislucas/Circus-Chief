@@ -28,10 +28,6 @@ export function createApp(options = {}) {
   // CORS (allow all in dev)
   app.use(cors());
 
-  // Body parsing (JSON with 50MB limit for base64 images)
-  app.use(express.json({ limit: MAX_JSON_SIZE }));
-  app.use(express.urlencoded({ extended: true, limit: MAX_JSON_SIZE }));
-
   // Request logging (dev only)
   if (!options.production) {
     app.use((req, _res, next) => {
@@ -39,6 +35,10 @@ export function createApp(options = {}) {
       next();
     });
   }
+
+  // Body parsing ONLY for API routes (JSON with 50MB limit for base64 images)
+  app.use('/api', express.json({ limit: MAX_JSON_SIZE }));
+  app.use('/api', express.urlencoded({ extended: true, limit: MAX_JSON_SIZE }));
 
   // API routes
   app.use('/api', apiRouter);
@@ -59,7 +59,7 @@ export function createApp(options = {}) {
       changeOrigin: true,
       ws: true,
     });
-    app.use('/', viteProxy);
+    app.use(viteProxy);
   }
 
   // Error handler
