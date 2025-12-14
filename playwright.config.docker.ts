@@ -34,7 +34,7 @@ export default defineConfig({
     // Shared settings for all projects
     use: {
         // Base URL from environment
-        baseURL: process.env.BASE_URL || 'http://localhost:5173',
+        baseURL: process.env.BASE_URL || 'http://localhost:5000',
 
         // Collect trace when retrying the failed test
         trace: 'on-first-retry',
@@ -117,7 +117,7 @@ export default defineConfig({
     // Uncomment if you want the container to start the dev server
     // webServer: {
     //     command: 'pnpm dev',
-    //     url: 'http://localhost:5173',
+    //     url: 'http://localhost:5000',
     //     reuseExistingServer: !process.env.CI,
     //     timeout: 120 * 1000,
     // },

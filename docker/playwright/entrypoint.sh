@@ -74,18 +74,18 @@ Commands:
                            Example: test tests/home.spec.ts
 
   screenshot <url> [file]  Capture screenshot of URL
-                           Example: screenshot http://localhost:5173 home.png
+                           Example: screenshot http://localhost:5000 home.png
                            Example: screenshot http://localhost:5000/api/health api.png
 
   codegen [url]            Launch Playwright codegen (requires X11)
-                           Example: codegen http://localhost:5173
+                           Example: codegen http://localhost:5000
 
   shell                    Start interactive bash shell
 
   help                     Show this help message
 
 Environment Variables:
-  BASE_URL          Base URL for tests (default: http://localhost:5173)
+  BASE_URL          Base URL for tests (default: http://localhost:5000)
   BROWSER           Browser to use: chromium, firefox, webkit (default: chromium)
   HEADLESS          Run headless: true/false (default: true)
   FULL_PAGE         Capture full page screenshots: true/false (default: false)
@@ -102,13 +102,13 @@ Examples:
   docker compose run --rm playwright test tests/auth.spec.ts
 
   # Capture screenshot
-  docker compose run --rm playwright screenshot http://localhost:5173 homepage.png
+  docker compose run --rm playwright screenshot http://localhost:5000 homepage.png
 
   # Capture full-page screenshot
-  docker compose run --rm -e FULL_PAGE=true playwright screenshot http://localhost:5173 full.png
+  docker compose run --rm -e FULL_PAGE=true playwright screenshot http://localhost:5000 full.png
 
   # Use mobile viewport
-  docker compose run --rm -e DEVICE="iPhone 14" playwright screenshot http://localhost:5173 mobile.png
+  docker compose run --rm -e DEVICE="iPhone 14" playwright screenshot http://localhost:5000 mobile.png
 EOF
 }
 

@@ -26,7 +26,7 @@ yarn dev
 ```
 
 This starts:
-- **Frontend**: http://localhost:5173
+- **Frontend**: http://localhost:5000
 - **Backend API**: http://localhost:5000
 - **WebSocket**: ws://localhost:5000/ws
 
@@ -98,7 +98,7 @@ yarn workspace @claudetools/web test         # Web tests only
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BASE_URL` | `http://localhost:5173` | Frontend URL |
+| `BASE_URL` | `http://localhost:5000` | Frontend URL |
 | `API_URL` | `http://localhost:5000` | Backend URL |
 | `BROWSER` | `chromium` | Browser to use |
 | `HEADLESS` | `true` | Run headless |

@@ -74,7 +74,7 @@ cmd_screenshot() {
     if [ -z "$1" ]; then
         print_error "URL is required"
         echo "Usage: $0 screenshot <url> [filename]"
-        echo "Example: $0 screenshot http://localhost:5173 homepage.png"
+        echo "Example: $0 screenshot http://localhost:5000 homepage.png"
         exit 1
     fi
 
@@ -88,7 +88,7 @@ cmd_screenshot() {
 
 # Run codegen
 cmd_codegen() {
-    local url="${1:-http://localhost:5173}"
+    local url="${1:-http://localhost:5000}"
 
     # Check if X11 is available
     if [ -z "$DISPLAY" ]; then
@@ -134,11 +134,11 @@ Commands:
                            Example: $(basename "$0") test tests/home.spec.ts
 
   screenshot <url> [file]  Capture screenshot of URL
-                           Example: $(basename "$0") screenshot http://localhost:5173
-                           Example: $(basename "$0") screenshot http://localhost:5173 home.png
+                           Example: $(basename "$0") screenshot http://localhost:5000
+                           Example: $(basename "$0") screenshot http://localhost:5000 home.png
 
   codegen [url]            Launch Playwright test generator (requires X11)
-                           Example: $(basename "$0") codegen http://localhost:5173
+                           Example: $(basename "$0") codegen http://localhost:5000
 
   debug [args]             Run tests with headed browser (requires X11)
                            Example: $(basename "$0") debug tests/login.spec.ts
@@ -150,7 +150,7 @@ Commands:
   help                     Show this help message
 
 Environment Variables:
-  BASE_URL          Base URL for tests (default: http://localhost:5173)
+  BASE_URL          Base URL for tests (default: http://localhost:5000)
   BROWSER           Browser: chromium, firefox, webkit (default: chromium)
   HEADLESS          Run headless: true/false (default: true)
   FULL_PAGE         Full page screenshots: true/false (default: false)
@@ -167,13 +167,13 @@ Examples:
   $(basename "$0") test tests/auth.spec.ts
 
   # Screenshot with custom viewport
-  VIEWPORT_WIDTH=1920 VIEWPORT_HEIGHT=1080 $(basename "$0") screenshot http://localhost:5173 wide.png
+  VIEWPORT_WIDTH=1920 VIEWPORT_HEIGHT=1080 $(basename "$0") screenshot http://localhost:5000 wide.png
 
   # Mobile screenshot
-  DEVICE="iPhone 14" $(basename "$0") screenshot http://localhost:5173 mobile.png
+  DEVICE="iPhone 14" $(basename "$0") screenshot http://localhost:5000 mobile.png
 
   # Full page screenshot
-  FULL_PAGE=true $(basename "$0") screenshot http://localhost:5173 full.png
+  FULL_PAGE=true $(basename "$0") screenshot http://localhost:5000 full.png
 
   # Use Firefox
   BROWSER=firefox $(basename "$0") test

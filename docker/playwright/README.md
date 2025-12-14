@@ -9,7 +9,7 @@ A Docker container for browser automation, testing, and screenshots. Supports hi
 ./scripts/pw.sh build
 
 # Take a screenshot
-./scripts/pw.sh screenshot http://localhost:5173 homepage.png
+./scripts/pw.sh screenshot http://localhost:5000 homepage.png
 
 # Run tests
 ./scripts/pw.sh test
@@ -31,19 +31,19 @@ A Docker container for browser automation, testing, and screenshots. Supports hi
 
 ```bash
 # Basic screenshot
-./scripts/pw.sh screenshot http://localhost:5173 home.png
+./scripts/pw.sh screenshot http://localhost:5000 home.png
 
 # Full page capture
-FULL_PAGE=true ./scripts/pw.sh screenshot http://localhost:5173 full.png
+FULL_PAGE=true ./scripts/pw.sh screenshot http://localhost:5000 full.png
 
 # Mobile device emulation
-DEVICE="iPhone 14" ./scripts/pw.sh screenshot http://localhost:5173 mobile.png
+DEVICE="iPhone 14" ./scripts/pw.sh screenshot http://localhost:5000 mobile.png
 
 # Custom viewport
-VIEWPORT_WIDTH=1920 VIEWPORT_HEIGHT=1080 ./scripts/pw.sh screenshot http://localhost:5173 wide.png
+VIEWPORT_WIDTH=1920 VIEWPORT_HEIGHT=1080 ./scripts/pw.sh screenshot http://localhost:5000 wide.png
 
 # Use Firefox
-BROWSER=firefox ./scripts/pw.sh screenshot http://localhost:5173 firefox.png
+BROWSER=firefox ./scripts/pw.sh screenshot http://localhost:5000 firefox.png
 ```
 
 Screenshots are saved to the `screenshots/` directory.
@@ -70,7 +70,7 @@ Test reports are saved to `playwright-report/`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BASE_URL` | `http://localhost:5173` | Base URL for tests |
+| `BASE_URL` | `http://localhost:5000` | Base URL for tests |
 | `BROWSER` | `chromium` | Browser: `chromium`, `firefox`, `webkit` |
 | `HEADLESS` | `true` | Run headless mode |
 | `FULL_PAGE` | `false` | Capture full page screenshots |
@@ -85,7 +85,7 @@ The container uses `network_mode: host` to access services on your machine:
 
 | Service | URL |
 |---------|-----|
-| Frontend (Vite) | `http://localhost:5173` |
+| Frontend (Vite) | `http://localhost:5000` |
 | Backend (Express) | `http://localhost:5000` |
 
 **macOS/Windows**: The entrypoint auto-detects Docker Desktop and uses `host.docker.internal`.
@@ -118,7 +118,7 @@ If you prefer using Docker directly:
 docker compose -f docker-compose.playwright.yml build
 
 # Screenshot
-docker compose -f docker-compose.playwright.yml run --rm playwright screenshot http://localhost:5173 home.png
+docker compose -f docker-compose.playwright.yml run --rm playwright screenshot http://localhost:5000 home.png
 
 # Tests
 docker compose -f docker-compose.playwright.yml run --rm playwright test

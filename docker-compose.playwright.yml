@@ -9,8 +9,8 @@
 #
 # Examples:
 #   docker compose -f docker-compose.playwright.yml run --rm playwright test
-#   docker compose -f docker-compose.playwright.yml run --rm playwright screenshot http://localhost:5173 home.png
-#   docker compose -f docker-compose.playwright.yml run --rm -e DEVICE="iPhone 14" playwright screenshot http://localhost:5173 mobile.png
+#   docker compose -f docker-compose.playwright.yml run --rm playwright screenshot http://localhost:5000 home.png
+#   docker compose -f docker-compose.playwright.yml run --rm -e DEVICE="iPhone 14" playwright screenshot http://localhost:5000 mobile.png
 
 services:
   playwright:
@@ -32,7 +32,7 @@ services:
     # Environment configuration
     environment:
       # Base URL for tests (frontend dev server)
-      - BASE_URL=${BASE_URL:-http://localhost:5173}
+      - BASE_URL=${BASE_URL:-http://localhost:5000}
       # Browser selection: chromium, firefox, webkit
       - BROWSER=${BROWSER:-chromium}
       # Run in headless mode
