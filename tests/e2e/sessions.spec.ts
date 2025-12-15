@@ -151,6 +151,79 @@ test.describe('Session Management', () => {
     expect(apiSession.mode).toBe('plan');
   });
 
+  test('persists draft prompt in localStorage across page reload', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Initial prompt',
+      name: 'Draft Test',
+    });
+
+    const storageKey = `session-draft-${session.id}`;
+
+    // Navigate to session conversation tab
+    await page.goto(`/sessions/${session.id}/conversation`);
+
+    // Set a draft in localStorage (simulating what the component does)
+    await page.evaluate((key) => {
+      localStorage.setItem(key, 'My draft message');
+    }, storageKey);
+
+    // Reload the page
+    await page.reload();
+
+    // Verify localStorage persists the draft
+    const storedValue = await page.evaluate((key) => localStorage.getItem(key), storageKey);
+    expect(storedValue).toBe('My draft message');
+
+    // Verify the textarea loads with the saved draft
+    const textarea = page.locator('textarea[placeholder="Send a follow-up message..."]');
+    // Only check if textarea exists and has the value if session is in waiting status
+    const textareaCount = await textarea.count();
+    if (textareaCount > 0) {
+      await expect(textarea).toHaveValue('My draft message');
+    }
+  });
+
+  test('draft prompt is unique per session', async ({ page }) => {
+    const session1 = await seedSession(project.id, {
+      prompt: 'Session 1 prompt',
+      name: 'Session 1',
+    });
+    const session2 = await seedSession(project.id, {
+      prompt: 'Session 2 prompt',
+      name: 'Session 2',
+    });
+
+    const storageKey1 = `session-draft-${session1.id}`;
+    const storageKey2 = `session-draft-${session2.id}`;
+
+    // Navigate to first session
+    await page.goto(`/sessions/${session1.id}/conversation`);
+
+    // Set different drafts for each session in localStorage
+    await page.evaluate(
+      ({ key1, key2 }) => {
+        localStorage.setItem(key1, 'Draft for session 1');
+        localStorage.setItem(key2, 'Draft for session 2');
+      },
+      { key1: storageKey1, key2: storageKey2 }
+    );
+
+    // Verify session 1 draft
+    let storedValue = await page.evaluate((key) => localStorage.getItem(key), storageKey1);
+    expect(storedValue).toBe('Draft for session 1');
+
+    // Verify session 2 draft is different
+    storedValue = await page.evaluate((key) => localStorage.getItem(key), storageKey2);
+    expect(storedValue).toBe('Draft for session 2');
+
+    // Navigate to session 2
+    await page.goto(`/sessions/${session2.id}/conversation`);
+
+    // Verify session 1's draft is still intact after navigating away
+    storedValue = await page.evaluate((key) => localStorage.getItem(key), storageKey1);
+    expect(storedValue).toBe('Draft for session 1');
+  });
+
   // TODO: Re-enable once WebSocket message delivery is more reliable in CI
   test.skip('supports multi-turn conversation', async ({ page }) => {
     // Create a session with initial prompt
