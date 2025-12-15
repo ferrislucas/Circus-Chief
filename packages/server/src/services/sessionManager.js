@@ -61,13 +61,12 @@ For images, use base64 encoding in the content field.`;
 }
 
 /**
- * Run a Claude query (initial or follow-up)
+ * Run a Claude session
  * @param {string} sessionId
  * @param {string} prompt
  * @param {string} workingDirectory
- * @param {string|null} resumeSessionId - Claude session ID to resume (for follow-ups)
  */
-async function runQuery(sessionId, prompt, workingDirectory, resumeSessionId = null) {
+export async function runSession(sessionId, prompt, workingDirectory) {
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
@@ -75,6 +74,8 @@ async function runQuery(sessionId, prompt, workingDirectory, resumeSessionId = n
     // Update status to running
     sessions.update(sessionId, { status: 'running' });
     broadcastSessionStatus(sessionId, 'running');
+
+    // Note: Initial user message is already created in SessionRepository.create()
 
     // Choose between mock and real query based on environment
     const queryFn = isMockMode() ? mockQuery : query;
@@ -88,8 +89,11 @@ async function runQuery(sessionId, prompt, workingDirectory, resumeSessionId = n
             abortController: controller,
             includePartialMessages: true,
             permissionMode: 'bypassPermissions',
-            appendSystemPrompt: buildCanvasSystemPrompt(sessionId),
-            ...(resumeSessionId && { resume: resumeSessionId }),
+            systemPrompt: {
+              type: 'preset',
+              preset: 'claude_code',
+              append: buildCanvasSystemPrompt(sessionId),
+            },
           },
         };
 
@@ -100,7 +104,7 @@ async function runQuery(sessionId, prompt, workingDirectory, resumeSessionId = n
       await handleStreamEvent(sessionId, event);
     }
 
-    // Session completed - set to waiting for follow-up
+    // Session ready for follow-up - set to waiting instead of completed
     const session = activeSessions.get(sessionId);
     if (session && !controller.signal.aborted) {
       sessions.update(sessionId, { status: 'waiting' });
@@ -120,49 +124,84 @@ async function runQuery(sessionId, prompt, workingDirectory, resumeSessionId = n
 }
 
 /**
- * Run a Claude session (initial prompt)
- * @param {string} sessionId
- * @param {string} prompt
- * @param {string} workingDirectory
- */
-export async function runSession(sessionId, prompt, workingDirectory) {
-  // Note: Initial user message is already created in SessionRepository.create()
-  await runQuery(sessionId, prompt, workingDirectory, null);
-}
-
-/**
- * Send a follow-up message to a session
+ * Continue a session with a follow-up message
  * @param {string} sessionId
  * @param {string} content
+ * @param {string} workingDirectory
  */
-export async function sendMessage(sessionId, content) {
-  // Get the session to find the Claude session ID and working directory
+export async function continueSession(sessionId, content, workingDirectory) {
+  // Check if session is already running
+  if (activeSessions.has(sessionId)) {
+    throw new Error('Session is already processing');
+  }
+
+  // Get the session to retrieve the Claude session ID
   const session = sessions.getById(sessionId);
   if (!session) {
     throw new Error('Session not found');
   }
 
-  if (session.status !== 'waiting') {
-    throw new Error('Session is not waiting for input');
-  }
-
   if (!session.claudeSessionId && !isMockMode()) {
-    throw new Error('No Claude session ID available for resume');
+    throw new Error('Session has no Claude session ID - cannot resume');
   }
 
-  // Store the user message
-  const message = messages.create(sessionId, 'user', content);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
+  const controller = new AbortController();
+  activeSessions.set(sessionId, { controller });
 
-  // Get working directory from project
-  const { projects } = await import('../database.js');
-  const project = projects.getById(session.projectId);
-  if (!project) {
-    throw new Error('Project not found');
+  try {
+    // Store the user message
+    const message = messages.create(sessionId, 'user', content);
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
+
+    // Update status to running
+    sessions.update(sessionId, { status: 'running' });
+    broadcastSessionStatus(sessionId, 'running');
+
+    // Choose between mock and real query based on environment
+    const queryFn = isMockMode() ? mockQuery : query;
+
+    const queryParams = isMockMode()
+      ? { prompt: content }
+      : {
+          prompt: content,
+          options: {
+            cwd: workingDirectory,
+            abortController: controller,
+            includePartialMessages: true,
+            permissionMode: 'bypassPermissions',
+            resume: session.claudeSessionId,
+            systemPrompt: {
+              type: 'preset',
+              preset: 'claude_code',
+              append: buildCanvasSystemPrompt(sessionId),
+            },
+          },
+        };
+
+    // Resume the session with the new message
+    for await (const event of queryFn(queryParams)) {
+      if (controller.signal.aborted) break;
+
+      await handleStreamEvent(sessionId, event);
+    }
+
+    // Session ready for more follow-ups
+    const activeSession = activeSessions.get(sessionId);
+    if (activeSession && !controller.signal.aborted) {
+      sessions.update(sessionId, { status: 'waiting' });
+      broadcastSessionStatus(sessionId, 'waiting');
+    }
+  } catch (error) {
+    console.error('Continue session error:', error);
+    console.error('Error stack:', error.stack);
+    if (!controller.signal.aborted) {
+      sessions.update(sessionId, { status: 'error', error: error.message });
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { error: error.message });
+    }
+    throw error;
+  } finally {
+    activeSessions.delete(sessionId);
   }
-
-  // Run a new query with resume to continue the conversation
-  await runQuery(sessionId, content, project.workingDirectory, session.claudeSessionId);
 }
 
 /**
@@ -176,6 +215,22 @@ export async function stopSession(sessionId) {
   }
 
   sessionData.controller.abort();
+  sessions.update(sessionId, { status: 'completed' });
+  broadcastSessionStatus(sessionId, 'completed');
+}
+
+/**
+ * End a session (mark as completed)
+ * @param {string} sessionId
+ */
+export function endSession(sessionId) {
+  // If actively running, abort first
+  const sessionData = activeSessions.get(sessionId);
+  if (sessionData) {
+    sessionData.controller.abort();
+    activeSessions.delete(sessionId);
+  }
+
   sessions.update(sessionId, { status: 'completed' });
   broadcastSessionStatus(sessionId, 'completed');
 }
