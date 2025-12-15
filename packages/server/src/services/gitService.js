@@ -130,3 +130,50 @@ export async function getStagedDiff(directory) {
     return '';
   }
 }
+
+/**
+ * Check if a branch exists
+ * @param {string} directory
+ * @param {string} branch
+ * @returns {Promise<boolean>}
+ */
+export async function branchExists(directory, branch) {
+  try {
+    await git(directory, `rev-parse --verify refs/heads/${branch}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Checkout a branch, creating it if it doesn't exist
+ * @param {string} directory
+ * @param {string} branch
+ * @returns {Promise<void>}
+ */
+export async function checkoutBranch(directory, branch) {
+  const exists = await branchExists(directory, branch);
+  if (exists) {
+    await git(directory, `checkout "${branch}"`);
+  } else {
+    await git(directory, `checkout -b "${branch}"`);
+  }
+}
+
+/**
+ * Create a worktree for a branch (creates branch if it doesn't exist)
+ * @param {string} directory - Main repo directory
+ * @param {string} branch - Branch name
+ * @param {string} worktreePath - Path for the new worktree
+ * @returns {Promise<{path: string, branch: string}>}
+ */
+export async function createWorktreeForBranch(directory, branch, worktreePath) {
+  const exists = await branchExists(directory, branch);
+  if (exists) {
+    await git(directory, `worktree add "${worktreePath}" "${branch}"`);
+  } else {
+    await git(directory, `worktree add -b "${branch}" "${worktreePath}"`);
+  }
+  return { path: worktreePath, branch };
+}

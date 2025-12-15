@@ -39,13 +39,39 @@
       </div>
 
       <div v-if="gitStatus" class="form-group">
-        <label class="form-label" for="gitBranch">Git Branch (optional)</label>
-        <select id="gitBranch" v-model="gitBranch" class="form-input">
-          <option value="">Use current branch</option>
-          <option v-for="branch in gitStatus.branches" :key="branch.name" :value="branch.name">
-            {{ branch.name }}
-          </option>
+        <label class="form-label" for="gitMode">Git Mode</label>
+        <select id="gitMode" v-model="gitMode" class="form-input">
+          <option value="">None (use current branch)</option>
+          <option value="branch">Switch Branch</option>
+          <option value="worktree">Create Worktree</option>
         </select>
+        <p class="form-help">
+          <template v-if="gitMode === ''">Session runs in the current branch</template>
+          <template v-else-if="gitMode === 'branch'">Checkout/create a branch in the project directory</template>
+          <template v-else-if="gitMode === 'worktree'">Create an isolated worktree for this session</template>
+        </p>
+      </div>
+
+      <div v-if="gitStatus && gitMode" class="form-group">
+        <label class="form-label" for="gitBranch">
+          {{ gitMode === 'branch' ? 'Branch Name' : 'Worktree Branch' }}
+        </label>
+        <div class="branch-input-group">
+          <select id="gitBranch" v-model="gitBranch" class="form-input">
+            <option value="">-- Select existing or type new --</option>
+            <option v-for="branch in gitStatus.branches" :key="branch.name" :value="branch.name">
+              {{ branch.name }}
+            </option>
+          </select>
+          <span class="or-text">or</span>
+          <input
+            v-model="newBranchName"
+            type="text"
+            class="form-input"
+            placeholder="New branch name"
+            @input="gitBranch = newBranchName"
+          />
+        </div>
         <p v-if="gitStatus.currentBranch" class="form-help">
           Current branch: {{ gitStatus.currentBranch }}
         </p>
@@ -84,7 +110,9 @@ const uiStore = useUiStore();
 const name = ref('');
 const prompt = ref('');
 const mode = ref('standard');
+const gitMode = ref('');
 const gitBranch = ref('');
+const newBranchName = ref('');
 const gitStatus = ref(null);
 const loading = ref(false);
 const loadingGit = ref(false);
@@ -110,6 +138,7 @@ async function handleSubmit() {
       name: name.value || undefined,
       prompt: prompt.value,
       mode: mode.value,
+      gitMode: gitMode.value || undefined,
       gitBranch: gitBranch.value || undefined,
     });
     uiStore.success('Session started');
@@ -162,5 +191,24 @@ h1 {
 .error-message {
   color: var(--color-error);
   margin-bottom: 1rem;
+}
+
+.branch-input-group {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.branch-input-group select {
+  flex: 1;
+}
+
+.branch-input-group input {
+  flex: 1;
+}
+
+.or-text {
+  color: var(--color-text-soft);
+  font-size: 0.875rem;
 }
 </style>
