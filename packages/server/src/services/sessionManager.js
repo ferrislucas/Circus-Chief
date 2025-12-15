@@ -6,6 +6,49 @@ import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT } from '@claudetools/shared';
 /** @type {Map<string, { controller: AbortController, inputResolve: Function | null }>} */
 const activeSessions = new Map();
 
+/** Check if mock mode is enabled (for E2E testing) */
+const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
+
+/**
+ * Mock query generator for E2E testing
+ * Simulates the Claude SDK's behavior for multi-turn conversations
+ * @param {Object} params
+ * @param {AsyncIterable} params.prompt - The input generator
+ */
+async function* mockQuery({ prompt }) {
+  // Yield system init event
+  yield {
+    type: 'system',
+    subtype: 'init',
+    session_id: 'mock-session-' + Date.now(),
+    model: 'claude-sonnet-4-5-20250929',
+  };
+
+  // Process each user message from the input generator
+  for await (const userMessage of prompt) {
+    // Small delay to simulate processing
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Generate a mock response based on the user's message
+    const responseText = `Mock response to: "${userMessage.content}"`;
+
+    // Yield assistant message
+    yield {
+      type: 'assistant',
+      message: {
+        content: [{ type: 'text', text: responseText }],
+      },
+    };
+  }
+
+  // Yield result event
+  yield {
+    type: 'result',
+    subtype: 'success',
+    total_cost_usd: 0.001,
+  };
+}
+
 /**
  * Create an async generator for multi-turn conversation input
  * @param {string} sessionId
@@ -79,17 +122,23 @@ export async function runSession(sessionId, prompt, workingDirectory) {
     // Create async generator for multi-turn conversation support
     const inputGenerator = createInputGenerator(sessionId, prompt);
 
-    // Run the query with the SDK using the input generator
-    for await (const event of query({
-      prompt: inputGenerator,
-      options: {
-        cwd: workingDirectory,
-        abortController: controller,
-        includePartialMessages: true,
-        permissionMode: 'bypassPermissions',
-        appendSystemPrompt: buildCanvasSystemPrompt(sessionId),
-      },
-    })) {
+    // Choose between mock and real query based on environment
+    const queryFn = isMockMode() ? mockQuery : query;
+    const queryParams = isMockMode()
+      ? { prompt: inputGenerator }
+      : {
+          prompt: inputGenerator,
+          options: {
+            cwd: workingDirectory,
+            abortController: controller,
+            includePartialMessages: true,
+            permissionMode: 'bypassPermissions',
+            appendSystemPrompt: buildCanvasSystemPrompt(sessionId),
+          },
+        };
+
+    // Run the query with the SDK (or mock) using the input generator
+    for await (const event of queryFn(queryParams)) {
       if (controller.signal.aborted) break;
 
       await handleStreamEvent(sessionId, event);
