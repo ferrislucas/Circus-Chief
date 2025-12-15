@@ -133,8 +133,46 @@ Ensure the frontend properly:
 5. Send a follow-up message
 6. Verify the conversation continues
 
+## How Context is Maintained
+
+**Important**: The Claude Agent SDK automatically maintains full conversation context within a single `query()` session.
+
+### Within a Single Query Session (Our Use Case)
+
+When using the async generator pattern:
+1. The SDK maintains the full conversation history internally
+2. Each `yield { role: 'user', content: ... }` adds to the context
+3. Claude sees all previous messages when responding to follow-ups
+4. The SDK includes **automatic context compaction** - it summarizes older messages when approaching context limits
+
+This means **we do NOT need to manually track or replay message history** - the SDK handles it.
+
+### Why This Works
+
+The async generator keeps the `query()` call alive:
+```
+User yields message 1 → Claude responds → Generator waits
+User yields message 2 → Claude sees [message 1, response 1, message 2] → Responds
+User yields message 3 → Claude sees full history → Responds
+...
+```
+
+The SDK's internal state accumulates the full conversation. We only need to:
+1. Store messages in our database (for UI display and persistence)
+2. Let the SDK handle the actual context management
+
+### Session Resume (Future Enhancement)
+
+For resuming sessions across server restarts, the SDK supports `resume: sessionId` option. However, there's currently [a limitation](https://github.com/anthropics/claude-agent-sdk-typescript/issues/14) where historical messages aren't exposed via the API - you'd need to parse JSONL transcript files from `~/.claude/projects/`.
+
 ## Notes
 
 - The initial user message is already created in `SessionRepository.create()` (see line 38 comment)
 - The generator should NOT create a duplicate initial message
 - The `sendMessage()` function already handles broadcasting the user message (line 91-92)
+- The SDK handles context automatically - no need to pass message arrays
+
+## Sources
+
+- [Building agents with the Claude Agent SDK](https://www.anthropic.com/engineering/building-agents-with-the-claude-agent-sdk) - Context compaction details
+- [Feature Request: API to retrieve historical messages](https://github.com/anthropics/claude-agent-sdk-typescript/issues/14) - Session resume limitations
