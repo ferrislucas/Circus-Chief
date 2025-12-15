@@ -176,6 +176,15 @@ export class ApiClient {
     return this.#request('POST', `/sessions/${id}/end`);
   }
 
+  /**
+   * Delete a session
+   * @param {string} id - Session ID
+   * @returns {Promise<void>}
+   */
+  async deleteSession(id) {
+    return this.#request('DELETE', `/sessions/${id}`);
+  }
+
   // Canvas
 
   /**

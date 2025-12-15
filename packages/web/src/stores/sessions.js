@@ -117,6 +117,22 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
+    async deleteSession(id) {
+      this.error = null;
+      try {
+        await api.deleteSession(id);
+        // Remove session from list
+        this.sessions = this.sessions.filter((s) => s.id !== id);
+        // Clear current session if it's the deleted one
+        if (this.currentSession?.id === id) {
+          this.currentSession = null;
+        }
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
     addMessage(message) {
       this.messages.push(message);
     },

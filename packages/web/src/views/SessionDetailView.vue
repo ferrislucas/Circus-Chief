@@ -30,6 +30,28 @@
           >
             Stop Session
           </button>
+          <button
+            v-if="!showDeleteConfirm"
+            class="btn btn-outline-danger"
+            @click="showDeleteConfirm = true"
+          >
+            Delete Session
+          </button>
+          <div v-else class="delete-confirm">
+            <span class="delete-confirm-text">Delete this session?</span>
+            <button
+              class="btn btn-danger btn-sm"
+              @click="handleDelete"
+            >
+              Confirm
+            </button>
+            <button
+              class="btn btn-secondary btn-sm"
+              @click="showDeleteConfirm = false"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
 
@@ -72,7 +94,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useUiStore } from '../stores/ui.js';
@@ -83,9 +105,11 @@ import CanvasTab from '../components/CanvasTab.vue';
 import NotesTab from '../components/NotesTab.vue';
 
 const route = useRoute();
+const router = useRouter();
 const sessionsStore = useSessionsStore();
 const canvasStore = useCanvasStore();
 const uiStore = useUiStore();
+const showDeleteConfirm = ref(false);
 
 const activeTab = computed(() => route.params.tab || 'conversation');
 const isActive = computed(() => {
@@ -203,6 +227,23 @@ async function handleStop() {
     uiStore.error(err.message);
   }
 }
+
+async function handleDelete() {
+  try {
+    const projectId = sessionsStore.currentSession?.projectId;
+    await sessionsStore.deleteSession(route.params.id);
+    uiStore.success('Session deleted');
+    // Navigate to project sessions list
+    if (projectId) {
+      router.push(`/projects/${projectId}/sessions`);
+    } else {
+      router.push('/');
+    }
+  } catch (err) {
+    uiStore.error(err.message);
+    showDeleteConfirm.value = false;
+  }
+}
 </script>
 
 <style scoped>
@@ -252,5 +293,22 @@ async function handleStop() {
 
 .tab-content {
   min-height: 400px;
+}
+
+.session-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.delete-confirm {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.delete-confirm-text {
+  font-size: 0.875rem;
+  color: var(--color-danger);
 }
 </style>
