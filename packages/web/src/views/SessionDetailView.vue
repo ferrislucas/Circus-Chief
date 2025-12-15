@@ -71,7 +71,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCanvasStore } from '../stores/canvas.js';
@@ -122,6 +122,19 @@ function stopPolling() {
     pollIntervalId.value = null;
   }
 }
+
+// Watch for status changes from any source (optimistic updates, WebSocket, etc.)
+// This ensures polling starts even when status is updated directly in the store
+watch(
+  () => sessionsStore.currentSession?.status,
+  (newStatus, oldStatus) => {
+    if (newStatus === 'running' || newStatus === 'starting') {
+      startPolling();
+    } else if (oldStatus === 'running' || oldStatus === 'starting') {
+      stopPolling();
+    }
+  }
+);
 
 onMounted(async () => {
   // Subscribe to WebSocket first to minimize race condition window
