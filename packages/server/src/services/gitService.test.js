@@ -8,6 +8,7 @@ import {
   checkoutBranch,
   createWorktreeForBranch,
   getCurrentBranch,
+  getUntrackedFiles,
   isGitRepo,
 } from './gitService.js';
 
@@ -132,6 +133,38 @@ describe('gitService', () => {
       await expect(
         createWorktreeForBranch(testDir, 'branch-2', worktreePath)
       ).rejects.toThrow();
+    });
+  });
+
+  describe('getUntrackedFiles', () => {
+    it('returns empty array when no untracked files', async () => {
+      const files = await getUntrackedFiles(testDir);
+      expect(files).toEqual([]);
+    });
+
+    it('returns list of untracked files', async () => {
+      await writeFile(join(testDir, 'new-file.txt'), 'content');
+      await writeFile(join(testDir, 'another-file.js'), 'code');
+
+      const files = await getUntrackedFiles(testDir);
+
+      expect(files).toContain('new-file.txt');
+      expect(files).toContain('another-file.js');
+      expect(files).toHaveLength(2);
+    });
+
+    it('does not include tracked files', async () => {
+      // README.md is tracked
+      const files = await getUntrackedFiles(testDir);
+      expect(files).not.toContain('README.md');
+    });
+
+    it('does not include staged files', async () => {
+      await writeFile(join(testDir, 'staged-file.txt'), 'content');
+      execSync('git add staged-file.txt', { cwd: testDir });
+
+      const files = await getUntrackedFiles(testDir);
+      expect(files).not.toContain('staged-file.txt');
     });
   });
 });

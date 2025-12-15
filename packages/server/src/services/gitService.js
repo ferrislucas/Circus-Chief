@@ -177,3 +177,18 @@ export async function createWorktreeForBranch(directory, branch, worktreePath) {
   }
   return { path: worktreePath, branch };
 }
+
+/**
+ * Get list of untracked files
+ * @param {string} directory
+ * @returns {Promise<string[]>}
+ */
+export async function getUntrackedFiles(directory) {
+  try {
+    const output = await git(directory, 'ls-files --others --exclude-standard');
+    if (!output) return [];
+    return output.split('\n').filter((line) => line.trim());
+  } catch {
+    return [];
+  }
+}

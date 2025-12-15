@@ -23,6 +23,15 @@
         <h3>Unstaged Changes</h3>
         <pre class="diff-content">{{ unstaged }}</pre>
       </div>
+
+      <div v-if="untracked.length > 0" class="diff-section">
+        <h3>Untracked Files</h3>
+        <ul class="untracked-list">
+          <li v-for="file in untracked" :key="file" class="untracked-file">
+            {{ file }}
+          </li>
+        </ul>
+      </div>
     </template>
   </div>
 </template>
@@ -37,10 +46,11 @@ const props = defineProps({
 
 const staged = ref('');
 const unstaged = ref('');
+const untracked = ref([]);
 const loading = ref(false);
 const error = ref(null);
 
-const hasChanges = computed(() => staged.value || unstaged.value);
+const hasChanges = computed(() => staged.value || unstaged.value || untracked.value.length > 0);
 
 async function fetchChanges() {
   loading.value = true;
@@ -49,6 +59,7 @@ async function fetchChanges() {
     const changes = await api.getSessionChanges(props.sessionId);
     staged.value = changes.staged || '';
     unstaged.value = changes.unstaged || '';
+    untracked.value = changes.untracked || [];
   } catch (err) {
     error.value = err.message;
   } finally {
@@ -101,5 +112,23 @@ onMounted(() => {
   font-size: 0.75rem;
   max-height: 300px;
   overflow: auto;
+}
+
+.untracked-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-family: monospace;
+  font-size: 0.75rem;
+}
+
+.untracked-file {
+  padding: 0.25rem 0.5rem;
+  color: var(--color-success, #22c55e);
+}
+
+.untracked-file::before {
+  content: '+ ';
+  color: var(--color-success, #22c55e);
 }
 </style>

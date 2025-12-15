@@ -37,12 +37,12 @@ describe('ChangesTab', () => {
     expect(wrapper.text()).toContain('Loading changes...');
 
     // Clean up by resolving the promise
-    resolvePromise({ staged: '', unstaged: '' });
+    resolvePromise({ staged: '', unstaged: '', untracked: [] });
     await flushPromises();
   });
 
   it('fetches changes on mount', async () => {
-    api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '' });
+    api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: [] });
 
     mount(ChangesTab, {
       props: { sessionId: 'test-session' },
@@ -55,6 +55,7 @@ describe('ChangesTab', () => {
     api.getSessionChanges.mockResolvedValue({
       staged: 'diff --git a/file.js\n+new line',
       unstaged: '',
+      untracked: [],
     });
 
     const wrapper = mount(ChangesTab, {
@@ -72,6 +73,7 @@ describe('ChangesTab', () => {
     api.getSessionChanges.mockResolvedValue({
       staged: '',
       unstaged: 'diff --git b/other.js\n-removed line',
+      untracked: [],
     });
 
     const wrapper = mount(ChangesTab, {
@@ -89,6 +91,7 @@ describe('ChangesTab', () => {
     api.getSessionChanges.mockResolvedValue({
       staged: 'staged content',
       unstaged: 'unstaged content',
+      untracked: [],
     });
 
     const wrapper = mount(ChangesTab, {
@@ -104,7 +107,7 @@ describe('ChangesTab', () => {
   });
 
   it('displays empty state when no changes', async () => {
-    api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '' });
+    api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: [] });
 
     const wrapper = mount(ChangesTab, {
       props: { sessionId: 'test-session' },
@@ -113,6 +116,24 @@ describe('ChangesTab', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('No git changes to show');
+  });
+
+  it('displays untracked files when present', async () => {
+    api.getSessionChanges.mockResolvedValue({
+      staged: '',
+      unstaged: '',
+      untracked: ['new-file.txt', 'another-file.js'],
+    });
+
+    const wrapper = mount(ChangesTab, {
+      props: { sessionId: 'test-session' },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Untracked Files');
+    expect(wrapper.text()).toContain('new-file.txt');
+    expect(wrapper.text()).toContain('another-file.js');
   });
 
   it('displays error message on failure', async () => {
@@ -128,7 +149,7 @@ describe('ChangesTab', () => {
   });
 
   it('uses sessionId prop for API call', async () => {
-    api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '' });
+    api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: [] });
 
     mount(ChangesTab, {
       props: { sessionId: 'custom-session-id' },
@@ -140,7 +161,7 @@ describe('ChangesTab', () => {
   });
 
   it('handles null staged/unstaged values', async () => {
-    api.getSessionChanges.mockResolvedValue({ staged: null, unstaged: null });
+    api.getSessionChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
 
     const wrapper = mount(ChangesTab, {
       props: { sessionId: 'test-session' },
