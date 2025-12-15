@@ -44,7 +44,7 @@ export function extractSlugFromPrompt(prompt) {
  * Generate a git branch name for a worktree
  * @param {string} [sessionName] - Optional session name
  * @param {string} [prompt] - Optional prompt to extract slug from
- * @returns {string} Branch name in format: vk/{shortId}-{slug}
+ * @returns {string} Branch name in format: claude-tools/{shortId}-{slug}
  */
 export function generateWorktreeBranch(sessionName, prompt) {
   const shortId = generateShortId();
@@ -63,5 +63,5 @@ export function generateWorktreeBranch(sessionName, prompt) {
     slug = 'session';
   }
 
-  return `vk/${shortId}-${slug}`;
+  return `claude-tools/${shortId}-${slug}`;
 }
