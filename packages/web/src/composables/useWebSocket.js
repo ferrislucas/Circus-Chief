@@ -130,25 +130,42 @@ export function useSessionSubscription(sessionId) {
   };
 
   const onMessage = (callback) => {
-    const handler = (msg) => callback(msg.message);
+    const handler = (msg) => {
+      // Filter by sessionId to avoid cross-session interference
+      if (msg.message?.sessionId === sessionId) {
+        callback(msg.message);
+      }
+    };
     on(WS_MESSAGE_TYPES.SESSION_MESSAGE, handler);
     return () => off(WS_MESSAGE_TYPES.SESSION_MESSAGE, handler);
   };
 
   const onError = (callback) => {
-    const handler = (msg) => callback(msg.error);
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.error);
+      }
+    };
     on(WS_MESSAGE_TYPES.SESSION_ERROR, handler);
     return () => off(WS_MESSAGE_TYPES.SESSION_ERROR, handler);
   };
 
   const onCanvasAdd = (callback) => {
-    const handler = (msg) => callback(msg.item);
+    const handler = (msg) => {
+      if (msg.item?.sessionId === sessionId) {
+        callback(msg.item);
+      }
+    };
     on(WS_MESSAGE_TYPES.CANVAS_ADD, handler);
     return () => off(WS_MESSAGE_TYPES.CANVAS_ADD, handler);
   };
 
   const onCanvasRemove = (callback) => {
-    const handler = (msg) => callback(msg.itemId);
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.itemId);
+      }
+    };
     on(WS_MESSAGE_TYPES.CANVAS_REMOVE, handler);
     return () => off(WS_MESSAGE_TYPES.CANVAS_REMOVE, handler);
   };

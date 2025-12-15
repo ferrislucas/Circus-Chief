@@ -35,5 +35,5 @@ export function removeItem(sessionId, itemId) {
   }
 
   canvasItems.delete(itemId);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.CANVAS_REMOVE, { itemId });
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.CANVAS_REMOVE, { sessionId, itemId });
 }
