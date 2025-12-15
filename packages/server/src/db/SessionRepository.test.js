@@ -132,8 +132,8 @@ describe('SessionRepository', () => {
       const completed2 = repo.create(projectId, 'Completed Session 2', 'Prompt');
       repo.update(completed2.id, { status: 'completed' });
 
-      const starting = repo.create(projectId, 'Starting Session', 'Prompt');
-      // starting is default status, no update needed
+      const _starting = repo.create(projectId, 'Starting Session', 'Prompt');
+      // _starting is default status, no update needed
 
       const sessions = repo.getByProjectId(projectId);
 
