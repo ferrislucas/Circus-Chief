@@ -72,7 +72,7 @@ router.delete('/:id/canvas/:itemId', (req, res) => {
   canvasItems.delete(req.params.itemId);
 
   // Broadcast to session subscribers
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_REMOVE, { itemId: req.params.itemId });
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_REMOVE, { sessionId: req.params.id, itemId: req.params.itemId });
 
   res.status(204).send();
 });

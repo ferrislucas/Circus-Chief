@@ -115,7 +115,7 @@ export async function runSession(sessionId, prompt, workingDirectory) {
     console.error('Error stack:', error.stack);
     if (!controller.signal.aborted) {
       sessions.update(sessionId, { status: 'error', error: error.message });
-      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { error: error.message });
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
     }
     throw error;
   } finally {
@@ -196,7 +196,7 @@ export async function continueSession(sessionId, content, workingDirectory) {
     console.error('Error stack:', error.stack);
     if (!controller.signal.aborted) {
       sessions.update(sessionId, { status: 'error', error: error.message });
-      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { error: error.message });
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
     }
     throw error;
   } finally {
@@ -285,7 +285,7 @@ async function handleStreamEvent(sessionId, event) {
     case 'result': {
       if (event.subtype === 'error') {
         sessions.update(sessionId, { status: 'error', error: event.error });
-        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { error: event.error });
+        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: event.error });
       } else {
         // Store cost info
         if (event.total_cost_usd !== undefined) {

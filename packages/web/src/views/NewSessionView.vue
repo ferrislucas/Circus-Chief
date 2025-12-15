@@ -38,8 +38,67 @@
         </select>
       </div>
 
-      <div v-if="gitStatus" class="form-group">
-        <label class="form-label" for="gitMode">Git Mode</label>
+      <!-- Quick Git Options -->
+      <div v-if="gitStatus?.isGitRepo && !showAdvancedGit" class="form-group">
+        <label class="form-label">Git Options</label>
+        <div class="quick-git-options">
+          <label class="radio-option">
+            <input type="radio" v-model="quickGitMode" value="" />
+            <span class="radio-label">Use current branch</span>
+            <span class="radio-help">{{ gitStatus.currentBranch }}</span>
+          </label>
+          <label class="radio-option">
+            <input type="radio" v-model="quickGitMode" value="branch" />
+            <span class="radio-label">Create new branch</span>
+            <span class="radio-help">Work in the project directory</span>
+          </label>
+          <label class="radio-option">
+            <input type="radio" v-model="quickGitMode" value="worktree" />
+            <span class="radio-label">Create isolated worktree</span>
+            <span class="radio-help">Separate working directory for this session</span>
+          </label>
+        </div>
+
+        <!-- Branch name input (shown for branch or worktree) -->
+        <div v-if="quickGitMode" class="quick-branch-section">
+          <label class="form-label form-label-small">Branch Name</label>
+          <div class="quick-branch-input">
+            <input
+              v-model="quickWorktreeBranch"
+              type="text"
+              class="form-input"
+              :placeholder="autoBranchName"
+              @focus="handleBranchEdit"
+            />
+            <button
+              v-if="editingBranch"
+              type="button"
+              class="btn btn-small"
+              @click="resetBranchName"
+            >
+              Reset
+            </button>
+          </div>
+          <p class="form-help">Auto-generated from session name/prompt</p>
+        </div>
+
+        <button
+          type="button"
+          class="link-button"
+          @click="showAdvancedGit = true"
+        >
+          Advanced git options...
+        </button>
+      </div>
+
+      <!-- Advanced Git Options (legacy UI) -->
+      <div v-if="gitStatus?.isGitRepo && showAdvancedGit" class="form-group">
+        <div class="advanced-header">
+          <label class="form-label">Git Mode (Advanced)</label>
+          <button type="button" class="link-button" @click="showAdvancedGit = false">
+            Simple options
+          </button>
+        </div>
         <select id="gitMode" v-model="gitMode" class="form-input">
           <option value="">None (use current branch)</option>
           <option value="branch">Switch Branch</option>
@@ -50,31 +109,31 @@
           <template v-else-if="gitMode === 'branch'">Checkout/create a branch in the project directory</template>
           <template v-else-if="gitMode === 'worktree'">Create an isolated worktree for this session</template>
         </p>
-      </div>
 
-      <div v-if="gitStatus && gitMode" class="form-group">
-        <label class="form-label" for="gitBranch">
-          {{ gitMode === 'branch' ? 'Branch Name' : 'Worktree Branch' }}
-        </label>
-        <div class="branch-input-group">
-          <select id="gitBranch" v-model="gitBranch" class="form-input">
-            <option value="">-- Select existing or type new --</option>
-            <option v-for="branch in gitStatus.branches" :key="branch.name" :value="branch.name">
-              {{ branch.name }}
-            </option>
-          </select>
-          <span class="or-text">or</span>
-          <input
-            v-model="newBranchName"
-            type="text"
-            class="form-input"
-            placeholder="New branch name"
-            @input="gitBranch = newBranchName"
-          />
+        <div v-if="gitMode" class="form-group nested-group">
+          <label class="form-label" for="gitBranch">
+            {{ gitMode === 'branch' ? 'Branch Name' : 'Worktree Branch' }}
+          </label>
+          <div class="branch-input-group">
+            <select id="gitBranch" v-model="gitBranch" class="form-input">
+              <option value="">-- Select existing or type new --</option>
+              <option v-for="branch in gitStatus.branches" :key="branch.name" :value="branch.name">
+                {{ branch.name }}
+              </option>
+            </select>
+            <span class="or-text">or</span>
+            <input
+              v-model="newBranchName"
+              type="text"
+              class="form-input"
+              placeholder="New branch name"
+              @input="gitBranch = newBranchName"
+            />
+          </div>
+          <p v-if="gitStatus.currentBranch" class="form-help">
+            Current branch: {{ gitStatus.currentBranch }}
+          </p>
         </div>
-        <p v-if="gitStatus.currentBranch" class="form-help">
-          Current branch: {{ gitStatus.currentBranch }}
-        </p>
       </div>
 
       <div v-if="loadingGit" class="git-loading">
@@ -96,11 +155,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { api } from '../composables/useApi.js';
+import { generateWorktreeBranch } from '@claudetools/shared';
 
 const route = useRoute();
 const router = useRouter();
@@ -118,6 +178,35 @@ const loading = ref(false);
 const loadingGit = ref(false);
 const error = ref(null);
 
+// Quick git feature
+const quickGitMode = ref(''); // '', 'branch', or 'worktree'
+const quickWorktreeBranch = ref('');
+const editingBranch = ref(false);
+const showAdvancedGit = ref(false);
+
+// Generate branch name when session name or prompt changes
+const autoBranchName = computed(() => {
+  return generateWorktreeBranch(name.value, prompt.value);
+});
+
+// Update quick worktree branch when auto-generated name changes
+watch(autoBranchName, (newBranch) => {
+  if (!editingBranch.value) {
+    quickWorktreeBranch.value = newBranch;
+  }
+});
+
+// Initialize quick worktree branch
+watch(
+  () => gitStatus.value,
+  (status) => {
+    if (status?.isGitRepo) {
+      quickWorktreeBranch.value = autoBranchName.value;
+    }
+  },
+  { immediate: true }
+);
+
 onMounted(async () => {
   loadingGit.value = true;
   try {
@@ -129,17 +218,40 @@ onMounted(async () => {
   }
 });
 
+function handleBranchEdit() {
+  editingBranch.value = true;
+}
+
+function resetBranchName() {
+  editingBranch.value = false;
+  quickWorktreeBranch.value = autoBranchName.value;
+}
+
 async function handleSubmit() {
   loading.value = true;
   error.value = null;
 
   try {
+    // Determine git settings based on quick or advanced options
+    let submitGitMode;
+    let submitGitBranch;
+
+    if (showAdvancedGit.value) {
+      // Use advanced options
+      submitGitMode = gitMode.value || undefined;
+      submitGitBranch = gitBranch.value || undefined;
+    } else if (quickGitMode.value && gitStatus.value?.isGitRepo) {
+      // Use quick options
+      submitGitMode = quickGitMode.value;
+      submitGitBranch = quickWorktreeBranch.value;
+    }
+
     const session = await sessionsStore.createSession(route.params.id, {
       name: name.value || undefined,
       prompt: prompt.value,
       mode: mode.value,
-      gitMode: gitMode.value || undefined,
-      gitBranch: gitBranch.value || undefined,
+      gitMode: submitGitMode,
+      gitBranch: submitGitBranch,
     });
     uiStore.success('Session started');
     router.push(`/sessions/${session.id}`);
@@ -210,5 +322,105 @@ h1 {
 .or-text {
   color: var(--color-text-soft);
   font-size: 0.875rem;
+}
+
+/* Quick git options */
+.quick-git-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.radio-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.radio-option:hover {
+  border-color: var(--color-border-hover);
+  background-color: var(--color-bg-hover);
+}
+
+.radio-option:has(input:checked) {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent-bg);
+}
+
+.radio-option input[type="radio"] {
+  margin-top: 0.125rem;
+}
+
+.radio-label {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.radio-help {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.quick-branch-section {
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: var(--color-bg-soft);
+  border-radius: 0.375rem;
+}
+
+.form-label-small {
+  font-size: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.quick-branch-input {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.quick-branch-input input {
+  flex: 1;
+}
+
+.btn-small {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  margin-top: 0.5rem;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+.advanced-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.advanced-header .form-label {
+  margin-bottom: 0;
+}
+
+.nested-group {
+  margin-top: 1rem;
 }
 </style>
