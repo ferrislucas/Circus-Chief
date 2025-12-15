@@ -1,19 +1,13 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { projects, sessions } from '../src/database.js';
+import { projects } from '../src/database.js';
 import * as gitService from '../src/services/gitService.js';
-import * as sessionManager from '../src/services/sessionManager.js';
 
 vi.mock('../src/services/gitService.js');
-vi.mock('../src/services/sessionManager.js');
 
 describe('Session Creation with Git Modes', () => {
-  let project;
-
   beforeEach(() => {
-    project = projects.create('Test Project', '/test/project/path');
+    projects.create('Test Project', '/test/project/path');
     vi.resetAllMocks();
-    // Default mock for runSession
-    sessionManager.runSession = vi.fn().mockResolvedValue(undefined);
   });
 
   afterEach(() => {
