@@ -71,8 +71,11 @@ router.post('/:id/message', async (req, res) => {
   }
 
   try {
+    // Use gitWorktree if set, otherwise use the project's working directory
+    const workingDirectory = session.gitWorktree || project.workingDirectory;
+
     // Start continuation (non-blocking)
-    continueSession(session.id, content, project.workingDirectory).catch((error) => {
+    continueSession(session.id, content, workingDirectory).catch((error) => {
       console.error('Continue session error:', error);
     });
     res.json({ success: true });
