@@ -29,27 +29,27 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
-    async fetchSession(id) {
-      this.loading = true;
+    async fetchSession(id, showLoading = true) {
+      if (showLoading) this.loading = true;
       this.error = null;
       try {
         this.currentSession = await api.getSession(id);
       } catch (err) {
         this.error = err.message;
       } finally {
-        this.loading = false;
+        if (showLoading) this.loading = false;
       }
     },
 
-    async fetchMessages(sessionId) {
-      this.loading = true;
+    async fetchMessages(sessionId, showLoading = true) {
+      if (showLoading) this.loading = true;
       this.error = null;
       try {
         this.messages = await api.getSessionMessages(sessionId);
       } catch (err) {
         this.error = err.message;
       } finally {
-        this.loading = false;
+        if (showLoading) this.loading = false;
       }
     },
 
