@@ -105,9 +105,10 @@ function startPolling() {
   pollIntervalId.value = setInterval(async () => {
     const status = sessionsStore.currentSession?.status;
     // Only poll while actively processing, not while waiting for user input
+    // Use showLoading=false to avoid flickering
     if (status === 'running' || status === 'starting') {
-      await sessionsStore.fetchSession(route.params.id);
-      await sessionsStore.fetchMessages(route.params.id);
+      await sessionsStore.fetchSession(route.params.id, false);
+      await sessionsStore.fetchMessages(route.params.id, false);
     } else {
       // Session no longer actively processing, stop polling
       stopPolling();

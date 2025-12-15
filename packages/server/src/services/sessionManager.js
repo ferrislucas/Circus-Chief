@@ -6,6 +6,46 @@ import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT } from '@claudetools/shared';
 /** @type {Map<string, { controller: AbortController }>} */
 const activeSessions = new Map();
 
+/** Check if mock mode is enabled (for E2E testing) */
+const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
+
+/**
+ * Mock query generator for E2E testing
+ * Simulates the Claude SDK's behavior for multi-turn conversations
+ * @param {Object} params
+ * @param {string} params.prompt - The prompt string
+ */
+async function* mockQuery({ prompt }) {
+  // Yield system init event
+  yield {
+    type: 'system',
+    subtype: 'init',
+    session_id: 'mock-session-' + Date.now(),
+    model: 'claude-sonnet-4-5-20250929',
+  };
+
+  // Small delay to simulate processing
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  // Generate a mock response based on the user's message
+  const responseText = `Mock response to: "${prompt}"`;
+
+  // Yield assistant message
+  yield {
+    type: 'assistant',
+    message: {
+      content: [{ type: 'text', text: responseText }],
+    },
+  };
+
+  // Yield result event
+  yield {
+    type: 'result',
+    subtype: 'success',
+    total_cost_usd: 0.001,
+  };
+}
+
 /**
  * Build system prompt with canvas instructions
  * @param {string} sessionId
@@ -37,21 +77,28 @@ export async function runSession(sessionId, prompt, workingDirectory) {
 
     // Note: Initial user message is already created in SessionRepository.create()
 
-    // Run the query with the SDK using a simple string prompt
-    for await (const event of query({
-      prompt,
-      options: {
-        cwd: workingDirectory,
-        abortController: controller,
-        includePartialMessages: true,
-        permissionMode: 'bypassPermissions',
-        systemPrompt: {
-          type: 'preset',
-          preset: 'claude_code',
-          append: buildCanvasSystemPrompt(sessionId),
-        },
-      },
-    })) {
+    // Choose between mock and real query based on environment
+    const queryFn = isMockMode() ? mockQuery : query;
+
+    const queryParams = isMockMode()
+      ? { prompt }
+      : {
+          prompt,
+          options: {
+            cwd: workingDirectory,
+            abortController: controller,
+            includePartialMessages: true,
+            permissionMode: 'bypassPermissions',
+            systemPrompt: {
+              type: 'preset',
+              preset: 'claude_code',
+              append: buildCanvasSystemPrompt(sessionId),
+            },
+          },
+        };
+
+    // Run the query with the SDK (or mock)
+    for await (const event of queryFn(queryParams)) {
       if (controller.signal.aborted) break;
 
       await handleStreamEvent(sessionId, event);
@@ -94,7 +141,7 @@ export async function continueSession(sessionId, content, workingDirectory) {
     throw new Error('Session not found');
   }
 
-  if (!session.claudeSessionId) {
+  if (!session.claudeSessionId && !isMockMode()) {
     throw new Error('Session has no Claude session ID - cannot resume');
   }
 
@@ -110,22 +157,29 @@ export async function continueSession(sessionId, content, workingDirectory) {
     sessions.update(sessionId, { status: 'running' });
     broadcastSessionStatus(sessionId, 'running');
 
+    // Choose between mock and real query based on environment
+    const queryFn = isMockMode() ? mockQuery : query;
+
+    const queryParams = isMockMode()
+      ? { prompt: content }
+      : {
+          prompt: content,
+          options: {
+            cwd: workingDirectory,
+            abortController: controller,
+            includePartialMessages: true,
+            permissionMode: 'bypassPermissions',
+            resume: session.claudeSessionId,
+            systemPrompt: {
+              type: 'preset',
+              preset: 'claude_code',
+              append: buildCanvasSystemPrompt(sessionId),
+            },
+          },
+        };
+
     // Resume the session with the new message
-    for await (const event of query({
-      prompt: content,
-      options: {
-        cwd: workingDirectory,
-        abortController: controller,
-        includePartialMessages: true,
-        permissionMode: 'bypassPermissions',
-        resume: session.claudeSessionId,
-        systemPrompt: {
-          type: 'preset',
-          preset: 'claude_code',
-          append: buildCanvasSystemPrompt(sessionId),
-        },
-      },
-    })) {
+    for await (const event of queryFn(queryParams)) {
       if (controller.signal.aborted) break;
 
       await handleStreamEvent(sessionId, event);

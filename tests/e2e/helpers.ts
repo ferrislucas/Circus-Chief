@@ -131,3 +131,22 @@ export async function waitForSessionStatus(
     await expect(statusBadge).toBeVisible();
   }).toPass({ timeout });
 }
+
+export async function getSessionMessages(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/messages`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function sendSessionMessage(sessionId: string, content: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to send message');
+  }
+  return response.json();
+}
