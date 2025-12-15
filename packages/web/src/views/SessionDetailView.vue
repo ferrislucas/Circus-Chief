@@ -99,16 +99,18 @@ const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCan
 let cleanups = [];
 const pollIntervalId = ref(null);
 
-// Poll for updates while session is active (fallback for race conditions)
+// Poll for updates while session is actively processing (fallback for race conditions)
 function startPolling() {
   if (pollIntervalId.value) return;
   pollIntervalId.value = setInterval(async () => {
     const status = sessionsStore.currentSession?.status;
-    if (status === 'running' || status === 'starting' || status === 'waiting') {
-      await sessionsStore.fetchSession(route.params.id);
-      await sessionsStore.fetchMessages(route.params.id);
+    // Only poll while actively processing, not while waiting for user input
+    // Use showLoading=false to avoid flickering
+    if (status === 'running' || status === 'starting') {
+      await sessionsStore.fetchSession(route.params.id, false);
+      await sessionsStore.fetchMessages(route.params.id, false);
     } else {
-      // Session no longer active, stop polling
+      // Session no longer actively processing, stop polling
       stopPolling();
     }
   }, 2000);
@@ -130,18 +132,20 @@ onMounted(async () => {
   await sessionsStore.fetchMessages(route.params.id);
   canvasStore.fetchItems(route.params.id);
 
-  // Start polling if session is active (handles race condition where session
+  // Start polling if session is actively processing (handles race condition where session
   // completes before WebSocket subscription is established)
   const status = sessionsStore.currentSession?.status;
-  if (status === 'running' || status === 'starting' || status === 'waiting') {
+  if (status === 'running' || status === 'starting') {
     startPolling();
   }
 
   cleanups.push(
     onStatus((status) => {
       sessionsStore.updateSessionStatus(route.params.id, status);
-      // Stop polling when session becomes inactive
-      if (status !== 'running' && status !== 'starting' && status !== 'waiting') {
+      // Start polling when session starts processing, stop when done
+      if (status === 'running' || status === 'starting') {
+        startPolling();
+      } else {
         stopPolling();
       }
     })

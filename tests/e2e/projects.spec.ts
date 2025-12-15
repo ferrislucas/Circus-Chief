@@ -95,7 +95,8 @@ test.describe('Project Management', () => {
     const project = await seedProject('Test Project', '/tmp/test');
 
     await page.goto('/');
-    await page.click('text=Sessions');
+    // Click on the project row (which is now fully clickable)
+    await page.click('.project-card');
 
     await expect(page).toHaveURL(`/projects/${project.id}/sessions`);
 
