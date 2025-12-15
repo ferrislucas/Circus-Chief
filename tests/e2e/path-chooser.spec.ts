@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test';
 import { seedProject, cleanupAll } from './helpers';
 
 test.describe('Path Chooser', () => {
+  // Run tests serially to avoid race conditions with shared database
+  test.describe.configure({ mode: 'serial' });
+
   test.beforeEach(async () => {
     await cleanupAll();
   });
@@ -72,6 +75,9 @@ test.describe('Path Chooser', () => {
 });
 
 test.describe('Path Chooser Navigation', () => {
+  // Run tests serially to avoid race conditions with shared database
+  test.describe.configure({ mode: 'serial' });
+
   test.beforeEach(async () => {
     await cleanupAll();
   });
@@ -166,6 +172,9 @@ test.describe('Path Chooser Navigation', () => {
 });
 
 test.describe('Path Chooser Selection', () => {
+  // Run tests serially to avoid race conditions with shared database
+  test.describe.configure({ mode: 'serial' });
+
   test.beforeEach(async () => {
     await cleanupAll();
   });
@@ -230,6 +239,9 @@ test.describe('Path Chooser Selection', () => {
 });
 
 test.describe('Path Chooser in Edit View', () => {
+  // Run tests serially to avoid race conditions with shared database
+  test.describe.configure({ mode: 'serial' });
+
   test.beforeEach(async () => {
     await cleanupAll();
   });
@@ -275,6 +287,9 @@ test.describe('Path Chooser in Edit View', () => {
 });
 
 test.describe('Path Chooser Error Handling', () => {
+  // Run tests serially to avoid race conditions with shared database
+  test.describe.configure({ mode: 'serial' });
+
   test.beforeEach(async () => {
     await cleanupAll();
   });
