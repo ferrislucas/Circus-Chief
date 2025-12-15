@@ -71,6 +71,9 @@ const input = ref('');
 const sending = ref(false);
 const messagesContainer = ref(null);
 const partialText = ref('');
+let debounceTimer = null;
+
+const STORAGE_KEY = `session-draft-${props.sessionId}`;
 
 const canSendMessage = computed(() => {
   return sessionsStore.currentSession?.status === 'waiting';
@@ -82,6 +85,12 @@ let unsubPartial = null;
 let unsubMessage = null;
 
 onMounted(() => {
+  // Load draft from localStorage
+  const savedDraft = localStorage.getItem(STORAGE_KEY);
+  if (savedDraft) {
+    input.value = savedDraft;
+  }
+
   unsubPartial = onPartial((text) => {
     partialText.value = text;
     scrollToBottom();
@@ -96,6 +105,19 @@ onMounted(() => {
 onUnmounted(() => {
   if (unsubPartial) unsubPartial();
   if (unsubMessage) unsubMessage();
+  if (debounceTimer) clearTimeout(debounceTimer);
+});
+
+// Save draft to localStorage with debounce
+watch(input, (newValue) => {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    if (newValue.trim()) {
+      localStorage.setItem(STORAGE_KEY, newValue);
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, 500);
 });
 
 function scrollToBottom() {
@@ -124,6 +146,7 @@ async function handleSend() {
   try {
     await sessionsStore.sendMessage(props.sessionId, input.value);
     input.value = '';
+    localStorage.removeItem(STORAGE_KEY);
   } catch (err) {
     uiStore.error(err.message);
   } finally {
