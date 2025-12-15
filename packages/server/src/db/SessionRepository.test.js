@@ -101,7 +101,7 @@ describe('SessionRepository', () => {
       expect(sessions).toHaveLength(3);
     });
 
-    it('returns sessions ordered by updatedAt descending', () => {
+    it('returns sessions ordered by updatedAt descending within same status', () => {
       const s1 = repo.create(projectId, 'Session 1', 'Prompt 1');
       const s2 = repo.create(projectId, 'Session 2', 'Prompt 2');
       const s3 = repo.create(projectId, 'Session 3', 'Prompt 3');
@@ -110,12 +110,77 @@ describe('SessionRepository', () => {
 
       // Verify all sessions are returned and ordered by updatedAt DESC
       expect(sessions).toHaveLength(3);
-      const ids = sessions.map(s => s.id);
+      const ids = sessions.map((s) => s.id);
       expect(ids).toContain(s1.id);
       expect(ids).toContain(s2.id);
       expect(ids).toContain(s3.id);
       // Items with same timestamp are returned, ordering is stable
       expect(sessions[0].updatedAt).toBeGreaterThanOrEqual(sessions[2].updatedAt);
+    });
+
+    it('returns completed sessions after non-completed sessions', () => {
+      // Create sessions with different statuses
+      const waiting = repo.create(projectId, 'Waiting Session', 'Prompt');
+      repo.update(waiting.id, { status: 'waiting' });
+
+      const completed1 = repo.create(projectId, 'Completed Session 1', 'Prompt');
+      repo.update(completed1.id, { status: 'completed' });
+
+      const running = repo.create(projectId, 'Running Session', 'Prompt');
+      repo.update(running.id, { status: 'running' });
+
+      const completed2 = repo.create(projectId, 'Completed Session 2', 'Prompt');
+      repo.update(completed2.id, { status: 'completed' });
+
+      const starting = repo.create(projectId, 'Starting Session', 'Prompt');
+      // starting is default status, no update needed
+
+      const sessions = repo.getByProjectId(projectId);
+
+      expect(sessions).toHaveLength(5);
+
+      // Non-completed sessions should come first
+      const nonCompleted = sessions.filter((s) => s.status !== 'completed');
+      const completed = sessions.filter((s) => s.status === 'completed');
+
+      expect(nonCompleted).toHaveLength(3);
+      expect(completed).toHaveLength(2);
+
+      // Verify non-completed come before completed
+      const firstCompletedIndex = sessions.findIndex((s) => s.status === 'completed');
+      const lastNonCompletedIndex = sessions.findLastIndex((s) => s.status !== 'completed');
+      expect(lastNonCompletedIndex).toBeLessThan(firstCompletedIndex);
+    });
+
+    it('sorts completed sessions by updatedAt descending', () => {
+      // Create two completed sessions with different updatedAt times
+      const older = repo.create(projectId, 'Older Completed', 'Prompt');
+      repo.update(older.id, { status: 'completed' });
+
+      // Small delay to ensure different timestamps
+      const newer = repo.create(projectId, 'Newer Completed', 'Prompt');
+      repo.update(newer.id, { status: 'completed' });
+
+      const sessions = repo.getByProjectId(projectId);
+
+      expect(sessions).toHaveLength(2);
+      // Newer should come first (higher updatedAt)
+      expect(sessions[0].updatedAt).toBeGreaterThanOrEqual(sessions[1].updatedAt);
+    });
+
+    it('sorts non-completed sessions by updatedAt descending', () => {
+      // Create sessions with different non-completed statuses
+      const first = repo.create(projectId, 'First', 'Prompt');
+      repo.update(first.id, { status: 'waiting' });
+
+      const second = repo.create(projectId, 'Second', 'Prompt');
+      repo.update(second.id, { status: 'running' });
+
+      const sessions = repo.getByProjectId(projectId);
+
+      expect(sessions).toHaveLength(2);
+      // Second should come first (higher updatedAt)
+      expect(sessions[0].updatedAt).toBeGreaterThanOrEqual(sessions[1].updatedAt);
     });
 
     it('does not return sessions from other projects', () => {
