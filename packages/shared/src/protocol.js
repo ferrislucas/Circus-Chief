@@ -12,6 +12,7 @@ export const WS_MESSAGE_TYPES = {
   SESSION_MESSAGE: 'session:message',
   SESSION_PARTIAL: 'session:partial',
   SESSION_ERROR: 'session:error',
+  SESSION_DELETED: 'session:deleted',
   CANVAS_ADD: 'canvas:add',
   CANVAS_REMOVE: 'canvas:remove',
 };

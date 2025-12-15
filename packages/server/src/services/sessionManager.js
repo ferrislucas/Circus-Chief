@@ -236,6 +236,21 @@ export function endSession(sessionId) {
 }
 
 /**
+ * Clean up an active session before deletion
+ * @param {string} sessionId
+ * @returns {boolean} true if session was active and cleaned up
+ */
+export function cleanupActiveSession(sessionId) {
+  const sessionData = activeSessions.get(sessionId);
+  if (sessionData) {
+    sessionData.controller.abort();
+    activeSessions.delete(sessionId);
+    return true;
+  }
+  return false;
+}
+
+/**
  * Handle a stream event from Claude SDK
  * @param {string} sessionId
  * @param {Object} event
