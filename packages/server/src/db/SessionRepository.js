@@ -47,7 +47,13 @@ export class SessionRepository extends BaseRepository {
 
   getByProjectId(projectId) {
     const rows = this.db
-      .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY updated_at DESC')
+      .prepare(
+        `SELECT * FROM sessions
+         WHERE project_id = ?
+         ORDER BY
+           CASE WHEN status = 'completed' THEN 1 ELSE 0 END,
+           updated_at DESC`
+      )
       .all(projectId);
     return this.mapAll(rows);
   }
