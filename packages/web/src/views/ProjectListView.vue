@@ -19,14 +19,18 @@
     </div>
 
     <div v-else class="project-list">
-      <div v-for="project in projectsStore.projects" :key="project.id" class="project-card card">
+      <div
+        v-for="project in projectsStore.projects"
+        :key="project.id"
+        class="project-card card"
+        @click="goToSessions(project.id)"
+      >
         <div class="project-info">
           <h3 class="project-name">{{ project.name }}</h3>
           <p class="project-path">{{ project.workingDirectory }}</p>
         </div>
         <div class="project-actions">
-          <router-link :to="`/projects/${project.id}/sessions`" class="btn">Sessions</router-link>
-          <router-link :to="`/projects/${project.id}/edit`" class="btn">Edit</router-link>
+          <router-link :to="`/projects/${project.id}/edit`" class="btn" @click.stop>Edit</router-link>
         </div>
       </div>
     </div>
@@ -35,9 +39,15 @@
 
 <script setup>
 import { onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 
+const router = useRouter();
 const projectsStore = useProjectsStore();
+
+function goToSessions(projectId) {
+  router.push(`/projects/${projectId}/sessions`);
+}
 
 onMounted(() => {
   projectsStore.fetchProjects();
@@ -89,6 +99,12 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.project-card:hover {
+  background-color: var(--color-background-soft);
 }
 
 .project-name {

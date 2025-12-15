@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { sessions, messages, sessionNotes, projects } from '../database.js';
-import { sendMessage, stopSession } from '../services/sessionManager.js';
+import { continueSession, stopSession, endSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
 
 const router = Router();
@@ -64,8 +64,17 @@ router.post('/:id/message', async (req, res) => {
     return res.status(400).json({ error: 'Session is not waiting for input' });
   }
 
+  // Get the project for the working directory
+  const project = projects.getById(session.projectId);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
   try {
-    await sendMessage(session.id, content);
+    // Start continuation (non-blocking)
+    continueSession(session.id, content, project.workingDirectory).catch((error) => {
+      console.error('Continue session error:', error);
+    });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -85,6 +94,25 @@ router.post('/:id/stop', async (req, res) => {
 
   try {
     await stopSession(session.id);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/sessions/:id/end - End session (mark as completed)
+router.post('/:id/end', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  if (session.status === 'completed') {
+    return res.status(400).json({ error: 'Session is already completed' });
+  }
+
+  try {
+    endSession(session.id);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });

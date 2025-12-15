@@ -167,6 +167,15 @@ export class ApiClient {
     return this.#request('GET', `/sessions/${sessionId}/changes`);
   }
 
+  /**
+   * End a session (mark as completed)
+   * @param {string} id - Session ID
+   * @returns {Promise<Object>}
+   */
+  async endSession(id) {
+    return this.#request('POST', `/sessions/${id}/end`);
+  }
+
   // Canvas
 
   /**

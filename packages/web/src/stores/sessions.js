@@ -29,27 +29,27 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
-    async fetchSession(id) {
-      this.loading = true;
+    async fetchSession(id, showLoading = true) {
+      if (showLoading) this.loading = true;
       this.error = null;
       try {
         this.currentSession = await api.getSession(id);
       } catch (err) {
         this.error = err.message;
       } finally {
-        this.loading = false;
+        if (showLoading) this.loading = false;
       }
     },
 
-    async fetchMessages(sessionId) {
-      this.loading = true;
+    async fetchMessages(sessionId, showLoading = true) {
+      if (showLoading) this.loading = true;
       this.error = null;
       try {
         this.messages = await api.getSessionMessages(sessionId);
       } catch (err) {
         this.error = err.message;
       } finally {
-        this.loading = false;
+        if (showLoading) this.loading = false;
       }
     },
 
@@ -84,6 +84,23 @@ export const useSessionsStore = defineStore('sessions', {
         await api.stopSession(id);
         if (this.currentSession?.id === id) {
           this.currentSession.status = 'completed';
+        }
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    async endSession(id) {
+      this.error = null;
+      try {
+        await api.endSession(id);
+        if (this.currentSession?.id === id) {
+          this.currentSession.status = 'completed';
+        }
+        const session = this.sessions.find((s) => s.id === id);
+        if (session) {
+          session.status = 'completed';
         }
       } catch (err) {
         this.error = err.message;
