@@ -8,9 +8,17 @@
     "./types": "./src/types.js",
     "./protocol": "./src/protocol.js",
     "./constants": "./src/constants.js",
-    "./contracts/*": "./src/contracts/*.js"
+    "./contracts/*": "./src/contracts/*.js",
+    "./utils": "./src/utils.js"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "vitest": "^1.2.2"
   }
 }
