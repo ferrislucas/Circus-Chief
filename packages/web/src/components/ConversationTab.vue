@@ -31,6 +31,15 @@
         </div>
         <div class="message-content">{{ partialText }}</div>
       </div>
+
+      <!-- Jump to latest button -->
+      <button
+        v-if="!isNearBottom && hasNewMessages"
+        class="jump-to-latest"
+        @click="scrollToBottom(true)"
+      >
+        New messages below
+      </button>
     </div>
 
     <form v-if="canSendMessage" @submit.prevent="handleSend" class="input-form">
@@ -81,7 +90,11 @@ const sending = ref(false);
 const ending = ref(false);
 const messagesContainer = ref(null);
 const partialText = ref('');
+const isNearBottom = ref(true);
+const hasNewMessages = ref(false);
 let debounceTimer = null;
+
+const SCROLL_THRESHOLD = 100; // pixels from bottom to consider "at bottom"
 
 const STORAGE_KEY = `session-draft-${props.sessionId}`;
 
@@ -94,11 +107,28 @@ const { onPartial, onMessage } = useSessionSubscription(props.sessionId);
 let unsubPartial = null;
 let unsubMessage = null;
 
+function handleScroll() {
+  if (!messagesContainer.value) return;
+  const { scrollTop, scrollHeight, clientHeight } = messagesContainer.value;
+  const wasNearBottom = isNearBottom.value;
+  isNearBottom.value = scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD;
+
+  // Clear new messages indicator when user scrolls to bottom
+  if (isNearBottom.value && !wasNearBottom) {
+    hasNewMessages.value = false;
+  }
+}
+
 onMounted(() => {
   // Load draft from localStorage
   const savedDraft = localStorage.getItem(STORAGE_KEY);
   if (savedDraft) {
     input.value = savedDraft;
+  }
+
+  // Add scroll event listener
+  if (messagesContainer.value) {
+    messagesContainer.value.addEventListener('scroll', handleScroll);
   }
 
   unsubPartial = onPartial((text) => {
@@ -110,12 +140,18 @@ onMounted(() => {
   unsubMessage = onMessage(() => {
     partialText.value = '';
   });
+
+  // Scroll to bottom on initial load
+  scrollToBottom(true);
 });
 
 onUnmounted(() => {
   if (unsubPartial) unsubPartial();
   if (unsubMessage) unsubMessage();
   if (debounceTimer) clearTimeout(debounceTimer);
+  if (messagesContainer.value) {
+    messagesContainer.value.removeEventListener('scroll', handleScroll);
+  }
 });
 
 // Save draft to localStorage with debounce
@@ -130,18 +166,28 @@ watch(input, (newValue) => {
   }, 500);
 });
 
-function scrollToBottom() {
+function scrollToBottom(force = false) {
   nextTick(() => {
-    if (messagesContainer.value) {
+    if (messagesContainer.value && (force || isNearBottom.value)) {
       messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+      isNearBottom.value = true;
+      hasNewMessages.value = false;
+    } else if (messagesContainer.value) {
+      // User has scrolled up, mark that there are new messages
+      hasNewMessages.value = true;
     }
   });
 }
 
 watch(
   () => sessionsStore.messages.length,
-  () => {
-    scrollToBottom();
+  (newLen, oldLen) => {
+    // Force scroll when messages first load, conditional scroll otherwise
+    if (oldLen === 0 && newLen > 0) {
+      scrollToBottom(true);
+    } else {
+      scrollToBottom();
+    }
   }
 );
 
@@ -190,6 +236,7 @@ async function handleEndSession() {
   overflow-y: auto;
   max-height: 500px;
   padding: 1rem 0;
+  position: relative;
 }
 
 .message {
@@ -299,6 +346,31 @@ async function handleEndSession() {
 
 .status-completed {
   color: var(--color-success, #10b981);
+}
+
+.jump-to-latest {
+  position: sticky;
+  bottom: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: block;
+  margin: 0 auto;
+  padding: 0.5rem 1rem;
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: 1rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: background-color 0.2s, transform 0.2s;
+  z-index: 10;
+}
+
+.jump-to-latest:hover {
+  background-color: var(--color-accent-hover, var(--color-accent));
+  transform: translateX(-50%) scale(1.05);
 }
 
 /* Streaming indicator animation */
