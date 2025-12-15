@@ -159,6 +159,15 @@ export class ApiClient {
   }
 
   /**
+   * Get git changes for a session
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<{staged: string, unstaged: string}>}
+   */
+  async getSessionChanges(sessionId) {
+    return this.#request('GET', `/sessions/${sessionId}/changes`);
+  }
+
+  /**
    * End a session (mark as completed)
    * @param {string} id - Session ID
    * @returns {Promise<Object>}
