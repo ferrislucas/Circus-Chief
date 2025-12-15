@@ -7,6 +7,45 @@ import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT } from '@claudetools/shared';
 const activeSessions = new Map();
 
 /**
+ * Create an async generator for multi-turn conversation input
+ * @param {string} sessionId
+ * @param {string} initialPrompt
+ * @yields {{ role: 'user', content: string }}
+ */
+async function* createInputGenerator(sessionId, initialPrompt) {
+  // Yield initial prompt
+  yield { role: 'user', content: initialPrompt };
+
+  // Continue yielding follow-up messages until session ends
+  while (true) {
+    const sessionData = activeSessions.get(sessionId);
+    if (!sessionData || sessionData.controller.signal.aborted) {
+      return;
+    }
+
+    // Signal waiting for input
+    sessions.update(sessionId, { status: 'waiting' });
+    broadcastSessionStatus(sessionId, 'waiting');
+
+    // Wait for user input (sendMessage will resolve this)
+    const input = await new Promise((resolve) => {
+      const session = activeSessions.get(sessionId);
+      if (session) {
+        session.inputResolve = resolve;
+      }
+    });
+
+    // Check if session was aborted while waiting
+    const currentSession = activeSessions.get(sessionId);
+    if (!currentSession || currentSession.controller.signal.aborted) {
+      return;
+    }
+
+    yield { role: 'user', content: input };
+  }
+}
+
+/**
  * Build system prompt with canvas instructions
  * @param {string} sessionId
  * @returns {string}
@@ -37,9 +76,12 @@ export async function runSession(sessionId, prompt, workingDirectory) {
 
     // Note: Initial user message is already created in SessionRepository.create()
 
-    // Run the query with the SDK using a simple string prompt
+    // Create async generator for multi-turn conversation support
+    const inputGenerator = createInputGenerator(sessionId, prompt);
+
+    // Run the query with the SDK using the input generator
     for await (const event of query({
-      prompt,
+      prompt: inputGenerator,
       options: {
         cwd: workingDirectory,
         abortController: controller,
