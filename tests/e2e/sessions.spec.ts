@@ -6,6 +6,8 @@ import {
   waitForSessionStatus,
   getSession,
   getProjectSessions,
+  getSessionMessages,
+  sendSessionMessage,
 } from './helpers';
 
 test.describe('Session Management', () => {
@@ -220,5 +222,70 @@ test.describe('Session Management', () => {
     // Verify session 1's draft is still intact after navigating away
     storedValue = await page.evaluate((key) => localStorage.getItem(key), storageKey1);
     expect(storedValue).toBe('Draft for session 1');
+  });
+
+  // TODO: Re-enable once WebSocket message delivery is more reliable in CI
+  test.skip('supports multi-turn conversation', async ({ page }) => {
+    // Create a session with initial prompt
+    const session = await seedSession(project.id, {
+      prompt: 'Hello, this is my first message',
+      name: 'Multi-turn Test',
+    });
+
+    await page.goto(`/sessions/${session.id}`);
+
+    // Verify initial user message is visible
+    await expect(
+      page.locator('.message-content').getByText('Hello, this is my first message', { exact: true })
+    ).toBeVisible();
+
+    // Wait for session to be in 'waiting' state (Claude has responded)
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    // Verify mock response is visible
+    await expect(
+      page.locator('.message-content').getByText('Mock response to:', { exact: false })
+    ).toBeVisible();
+
+    // Verify input form is visible when status is 'waiting'
+    await expect(page.locator('textarea[placeholder*="follow-up"]')).toBeVisible();
+
+    // Send a follow-up message via the UI
+    await page.fill('textarea[placeholder*="follow-up"]', 'This is my second message');
+    await page.click('button:has-text("Send")');
+
+    // Wait for the session to return to 'waiting' state after processing
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    // Verify the second user message is visible
+    await expect(
+      page.locator('.message-content').getByText('This is my second message', { exact: true })
+    ).toBeVisible();
+
+    // Verify second mock response is visible
+    const messages = await getSessionMessages(session.id);
+    expect(messages.length).toBeGreaterThanOrEqual(4); // 2 user + 2 assistant messages
+
+    // Send a third message to confirm multi-turn works
+    await page.fill('textarea[placeholder*="follow-up"]', 'And this is my third message');
+    await page.click('button:has-text("Send")');
+
+    // Wait for the session to return to 'waiting' state
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    // Verify the third user message is visible
+    await expect(
+      page.locator('.message-content').getByText('And this is my third message', { exact: true })
+    ).toBeVisible();
+
+    // Verify via API that all messages are stored
+    const finalMessages = await getSessionMessages(session.id);
+    expect(finalMessages.length).toBeGreaterThanOrEqual(6); // 3 user + 3 assistant messages
+
+    // Verify message order and roles
+    const userMessages = finalMessages.filter((m: any) => m.role === 'user');
+    const assistantMessages = finalMessages.filter((m: any) => m.role === 'assistant');
+    expect(userMessages.length).toBe(3);
+    expect(assistantMessages.length).toBe(3);
   });
 });

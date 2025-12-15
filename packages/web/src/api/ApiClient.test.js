@@ -182,6 +182,26 @@ describe('ApiClient', () => {
         }));
       });
     });
+
+    describe('getSessionChanges', () => {
+      it('fetches changes for session', async () => {
+        const mockData = { staged: 'staged diff', unstaged: 'unstaged diff' };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getSessionChanges('sess-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/changes', expect.any(Object));
+        expect(result).toEqual(mockData);
+      });
+
+      it('returns empty strings when no changes', async () => {
+        mockFetch.mockReturnValue(mockResponse({ staged: '', unstaged: '' }));
+
+        const result = await client.getSessionChanges('sess-123');
+
+        expect(result).toEqual({ staged: '', unstaged: '' });
+      });
+    });
   });
 
   describe('canvas', () => {
