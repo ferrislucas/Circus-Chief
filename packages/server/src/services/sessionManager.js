@@ -3,7 +3,7 @@ import { sessions, messages } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT } from '@claudetools/shared';
 
-/** @type {Map<string, { controller: AbortController, inputResolve: Function | null }>} */
+/** @type {Map<string, { controller: AbortController }>} */
 const activeSessions = new Map();
 
 /** Check if mock mode is enabled (for E2E testing) */
@@ -13,7 +13,7 @@ const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
  * Mock query generator for E2E testing
  * Simulates the Claude SDK's behavior for multi-turn conversations
  * @param {Object} params
- * @param {AsyncIterable} params.prompt - The input generator
+ * @param {string} params.prompt - The prompt string
  */
 async function* mockQuery({ prompt }) {
   // Yield system init event
@@ -24,22 +24,19 @@ async function* mockQuery({ prompt }) {
     model: 'claude-sonnet-4-5-20250929',
   };
 
-  // Process each user message from the input generator
-  for await (const userMessage of prompt) {
-    // Small delay to simulate processing
-    await new Promise((resolve) => setTimeout(resolve, 100));
+  // Small delay to simulate processing
+  await new Promise((resolve) => setTimeout(resolve, 100));
 
-    // Generate a mock response based on the user's message
-    const responseText = `Mock response to: "${userMessage.content}"`;
+  // Generate a mock response based on the user's message
+  const responseText = `Mock response to: "${prompt}"`;
 
-    // Yield assistant message
-    yield {
-      type: 'assistant',
-      message: {
-        content: [{ type: 'text', text: responseText }],
-      },
-    };
-  }
+  // Yield assistant message
+  yield {
+    type: 'assistant',
+    message: {
+      content: [{ type: 'text', text: responseText }],
+    },
+  };
 
   // Yield result event
   yield {
@@ -47,45 +44,6 @@ async function* mockQuery({ prompt }) {
     subtype: 'success',
     total_cost_usd: 0.001,
   };
-}
-
-/**
- * Create an async generator for multi-turn conversation input
- * @param {string} sessionId
- * @param {string} initialPrompt
- * @yields {{ role: 'user', content: string }}
- */
-async function* createInputGenerator(sessionId, initialPrompt) {
-  // Yield initial prompt
-  yield { role: 'user', content: initialPrompt };
-
-  // Continue yielding follow-up messages until session ends
-  while (true) {
-    const sessionData = activeSessions.get(sessionId);
-    if (!sessionData || sessionData.controller.signal.aborted) {
-      return;
-    }
-
-    // Signal waiting for input
-    sessions.update(sessionId, { status: 'waiting' });
-    broadcastSessionStatus(sessionId, 'waiting');
-
-    // Wait for user input (sendMessage will resolve this)
-    const input = await new Promise((resolve) => {
-      const session = activeSessions.get(sessionId);
-      if (session) {
-        session.inputResolve = resolve;
-      }
-    });
-
-    // Check if session was aborted while waiting
-    const currentSession = activeSessions.get(sessionId);
-    if (!currentSession || currentSession.controller.signal.aborted) {
-      return;
-    }
-
-    yield { role: 'user', content: input };
-  }
 }
 
 /**
@@ -103,52 +61,50 @@ For images, use base64 encoding in the content field.`;
 }
 
 /**
- * Run a Claude session
+ * Run a Claude query (initial or follow-up)
  * @param {string} sessionId
  * @param {string} prompt
  * @param {string} workingDirectory
+ * @param {string|null} resumeSessionId - Claude session ID to resume (for follow-ups)
  */
-export async function runSession(sessionId, prompt, workingDirectory) {
+async function runQuery(sessionId, prompt, workingDirectory, resumeSessionId = null) {
   const controller = new AbortController();
-  activeSessions.set(sessionId, { controller, inputResolve: null });
+  activeSessions.set(sessionId, { controller });
 
   try {
     // Update status to running
     sessions.update(sessionId, { status: 'running' });
     broadcastSessionStatus(sessionId, 'running');
 
-    // Note: Initial user message is already created in SessionRepository.create()
-
-    // Create async generator for multi-turn conversation support
-    const inputGenerator = createInputGenerator(sessionId, prompt);
-
     // Choose between mock and real query based on environment
     const queryFn = isMockMode() ? mockQuery : query;
+
     const queryParams = isMockMode()
-      ? { prompt: inputGenerator }
+      ? { prompt }
       : {
-          prompt: inputGenerator,
+          prompt,
           options: {
             cwd: workingDirectory,
             abortController: controller,
             includePartialMessages: true,
             permissionMode: 'bypassPermissions',
             appendSystemPrompt: buildCanvasSystemPrompt(sessionId),
+            ...(resumeSessionId && { resume: resumeSessionId }),
           },
         };
 
-    // Run the query with the SDK (or mock) using the input generator
+    // Run the query with the SDK (or mock)
     for await (const event of queryFn(queryParams)) {
       if (controller.signal.aborted) break;
 
       await handleStreamEvent(sessionId, event);
     }
 
-    // Session completed
+    // Session completed - set to waiting for follow-up
     const session = activeSessions.get(sessionId);
     if (session && !controller.signal.aborted) {
-      sessions.update(sessionId, { status: 'completed' });
-      broadcastSessionStatus(sessionId, 'completed');
+      sessions.update(sessionId, { status: 'waiting' });
+      broadcastSessionStatus(sessionId, 'waiting');
     }
   } catch (error) {
     console.error('Session error:', error);
@@ -164,31 +120,49 @@ export async function runSession(sessionId, prompt, workingDirectory) {
 }
 
 /**
+ * Run a Claude session (initial prompt)
+ * @param {string} sessionId
+ * @param {string} prompt
+ * @param {string} workingDirectory
+ */
+export async function runSession(sessionId, prompt, workingDirectory) {
+  // Note: Initial user message is already created in SessionRepository.create()
+  await runQuery(sessionId, prompt, workingDirectory, null);
+}
+
+/**
  * Send a follow-up message to a session
  * @param {string} sessionId
  * @param {string} content
  */
 export async function sendMessage(sessionId, content) {
-  const sessionData = activeSessions.get(sessionId);
-  if (!sessionData) {
-    throw new Error('Session is not active');
+  // Get the session to find the Claude session ID and working directory
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    throw new Error('Session not found');
   }
 
-  if (!sessionData.inputResolve) {
+  if (session.status !== 'waiting') {
     throw new Error('Session is not waiting for input');
   }
 
-  // Store the message
+  if (!session.claudeSessionId && !isMockMode()) {
+    throw new Error('No Claude session ID available for resume');
+  }
+
+  // Store the user message
   const message = messages.create(sessionId, 'user', content);
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
 
-  // Update status
-  sessions.update(sessionId, { status: 'running' });
-  broadcastSessionStatus(sessionId, 'running');
+  // Get working directory from project
+  const { projects } = await import('../database.js');
+  const project = projects.getById(session.projectId);
+  if (!project) {
+    throw new Error('Project not found');
+  }
 
-  // Resolve the waiting input generator
-  sessionData.inputResolve(content);
-  sessionData.inputResolve = null;
+  // Run a new query with resume to continue the conversation
+  await runQuery(sessionId, content, project.workingDirectory, session.claudeSessionId);
 }
 
 /**
