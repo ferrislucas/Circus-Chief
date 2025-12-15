@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { projects, sessions } from '../database.js';
 import { CreateProjectRequest, UpdateProjectRequest } from '@claudetools/shared/contracts/projects';
+import { setupGitForSession } from '../services/gitSessionSetup.js';
 
 const router = Router();
 
@@ -76,7 +77,7 @@ router.post('/:id/sessions', async (req, res) => {
     return res.status(404).json({ error: 'Project not found' });
   }
 
-  const { prompt, name, mode, gitBranch } = req.body;
+  const { prompt, name, mode, gitBranch, gitMode } = req.body;
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
   }
@@ -84,14 +85,35 @@ router.post('/:id/sessions', async (req, res) => {
   const sessionName = name || `Session ${Date.now()}`;
   const session = sessions.create(req.params.id, sessionName, prompt, mode, gitBranch);
 
-  // Start session manager (non-blocking)
-  const { runSession } = await import('../services/sessionManager.js');
-  runSession(session.id, prompt, project.workingDirectory).catch((error) => {
-    console.error('Session error:', error);
-    sessions.update(session.id, { status: 'error', error: error.message });
-  });
+  // Setup git environment (branch checkout or worktree creation)
+  try {
+    const { workingDirectory, gitWorktree } = await setupGitForSession({
+      projectDir: project.workingDirectory,
+      gitMode: gitMode || null,
+      gitBranch: gitBranch || null,
+      sessionId: session.id,
+    });
 
-  res.status(201).json(session);
+    // Update session with worktree path if created
+    if (gitWorktree) {
+      sessions.update(session.id, { gitWorktree });
+    }
+
+    // Start session manager (non-blocking)
+    const { runSession } = await import('../services/sessionManager.js');
+    runSession(session.id, prompt, workingDirectory).catch((error) => {
+      console.error('Session error:', error);
+      sessions.update(session.id, { status: 'error', error: error.message });
+    });
+
+    // Return updated session with gitWorktree if set
+    const updatedSession = sessions.getById(session.id);
+    res.status(201).json(updatedSession);
+  } catch (error) {
+    console.error('Git setup error:', error);
+    sessions.update(session.id, { status: 'error', error: error.message });
+    res.status(500).json({ error: `Git setup failed: ${error.message}` });
+  }
 });
 
 export default router;
