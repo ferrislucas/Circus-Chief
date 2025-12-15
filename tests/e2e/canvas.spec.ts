@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test';
 import { seedProject, seedSession, seedCanvasItem, cleanupAll, getCanvasItems } from './helpers';
 
 test.describe('Canvas Management', () => {
+  // Run tests serially to avoid race conditions with shared database
+  test.describe.configure({ mode: 'serial' });
+
   let project: any;
   let session: any;
 

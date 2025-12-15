@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test';
 import { seedProject, cleanupAll, getProject, getProjects } from './helpers';
 
 test.describe('Project Management', () => {
+  // Run tests serially to avoid race conditions with shared database
+  test.describe.configure({ mode: 'serial' });
+
   test.beforeEach(async () => {
     await cleanupAll();
   });

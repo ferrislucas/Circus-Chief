@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test';
 import { seedProject, seedSession, seedNote, cleanupAll, getNotes } from './helpers';
 
 test.describe('Notes Management', () => {
+  // Run tests serially to avoid race conditions with shared database
+  test.describe.configure({ mode: 'serial' });
+
   let project: any;
   let session: any;
 

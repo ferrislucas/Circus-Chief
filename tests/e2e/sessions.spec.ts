@@ -12,6 +12,9 @@ import {
 } from './helpers';
 
 test.describe('Session Management', () => {
+  // Run tests serially to avoid race conditions with shared database
+  test.describe.configure({ mode: 'serial' });
+
   let project: any;
 
   test.beforeEach(async () => {

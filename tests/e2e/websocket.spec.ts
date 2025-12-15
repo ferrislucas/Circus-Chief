@@ -11,6 +11,9 @@ import {
 const API_URL = process.env.API_URL || 'http://localhost:5000';
 
 test.describe('WebSocket Real-time Updates', () => {
+  // Run tests serially to avoid race conditions with shared database
+  test.describe.configure({ mode: 'serial' });
+
   let project: any;
   let session: any;
 
