@@ -10,6 +10,7 @@
   --color-success: #3fb950;
   --color-warning: #d29922;
   --color-error: #f85149;
+  --color-danger: #f85149;
   --color-info: #58a6ff;
   --border-radius: 6px;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
@@ -93,6 +94,32 @@ input, textarea, select {
 
 .btn-danger:hover {
   opacity: 0.9;
+}
+
+.btn-outline-danger {
+  background-color: transparent;
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+.btn-outline-danger:hover {
+  background-color: var(--color-error);
+  color: #fff;
+}
+
+.btn-secondary {
+  background-color: var(--color-background-mute);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-border);
+}
+
+.btn-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
 }
 
 /* Cards */

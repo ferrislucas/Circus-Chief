@@ -178,21 +178,21 @@ router.delete('/:id/notes/:noteId', (req, res) => {
   res.status(204).send();
 });
 
-// DELETE /api/sessions/:id - Delete a session
+// DELETE /api/sessions/:id - Delete session
 router.delete('/:id', (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  // Cleanup any active session (abort if running)
+  // Clean up active session if running
   cleanupActiveSession(req.params.id);
 
-  // Delete the session (cascades to messages, notes, canvas items via foreign keys)
-  sessions.delete(req.params.id);
-
-  // Notify subscribers that the session was deleted
+  // Broadcast deletion to close any open WebSocket subscriptions
   broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_DELETED, { sessionId: req.params.id });
+
+  // Delete session (cascade will handle messages, canvas items, notes)
+  sessions.delete(req.params.id);
 
   res.status(204).send();
 });

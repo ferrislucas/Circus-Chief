@@ -31,22 +31,26 @@
             Stop Session
           </button>
           <button
+            v-if="!showDeleteConfirm"
             class="btn btn-outline-danger"
             @click="showDeleteConfirm = true"
           >
-            Delete
+            Delete Session
           </button>
-        </div>
-
-        <!-- Delete confirmation dialog -->
-        <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="showDeleteConfirm = false">
-          <div class="modal-content">
-            <h3>Delete Session</h3>
-            <p>Are you sure you want to delete this session? This action cannot be undone.</p>
-            <div class="modal-actions">
-              <button class="btn btn-secondary" @click="showDeleteConfirm = false">Cancel</button>
-              <button class="btn btn-danger" @click="handleDelete">Delete</button>
-            </div>
+          <div v-else class="delete-confirm">
+            <span class="delete-confirm-text">Delete this session?</span>
+            <button
+              class="btn btn-danger btn-sm"
+              @click="handleDelete"
+            >
+              Confirm
+            </button>
+            <button
+              class="btn btn-secondary btn-sm"
+              @click="showDeleteConfirm = false"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       </div>
@@ -226,12 +230,11 @@ async function handleStop() {
 }
 
 async function handleDelete() {
-  const projectId = sessionsStore.currentSession?.projectId;
   try {
+    const projectId = sessionsStore.currentSession?.projectId;
     await sessionsStore.deleteSession(route.params.id);
-    showDeleteConfirm.value = false;
     uiStore.success('Session deleted');
-    // Navigate back to sessions list
+    // Navigate to project sessions list
     if (projectId) {
       router.push(`/projects/${projectId}/sessions`);
     } else {
@@ -239,6 +242,7 @@ async function handleDelete() {
     }
   } catch (err) {
     uiStore.error(err.message);
+    showDeleteConfirm.value = false;
   }
 }
 </script>
@@ -295,63 +299,17 @@ async function handleDelete() {
 .session-actions {
   display: flex;
   gap: 0.5rem;
-}
-
-.btn-outline-danger {
-  background: transparent;
-  border: 1px solid var(--color-danger);
-  color: var(--color-danger);
-}
-
-.btn-outline-danger:hover {
-  background: var(--color-danger);
-  color: white;
-}
-
-.btn-secondary {
-  background: var(--color-bg-soft);
-  border: 1px solid var(--color-border);
-  color: var(--color-text);
-}
-
-.btn-secondary:hover {
-  background: var(--color-bg-mute);
-}
-
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
   align-items: center;
-  justify-content: center;
-  z-index: 1000;
 }
 
-.modal-content {
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  padding: 1.5rem;
-  max-width: 400px;
-  width: 90%;
-}
-
-.modal-content h3 {
-  margin: 0 0 1rem;
-}
-
-.modal-content p {
-  margin: 0 0 1.5rem;
-  color: var(--color-text-soft);
-}
-
-.modal-actions {
+.delete-confirm {
   display: flex;
   gap: 0.5rem;
-  justify-content: flex-end;
+  align-items: center;
+}
+
+.delete-confirm-text {
+  font-size: 0.875rem;
+  color: var(--color-danger);
 }
 </style>

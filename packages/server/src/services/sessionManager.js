@@ -236,15 +236,18 @@ export function endSession(sessionId) {
 }
 
 /**
- * Cleanup an active session before deletion (abort if running)
+ * Clean up an active session before deletion
  * @param {string} sessionId
+ * @returns {boolean} true if session was active and cleaned up
  */
 export function cleanupActiveSession(sessionId) {
   const sessionData = activeSessions.get(sessionId);
   if (sessionData) {
     sessionData.controller.abort();
     activeSessions.delete(sessionId);
+    return true;
   }
+  return false;
 }
 
 /**

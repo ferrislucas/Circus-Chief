@@ -121,9 +121,9 @@ export const useSessionsStore = defineStore('sessions', {
       this.error = null;
       try {
         await api.deleteSession(id);
-        // Remove from sessions list
+        // Remove session from list
         this.sessions = this.sessions.filter((s) => s.id !== id);
-        // Clear current session if it was deleted
+        // Clear current session if it's the deleted one
         if (this.currentSession?.id === id) {
           this.currentSession = null;
         }
