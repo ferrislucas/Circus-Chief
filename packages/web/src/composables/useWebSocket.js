@@ -180,6 +180,16 @@ export function useSessionSubscription(sessionId) {
     return () => off(WS_MESSAGE_TYPES.SESSION_PARTIAL, handler);
   };
 
+  const onTodosUpdate = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.todos);
+      }
+    };
+    on(WS_MESSAGE_TYPES.TODOS_UPDATE, handler);
+    return () => off(WS_MESSAGE_TYPES.TODOS_UPDATE, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -194,5 +204,6 @@ export function useSessionSubscription(sessionId) {
     onError,
     onCanvasAdd,
     onCanvasRemove,
+    onTodosUpdate,
   };
 }

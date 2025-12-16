@@ -2,6 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { sessions, messages } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT } from '@claudetools/shared';
+import { updateTodos } from './todoStore.js';
 
 /** @type {Map<string, { controller: AbortController }>} */
 const activeSessions = new Map();
@@ -279,6 +280,14 @@ async function handleStreamEvent(sessionId, event) {
         const toolUse = event.message?.content?.filter((c) => c.type === 'tool_use') || null;
         const message = messages.create(sessionId, 'assistant', textContent, toolUse);
         broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
+
+        // Check for TodoWrite tool and update todos
+        if (toolUse) {
+          const todoWrite = toolUse.find((t) => t.name === 'TodoWrite');
+          if (todoWrite?.input?.todos) {
+            updateTodos(sessionId, todoWrite.input.todos);
+          }
+        }
       }
       break;
     }

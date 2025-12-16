@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sessions, messages, sessionNotes, projects } from '../database.js';
+import { sessions, messages, sessionNotes, projects, todos } from '../database.js';
 import { continueSession, stopSession, endSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
 import { broadcastToSession } from '../websocket.js';
@@ -176,6 +176,17 @@ router.delete('/:id/notes/:noteId', (req, res) => {
 
   sessionNotes.delete(req.params.noteId);
   res.status(204).send();
+});
+
+// GET /api/sessions/:id/todos - Get session todos
+router.get('/:id/todos', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const sessionTodos = todos.getBySessionId(req.params.id);
+  res.json(sessionTodos);
 });
 
 // DELETE /api/sessions/:id - Delete session

@@ -42,6 +42,9 @@
       </button>
     </div>
 
+    <!-- Todo drawer - only shows when todos exist -->
+    <TodoDrawer />
+
     <form v-if="canSendMessage" @submit.prevent="handleSend" class="input-form">
       <textarea
         v-model="input"
@@ -77,6 +80,7 @@ import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
+import TodoDrawer from './TodoDrawer.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },

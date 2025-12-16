@@ -97,6 +97,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCanvasStore } from '../stores/canvas.js';
+import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import ConversationTab from '../components/ConversationTab.vue';
@@ -108,6 +109,7 @@ const route = useRoute();
 const router = useRouter();
 const sessionsStore = useSessionsStore();
 const canvasStore = useCanvasStore();
+const todosStore = useTodosStore();
 const uiStore = useUiStore();
 const showDeleteConfirm = ref(false);
 
@@ -117,7 +119,7 @@ const isActive = computed(() => {
   return status === 'running' || status === 'waiting';
 });
 
-const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove } =
+const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate } =
   useSessionSubscription(route.params.id);
 
 let cleanups = [];
@@ -168,6 +170,7 @@ onMounted(async () => {
   await sessionsStore.fetchSession(route.params.id);
   await sessionsStore.fetchMessages(route.params.id);
   canvasStore.fetchItems(route.params.id);
+  todosStore.fetchTodos(route.params.id);
 
   // Start polling if session is actively processing (handles race condition where session
   // completes before WebSocket subscription is established)
@@ -209,6 +212,12 @@ onMounted(async () => {
   cleanups.push(
     onCanvasRemove((itemId) => {
       canvasStore.removeItem(itemId);
+    })
+  );
+
+  cleanups.push(
+    onTodosUpdate((todos) => {
+      todosStore.updateTodos(todos);
     })
   );
 });
