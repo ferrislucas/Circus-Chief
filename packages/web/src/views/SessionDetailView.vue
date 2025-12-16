@@ -30,6 +30,24 @@
           >
             Stop Session
           </button>
+          <button
+            class="btn btn-outline-danger"
+            @click="showDeleteConfirm = true"
+          >
+            Delete
+          </button>
+        </div>
+
+        <!-- Delete confirmation dialog -->
+        <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="showDeleteConfirm = false">
+          <div class="modal-content">
+            <h3>Delete Session</h3>
+            <p>Are you sure you want to delete this session? This action cannot be undone.</p>
+            <div class="modal-actions">
+              <button class="btn btn-secondary" @click="showDeleteConfirm = false">Cancel</button>
+              <button class="btn btn-danger" @click="handleDelete">Delete</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -72,7 +90,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useUiStore } from '../stores/ui.js';
@@ -83,9 +101,12 @@ import CanvasTab from '../components/CanvasTab.vue';
 import NotesTab from '../components/NotesTab.vue';
 
 const route = useRoute();
+const router = useRouter();
 const sessionsStore = useSessionsStore();
 const canvasStore = useCanvasStore();
 const uiStore = useUiStore();
+
+const showDeleteConfirm = ref(false);
 
 const activeTab = computed(() => route.params.tab || 'conversation');
 const isActive = computed(() => {
@@ -203,6 +224,23 @@ async function handleStop() {
     uiStore.error(err.message);
   }
 }
+
+async function handleDelete() {
+  const projectId = sessionsStore.currentSession?.projectId;
+  try {
+    await sessionsStore.deleteSession(route.params.id);
+    showDeleteConfirm.value = false;
+    uiStore.success('Session deleted');
+    // Navigate back to sessions list
+    if (projectId) {
+      router.push(`/projects/${projectId}/sessions`);
+    } else {
+      router.push('/');
+    }
+  } catch (err) {
+    uiStore.error(err.message);
+  }
+}
 </script>
 
 <style scoped>
@@ -252,5 +290,68 @@ async function handleStop() {
 
 .tab-content {
   min-height: 400px;
+}
+
+.session-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-outline-danger {
+  background: transparent;
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+}
+
+.btn-outline-danger:hover {
+  background: var(--color-danger);
+  color: white;
+}
+
+.btn-secondary {
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+.btn-secondary:hover {
+  background: var(--color-bg-mute);
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 1.5rem;
+  max-width: 400px;
+  width: 90%;
+}
+
+.modal-content h3 {
+  margin: 0 0 1rem;
+}
+
+.modal-content p {
+  margin: 0 0 1.5rem;
+  color: var(--color-text-soft);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
 }
 </style>

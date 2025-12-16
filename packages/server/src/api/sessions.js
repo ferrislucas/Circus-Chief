@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { sessions, messages, sessionNotes, projects } from '../database.js';
-import { continueSession, stopSession, endSession } from '../services/sessionManager.js';
+import { continueSession, stopSession, endSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
+import { broadcastToSession } from '../websocket.js';
+import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
 const router = Router();
 
@@ -173,6 +175,25 @@ router.delete('/:id/notes/:noteId', (req, res) => {
   }
 
   sessionNotes.delete(req.params.noteId);
+  res.status(204).send();
+});
+
+// DELETE /api/sessions/:id - Delete a session
+router.delete('/:id', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Cleanup any active session (abort if running)
+  cleanupActiveSession(req.params.id);
+
+  // Delete the session (cascades to messages, notes, canvas items via foreign keys)
+  sessions.delete(req.params.id);
+
+  // Notify subscribers that the session was deleted
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_DELETED, { sessionId: req.params.id });
+
   res.status(204).send();
 });
 
