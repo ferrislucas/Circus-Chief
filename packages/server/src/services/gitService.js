@@ -100,9 +100,11 @@ export async function createWorktree(directory, branch, path) {
  * Remove a worktree
  * @param {string} directory
  * @param {string} path
+ * @param {boolean} force - Force removal even if worktree has uncommitted changes
  */
-export async function removeWorktree(directory, path) {
-  await git(directory, `worktree remove "${path}"`);
+export async function removeWorktree(directory, path, force = false) {
+  const forceFlag = force ? '--force' : '';
+  await git(directory, `worktree remove ${forceFlag} "${path}"`);
 }
 
 /**

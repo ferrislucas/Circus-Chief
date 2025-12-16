@@ -4,6 +4,7 @@ import { continueSession, stopSession, endSession, cleanupActiveSession } from '
 import { getChanges } from '../services/diffService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import * as gitService from '../services/gitService.js';
 
 const router = Router();
 
@@ -185,7 +186,7 @@ router.delete('/:id/notes/:noteId', (req, res) => {
 });
 
 // DELETE /api/sessions/:id - Delete session
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
@@ -193,6 +194,19 @@ router.delete('/:id', (req, res) => {
 
   // Clean up active session if running
   cleanupActiveSession(req.params.id);
+
+  // Remove git worktree if session has one
+  if (session.gitWorktree) {
+    const project = projects.getById(session.projectId);
+    if (project) {
+      try {
+        await gitService.removeWorktree(project.workingDirectory, session.gitWorktree, true);
+      } catch (error) {
+        // Log but don't fail - worktree may already be removed or have issues
+        console.warn(`Failed to remove worktree for session ${session.id}:`, error.message);
+      }
+    }
+  }
 
   // Broadcast deletion to close any open WebSocket subscriptions
   broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_DELETED, { sessionId: req.params.id });
