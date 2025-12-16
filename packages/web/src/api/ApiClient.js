@@ -168,6 +168,16 @@ export class ApiClient {
   }
 
   /**
+   * Get file content for a session
+   * @param {string} sessionId - Session ID
+   * @param {string} filePath - Path to file relative to working directory
+   * @returns {Promise<{content: string, path: string}>}
+   */
+  async getSessionFile(sessionId, filePath) {
+    return this.#request('GET', `/sessions/${sessionId}/file?path=${encodeURIComponent(filePath)}`);
+  }
+
+  /**
    * End a session (mark as completed)
    * @param {string} id - Session ID
    * @returns {Promise<Object>}

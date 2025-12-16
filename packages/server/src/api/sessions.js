@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { readFile } from 'fs/promises';
+import { join } from 'path';
 import { sessions, messages, sessionNotes, projects } from '../database.js';
 import { continueSession, stopSession, endSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
@@ -35,6 +37,44 @@ router.get('/:id/changes', async (req, res) => {
     const changes = await getChanges(directory);
     res.json(changes);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/sessions/:id/file - Get file content for markdown preview
+router.get('/:id/file', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const project = projects.getById(session.projectId);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const { path: filePath } = req.query;
+  if (!filePath) {
+    return res.status(400).json({ error: 'File path is required' });
+  }
+
+  // Prevent directory traversal attacks
+  const normalizedPath = filePath.replace(/\.\./g, '');
+  const directory = session.gitWorktree || project.workingDirectory;
+  const fullPath = join(directory, normalizedPath);
+
+  // Ensure the path is within the working directory
+  if (!fullPath.startsWith(directory)) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  try {
+    const content = await readFile(fullPath, 'utf-8');
+    res.json({ content, path: normalizedPath });
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return res.status(404).json({ error: 'File not found' });
+    }
     res.status(500).json({ error: error.message });
   }
 });
