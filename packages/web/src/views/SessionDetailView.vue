@@ -109,6 +109,7 @@ const router = useRouter();
 const sessionsStore = useSessionsStore();
 const canvasStore = useCanvasStore();
 const uiStore = useUiStore();
+
 const showDeleteConfirm = ref(false);
 
 const activeTab = computed(() => route.params.tab || 'conversation');
