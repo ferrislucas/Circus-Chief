@@ -45,3 +45,6 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# Server port file (auto-generated)
+.server-port
