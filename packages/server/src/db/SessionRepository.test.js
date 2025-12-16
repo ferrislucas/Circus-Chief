@@ -203,7 +203,7 @@ describe('SessionRepository', () => {
     });
 
     it('returns sessions with starting, running, or waiting status', () => {
-      const starting = repo.create(projectId, 'Starting Session', 'Prompt');
+      repo.create(projectId, 'Starting Session', 'Prompt');
       // starting is the default status
 
       const running = repo.create(projectId, 'Running Session', 'Prompt');
@@ -215,8 +215,8 @@ describe('SessionRepository', () => {
       const completed = repo.create(projectId, 'Completed Session', 'Prompt');
       repo.update(completed.id, { status: 'completed' });
 
-      const error = repo.create(projectId, 'Error Session', 'Prompt');
-      repo.update(error.id, { status: 'error' });
+      const errorSession = repo.create(projectId, 'Error Session', 'Prompt');
+      repo.update(errorSession.id, { status: 'error' });
 
       const sessions = repo.getActiveAndWaiting();
 
@@ -229,7 +229,7 @@ describe('SessionRepository', () => {
       expect(statuses).not.toContain('error');
     });
 
-    it('includes project name and path in results', () => {
+    it('includes project name and working directory in results', () => {
       const session = repo.create(projectId, 'Test Session', 'Prompt');
       repo.update(session.id, { status: 'running' });
 
@@ -237,7 +237,7 @@ describe('SessionRepository', () => {
 
       expect(sessions).toHaveLength(1);
       expect(sessions[0].projectName).toBe('Test Project');
-      expect(sessions[0].projectPath).toBe('/tmp/test');
+      expect(sessions[0].projectWorkingDirectory).toBe('/tmp/test');
     });
 
     it('returns sessions from multiple projects', () => {

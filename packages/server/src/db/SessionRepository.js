@@ -61,7 +61,7 @@ export class SessionRepository extends BaseRepository {
   getActiveAndWaiting() {
     const rows = this.db
       .prepare(
-        `SELECT s.*, p.name as project_name, p.path as project_path
+        `SELECT s.*, p.name as project_name, p.working_directory as project_working_directory
          FROM sessions s
          JOIN projects p ON s.project_id = p.id
          WHERE s.status IN ('starting', 'running', 'waiting')
@@ -71,7 +71,7 @@ export class SessionRepository extends BaseRepository {
     return rows.map(row => ({
       ...SessionRepository.#mapSession(row),
       projectName: row.project_name,
-      projectPath: row.project_path,
+      projectWorkingDirectory: row.project_working_directory,
     }));
   }
 
