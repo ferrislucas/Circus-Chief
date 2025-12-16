@@ -38,8 +38,8 @@
         </select>
       </div>
 
-      <!-- Quick Git Options -->
-      <div v-if="gitStatus?.isGitRepo && !showAdvancedGit" class="form-group">
+      <!-- Git Options -->
+      <div v-if="gitStatus?.isGitRepo" class="form-group">
         <label class="form-label">Git Options</label>
         <div class="quick-git-options">
           <label class="radio-option">
@@ -82,58 +82,6 @@
           <p class="form-help">Auto-generated from session name/prompt</p>
         </div>
 
-        <button
-          type="button"
-          class="link-button"
-          @click="showAdvancedGit = true"
-        >
-          Advanced git options...
-        </button>
-      </div>
-
-      <!-- Advanced Git Options (legacy UI) -->
-      <div v-if="gitStatus?.isGitRepo && showAdvancedGit" class="form-group">
-        <div class="advanced-header">
-          <label class="form-label">Git Mode (Advanced)</label>
-          <button type="button" class="link-button" @click="showAdvancedGit = false">
-            Simple options
-          </button>
-        </div>
-        <select id="gitMode" v-model="gitMode" class="form-input">
-          <option value="">None (use current branch)</option>
-          <option value="branch">Switch Branch</option>
-          <option value="worktree">Create Worktree</option>
-        </select>
-        <p class="form-help">
-          <template v-if="gitMode === ''">Session runs in the current branch</template>
-          <template v-else-if="gitMode === 'branch'">Checkout/create a branch in the project directory</template>
-          <template v-else-if="gitMode === 'worktree'">Create an isolated worktree for this session</template>
-        </p>
-
-        <div v-if="gitMode" class="form-group nested-group">
-          <label class="form-label" for="gitBranch">
-            {{ gitMode === 'branch' ? 'Branch Name' : 'Worktree Branch' }}
-          </label>
-          <div class="branch-input-group">
-            <select id="gitBranch" v-model="gitBranch" class="form-input">
-              <option value="">-- Select existing or type new --</option>
-              <option v-for="branch in gitStatus.branches" :key="branch.name" :value="branch.name">
-                {{ branch.name }}
-              </option>
-            </select>
-            <span class="or-text">or</span>
-            <input
-              v-model="newBranchName"
-              type="text"
-              class="form-input"
-              placeholder="New branch name"
-              @input="gitBranch = newBranchName"
-            />
-          </div>
-          <p v-if="gitStatus.currentBranch" class="form-help">
-            Current branch: {{ gitStatus.currentBranch }}
-          </p>
-        </div>
       </div>
 
       <div v-if="loadingGit" class="git-loading">
@@ -170,9 +118,6 @@ const uiStore = useUiStore();
 const name = ref('');
 const prompt = ref('');
 const mode = ref('standard');
-const gitMode = ref('');
-const gitBranch = ref('');
-const newBranchName = ref('');
 const gitStatus = ref(null);
 const loading = ref(false);
 const loadingGit = ref(false);
@@ -182,7 +127,6 @@ const error = ref(null);
 const quickGitMode = ref(''); // '', 'branch', or 'worktree'
 const quickWorktreeBranch = ref('');
 const editingBranch = ref(false);
-const showAdvancedGit = ref(false);
 
 // Generate branch name when session name or prompt changes
 const autoBranchName = computed(() => {
@@ -232,19 +176,9 @@ async function handleSubmit() {
   error.value = null;
 
   try {
-    // Determine git settings based on quick or advanced options
-    let submitGitMode;
-    let submitGitBranch;
-
-    if (showAdvancedGit.value) {
-      // Use advanced options
-      submitGitMode = gitMode.value || undefined;
-      submitGitBranch = gitBranch.value || undefined;
-    } else if (quickGitMode.value && gitStatus.value?.isGitRepo) {
-      // Use quick options
-      submitGitMode = quickGitMode.value;
-      submitGitBranch = quickWorktreeBranch.value;
-    }
+    // Determine git settings
+    const submitGitMode = quickGitMode.value && gitStatus.value?.isGitRepo ? quickGitMode.value : undefined;
+    const submitGitBranch = submitGitMode ? quickWorktreeBranch.value : undefined;
 
     const session = await sessionsStore.createSession(route.params.id, {
       name: name.value || undefined,
@@ -303,25 +237,6 @@ h1 {
 .error-message {
   color: var(--color-error);
   margin-bottom: 1rem;
-}
-
-.branch-input-group {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.branch-input-group select {
-  flex: 1;
-}
-
-.branch-input-group input {
-  flex: 1;
-}
-
-.or-text {
-  color: var(--color-text-soft);
-  font-size: 0.875rem;
 }
 
 /* Quick git options */
@@ -395,32 +310,4 @@ h1 {
   font-size: 0.75rem;
 }
 
-.link-button {
-  background: none;
-  border: none;
-  color: var(--color-accent);
-  font-size: 0.75rem;
-  cursor: pointer;
-  padding: 0;
-  margin-top: 0.5rem;
-}
-
-.link-button:hover {
-  text-decoration: underline;
-}
-
-.advanced-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
-}
-
-.advanced-header .form-label {
-  margin-bottom: 0;
-}
-
-.nested-group {
-  margin-top: 1rem;
-}
 </style>
