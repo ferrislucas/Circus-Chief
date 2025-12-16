@@ -5,6 +5,12 @@ import { getChanges } from '../services/diffService.js';
 
 const router = Router();
 
+// GET /api/sessions - Get all active/waiting sessions across all projects
+router.get('/', (req, res) => {
+  const activeSessions = sessions.getActiveAndWaiting();
+  res.json(activeSessions);
+});
+
 // GET /api/sessions/:id - Get session details
 router.get('/:id', (req, res) => {
   const session = sessions.getById(req.params.id);

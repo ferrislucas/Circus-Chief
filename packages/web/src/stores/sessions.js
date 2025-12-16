@@ -4,6 +4,7 @@ import { api } from '../composables/useApi.js';
 export const useSessionsStore = defineStore('sessions', {
   state: () => ({
     sessions: [],
+    activeSessions: [],
     currentSession: null,
     messages: [],
     loading: false,
@@ -17,6 +18,18 @@ export const useSessionsStore = defineStore('sessions', {
   },
 
   actions: {
+    async fetchActiveSessions(showLoading = true) {
+      if (showLoading) this.loading = true;
+      this.error = null;
+      try {
+        this.activeSessions = await api.getActiveSessions();
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        if (showLoading) this.loading = false;
+      }
+    },
+
     async fetchSessions(projectId) {
       this.loading = true;
       this.error = null;

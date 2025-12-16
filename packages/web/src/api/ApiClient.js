@@ -103,6 +103,14 @@ export class ApiClient {
   // Sessions
 
   /**
+   * Get all active/waiting sessions across all projects
+   * @returns {Promise<Array>}
+   */
+  async getActiveSessions() {
+    return this.#request('GET', '/sessions');
+  }
+
+  /**
    * Get all sessions for a project
    * @param {string} projectId - Project ID
    * @returns {Promise<Array>}
