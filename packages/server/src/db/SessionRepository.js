@@ -58,6 +58,23 @@ export class SessionRepository extends BaseRepository {
     return this.mapAll(rows);
   }
 
+  getActiveAndWaiting() {
+    const rows = this.db
+      .prepare(
+        `SELECT s.*, p.name as project_name, p.working_directory as project_working_directory
+         FROM sessions s
+         JOIN projects p ON s.project_id = p.id
+         WHERE s.status IN ('starting', 'running', 'waiting')
+         ORDER BY s.updated_at DESC`
+      )
+      .all();
+    return rows.map(row => ({
+      ...SessionRepository.#mapSession(row),
+      projectName: row.project_name,
+      projectWorkingDirectory: row.project_working_directory,
+    }));
+  }
+
   update(id, data) {
     const updates = [];
     const values = [];

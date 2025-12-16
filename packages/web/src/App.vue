@@ -5,6 +5,7 @@
         <router-link to="/" class="logo">ClaudeTools.io</router-link>
         <nav class="nav">
           <router-link to="/" class="nav-link">Projects</router-link>
+          <router-link to="/sessions/active" class="nav-link">Active Sessions</router-link>
         </nav>
       </div>
     </header>
