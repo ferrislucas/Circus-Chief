@@ -29,13 +29,13 @@
         ></textarea>
       </div>
 
-      <div class="form-group">
-        <label class="form-label" for="mode">Mode</label>
-        <select id="mode" v-model="mode" class="form-input">
-          <option value="standard">Standard</option>
-          <option value="plan">Plan</option>
-          <option value="yolo">YOLO</option>
-        </select>
+      <div v-if="error" class="error-message">{{ error }}</div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary btn-full-width" :disabled="loading">
+          <span v-if="loading" class="loading-spinner"></span>
+          Start Session
+        </button>
       </div>
 
       <!-- Git Options -->
@@ -88,16 +88,6 @@
         <span class="loading-spinner"></span>
         Loading git info...
       </div>
-
-      <div v-if="error" class="error-message">{{ error }}</div>
-
-      <div class="form-actions">
-        <router-link :to="`/projects/${route.params.id}/sessions`" class="btn">Cancel</router-link>
-        <button type="submit" class="btn btn-primary" :disabled="loading">
-          <span v-if="loading" class="loading-spinner"></span>
-          Start Session
-        </button>
-      </div>
     </form>
   </div>
 </template>
@@ -117,14 +107,14 @@ const uiStore = useUiStore();
 
 const name = ref('');
 const prompt = ref('');
-const mode = ref('standard');
+const mode = ref('yolo');
 const gitStatus = ref(null);
 const loading = ref(false);
 const loadingGit = ref(false);
 const error = ref(null);
 
 // Quick git feature
-const quickGitMode = ref(''); // '', 'branch', or 'worktree'
+const quickGitMode = ref('worktree'); // '', 'branch', or 'worktree'
 const quickWorktreeBranch = ref('');
 const editingBranch = ref(false);
 
@@ -229,9 +219,11 @@ h1 {
 }
 
 .form-actions {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
+  margin-bottom: 1.5rem;
+}
+
+.btn-full-width {
+  width: 100%;
 }
 
 .error-message {
@@ -310,4 +302,26 @@ h1 {
   font-size: 0.75rem;
 }
 
+/* Mobile responsive styles */
+@media (max-width: 480px) {
+  h1 {
+    margin-bottom: 1rem;
+    font-size: 1.5rem;
+  }
+
+  .radio-option {
+    flex-wrap: wrap;
+    padding: 0.5rem;
+  }
+
+  .radio-help {
+    width: 100%;
+    margin-left: 1.5rem;
+    margin-top: 0.25rem;
+  }
+
+  .quick-branch-section {
+    padding: 0.75rem;
+  }
+}
 </style>
