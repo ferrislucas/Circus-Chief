@@ -47,8 +47,18 @@ describe('SessionRepository', () => {
     });
 
     it('creates session with git branch', () => {
-      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', 'feature-branch');
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, 'feature-branch');
       expect(session.gitBranch).toBe('feature-branch');
+    });
+
+    it('creates session with thinkingEnabled true', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', true);
+      expect(session.thinkingEnabled).toBe(true);
+    });
+
+    it('creates session with thinkingEnabled false by default', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      expect(session.thinkingEnabled).toBe(false);
     });
 
     it('creates initial user message on session creation', () => {
@@ -82,6 +92,14 @@ describe('SessionRepository', () => {
 
     it('returns null for non-existent ID', () => {
       expect(repo.getById('non-existent')).toBeNull();
+    });
+
+    it('returns thinkingEnabled as boolean', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', true);
+      const retrieved = repo.getById(session.id);
+
+      expect(typeof retrieved.thinkingEnabled).toBe('boolean');
+      expect(retrieved.thinkingEnabled).toBe(true);
     });
   });
 
@@ -312,6 +330,24 @@ describe('SessionRepository', () => {
       const updated = repo.update(session.id, { error: 'Something went wrong' });
 
       expect(updated.error).toBe('Something went wrong');
+    });
+
+    it('updates thinkingEnabled to true', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false);
+      expect(session.thinkingEnabled).toBe(false);
+
+      const updated = repo.update(session.id, { thinkingEnabled: true });
+
+      expect(updated.thinkingEnabled).toBe(true);
+    });
+
+    it('updates thinkingEnabled to false', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', true);
+      expect(session.thinkingEnabled).toBe(true);
+
+      const updated = repo.update(session.id, { thinkingEnabled: false });
+
+      expect(updated.thinkingEnabled).toBe(false);
     });
 
     it('updates multiple fields at once', () => {

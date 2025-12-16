@@ -61,6 +61,20 @@ For images, use base64 encoding in the content field.`;
 }
 
 /**
+ * Build environment variables for Claude SDK based on session settings
+ * @param {Object} session
+ * @returns {Object|undefined}
+ */
+function buildSessionEnv(session) {
+  const env = {};
+  if (session.thinkingEnabled) {
+    // Enable extended thinking with a reasonable token budget
+    env.MAX_THINKING_TOKENS = '10240';
+  }
+  return Object.keys(env).length > 0 ? env : undefined;
+}
+
+/**
  * Run a Claude session
  * @param {string} sessionId
  * @param {string} prompt
@@ -71,6 +85,9 @@ export async function runSession(sessionId, prompt, workingDirectory) {
   activeSessions.set(sessionId, { controller });
 
   try {
+    // Get session for settings
+    const session = sessions.getById(sessionId);
+
     // Update status to running
     sessions.update(sessionId, { status: 'running' });
     broadcastSessionStatus(sessionId, 'running');
@@ -79,6 +96,9 @@ export async function runSession(sessionId, prompt, workingDirectory) {
 
     // Choose between mock and real query based on environment
     const queryFn = isMockMode() ? mockQuery : query;
+
+    // Build environment variables for thinking mode
+    const sessionEnv = buildSessionEnv(session);
 
     const queryParams = isMockMode()
       ? { prompt }
@@ -89,6 +109,7 @@ export async function runSession(sessionId, prompt, workingDirectory) {
             abortController: controller,
             includePartialMessages: true,
             permissionMode: 'bypassPermissions',
+            ...(sessionEnv && { env: sessionEnv }),
             systemPrompt: {
               type: 'preset',
               preset: 'claude_code',
@@ -135,7 +156,7 @@ export async function continueSession(sessionId, content, workingDirectory) {
     throw new Error('Session is already processing');
   }
 
-  // Get the session to retrieve the Claude session ID
+  // Get the session to retrieve the Claude session ID and settings
   const session = sessions.getById(sessionId);
   if (!session) {
     throw new Error('Session not found');
@@ -160,6 +181,9 @@ export async function continueSession(sessionId, content, workingDirectory) {
     // Choose between mock and real query based on environment
     const queryFn = isMockMode() ? mockQuery : query;
 
+    // Build environment variables for thinking mode
+    const sessionEnv = buildSessionEnv(session);
+
     const queryParams = isMockMode()
       ? { prompt: content }
       : {
@@ -170,6 +194,7 @@ export async function continueSession(sessionId, content, workingDirectory) {
             includePartialMessages: true,
             permissionMode: 'bypassPermissions',
             resume: session.claudeSessionId,
+            ...(sessionEnv && { env: sessionEnv }),
             systemPrompt: {
               type: 'preset',
               preset: 'claude_code',

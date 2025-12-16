@@ -185,6 +185,29 @@ router.delete('/:id/notes/:noteId', (req, res) => {
   res.status(204).send();
 });
 
+// PATCH /api/sessions/:id - Update session settings
+router.patch('/:id', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const { thinkingEnabled } = req.body;
+
+  // Build update object with only provided fields
+  const updateData = {};
+  if (thinkingEnabled !== undefined) {
+    updateData.thinkingEnabled = Boolean(thinkingEnabled);
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update' });
+  }
+
+  const updated = sessions.update(req.params.id, updateData);
+  res.json(updated);
+});
+
 // DELETE /api/sessions/:id - Delete session
 router.delete('/:id', async (req, res) => {
   const session = sessions.getById(req.params.id);
