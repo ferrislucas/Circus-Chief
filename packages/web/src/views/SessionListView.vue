@@ -174,4 +174,20 @@ function formatDate(timestamp) {
   font-size: 0.875rem;
   color: var(--color-text-soft);
 }
+
+@media (max-width: 480px) {
+  .page-header {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .page-header .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .project-path {
+    word-break: break-all;
+  }
+}
 </style>
