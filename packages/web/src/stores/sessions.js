@@ -7,6 +7,7 @@ export const useSessionsStore = defineStore('sessions', {
     activeSessions: [],
     currentSession: null,
     messages: [],
+    workLogs: {}, // Keyed by messageId: { [messageId]: WorkLog[] }
     loading: false,
     error: null,
   }),
@@ -14,6 +15,9 @@ export const useSessionsStore = defineStore('sessions', {
   getters: {
     getSessionById: (state) => (id) => {
       return state.sessions.find((s) => s.id === id);
+    },
+    getWorkLogsForMessage: (state) => (messageId) => {
+      return state.workLogs[messageId] || [];
     },
   },
 
@@ -152,6 +156,32 @@ export const useSessionsStore = defineStore('sessions', {
 
     addMessage(message) {
       this.messages.push(message);
+    },
+
+    async fetchWorkLogs(sessionId) {
+      this.error = null;
+      try {
+        const grouped = await api.getSessionWorkLogs(sessionId);
+        this.workLogs = grouped;
+      } catch (err) {
+        this.error = err.message;
+      }
+    },
+
+    addWorkLog(log) {
+      const messageId = log.messageId || '_unassociated';
+      if (!this.workLogs[messageId]) {
+        this.workLogs[messageId] = [];
+      }
+      this.workLogs[messageId].push(log);
+    },
+
+    setWorkLogs(workLogs) {
+      this.workLogs = workLogs;
+    },
+
+    clearWorkLogs() {
+      this.workLogs = {};
     },
 
     updateSessionStatus(sessionId, status) {

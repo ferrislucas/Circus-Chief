@@ -13,6 +13,7 @@ export const WS_MESSAGE_TYPES = {
   SESSION_PARTIAL: 'session:partial',
   SESSION_ERROR: 'session:error',
   SESSION_DELETED: 'session:deleted',
+  SESSION_WORK_LOG: 'session:work_log',
   CANVAS_ADD: 'canvas:add',
   CANVAS_REMOVE: 'canvas:remove',
 };

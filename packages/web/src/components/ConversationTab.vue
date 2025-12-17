@@ -2,7 +2,7 @@
   <div class="conversation-tab">
     <div class="messages" ref="messagesContainer">
       <div
-        v-for="message in sessionsStore.messages"
+        v-for="(message, index) in sessionsStore.messages"
         :key="message.id"
         :class="['message', `message-${message.role}`]"
       >
@@ -17,6 +17,12 @@
             <pre>{{ JSON.stringify(tool.input, null, 2) }}</pre>
           </details>
         </div>
+        <!-- Work Log Panel for assistant messages -->
+        <WorkLogPanel
+          v-if="message.role === 'assistant'"
+          :work-logs="sessionsStore.getWorkLogsForMessage(message.id)"
+          :is-latest-message="index === sessionsStore.messages.length - 1"
+        />
       </div>
 
       <!-- Streaming partial message -->
@@ -96,6 +102,7 @@ import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
+import WorkLogPanel from './WorkLogPanel.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -127,10 +134,11 @@ const isStopped = computed(() => {
   return sessionsStore.currentSession?.status === 'stopped';
 });
 
-// Subscribe to partial messages for streaming
-const { onPartial, onMessage } = useSessionSubscription(props.sessionId);
+// Subscribe to partial messages for streaming and work logs
+const { onPartial, onMessage, onWorkLog } = useSessionSubscription(props.sessionId);
 let unsubPartial = null;
 let unsubMessage = null;
+let unsubWorkLog = null;
 
 function handleScroll() {
   if (!messagesContainer.value) return;
@@ -144,7 +152,7 @@ function handleScroll() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   // Load draft from localStorage
   const savedDraft = localStorage.getItem(STORAGE_KEY);
   if (savedDraft) {
@@ -166,6 +174,15 @@ onMounted(() => {
     partialText.value = '';
   });
 
+  // Subscribe to work log updates
+  unsubWorkLog = onWorkLog((log) => {
+    sessionsStore.addWorkLog(log);
+    scrollToBottom();
+  });
+
+  // Fetch initial work logs
+  await sessionsStore.fetchWorkLogs(props.sessionId);
+
   // Scroll to bottom on initial load
   scrollToBottom(true);
 });
@@ -173,10 +190,13 @@ onMounted(() => {
 onUnmounted(() => {
   if (unsubPartial) unsubPartial();
   if (unsubMessage) unsubMessage();
+  if (unsubWorkLog) unsubWorkLog();
   if (debounceTimer) clearTimeout(debounceTimer);
   if (messagesContainer.value) {
     messagesContainer.value.removeEventListener('scroll', handleScroll);
   }
+  // Clear work logs when leaving the conversation
+  sessionsStore.clearWorkLogs();
 });
 
 // Save draft to localStorage with debounce
