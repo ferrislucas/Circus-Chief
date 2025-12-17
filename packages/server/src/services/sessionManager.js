@@ -236,18 +236,22 @@ export async function continueSession(sessionId, content, workingDirectory, syst
 }
 
 /**
- * Stop a running session
+ * Stop a running or waiting session
  * @param {string} sessionId
  */
 export async function stopSession(sessionId) {
   const sessionData = activeSessions.get(sessionId);
-  if (!sessionData) {
-    throw new Error('Session is not active');
-  }
 
-  sessionData.controller.abort();
-  sessions.update(sessionId, { status: 'completed' });
-  broadcastSessionStatus(sessionId, 'completed');
+  if (sessionData) {
+    // Session is actively processing - abort it
+    sessionData.controller.abort();
+    activeSessions.delete(sessionId);
+  }
+  // If not in activeSessions, session may have crashed or be waiting
+  // Either way, we can still update the status to stopped
+
+  sessions.update(sessionId, { status: 'stopped' });
+  broadcastSessionStatus(sessionId, 'stopped');
 }
 
 /**

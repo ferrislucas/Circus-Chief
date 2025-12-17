@@ -105,7 +105,11 @@ export const useSessionsStore = defineStore('sessions', {
       try {
         await api.stopSession(id);
         if (this.currentSession?.id === id) {
-          this.currentSession.status = 'completed';
+          this.currentSession.status = 'stopped';
+        }
+        const session = this.sessions.find((s) => s.id === id);
+        if (session) {
+          session.status = 'stopped';
         }
       } catch (err) {
         this.error = err.message;
