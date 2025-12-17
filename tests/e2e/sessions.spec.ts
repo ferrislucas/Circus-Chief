@@ -10,6 +10,88 @@ import {
   sendSessionMessage,
 } from './helpers';
 
+test.describe('New Session - Thinking Toggle', () => {
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    project = await seedProject('Test Project', '/tmp/test');
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+  });
+
+  test('thinking toggle is visible on new session form', async ({ page }) => {
+    await page.goto(`/projects/${project.id}/sessions/new`);
+
+    // Verify toggle is visible
+    await expect(page.locator('.thinking-toggle')).toBeVisible();
+    await expect(page.getByText('Enable Thinking')).toBeVisible();
+  });
+
+  test('thinking toggle defaults to off', async ({ page }) => {
+    await page.goto(`/projects/${project.id}/sessions/new`);
+
+    // Verify toggle is unchecked by default
+    const checkbox = page.locator('.thinking-toggle input[type="checkbox"]');
+    await expect(checkbox).not.toBeChecked();
+  });
+
+  test('can create session with thinking enabled', async ({ page }) => {
+    await page.goto(`/projects/${project.id}/sessions/new`);
+
+    // Fill in required fields
+    await page.fill('input[id="name"]', 'Thinking Session');
+    await page.fill('textarea[id="prompt"]', 'Test with thinking enabled');
+
+    // Enable thinking toggle (click the toggle-switch label since checkbox has opacity: 0)
+    await page.locator('.thinking-toggle .toggle-switch').click();
+
+    // Submit the form
+    await page.click('button:has-text("Start Session")');
+
+    // Wait for redirect to session detail
+    await expect(page).toHaveURL(/\/sessions\/[\w-]+/, { timeout: 10000 });
+
+    // Verify session name is visible (confirms session loaded)
+    await expect(page.getByText('Thinking Session')).toBeVisible();
+
+    // Verify via API that thinkingEnabled is true
+    const sessions = await getProjectSessions(project.id);
+    const session = sessions.find((s: any) => s.name === 'Thinking Session');
+    expect(session).toBeTruthy();
+    expect(session.thinkingEnabled).toBe(true);
+  });
+
+  test('can create session with thinking disabled', async ({ page }) => {
+    await page.goto(`/projects/${project.id}/sessions/new`);
+
+    // Fill in required fields
+    await page.fill('input[id="name"]', 'Non-Thinking Session');
+    await page.fill('textarea[id="prompt"]', 'Test with thinking disabled');
+
+    // Verify thinking toggle is unchecked (default)
+    const checkbox = page.locator('.thinking-toggle input[type="checkbox"]');
+    await expect(checkbox).not.toBeChecked();
+
+    // Submit the form
+    await page.click('button:has-text("Start Session")');
+
+    // Wait for redirect to session detail
+    await expect(page).toHaveURL(/\/sessions\/[\w-]+/, { timeout: 10000 });
+
+    // Verify session name is visible (confirms session loaded)
+    await expect(page.getByText('Non-Thinking Session')).toBeVisible();
+
+    // Verify via API that thinkingEnabled is false
+    const sessions = await getProjectSessions(project.id);
+    const session = sessions.find((s: any) => s.name === 'Non-Thinking Session');
+    expect(session).toBeTruthy();
+    expect(session.thinkingEnabled).toBe(false);
+  });
+});
+
 test.describe('Session Management', () => {
   let project: any;
 

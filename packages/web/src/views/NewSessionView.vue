@@ -29,6 +29,20 @@
         ></textarea>
       </div>
 
+      <div class="form-group">
+        <label class="form-label">Options</label>
+        <div class="thinking-toggle">
+          <label class="toggle-switch">
+            <input
+              type="checkbox"
+              v-model="thinkingEnabled"
+            />
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">Enable Thinking</span>
+        </div>
+      </div>
+
       <div v-if="error" class="error-message">{{ error }}</div>
 
       <div class="form-actions">
@@ -112,6 +126,7 @@ const gitStatus = ref(null);
 const loading = ref(false);
 const loadingGit = ref(false);
 const error = ref(null);
+const thinkingEnabled = ref(false);
 
 // Quick git feature
 const quickGitMode = ref('worktree'); // '', 'branch', or 'worktree'
@@ -174,6 +189,7 @@ async function handleSubmit() {
       name: name.value || undefined,
       prompt: prompt.value,
       mode: mode.value,
+      thinkingEnabled: thinkingEnabled.value,
       gitMode: submitGitMode,
       gitBranch: submitGitBranch,
     });
@@ -300,6 +316,66 @@ h1 {
 .btn-small {
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
+}
+
+/* Thinking toggle */
+.thinking-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toggle-label {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--color-background-mute);
+  border: 1px solid var(--color-border);
+  border-radius: 22px;
+  transition: 0.2s;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--color-text-soft);
+  border-radius: 50%;
+  transition: 0.2s;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+  transform: translateX(18px);
+  background-color: #fff;
 }
 
 /* Mobile responsive styles */
