@@ -25,6 +25,23 @@
         />
       </div>
 
+      <!-- Streaming thinking indicator -->
+      <div v-if="sessionsStore.partialThinking" class="message message-assistant message-streaming">
+        <div class="message-header">
+          <span class="message-role">assistant</span>
+          <span class="streaming-indicator">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </span>
+        </div>
+        <WorkLogPanel
+          :work-logs="[]"
+          :partial-thinking="sessionsStore.partialThinking"
+          :is-latest-message="true"
+        />
+      </div>
+
       <!-- Streaming partial message -->
       <div v-if="partialText" class="message message-assistant message-streaming">
         <div class="message-header">
@@ -135,10 +152,12 @@ const isStopped = computed(() => {
 });
 
 // Subscribe to partial messages for streaming and work logs
-const { onPartial, onMessage, onWorkLog } = useSessionSubscription(props.sessionId);
+const { onPartial, onMessage, onWorkLog, onWorkLogsAssociated, onThinkingPartial } = useSessionSubscription(props.sessionId);
 let unsubPartial = null;
 let unsubMessage = null;
 let unsubWorkLog = null;
+let unsubWorkLogsAssociated = null;
+let unsubThinkingPartial = null;
 
 function handleScroll() {
   if (!messagesContainer.value) return;
@@ -180,6 +199,21 @@ onMounted(async () => {
     scrollToBottom();
   });
 
+  // Subscribe to work log association events (re-associate _unassociated logs)
+  unsubWorkLogsAssociated = onWorkLogsAssociated((messageId) => {
+    sessionsStore.associateWorkLogs(messageId);
+  });
+
+  // Subscribe to partial thinking updates for streaming display
+  unsubThinkingPartial = onThinkingPartial((thinking) => {
+    if (thinking === null) {
+      sessionsStore.clearPartialThinking();
+    } else {
+      sessionsStore.setPartialThinking(thinking);
+    }
+    scrollToBottom();
+  });
+
   // Fetch initial work logs
   await sessionsStore.fetchWorkLogs(props.sessionId);
 
@@ -191,6 +225,8 @@ onUnmounted(() => {
   if (unsubPartial) unsubPartial();
   if (unsubMessage) unsubMessage();
   if (unsubWorkLog) unsubWorkLog();
+  if (unsubWorkLogsAssociated) unsubWorkLogsAssociated();
+  if (unsubThinkingPartial) unsubThinkingPartial();
   if (debounceTimer) clearTimeout(debounceTimer);
   if (messagesContainer.value) {
     messagesContainer.value.removeEventListener('scroll', handleScroll);

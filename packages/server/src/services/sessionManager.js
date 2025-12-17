@@ -6,6 +6,9 @@ import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@c
 /** @type {Map<string, string|null>} Track current message ID for work log association */
 const currentMessageIds = new Map();
 
+/** @type {Map<string, string>} Accumulate thinking content per session */
+const thinkingAccumulators = new Map();
+
 /** @type {Map<string, { controller: AbortController }>} */
 const activeSessions = new Map();
 
@@ -351,9 +354,18 @@ async function handleStreamEvent(sessionId, event) {
         currentMessageIds.set(sessionId, message.id);
 
         // Associate any pending work logs with this message
-        workLogs.associatePendingLogs(sessionId, message.id);
+        const associatedCount = workLogs.associatePendingLogs(sessionId, message.id);
 
+        // Broadcast message first
         broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
+
+        // Notify client to re-associate work logs in their state
+        if (associatedCount > 0) {
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_WORK_LOGS_ASSOCIATED, {
+            sessionId,
+            messageId: message.id,
+          });
+        }
       }
 
       // Log thinking content
@@ -404,9 +416,33 @@ async function handleStreamEvent(sessionId, event) {
           });
         }
 
-        // Handle thinking delta for real-time thinking updates
+        // Handle thinking delta - accumulate and broadcast partial (don't create work log yet)
         if (delta?.type === 'thinking_delta' && delta.thinking) {
-          createWorkLog(sessionId, 'thinking', delta.thinking);
+          const current = thinkingAccumulators.get(sessionId) || '';
+          const accumulated = current + delta.thinking;
+          thinkingAccumulators.set(sessionId, accumulated);
+
+          // Broadcast partial thinking for real-time display
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL, {
+            sessionId,
+            thinking: accumulated,
+          });
+        }
+      }
+
+      // Handle content_block_stop - finalize accumulated thinking
+      if (event.event?.type === 'content_block_stop') {
+        const accumulated = thinkingAccumulators.get(sessionId);
+        if (accumulated) {
+          // Create a single work log entry with the complete thinking content
+          createWorkLog(sessionId, 'thinking', accumulated);
+          thinkingAccumulators.delete(sessionId);
+
+          // Clear partial thinking on client
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL, {
+            sessionId,
+            thinking: null,
+          });
         }
       }
       break;
