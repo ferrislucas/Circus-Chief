@@ -14,20 +14,21 @@ export class ProjectRepository extends BaseRepository {
       id: row.id,
       name: row.name,
       workingDirectory: row.working_directory,
+      systemPrompt: row.system_prompt,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
   }
 
-  create(name, workingDirectory) {
+  create(name, workingDirectory, systemPrompt = null) {
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO projects (id, name, working_directory, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO projects (id, name, working_directory, system_prompt, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
       )
-      .run(id, name, workingDirectory, now, now);
+      .run(id, name, workingDirectory, systemPrompt, now, now);
     return this.getById(id);
   }
 
@@ -47,6 +48,10 @@ export class ProjectRepository extends BaseRepository {
     if (data.workingDirectory !== undefined) {
       updates.push('working_directory = ?');
       values.push(data.workingDirectory);
+    }
+    if (data.systemPrompt !== undefined) {
+      updates.push('system_prompt = ?');
+      values.push(data.systemPrompt);
     }
 
     if (updates.length === 0) return this.getById(id);

@@ -84,7 +84,7 @@ router.post('/:id/message', async (req, res) => {
     const workingDirectory = session.gitWorktree || project.workingDirectory;
 
     // Start continuation (non-blocking)
-    continueSession(session.id, content, workingDirectory).catch((error) => {
+    continueSession(session.id, content, workingDirectory, project.systemPrompt).catch((error) => {
       console.error('Continue session error:', error);
     });
     res.json({ success: true });

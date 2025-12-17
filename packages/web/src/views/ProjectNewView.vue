@@ -20,6 +20,23 @@
         <PathChooser v-model="workingDirectory" />
       </div>
 
+      <details class="advanced-settings">
+        <summary>Advanced Settings</summary>
+        <div class="form-group">
+          <label class="form-label" for="systemPrompt">System Prompt</label>
+          <textarea
+            id="systemPrompt"
+            v-model="systemPrompt"
+            class="form-input form-textarea"
+            rows="8"
+            :placeholder="defaultSystemPrompt"
+          ></textarea>
+          <p class="form-help">
+            Customize the system prompt for the AI agent. Leave empty to use the default prompt shown above.
+          </p>
+        </div>
+      </details>
+
       <div v-if="error" class="error-message">{{ error }}</div>
 
       <div class="form-actions">
@@ -39,6 +56,7 @@ import { useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useUiStore } from '../stores/ui.js';
 import PathChooser from '../components/PathChooser.vue';
+import { DEFAULT_SYSTEM_PROMPT as defaultSystemPrompt } from '@claudetools/shared/constants';
 
 const router = useRouter();
 const projectsStore = useProjectsStore();
@@ -46,6 +64,7 @@ const uiStore = useUiStore();
 
 const name = ref('');
 const workingDirectory = ref('');
+const systemPrompt = ref('');
 const loading = ref(false);
 const error = ref(null);
 
@@ -57,6 +76,7 @@ async function handleSubmit() {
     const project = await projectsStore.createProject({
       name: name.value,
       workingDirectory: workingDirectory.value,
+      systemPrompt: systemPrompt.value || undefined,
     });
     uiStore.success('Project created successfully');
     router.push(`/projects/${project.id}/sessions`);
@@ -86,5 +106,34 @@ h1 {
 .error-message {
   color: var(--color-error);
   margin-bottom: 1rem;
+}
+
+.advanced-settings {
+  margin-bottom: 1rem;
+}
+
+.advanced-settings summary {
+  cursor: pointer;
+  color: var(--color-primary);
+  font-weight: 500;
+  margin-bottom: 1rem;
+}
+
+.advanced-settings[open] summary {
+  margin-bottom: 1rem;
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 120px;
+  font-family: monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.form-help {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
 }
 </style>
