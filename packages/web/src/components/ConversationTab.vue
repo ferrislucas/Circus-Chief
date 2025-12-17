@@ -64,7 +64,7 @@
           <span class="toggle-label">Thinking</span>
         </div>
         <div class="input-actions">
-          <button type="submit" class="btn btn-primary" :disabled="!input.trim() || sending">
+          <button type="submit" class="btn btn-primary btn-send" :disabled="!input.trim() || sending">
             <span v-if="sending" class="loading-spinner"></span>
             Send
           </button>
@@ -424,6 +424,14 @@ async function handleThinkingToggle(event) {
 .input-actions {
   display: flex;
   gap: 0.5rem;
+}
+
+.btn-send {
+  min-width: 100px;
+  min-height: 48px;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
 }
 
 .btn-secondary {
