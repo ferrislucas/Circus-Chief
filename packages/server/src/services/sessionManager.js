@@ -126,8 +126,8 @@ export async function runSession(sessionId, prompt, workingDirectory) {
     }
 
     // Session ready for follow-up - set to waiting instead of completed
-    const session = activeSessions.get(sessionId);
-    if (session && !controller.signal.aborted) {
+    const activeSession = activeSessions.get(sessionId);
+    if (activeSession && !controller.signal.aborted) {
       sessions.update(sessionId, { status: 'waiting' });
       broadcastSessionStatus(sessionId, 'waiting');
     }
