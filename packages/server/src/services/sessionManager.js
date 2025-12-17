@@ -1,7 +1,10 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { sessions, messages } from '../database.js';
+import { sessions, messages, workLogs } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
+
+/** @type {Map<string, string|null>} Track current message ID for work log association */
+const currentMessageIds = new Map();
 
 /** @type {Map<string, { controller: AbortController }>} */
 const activeSessions = new Map();
@@ -288,6 +291,23 @@ export function cleanupActiveSession(sessionId) {
 }
 
 /**
+ * Create and broadcast a work log entry
+ * @param {string} sessionId
+ * @param {string} type - 'thinking', 'tool_input', or 'tool_output'
+ * @param {string} content
+ * @param {string|null} toolName
+ */
+function createWorkLog(sessionId, type, content, toolName = null) {
+  const messageId = currentMessageIds.get(sessionId) || null;
+  const log = workLogs.create(sessionId, type, content, messageId, toolName);
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_WORK_LOG, {
+    sessionId,
+    log
+  });
+  return log;
+}
+
+/**
  * Handle a stream event from Claude SDK
  * @param {string} sessionId
  * @param {Object} event
@@ -301,6 +321,8 @@ async function handleStreamEvent(sessionId, event) {
           claudeSessionId: event.session_id,
           model: event.model,
         });
+        // Reset message tracking for new session
+        currentMessageIds.set(sessionId, null);
       }
       break;
     }
@@ -312,23 +334,79 @@ async function handleStreamEvent(sessionId, event) {
         ?.map((c) => c.text)
         ?.join('\n');
 
+      // Extract thinking content
+      const thinkingContent = event.message?.content
+        ?.filter((c) => c.type === 'thinking')
+        ?.map((c) => c.thinking)
+        ?.join('\n');
+
+      // Extract tool use for logging
+      const toolUseBlocks = event.message?.content?.filter((c) => c.type === 'tool_use') || [];
+
       if (textContent) {
-        const toolUse = event.message?.content?.filter((c) => c.type === 'tool_use') || null;
+        const toolUse = toolUseBlocks.length > 0 ? toolUseBlocks : null;
         const message = messages.create(sessionId, 'assistant', textContent, toolUse);
+
+        // Update current message ID for work log association
+        currentMessageIds.set(sessionId, message.id);
+
+        // Associate any pending work logs with this message
+        workLogs.associatePendingLogs(sessionId, message.id);
+
         broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
+      }
+
+      // Log thinking content
+      if (thinkingContent) {
+        createWorkLog(sessionId, 'thinking', thinkingContent);
+      }
+
+      // Log tool use inputs
+      for (const toolUse of toolUseBlocks) {
+        const toolInput = JSON.stringify(toolUse.input, null, 2);
+        createWorkLog(sessionId, 'tool_input', toolInput, toolUse.name);
+      }
+      break;
+    }
+
+    case 'tool_result': {
+      // Log tool results/outputs
+      const content = event.content || event.result || '';
+      const toolName = event.tool_name || event.name || 'unknown';
+
+      // Handle different content formats
+      let logContent;
+      if (typeof content === 'string') {
+        logContent = content;
+      } else if (Array.isArray(content)) {
+        logContent = content
+          .map((c) => (c.type === 'text' ? c.text : JSON.stringify(c)))
+          .join('\n');
+      } else {
+        logContent = JSON.stringify(content, null, 2);
+      }
+
+      if (logContent) {
+        createWorkLog(sessionId, 'tool_output', logContent, toolName);
       }
       break;
     }
 
     case 'stream_event': {
       // Real-time streaming - handle content_block_delta events
-      if (event.event?.type === 'content_block_delta' && event.event?.delta?.type === 'text_delta') {
-        const partialText = event.event.delta.text;
-        if (partialText) {
+      if (event.event?.type === 'content_block_delta') {
+        const delta = event.event.delta;
+
+        if (delta?.type === 'text_delta' && delta.text) {
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
             sessionId,
-            text: partialText,
+            text: delta.text,
           });
+        }
+
+        // Handle thinking delta for real-time thinking updates
+        if (delta?.type === 'thinking_delta' && delta.thinking) {
+          createWorkLog(sessionId, 'thinking', delta.thinking);
         }
       }
       break;
@@ -344,6 +422,8 @@ async function handleStreamEvent(sessionId, event) {
           sessions.update(sessionId, { costUsd: event.total_cost_usd });
         }
       }
+      // Clear message tracking when session completes
+      currentMessageIds.delete(sessionId);
       break;
     }
   }

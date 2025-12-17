@@ -180,6 +180,16 @@ export function useSessionSubscription(sessionId) {
     return () => off(WS_MESSAGE_TYPES.SESSION_PARTIAL, handler);
   };
 
+  const onWorkLog = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId && msg.log) {
+        callback(msg.log);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_WORK_LOG, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_WORK_LOG, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -194,5 +204,6 @@ export function useSessionSubscription(sessionId) {
     onError,
     onCanvasAdd,
     onCanvasRemove,
+    onWorkLog,
   };
 }
