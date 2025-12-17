@@ -84,7 +84,7 @@ router.post('/:id/message', async (req, res) => {
     const workingDirectory = session.gitWorktree || project.workingDirectory;
 
     // Start continuation (non-blocking)
-    continueSession(session.id, content, workingDirectory).catch((error) => {
+    continueSession(session.id, content, workingDirectory, project.systemPrompt).catch((error) => {
       console.error('Continue session error:', error);
     });
     res.json({ success: true });
@@ -183,6 +183,29 @@ router.delete('/:id/notes/:noteId', (req, res) => {
 
   sessionNotes.delete(req.params.noteId);
   res.status(204).send();
+});
+
+// PATCH /api/sessions/:id - Update session settings
+router.patch('/:id', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const { thinkingEnabled } = req.body;
+
+  // Build update object with only provided fields
+  const updateData = {};
+  if (thinkingEnabled !== undefined) {
+    updateData.thinkingEnabled = Boolean(thinkingEnabled);
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update' });
+  }
+
+  const updated = sessions.update(req.params.id, updateData);
+  res.json(updated);
 });
 
 // DELETE /api/sessions/:id - Delete session

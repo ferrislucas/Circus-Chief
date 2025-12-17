@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { sessions, messages } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
 
 /** @type {Map<string, { controller: AbortController }>} */
 const activeSessions = new Map();
@@ -61,16 +61,46 @@ For images, use base64 encoding in the content field.`;
 }
 
 /**
+ * Build environment variables for Claude SDK based on session settings
+ * @param {Object} session
+ * @returns {Object|undefined}
+ */
+function buildSessionEnv(session) {
+  const env = {};
+  if (session.thinkingEnabled) {
+    // Enable extended thinking with a reasonable token budget
+    env.MAX_THINKING_TOKENS = '10240';
+  }
+  return Object.keys(env).length > 0 ? env : undefined;
+}
+
+/**
+ * Build the full system prompt configuration
+ * @param {string} sessionId
+ * @param {string|null} customSystemPrompt - Custom system prompt from project settings
+ * @returns {string} System prompt string
+ */
+function buildSystemPromptConfig(sessionId, customSystemPrompt) {
+  const canvasInstructions = buildCanvasSystemPrompt(sessionId);
+  const basePrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
+  return `${basePrompt}\n\n${canvasInstructions}`;
+}
+
+/**
  * Run a Claude session
  * @param {string} sessionId
  * @param {string} prompt
  * @param {string} workingDirectory
+ * @param {string|null} systemPrompt - Custom system prompt from project settings
  */
-export async function runSession(sessionId, prompt, workingDirectory) {
+export async function runSession(sessionId, prompt, workingDirectory, systemPrompt = null) {
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
   try {
+    // Get session for settings
+    const session = sessions.getById(sessionId);
+
     // Update status to running
     sessions.update(sessionId, { status: 'running' });
     broadcastSessionStatus(sessionId, 'running');
@@ -79,6 +109,9 @@ export async function runSession(sessionId, prompt, workingDirectory) {
 
     // Choose between mock and real query based on environment
     const queryFn = isMockMode() ? mockQuery : query;
+
+    // Build environment variables for thinking mode
+    const sessionEnv = buildSessionEnv(session);
 
     const queryParams = isMockMode()
       ? { prompt }
@@ -89,11 +122,8 @@ export async function runSession(sessionId, prompt, workingDirectory) {
             abortController: controller,
             includePartialMessages: true,
             permissionMode: 'bypassPermissions',
-            systemPrompt: {
-              type: 'preset',
-              preset: 'claude_code',
-              append: buildCanvasSystemPrompt(sessionId),
-            },
+            ...(sessionEnv && { env: sessionEnv }),
+            systemPrompt: buildSystemPromptConfig(sessionId, systemPrompt),
           },
         };
 
@@ -105,8 +135,8 @@ export async function runSession(sessionId, prompt, workingDirectory) {
     }
 
     // Session ready for follow-up - set to waiting instead of completed
-    const session = activeSessions.get(sessionId);
-    if (session && !controller.signal.aborted) {
+    const activeSession = activeSessions.get(sessionId);
+    if (activeSession && !controller.signal.aborted) {
       sessions.update(sessionId, { status: 'waiting' });
       broadcastSessionStatus(sessionId, 'waiting');
     }
@@ -128,14 +158,15 @@ export async function runSession(sessionId, prompt, workingDirectory) {
  * @param {string} sessionId
  * @param {string} content
  * @param {string} workingDirectory
+ * @param {string|null} systemPrompt - Custom system prompt from project settings
  */
-export async function continueSession(sessionId, content, workingDirectory) {
+export async function continueSession(sessionId, content, workingDirectory, systemPrompt = null) {
   // Check if session is already running
   if (activeSessions.has(sessionId)) {
     throw new Error('Session is already processing');
   }
 
-  // Get the session to retrieve the Claude session ID
+  // Get the session to retrieve the Claude session ID and settings
   const session = sessions.getById(sessionId);
   if (!session) {
     throw new Error('Session not found');
@@ -160,6 +191,9 @@ export async function continueSession(sessionId, content, workingDirectory) {
     // Choose between mock and real query based on environment
     const queryFn = isMockMode() ? mockQuery : query;
 
+    // Build environment variables for thinking mode
+    const sessionEnv = buildSessionEnv(session);
+
     const queryParams = isMockMode()
       ? { prompt: content }
       : {
@@ -170,11 +204,8 @@ export async function continueSession(sessionId, content, workingDirectory) {
             includePartialMessages: true,
             permissionMode: 'bypassPermissions',
             resume: session.claudeSessionId,
-            systemPrompt: {
-              type: 'preset',
-              preset: 'claude_code',
-              append: buildCanvasSystemPrompt(sessionId),
-            },
+            ...(sessionEnv && { env: sessionEnv }),
+            systemPrompt: buildSystemPromptConfig(sessionId, systemPrompt),
           },
         };
 

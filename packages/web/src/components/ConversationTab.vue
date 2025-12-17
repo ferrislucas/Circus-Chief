@@ -50,14 +50,28 @@
         rows="3"
         @keydown.enter.ctrl="handleSend"
       ></textarea>
-      <div class="input-actions">
-        <button type="submit" class="btn btn-primary" :disabled="!input.trim() || sending">
-          <span v-if="sending" class="loading-spinner"></span>
-          Send
-        </button>
-        <button type="button" class="btn btn-secondary" @click="handleEndSession" :disabled="ending">
-          End Session
-        </button>
+      <div class="input-controls">
+        <div class="thinking-toggle">
+          <label class="toggle-switch">
+            <input
+              type="checkbox"
+              :checked="sessionsStore.currentSession?.thinkingEnabled"
+              @change="handleThinkingToggle"
+              :disabled="togglingThinking"
+            />
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">Thinking</span>
+        </div>
+        <div class="input-actions">
+          <button type="submit" class="btn btn-primary" :disabled="!input.trim() || sending">
+            <span v-if="sending" class="loading-spinner"></span>
+            Send
+          </button>
+          <button type="button" class="btn btn-secondary" @click="handleEndSession" :disabled="ending">
+            End Session
+          </button>
+        </div>
       </div>
     </form>
 
@@ -88,6 +102,7 @@ const uiStore = useUiStore();
 const input = ref('');
 const sending = ref(false);
 const ending = ref(false);
+const togglingThinking = ref(false);
 const messagesContainer = ref(null);
 const partialText = ref('');
 const isNearBottom = ref(true);
@@ -222,6 +237,22 @@ async function handleEndSession() {
     ending.value = false;
   }
 }
+
+async function handleThinkingToggle(event) {
+  if (togglingThinking.value) return;
+
+  const newValue = event.target.checked;
+  togglingThinking.value = true;
+  try {
+    await sessionsStore.updateSessionThinking(props.sessionId, newValue);
+  } catch (err) {
+    // Revert the checkbox on error
+    event.target.checked = !newValue;
+    uiStore.error(err.message);
+  } finally {
+    togglingThinking.value = false;
+  }
+}
 </script>
 
 <style scoped>
@@ -309,19 +340,89 @@ async function handleEndSession() {
 
 .input-form {
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
-  align-items: flex-end;
   padding-top: 1rem;
   border-top: 1px solid var(--color-border);
 }
 
 .input-form textarea {
-  flex: 1;
+  width: 100%;
+}
+
+.input-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.thinking-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toggle-label {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--color-background-mute);
+  border: 1px solid var(--color-border);
+  border-radius: 22px;
+  transition: 0.2s;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--color-text-soft);
+  border-radius: 50%;
+  transition: 0.2s;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+  transform: translateX(18px);
+  background-color: #fff;
+}
+
+.toggle-switch input:disabled + .toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .input-actions {
   display: flex;
-  flex-direction: column;
   gap: 0.5rem;
 }
 

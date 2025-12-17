@@ -93,6 +93,21 @@ if [[ "$1" == "--force" ]]; then
 fi
 
 # -----------------------------------------------------------------------------
+# Auto-kill any process on port 5000 if that's our target port
+#
+# Kill existing process on port 5000 to avoid conflicts when restarting.
+# Only applies when the script needs port 5000 specifically.
+# -----------------------------------------------------------------------------
+if [ "$SELECTED_PORT" == "5000" ]; then
+    PID_5000=$(lsof -t -i:5000 2>/dev/null)
+    if [ -n "$PID_5000" ]; then
+        echo "Killing existing process $PID_5000 on port 5000..."
+        kill $PID_5000 2>/dev/null
+        sleep 1
+    fi
+fi
+
+# -----------------------------------------------------------------------------
 # Check if port is available
 #
 # For the main repo or explicit PORT, fail if the port is already in use.

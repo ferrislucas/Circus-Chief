@@ -159,5 +159,24 @@ export const useSessionsStore = defineStore('sessions', {
         this.currentSession.status = status;
       }
     },
+
+    async updateSessionThinking(sessionId, thinkingEnabled) {
+      this.error = null;
+      try {
+        const updated = await api.updateSession(sessionId, { thinkingEnabled });
+        // Update local state
+        const session = this.sessions.find((s) => s.id === sessionId);
+        if (session) {
+          session.thinkingEnabled = thinkingEnabled;
+        }
+        if (this.currentSession?.id === sessionId) {
+          this.currentSession.thinkingEnabled = thinkingEnabled;
+        }
+        return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
   },
 });

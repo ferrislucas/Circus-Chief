@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   working_directory TEXT NOT NULL,
+  system_prompt TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -14,6 +15,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   name TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'starting' CHECK (status IN ('starting', 'running', 'waiting', 'completed', 'error')),
   mode TEXT NOT NULL DEFAULT 'standard' CHECK (mode IN ('plan', 'standard', 'yolo')),
+  thinking_enabled INTEGER NOT NULL DEFAULT 0,
   git_branch TEXT,
   git_worktree TEXT,
   pr_url TEXT,

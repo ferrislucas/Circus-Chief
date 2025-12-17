@@ -24,6 +24,20 @@
         <PathChooser v-model="workingDirectory" />
       </div>
 
+      <div class="form-group">
+        <label class="form-label" for="systemPrompt">System Prompt</label>
+        <textarea
+          id="systemPrompt"
+          v-model="systemPrompt"
+          class="form-input form-textarea"
+          rows="8"
+          :placeholder="defaultSystemPrompt"
+        ></textarea>
+        <p class="form-help">
+          Customize the system prompt for the AI agent. Leave empty to use the default prompt shown above.
+        </p>
+      </div>
+
       <div v-if="error" class="error-message">{{ error }}</div>
 
       <div class="form-actions">
@@ -46,6 +60,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useUiStore } from '../stores/ui.js';
 import PathChooser from '../components/PathChooser.vue';
+import { DEFAULT_SYSTEM_PROMPT as defaultSystemPrompt } from '@claudetools/shared/constants';
 
 const route = useRoute();
 const router = useRouter();
@@ -54,6 +69,7 @@ const uiStore = useUiStore();
 
 const name = ref('');
 const workingDirectory = ref('');
+const systemPrompt = ref('');
 const saving = ref(false);
 const error = ref(null);
 
@@ -65,6 +81,7 @@ watch(() => projectsStore.currentProject, (project) => {
   if (project) {
     name.value = project.name;
     workingDirectory.value = project.workingDirectory;
+    systemPrompt.value = project.systemPrompt || '';
   }
 }, { immediate: true });
 
@@ -76,6 +93,7 @@ async function handleSubmit() {
     await projectsStore.updateProject(route.params.id, {
       name: name.value,
       workingDirectory: workingDirectory.value,
+      systemPrompt: systemPrompt.value || null,
     });
     uiStore.success('Project updated successfully');
     router.push(`/projects/${route.params.id}/sessions`);
@@ -130,5 +148,19 @@ h1 {
 .error-message {
   color: var(--color-error);
   margin-bottom: 1rem;
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 120px;
+  font-family: monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.form-help {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
 }
 </style>
