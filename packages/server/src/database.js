@@ -9,6 +9,7 @@ export {
   CanvasItemRepository,
   SessionNoteRepository,
   TodoRepository,
+  WorkLogRepository,
   // Singleton instances
   databaseManager,
   projects,
@@ -17,6 +18,7 @@ export {
   canvasItems,
   sessionNotes,
   todos,
+  workLogs,
   // Legacy functions
   initDatabase,
   getDatabase,

@@ -24,7 +24,7 @@
         </div>
         <div class="session-actions">
           <button
-            v-if="isActive"
+            v-if="canStop"
             class="btn btn-danger"
             @click="handleStop"
           >
@@ -111,11 +111,14 @@ const sessionsStore = useSessionsStore();
 const canvasStore = useCanvasStore();
 const todosStore = useTodosStore();
 const uiStore = useUiStore();
+
 const showDeleteConfirm = ref(false);
 
 const activeTab = computed(() => route.params.tab || 'conversation');
-const isActive = computed(() => {
+
+const canStop = computed(() => {
   const status = sessionsStore.currentSession?.status;
+  // Can stop running or waiting sessions, but not already stopped ones
   return status === 'running' || status === 'waiting';
 });
 

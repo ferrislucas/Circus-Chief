@@ -103,6 +103,14 @@ export class ApiClient {
   // Sessions
 
   /**
+   * Get all active/waiting sessions across all projects
+   * @returns {Promise<Array>}
+   */
+  async getActiveSessions() {
+    return this.#request('GET', '/sessions');
+  }
+
+  /**
    * Get all sessions for a project
    * @param {string} projectId - Project ID
    * @returns {Promise<Array>}
@@ -140,6 +148,15 @@ export class ApiClient {
   }
 
   /**
+   * Get work logs for a session (grouped by message ID)
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<Object>} Work logs grouped by message ID
+   */
+  async getSessionWorkLogs(sessionId) {
+    return this.#request('GET', `/sessions/${sessionId}/work-logs`);
+  }
+
+  /**
    * Send a message to a session
    * @param {string} sessionId - Session ID
    * @param {string} content - Message content
@@ -174,6 +191,16 @@ export class ApiClient {
    */
   async endSession(id) {
     return this.#request('POST', `/sessions/${id}/end`);
+  }
+
+  /**
+   * Update session settings
+   * @param {string} id - Session ID
+   * @param {Object} data - Update data (e.g., { thinkingEnabled: true })
+   * @returns {Promise<Object>}
+   */
+  async updateSession(id, data) {
+    return this.#request('PATCH', `/sessions/${id}`, data);
   }
 
   /**

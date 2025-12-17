@@ -2,7 +2,7 @@
   <div class="conversation-tab">
     <div class="messages" ref="messagesContainer">
       <div
-        v-for="message in sessionsStore.messages"
+        v-for="(message, index) in sessionsStore.messages"
         :key="message.id"
         :class="['message', `message-${message.role}`]"
       >
@@ -17,6 +17,29 @@
             <pre>{{ JSON.stringify(tool.input, null, 2) }}</pre>
           </details>
         </div>
+        <!-- Work Log Panel for assistant messages -->
+        <WorkLogPanel
+          v-if="message.role === 'assistant'"
+          :work-logs="sessionsStore.getWorkLogsForMessage(message.id)"
+          :is-latest-message="index === sessionsStore.messages.length - 1"
+        />
+      </div>
+
+      <!-- Streaming thinking indicator -->
+      <div v-if="sessionsStore.partialThinking" class="message message-assistant message-streaming">
+        <div class="message-header">
+          <span class="message-role">assistant</span>
+          <span class="streaming-indicator">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </span>
+        </div>
+        <WorkLogPanel
+          :work-logs="[]"
+          :partial-thinking="sessionsStore.partialThinking"
+          :is-latest-message="true"
+        />
       </div>
 
       <!-- Streaming partial message -->
@@ -45,22 +68,41 @@
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
 
+    <div v-if="isStopped" class="status-message status-stopped">
+      <span class="stopped-icon">⏸</span>
+      Session stopped - send a message to resume
+    </div>
+
     <form v-if="canSendMessage" @submit.prevent="handleSend" class="input-form">
       <textarea
         v-model="input"
         class="form-input form-textarea"
-        placeholder="Send a follow-up message..."
+        :placeholder="isStopped ? 'Send a message to resume session...' : 'Send a follow-up message...'"
         rows="3"
         @keydown.enter.ctrl="handleSend"
       ></textarea>
-      <div class="input-actions">
-        <button type="submit" class="btn btn-primary" :disabled="!input.trim() || sending">
-          <span v-if="sending" class="loading-spinner"></span>
-          Send
-        </button>
-        <button type="button" class="btn btn-secondary" @click="handleEndSession" :disabled="ending">
-          End Session
-        </button>
+      <div class="input-controls">
+        <div class="thinking-toggle">
+          <label class="toggle-switch">
+            <input
+              type="checkbox"
+              :checked="sessionsStore.currentSession?.thinkingEnabled"
+              @change="handleThinkingToggle"
+              :disabled="togglingThinking"
+            />
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">Thinking</span>
+        </div>
+        <div class="input-actions">
+          <button type="submit" class="btn btn-primary btn-send" :disabled="!input.trim() || sending">
+            <span v-if="sending" class="loading-spinner"></span>
+            Send
+          </button>
+          <button type="button" class="btn btn-secondary" @click="handleEndSession" :disabled="ending">
+            End Session
+          </button>
+        </div>
       </div>
     </form>
 
@@ -81,6 +123,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import TodoDrawer from './TodoDrawer.vue';
+import WorkLogPanel from './WorkLogPanel.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -92,6 +135,7 @@ const uiStore = useUiStore();
 const input = ref('');
 const sending = ref(false);
 const ending = ref(false);
+const togglingThinking = ref(false);
 const messagesContainer = ref(null);
 const partialText = ref('');
 const isNearBottom = ref(true);
@@ -103,13 +147,21 @@ const SCROLL_THRESHOLD = 100; // pixels from bottom to consider "at bottom"
 const STORAGE_KEY = `session-draft-${props.sessionId}`;
 
 const canSendMessage = computed(() => {
-  return sessionsStore.currentSession?.status === 'waiting';
+  const status = sessionsStore.currentSession?.status;
+  return status === 'waiting' || status === 'stopped';
 });
 
-// Subscribe to partial messages for streaming
-const { onPartial, onMessage } = useSessionSubscription(props.sessionId);
+const isStopped = computed(() => {
+  return sessionsStore.currentSession?.status === 'stopped';
+});
+
+// Subscribe to partial messages for streaming and work logs
+const { onPartial, onMessage, onWorkLog, onWorkLogsAssociated, onThinkingPartial } = useSessionSubscription(props.sessionId);
 let unsubPartial = null;
 let unsubMessage = null;
+let unsubWorkLog = null;
+let unsubWorkLogsAssociated = null;
+let unsubThinkingPartial = null;
 
 function handleScroll() {
   if (!messagesContainer.value) return;
@@ -123,7 +175,7 @@ function handleScroll() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   // Load draft from localStorage
   const savedDraft = localStorage.getItem(STORAGE_KEY);
   if (savedDraft) {
@@ -145,6 +197,30 @@ onMounted(() => {
     partialText.value = '';
   });
 
+  // Subscribe to work log updates
+  unsubWorkLog = onWorkLog((log) => {
+    sessionsStore.addWorkLog(log);
+    scrollToBottom();
+  });
+
+  // Subscribe to work log association events (re-associate _unassociated logs)
+  unsubWorkLogsAssociated = onWorkLogsAssociated((messageId) => {
+    sessionsStore.associateWorkLogs(messageId);
+  });
+
+  // Subscribe to partial thinking updates for streaming display
+  unsubThinkingPartial = onThinkingPartial((thinking) => {
+    if (thinking === null) {
+      sessionsStore.clearPartialThinking();
+    } else {
+      sessionsStore.setPartialThinking(thinking);
+    }
+    scrollToBottom();
+  });
+
+  // Fetch initial work logs
+  await sessionsStore.fetchWorkLogs(props.sessionId);
+
   // Scroll to bottom on initial load
   scrollToBottom(true);
 });
@@ -152,10 +228,15 @@ onMounted(() => {
 onUnmounted(() => {
   if (unsubPartial) unsubPartial();
   if (unsubMessage) unsubMessage();
+  if (unsubWorkLog) unsubWorkLog();
+  if (unsubWorkLogsAssociated) unsubWorkLogsAssociated();
+  if (unsubThinkingPartial) unsubThinkingPartial();
   if (debounceTimer) clearTimeout(debounceTimer);
   if (messagesContainer.value) {
     messagesContainer.value.removeEventListener('scroll', handleScroll);
   }
+  // Clear work logs when leaving the conversation
+  sessionsStore.clearWorkLogs();
 });
 
 // Save draft to localStorage with debounce
@@ -224,6 +305,22 @@ async function handleEndSession() {
     uiStore.error(err.message);
   } finally {
     ending.value = false;
+  }
+}
+
+async function handleThinkingToggle(event) {
+  if (togglingThinking.value) return;
+
+  const newValue = event.target.checked;
+  togglingThinking.value = true;
+  try {
+    await sessionsStore.updateSessionThinking(props.sessionId, newValue);
+  } catch (err) {
+    // Revert the checkbox on error
+    event.target.checked = !newValue;
+    uiStore.error(err.message);
+  } finally {
+    togglingThinking.value = false;
   }
 }
 </script>
@@ -313,20 +410,98 @@ async function handleEndSession() {
 
 .input-form {
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
-  align-items: flex-end;
   padding-top: 1rem;
   border-top: 1px solid var(--color-border);
 }
 
 .input-form textarea {
-  flex: 1;
+  width: 100%;
+}
+
+.input-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.thinking-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toggle-label {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--color-background-mute);
+  border: 1px solid var(--color-border);
+  border-radius: 22px;
+  transition: 0.2s;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--color-text-soft);
+  border-radius: 50%;
+  transition: 0.2s;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+  transform: translateX(18px);
+  background-color: #fff;
+}
+
+.toggle-switch input:disabled + .toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .input-actions {
   display: flex;
-  flex-direction: column;
   gap: 0.5rem;
+}
+
+.btn-send {
+  min-width: 100px;
+  min-height: 48px;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
 }
 
 .btn-secondary {
@@ -350,6 +525,17 @@ async function handleEndSession() {
 
 .status-completed {
   color: var(--color-success, #10b981);
+}
+
+.status-stopped {
+  color: var(--color-warning, #f59e0b);
+  background-color: rgba(245, 158, 11, 0.1);
+  border-radius: var(--border-radius);
+  margin-bottom: 0.5rem;
+}
+
+.stopped-icon {
+  font-size: 1rem;
 }
 
 .jump-to-latest {

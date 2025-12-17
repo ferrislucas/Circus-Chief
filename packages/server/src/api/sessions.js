@@ -1,11 +1,18 @@
 import { Router } from 'express';
-import { sessions, messages, sessionNotes, projects, todos } from '../database.js';
+import { sessions, messages, sessionNotes, projects, todos, workLogs } from '../database.js';
 import { continueSession, stopSession, endSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import * as gitService from '../services/gitService.js';
 
 const router = Router();
+
+// GET /api/sessions - Get all active/waiting sessions across all projects
+router.get('/', (req, res) => {
+  const activeSessions = sessions.getActiveAndWaiting();
+  res.json(activeSessions);
+});
 
 // GET /api/sessions/:id - Get session details
 router.get('/:id', (req, res) => {
@@ -50,6 +57,18 @@ router.get('/:id/messages', (req, res) => {
   res.json(sessionMessages);
 });
 
+// GET /api/sessions/:id/work-logs - Get work logs for session
+router.get('/:id/work-logs', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Return work logs grouped by message ID
+  const grouped = workLogs.getBySessionIdGrouped(req.params.id);
+  res.json(grouped);
+});
+
 // POST /api/sessions/:id/message - Send follow-up message
 router.post('/:id/message', async (req, res) => {
   const session = sessions.getById(req.params.id);
@@ -62,7 +81,7 @@ router.post('/:id/message', async (req, res) => {
     return res.status(400).json({ error: 'Content is required' });
   }
 
-  if (session.status !== 'waiting') {
+  if (session.status !== 'waiting' && session.status !== 'stopped') {
     return res.status(400).json({ error: 'Session is not waiting for input' });
   }
 
@@ -77,7 +96,7 @@ router.post('/:id/message', async (req, res) => {
     const workingDirectory = session.gitWorktree || project.workingDirectory;
 
     // Start continuation (non-blocking)
-    continueSession(session.id, content, workingDirectory).catch((error) => {
+    continueSession(session.id, content, workingDirectory, project.systemPrompt).catch((error) => {
       console.error('Continue session error:', error);
     });
     res.json({ success: true });
@@ -93,7 +112,9 @@ router.post('/:id/stop', async (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  if (session.status !== 'running' && session.status !== 'waiting') {
+  // Allow stopping running, waiting, or stuck sessions (crashed sessions may be stuck in 'running')
+  // Don't allow stopping already completed or errored sessions
+  if (session.status === 'completed' || session.status === 'error' || session.status === 'stopped') {
     return res.status(400).json({ error: 'Session is not active' });
   }
 
@@ -189,8 +210,31 @@ router.get('/:id/todos', (req, res) => {
   res.json(sessionTodos);
 });
 
+// PATCH /api/sessions/:id - Update session settings
+router.patch('/:id', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const { thinkingEnabled } = req.body;
+
+  // Build update object with only provided fields
+  const updateData = {};
+  if (thinkingEnabled !== undefined) {
+    updateData.thinkingEnabled = Boolean(thinkingEnabled);
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update' });
+  }
+
+  const updated = sessions.update(req.params.id, updateData);
+  res.json(updated);
+});
+
 // DELETE /api/sessions/:id - Delete session
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
@@ -198,6 +242,19 @@ router.delete('/:id', (req, res) => {
 
   // Clean up active session if running
   cleanupActiveSession(req.params.id);
+
+  // Remove git worktree if session has one
+  if (session.gitWorktree) {
+    const project = projects.getById(session.projectId);
+    if (project) {
+      try {
+        await gitService.removeWorktree(project.workingDirectory, session.gitWorktree, true);
+      } catch (error) {
+        // Log but don't fail - worktree may already be removed or have issues
+        console.warn(`Failed to remove worktree for session ${session.id}:`, error.message);
+      }
+    }
+  }
 
   // Broadcast deletion to close any open WebSocket subscriptions
   broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_DELETED, { sessionId: req.params.id });

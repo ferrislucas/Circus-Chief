@@ -190,6 +190,36 @@ export function useSessionSubscription(sessionId) {
     return () => off(WS_MESSAGE_TYPES.TODOS_UPDATE, handler);
   };
 
+  const onWorkLog = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId && msg.log) {
+        callback(msg.log);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_WORK_LOG, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_WORK_LOG, handler);
+  };
+
+  const onWorkLogsAssociated = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.messageId);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_WORK_LOGS_ASSOCIATED, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_WORK_LOGS_ASSOCIATED, handler);
+  };
+
+  const onThinkingPartial = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.thinking);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -205,5 +235,8 @@ export function useSessionSubscription(sessionId) {
     onCanvasAdd,
     onCanvasRemove,
     onTodosUpdate,
+    onWorkLog,
+    onWorkLogsAssociated,
+    onThinkingPartial,
   };
 }

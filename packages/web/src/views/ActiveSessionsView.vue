@@ -3,14 +3,9 @@
     <div class="page-header">
       <div>
         <router-link to="/" class="back-link">&larr; Projects</router-link>
-        <h1>{{ projectsStore.currentProject?.name || 'Sessions' }}</h1>
-        <p v-if="projectsStore.currentProject" class="project-path">
-          {{ projectsStore.currentProject.workingDirectory }}
-        </p>
+        <h1>Active Sessions</h1>
+        <p class="page-description">Sessions that are running or waiting for input</p>
       </div>
-      <router-link :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary">
-        New Session
-      </router-link>
     </div>
 
     <div v-if="sessionsStore.loading" class="skeleton-list">
@@ -21,16 +16,14 @@
       {{ sessionsStore.error }}
     </div>
 
-    <div v-else-if="sessionsStore.sessions.length === 0" class="empty-state">
-      <p>No sessions yet. Start a new session to interact with Claude.</p>
-      <router-link :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary">
-        Start Session
-      </router-link>
+    <div v-else-if="sessionsStore.activeSessions.length === 0" class="empty-state">
+      <p>No active sessions. All sessions are completed or there are no sessions yet.</p>
+      <router-link to="/" class="btn btn-primary">View Projects</router-link>
     </div>
 
     <div v-else class="session-list">
       <router-link
-        v-for="session in sessionsStore.sessions"
+        v-for="session in sessionsStore.activeSessions"
         :key="session.id"
         :to="`/sessions/${session.id}`"
         class="session-card card"
@@ -42,9 +35,12 @@
             <span class="session-mode">{{ session.mode }}</span>
             <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
           </p>
+          <p class="session-project">
+            <span class="project-name">{{ session.projectName }}</span>
+          </p>
         </div>
         <div class="session-date">
-          {{ formatDate(session.createdAt) }}
+          {{ formatDate(session.updatedAt) }}
         </div>
       </router-link>
     </div>
@@ -52,18 +48,26 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue';
-import { useRoute } from 'vue-router';
-import { useProjectsStore } from '../stores/projects.js';
+import { onMounted, onUnmounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 
-const route = useRoute();
-const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
 
+let refreshInterval = null;
+
 onMounted(() => {
-  projectsStore.fetchProject(route.params.id);
-  sessionsStore.fetchSessions(route.params.id);
+  sessionsStore.fetchActiveSessions();
+
+  // Auto-refresh every 10 seconds
+  refreshInterval = setInterval(() => {
+    sessionsStore.fetchActiveSessions(false);
+  }, 10000);
+});
+
+onUnmounted(() => {
+  if (refreshInterval) {
+    clearInterval(refreshInterval);
+  }
 });
 
 function formatDate(timestamp) {
@@ -96,11 +100,10 @@ function formatDate(timestamp) {
   margin: 0;
 }
 
-.project-path {
+.page-description {
   margin: 0.25rem 0 0;
   font-size: 0.875rem;
   color: var(--color-text-soft);
-  font-family: var(--font-mono);
 }
 
 .skeleton-list {
@@ -170,24 +173,17 @@ function formatDate(timestamp) {
   font-family: var(--font-mono);
 }
 
-.session-date {
-  font-size: 0.875rem;
+.session-project {
+  margin: 0.5rem 0 0;
+}
+
+.project-name {
+  font-size: 0.75rem;
   color: var(--color-text-soft);
 }
 
-@media (max-width: 480px) {
-  .page-header {
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .page-header .btn {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .project-path {
-    word-break: break-all;
-  }
+.session-date {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
 }
 </style>

@@ -1,6 +1,7 @@
 import { Page, expect } from '@playwright/test';
 
 const API_URL = process.env.API_URL || 'http://localhost:5000';
+const TEST_PREFIX = '[TEST] ';
 
 // ============================================================
 // API Verification Helpers
@@ -41,10 +42,11 @@ export async function getCanvasItems(sessionId: string) {
 // ============================================================
 
 export async function seedProject(name: string, workingDirectory: string) {
+  const testName = `${TEST_PREFIX}${name}`;
   const response = await fetch(`${API_URL}/api/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, workingDirectory }),
+    body: JSON.stringify({ name: testName, workingDirectory }),
   });
   if (!response.ok) throw new Error('Failed to seed project');
   return response.json();
@@ -82,7 +84,10 @@ export async function cleanupAll() {
 
   const projects = await projectsResponse.json();
   for (const project of projects) {
-    await fetch(`${API_URL}/api/projects/${project.id}`, { method: 'DELETE' });
+    // Only delete test projects (prefixed with [TEST])
+    if (project.name.startsWith(TEST_PREFIX)) {
+      await fetch(`${API_URL}/api/projects/${project.id}`, { method: 'DELETE' });
+    }
   }
 }
 

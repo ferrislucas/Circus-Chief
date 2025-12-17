@@ -4,8 +4,11 @@ import { api } from '../composables/useApi.js';
 export const useSessionsStore = defineStore('sessions', {
   state: () => ({
     sessions: [],
+    activeSessions: [],
     currentSession: null,
     messages: [],
+    workLogs: {}, // Keyed by messageId: { [messageId]: WorkLog[] }
+    partialThinking: null, // Current streaming thinking content
     loading: false,
     error: null,
   }),
@@ -14,9 +17,24 @@ export const useSessionsStore = defineStore('sessions', {
     getSessionById: (state) => (id) => {
       return state.sessions.find((s) => s.id === id);
     },
+    getWorkLogsForMessage: (state) => (messageId) => {
+      return state.workLogs[messageId] || [];
+    },
   },
 
   actions: {
+    async fetchActiveSessions(showLoading = true) {
+      if (showLoading) this.loading = true;
+      this.error = null;
+      try {
+        this.activeSessions = await api.getActiveSessions();
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        if (showLoading) this.loading = false;
+      }
+    },
+
     async fetchSessions(projectId) {
       this.loading = true;
       this.error = null;
@@ -92,7 +110,11 @@ export const useSessionsStore = defineStore('sessions', {
       try {
         await api.stopSession(id);
         if (this.currentSession?.id === id) {
-          this.currentSession.status = 'completed';
+          this.currentSession.status = 'stopped';
+        }
+        const session = this.sessions.find((s) => s.id === id);
+        if (session) {
+          session.status = 'stopped';
         }
       } catch (err) {
         this.error = err.message;
@@ -137,6 +159,56 @@ export const useSessionsStore = defineStore('sessions', {
       this.messages.push(message);
     },
 
+    async fetchWorkLogs(sessionId) {
+      this.error = null;
+      try {
+        const grouped = await api.getSessionWorkLogs(sessionId);
+        this.workLogs = grouped;
+      } catch (err) {
+        this.error = err.message;
+      }
+    },
+
+    addWorkLog(log) {
+      const messageId = log.messageId || '_unassociated';
+      if (!this.workLogs[messageId]) {
+        this.workLogs[messageId] = [];
+      }
+      this.workLogs[messageId].push(log);
+    },
+
+    setWorkLogs(workLogs) {
+      this.workLogs = workLogs;
+    },
+
+    clearWorkLogs() {
+      this.workLogs = {};
+      this.partialThinking = null;
+    },
+
+    // Associate unassociated work logs with a message ID
+    associateWorkLogs(messageId) {
+      const unassociated = this.workLogs['_unassociated'] || [];
+      if (unassociated.length > 0) {
+        if (!this.workLogs[messageId]) {
+          this.workLogs[messageId] = [];
+        }
+        // Move logs from _unassociated to the messageId
+        this.workLogs[messageId].push(...unassociated);
+        this.workLogs['_unassociated'] = [];
+      }
+    },
+
+    // Set partial thinking content for streaming display
+    setPartialThinking(thinking) {
+      this.partialThinking = thinking;
+    },
+
+    // Clear partial thinking when complete
+    clearPartialThinking() {
+      this.partialThinking = null;
+    },
+
     updateSessionStatus(sessionId, status) {
       const session = this.sessions.find((s) => s.id === sessionId);
       if (session) {
@@ -144,6 +216,25 @@ export const useSessionsStore = defineStore('sessions', {
       }
       if (this.currentSession?.id === sessionId) {
         this.currentSession.status = status;
+      }
+    },
+
+    async updateSessionThinking(sessionId, thinkingEnabled) {
+      this.error = null;
+      try {
+        const updated = await api.updateSession(sessionId, { thinkingEnabled });
+        // Update local state
+        const session = this.sessions.find((s) => s.id === sessionId);
+        if (session) {
+          session.thinkingEnabled = thinkingEnabled;
+        }
+        if (this.currentSession?.id === sessionId) {
+          this.currentSession.thinkingEnabled = thinkingEnabled;
+        }
+        return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
       }
     },
   },

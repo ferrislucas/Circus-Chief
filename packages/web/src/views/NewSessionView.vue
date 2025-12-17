@@ -30,16 +30,30 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="mode">Mode</label>
-        <select id="mode" v-model="mode" class="form-input">
-          <option value="standard">Standard</option>
-          <option value="plan">Plan</option>
-          <option value="yolo">YOLO</option>
-        </select>
+        <label class="form-label">Options</label>
+        <div class="thinking-toggle">
+          <label class="toggle-switch">
+            <input
+              type="checkbox"
+              v-model="thinkingEnabled"
+            />
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">Enable Thinking</span>
+        </div>
       </div>
 
-      <!-- Quick Git Options -->
-      <div v-if="gitStatus?.isGitRepo && !showAdvancedGit" class="form-group">
+      <div v-if="error" class="error-message">{{ error }}</div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary btn-full-width" :disabled="loading">
+          <span v-if="loading" class="loading-spinner"></span>
+          Start Session
+        </button>
+      </div>
+
+      <!-- Git Options -->
+      <div v-if="gitStatus?.isGitRepo" class="form-group">
         <label class="form-label">Git Options</label>
         <div class="quick-git-options">
           <label class="radio-option">
@@ -82,73 +96,11 @@
           <p class="form-help">Auto-generated from session name/prompt</p>
         </div>
 
-        <button
-          type="button"
-          class="link-button"
-          @click="showAdvancedGit = true"
-        >
-          Advanced git options...
-        </button>
-      </div>
-
-      <!-- Advanced Git Options (legacy UI) -->
-      <div v-if="gitStatus?.isGitRepo && showAdvancedGit" class="form-group">
-        <div class="advanced-header">
-          <label class="form-label">Git Mode (Advanced)</label>
-          <button type="button" class="link-button" @click="showAdvancedGit = false">
-            Simple options
-          </button>
-        </div>
-        <select id="gitMode" v-model="gitMode" class="form-input">
-          <option value="">None (use current branch)</option>
-          <option value="branch">Switch Branch</option>
-          <option value="worktree">Create Worktree</option>
-        </select>
-        <p class="form-help">
-          <template v-if="gitMode === ''">Session runs in the current branch</template>
-          <template v-else-if="gitMode === 'branch'">Checkout/create a branch in the project directory</template>
-          <template v-else-if="gitMode === 'worktree'">Create an isolated worktree for this session</template>
-        </p>
-
-        <div v-if="gitMode" class="form-group nested-group">
-          <label class="form-label" for="gitBranch">
-            {{ gitMode === 'branch' ? 'Branch Name' : 'Worktree Branch' }}
-          </label>
-          <div class="branch-input-group">
-            <select id="gitBranch" v-model="gitBranch" class="form-input">
-              <option value="">-- Select existing or type new --</option>
-              <option v-for="branch in gitStatus.branches" :key="branch.name" :value="branch.name">
-                {{ branch.name }}
-              </option>
-            </select>
-            <span class="or-text">or</span>
-            <input
-              v-model="newBranchName"
-              type="text"
-              class="form-input"
-              placeholder="New branch name"
-              @input="gitBranch = newBranchName"
-            />
-          </div>
-          <p v-if="gitStatus.currentBranch" class="form-help">
-            Current branch: {{ gitStatus.currentBranch }}
-          </p>
-        </div>
       </div>
 
       <div v-if="loadingGit" class="git-loading">
         <span class="loading-spinner"></span>
         Loading git info...
-      </div>
-
-      <div v-if="error" class="error-message">{{ error }}</div>
-
-      <div class="form-actions">
-        <router-link :to="`/projects/${route.params.id}/sessions`" class="btn">Cancel</router-link>
-        <button type="submit" class="btn btn-primary" :disabled="loading">
-          <span v-if="loading" class="loading-spinner"></span>
-          Start Session
-        </button>
       </div>
     </form>
   </div>
@@ -169,20 +121,17 @@ const uiStore = useUiStore();
 
 const name = ref('');
 const prompt = ref('');
-const mode = ref('standard');
-const gitMode = ref('');
-const gitBranch = ref('');
-const newBranchName = ref('');
+const mode = ref('yolo');
 const gitStatus = ref(null);
 const loading = ref(false);
 const loadingGit = ref(false);
 const error = ref(null);
+const thinkingEnabled = ref(true);
 
 // Quick git feature
-const quickGitMode = ref(''); // '', 'branch', or 'worktree'
+const quickGitMode = ref('worktree'); // '', 'branch', or 'worktree'
 const quickWorktreeBranch = ref('');
 const editingBranch = ref(false);
-const showAdvancedGit = ref(false);
 
 // Generate branch name when session name or prompt changes
 const autoBranchName = computed(() => {
@@ -232,24 +181,15 @@ async function handleSubmit() {
   error.value = null;
 
   try {
-    // Determine git settings based on quick or advanced options
-    let submitGitMode;
-    let submitGitBranch;
-
-    if (showAdvancedGit.value) {
-      // Use advanced options
-      submitGitMode = gitMode.value || undefined;
-      submitGitBranch = gitBranch.value || undefined;
-    } else if (quickGitMode.value && gitStatus.value?.isGitRepo) {
-      // Use quick options
-      submitGitMode = quickGitMode.value;
-      submitGitBranch = quickWorktreeBranch.value;
-    }
+    // Determine git settings
+    const submitGitMode = quickGitMode.value && gitStatus.value?.isGitRepo ? quickGitMode.value : undefined;
+    const submitGitBranch = submitGitMode ? quickWorktreeBranch.value : undefined;
 
     const session = await sessionsStore.createSession(route.params.id, {
       name: name.value || undefined,
       prompt: prompt.value,
       mode: mode.value,
+      thinkingEnabled: thinkingEnabled.value,
       gitMode: submitGitMode,
       gitBranch: submitGitBranch,
     });
@@ -295,33 +235,16 @@ h1 {
 }
 
 .form-actions {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
+  margin-bottom: 1.5rem;
+}
+
+.btn-full-width {
+  width: 100%;
 }
 
 .error-message {
   color: var(--color-error);
   margin-bottom: 1rem;
-}
-
-.branch-input-group {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.branch-input-group select {
-  flex: 1;
-}
-
-.branch-input-group input {
-  flex: 1;
-}
-
-.or-text {
-  color: var(--color-text-soft);
-  font-size: 0.875rem;
 }
 
 /* Quick git options */
@@ -395,32 +318,86 @@ h1 {
   font-size: 0.75rem;
 }
 
-.link-button {
-  background: none;
-  border: none;
-  color: var(--color-accent);
-  font-size: 0.75rem;
-  cursor: pointer;
-  padding: 0;
-  margin-top: 0.5rem;
-}
-
-.link-button:hover {
-  text-decoration: underline;
-}
-
-.advanced-header {
+/* Thinking toggle */
+.thinking-toggle {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.5rem;
+  gap: 0.5rem;
 }
 
-.advanced-header .form-label {
-  margin-bottom: 0;
+.toggle-label {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
 }
 
-.nested-group {
-  margin-top: 1rem;
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--color-background-mute);
+  border: 1px solid var(--color-border);
+  border-radius: 22px;
+  transition: 0.2s;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--color-text-soft);
+  border-radius: 50%;
+  transition: 0.2s;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+  transform: translateX(18px);
+  background-color: #fff;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 480px) {
+  h1 {
+    margin-bottom: 1rem;
+    font-size: 1.5rem;
+  }
+
+  .radio-option {
+    flex-wrap: wrap;
+    padding: 0.5rem;
+  }
+
+  .radio-help {
+    width: 100%;
+    margin-left: 1.5rem;
+    margin-top: 0.25rem;
+  }
+
+  .quick-branch-section {
+    padding: 0.75rem;
+  }
 }
 </style>

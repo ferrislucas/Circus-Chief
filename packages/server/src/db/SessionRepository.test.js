@@ -47,8 +47,18 @@ describe('SessionRepository', () => {
     });
 
     it('creates session with git branch', () => {
-      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', 'feature-branch');
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, 'feature-branch');
       expect(session.gitBranch).toBe('feature-branch');
+    });
+
+    it('creates session with thinkingEnabled true', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', true);
+      expect(session.thinkingEnabled).toBe(true);
+    });
+
+    it('creates session with thinkingEnabled false by default', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      expect(session.thinkingEnabled).toBe(false);
     });
 
     it('creates initial user message on session creation', () => {
@@ -82,6 +92,14 @@ describe('SessionRepository', () => {
 
     it('returns null for non-existent ID', () => {
       expect(repo.getById('non-existent')).toBeNull();
+    });
+
+    it('returns thinkingEnabled as boolean', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', true);
+      const retrieved = repo.getById(session.id);
+
+      expect(typeof retrieved.thinkingEnabled).toBe('boolean');
+      expect(retrieved.thinkingEnabled).toBe(true);
     });
   });
 
@@ -196,6 +214,81 @@ describe('SessionRepository', () => {
     });
   });
 
+  describe('getActiveAndWaiting', () => {
+    it('returns empty array when no sessions exist', () => {
+      const sessions = repo.getActiveAndWaiting();
+      expect(sessions).toEqual([]);
+    });
+
+    it('returns sessions with starting, running, or waiting status', () => {
+      repo.create(projectId, 'Starting Session', 'Prompt');
+      // starting is the default status
+
+      const running = repo.create(projectId, 'Running Session', 'Prompt');
+      repo.update(running.id, { status: 'running' });
+
+      const waiting = repo.create(projectId, 'Waiting Session', 'Prompt');
+      repo.update(waiting.id, { status: 'waiting' });
+
+      const completed = repo.create(projectId, 'Completed Session', 'Prompt');
+      repo.update(completed.id, { status: 'completed' });
+
+      const errorSession = repo.create(projectId, 'Error Session', 'Prompt');
+      repo.update(errorSession.id, { status: 'error' });
+
+      const sessions = repo.getActiveAndWaiting();
+
+      expect(sessions).toHaveLength(3);
+      const statuses = sessions.map((s) => s.status);
+      expect(statuses).toContain('starting');
+      expect(statuses).toContain('running');
+      expect(statuses).toContain('waiting');
+      expect(statuses).not.toContain('completed');
+      expect(statuses).not.toContain('error');
+    });
+
+    it('includes project name and working directory in results', () => {
+      const session = repo.create(projectId, 'Test Session', 'Prompt');
+      repo.update(session.id, { status: 'running' });
+
+      const sessions = repo.getActiveAndWaiting();
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].projectName).toBe('Test Project');
+      expect(sessions[0].projectWorkingDirectory).toBe('/tmp/test');
+    });
+
+    it('returns sessions from multiple projects', () => {
+      const otherProject = projectRepo.create('Other Project', '/tmp/other');
+
+      const session1 = repo.create(projectId, 'Session 1', 'Prompt');
+      repo.update(session1.id, { status: 'running' });
+
+      const session2 = repo.create(otherProject.id, 'Session 2', 'Prompt');
+      repo.update(session2.id, { status: 'waiting' });
+
+      const sessions = repo.getActiveAndWaiting();
+
+      expect(sessions).toHaveLength(2);
+      const projectNames = sessions.map((s) => s.projectName);
+      expect(projectNames).toContain('Test Project');
+      expect(projectNames).toContain('Other Project');
+    });
+
+    it('orders sessions by updatedAt descending', () => {
+      const older = repo.create(projectId, 'Older Session', 'Prompt');
+      repo.update(older.id, { status: 'running' });
+
+      const newer = repo.create(projectId, 'Newer Session', 'Prompt');
+      repo.update(newer.id, { status: 'waiting' });
+
+      const sessions = repo.getActiveAndWaiting();
+
+      expect(sessions).toHaveLength(2);
+      expect(sessions[0].updatedAt).toBeGreaterThanOrEqual(sessions[1].updatedAt);
+    });
+  });
+
   describe('update', () => {
     it('updates session status', () => {
       const session = repo.create(projectId, 'Test', 'Prompt');
@@ -237,6 +330,24 @@ describe('SessionRepository', () => {
       const updated = repo.update(session.id, { error: 'Something went wrong' });
 
       expect(updated.error).toBe('Something went wrong');
+    });
+
+    it('updates thinkingEnabled to true', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false);
+      expect(session.thinkingEnabled).toBe(false);
+
+      const updated = repo.update(session.id, { thinkingEnabled: true });
+
+      expect(updated.thinkingEnabled).toBe(true);
+    });
+
+    it('updates thinkingEnabled to false', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', true);
+      expect(session.thinkingEnabled).toBe(true);
+
+      const updated = repo.update(session.id, { thinkingEnabled: false });
+
+      expect(updated.thinkingEnabled).toBe(false);
     });
 
     it('updates multiple fields at once', () => {

@@ -18,8 +18,8 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: result.error.errors[0].message });
   }
 
-  const { name, workingDirectory } = result.data;
-  const project = projects.create(name, workingDirectory);
+  const { name, workingDirectory, systemPrompt } = result.data;
+  const project = projects.create(name, workingDirectory, systemPrompt || null);
   res.status(201).json(project);
 });
 
@@ -77,13 +77,13 @@ router.post('/:id/sessions', async (req, res) => {
     return res.status(404).json({ error: 'Project not found' });
   }
 
-  const { prompt, name, mode, gitBranch, gitMode } = req.body;
+  const { prompt, name, mode, thinkingEnabled, gitBranch, gitMode } = req.body;
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
   const sessionName = name || `Session ${Date.now()}`;
-  const session = sessions.create(req.params.id, sessionName, prompt, mode, gitBranch);
+  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch);
 
   // Setup git environment (branch checkout or worktree creation)
   try {
@@ -101,7 +101,7 @@ router.post('/:id/sessions', async (req, res) => {
 
     // Start session manager (non-blocking)
     const { runSession } = await import('../services/sessionManager.js');
-    runSession(session.id, prompt, workingDirectory).catch((error) => {
+    runSession(session.id, prompt, workingDirectory, project.systemPrompt).catch((error) => {
       console.error('Session error:', error);
       sessions.update(session.id, { status: 'error', error: error.message });
     });

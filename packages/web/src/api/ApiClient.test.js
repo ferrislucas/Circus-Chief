@@ -202,6 +202,34 @@ describe('ApiClient', () => {
         expect(result).toEqual({ staged: '', unstaged: '' });
       });
     });
+
+    describe('updateSession', () => {
+      it('patches session settings', async () => {
+        const updateData = { thinkingEnabled: true };
+        mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', thinkingEnabled: true }));
+
+        const result = await client.updateSession('sess-123', updateData);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123', expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify(updateData),
+        }));
+        expect(result.thinkingEnabled).toBe(true);
+      });
+
+      it('updates thinkingEnabled to false', async () => {
+        const updateData = { thinkingEnabled: false };
+        mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', thinkingEnabled: false }));
+
+        const result = await client.updateSession('sess-123', updateData);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123', expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify(updateData),
+        }));
+        expect(result.thinkingEnabled).toBe(false);
+      });
+    });
   });
 
   describe('canvas', () => {

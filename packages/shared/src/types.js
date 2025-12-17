@@ -1,5 +1,5 @@
 /**
- * @typedef {'starting' | 'running' | 'waiting' | 'completed' | 'error'} SessionStatus
+ * @typedef {'starting' | 'running' | 'waiting' | 'stopped' | 'completed' | 'error'} SessionStatus
  */
 
 /**
@@ -97,7 +97,7 @@
  * @property {number} updatedAt
  */
 
-export const SESSION_STATUSES = ['starting', 'running', 'waiting', 'completed', 'error'];
+export const SESSION_STATUSES = ['starting', 'running', 'waiting', 'stopped', 'completed', 'error'];
 export const SESSION_MODES = ['plan', 'standard', 'yolo'];
 export const MESSAGE_ROLES = ['user', 'assistant', 'system'];
 export const CANVAS_ITEM_TYPES = ['image', 'markdown', 'text', 'json'];
