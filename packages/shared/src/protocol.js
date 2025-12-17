@@ -14,6 +14,8 @@ export const WS_MESSAGE_TYPES = {
   SESSION_ERROR: 'session:error',
   SESSION_DELETED: 'session:deleted',
   SESSION_WORK_LOG: 'session:work_log',
+  SESSION_WORK_LOGS_ASSOCIATED: 'session:work_logs_associated',
+  SESSION_THINKING_PARTIAL: 'session:thinking_partial',
   CANVAS_ADD: 'canvas:add',
   CANVAS_REMOVE: 'canvas:remove',
 };

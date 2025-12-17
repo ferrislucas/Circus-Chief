@@ -1,5 +1,5 @@
 <template>
-  <div class="thinking-block">
+  <div class="thinking-block" :class="{ 'thinking-streaming': streaming }">
     <div class="thinking-header">
       <span class="thinking-icon">
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -8,8 +8,13 @@
           <path d="M12 8h.01"/>
         </svg>
       </span>
-      <span class="thinking-label">Thinking</span>
-      <span v-if="timestamp" class="thinking-time">{{ formatTime(timestamp) }}</span>
+      <span class="thinking-label">{{ streaming ? 'Thinking...' : 'Thinking' }}</span>
+      <span v-if="streaming" class="streaming-dots">
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+      </span>
+      <span v-else-if="timestamp" class="thinking-time">{{ formatTime(timestamp) }}</span>
     </div>
     <div class="thinking-content" :class="{ expanded: isExpanded }">
       <div class="thinking-text">{{ displayContent }}</div>
@@ -29,6 +34,7 @@ import { ref, computed } from 'vue';
 const props = defineProps({
   content: { type: String, required: true },
   timestamp: { type: Number, default: null },
+  streaming: { type: Boolean, default: false },
 });
 
 const MAX_LENGTH = 500;
@@ -109,5 +115,54 @@ function formatTime(ts) {
 
 .show-more-btn:hover {
   opacity: 1;
+}
+
+/* Streaming state */
+.thinking-streaming {
+  border-style: dashed;
+  animation: streamPulse 2s ease-in-out infinite;
+}
+
+@keyframes streamPulse {
+  0%, 100% {
+    border-color: rgba(88, 166, 255, 0.2);
+  }
+  50% {
+    border-color: rgba(88, 166, 255, 0.5);
+  }
+}
+
+.streaming-dots {
+  display: flex;
+  gap: 0.15rem;
+  align-items: center;
+  margin-left: 0.25rem;
+}
+
+.streaming-dots .dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background-color: var(--color-primary);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.streaming-dots .dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.streaming-dots .dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes pulse {
+  0%, 80%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 </style>

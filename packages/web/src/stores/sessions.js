@@ -8,6 +8,7 @@ export const useSessionsStore = defineStore('sessions', {
     currentSession: null,
     messages: [],
     workLogs: {}, // Keyed by messageId: { [messageId]: WorkLog[] }
+    partialThinking: null, // Current streaming thinking content
     loading: false,
     error: null,
   }),
@@ -182,6 +183,30 @@ export const useSessionsStore = defineStore('sessions', {
 
     clearWorkLogs() {
       this.workLogs = {};
+      this.partialThinking = null;
+    },
+
+    // Associate unassociated work logs with a message ID
+    associateWorkLogs(messageId) {
+      const unassociated = this.workLogs['_unassociated'] || [];
+      if (unassociated.length > 0) {
+        if (!this.workLogs[messageId]) {
+          this.workLogs[messageId] = [];
+        }
+        // Move logs from _unassociated to the messageId
+        this.workLogs[messageId].push(...unassociated);
+        this.workLogs['_unassociated'] = [];
+      }
+    },
+
+    // Set partial thinking content for streaming display
+    setPartialThinking(thinking) {
+      this.partialThinking = thinking;
+    },
+
+    // Clear partial thinking when complete
+    clearPartialThinking() {
+      this.partialThinking = null;
     },
 
     updateSessionStatus(sessionId, status) {

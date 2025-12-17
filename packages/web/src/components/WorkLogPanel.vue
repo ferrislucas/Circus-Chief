@@ -1,5 +1,5 @@
 <template>
-  <div v-if="workLogs?.length" class="work-log-panel">
+  <div v-if="workLogs?.length || partialThinking" class="work-log-panel">
     <details :open="isExpanded" ref="detailsRef" @toggle="handleToggle">
       <summary class="work-log-header">
         <span class="work-log-icon">
@@ -8,7 +8,12 @@
           </svg>
         </span>
         <span class="work-log-title">Work Log</span>
-        <span class="work-log-count">({{ workLogs.length }})</span>
+        <span class="work-log-count">({{ totalCount }})</span>
+        <span v-if="partialThinking" class="streaming-indicator">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+        </span>
         <span class="work-log-chevron" :class="{ expanded: isExpanded }">
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="9 18 15 12 9 6"/>
@@ -16,9 +21,14 @@
         </span>
       </summary>
       <div class="work-log-content">
+        <!-- Existing work logs -->
         <div v-for="log in workLogs" :key="log.id" class="work-log-item">
           <ThinkingBlock v-if="log.type === 'thinking'" :content="log.content" :timestamp="log.timestamp" />
           <CommandBlock v-else :log="log" />
+        </div>
+        <!-- Streaming partial thinking -->
+        <div v-if="partialThinking" class="work-log-item work-log-streaming">
+          <ThinkingBlock :content="partialThinking" :streaming="true" />
         </div>
       </div>
     </details>
@@ -26,18 +36,24 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import CommandBlock from './CommandBlock.vue';
 
 const props = defineProps({
   workLogs: { type: Array, default: () => [] },
   isLatestMessage: { type: Boolean, default: false },
+  partialThinking: { type: String, default: null },
 });
 
 const detailsRef = ref(null);
 const manuallyToggled = ref(false);
-const isExpanded = ref(props.isLatestMessage);
+const isExpanded = ref(props.isLatestMessage || !!props.partialThinking);
+
+// Total count includes work logs + 1 if partial thinking is present
+const totalCount = computed(() => {
+  return (props.workLogs?.length || 0) + (props.partialThinking ? 1 : 0);
+});
 
 // Watch for changes in isLatestMessage to auto-collapse/expand
 watch(() => props.isLatestMessage, (newVal) => {
@@ -50,6 +66,13 @@ watch(() => props.isLatestMessage, (newVal) => {
 // Watch for new work logs to expand panel for latest message
 watch(() => props.workLogs?.length, (newLen, oldLen) => {
   if (props.isLatestMessage && newLen > (oldLen || 0)) {
+    isExpanded.value = true;
+  }
+});
+
+// Watch for partial thinking to auto-expand
+watch(() => props.partialThinking, (newVal) => {
+  if (newVal && !manuallyToggled.value) {
     isExpanded.value = true;
   }
 });
@@ -131,6 +154,46 @@ function handleToggle(event) {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+.work-log-streaming {
+  border-left: 2px solid var(--color-primary);
+  padding-left: 0.5rem;
+}
+
+/* Streaming indicator animation */
+.streaming-indicator {
+  display: flex;
+  gap: 0.15rem;
+  align-items: center;
+  margin-left: 0.5rem;
+}
+
+.streaming-indicator .dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background-color: var(--color-primary);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.streaming-indicator .dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.streaming-indicator .dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes pulse {
+  0%, 80%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 </style>
