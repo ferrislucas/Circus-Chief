@@ -41,17 +41,25 @@ export class DatabaseManager {
    */
   #runMigrations() {
     // Check if sessions table has the new columns, add them if not
-    const tableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
-    const columns = tableInfo.map((col) => col.name);
+    const sessionsTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const sessionsColumns = sessionsTableInfo.map((col) => col.name);
 
-    if (!columns.includes('cost_usd')) {
+    if (!sessionsColumns.includes('cost_usd')) {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN cost_usd REAL DEFAULT 0');
     }
-    if (!columns.includes('claude_session_id')) {
+    if (!sessionsColumns.includes('claude_session_id')) {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN claude_session_id TEXT');
     }
-    if (!columns.includes('model')) {
+    if (!sessionsColumns.includes('model')) {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN model TEXT');
+    }
+
+    // Check if projects table has the system_prompt column, add it if not
+    const projectsTableInfo = this.#db.prepare('PRAGMA table_info(projects)').all();
+    const projectsColumns = projectsTableInfo.map((col) => col.name);
+
+    if (!projectsColumns.includes('system_prompt')) {
+      this.#db.exec('ALTER TABLE projects ADD COLUMN system_prompt TEXT');
     }
   }
 

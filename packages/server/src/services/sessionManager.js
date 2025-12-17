@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { sessions, messages } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
 
 /** @type {Map<string, { controller: AbortController }>} */
 const activeSessions = new Map();
@@ -75,12 +75,25 @@ function buildSessionEnv(session) {
 }
 
 /**
+ * Build the full system prompt configuration
+ * @param {string} sessionId
+ * @param {string|null} customSystemPrompt - Custom system prompt from project settings
+ * @returns {string} System prompt string
+ */
+function buildSystemPromptConfig(sessionId, customSystemPrompt) {
+  const canvasInstructions = buildCanvasSystemPrompt(sessionId);
+  const basePrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
+  return `${basePrompt}\n\n${canvasInstructions}`;
+}
+
+/**
  * Run a Claude session
  * @param {string} sessionId
  * @param {string} prompt
  * @param {string} workingDirectory
+ * @param {string|null} systemPrompt - Custom system prompt from project settings
  */
-export async function runSession(sessionId, prompt, workingDirectory) {
+export async function runSession(sessionId, prompt, workingDirectory, systemPrompt = null) {
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
@@ -110,11 +123,7 @@ export async function runSession(sessionId, prompt, workingDirectory) {
             includePartialMessages: true,
             permissionMode: 'bypassPermissions',
             ...(sessionEnv && { env: sessionEnv }),
-            systemPrompt: {
-              type: 'preset',
-              preset: 'claude_code',
-              append: buildCanvasSystemPrompt(sessionId),
-            },
+            systemPrompt: buildSystemPromptConfig(sessionId, systemPrompt),
           },
         };
 
@@ -149,8 +158,9 @@ export async function runSession(sessionId, prompt, workingDirectory) {
  * @param {string} sessionId
  * @param {string} content
  * @param {string} workingDirectory
+ * @param {string|null} systemPrompt - Custom system prompt from project settings
  */
-export async function continueSession(sessionId, content, workingDirectory) {
+export async function continueSession(sessionId, content, workingDirectory, systemPrompt = null) {
   // Check if session is already running
   if (activeSessions.has(sessionId)) {
     throw new Error('Session is already processing');
@@ -195,11 +205,7 @@ export async function continueSession(sessionId, content, workingDirectory) {
             permissionMode: 'bypassPermissions',
             resume: session.claudeSessionId,
             ...(sessionEnv && { env: sessionEnv }),
-            systemPrompt: {
-              type: 'preset',
-              preset: 'claude_code',
-              append: buildCanvasSystemPrompt(sessionId),
-            },
+            systemPrompt: buildSystemPromptConfig(sessionId, systemPrompt),
           },
         };
 
