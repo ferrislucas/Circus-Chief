@@ -61,6 +61,63 @@ export class DatabaseManager {
     if (!projectsColumns.includes('system_prompt')) {
       this.#db.exec('ALTER TABLE projects ADD COLUMN system_prompt TEXT');
     }
+
+    // Migrate sessions table to add 'stopped' status to CHECK constraint
+    // SQLite doesn't allow modifying CHECK constraints, so we need to recreate the table
+    this.#migrateSessionsStatusConstraint();
+  }
+
+  /**
+   * Migrate sessions table to include 'stopped' in status CHECK constraint
+   * SQLite doesn't support ALTER TABLE to modify constraints, so we recreate the table
+   * @private
+   */
+  #migrateSessionsStatusConstraint() {
+    // Check if the current constraint includes 'stopped' by trying to read it from sqlite_master
+    const tableSchema = this.#db
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'")
+      .get();
+
+    // If schema includes 'stopped', no migration needed
+    if (tableSchema?.sql?.includes("'stopped'")) {
+      return;
+    }
+
+    // Need to recreate table with updated constraint
+    // Use a transaction to ensure atomicity
+    this.#db.exec(`
+      -- Create new table with updated constraint
+      CREATE TABLE sessions_new (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'starting' CHECK (status IN ('starting', 'running', 'waiting', 'stopped', 'completed', 'error')),
+        mode TEXT NOT NULL DEFAULT 'standard' CHECK (mode IN ('plan', 'standard', 'yolo')),
+        thinking_enabled INTEGER NOT NULL DEFAULT 0,
+        git_branch TEXT,
+        git_worktree TEXT,
+        pr_url TEXT,
+        error TEXT,
+        cost_usd REAL DEFAULT 0,
+        claude_session_id TEXT,
+        model TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+
+      -- Copy data from old table
+      INSERT INTO sessions_new SELECT * FROM sessions;
+
+      -- Drop old table
+      DROP TABLE sessions;
+
+      -- Rename new table
+      ALTER TABLE sessions_new RENAME TO sessions;
+
+      -- Recreate indexes
+      CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
+      CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+    `);
   }
 
   /**
