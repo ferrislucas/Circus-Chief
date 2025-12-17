@@ -148,6 +148,15 @@ export class ApiClient {
   }
 
   /**
+   * Get work logs for a session (grouped by message ID)
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<Object>} Work logs grouped by message ID
+   */
+  async getSessionWorkLogs(sessionId) {
+    return this.#request('GET', `/sessions/${sessionId}/work-logs`);
+  }
+
+  /**
    * Send a message to a session
    * @param {string} sessionId - Session ID
    * @param {string} content - Message content

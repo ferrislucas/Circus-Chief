@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sessions, messages, sessionNotes, projects } from '../database.js';
+import { sessions, messages, sessionNotes, projects, workLogs } from '../database.js';
 import { continueSession, stopSession, endSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
 import { broadcastToSession } from '../websocket.js';
@@ -55,6 +55,18 @@ router.get('/:id/messages', (req, res) => {
 
   const sessionMessages = messages.getBySessionId(req.params.id);
   res.json(sessionMessages);
+});
+
+// GET /api/sessions/:id/work-logs - Get work logs for session
+router.get('/:id/work-logs', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Return work logs grouped by message ID
+  const grouped = workLogs.getBySessionIdGrouped(req.params.id);
+  res.json(grouped);
 });
 
 // POST /api/sessions/:id/message - Send follow-up message
