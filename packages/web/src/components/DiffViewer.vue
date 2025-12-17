@@ -77,6 +77,23 @@ function toggleFile(index) {
   expandedFiles.value[index] = !expandedFiles.value[index];
 }
 
+function collapseAll() {
+  props.files.forEach((_, index) => {
+    expandedFiles.value[index] = false;
+  });
+}
+
+function expandAll() {
+  props.files.forEach((_, index) => {
+    expandedFiles.value[index] = true;
+  });
+}
+
+defineExpose({
+  collapseAll,
+  expandAll,
+});
+
 function getLinePrefix(type) {
   switch (type) {
     case 'addition':
