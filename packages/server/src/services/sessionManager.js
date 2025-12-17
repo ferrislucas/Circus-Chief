@@ -66,12 +66,14 @@ For images, use base64 encoding in the content field.`;
  * @returns {Object|undefined}
  */
 function buildSessionEnv(session) {
-  const env = {};
-  if (session.thinkingEnabled) {
-    // Enable extended thinking with a reasonable token budget
-    env.MAX_THINKING_TOKENS = '10240';
+  if (!session.thinkingEnabled) {
+    return undefined; // Let SDK use process.env by default
   }
-  return Object.keys(env).length > 0 ? env : undefined;
+  // Merge with process.env to preserve PATH and other essential env vars
+  return {
+    ...process.env,
+    MAX_THINKING_TOKENS: '10240',
+  };
 }
 
 /**
