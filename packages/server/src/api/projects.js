@@ -77,13 +77,13 @@ router.post('/:id/sessions', async (req, res) => {
     return res.status(404).json({ error: 'Project not found' });
   }
 
-  const { prompt, name, mode, gitBranch, gitMode } = req.body;
+  const { prompt, name, mode, thinkingEnabled, gitBranch, gitMode } = req.body;
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
   const sessionName = name || `Session ${Date.now()}`;
-  const session = sessions.create(req.params.id, sessionName, prompt, mode, gitBranch);
+  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch);
 
   // Setup git environment (branch checkout or worktree creation)
   try {

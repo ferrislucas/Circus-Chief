@@ -185,6 +185,16 @@ export class ApiClient {
   }
 
   /**
+   * Update session settings
+   * @param {string} id - Session ID
+   * @param {Object} data - Update data (e.g., { thinkingEnabled: true })
+   * @returns {Promise<Object>}
+   */
+  async updateSession(id, data) {
+    return this.#request('PATCH', `/sessions/${id}`, data);
+  }
+
+  /**
    * Delete a session
    * @param {string} id - Session ID
    * @returns {Promise<void>}

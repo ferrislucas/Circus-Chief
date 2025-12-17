@@ -17,6 +17,7 @@ export class SessionRepository extends BaseRepository {
       name: row.name,
       status: row.status,
       mode: row.mode,
+      thinkingEnabled: Boolean(row.thinking_enabled),
       gitBranch: row.git_branch,
       gitWorktree: row.git_worktree,
       prUrl: row.pr_url,
@@ -29,15 +30,15 @@ export class SessionRepository extends BaseRepository {
     };
   }
 
-  create(projectId, name, prompt, mode = 'standard', gitBranch = null) {
+  create(projectId, name, prompt, mode = 'standard', thinkingEnabled = false, gitBranch = null) {
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, git_branch, created_at, updated_at)
-         VALUES (?, ?, ?, 'starting', ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, created_at, updated_at)
+         VALUES (?, ?, ?, 'starting', ?, ?, ?, ?, ?)`
       )
-      .run(id, projectId, name, mode, gitBranch, now, now);
+      .run(id, projectId, name, mode, thinkingEnabled ? 1 : 0, gitBranch, now, now);
 
     // Create initial user message
     messages.create(id, 'user', prompt);
@@ -118,6 +119,10 @@ export class SessionRepository extends BaseRepository {
     if (data.model !== undefined) {
       updates.push('model = ?');
       values.push(data.model);
+    }
+    if (data.thinkingEnabled !== undefined) {
+      updates.push('thinking_enabled = ?');
+      values.push(data.thinkingEnabled ? 1 : 0);
     }
 
     if (updates.length === 0) return this.getById(id);
