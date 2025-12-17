@@ -53,7 +53,14 @@ describe('ChangesTab', () => {
 
   it('displays staged changes when present', async () => {
     api.getSessionChanges.mockResolvedValue({
-      staged: 'diff --git a/file.js\n+new line',
+      staged: `diff --git a/file.js b/file.js
+index 1234567..abcdefg 100644
+--- a/file.js
++++ b/file.js
+@@ -1,3 +1,4 @@
+ const x = 1;
++const newLine = 2;
+ const y = 3;`,
       unstaged: '',
       untracked: [],
     });
@@ -65,14 +72,21 @@ describe('ChangesTab', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('Staged Changes');
-    expect(wrapper.text()).toContain('diff --git a/file.js');
-    expect(wrapper.text()).toContain('+new line');
+    expect(wrapper.text()).toContain('file.js');
+    expect(wrapper.text()).toContain('const newLine = 2;');
   });
 
   it('displays unstaged changes when present', async () => {
     api.getSessionChanges.mockResolvedValue({
       staged: '',
-      unstaged: 'diff --git b/other.js\n-removed line',
+      unstaged: `diff --git a/other.js b/other.js
+index 1234567..abcdefg 100644
+--- a/other.js
++++ b/other.js
+@@ -1,4 +1,3 @@
+ const a = 1;
+-const removedLine = 2;
+ const b = 3;`,
       untracked: [],
     });
 
@@ -83,14 +97,26 @@ describe('ChangesTab', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('Unstaged Changes');
-    expect(wrapper.text()).toContain('diff --git b/other.js');
-    expect(wrapper.text()).toContain('-removed line');
+    expect(wrapper.text()).toContain('other.js');
+    expect(wrapper.text()).toContain('const removedLine = 2;');
   });
 
   it('displays both staged and unstaged changes', async () => {
     api.getSessionChanges.mockResolvedValue({
-      staged: 'staged content',
-      unstaged: 'unstaged content',
+      staged: `diff --git a/staged.js b/staged.js
+index 1234567..abcdefg 100644
+--- a/staged.js
++++ b/staged.js
+@@ -1,2 +1,3 @@
+ const x = 1;
++const stagedLine = 2;`,
+      unstaged: `diff --git a/unstaged.js b/unstaged.js
+index 1234567..abcdefg 100644
+--- a/unstaged.js
++++ b/unstaged.js
+@@ -1,2 +1,3 @@
+ const a = 1;
++const unstagedLine = 2;`,
       untracked: [],
     });
 
@@ -101,9 +127,9 @@ describe('ChangesTab', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('Staged Changes');
-    expect(wrapper.text()).toContain('staged content');
+    expect(wrapper.text()).toContain('staged.js');
     expect(wrapper.text()).toContain('Unstaged Changes');
-    expect(wrapper.text()).toContain('unstaged content');
+    expect(wrapper.text()).toContain('unstaged.js');
   });
 
   it('displays empty state when no changes', async () => {
