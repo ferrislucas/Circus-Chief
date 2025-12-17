@@ -14,14 +14,14 @@
     </div>
 
     <template v-else>
-      <div v-if="staged" class="diff-section">
+      <div v-if="stagedFiles.length > 0" class="diff-section">
         <h3>Staged Changes</h3>
-        <pre class="diff-content">{{ staged }}</pre>
+        <DiffViewer :files="stagedFiles" />
       </div>
 
-      <div v-if="unstaged" class="diff-section">
+      <div v-if="unstagedFiles.length > 0" class="diff-section">
         <h3>Unstaged Changes</h3>
-        <pre class="diff-content">{{ unstaged }}</pre>
+        <DiffViewer :files="unstagedFiles" />
       </div>
 
       <div v-if="untracked.length > 0" class="diff-section">
@@ -39,6 +39,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { api } from '../api/ApiClient.js';
+import { parseDiff } from '../utils/diffParser.js';
+import DiffViewer from './DiffViewer.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -50,6 +52,8 @@ const untracked = ref([]);
 const loading = ref(false);
 const error = ref(null);
 
+const stagedFiles = computed(() => parseDiff(staged.value));
+const unstagedFiles = computed(() => parseDiff(unstaged.value));
 const hasChanges = computed(() => staged.value || unstaged.value || untracked.value.length > 0);
 
 async function fetchChanges() {
@@ -106,12 +110,6 @@ onMounted(() => {
   font-size: 0.875rem;
   margin-bottom: 0.5rem;
   color: var(--color-text-soft);
-}
-
-.diff-content {
-  font-size: 0.75rem;
-  max-height: 300px;
-  overflow: auto;
 }
 
 .untracked-list {
