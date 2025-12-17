@@ -42,11 +42,16 @@
       </button>
     </div>
 
+    <div v-if="isStopped" class="status-message status-stopped">
+      <span class="stopped-icon">⏸</span>
+      Session stopped - send a message to resume
+    </div>
+
     <form v-if="canSendMessage" @submit.prevent="handleSend" class="input-form">
       <textarea
         v-model="input"
         class="form-input form-textarea"
-        placeholder="Send a follow-up message..."
+        :placeholder="isStopped ? 'Send a message to resume session...' : 'Send a follow-up message...'"
         rows="3"
         @keydown.enter.ctrl="handleSend"
       ></textarea>
@@ -114,7 +119,12 @@ const SCROLL_THRESHOLD = 100; // pixels from bottom to consider "at bottom"
 const STORAGE_KEY = `session-draft-${props.sessionId}`;
 
 const canSendMessage = computed(() => {
-  return sessionsStore.currentSession?.status === 'waiting';
+  const status = sessionsStore.currentSession?.status;
+  return status === 'waiting' || status === 'stopped';
+});
+
+const isStopped = computed(() => {
+  return sessionsStore.currentSession?.status === 'stopped';
 });
 
 // Subscribe to partial messages for streaming
@@ -455,6 +465,17 @@ async function handleThinkingToggle(event) {
 
 .status-completed {
   color: var(--color-success, #10b981);
+}
+
+.status-stopped {
+  color: var(--color-warning, #f59e0b);
+  background-color: rgba(245, 158, 11, 0.1);
+  border-radius: var(--border-radius);
+  margin-bottom: 0.5rem;
+}
+
+.stopped-icon {
+  font-size: 1rem;
 }
 
 .jump-to-latest {

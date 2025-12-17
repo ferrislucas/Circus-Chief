@@ -69,7 +69,7 @@ router.post('/:id/message', async (req, res) => {
     return res.status(400).json({ error: 'Content is required' });
   }
 
-  if (session.status !== 'waiting') {
+  if (session.status !== 'waiting' && session.status !== 'stopped') {
     return res.status(400).json({ error: 'Session is not waiting for input' });
   }
 
@@ -100,7 +100,9 @@ router.post('/:id/stop', async (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  if (session.status !== 'running' && session.status !== 'waiting') {
+  // Allow stopping running, waiting, or stuck sessions (crashed sessions may be stuck in 'running')
+  // Don't allow stopping already completed or errored sessions
+  if (session.status === 'completed' || session.status === 'error' || session.status === 'stopped') {
     return res.status(400).json({ error: 'Session is not active' });
   }
 

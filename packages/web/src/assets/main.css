@@ -193,6 +193,11 @@ input, textarea, select {
   color: var(--color-text-soft);
 }
 
+.status-stopped {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
 .status-error {
   background-color: rgba(248, 81, 73, 0.2);
   color: var(--color-error);
