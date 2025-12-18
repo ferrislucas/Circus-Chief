@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mount, shallowMount, flushPromises } from '@vue/test-utils';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick, defineComponent } from 'vue';
 
 // Mock the API - MUST be before imports that use it
@@ -12,7 +12,6 @@ vi.mock('../api/ApiClient.js', () => ({
 // Import AFTER mocks are set up
 import ChangesTab from './ChangesTab.vue';
 import { api } from '../api/ApiClient.js';
-import { parseDiff } from '../utils/diffParser.js';
 
 describe('ChangesTab', () => {
   let consoleError;
