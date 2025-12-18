@@ -126,7 +126,7 @@ const gitStatus = ref(null);
 const loading = ref(false);
 const loadingGit = ref(false);
 const error = ref(null);
-const thinkingEnabled = ref(false);
+const thinkingEnabled = ref(true);
 
 // Quick git feature
 const quickGitMode = ref('worktree'); // '', 'branch', or 'worktree'
