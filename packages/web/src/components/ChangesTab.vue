@@ -95,6 +95,19 @@ async function fetchChanges() {
 onMounted(() => {
   fetchChanges();
 });
+
+// Expose for testing
+defineExpose({
+  fetchChanges,
+  staged,
+  unstaged,
+  untracked,
+  loading,
+  error,
+  hasChanges,
+  stagedFiles,
+  unstagedFiles,
+});
 </script>
 
 <style scoped>
