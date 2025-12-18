@@ -30,12 +30,12 @@ test.describe('New Session - Thinking Toggle', () => {
     await expect(page.getByText('Enable Thinking')).toBeVisible();
   });
 
-  test('thinking toggle defaults to off', async ({ page }) => {
+  test('thinking toggle defaults to on', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions/new`);
 
-    // Verify toggle is unchecked by default
+    // Verify toggle is checked by default
     const checkbox = page.locator('.thinking-toggle input[type="checkbox"]');
-    await expect(checkbox).not.toBeChecked();
+    await expect(checkbox).toBeChecked();
   });
 
   test('can create session with thinking enabled', async ({ page }) => {
@@ -45,8 +45,7 @@ test.describe('New Session - Thinking Toggle', () => {
     await page.fill('input[id="name"]', 'Thinking Session');
     await page.fill('textarea[id="prompt"]', 'Test with thinking enabled');
 
-    // Enable thinking toggle (click the toggle-switch label since checkbox has opacity: 0)
-    await page.locator('.thinking-toggle .toggle-switch').click();
+    // Thinking toggle is already enabled by default, no need to click
 
     // Submit the form
     await page.click('button:has-text("Start Session")');
@@ -71,8 +70,12 @@ test.describe('New Session - Thinking Toggle', () => {
     await page.fill('input[id="name"]', 'Non-Thinking Session');
     await page.fill('textarea[id="prompt"]', 'Test with thinking disabled');
 
-    // Verify thinking toggle is unchecked (default)
+    // Verify thinking toggle is checked by default
     const checkbox = page.locator('.thinking-toggle input[type="checkbox"]');
+    await expect(checkbox).toBeChecked();
+
+    // Disable thinking toggle (click the toggle-switch label since checkbox has opacity: 0)
+    await page.locator('.thinking-toggle .toggle-switch').click();
     await expect(checkbox).not.toBeChecked();
 
     // Submit the form

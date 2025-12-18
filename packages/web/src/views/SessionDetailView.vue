@@ -31,27 +31,11 @@
             Stop Session
           </button>
           <button
-            v-if="!showDeleteConfirm"
             class="btn btn-outline-danger"
-            @click="showDeleteConfirm = true"
+            @click="handleDelete"
           >
             Delete Session
           </button>
-          <div v-else class="delete-confirm">
-            <span class="delete-confirm-text">Delete this session?</span>
-            <button
-              class="btn btn-danger btn-sm"
-              @click="handleDelete"
-            >
-              Confirm
-            </button>
-            <button
-              class="btn btn-secondary btn-sm"
-              @click="showDeleteConfirm = false"
-            >
-              Cancel
-            </button>
-          </div>
         </div>
       </div>
 
@@ -110,7 +94,6 @@ const sessionsStore = useSessionsStore();
 const canvasStore = useCanvasStore();
 const uiStore = useUiStore();
 
-const showDeleteConfirm = ref(false);
 
 const activeTab = computed(() => route.params.tab || 'conversation');
 
@@ -232,6 +215,8 @@ async function handleStop() {
 }
 
 async function handleDelete() {
+  if (!confirm('Are you sure you want to delete this session?')) return;
+
   try {
     const projectId = sessionsStore.currentSession?.projectId;
     await sessionsStore.deleteSession(route.params.id);
@@ -244,7 +229,6 @@ async function handleDelete() {
     }
   } catch (err) {
     uiStore.error(err.message);
-    showDeleteConfirm.value = false;
   }
 }
 </script>
@@ -302,16 +286,5 @@ async function handleDelete() {
   display: flex;
   gap: 0.5rem;
   align-items: center;
-}
-
-.delete-confirm {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.delete-confirm-text {
-  font-size: 0.875rem;
-  color: var(--color-danger);
 }
 </style>

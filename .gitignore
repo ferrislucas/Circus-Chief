@@ -48,3 +48,6 @@ temp/
 
 # Server port file (auto-generated)
 .server-port
+
+# Git worktrees
+.worktrees/

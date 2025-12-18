@@ -127,6 +127,24 @@ function togglePreview(index) {
   previewMode.value[index] = !previewMode.value[index];
 }
 
+function collapseAllFiles() {
+  props.files.forEach((_, index) => {
+    expandedFiles.value[index] = false;
+  });
+}
+
+function expandAllFiles() {
+  props.files.forEach((_, index) => {
+    expandedFiles.value[index] = true;
+  });
+}
+
+defineExpose({
+  collapseAll: collapseAllFiles,
+  expandAll: expandAllFiles,
+});
+
+
 function getLinePrefix(type) {
   switch (type) {
     case 'addition':

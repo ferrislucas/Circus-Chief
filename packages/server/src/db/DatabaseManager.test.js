@@ -131,4 +131,35 @@ describe('DatabaseManager', () => {
       expect(project).toBeUndefined();
     });
   });
+
+  describe('migrations', () => {
+    it('allows stopped status in sessions table', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      // Create a project first
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-1', 'Test Project', '/tmp', now, now);
+
+      // Create a session with running status
+      db.prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('sess-1', 'proj-1', 'Test Session', 'running', now, now);
+
+      // This should NOT throw - stopped status should be allowed
+      expect(() => {
+        db.prepare('UPDATE sessions SET status = ? WHERE id = ?').run('stopped', 'sess-1');
+      }).not.toThrow();
+
+      // Verify the update worked
+      const session = db.prepare('SELECT status FROM sessions WHERE id = ?').get('sess-1');
+      expect(session.status).toBe('stopped');
+    });
+
+    it('sessions table schema includes stopped in CHECK constraint', () => {
+      const db = manager.get();
+      const tableSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'").get();
+
+      expect(tableSchema.sql).toContain("'stopped'");
+    });
+  });
 });
