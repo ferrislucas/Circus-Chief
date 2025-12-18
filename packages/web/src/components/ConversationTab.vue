@@ -103,9 +103,17 @@
       </div>
     </form>
 
-    <div v-else-if="sessionsStore.currentSession?.status === 'running'" class="status-message">
-      <span class="loading-spinner"></span>
-      Claude is working...
+    <div v-else-if="sessionsStore.currentSession?.status === 'running'" class="running-state">
+      <LiveWorkLogPanel
+        :work-logs="unassociatedWorkLogs"
+        :partial-thinking="sessionsStore.partialThinking"
+      />
+      <div class="running-actions">
+        <button type="button" class="btn btn-danger btn-send" @click="handleStop" :disabled="stopping">
+          <span v-if="stopping" class="loading-spinner"></span>
+          Stop
+        </button>
+      </div>
     </div>
 
     <div v-else-if="sessionsStore.currentSession?.status === 'completed'" class="status-message status-completed">
@@ -120,6 +128,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import WorkLogPanel from './WorkLogPanel.vue';
+import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -131,6 +140,7 @@ const uiStore = useUiStore();
 const input = ref('');
 const sending = ref(false);
 const ending = ref(false);
+const stopping = ref(false);
 const togglingThinking = ref(false);
 const messagesContainer = ref(null);
 const partialText = ref('');
@@ -149,6 +159,10 @@ const canSendMessage = computed(() => {
 
 const isStopped = computed(() => {
   return sessionsStore.currentSession?.status === 'stopped';
+});
+
+const unassociatedWorkLogs = computed(() => {
+  return sessionsStore.getUnassociatedWorkLogs;
 });
 
 // Subscribe to partial messages for streaming and work logs
@@ -301,6 +315,20 @@ async function handleEndSession() {
     uiStore.error(err.message);
   } finally {
     ending.value = false;
+  }
+}
+
+async function handleStop() {
+  if (stopping.value) return;
+
+  stopping.value = true;
+  try {
+    await sessionsStore.stopSession(props.sessionId);
+    uiStore.success('Session stopped');
+  } catch (err) {
+    uiStore.error(err.message);
+  } finally {
+    stopping.value = false;
   }
 }
 
@@ -591,5 +619,16 @@ async function handleThinkingToggle(event) {
     opacity: 1;
     transform: scale(1);
   }
+}
+
+.running-state {
+  border-top: 1px solid var(--color-border);
+  padding-top: 1rem;
+}
+
+.running-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 1rem;
 }
 </style>
