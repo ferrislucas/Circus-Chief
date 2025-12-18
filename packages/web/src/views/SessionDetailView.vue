@@ -11,7 +11,7 @@
           <router-link :to="`/projects/${sessionsStore.currentSession.projectId}/sessions`" class="back-link">
             &larr; Sessions
           </router-link>
-          <h1>{{ sessionsStore.currentSession.name }}</h1>
+          <h3 class="session-name">{{ sessionsStore.currentSession.name }}</h3>
           <div class="session-meta">
             <span :class="['status-badge', `status-${sessionsStore.currentSession.status}`]">
               {{ sessionsStore.currentSession.status }}
@@ -71,6 +71,31 @@
         <ChangesTab v-else-if="activeTab === 'changes'" :session-id="route.params.id" />
         <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
         <NotesTab v-else-if="activeTab === 'notes'" :session-id="route.params.id" />
+      </div>
+
+      <div v-if="sessionsStore.currentSession?.status === 'stopped'" class="session-actions-bottom">
+        <button
+          v-if="!showDeleteConfirm"
+          class="btn btn-outline-danger"
+          @click="showDeleteConfirm = true"
+        >
+          Delete Session
+        </button>
+        <div v-else class="delete-confirm">
+          <span class="delete-confirm-text">Delete this session?</span>
+          <button
+            class="btn btn-danger btn-sm"
+            @click="handleDelete"
+          >
+            Confirm
+          </button>
+          <button
+            class="btn btn-secondary btn-sm"
+            @click="showDeleteConfirm = false"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </template>
   </div>
@@ -256,8 +281,10 @@ async function handleDelete() {
   margin-bottom: 0.5rem;
 }
 
-.session-header h1 {
+.session-name {
   margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
 }
 
 .session-meta {
@@ -286,5 +313,14 @@ async function handleDelete() {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+}
+
+.session-actions-bottom {
+  padding: 1rem 0;
+  border-top: 1px solid var(--color-border);
+  margin-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 </style>

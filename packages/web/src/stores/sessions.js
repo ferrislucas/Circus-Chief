@@ -20,6 +20,9 @@ export const useSessionsStore = defineStore('sessions', {
     getWorkLogsForMessage: (state) => (messageId) => {
       return state.workLogs[messageId] || [];
     },
+    getUnassociatedWorkLogs: (state) => {
+      return state.workLogs['_unassociated'] || [];
+    },
   },
 
   actions: {
@@ -171,10 +174,12 @@ export const useSessionsStore = defineStore('sessions', {
 
     addWorkLog(log) {
       const messageId = log.messageId || '_unassociated';
-      if (!this.workLogs[messageId]) {
-        this.workLogs[messageId] = [];
-      }
-      this.workLogs[messageId].push(log);
+      const currentLogs = this.workLogs[messageId] || [];
+      // Use spread to ensure new object reference for Vue reactivity
+      this.workLogs = {
+        ...this.workLogs,
+        [messageId]: [...currentLogs, log],
+      };
     },
 
     setWorkLogs(workLogs) {
@@ -190,12 +195,13 @@ export const useSessionsStore = defineStore('sessions', {
     associateWorkLogs(messageId) {
       const unassociated = this.workLogs['_unassociated'] || [];
       if (unassociated.length > 0) {
-        if (!this.workLogs[messageId]) {
-          this.workLogs[messageId] = [];
-        }
-        // Move logs from _unassociated to the messageId
-        this.workLogs[messageId].push(...unassociated);
-        this.workLogs['_unassociated'] = [];
+        const currentLogs = this.workLogs[messageId] || [];
+        // Use spread to ensure new object reference for Vue reactivity
+        this.workLogs = {
+          ...this.workLogs,
+          [messageId]: [...currentLogs, ...unassociated],
+          '_unassociated': [],
+        };
       }
     },
 
