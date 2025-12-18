@@ -10,7 +10,10 @@
           <span class="message-role">{{ message.role }}</span>
           <span class="message-time">{{ formatTime(message.timestamp) }}</span>
         </div>
-        <div class="message-content">{{ message.content }}</div>
+        <div class="message-content">
+          <MarkdownViewer v-if="message.role === 'assistant'" :content="message.content" />
+          <template v-else>{{ message.content }}</template>
+        </div>
         <div v-if="message.toolUse?.length" class="message-tools">
           <details v-for="(tool, idx) in message.toolUse" :key="idx">
             <summary>Tool: {{ tool.name }}</summary>
@@ -52,7 +55,9 @@
             <span class="dot"></span>
           </span>
         </div>
-        <div class="message-content">{{ partialText }}</div>
+        <div class="message-content">
+          <MarkdownViewer :content="partialText" />
+        </div>
       </div>
 
       <!-- Jump to latest button -->
@@ -120,6 +125,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import WorkLogPanel from './WorkLogPanel.vue';
+import MarkdownViewer from './MarkdownViewer.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
