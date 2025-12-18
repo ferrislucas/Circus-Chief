@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { sessions, messages, sessionNotes, projects, workLogs } from '../database.js';
-import { continueSession, stopSession, endSession, cleanupActiveSession } from '../services/sessionManager.js';
+import { continueSession, stopSession, endSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
@@ -139,6 +139,25 @@ router.post('/:id/end', (req, res) => {
 
   try {
     endSession(session.id);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/sessions/:id/restart - Restart a completed/error session
+router.post('/:id/restart', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  if (session.status !== 'completed' && session.status !== 'error') {
+    return res.status(400).json({ error: 'Session can only be restarted when completed or in error state' });
+  }
+
+  try {
+    restartSession(session.id);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });

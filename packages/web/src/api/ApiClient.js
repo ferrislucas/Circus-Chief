@@ -194,6 +194,15 @@ export class ApiClient {
   }
 
   /**
+   * Restart a completed or errored session
+   * @param {string} id - Session ID
+   * @returns {Promise<Object>}
+   */
+  async restartSession(id) {
+    return this.#request('POST', `/sessions/${id}/restart`);
+  }
+
+  /**
    * Update session settings
    * @param {string} id - Session ID
    * @param {Object} data - Update data (e.g., { thinkingEnabled: true })
