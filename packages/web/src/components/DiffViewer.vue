@@ -18,26 +18,61 @@
           <span v-if="file.additions" class="stat-additions">+{{ file.additions }}</span>
           <span v-if="file.deletions" class="stat-deletions">-{{ file.deletions }}</span>
         </span>
+        <!-- Markdown preview toggle -->
+        <button
+          v-if="isMarkdownFile(file.displayPath)"
+          class="preview-toggle"
+          :class="{ active: previewMode[fileIndex] }"
+          @click.stop="togglePreview(fileIndex)"
+          :title="previewMode[fileIndex] ? 'Show diff' : 'Preview markdown'"
+        >
+          {{ previewMode[fileIndex] ? '📝 Diff' : '👁 Preview' }}
+        </button>
       </div>
 
       <div v-if="expandedFiles[fileIndex]" class="diff-file-content">
-        <div v-for="(hunk, hunkIndex) in file.hunks" :key="hunkIndex" class="diff-hunk">
-          <div class="diff-hunk-header">{{ hunk.header }}</div>
-          <table class="diff-table">
-            <tbody>
-              <tr
-                v-for="(line, lineIndex) in hunk.lines"
-                :key="lineIndex"
-                :class="['diff-line', `diff-line-${line.type}`]"
-              >
-                <td class="diff-line-num diff-line-num-old">{{ line.oldLineNumber ?? '' }}</td>
-                <td class="diff-line-num diff-line-num-new">{{ line.newLineNumber ?? '' }}</td>
-                <td class="diff-line-prefix">{{ getLinePrefix(line.type) }}</td>
-                <td class="diff-line-content">{{ line.content }}</td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- Markdown preview mode -->
+        <div v-if="previewMode[fileIndex] && isMarkdownFile(file.displayPath)" class="markdown-preview-container">
+          <div v-if="!file.isDeleted && !file.isNew" class="markdown-preview-split">
+            <div class="markdown-preview-pane">
+              <div class="markdown-preview-label markdown-preview-label-old">Before</div>
+              <MarkdownViewer :content="extractOldContentFromDiff(file)" />
+            </div>
+            <div class="markdown-preview-pane">
+              <div class="markdown-preview-label markdown-preview-label-new">After</div>
+              <MarkdownViewer :content="extractNewContentFromDiff(file)" />
+            </div>
+          </div>
+          <div v-else-if="file.isNew" class="markdown-preview-single">
+            <div class="markdown-preview-label markdown-preview-label-new">New file</div>
+            <MarkdownViewer :content="extractNewContentFromDiff(file)" />
+          </div>
+          <div v-else-if="file.isDeleted" class="markdown-preview-single">
+            <div class="markdown-preview-label markdown-preview-label-old">Deleted file</div>
+            <MarkdownViewer :content="extractOldContentFromDiff(file)" />
+          </div>
         </div>
+
+        <!-- Standard diff view -->
+        <template v-else>
+          <div v-for="(hunk, hunkIndex) in file.hunks" :key="hunkIndex" class="diff-hunk">
+            <div class="diff-hunk-header">{{ hunk.header }}</div>
+            <table class="diff-table">
+              <tbody>
+                <tr
+                  v-for="(line, lineIndex) in hunk.lines"
+                  :key="lineIndex"
+                  :class="['diff-line', `diff-line-${line.type}`]"
+                >
+                  <td class="diff-line-num diff-line-num-old">{{ line.oldLineNumber ?? '' }}</td>
+                  <td class="diff-line-num diff-line-num-new">{{ line.newLineNumber ?? '' }}</td>
+                  <td class="diff-line-prefix">{{ getLinePrefix(line.type) }}</td>
+                  <td class="diff-line-content">{{ line.content }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
       </div>
     </div>
   </div>
@@ -45,6 +80,12 @@
 
 <script setup>
 import { ref, watch } from 'vue';
+import MarkdownViewer from './MarkdownViewer.vue';
+import {
+  isMarkdownFile,
+  extractOldContentFromDiff,
+  extractNewContentFromDiff,
+} from '../utils/markdown.js';
 
 const props = defineProps({
   files: {
@@ -59,6 +100,7 @@ const props = defineProps({
 });
 
 const expandedFiles = ref({});
+const previewMode = ref({});
 
 // Initialize expanded state
 watch(
@@ -68,6 +110,10 @@ watch(
       if (expandedFiles.value[index] === undefined) {
         expandedFiles.value[index] = props.expandAll;
       }
+      // Initialize preview mode to false (diff view by default)
+      if (previewMode.value[index] === undefined) {
+        previewMode.value[index] = false;
+      }
     });
   },
   { immediate: true }
@@ -75,6 +121,10 @@ watch(
 
 function toggleFile(index) {
   expandedFiles.value[index] = !expandedFiles.value[index];
+}
+
+function togglePreview(index) {
+  previewMode.value[index] = !previewMode.value[index];
 }
 
 function collapseAllFiles() {
@@ -93,6 +143,7 @@ defineExpose({
   collapseAll: collapseAllFiles,
   expandAll: expandAllFiles,
 });
+
 
 function getLinePrefix(type) {
   switch (type) {
@@ -282,5 +333,100 @@ function getLinePrefix(type) {
   white-space: pre;
   overflow-x: auto;
   vertical-align: top;
+}
+
+/* Markdown preview toggle button */
+.preview-toggle {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.625rem;
+  font-weight: 500;
+  background-color: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: auto;
+}
+
+.preview-toggle:hover {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+.preview-toggle.active {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+/* Markdown preview container */
+.markdown-preview-container {
+  padding: 1rem;
+  background-color: var(--color-background);
+  border-top: 1px solid var(--color-border);
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  font-size: 0.875rem;
+}
+
+/* Split view for modified files (before/after) */
+.markdown-preview-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.markdown-preview-pane {
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  overflow: hidden;
+}
+
+.markdown-preview-pane > :deep(.markdown-viewer) {
+  padding: 1rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Single pane for new/deleted files */
+.markdown-preview-single {
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  overflow: hidden;
+}
+
+.markdown-preview-single > :deep(.markdown-viewer) {
+  padding: 1rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Labels for before/after panes */
+.markdown-preview-label {
+  padding: 0.5rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.markdown-preview-label-old {
+  background-color: rgba(248, 81, 73, 0.1);
+  color: var(--color-error);
+  border-bottom: 1px solid rgba(248, 81, 73, 0.2);
+}
+
+.markdown-preview-label-new {
+  background-color: rgba(63, 185, 80, 0.1);
+  color: var(--color-success);
+  border-bottom: 1px solid rgba(63, 185, 80, 0.2);
+}
+
+/* Responsive: stack panes on small screens */
+@media (max-width: 768px) {
+  .markdown-preview-split {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
