@@ -73,7 +73,7 @@
         <NotesTab v-else-if="activeTab === 'notes'" :session-id="route.params.id" />
       </div>
 
-      <div v-if="sessionsStore.currentSession?.status === 'stopped'" class="session-actions-bottom">
+      <div v-if="['stopped', 'completed', 'error'].includes(sessionsStore.currentSession?.status)" class="session-actions-bottom">
         <button
           v-if="!showDeleteConfirm"
           class="btn btn-outline-danger"

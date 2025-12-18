@@ -121,8 +121,12 @@
       </div>
     </div>
 
-    <div v-else-if="sessionsStore.currentSession?.status === 'completed'" class="status-message status-completed">
-      Session completed
+    <div v-else-if="sessionsStore.currentSession?.status === 'completed' || sessionsStore.currentSession?.status === 'error'" class="status-message" :class="sessionsStore.currentSession?.status === 'completed' ? 'status-completed' : 'status-error'">
+      <span>{{ sessionsStore.currentSession?.status === 'completed' ? 'Session completed' : 'Session error' }}</span>
+      <button type="button" class="btn btn-primary btn-restart" @click="handleRestart" :disabled="restarting">
+        <span v-if="restarting" class="loading-spinner"></span>
+        Restart Session
+      </button>
     </div>
   </div>
 </template>
@@ -147,6 +151,7 @@ const input = ref('');
 const sending = ref(false);
 const ending = ref(false);
 const stopping = ref(false);
+const restarting = ref(false);
 const togglingThinking = ref(false);
 const messagesContainer = ref(null);
 const partialText = ref('');
@@ -335,6 +340,20 @@ async function handleStop() {
     uiStore.error(err.message);
   } finally {
     stopping.value = false;
+  }
+}
+
+async function handleRestart() {
+  if (restarting.value) return;
+
+  restarting.value = true;
+  try {
+    await sessionsStore.restartSession(props.sessionId);
+    uiStore.success('Session restarted');
+  } catch (err) {
+    uiStore.error(err.message);
+  } finally {
+    restarting.value = false;
   }
 }
 
@@ -547,6 +566,7 @@ async function handleThinkingToggle(event) {
 .status-message {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
   padding: 1rem;
   color: var(--color-text-soft);
@@ -555,6 +575,14 @@ async function handleThinkingToggle(event) {
 
 .status-completed {
   color: var(--color-success, #10b981);
+}
+
+.status-error {
+  color: var(--color-danger, #ef4444);
+}
+
+.btn-restart {
+  min-width: 140px;
 }
 
 .status-stopped {

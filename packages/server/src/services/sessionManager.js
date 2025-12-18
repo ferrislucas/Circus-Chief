@@ -279,6 +279,16 @@ export function endSession(sessionId) {
 }
 
 /**
+ * Restart a completed or errored session (set back to stopped so it can receive messages)
+ * @param {string} sessionId
+ */
+export function restartSession(sessionId) {
+  // Clear any error and set status to stopped (allows sending new messages)
+  sessions.update(sessionId, { status: 'stopped', error: null });
+  broadcastSessionStatus(sessionId, 'stopped');
+}
+
+/**
  * Clean up an active session before deletion
  * @param {string} sessionId
  * @returns {boolean} true if session was active and cleaned up

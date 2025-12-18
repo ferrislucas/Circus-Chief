@@ -142,6 +142,25 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
+    async restartSession(id) {
+      this.error = null;
+      try {
+        await api.restartSession(id);
+        if (this.currentSession?.id === id) {
+          this.currentSession.status = 'stopped';
+          this.currentSession.error = null;
+        }
+        const session = this.sessions.find((s) => s.id === id);
+        if (session) {
+          session.status = 'stopped';
+          session.error = null;
+        }
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
     async deleteSession(id) {
       this.error = null;
       try {
