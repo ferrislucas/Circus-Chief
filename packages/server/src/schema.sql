@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS projects (
   name TEXT NOT NULL,
   working_directory TEXT NOT NULL,
   system_prompt TEXT,
+  on_session_created TEXT,
+  on_session_deleted TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

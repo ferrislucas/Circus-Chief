@@ -15,20 +15,23 @@ export class ProjectRepository extends BaseRepository {
       name: row.name,
       workingDirectory: row.working_directory,
       systemPrompt: row.system_prompt,
+      onSessionCreated: row.on_session_created,
+      onSessionDeleted: row.on_session_deleted,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
   }
 
-  create(name, workingDirectory, systemPrompt = null) {
+  create(name, workingDirectory, systemPrompt = null, options = {}) {
     const id = databaseManager.generateId();
     const now = Date.now();
+    const { onSessionCreated = null, onSessionDeleted = null } = options;
     this.db
       .prepare(
-        `INSERT INTO projects (id, name, working_directory, system_prompt, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, name, workingDirectory, systemPrompt, now, now);
+      .run(id, name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted, now, now);
     return this.getById(id);
   }
 
@@ -52,6 +55,14 @@ export class ProjectRepository extends BaseRepository {
     if (data.systemPrompt !== undefined) {
       updates.push('system_prompt = ?');
       values.push(data.systemPrompt);
+    }
+    if (data.onSessionCreated !== undefined) {
+      updates.push('on_session_created = ?');
+      values.push(data.onSessionCreated);
+    }
+    if (data.onSessionDeleted !== undefined) {
+      updates.push('on_session_deleted = ?');
+      values.push(data.onSessionDeleted);
     }
 
     if (updates.length === 0) return this.getById(id);

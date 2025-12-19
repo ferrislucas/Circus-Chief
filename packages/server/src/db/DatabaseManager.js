@@ -61,6 +61,12 @@ export class DatabaseManager {
     if (!projectsColumns.includes('system_prompt')) {
       this.#db.exec('ALTER TABLE projects ADD COLUMN system_prompt TEXT');
     }
+    if (!projectsColumns.includes('on_session_created')) {
+      this.#db.exec('ALTER TABLE projects ADD COLUMN on_session_created TEXT');
+    }
+    if (!projectsColumns.includes('on_session_deleted')) {
+      this.#db.exec('ALTER TABLE projects ADD COLUMN on_session_deleted TEXT');
+    }
 
     // Migrate sessions table to add 'stopped' status to CHECK constraint
     // SQLite doesn't allow modifying CHECK constraints, so we need to recreate the table

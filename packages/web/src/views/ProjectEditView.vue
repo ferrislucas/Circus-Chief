@@ -38,6 +38,37 @@
         </p>
       </div>
 
+      <details class="advanced-settings">
+        <summary>Session Lifecycle Hooks</summary>
+        <div class="form-group">
+          <label class="form-label" for="onSessionCreated">On Session Created</label>
+          <textarea
+            id="onSessionCreated"
+            v-model="onSessionCreated"
+            class="form-input form-textarea-small"
+            rows="3"
+            placeholder="Shell command to run when a session is created..."
+          ></textarea>
+          <p class="form-help">
+            Runs in the background after session creation. Environment variables: CLAUDETOOLS_SESSION_ID, CLAUDETOOLS_PROJECT_ID, CLAUDETOOLS_SESSION_NAME
+          </p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="onSessionDeleted">On Session Deleted</label>
+          <textarea
+            id="onSessionDeleted"
+            v-model="onSessionDeleted"
+            class="form-input form-textarea-small"
+            rows="3"
+            placeholder="Shell command to run when a session is deleted..."
+          ></textarea>
+          <p class="form-help">
+            Runs in the background after session deletion. Environment variables: CLAUDETOOLS_SESSION_ID, CLAUDETOOLS_PROJECT_ID, CLAUDETOOLS_SESSION_NAME
+          </p>
+        </div>
+      </details>
+
       <div v-if="error" class="error-message">{{ error }}</div>
 
       <div class="form-actions">
@@ -70,6 +101,8 @@ const uiStore = useUiStore();
 const name = ref('');
 const workingDirectory = ref('');
 const systemPrompt = ref('');
+const onSessionCreated = ref('');
+const onSessionDeleted = ref('');
 const saving = ref(false);
 const error = ref(null);
 
@@ -82,6 +115,8 @@ watch(() => projectsStore.currentProject, (project) => {
     name.value = project.name;
     workingDirectory.value = project.workingDirectory;
     systemPrompt.value = project.systemPrompt || '';
+    onSessionCreated.value = project.onSessionCreated || '';
+    onSessionDeleted.value = project.onSessionDeleted || '';
   }
 }, { immediate: true });
 
@@ -94,6 +129,8 @@ async function handleSubmit() {
       name: name.value,
       workingDirectory: workingDirectory.value,
       systemPrompt: systemPrompt.value || null,
+      onSessionCreated: onSessionCreated.value || null,
+      onSessionDeleted: onSessionDeleted.value || null,
     });
     uiStore.success('Project updated successfully');
     router.push(`/projects/${route.params.id}/sessions`);
@@ -162,5 +199,28 @@ h1 {
   margin-top: 0.5rem;
   font-size: 0.875rem;
   color: var(--color-text-muted);
+}
+
+.advanced-settings {
+  margin-bottom: 1rem;
+}
+
+.advanced-settings summary {
+  cursor: pointer;
+  color: var(--color-primary);
+  font-weight: 500;
+  margin-bottom: 1rem;
+}
+
+.advanced-settings[open] summary {
+  margin-bottom: 1rem;
+}
+
+.form-textarea-small {
+  resize: vertical;
+  min-height: 60px;
+  font-family: monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
 }
 </style>
