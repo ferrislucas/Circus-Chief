@@ -8,9 +8,6 @@
     <template v-else-if="sessionsStore.currentSession">
       <div class="session-header">
         <div>
-          <router-link :to="`/projects/${sessionsStore.currentSession.projectId}/sessions`" class="back-link">
-            &larr; Sessions
-          </router-link>
           <h3 class="session-name">{{ sessionsStore.currentSession.name }}</h3>
           <div class="session-meta">
             <span :class="['status-badge', `status-${sessionsStore.currentSession.status}`]">
@@ -33,6 +30,13 @@
       </div>
 
       <div class="tabs">
+        <router-link
+          :to="`/projects/${sessionsStore.currentSession.projectId}/sessions`"
+          class="tab tab-back"
+        >
+          ← Sessions
+        </router-link>
+        <span class="tab-separator"></span>
         <router-link
           :to="`/sessions/${route.params.id}/summary`"
           :class="['tab', { active: activeTab === 'summary' }]"
@@ -243,13 +247,6 @@ async function handleDelete() {
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 1.5rem;
-}
-
-.back-link {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-  display: inline-block;
-  margin-bottom: 0.5rem;
 }
 
 .session-name {
