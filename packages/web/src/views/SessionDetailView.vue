@@ -24,13 +24,6 @@
         </div>
         <div class="session-actions">
           <button
-            v-if="canStop"
-            class="btn btn-danger"
-            @click="handleStop"
-          >
-            Stop Session
-          </button>
-          <button
             class="btn btn-outline-danger"
             @click="handleDelete"
           >
@@ -71,6 +64,15 @@
         <ChangesTab v-else-if="activeTab === 'changes'" :session-id="route.params.id" />
         <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
         <NotesTab v-else-if="activeTab === 'notes'" :session-id="route.params.id" />
+
+        <div v-if="activeTab === 'conversation' && canStop" class="stop-session-bottom">
+          <button
+            class="btn btn-danger"
+            @click="handleStop"
+          >
+            Stop Session
+          </button>
+        </div>
       </div>
     </template>
   </div>
@@ -297,5 +299,13 @@ async function handleDelete() {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+}
+
+.stop-session-bottom {
+  padding: 1rem 0;
+  border-top: 1px solid var(--color-border);
+  margin-top: 1rem;
+  display: flex;
+  justify-content: center;
 }
 </style>
