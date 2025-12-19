@@ -41,9 +41,9 @@ test.describe('New Session - Thinking Toggle', () => {
   test('can create session with thinking enabled', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions/new`);
 
-    // Fill in required fields
-    await page.fill('input[id="name"]', 'Thinking Session');
-    await page.fill('textarea[id="prompt"]', 'Test with thinking enabled');
+    // Fill in required prompt field (name is auto-generated from prompt)
+    const prompt = 'Test with thinking enabled';
+    await page.fill('textarea[id="prompt"]', prompt);
 
     // Thinking toggle is already enabled by default, no need to click
 
@@ -53,12 +53,12 @@ test.describe('New Session - Thinking Toggle', () => {
     // Wait for redirect to session detail
     await expect(page).toHaveURL(/\/sessions\/[\w-]+/, { timeout: 10000 });
 
-    // Verify session name is visible (confirms session loaded)
-    await expect(page.getByText('Thinking Session')).toBeVisible();
+    // Verify session name (auto-generated from prompt) is visible
+    await expect(page.getByText(prompt)).toBeVisible();
 
     // Verify via API that thinkingEnabled is true
     const sessions = await getProjectSessions(project.id);
-    const session = sessions.find((s: any) => s.name === 'Thinking Session');
+    const session = sessions.find((s: any) => s.name === prompt);
     expect(session).toBeTruthy();
     expect(session.thinkingEnabled).toBe(true);
   });
@@ -66,9 +66,9 @@ test.describe('New Session - Thinking Toggle', () => {
   test('can create session with thinking disabled', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions/new`);
 
-    // Fill in required fields
-    await page.fill('input[id="name"]', 'Non-Thinking Session');
-    await page.fill('textarea[id="prompt"]', 'Test with thinking disabled');
+    // Fill in required prompt field (name is auto-generated from prompt)
+    const prompt = 'Test with thinking disabled';
+    await page.fill('textarea[id="prompt"]', prompt);
 
     // Verify thinking toggle is checked by default
     const checkbox = page.locator('.thinking-toggle input[type="checkbox"]');
@@ -84,12 +84,12 @@ test.describe('New Session - Thinking Toggle', () => {
     // Wait for redirect to session detail
     await expect(page).toHaveURL(/\/sessions\/[\w-]+/, { timeout: 10000 });
 
-    // Verify session name is visible (confirms session loaded)
-    await expect(page.getByText('Non-Thinking Session')).toBeVisible();
+    // Verify session name (auto-generated from prompt) is visible
+    await expect(page.getByText(prompt)).toBeVisible();
 
     // Verify via API that thinkingEnabled is false
     const sessions = await getProjectSessions(project.id);
-    const session = sessions.find((s: any) => s.name === 'Non-Thinking Session');
+    const session = sessions.find((s: any) => s.name === prompt);
     expect(session).toBeTruthy();
     expect(session.thinkingEnabled).toBe(false);
   });
@@ -118,8 +118,9 @@ test.describe('Session Management', () => {
 
     await expect(page).toHaveURL(`/projects/${project.id}/sessions/new`);
 
-    await page.fill('input[id="name"]', 'Test Session');
-    await page.fill('textarea[id="prompt"]', 'Help me write a hello world program');
+    // Fill in required prompt field (name is auto-generated from prompt)
+    const prompt = 'Help me write a hello world program';
+    await page.fill('textarea[id="prompt"]', prompt);
     await page.click('button:has-text("Start Session")');
 
     // Should redirect to session detail with session ID in URL
@@ -130,16 +131,16 @@ test.describe('Session Management', () => {
     const sessionId = url.match(/\/sessions\/([\w-]+)/)?.[1];
     expect(sessionId).toBeTruthy();
 
-    // Verify session name is visible on the page
-    await expect(page.getByText('Test Session')).toBeVisible();
+    // Verify session name (auto-generated from prompt) is visible on the page
+    await expect(page.getByText(prompt)).toBeVisible();
 
     // Verify the initial prompt was recorded as a message (use exact match to avoid mock response)
-    await expect(page.locator('.message-content').getByText('Help me write a hello world program', { exact: true })).toBeVisible();
+    await expect(page.locator('.message-content').getByText(prompt, { exact: true })).toBeVisible();
 
     // Verify via API that session was created with correct data
     const sessions = await getProjectSessions(project.id);
     expect(sessions.length).toBe(1);
-    expect(sessions[0].name).toBe('Test Session');
+    expect(sessions[0].name).toBe(prompt);
   });
 
   test('displays session list', async ({ page }) => {
