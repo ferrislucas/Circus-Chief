@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { sessions, messages, sessionNotes, projects, todos, workLogs } from '../database.js';
-import { continueSession, stopSession, endSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
+import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
@@ -121,25 +121,6 @@ router.post('/:id/stop', async (req, res) => {
 
   try {
     await stopSession(session.id);
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// POST /api/sessions/:id/end - End session (mark as completed)
-router.post('/:id/end', (req, res) => {
-  const session = sessions.getById(req.params.id);
-  if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
-  }
-
-  if (session.status === 'completed') {
-    return res.status(400).json({ error: 'Session is already completed' });
-  }
-
-  try {
-    endSession(session.id);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });

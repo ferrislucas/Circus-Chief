@@ -185,15 +185,6 @@ export class ApiClient {
   }
 
   /**
-   * End a session (mark as completed)
-   * @param {string} id - Session ID
-   * @returns {Promise<Object>}
-   */
-  async endSession(id) {
-    return this.#request('POST', `/sessions/${id}/end`);
-  }
-
-  /**
    * Restart a completed or errored session
    * @param {string} id - Session ID
    * @returns {Promise<Object>}
