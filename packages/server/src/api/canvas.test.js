@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { canvasItems, sessions, projects } from '../database.js';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { canvasItems, projects } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 
 /**
