@@ -10,6 +10,7 @@ export {
   SessionNoteRepository,
   TodoRepository,
   WorkLogRepository,
+  SessionSummaryRepository,
   // Singleton instances
   databaseManager,
   projects,
@@ -19,6 +20,7 @@ export {
   sessionNotes,
   todos,
   workLogs,
+  sessionSummaries,
   // Legacy functions
   initDatabase,
   getDatabase,

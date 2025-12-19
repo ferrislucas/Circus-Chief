@@ -14,7 +14,7 @@
     </div>
 
     <div v-if="sessionsStore.loading" class="skeleton-list">
-      <div v-for="i in 3" :key="i" class="skeleton card" style="height: 80px"></div>
+      <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
     </div>
 
     <div v-else-if="sessionsStore.error" class="error-message">
@@ -35,16 +35,33 @@
         :to="`/sessions/${session.id}`"
         class="session-card card"
       >
-        <div class="session-info">
-          <h3 class="session-name">{{ session.name }}</h3>
-          <p class="session-meta">
-            <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
-            <span class="session-mode">{{ session.mode }}</span>
-            <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
-          </p>
+        <div class="session-header-row">
+          <div class="session-info">
+            <h3 class="session-name">{{ session.name }}</h3>
+            <p class="session-meta">
+              <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
+              <span class="session-mode">{{ session.mode }}</span>
+              <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
+            </p>
+          </div>
+          <div class="session-date">
+            {{ formatDate(session.createdAt) }}
+          </div>
         </div>
-        <div class="session-date">
-          {{ formatDate(session.createdAt) }}
+        <div v-if="summaries[session.id]" class="session-summary">
+          <p class="summary-text">{{ summaries[session.id].shortSummary }}</p>
+          <div class="summary-meta">
+            <span v-if="summaries[session.id].filesModified?.length" class="summary-files">
+              {{ summaries[session.id].filesModified.length }} files modified
+            </span>
+            <span v-if="session.costUsd" class="summary-cost">
+              ${{ session.costUsd.toFixed(2) }}
+            </span>
+          </div>
+        </div>
+        <div v-else-if="loadingSummaries[session.id]" class="session-summary session-summary-loading">
+          <span class="loading-spinner-small"></span>
+          <span>Loading summary...</span>
         </div>
       </router-link>
     </div>
@@ -52,19 +69,58 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue';
+import { onMounted, reactive, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { api } from '../composables/useApi.js';
 
 const route = useRoute();
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
 
-onMounted(() => {
+// Store summaries keyed by session ID
+const summaries = reactive({});
+const loadingSummaries = reactive({});
+
+onMounted(async () => {
   projectsStore.fetchProject(route.params.id);
-  sessionsStore.fetchSessions(route.params.id);
+  await sessionsStore.fetchSessions(route.params.id);
+  // Fetch summaries for loaded sessions
+  fetchSummaries();
 });
+
+// Watch for sessions changes and fetch summaries
+watch(
+  () => sessionsStore.sessions,
+  () => {
+    fetchSummaries();
+  }
+);
+
+async function fetchSummaries() {
+  // Fetch summaries for all sessions (in parallel, but with some rate limiting)
+  const sessions = sessionsStore.sessions;
+  for (const session of sessions) {
+    if (!summaries[session.id] && !loadingSummaries[session.id]) {
+      fetchSummary(session.id);
+    }
+  }
+}
+
+async function fetchSummary(sessionId) {
+  loadingSummaries[sessionId] = true;
+  try {
+    const summary = await api.getSessionSummary(sessionId);
+    if (summary) {
+      summaries[sessionId] = summary;
+    }
+  } catch {
+    // Silently ignore errors for summary fetching
+  } finally {
+    loadingSummaries[sessionId] = false;
+  }
+}
 
 function formatDate(timestamp) {
   return new Date(timestamp).toLocaleDateString(undefined, {
@@ -134,8 +190,8 @@ function formatDate(timestamp) {
 
 .session-card {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 0.75rem;
   color: var(--color-text);
   text-decoration: none;
   transition: border-color 0.2s;
@@ -144,6 +200,12 @@ function formatDate(timestamp) {
 .session-card:hover {
   border-color: var(--color-primary);
   text-decoration: none;
+}
+
+.session-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
 }
 
 .session-name {
@@ -173,6 +235,62 @@ function formatDate(timestamp) {
 .session-date {
   font-size: 0.875rem;
   color: var(--color-text-soft);
+  flex-shrink: 0;
+}
+
+.session-summary {
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.session-summary-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-text-soft);
+  font-size: 0.75rem;
+}
+
+.summary-text {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.summary-meta {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.summary-files {
+  opacity: 0.8;
+}
+
+.summary-cost {
+  font-family: var(--font-mono);
+}
+
+.loading-spinner-small {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 480px) {

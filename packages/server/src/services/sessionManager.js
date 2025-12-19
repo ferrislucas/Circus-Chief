@@ -3,6 +3,7 @@ import { sessions, messages, workLogs } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
 import { updateTodos } from './todoStore.js';
+import * as summaryService from './summaryService.js';
 
 /** @type {Map<string, string|null>} Track current message ID for work log association */
 const currentMessageIds = new Map();
@@ -283,6 +284,9 @@ export function endSession(sessionId) {
 
   sessions.update(sessionId, { status: 'completed' });
   broadcastSessionStatus(sessionId, 'completed');
+
+  // Generate summary immediately on session completion
+  summaryService.onSessionComplete(sessionId);
 }
 
 /**
@@ -385,6 +389,9 @@ async function handleStreamEvent(sessionId, event) {
             messageId: message.id,
           });
         }
+
+        // Trigger debounced summary generation on new message
+        summaryService.onSessionActivity(sessionId);
       }
 
       // Note: Thinking content is logged via stream_event -> content_block_stop
@@ -469,6 +476,8 @@ async function handleStreamEvent(sessionId, event) {
       if (event.subtype === 'error') {
         sessions.update(sessionId, { status: 'error', error: event.error });
         broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: event.error });
+        // Generate summary on error
+        summaryService.onSessionComplete(sessionId);
       } else {
         // Store cost info
         if (event.total_cost_usd !== undefined) {

@@ -41,6 +41,12 @@
 
       <div class="tabs">
         <router-link
+          :to="`/sessions/${route.params.id}/summary`"
+          :class="['tab', { active: activeTab === 'summary' }]"
+        >
+          Summary
+        </router-link>
+        <router-link
           :to="`/sessions/${route.params.id}/conversation`"
           :class="['tab', { active: activeTab === 'conversation' }]"
         >
@@ -67,7 +73,8 @@
       </div>
 
       <div class="tab-content">
-        <ConversationTab v-if="activeTab === 'conversation'" :session-id="route.params.id" />
+        <SummaryTab v-if="activeTab === 'summary'" :session-id="route.params.id" />
+        <ConversationTab v-else-if="activeTab === 'conversation'" :session-id="route.params.id" />
         <ChangesTab v-else-if="activeTab === 'changes'" :session-id="route.params.id" />
         <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
         <NotesTab v-else-if="activeTab === 'notes'" :session-id="route.params.id" />
@@ -113,6 +120,7 @@ import ConversationTab from '../components/ConversationTab.vue';
 import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
 import NotesTab from '../components/NotesTab.vue';
+import SummaryTab from '../components/SummaryTab.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -135,6 +143,7 @@ const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCan
 
 let cleanups = [];
 const pollIntervalId = ref(null);
+const showDeleteConfirm = ref(false);
 
 // Poll for updates while session is actively processing (fallback for race conditions)
 function startPolling() {
