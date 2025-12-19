@@ -5,7 +5,7 @@ import { nextTick, defineComponent } from 'vue';
 // Mock the API - MUST be before imports that use it
 vi.mock('../api/ApiClient.js', () => ({
   api: {
-    getSessionChanges: vi.fn().mockResolvedValue({ staged: '', unstaged: '', untracked: [] }),
+    getSessionChanges: vi.fn().mockResolvedValue({ staged: '', unstaged: '', untracked: '' }),
   },
 }));
 
@@ -90,12 +90,12 @@ describe('ChangesTab', () => {
     expect(wrapper.find('.loading-state').exists()).toBe(true);
 
     // Clean up by resolving the promise
-    resolvePromise({ staged: '', unstaged: '', untracked: [] });
+    resolvePromise({ staged: '', unstaged: '', untracked: '' });
     await flushPromises();
   });
 
   it('fetches changes on mount', async () => {
-    api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: [] });
+    api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
 
     mountComponent();
 
@@ -119,7 +119,7 @@ describe('ChangesTab', () => {
     api.getSessionChanges.mockResolvedValue({
       staged: diffString,
       unstaged: '',
-      untracked: [],
+      untracked: '',
     });
 
     const wrapper = mountComponent();
@@ -152,7 +152,7 @@ describe('ChangesTab', () => {
     api.getSessionChanges.mockResolvedValue({
       staged: '',
       unstaged: unstagedDiff,
-      untracked: [],
+      untracked: '',
     });
 
     const wrapper = mountComponent();
@@ -194,7 +194,7 @@ describe('ChangesTab', () => {
     api.getSessionChanges.mockResolvedValue({
       staged: stagedDiff,
       unstaged: unstagedDiff,
-      untracked: [],
+      untracked: '',
     });
 
     const wrapper = mountComponent();
@@ -213,7 +213,7 @@ describe('ChangesTab', () => {
   });
 
   it('displays empty state when no changes', async () => {
-    api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: [] });
+    api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
 
     const wrapper = mountComponent();
 
@@ -223,10 +223,26 @@ describe('ChangesTab', () => {
   });
 
   it('displays untracked files when present', async () => {
+    const untrackedDiff = [
+      'diff --git a/new-file.txt b/new-file.txt',
+      'new file mode 100644',
+      '--- /dev/null',
+      '+++ b/new-file.txt',
+      '@@ -0,0 +1,2 @@',
+      '+Hello World',
+      '+This is a new file',
+      'diff --git a/another-file.js b/another-file.js',
+      'new file mode 100644',
+      '--- /dev/null',
+      '+++ b/another-file.js',
+      '@@ -0,0 +1 @@',
+      '+console.log("test");',
+    ].join('\n');
+
     api.getSessionChanges.mockResolvedValue({
       staged: '',
       unstaged: '',
-      untracked: ['new-file.txt', 'another-file.js'],
+      untracked: untrackedDiff,
     });
 
     const wrapper = mountComponent();
@@ -234,8 +250,14 @@ describe('ChangesTab', () => {
     await flushAll(wrapper);
 
     expect(wrapper.text()).toContain('Untracked Files');
-    expect(wrapper.text()).toContain('new-file.txt');
-    expect(wrapper.text()).toContain('another-file.js');
+    // Verify the component state - untrackedFiles should be parsed correctly
+    expect(wrapper.vm.untrackedFiles).toHaveLength(2);
+    expect(wrapper.vm.untrackedFiles[0].displayPath).toBe('new-file.txt');
+    expect(wrapper.vm.untrackedFiles[0].isNew).toBe(true);
+    expect(wrapper.vm.untrackedFiles[0].additions).toBe(2);
+    expect(wrapper.vm.untrackedFiles[1].displayPath).toBe('another-file.js');
+    expect(wrapper.vm.untrackedFiles[1].isNew).toBe(true);
+    expect(wrapper.vm.untrackedFiles[1].additions).toBe(1);
   });
 
   it('displays error message on failure', async () => {
@@ -249,7 +271,7 @@ describe('ChangesTab', () => {
   });
 
   it('uses sessionId prop for API call', async () => {
-    api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: [] });
+    api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
 
     mountComponent({ sessionId: 'custom-session-id' });
 
