@@ -28,15 +28,28 @@ router.post('/:id/canvas', upload.single('file'), (req, res) => {
     };
   } else {
     // JSON body (markdown, text, json, image)
-    const { type, content, data, label, title, width, height } = req.body;
+    const { type, content, data, label, title, width, height, mimeType } = req.body;
     if (!type) {
       return res.status(400).json({ error: 'Type is required' });
+    }
+
+    // Handle data URL format: extract mimeType and base64 data from "data:image/jpeg;base64,..."
+    let extractedMimeType = mimeType || null;
+    let extractedData = typeof data === 'object' ? JSON.stringify(data) : data || null;
+
+    if (type === 'image' && content && !data) {
+      const dataUrlMatch = content.match(/^data:([^;]+);base64,(.+)$/);
+      if (dataUrlMatch) {
+        extractedMimeType = dataUrlMatch[1];
+        extractedData = dataUrlMatch[2];
+      }
     }
 
     itemData = {
       type,
       content: content || null,
-      data: typeof data === 'object' ? JSON.stringify(data) : data || null,
+      data: extractedData,
+      mimeType: extractedMimeType,
       label: label || title || null, // Support both 'label' and 'title' fields
       width: width || null,
       height: height || null,
