@@ -88,11 +88,13 @@ export class WorkLogRepository extends BaseRepository {
    * Update the message ID for work logs (used when associating pending logs with a message)
    * @param {string} sessionId - Session ID
    * @param {string} messageId - Message ID to associate
+   * @returns {number} Number of work logs that were associated
    */
   associatePendingLogs(sessionId, messageId) {
-    this.db
+    const result = this.db
       .prepare('UPDATE work_logs SET message_id = ? WHERE session_id = ? AND message_id IS NULL')
       .run(messageId, sessionId);
+    return result.changes;
   }
 
   /**
