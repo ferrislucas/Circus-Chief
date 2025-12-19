@@ -155,3 +155,32 @@ export async function sendSessionMessage(sessionId: string, content: string) {
   }
   return response.json();
 }
+
+export async function getSessionWorkLogs(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/work-logs`);
+  if (!response.ok) return {};
+  return response.json();
+}
+
+export async function seedWorkLog(
+  sessionId: string,
+  data: { type: string; content: string; toolName?: string; messageId?: string }
+) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/work-logs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to seed work log');
+  return response.json();
+}
+
+export async function updateSessionStatus(sessionId: string, status: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  if (!response.ok) throw new Error('Failed to update session status');
+  return response.json();
+}

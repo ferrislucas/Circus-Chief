@@ -70,6 +70,29 @@ router.get('/:id/work-logs', (req, res) => {
   res.json(grouped);
 });
 
+// POST /api/sessions/:id/work-logs - Create work log (for testing)
+router.post('/:id/work-logs', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const { type, content, toolName, messageId } = req.body;
+  if (!type || !content) {
+    return res.status(400).json({ error: 'Type and content are required' });
+  }
+
+  const log = workLogs.create(req.params.id, type, content, messageId || null, toolName || null);
+
+  // Broadcast to session subscribers
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_WORK_LOG, {
+    sessionId: req.params.id,
+    log,
+  });
+
+  res.status(201).json(log);
+});
+
 // POST /api/sessions/:id/message - Send follow-up message
 router.post('/:id/message', async (req, res) => {
   const session = sessions.getById(req.params.id);
@@ -218,12 +241,19 @@ router.patch('/:id', (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const { thinkingEnabled } = req.body;
+  const { thinkingEnabled, status } = req.body;
 
   // Build update object with only provided fields
   const updateData = {};
   if (thinkingEnabled !== undefined) {
     updateData.thinkingEnabled = Boolean(thinkingEnabled);
+  }
+  if (status !== undefined) {
+    const validStatuses = ['starting', 'running', 'waiting', 'completed', 'error', 'stopped'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+    updateData.status = status;
   }
 
   if (Object.keys(updateData).length === 0) {
@@ -231,6 +261,15 @@ router.patch('/:id', (req, res) => {
   }
 
   const updated = sessions.update(req.params.id, updateData);
+
+  // Broadcast status update if status changed
+  if (updateData.status) {
+    broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_STATUS, {
+      sessionId: req.params.id,
+      status: updateData.status,
+    });
+  }
+
   res.json(updated);
 });
 
