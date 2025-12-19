@@ -116,6 +116,11 @@ CREATE TABLE IF NOT EXISTS session_summaries (
   files_modified TEXT,              -- JSON array of files touched
   outcome TEXT,                     -- 'completed' | 'partial' | 'failed' | 'ongoing'
   message_count INTEGER,            -- Track what was summarized (staleness detection)
+  pr_merged INTEGER,                -- 0/1 boolean - whether PR is merged
+  pr_state TEXT,                    -- 'open' | 'closed' | 'merged' | 'draft'
+  has_merge_conflicts INTEGER,      -- 0/1 boolean - whether PR has merge conflicts
+  ci_status TEXT,                   -- 'success' | 'failure' | 'pending' | null
+  ci_failures TEXT,                 -- JSON array of failed check names
   generated_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
