@@ -20,6 +20,9 @@ export const useSessionsStore = defineStore('sessions', {
     getWorkLogsForMessage: (state) => (messageId) => {
       return state.workLogs[messageId] || [];
     },
+    getUnassociatedWorkLogs: (state) => {
+      return state.workLogs['_unassociated'] || [];
+    },
   },
 
   actions: {
@@ -139,6 +142,25 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
+    async restartSession(id) {
+      this.error = null;
+      try {
+        await api.restartSession(id);
+        if (this.currentSession?.id === id) {
+          this.currentSession.status = 'stopped';
+          this.currentSession.error = null;
+        }
+        const session = this.sessions.find((s) => s.id === id);
+        if (session) {
+          session.status = 'stopped';
+          session.error = null;
+        }
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
     async deleteSession(id) {
       this.error = null;
       try {
@@ -171,10 +193,12 @@ export const useSessionsStore = defineStore('sessions', {
 
     addWorkLog(log) {
       const messageId = log.messageId || '_unassociated';
-      if (!this.workLogs[messageId]) {
-        this.workLogs[messageId] = [];
-      }
-      this.workLogs[messageId].push(log);
+      const currentLogs = this.workLogs[messageId] || [];
+      // Use spread to ensure new object reference for Vue reactivity
+      this.workLogs = {
+        ...this.workLogs,
+        [messageId]: [...currentLogs, log],
+      };
     },
 
     setWorkLogs(workLogs) {
@@ -190,12 +214,13 @@ export const useSessionsStore = defineStore('sessions', {
     associateWorkLogs(messageId) {
       const unassociated = this.workLogs['_unassociated'] || [];
       if (unassociated.length > 0) {
-        if (!this.workLogs[messageId]) {
-          this.workLogs[messageId] = [];
-        }
-        // Move logs from _unassociated to the messageId
-        this.workLogs[messageId].push(...unassociated);
-        this.workLogs['_unassociated'] = [];
+        const currentLogs = this.workLogs[messageId] || [];
+        // Use spread to ensure new object reference for Vue reactivity
+        this.workLogs = {
+          ...this.workLogs,
+          [messageId]: [...currentLogs, ...unassociated],
+          '_unassociated': [],
+        };
       }
     },
 

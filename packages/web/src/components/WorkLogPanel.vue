@@ -48,19 +48,11 @@ const props = defineProps({
 
 const detailsRef = ref(null);
 const manuallyToggled = ref(false);
-const isExpanded = ref(props.isLatestMessage || !!props.partialThinking);
+const isExpanded = ref(!!props.partialThinking);
 
 // Total count includes work logs + 1 if partial thinking is present
 const totalCount = computed(() => {
   return (props.workLogs?.length || 0) + (props.partialThinking ? 1 : 0);
-});
-
-// Watch for changes in isLatestMessage to auto-collapse/expand
-watch(() => props.isLatestMessage, (newVal) => {
-  // Only auto-collapse if user hasn't manually interacted
-  if (!manuallyToggled.value) {
-    isExpanded.value = newVal;
-  }
 });
 
 // Watch for new work logs to expand panel for latest message
@@ -70,10 +62,14 @@ watch(() => props.workLogs?.length, (newLen, oldLen) => {
   }
 });
 
-// Watch for partial thinking to auto-expand
-watch(() => props.partialThinking, (newVal) => {
+// Watch for partial thinking to auto-expand/collapse
+watch(() => props.partialThinking, (newVal, oldVal) => {
   if (newVal && !manuallyToggled.value) {
+    // Expand when streaming starts
     isExpanded.value = true;
+  } else if (!newVal && oldVal && !manuallyToggled.value) {
+    // Collapse when streaming finishes
+    isExpanded.value = false;
   }
 });
 

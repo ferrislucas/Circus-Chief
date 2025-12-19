@@ -10,7 +10,10 @@
           <span class="message-role">{{ message.role }}</span>
           <span class="message-time">{{ formatTime(message.timestamp) }}</span>
         </div>
-        <div class="message-content">{{ message.content }}</div>
+        <div class="message-content">
+          <MarkdownViewer v-if="message.role === 'assistant'" :content="message.content" />
+          <template v-else>{{ message.content }}</template>
+        </div>
         <div v-if="message.toolUse?.length" class="message-tools">
           <details v-for="(tool, idx) in message.toolUse" :key="idx">
             <summary>Tool: {{ tool.name }}</summary>
@@ -52,7 +55,9 @@
             <span class="dot"></span>
           </span>
         </div>
-        <div class="message-content">{{ partialText }}</div>
+        <div class="message-content">
+          <MarkdownViewer :content="partialText" />
+        </div>
       </div>
 
       <!-- Jump to latest button -->
@@ -106,13 +111,25 @@
       </div>
     </form>
 
-    <div v-else-if="sessionsStore.currentSession?.status === 'running'" class="status-message">
-      <span class="loading-spinner"></span>
-      Claude is working...
+    <div v-else-if="sessionsStore.currentSession?.status === 'running'" class="running-state">
+      <LiveWorkLogPanel
+        :work-logs="unassociatedWorkLogs"
+        :partial-thinking="sessionsStore.partialThinking"
+      />
+      <div class="running-actions">
+        <button type="button" class="btn btn-danger btn-send" @click="handleStop" :disabled="stopping">
+          <span v-if="stopping" class="loading-spinner"></span>
+          Stop
+        </button>
+      </div>
     </div>
 
-    <div v-else-if="sessionsStore.currentSession?.status === 'completed'" class="status-message status-completed">
-      Session completed
+    <div v-else-if="sessionsStore.currentSession?.status === 'completed' || sessionsStore.currentSession?.status === 'error'" class="status-message" :class="sessionsStore.currentSession?.status === 'completed' ? 'status-completed' : 'status-error'">
+      <span>{{ sessionsStore.currentSession?.status === 'completed' ? 'Session completed' : 'Session error' }}</span>
+      <button type="button" class="btn btn-primary btn-restart" @click="handleRestart" :disabled="restarting">
+        <span v-if="restarting" class="loading-spinner"></span>
+        Restart Session
+      </button>
     </div>
   </div>
 </template>
@@ -124,6 +141,8 @@ import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import TodoDrawer from './TodoDrawer.vue';
 import WorkLogPanel from './WorkLogPanel.vue';
+import MarkdownViewer from './MarkdownViewer.vue';
+import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -135,6 +154,8 @@ const uiStore = useUiStore();
 const input = ref('');
 const sending = ref(false);
 const ending = ref(false);
+const stopping = ref(false);
+const restarting = ref(false);
 const togglingThinking = ref(false);
 const messagesContainer = ref(null);
 const partialText = ref('');
@@ -153,6 +174,10 @@ const canSendMessage = computed(() => {
 
 const isStopped = computed(() => {
   return sessionsStore.currentSession?.status === 'stopped';
+});
+
+const unassociatedWorkLogs = computed(() => {
+  return sessionsStore.getUnassociatedWorkLogs;
 });
 
 // Subscribe to partial messages for streaming and work logs
@@ -305,6 +330,34 @@ async function handleEndSession() {
     uiStore.error(err.message);
   } finally {
     ending.value = false;
+  }
+}
+
+async function handleStop() {
+  if (stopping.value) return;
+
+  stopping.value = true;
+  try {
+    await sessionsStore.stopSession(props.sessionId);
+    uiStore.success('Session stopped');
+  } catch (err) {
+    uiStore.error(err.message);
+  } finally {
+    stopping.value = false;
+  }
+}
+
+async function handleRestart() {
+  if (restarting.value) return;
+
+  restarting.value = true;
+  try {
+    await sessionsStore.restartSession(props.sessionId);
+    uiStore.success('Session restarted');
+  } catch (err) {
+    uiStore.error(err.message);
+  } finally {
+    restarting.value = false;
   }
 }
 
@@ -517,6 +570,7 @@ async function handleThinkingToggle(event) {
 .status-message {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
   padding: 1rem;
   color: var(--color-text-soft);
@@ -525,6 +579,14 @@ async function handleThinkingToggle(event) {
 
 .status-completed {
   color: var(--color-success, #10b981);
+}
+
+.status-error {
+  color: var(--color-danger, #ef4444);
+}
+
+.btn-restart {
+  min-width: 140px;
 }
 
 .status-stopped {
@@ -595,5 +657,16 @@ async function handleThinkingToggle(event) {
     opacity: 1;
     transform: scale(1);
   }
+}
+
+.running-state {
+  border-top: 1px solid var(--color-border);
+  padding-top: 1rem;
+}
+
+.running-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 1rem;
 }
 </style>

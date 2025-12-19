@@ -11,7 +11,7 @@
           <router-link :to="`/projects/${sessionsStore.currentSession.projectId}/sessions`" class="back-link">
             &larr; Sessions
           </router-link>
-          <h1>{{ sessionsStore.currentSession.name }}</h1>
+          <h3 class="session-name">{{ sessionsStore.currentSession.name }}</h3>
           <div class="session-meta">
             <span :class="['status-badge', `status-${sessionsStore.currentSession.status}`]">
               {{ sessionsStore.currentSession.status }}
@@ -31,27 +31,11 @@
             Stop Session
           </button>
           <button
-            v-if="!showDeleteConfirm"
             class="btn btn-outline-danger"
-            @click="showDeleteConfirm = true"
+            @click="handleDelete"
           >
             Delete Session
           </button>
-          <div v-else class="delete-confirm">
-            <span class="delete-confirm-text">Delete this session?</span>
-            <button
-              class="btn btn-danger btn-sm"
-              @click="handleDelete"
-            >
-              Confirm
-            </button>
-            <button
-              class="btn btn-secondary btn-sm"
-              @click="showDeleteConfirm = false"
-            >
-              Cancel
-            </button>
-          </div>
         </div>
       </div>
 
@@ -88,6 +72,31 @@
         <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
         <NotesTab v-else-if="activeTab === 'notes'" :session-id="route.params.id" />
       </div>
+
+      <div v-if="['stopped', 'completed', 'error'].includes(sessionsStore.currentSession?.status)" class="session-actions-bottom">
+        <button
+          v-if="!showDeleteConfirm"
+          class="btn btn-outline-danger"
+          @click="showDeleteConfirm = true"
+        >
+          Delete Session
+        </button>
+        <div v-else class="delete-confirm">
+          <span class="delete-confirm-text">Delete this session?</span>
+          <button
+            class="btn btn-danger btn-sm"
+            @click="handleDelete"
+          >
+            Confirm
+          </button>
+          <button
+            class="btn btn-secondary btn-sm"
+            @click="showDeleteConfirm = false"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
     </template>
   </div>
 </template>
@@ -112,7 +121,6 @@ const canvasStore = useCanvasStore();
 const todosStore = useTodosStore();
 const uiStore = useUiStore();
 
-const showDeleteConfirm = ref(false);
 
 const activeTab = computed(() => route.params.tab || 'conversation');
 
@@ -241,6 +249,8 @@ async function handleStop() {
 }
 
 async function handleDelete() {
+  if (!confirm('Are you sure you want to delete this session?')) return;
+
   try {
     const projectId = sessionsStore.currentSession?.projectId;
     await sessionsStore.deleteSession(route.params.id);
@@ -253,7 +263,6 @@ async function handleDelete() {
     }
   } catch (err) {
     uiStore.error(err.message);
-    showDeleteConfirm.value = false;
   }
 }
 </script>
@@ -281,8 +290,10 @@ async function handleDelete() {
   margin-bottom: 0.5rem;
 }
 
-.session-header h1 {
+.session-name {
   margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
 }
 
 .session-meta {
@@ -313,14 +324,12 @@ async function handleDelete() {
   align-items: center;
 }
 
-.delete-confirm {
+.session-actions-bottom {
+  padding: 1rem 0;
+  border-top: 1px solid var(--color-border);
+  margin-top: 1rem;
   display: flex;
+  justify-content: flex-end;
   gap: 0.5rem;
-  align-items: center;
-}
-
-.delete-confirm-text {
-  font-size: 0.875rem;
-  color: var(--color-danger);
 }
 </style>

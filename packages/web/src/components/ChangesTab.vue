@@ -14,14 +14,20 @@
     </div>
 
     <template v-else>
+      <div class="changes-toolbar">
+        <button class="btn-link" @click="toggleAllFiles">
+          {{ allExpanded ? 'Collapse All' : 'Expand All' }}
+        </button>
+      </div>
+
       <div v-if="stagedFiles.length > 0" class="diff-section">
         <h3>Staged Changes</h3>
-        <DiffViewer :files="stagedFiles" />
+        <DiffViewer ref="stagedDiffViewer" :files="stagedFiles" />
       </div>
 
       <div v-if="unstagedFiles.length > 0" class="diff-section">
         <h3>Unstaged Changes</h3>
-        <DiffViewer :files="unstagedFiles" />
+        <DiffViewer ref="unstagedDiffViewer" :files="unstagedFiles" />
       </div>
 
       <div v-if="untracked.length > 0" class="diff-section">
@@ -51,10 +57,25 @@ const unstaged = ref('');
 const untracked = ref([]);
 const loading = ref(false);
 const error = ref(null);
+const allExpanded = ref(true);
+
+const stagedDiffViewer = ref(null);
+const unstagedDiffViewer = ref(null);
 
 const stagedFiles = computed(() => parseDiff(staged.value));
 const unstagedFiles = computed(() => parseDiff(unstaged.value));
 const hasChanges = computed(() => staged.value || unstaged.value || untracked.value.length > 0);
+
+function toggleAllFiles() {
+  if (allExpanded.value) {
+    stagedDiffViewer.value?.collapseAll();
+    unstagedDiffViewer.value?.collapseAll();
+  } else {
+    stagedDiffViewer.value?.expandAll();
+    unstagedDiffViewer.value?.expandAll();
+  }
+  allExpanded.value = !allExpanded.value;
+}
 
 async function fetchChanges() {
   loading.value = true;
@@ -73,6 +94,19 @@ async function fetchChanges() {
 
 onMounted(() => {
   fetchChanges();
+});
+
+// Expose for testing
+defineExpose({
+  fetchChanges,
+  staged,
+  unstaged,
+  untracked,
+  loading,
+  error,
+  hasChanges,
+  stagedFiles,
+  unstagedFiles,
 });
 </script>
 
@@ -100,6 +134,25 @@ onMounted(() => {
   text-align: center;
   padding: 2rem;
   color: var(--color-text-soft);
+}
+
+.changes-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
 }
 
 .diff-section {
