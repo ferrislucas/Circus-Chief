@@ -31,8 +31,13 @@
       </div>
 
       <div v-if="expandedFiles[fileIndex]" class="diff-file-content">
+        <!-- Binary file notice -->
+        <div v-if="file.isBinary" class="binary-file-notice">
+          Binary file - cannot display preview
+        </div>
+
         <!-- Markdown preview mode -->
-        <div v-if="previewMode[fileIndex] && isMarkdownFile(file.displayPath)" class="markdown-preview-container">
+        <div v-else-if="previewMode[fileIndex] && isMarkdownFile(file.displayPath)" class="markdown-preview-container">
           <div v-if="!file.isDeleted && !file.isNew" class="markdown-preview-split">
             <div class="markdown-preview-pane">
               <div class="markdown-preview-label markdown-preview-label-old">Before</div>
@@ -257,6 +262,15 @@ function getLinePrefix(type) {
 
 .diff-file-content {
   background-color: var(--color-background);
+}
+
+.binary-file-notice {
+  padding: 1rem;
+  text-align: center;
+  color: var(--color-text-soft);
+  background-color: var(--color-background-mute);
+  border-top: 1px solid var(--color-border);
+  font-style: italic;
 }
 
 .diff-hunk {

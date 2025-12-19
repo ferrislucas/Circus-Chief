@@ -1,5 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { readFile, stat } from 'fs/promises';
+import { join } from 'path';
 
 const execAsync = promisify(exec);
 
@@ -192,5 +194,61 @@ export async function getUntrackedFiles(directory) {
     return output.split('\n').filter((line) => line.trim());
   } catch {
     return [];
+  }
+}
+
+/**
+ * Check if content is binary by looking for null bytes
+ * @param {Buffer} buffer
+ * @returns {boolean}
+ */
+function isBinaryContent(buffer) {
+  // Check first 8KB for null bytes
+  const checkLength = Math.min(buffer.length, 8192);
+  for (let i = 0; i < checkLength; i++) {
+    if (buffer[i] === 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Get content of an untracked file
+ * @param {string} directory - Git repo directory
+ * @param {string} filePath - Relative path to the file
+ * @param {Object} options - Options
+ * @param {number} options.maxSize - Maximum file size in bytes (default: 100KB)
+ * @returns {Promise<{content: string|null, isBinary: boolean, size: number}>}
+ */
+export async function getUntrackedFileContent(directory, filePath, options = {}) {
+  const { maxSize = 100 * 1024 } = options;
+  const fullPath = join(directory, filePath);
+
+  try {
+    const fileStat = await stat(fullPath);
+    const size = fileStat.size;
+
+    // Check if file is too large
+    if (size > maxSize) {
+      return { content: null, isBinary: false, isTooLarge: true, size };
+    }
+
+    const buffer = await readFile(fullPath);
+
+    // Check if binary
+    if (isBinaryContent(buffer)) {
+      return { content: null, isBinary: true, isTooLarge: false, size };
+    }
+
+    return {
+      content: buffer.toString('utf-8'),
+      isBinary: false,
+      isTooLarge: false,
+      size,
+    };
+  } catch (error) {
+    // File might have been deleted or is unreadable
+    return { content: null, isBinary: false, isTooLarge: false, size: 0, error: error.message };
   }
 }
