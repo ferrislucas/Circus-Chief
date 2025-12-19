@@ -49,6 +49,8 @@ async function* mockSummaryQuery({ prompt: _prompt, recentMessages, sessionStatu
     key_actions: ['Mock action 1', 'Mock action 2'],
     files_modified: ['mock-file.js'],
     outcome: outcome,
+    pr_url: null,
+    session_title: `Mock: ${shortPreview}`.substring(0, 60),
   });
 
   // Yield assistant message with mock response
@@ -177,14 +179,20 @@ Respond with JSON only (no markdown code blocks), in this exact format:
   "full_summary": "Detailed summary with key accomplishments and current state (max 500 characters)",
   "key_actions": ["action 1", "action 2", ...],
   "files_modified": ["file1.js", "file2.js", ...],
-  "outcome": "completed|partial|failed|ongoing"
+  "outcome": "completed|partial|failed|ongoing",
+  "pr_url": "https://github.com/owner/repo/pull/123 or null if no PR was created/mentioned",
+  "session_title": "Concise title for this session (max 60 characters)"
 }
 
 Outcome guidelines:
 - "completed": Task was fully accomplished
 - "partial": Some progress made but task incomplete
 - "failed": Task encountered errors and couldn't proceed
-- "ongoing": Session is still active/waiting for user input`;
+- "ongoing": Session is still active/waiting for user input
+
+Session title guidelines:
+- If a PR was created or updated, format as "PR #N: brief description"
+- Otherwise, create a concise descriptive title summarizing the task`;
 }
 
 /**
@@ -202,6 +210,8 @@ function parseSummaryResponse(responseText) {
       keyActions: parsed.key_actions || [],
       filesModified: parsed.files_modified || [],
       outcome: parsed.outcome || 'ongoing',
+      prUrl: parsed.pr_url || null,
+      sessionTitle: parsed.session_title || null,
     };
   } catch {
     // If JSON parsing fails, try to extract from the response
@@ -212,6 +222,8 @@ function parseSummaryResponse(responseText) {
       keyActions: [],
       filesModified: [],
       outcome: 'ongoing',
+      prUrl: null,
+      sessionTitle: null,
     };
   }
 }
@@ -262,6 +274,24 @@ export async function generateSummary(sessionId) {
 
     // Upsert summary
     const summary = sessionSummaries.upsert(sessionId, summaryData);
+
+    // Update session name and prUrl if we have new data
+    if (summaryData.sessionTitle || summaryData.prUrl) {
+      const updateData = {};
+      if (summaryData.sessionTitle) {
+        updateData.name = summaryData.sessionTitle;
+      }
+      if (summaryData.prUrl) {
+        updateData.prUrl = summaryData.prUrl;
+      }
+      const updatedSession = sessions.update(sessionId, updateData);
+
+      // Broadcast session update for real-time UI sync
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        sessionId,
+        session: updatedSession,
+      });
+    }
 
     // Broadcast updated summary
     broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
