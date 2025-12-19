@@ -82,6 +82,17 @@ CREATE TABLE IF NOT EXISTS project_tool_templates (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
+-- Session todos (Claude's task list)
+CREATE TABLE IF NOT EXISTS session_todos (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'in_progress', 'completed')),
+  position INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
 -- Work logs (thinking, command outputs, tool executions)
 CREATE TABLE IF NOT EXISTS work_logs (
   id TEXT PRIMARY KEY,
@@ -100,5 +111,6 @@ CREATE INDEX IF NOT EXISTS idx_messages_session ON conversation_messages(session
 CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
 CREATE INDEX IF NOT EXISTS idx_notes_session ON session_notes(session_id);
 CREATE INDEX IF NOT EXISTS idx_project_tools ON project_tool_templates(project_id);
+CREATE INDEX IF NOT EXISTS idx_todos_session ON session_todos(session_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_session ON work_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_message ON work_logs(message_id);

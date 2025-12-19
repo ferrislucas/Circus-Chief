@@ -10,6 +10,7 @@ export { SessionRepository } from './SessionRepository.js';
 export { MessageRepository } from './MessageRepository.js';
 export { CanvasItemRepository } from './CanvasItemRepository.js';
 export { SessionNoteRepository } from './SessionNoteRepository.js';
+export { TodoRepository } from './TodoRepository.js';
 export { WorkLogRepository } from './WorkLogRepository.js';
 
 // Singleton instances
@@ -17,12 +18,14 @@ import { ProjectRepository } from './ProjectRepository.js';
 import { MessageRepository } from './MessageRepository.js';
 import { CanvasItemRepository } from './CanvasItemRepository.js';
 import { SessionNoteRepository } from './SessionNoteRepository.js';
+import { TodoRepository } from './TodoRepository.js';
 import { WorkLogRepository } from './WorkLogRepository.js';
 
 export const projects = new ProjectRepository();
 export const messages = new MessageRepository();
 export const canvasItems = new CanvasItemRepository();
 export const sessionNotes = new SessionNoteRepository();
+export const todos = new TodoRepository();
 export const workLogs = new WorkLogRepository();
 
 // SessionRepository needs to be instantiated after messages is available

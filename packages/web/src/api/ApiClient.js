@@ -262,6 +262,17 @@ export class ApiClient {
     return this.#request('GET', `/git/projects/${projectId}/worktrees`);
   }
 
+  // Todos
+
+  /**
+   * Get all todos for a session
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<Array>}
+   */
+  async getSessionTodos(sessionId) {
+    return this.#request('GET', `/sessions/${sessionId}/todos`);
+  }
+
   // Notes
 
   /**

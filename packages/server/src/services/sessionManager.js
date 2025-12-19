@@ -2,6 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { sessions, messages, workLogs } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
+import { updateTodos } from './todoStore.js';
 
 /** @type {Map<string, string|null>} Track current message ID for work log association */
 const currentMessageIds = new Map();
@@ -368,6 +369,14 @@ async function handleStreamEvent(sessionId, event) {
 
         // Broadcast message first
         broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
+
+        // Check for TodoWrite tool and update todos
+        if (toolUse) {
+          const todoWrite = toolUse.find((t) => t.name === 'TodoWrite');
+          if (todoWrite?.input?.todos) {
+            updateTodos(sessionId, todoWrite.input.todos);
+          }
+        }
 
         // Notify client to re-associate work logs in their state
         if (associatedCount > 0) {

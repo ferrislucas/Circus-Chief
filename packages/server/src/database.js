@@ -8,6 +8,7 @@ export {
   MessageRepository,
   CanvasItemRepository,
   SessionNoteRepository,
+  TodoRepository,
   WorkLogRepository,
   // Singleton instances
   databaseManager,
@@ -16,6 +17,7 @@ export {
   messages,
   canvasItems,
   sessionNotes,
+  todos,
   workLogs,
   // Legacy functions
   initDatabase,

@@ -18,6 +18,7 @@ export const WS_MESSAGE_TYPES = {
   SESSION_THINKING_PARTIAL: 'session:thinking_partial',
   CANVAS_ADD: 'canvas:add',
   CANVAS_REMOVE: 'canvas:remove',
+  TODOS_UPDATE: 'todos:update',
 };
 
 /**

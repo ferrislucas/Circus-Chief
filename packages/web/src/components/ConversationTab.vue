@@ -70,6 +70,9 @@
       </button>
     </div>
 
+    <!-- Todo drawer - only shows when todos exist -->
+    <TodoDrawer />
+
     <div v-if="isStopped" class="status-message status-stopped">
       <span class="stopped-icon">⏸</span>
       Session stopped - send a message to resume
@@ -136,6 +139,7 @@ import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
+import TodoDrawer from './TodoDrawer.vue';
 import WorkLogPanel from './WorkLogPanel.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
