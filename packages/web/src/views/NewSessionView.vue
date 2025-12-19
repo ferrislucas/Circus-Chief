@@ -240,6 +240,9 @@ h1 {
 
 .btn-full-width {
   width: 100%;
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+  font-size: 1.1rem;
 }
 
 .error-message {

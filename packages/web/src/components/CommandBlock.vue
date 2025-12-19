@@ -16,13 +16,27 @@
       <span v-if="log.timestamp" class="command-time">{{ formatTime(log.timestamp) }}</span>
     </div>
     <div class="command-content">
-      <pre class="command-pre" :class="{ expanded: isExpanded }">{{ displayContent }}</pre>
-      <button v-if="shouldTruncate && !isExpanded" class="show-more-btn" @click="isExpanded = true">
-        Show more ({{ lineCount }} lines)
-      </button>
-      <button v-if="isExpanded && shouldTruncate" class="show-more-btn" @click="isExpanded = false">
-        Show less
-      </button>
+      <!-- Tool input: show command summary with collapsible raw JSON -->
+      <template v-if="commandSummary">
+        <div class="command-summary">
+          <code>{{ commandSummary }}</code>
+        </div>
+        <details class="raw-json-details">
+          <summary>Show raw JSON</summary>
+          <pre class="command-pre">{{ displayContent }}</pre>
+        </details>
+      </template>
+
+      <!-- Fallback: Original display for outputs or when no summary available -->
+      <template v-else>
+        <pre class="command-pre" :class="{ expanded: isExpanded }">{{ displayContent }}</pre>
+        <button v-if="shouldTruncate && !isExpanded" class="show-more-btn" @click="isExpanded = true">
+          Show more ({{ lineCount }} lines)
+        </button>
+        <button v-if="isExpanded && shouldTruncate" class="show-more-btn" @click="isExpanded = false">
+          Show less
+        </button>
+      </template>
     </div>
   </div>
 </template>
@@ -46,6 +60,44 @@ const displayContent = computed(() => {
     return props.log.content;
   }
   return lines.value.slice(0, MAX_LINES).join('\n') + '\n...';
+});
+
+/**
+ * Extracts a human-readable command summary from tool input JSON.
+ * Returns null for tool outputs or when parsing fails (falls back to raw JSON display).
+ */
+const commandSummary = computed(() => {
+  if (props.log.type !== 'tool_input') return null;
+
+  try {
+    const input = JSON.parse(props.log.content);
+    const toolName = props.log.toolName?.toLowerCase();
+
+    switch (toolName) {
+      case 'bash':
+        return input.command;
+      case 'read':
+        return input.file_path;
+      case 'edit':
+        return input.file_path;
+      case 'write':
+        return input.file_path;
+      case 'grep':
+        return `"${input.pattern}"${input.path ? ` in ${input.path}` : ''}`;
+      case 'glob':
+        return input.pattern;
+      case 'task':
+        return input.description || input.prompt?.slice(0, 100);
+      case 'webfetch':
+        return input.url;
+      case 'websearch':
+        return input.query;
+      default:
+        return null;
+    }
+  } catch {
+    return null;
+  }
 });
 
 function formatTime(ts) {
@@ -116,6 +168,42 @@ function formatTime(ts) {
 
 .command-content {
   position: relative;
+}
+
+.command-summary {
+  margin-bottom: 0.5rem;
+}
+
+.command-summary code {
+  display: block;
+  padding: 0.5rem;
+  background: var(--color-background);
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  font-family: var(--font-mono, 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace);
+  color: var(--color-text);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.raw-json-details {
+  margin-top: 0.25rem;
+}
+
+.raw-json-details summary {
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+  user-select: none;
+  padding: 0.25rem 0;
+}
+
+.raw-json-details summary:hover {
+  color: var(--color-primary);
+}
+
+.raw-json-details[open] summary {
+  margin-bottom: 0.375rem;
 }
 
 .command-pre {
