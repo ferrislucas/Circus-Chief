@@ -30,13 +30,9 @@
         <DiffViewer ref="unstagedDiffViewer" :files="unstagedFiles" />
       </div>
 
-      <div v-if="untracked.length > 0" class="diff-section">
+      <div v-if="untrackedFiles.length > 0" class="diff-section">
         <h3>Untracked Files</h3>
-        <ul class="untracked-list">
-          <li v-for="file in untracked" :key="file" class="untracked-file">
-            {{ file }}
-          </li>
-        </ul>
+        <DiffViewer ref="untrackedDiffViewer" :files="untrackedFiles" />
       </div>
     </template>
   </div>
@@ -54,25 +50,29 @@ const props = defineProps({
 
 const staged = ref('');
 const unstaged = ref('');
-const untracked = ref([]);
+const untracked = ref('');
 const loading = ref(false);
 const error = ref(null);
 const allExpanded = ref(true);
 
 const stagedDiffViewer = ref(null);
 const unstagedDiffViewer = ref(null);
+const untrackedDiffViewer = ref(null);
 
 const stagedFiles = computed(() => parseDiff(staged.value));
 const unstagedFiles = computed(() => parseDiff(unstaged.value));
-const hasChanges = computed(() => staged.value || unstaged.value || untracked.value.length > 0);
+const untrackedFiles = computed(() => parseDiff(untracked.value));
+const hasChanges = computed(() => staged.value || unstaged.value || untracked.value);
 
 function toggleAllFiles() {
   if (allExpanded.value) {
     stagedDiffViewer.value?.collapseAll();
     unstagedDiffViewer.value?.collapseAll();
+    untrackedDiffViewer.value?.collapseAll();
   } else {
     stagedDiffViewer.value?.expandAll();
     unstagedDiffViewer.value?.expandAll();
+    untrackedDiffViewer.value?.expandAll();
   }
   allExpanded.value = !allExpanded.value;
 }
@@ -84,7 +84,7 @@ async function fetchChanges() {
     const changes = await api.getSessionChanges(props.sessionId);
     staged.value = changes.staged || '';
     unstaged.value = changes.unstaged || '';
-    untracked.value = changes.untracked || [];
+    untracked.value = changes.untracked || '';
   } catch (err) {
     error.value = err.message;
   } finally {
@@ -107,6 +107,7 @@ defineExpose({
   hasChanges,
   stagedFiles,
   unstagedFiles,
+  untrackedFiles,
 });
 </script>
 
@@ -163,23 +164,5 @@ defineExpose({
   font-size: 0.875rem;
   margin-bottom: 0.5rem;
   color: var(--color-text-soft);
-}
-
-.untracked-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  font-family: monospace;
-  font-size: 0.75rem;
-}
-
-.untracked-file {
-  padding: 0.25rem 0.5rem;
-  color: var(--color-success, #22c55e);
-}
-
-.untracked-file::before {
-  content: '+ ';
-  color: var(--color-success, #22c55e);
 }
 </style>
