@@ -18,6 +18,7 @@ export const WS_MESSAGE_TYPES = {
   SESSION_THINKING_PARTIAL: 'session:thinking_partial',
   SESSION_SUMMARY_UPDATED: 'session:summary_updated',
   SESSION_SUMMARY_GENERATING: 'session:summary_generating',
+  SESSION_UPDATED: 'session:updated',
   CANVAS_ADD: 'canvas:add',
   CANVAS_REMOVE: 'canvas:remove',
   TODOS_UPDATE: 'todos:update',

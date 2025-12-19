@@ -240,6 +240,16 @@ export function useSessionSubscription(sessionId) {
     return () => off(WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, handler);
   };
 
+  const onSessionUpdate = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.session);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_UPDATED, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_UPDATED, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -260,5 +270,6 @@ export function useSessionSubscription(sessionId) {
     onThinkingPartial,
     onSummaryUpdate,
     onSummaryGenerating,
+    onSessionUpdate,
   };
 }

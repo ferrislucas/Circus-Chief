@@ -161,6 +161,25 @@ describe('summaryService', () => {
       expect(result).toContain('failed');
       expect(result).toContain('ongoing');
     });
+
+    it('includes pr_url field in JSON format', () => {
+      const recentMessages = [{ role: 'user', content: 'Test' }];
+      const result = buildIncrementalPrompt(null, recentMessages, 'running');
+      expect(result).toContain('"pr_url"');
+    });
+
+    it('includes session_title field in JSON format', () => {
+      const recentMessages = [{ role: 'user', content: 'Test' }];
+      const result = buildIncrementalPrompt(null, recentMessages, 'running');
+      expect(result).toContain('"session_title"');
+    });
+
+    it('includes session title guidelines', () => {
+      const recentMessages = [{ role: 'user', content: 'Test' }];
+      const result = buildIncrementalPrompt(null, recentMessages, 'running');
+      expect(result).toContain('Session title guidelines');
+      expect(result).toContain('PR #N:');
+    });
   });
 
   describe('parseSummaryResponse', () => {
@@ -220,6 +239,61 @@ describe('summaryService', () => {
       const result = parseSummaryResponse(longText);
 
       expect(result.fullSummary.length).toBe(500);
+    });
+
+    it('parses pr_url from response', () => {
+      const responseText = JSON.stringify({
+        short_summary: 'Test summary',
+        full_summary: 'Full test summary',
+        key_actions: [],
+        files_modified: [],
+        outcome: 'completed',
+        pr_url: 'https://github.com/owner/repo/pull/123',
+        session_title: 'PR #123: Test feature',
+      });
+
+      const result = parseSummaryResponse(responseText);
+
+      expect(result.prUrl).toBe('https://github.com/owner/repo/pull/123');
+      expect(result.sessionTitle).toBe('PR #123: Test feature');
+    });
+
+    it('handles null pr_url in response', () => {
+      const responseText = JSON.stringify({
+        short_summary: 'Test summary',
+        full_summary: 'Full test summary',
+        key_actions: [],
+        files_modified: [],
+        outcome: 'completed',
+        pr_url: null,
+        session_title: 'Fix login bug',
+      });
+
+      const result = parseSummaryResponse(responseText);
+
+      expect(result.prUrl).toBeNull();
+      expect(result.sessionTitle).toBe('Fix login bug');
+    });
+
+    it('provides null defaults for missing pr_url and session_title', () => {
+      const responseText = JSON.stringify({
+        short_summary: 'Test summary',
+        full_summary: 'Full test summary',
+      });
+
+      const result = parseSummaryResponse(responseText);
+
+      expect(result.prUrl).toBeNull();
+      expect(result.sessionTitle).toBeNull();
+    });
+
+    it('provides null pr_url and session_title on fallback parsing', () => {
+      const responseText = 'This is not valid JSON';
+
+      const result = parseSummaryResponse(responseText);
+
+      expect(result.prUrl).toBeNull();
+      expect(result.sessionTitle).toBeNull();
     });
   });
 
@@ -285,6 +359,26 @@ describe('summaryService', () => {
       const parsed = JSON.parse(result);
 
       expect(parsed.full_summary).toContain('3 messages');
+    });
+
+    it('includes pr_url in mock response', async () => {
+      const recentMessages = [{ role: 'user', content: 'Test message' }];
+
+      const result = await callClaude('Test prompt', recentMessages, 'running');
+      const parsed = JSON.parse(result);
+
+      expect(parsed.pr_url).toBeDefined();
+      expect(parsed.pr_url).toBeNull(); // Mock mode returns null for pr_url
+    });
+
+    it('includes session_title in mock response', async () => {
+      const recentMessages = [{ role: 'user', content: 'Test message' }];
+
+      const result = await callClaude('Test prompt', recentMessages, 'running');
+      const parsed = JSON.parse(result);
+
+      expect(parsed.session_title).toBeDefined();
+      expect(parsed.session_title).toContain('Mock:');
     });
   });
 
@@ -414,6 +508,27 @@ describe('summaryService', () => {
       );
 
       consoleSpy.mockRestore();
+    });
+
+    it('updates session name with session_title from summary', async () => {
+      await summaryService.generateSummary(sessionId);
+
+      // Session name should be updated from mock response session_title
+      const session = sessions.getById(sessionId);
+      expect(session.name).toContain('Mock:');
+    });
+
+    it('broadcasts SESSION_UPDATED when session name changes', async () => {
+      await summaryService.generateSummary(sessionId);
+
+      // Find the session:updated call (mock may see it as undefined if imported before constant was added)
+      const calls = broadcastToSession.mock.calls;
+      const sessionUpdatedCall = calls.find(
+        (call) => call[1] === 'session:updated' || call[2]?.session?.name?.includes('Mock:')
+      );
+      expect(sessionUpdatedCall).toBeDefined();
+      expect(sessionUpdatedCall[0]).toBe(sessionId);
+      expect(sessionUpdatedCall[2].session.id).toBe(sessionId);
     });
   });
 

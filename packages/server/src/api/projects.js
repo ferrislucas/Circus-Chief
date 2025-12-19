@@ -5,6 +5,20 @@ import { setupGitForSession } from '../services/gitSessionSetup.js';
 
 const router = Router();
 
+/**
+ * Generate an initial session name from the prompt
+ * This will be replaced by a better name when the summary is generated
+ * @param {string} prompt - The user's initial prompt
+ * @returns {string} A truncated version of the prompt (max 50 chars)
+ */
+function generateInitialName(prompt) {
+  const cleaned = prompt.trim().replace(/\s+/g, ' ');
+  if (cleaned.length <= 50) return cleaned;
+  const truncated = cleaned.substring(0, 50);
+  const lastSpace = truncated.lastIndexOf(' ');
+  return (lastSpace > 20 ? truncated.substring(0, lastSpace) : truncated) + '...';
+}
+
 // GET /api/projects - List all projects
 router.get('/', (_req, res) => {
   const allProjects = projects.getAll();
@@ -82,7 +96,7 @@ router.post('/:id/sessions', async (req, res) => {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
-  const sessionName = name || `Session ${Date.now()}`;
+  const sessionName = name || generateInitialName(prompt);
   const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch);
 
   // Setup git environment (branch checkout or worktree creation)

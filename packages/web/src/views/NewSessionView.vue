@@ -7,17 +7,6 @@
 
     <form @submit.prevent="handleSubmit" class="form card">
       <div class="form-group">
-        <label class="form-label" for="name">Session Name (optional)</label>
-        <input
-          id="name"
-          v-model="name"
-          type="text"
-          class="form-input"
-          placeholder="My Session"
-        />
-      </div>
-
-      <div class="form-group">
         <label class="form-label" for="prompt">Initial Prompt</label>
         <textarea
           id="prompt"
@@ -119,7 +108,6 @@ const router = useRouter();
 const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 
-const name = ref('');
 const prompt = ref('');
 const mode = ref('yolo');
 const gitStatus = ref(null);
@@ -133,9 +121,9 @@ const quickGitMode = ref('worktree'); // '', 'branch', or 'worktree'
 const quickWorktreeBranch = ref('');
 const editingBranch = ref(false);
 
-// Generate branch name when session name or prompt changes
+// Generate branch name from prompt
 const autoBranchName = computed(() => {
-  return generateWorktreeBranch(name.value, prompt.value);
+  return generateWorktreeBranch('', prompt.value);
 });
 
 // Update quick worktree branch when auto-generated name changes
@@ -186,7 +174,6 @@ async function handleSubmit() {
     const submitGitBranch = submitGitMode ? quickWorktreeBranch.value : undefined;
 
     const session = await sessionsStore.createSession(route.params.id, {
-      name: name.value || undefined,
       prompt: prompt.value,
       mode: mode.value,
       thinkingEnabled: thinkingEnabled.value,

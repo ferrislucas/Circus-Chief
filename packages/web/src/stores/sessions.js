@@ -245,5 +245,30 @@ export const useSessionsStore = defineStore('sessions', {
         throw err;
       }
     },
+
+    /**
+     * Update session with new data from WebSocket
+     * @param {Object} sessionData - Updated session data
+     */
+    updateSession(sessionData) {
+      if (!sessionData?.id) return;
+
+      // Update in sessions list
+      const sessionIndex = this.sessions.findIndex((s) => s.id === sessionData.id);
+      if (sessionIndex !== -1) {
+        this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
+      }
+
+      // Update current session if it matches
+      if (this.currentSession?.id === sessionData.id) {
+        this.currentSession = { ...this.currentSession, ...sessionData };
+      }
+
+      // Update in active sessions list
+      const activeIndex = this.activeSessions.findIndex((s) => s.id === sessionData.id);
+      if (activeIndex !== -1) {
+        this.activeSessions[activeIndex] = { ...this.activeSessions[activeIndex], ...sessionData };
+      }
+    },
   },
 });
