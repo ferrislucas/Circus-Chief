@@ -152,6 +152,8 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     if (activeSession && !controller.signal.aborted) {
       sessions.update(sessionId, { status: 'waiting' });
       broadcastSessionStatus(sessionId, 'waiting');
+      // Trigger summary generation when session completes a turn
+      summaryService.onSessionActivity(sessionId);
     }
   } catch (error) {
     console.error('Session error:', error);
@@ -159,6 +161,8 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     if (!controller.signal.aborted) {
       sessions.update(sessionId, { status: 'error', error: error.message });
       broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
+      // Trigger summary generation on error
+      summaryService.onSessionComplete(sessionId);
     }
     throw error;
   } finally {
@@ -237,6 +241,8 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     if (activeSession && !controller.signal.aborted) {
       sessions.update(sessionId, { status: 'waiting' });
       broadcastSessionStatus(sessionId, 'waiting');
+      // Trigger summary generation when session completes a turn
+      summaryService.onSessionActivity(sessionId);
     }
   } catch (error) {
     console.error('Continue session error:', error);
@@ -244,6 +250,8 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     if (!controller.signal.aborted) {
       sessions.update(sessionId, { status: 'error', error: error.message });
       broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
+      // Trigger summary generation on error
+      summaryService.onSessionComplete(sessionId);
     }
     throw error;
   } finally {

@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { sessions, messages, sessionSummaries } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
@@ -6,26 +6,110 @@ import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 // Debounce timers per session
 const debounceTimers = new Map();
 
-// Debounce delay in milliseconds (15 seconds)
-const DEBOUNCE_DELAY = 15000;
+// Debounce delay in milliseconds (5 seconds - reduced from 15s for faster feedback)
+const DEBOUNCE_DELAY = 5000;
 
 // Maximum number of recent messages to include in generation
 const MAX_MESSAGES = 50;
 
-// Claude Haiku model for cost-effective generation
-const HAIKU_MODEL = 'claude-3-5-haiku-20241022';
-
 // Check if mock mode is enabled
 const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
 
-// Anthropic client (lazy initialized)
-let anthropicClient = null;
+/**
+ * Mock query generator for summary generation in test mode
+ * Mirrors the Claude Code SDK's async generator pattern
+ * @param {Object} params
+ * @param {string} params.prompt - The prompt string
+ * @param {Array} params.recentMessages - Messages for mock context
+ * @param {string} params.sessionStatus - Session status for mock outcome
+ */
+async function* mockSummaryQuery({ prompt: _prompt, recentMessages, sessionStatus }) {
+  // Yield system init event (matches SDK pattern)
+  yield {
+    type: 'system',
+    subtype: 'init',
+    session_id: 'mock-summary-' + Date.now(),
+  };
 
-function getAnthropicClient() {
-  if (!anthropicClient && !isMockMode()) {
-    anthropicClient = new Anthropic();
+  // Small delay to simulate processing
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Derive outcome from session status
+  let outcome = 'ongoing';
+  if (sessionStatus === 'completed') outcome = 'completed';
+  else if (sessionStatus === 'error') outcome = 'failed';
+
+  // Create contextual mock response
+  const lastMessage = recentMessages[recentMessages.length - 1];
+  const shortPreview = lastMessage ? lastMessage.content.substring(0, 100) : 'testing session';
+
+  const mockResponse = JSON.stringify({
+    short_summary: `Mock summary: ${shortPreview}...`.substring(0, 150),
+    full_summary: `This is a mock summary for testing purposes. The session has ${recentMessages.length} messages and is currently ${sessionStatus}.`,
+    key_actions: ['Mock action 1', 'Mock action 2'],
+    files_modified: ['mock-file.js'],
+    outcome: outcome,
+  });
+
+  // Yield assistant message with mock response
+  yield {
+    type: 'assistant',
+    message: {
+      content: [{ type: 'text', text: mockResponse }],
+    },
+  };
+
+  // Yield result event
+  yield {
+    type: 'result',
+    subtype: 'success',
+    total_cost_usd: 0.0001,
+  };
+}
+
+/**
+ * Call Claude via SDK and extract text response
+ * @param {string} prompt - The prompt to send
+ * @param {Array} recentMessages - Messages (for mock mode context)
+ * @param {string} sessionStatus - Session status (for mock mode context)
+ * @returns {Promise<string>} The text response
+ */
+async function callClaude(prompt, recentMessages, sessionStatus) {
+  const queryFn = isMockMode() ? mockSummaryQuery : query;
+
+  const queryParams = isMockMode()
+    ? { prompt, recentMessages, sessionStatus }
+    : {
+        prompt,
+        options: {
+          cwd: process.cwd(),
+          permissionMode: 'bypassPermissions',
+          maxTurns: 1,
+        },
+      };
+
+  let responseText = '';
+
+  for await (const event of queryFn(queryParams)) {
+    switch (event.type) {
+      case 'assistant': {
+        const text = event.message?.content
+          ?.filter((c) => c.type === 'text')
+          ?.map((c) => c.text)
+          ?.join('');
+        if (text) responseText += text;
+        break;
+      }
+      case 'result': {
+        if (event.subtype === 'error') {
+          throw new Error(event.error || 'Claude SDK query failed');
+        }
+        break;
+      }
+    }
   }
-  return anthropicClient;
+
+  return responseText;
 }
 
 /**
@@ -104,27 +188,6 @@ Outcome guidelines:
 }
 
 /**
- * Generate a mock summary for testing
- * @param {Array} recentMessages
- * @param {string} sessionStatus
- * @returns {Object}
- */
-function generateMockSummary(recentMessages, sessionStatus) {
-  const lastMessage = recentMessages[recentMessages.length - 1];
-  const shortSummary = lastMessage
-    ? `Mock summary: ${lastMessage.content.substring(0, 100)}...`
-    : 'Mock session summary for testing';
-
-  return {
-    shortSummary: shortSummary.substring(0, 150),
-    fullSummary: `This is a mock summary for testing purposes. The session has ${recentMessages.length} messages and is currently ${sessionStatus}.`,
-    keyActions: ['Mock action 1', 'Mock action 2'],
-    filesModified: ['mock-file.js'],
-    outcome: sessionStatus === 'completed' ? 'completed' : sessionStatus === 'error' ? 'failed' : 'ongoing',
-  };
-}
-
-/**
  * Parse the Claude API response into a summary object
  * @param {string} responseText
  * @returns {Object}
@@ -142,7 +205,7 @@ function parseSummaryResponse(responseText) {
     };
   } catch {
     // If JSON parsing fails, try to extract from the response
-    console.warn('Failed to parse summary response as JSON, using fallback');
+    console.warn('[SummaryService] Failed to parse summary response as JSON, using fallback');
     return {
       shortSummary: responseText.substring(0, 150),
       fullSummary: responseText.substring(0, 500),
@@ -154,7 +217,7 @@ function parseSummaryResponse(responseText) {
 }
 
 /**
- * Generate summary for a session using Claude API
+ * Generate summary for a session using Claude Code SDK
  * @param {string} sessionId
  * @returns {Promise<Object|null>}
  */
@@ -163,7 +226,7 @@ export async function generateSummary(sessionId) {
     // Get session info
     const session = sessions.getById(sessionId);
     if (!session) {
-      console.warn(`Session ${sessionId} not found for summary generation`);
+      console.warn(`[SummaryService] Session ${sessionId} not found for summary generation`);
       return null;
     }
 
@@ -175,7 +238,7 @@ export async function generateSummary(sessionId) {
     const recentMessages = allMessages.slice(-MAX_MESSAGES);
 
     if (recentMessages.length === 0) {
-      console.warn(`No messages found for session ${sessionId}`);
+      console.warn(`[SummaryService] No messages found for session ${sessionId}`);
       return null;
     }
 
@@ -185,37 +248,14 @@ export async function generateSummary(sessionId) {
       generating: true,
     });
 
-    let summaryData;
+    // Build prompt
+    const prompt = buildIncrementalPrompt(existingSummary, recentMessages, session.status);
 
-    if (isMockMode()) {
-      // Use mock summary for testing
-      summaryData = generateMockSummary(recentMessages, session.status);
-    } else {
-      // Build prompt
-      const prompt = buildIncrementalPrompt(existingSummary, recentMessages, session.status);
+    // Call Claude via SDK (or mock in test mode)
+    const responseText = await callClaude(prompt, recentMessages, session.status);
 
-      // Call Claude API
-      const client = getAnthropicClient();
-      const response = await client.messages.create({
-        model: HAIKU_MODEL,
-        max_tokens: 1024,
-        messages: [
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-      });
-
-      // Extract text from response
-      const responseText = response.content
-        .filter((c) => c.type === 'text')
-        .map((c) => c.text)
-        .join('');
-
-      // Parse response
-      summaryData = parseSummaryResponse(responseText);
-    }
+    // Parse response
+    const summaryData = parseSummaryResponse(responseText);
 
     // Add message count for staleness tracking
     summaryData.messageCount = allMessages.length;
@@ -229,9 +269,14 @@ export async function generateSummary(sessionId) {
       summary,
     });
 
+    console.log(`[SummaryService] Successfully generated summary for session ${sessionId}`);
     return summary;
   } catch (error) {
-    console.error(`Error generating summary for session ${sessionId}:`, error);
+    console.error(`[SummaryService] Failed to generate summary for session ${sessionId}:`, {
+      error: error.message,
+      stack: error.stack,
+      sessionId,
+    });
 
     // Broadcast that generation stopped
     broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
@@ -253,7 +298,7 @@ export function onSessionActivity(sessionId) {
     clearTimeout(debounceTimers.get(sessionId));
   }
 
-  // Set new 15s timer
+  // Set new debounce timer
   const timer = setTimeout(() => {
     generateSummary(sessionId);
     debounceTimers.delete(sessionId);
@@ -325,3 +370,6 @@ export function cleanupSession(sessionId) {
     debounceTimers.delete(sessionId);
   }
 }
+
+// Export for testing
+export { DEBOUNCE_DELAY, MAX_MESSAGES, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse };

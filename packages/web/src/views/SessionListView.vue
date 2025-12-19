@@ -63,6 +63,11 @@
           <span class="loading-spinner-small"></span>
           <span>Loading summary...</span>
         </div>
+        <div v-else-if="summaryErrors[session.id]" class="session-summary session-summary-error">
+          <span class="error-icon">!</span>
+          <span>Summary unavailable</span>
+          <button class="retry-btn" @click.prevent="retryFetchSummary(session.id)">Retry</button>
+        </div>
       </router-link>
     </div>
   </div>
@@ -82,6 +87,7 @@ const sessionsStore = useSessionsStore();
 // Store summaries keyed by session ID
 const summaries = reactive({});
 const loadingSummaries = reactive({});
+const summaryErrors = reactive({});
 
 onMounted(async () => {
   projectsStore.fetchProject(route.params.id);
@@ -110,16 +116,27 @@ async function fetchSummaries() {
 
 async function fetchSummary(sessionId) {
   loadingSummaries[sessionId] = true;
+  summaryErrors[sessionId] = false;
   try {
     const summary = await api.getSessionSummary(sessionId);
     if (summary) {
       summaries[sessionId] = summary;
     }
-  } catch {
-    // Silently ignore errors for summary fetching
+    // No summary yet is not an error - it just means one hasn't been generated
+  } catch (error) {
+    // Log error for debugging but don't show as error if it's just a 404 (no summary yet)
+    if (error.response?.status !== 404) {
+      console.warn(`Failed to fetch summary for session ${sessionId}:`, error.message);
+      summaryErrors[sessionId] = true;
+    }
   } finally {
     loadingSummaries[sessionId] = false;
   }
+}
+
+async function retryFetchSummary(sessionId) {
+  summaryErrors[sessionId] = false;
+  await fetchSummary(sessionId);
 }
 
 function formatDate(timestamp) {
@@ -249,6 +266,41 @@ function formatDate(timestamp) {
   gap: 0.5rem;
   color: var(--color-text-soft);
   font-size: 0.75rem;
+}
+
+.session-summary-error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-text-soft);
+  font-size: 0.75rem;
+}
+
+.error-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background-color: var(--color-warning);
+  color: white;
+  border-radius: 50%;
+  font-size: 0.625rem;
+  font-weight: bold;
+}
+
+.retry-btn {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  margin-left: auto;
+}
+
+.retry-btn:hover {
+  text-decoration: underline;
 }
 
 .summary-text {
