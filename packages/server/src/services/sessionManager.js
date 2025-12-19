@@ -106,6 +106,9 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
+  // Reset message tracking for this turn - ensures work logs start as unassociated
+  currentMessageIds.set(sessionId, null);
+
   try {
     // Get session for settings
     const session = sessions.getById(sessionId);
@@ -187,6 +190,9 @@ export async function continueSession(sessionId, content, workingDirectory, syst
 
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
+
+  // Reset message tracking for this turn - ensures work logs start as unassociated
+  currentMessageIds.set(sessionId, null);
 
   try {
     // Store the user message
@@ -348,12 +354,6 @@ async function handleStreamEvent(sessionId, event) {
         ?.map((c) => c.text)
         ?.join('\n');
 
-      // Extract thinking content
-      const thinkingContent = event.message?.content
-        ?.filter((c) => c.type === 'thinking')
-        ?.map((c) => c.thinking)
-        ?.join('\n');
-
       // Extract tool use for logging
       const toolUseBlocks = event.message?.content?.filter((c) => c.type === 'tool_use') || [];
 
@@ -387,10 +387,8 @@ async function handleStreamEvent(sessionId, event) {
         }
       }
 
-      // Log thinking content
-      if (thinkingContent) {
-        createWorkLog(sessionId, 'thinking', thinkingContent);
-      }
+      // Note: Thinking content is logged via stream_event -> content_block_stop
+      // to avoid duplicates (since includePartialMessages is always enabled)
 
       // Log tool use inputs
       for (const toolUse of toolUseBlocks) {
