@@ -112,7 +112,6 @@ const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCan
 
 let cleanups = [];
 const pollIntervalId = ref(null);
-const showDeleteConfirm = ref(false);
 
 // Poll for updates while session is actively processing (fallback for race conditions)
 function startPolling() {
