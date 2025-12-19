@@ -56,6 +56,48 @@
         </span>
       </section>
 
+      <section v-if="hasPrInfo" class="summary-section">
+        <h3>Pull Request</h3>
+        <div class="pr-info">
+          <!-- PR Link and State -->
+          <div class="pr-header">
+            <a :href="prUrl" target="_blank" class="pr-link">
+              {{ extractPrNumber(prUrl) }}
+            </a>
+            <span :class="['status-badge', `pr-${summary.prState}`]">
+              {{ formatPrState(summary.prState) }}
+            </span>
+          </div>
+
+          <!-- Warnings Section -->
+          <div v-if="summary.hasMergeConflicts || summary.ciStatus === 'failure'" class="pr-warnings">
+            <!-- Merge Conflicts Warning -->
+            <div v-if="summary.hasMergeConflicts" class="warning-item conflict-warning">
+              <span class="warning-icon">⚠️</span>
+              <span>Merge conflicts detected</span>
+            </div>
+
+            <!-- CI Failures Warning -->
+            <div v-if="summary.ciStatus === 'failure'" class="warning-item ci-warning">
+              <span class="warning-icon">❌</span>
+              <span>CI checks failing</span>
+              <ul v-if="summary.ciFailures?.length" class="failure-list">
+                <li v-for="failure in summary.ciFailures" :key="failure">
+                  {{ failure }}
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- CI Status Badge (when not failing) -->
+          <div v-if="summary.ciStatus && summary.ciStatus !== 'failure'" class="ci-status">
+            <span :class="['status-badge', `ci-${summary.ciStatus}`]">
+              {{ summary.ciStatus === 'success' ? '✓ CI Passing' : '⏳ CI Pending' }}
+            </span>
+          </div>
+        </div>
+      </section>
+
       <div class="summary-footer">
         <span class="summary-date">
           Last updated: {{ formatDate(summary.generatedAt) }}
@@ -70,22 +112,29 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
+import { useSessionsStore } from '../stores/sessions.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
 });
 
 const uiStore = useUiStore();
+const sessionsStore = useSessionsStore();
 const { onSummaryUpdate, onSummaryGenerating } = useSessionSubscription(props.sessionId);
 
 const summary = ref(null);
 const loading = ref(false);
 const generating = ref(false);
 const generatingManual = ref(false);
+
+// Computed property to get the session's prUrl
+const session = computed(() => sessionsStore.sessions.find((s) => s.id === props.sessionId));
+const prUrl = computed(() => session.value?.prUrl || null);
+const hasPrInfo = computed(() => prUrl.value && summary.value?.prState);
 
 onMounted(async () => {
   loading.value = true;
@@ -126,6 +175,22 @@ function formatOutcome(outcome) {
     ongoing: 'In Progress',
   };
   return labels[outcome] || outcome;
+}
+
+function formatPrState(state) {
+  const labels = {
+    merged: 'Merged',
+    open: 'Open',
+    closed: 'Closed',
+    draft: 'Draft',
+  };
+  return labels[state] || state;
+}
+
+function extractPrNumber(url) {
+  if (!url) return 'PR';
+  const match = url.match(/\/pull\/(\d+)/);
+  return match ? `PR #${match[1]}` : 'PR';
 }
 
 async function handleGenerate() {
@@ -318,5 +383,105 @@ async function handleRegenerate() {
 .btn-link:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* PR Status Styles */
+.pr-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pr-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pr-link {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.pr-link:hover {
+  text-decoration: underline;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.status-badge.pr-merged {
+  background: rgba(130, 80, 223, 0.15);
+  color: #8250df;
+}
+
+.status-badge.pr-open {
+  background: rgba(46, 160, 67, 0.15);
+  color: var(--color-success);
+}
+
+.status-badge.pr-closed {
+  background: rgba(110, 119, 129, 0.15);
+  color: #6e7781;
+}
+
+.status-badge.pr-draft {
+  background: rgba(210, 153, 34, 0.15);
+  color: var(--color-warning);
+}
+
+.status-badge.ci-success {
+  background: rgba(46, 160, 67, 0.15);
+  color: var(--color-success);
+}
+
+.status-badge.ci-pending {
+  background: rgba(210, 153, 34, 0.15);
+  color: var(--color-warning);
+}
+
+.pr-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.warning-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.conflict-warning {
+  background-color: rgba(248, 81, 73, 0.1);
+  color: var(--color-error);
+}
+
+.ci-warning {
+  background-color: rgba(248, 81, 73, 0.1);
+  color: var(--color-error);
+  flex-wrap: wrap;
+}
+
+.failure-list {
+  width: 100%;
+  margin: 0.25rem 0 0 1.5rem;
+  padding: 0;
+  font-size: 0.8rem;
+  opacity: 0.9;
+  list-style: disc;
+}
+
+.ci-status {
+  margin-top: 0.25rem;
 }
 </style>

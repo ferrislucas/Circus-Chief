@@ -2,6 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { sessions, messages, sessionSummaries } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import * as ghService from './ghService.js';
 
 // Debounce timers per session
 const debounceTimers = new Map();
@@ -271,6 +272,23 @@ export async function generateSummary(sessionId) {
 
     // Add message count for staleness tracking
     summaryData.messageCount = allMessages.length;
+
+    // Enrich with GitHub PR status if we have a PR URL
+    const prUrl = summaryData.prUrl || session.prUrl;
+    if (prUrl) {
+      try {
+        const prInfo = await ghService.getPrInfo(prUrl);
+        if (prInfo) {
+          summaryData.prState = prInfo.state;
+          summaryData.prMerged = prInfo.merged;
+          summaryData.hasMergeConflicts = prInfo.hasMergeConflicts;
+          summaryData.ciStatus = prInfo.ciStatus;
+          summaryData.ciFailures = prInfo.ciFailures;
+        }
+      } catch (error) {
+        console.warn(`[SummaryService] Failed to get PR info for ${prUrl}:`, error.message);
+      }
+    }
 
     // Upsert summary
     const summary = sessionSummaries.upsert(sessionId, summaryData);

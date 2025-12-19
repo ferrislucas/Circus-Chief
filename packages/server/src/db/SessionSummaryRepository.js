@@ -19,6 +19,11 @@ export class SessionSummaryRepository extends BaseRepository {
       filesModified: row.files_modified ? JSON.parse(row.files_modified) : [],
       outcome: row.outcome,
       messageCount: row.message_count,
+      prMerged: row.pr_merged ? Boolean(row.pr_merged) : null,
+      prState: row.pr_state,
+      hasMergeConflicts: row.has_merge_conflicts ? Boolean(row.has_merge_conflicts) : null,
+      ciStatus: row.ci_status,
+      ciFailures: row.ci_failures ? JSON.parse(row.ci_failures) : [],
       generatedAt: row.generated_at,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -49,8 +54,8 @@ export class SessionSummaryRepository extends BaseRepository {
     this.db
       .prepare(
         `INSERT INTO session_summaries
-         (id, session_id, short_summary, full_summary, key_actions, files_modified, outcome, message_count, generated_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, session_id, short_summary, full_summary, key_actions, files_modified, outcome, message_count, pr_merged, pr_state, has_merge_conflicts, ci_status, ci_failures, generated_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -61,6 +66,11 @@ export class SessionSummaryRepository extends BaseRepository {
         data.filesModified ? JSON.stringify(data.filesModified) : null,
         data.outcome || 'ongoing',
         data.messageCount || 0,
+        data.prMerged !== undefined ? (data.prMerged ? 1 : 0) : null,
+        data.prState || null,
+        data.hasMergeConflicts !== undefined ? (data.hasMergeConflicts ? 1 : 0) : null,
+        data.ciStatus || null,
+        data.ciFailures ? JSON.stringify(data.ciFailures) : null,
         now,
         now,
         now
@@ -101,6 +111,26 @@ export class SessionSummaryRepository extends BaseRepository {
     if (data.messageCount !== undefined) {
       updates.push('message_count = ?');
       values.push(data.messageCount);
+    }
+    if (data.prMerged !== undefined) {
+      updates.push('pr_merged = ?');
+      values.push(data.prMerged ? 1 : 0);
+    }
+    if (data.prState !== undefined) {
+      updates.push('pr_state = ?');
+      values.push(data.prState);
+    }
+    if (data.hasMergeConflicts !== undefined) {
+      updates.push('has_merge_conflicts = ?');
+      values.push(data.hasMergeConflicts ? 1 : 0);
+    }
+    if (data.ciStatus !== undefined) {
+      updates.push('ci_status = ?');
+      values.push(data.ciStatus);
+    }
+    if (data.ciFailures !== undefined) {
+      updates.push('ci_failures = ?');
+      values.push(JSON.stringify(data.ciFailures));
     }
 
     if (updates.length === 0) return this.getById(id);
