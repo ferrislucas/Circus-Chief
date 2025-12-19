@@ -23,7 +23,7 @@ const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
  * @param {Array} params.recentMessages - Messages for mock context
  * @param {string} params.sessionStatus - Session status for mock outcome
  */
-async function* mockSummaryQuery({ prompt, recentMessages, sessionStatus }) {
+async function* mockSummaryQuery({ prompt: _prompt, recentMessages, sessionStatus }) {
   // Yield system init event (matches SDK pattern)
   yield {
     type: 'system',
