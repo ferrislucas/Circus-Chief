@@ -39,13 +39,13 @@ export async function getPrInfo(prUrl) {
 
   try {
     const { stdout } = await execAsync(
-      `gh pr view "${prUrl}" --json state,merged,mergeable,isDraft,statusCheckRollup`
+      `gh pr view "${prUrl}" --json state,mergedAt,mergeable,isDraft,statusCheckRollup`
     );
     const data = JSON.parse(stdout);
 
     // Determine PR state
     let state = data.state.toLowerCase();
-    if (data.merged) state = 'merged';
+    if (data.mergedAt) state = 'merged';
     else if (data.isDraft) state = 'draft';
 
     // Check for merge conflicts
@@ -80,7 +80,7 @@ export async function getPrInfo(prUrl) {
 
     return {
       state,
-      merged: data.merged,
+      merged: !!data.mergedAt,
       hasMergeConflicts,
       ciStatus,
       ciFailures,
