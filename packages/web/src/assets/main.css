@@ -242,6 +242,12 @@ input, textarea, select {
   display: flex;
   border-bottom: 1px solid var(--color-border);
   margin-bottom: 1rem;
+  /* Sticky positioning */
+  position: sticky;
+  top: 0;
+  background-color: var(--color-background);
+  z-index: 100;
+  padding-top: 0.5rem;
 }
 
 .tab {
@@ -263,6 +269,24 @@ input, textarea, select {
 .tab.active {
   color: var(--color-primary);
   border-bottom-color: var(--color-primary);
+}
+
+/* Back navigation tab - visually distinct from content tabs */
+.tab.tab-back {
+  color: var(--color-text-soft);
+}
+
+.tab.tab-back:hover {
+  color: var(--color-text);
+  border-bottom-color: transparent;
+}
+
+/* Separator between back navigation and content tabs */
+.tab-separator {
+  width: 1px;
+  background-color: var(--color-border);
+  margin: 0.5rem 0.75rem;
+  align-self: stretch;
 }
 
 /* Code */
