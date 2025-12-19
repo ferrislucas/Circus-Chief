@@ -42,6 +42,60 @@ test.describe('Canvas Management', () => {
     expect(items[0].content).toBe('# Test Markdown');
   });
 
+  test('markdown items default to preview mode and can toggle to raw', async ({ page }) => {
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# Heading\n\nSome **bold** text',
+      label: 'Markdown Test',
+    });
+
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    // Should be in preview mode by default - shows rendered markdown
+    const canvasItem = page.locator('.canvas-item').first();
+    await expect(canvasItem.locator('.markdown-viewer')).toBeVisible();
+    await expect(canvasItem.locator('.canvas-markdown-raw')).not.toBeVisible();
+
+    // Preview toggle button should show "Raw" option (since we're in preview mode)
+    const toggleButton = canvasItem.locator('.preview-toggle');
+    await expect(toggleButton).toContainText('Raw');
+
+    // Click to switch to raw mode
+    await toggleButton.click();
+
+    // Should now show raw markdown
+    await expect(canvasItem.locator('.canvas-markdown-raw')).toBeVisible();
+    await expect(canvasItem.locator('.markdown-viewer')).not.toBeVisible();
+    await expect(canvasItem.locator('.canvas-markdown-raw')).toContainText('# Heading');
+
+    // Toggle button should now show "Preview" option
+    await expect(toggleButton).toContainText('Preview');
+
+    // Click to switch back to preview mode
+    await toggleButton.click();
+
+    // Should be back in preview mode
+    await expect(canvasItem.locator('.markdown-viewer')).toBeVisible();
+    await expect(canvasItem.locator('.canvas-markdown-raw')).not.toBeVisible();
+  });
+
+  test('markdown items render properly with MarkdownViewer', async ({ page }) => {
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# Main Heading\n\n- List item 1\n- List item 2\n\n```js\nconst x = 1;\n```',
+      label: 'Rich Markdown',
+    });
+
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    const canvasItem = page.locator('.canvas-item').first();
+
+    // Verify markdown is rendered (not raw)
+    await expect(canvasItem.locator('.markdown-viewer h1')).toContainText('Main Heading');
+    await expect(canvasItem.locator('.markdown-viewer ul li').first()).toContainText('List item 1');
+    await expect(canvasItem.locator('.markdown-viewer pre code')).toContainText('const x = 1;');
+  });
+
   test('can delete canvas item', async ({ page }) => {
     const item = await seedCanvasItem(session.id, {
       type: 'text',

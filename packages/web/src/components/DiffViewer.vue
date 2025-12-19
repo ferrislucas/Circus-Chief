@@ -106,13 +106,13 @@ const previewMode = ref({});
 watch(
   () => props.files,
   (newFiles) => {
-    newFiles.forEach((_, index) => {
+    newFiles.forEach((file, index) => {
       if (expandedFiles.value[index] === undefined) {
         expandedFiles.value[index] = props.expandAll;
       }
-      // Initialize preview mode to false (diff view by default)
+      // Initialize preview mode to true for markdown files (preview by default)
       if (previewMode.value[index] === undefined) {
-        previewMode.value[index] = false;
+        previewMode.value[index] = isMarkdownFile(file.displayPath);
       }
     });
   },
@@ -335,30 +335,9 @@ function getLinePrefix(type) {
   vertical-align: top;
 }
 
-/* Markdown preview toggle button */
+/* Markdown preview toggle button - layout only (base styles in main.css) */
 .preview-toggle {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.625rem;
-  font-weight: 500;
-  background-color: var(--color-background);
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  color: var(--color-text-soft);
-  cursor: pointer;
-  transition: all 0.2s ease;
   margin-left: auto;
-}
-
-.preview-toggle:hover {
-  background-color: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
-}
-
-.preview-toggle.active {
-  background-color: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
 }
 
 /* Markdown preview container */

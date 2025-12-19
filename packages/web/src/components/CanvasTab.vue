@@ -17,6 +17,15 @@
       >
         <div class="canvas-item-header">
           <span class="canvas-item-type">{{ item.type }}</span>
+          <button
+            v-if="item.type === 'markdown'"
+            class="preview-toggle"
+            :class="{ active: previewMode[item.id] }"
+            @click="togglePreview(item.id)"
+            :title="previewMode[item.id] ? 'Show raw markdown' : 'Preview markdown'"
+          >
+            {{ previewMode[item.id] ? '📝 Raw' : '👁 Preview' }}
+          </button>
           <button class="btn-icon" @click="handleDelete(item.id)" title="Delete">
             &times;
           </button>
@@ -32,8 +41,10 @@
             class="canvas-image"
           />
 
-          <div v-else-if="item.type === 'markdown'" class="canvas-markdown" v-html="item.content">
-          </div>
+          <template v-else-if="item.type === 'markdown'">
+            <MarkdownViewer v-if="previewMode[item.id]" :content="item.content" class="canvas-markdown" />
+            <pre v-else class="canvas-markdown-raw">{{ item.content }}</pre>
+          </template>
 
           <pre v-else-if="item.type === 'json'" class="canvas-json">{{ formatJson(item.data) }}</pre>
 
@@ -45,8 +56,10 @@
 </template>
 
 <script setup>
+import { ref, watch } from 'vue';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useUiStore } from '../stores/ui.js';
+import MarkdownViewer from './MarkdownViewer.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -54,6 +67,24 @@ const props = defineProps({
 
 const canvasStore = useCanvasStore();
 const uiStore = useUiStore();
+const previewMode = ref({});
+
+// Initialize preview mode to true (preview by default) for markdown items
+watch(
+  () => canvasStore.items,
+  (items) => {
+    items.forEach((item) => {
+      if (item.type === 'markdown' && previewMode.value[item.id] === undefined) {
+        previewMode.value[item.id] = true;
+      }
+    });
+  },
+  { immediate: true }
+);
+
+function togglePreview(itemId) {
+  previewMode.value[itemId] = !previewMode.value[itemId];
+}
 
 function formatJson(data) {
   try {
@@ -150,6 +181,18 @@ async function handleDelete(itemId) {
 
 .canvas-markdown {
   font-size: 0.875rem;
+}
+
+.canvas-markdown-raw {
+  font-size: 0.75rem;
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* Preview toggle button - layout only (base styles in main.css) */
+.preview-toggle {
+  margin-left: auto;
 }
 
 .canvas-json {
