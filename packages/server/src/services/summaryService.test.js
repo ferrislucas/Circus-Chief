@@ -10,6 +10,14 @@ vi.mock('../websocket.js', () => ({
 // Import after mock setup
 import * as summaryService from './summaryService.js';
 import { broadcastToSession } from '../websocket.js';
+import {
+  DEBOUNCE_DELAY,
+  MAX_MESSAGES,
+  formatMessages,
+  buildIncrementalPrompt,
+  parseSummaryResponse,
+  callClaude,
+} from './summaryService.js';
 
 describe('summaryService', () => {
   let projectId;
@@ -36,6 +44,250 @@ describe('summaryService', () => {
     vi.unstubAllEnvs();
   });
 
+  describe('constants', () => {
+    it('has a 5 second debounce delay', () => {
+      expect(DEBOUNCE_DELAY).toBe(5000);
+    });
+
+    it('has a maximum of 50 messages', () => {
+      expect(MAX_MESSAGES).toBe(50);
+    });
+  });
+
+  describe('formatMessages', () => {
+    it('formats user messages correctly', () => {
+      const messageList = [{ role: 'user', content: 'Hello world' }];
+      const result = formatMessages(messageList);
+      expect(result).toBe('User: Hello world');
+    });
+
+    it('formats assistant messages correctly', () => {
+      const messageList = [{ role: 'assistant', content: 'Hi there' }];
+      const result = formatMessages(messageList);
+      expect(result).toBe('Assistant: Hi there');
+    });
+
+    it('formats multiple messages with double newlines', () => {
+      const messageList = [
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: 'Hi' },
+      ];
+      const result = formatMessages(messageList);
+      expect(result).toBe('User: Hello\n\nAssistant: Hi');
+    });
+
+    it('truncates messages longer than 2000 characters', () => {
+      const longContent = 'A'.repeat(2500);
+      const messageList = [{ role: 'user', content: longContent }];
+      const result = formatMessages(messageList);
+      expect(result).toContain('... [truncated]');
+      expect(result.length).toBeLessThan(2500);
+    });
+
+    it('includes tool use information when present', () => {
+      const messageList = [
+        {
+          role: 'assistant',
+          content: 'Let me read that file',
+          toolUse: [{ name: 'Read' }, { name: 'Write' }],
+        },
+      ];
+      const result = formatMessages(messageList);
+      expect(result).toContain('[Tools used: Read, Write]');
+    });
+
+    it('handles empty tool use array', () => {
+      const messageList = [{ role: 'assistant', content: 'Hello', toolUse: [] }];
+      const result = formatMessages(messageList);
+      expect(result).toBe('Assistant: Hello');
+      expect(result).not.toContain('Tools used');
+    });
+
+    it('handles missing tool use', () => {
+      const messageList = [{ role: 'assistant', content: 'Hello' }];
+      const result = formatMessages(messageList);
+      expect(result).toBe('Assistant: Hello');
+    });
+  });
+
+  describe('buildIncrementalPrompt', () => {
+    it('includes no previous summary when existingSummary is null', () => {
+      const recentMessages = [{ role: 'user', content: 'Test message' }];
+      const result = buildIncrementalPrompt(null, recentMessages, 'running');
+      expect(result).toContain('No previous summary - this is the first generation');
+    });
+
+    it('includes existing summary when provided', () => {
+      const existingSummary = {
+        fullSummary: 'Previous summary content',
+        keyActions: ['action1'],
+        filesModified: ['file1.js'],
+        outcome: 'ongoing',
+      };
+      const recentMessages = [{ role: 'user', content: 'Test message' }];
+      const result = buildIncrementalPrompt(existingSummary, recentMessages, 'running');
+      expect(result).toContain('Previous summary content');
+      expect(result).toContain('action1');
+      expect(result).toContain('file1.js');
+    });
+
+    it('includes session status', () => {
+      const recentMessages = [{ role: 'user', content: 'Test message' }];
+      const result = buildIncrementalPrompt(null, recentMessages, 'completed');
+      expect(result).toContain('Current session status: completed');
+    });
+
+    it('includes formatted messages', () => {
+      const recentMessages = [{ role: 'user', content: 'My question' }];
+      const result = buildIncrementalPrompt(null, recentMessages, 'running');
+      expect(result).toContain('User: My question');
+    });
+
+    it('includes JSON format instructions', () => {
+      const recentMessages = [{ role: 'user', content: 'Test' }];
+      const result = buildIncrementalPrompt(null, recentMessages, 'running');
+      expect(result).toContain('"short_summary"');
+      expect(result).toContain('"full_summary"');
+      expect(result).toContain('"key_actions"');
+      expect(result).toContain('"files_modified"');
+      expect(result).toContain('"outcome"');
+    });
+
+    it('includes outcome guidelines', () => {
+      const recentMessages = [{ role: 'user', content: 'Test' }];
+      const result = buildIncrementalPrompt(null, recentMessages, 'running');
+      expect(result).toContain('completed');
+      expect(result).toContain('partial');
+      expect(result).toContain('failed');
+      expect(result).toContain('ongoing');
+    });
+  });
+
+  describe('parseSummaryResponse', () => {
+    it('parses valid JSON response', () => {
+      const responseText = JSON.stringify({
+        short_summary: 'Short test',
+        full_summary: 'Full test summary',
+        key_actions: ['action1', 'action2'],
+        files_modified: ['file1.js'],
+        outcome: 'completed',
+      });
+
+      const result = parseSummaryResponse(responseText);
+
+      expect(result.shortSummary).toBe('Short test');
+      expect(result.fullSummary).toBe('Full test summary');
+      expect(result.keyActions).toEqual(['action1', 'action2']);
+      expect(result.filesModified).toEqual(['file1.js']);
+      expect(result.outcome).toBe('completed');
+    });
+
+    it('provides defaults for missing fields', () => {
+      const responseText = JSON.stringify({});
+
+      const result = parseSummaryResponse(responseText);
+
+      expect(result.shortSummary).toBe('Summary generation failed');
+      expect(result.fullSummary).toBe('Unable to generate summary');
+      expect(result.keyActions).toEqual([]);
+      expect(result.filesModified).toEqual([]);
+      expect(result.outcome).toBe('ongoing');
+    });
+
+    it('handles invalid JSON with fallback', () => {
+      const responseText = 'This is not valid JSON at all';
+
+      const result = parseSummaryResponse(responseText);
+
+      expect(result.shortSummary).toBe('This is not valid JSON at all');
+      expect(result.fullSummary).toBe('This is not valid JSON at all');
+      expect(result.keyActions).toEqual([]);
+      expect(result.filesModified).toEqual([]);
+      expect(result.outcome).toBe('ongoing');
+    });
+
+    it('truncates fallback short summary to 150 chars', () => {
+      const longText = 'A'.repeat(200);
+
+      const result = parseSummaryResponse(longText);
+
+      expect(result.shortSummary.length).toBe(150);
+    });
+
+    it('truncates fallback full summary to 500 chars', () => {
+      const longText = 'A'.repeat(600);
+
+      const result = parseSummaryResponse(longText);
+
+      expect(result.fullSummary.length).toBe(500);
+    });
+  });
+
+  describe('callClaude (mock mode)', () => {
+    it('returns mock response in mock mode', async () => {
+      const recentMessages = [{ role: 'user', content: 'Test message' }];
+
+      const result = await callClaude('Test prompt', recentMessages, 'running');
+
+      // Should return valid JSON that can be parsed
+      const parsed = JSON.parse(result);
+      expect(parsed.short_summary).toBeDefined();
+      expect(parsed.full_summary).toBeDefined();
+      expect(parsed.key_actions).toBeDefined();
+      expect(parsed.files_modified).toBeDefined();
+      expect(parsed.outcome).toBeDefined();
+    });
+
+    it('derives outcome from session status - completed', async () => {
+      const recentMessages = [{ role: 'user', content: 'Test' }];
+
+      const result = await callClaude('Test prompt', recentMessages, 'completed');
+      const parsed = JSON.parse(result);
+
+      expect(parsed.outcome).toBe('completed');
+    });
+
+    it('derives outcome from session status - error', async () => {
+      const recentMessages = [{ role: 'user', content: 'Test' }];
+
+      const result = await callClaude('Test prompt', recentMessages, 'error');
+      const parsed = JSON.parse(result);
+
+      expect(parsed.outcome).toBe('failed');
+    });
+
+    it('derives outcome from session status - ongoing', async () => {
+      const recentMessages = [{ role: 'user', content: 'Test' }];
+
+      const result = await callClaude('Test prompt', recentMessages, 'running');
+      const parsed = JSON.parse(result);
+
+      expect(parsed.outcome).toBe('ongoing');
+    });
+
+    it('includes message content in mock summary', async () => {
+      const recentMessages = [{ role: 'user', content: 'Unique test content here' }];
+
+      const result = await callClaude('Test prompt', recentMessages, 'running');
+      const parsed = JSON.parse(result);
+
+      expect(parsed.short_summary).toContain('Unique test content');
+    });
+
+    it('includes message count in mock summary', async () => {
+      const recentMessages = [
+        { role: 'user', content: 'Message 1' },
+        { role: 'assistant', content: 'Message 2' },
+        { role: 'user', content: 'Message 3' },
+      ];
+
+      const result = await callClaude('Test prompt', recentMessages, 'running');
+      const parsed = JSON.parse(result);
+
+      expect(parsed.full_summary).toContain('3 messages');
+    });
+  });
+
   describe('generateSummary', () => {
     it('returns null for non-existent session', async () => {
       const result = await summaryService.generateSummary('non-existent-id');
@@ -46,9 +298,12 @@ describe('summaryService', () => {
       // Create a new session directly via database without any messages
       const now = Date.now();
       const emptySessionId = databaseManager.generateId();
-      databaseManager.get().prepare(
-        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run(emptySessionId, projectId, 'Empty Session', 'running', 'standard', now, now);
+      databaseManager
+        .get()
+        .prepare(
+          'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )
+        .run(emptySessionId, projectId, 'Empty Session', 'running', 'standard', now, now);
 
       const result = await summaryService.generateSummary(emptySessionId);
       expect(result).toBeNull();
@@ -148,6 +403,18 @@ describe('summaryService', () => {
 
       expect(result.outcome).toBe('ongoing');
     });
+
+    it('logs success message on completion', async () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      await summaryService.generateSummary(sessionId);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[SummaryService] Successfully generated summary')
+      );
+
+      consoleSpy.mockRestore();
+    });
   });
 
   describe('getSummary', () => {
@@ -231,8 +498,10 @@ describe('summaryService', () => {
       // Summary should not be generated immediately
       expect(sessionSummaries.getBySessionId(sessionId)).toBeNull();
 
-      // Fast-forward time
-      await vi.advanceTimersByTimeAsync(15000);
+      // Fast-forward time (5 seconds now instead of 15)
+      await vi.advanceTimersByTimeAsync(5000);
+      // Allow pending promises to resolve
+      await vi.runAllTimersAsync();
 
       // Now summary should be generated
       expect(sessionSummaries.getBySessionId(sessionId)).not.toBeNull();
@@ -245,19 +514,37 @@ describe('summaryService', () => {
 
       summaryService.onSessionActivity(sessionId);
 
-      // Advance 10 seconds
-      await vi.advanceTimersByTimeAsync(10000);
+      // Advance 3 seconds
+      await vi.advanceTimersByTimeAsync(3000);
       expect(sessionSummaries.getBySessionId(sessionId)).toBeNull();
 
       // Call again (resets timer)
       summaryService.onSessionActivity(sessionId);
 
-      // Advance another 10 seconds (total 20 from first call, but only 10 from second)
-      await vi.advanceTimersByTimeAsync(10000);
+      // Advance another 3 seconds (total 6 from first call, but only 3 from second)
+      await vi.advanceTimersByTimeAsync(3000);
       expect(sessionSummaries.getBySessionId(sessionId)).toBeNull();
 
-      // Advance remaining 5 seconds
-      await vi.advanceTimersByTimeAsync(5000);
+      // Advance remaining 2 seconds plus some buffer for async
+      await vi.advanceTimersByTimeAsync(2000);
+      await vi.runAllTimersAsync();
+      expect(sessionSummaries.getBySessionId(sessionId)).not.toBeNull();
+
+      vi.useRealTimers();
+    });
+
+    it('uses the configured DEBOUNCE_DELAY', async () => {
+      vi.useFakeTimers();
+
+      summaryService.onSessionActivity(sessionId);
+
+      // Just before debounce delay
+      await vi.advanceTimersByTimeAsync(DEBOUNCE_DELAY - 100);
+      expect(sessionSummaries.getBySessionId(sessionId)).toBeNull();
+
+      // After debounce delay
+      await vi.advanceTimersByTimeAsync(200);
+      await vi.runAllTimersAsync();
       expect(sessionSummaries.getBySessionId(sessionId)).not.toBeNull();
 
       vi.useRealTimers();
@@ -269,8 +556,8 @@ describe('summaryService', () => {
       // Use real timers for this test
       summaryService.onSessionComplete(sessionId);
 
-      // Wait a tick for the async operation
-      await new Promise(resolve => setImmediate(resolve));
+      // Wait for the async operation - need longer wait for async generator
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       expect(sessionSummaries.getBySessionId(sessionId)).not.toBeNull();
     });
@@ -284,8 +571,8 @@ describe('summaryService', () => {
       // Call onSessionComplete (should cancel debounce and generate immediately)
       summaryService.onSessionComplete(sessionId);
 
-      // Wait for async operation
-      await vi.advanceTimersByTimeAsync(0);
+      // Wait for async operation to complete
+      await vi.runAllTimersAsync();
 
       const summary = sessionSummaries.getBySessionId(sessionId);
       expect(summary).not.toBeNull();
@@ -302,7 +589,7 @@ describe('summaryService', () => {
       summaryService.cleanupSession(sessionId);
 
       // Fast-forward past debounce time
-      await vi.advanceTimersByTimeAsync(20000);
+      await vi.advanceTimersByTimeAsync(10000);
 
       // Summary should NOT have been generated
       expect(sessionSummaries.getBySessionId(sessionId)).toBeNull();
@@ -315,7 +602,7 @@ describe('summaryService', () => {
     });
   });
 
-  describe('message formatting', () => {
+  describe('message formatting edge cases', () => {
     it('handles messages with tool use', async () => {
       // Add a message with tool use
       messages.create(sessionId, 'assistant', 'I will read the file', null, [
@@ -337,6 +624,123 @@ describe('summaryService', () => {
       const result = await summaryService.generateSummary(sessionId);
 
       expect(result).not.toBeNull();
+    });
+
+    it('handles many messages beyond MAX_MESSAGES', async () => {
+      // Add more than MAX_MESSAGES
+      for (let i = 0; i < MAX_MESSAGES + 10; i++) {
+        messages.create(sessionId, i % 2 === 0 ? 'user' : 'assistant', `Message ${i}`);
+      }
+
+      const result = await summaryService.generateSummary(sessionId);
+
+      expect(result).not.toBeNull();
+      // Should still generate successfully
+      expect(result.sessionId).toBe(sessionId);
+    });
+  });
+
+  describe('error handling', () => {
+    it('broadcasts generating: false on error', async () => {
+      // Force an error by mocking sessionSummaries.upsert to throw
+      const originalUpsert = sessionSummaries.upsert;
+      sessionSummaries.upsert = vi.fn().mockImplementation(() => {
+        throw new Error('Database error');
+      });
+
+      await summaryService.generateSummary(sessionId);
+
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        sessionId,
+        'session:summary_generating',
+        expect.objectContaining({
+          sessionId,
+          generating: false,
+        })
+      );
+
+      // Restore original
+      sessionSummaries.upsert = originalUpsert;
+    });
+
+    it('returns null on error', async () => {
+      // Force an error by mocking sessionSummaries.upsert to throw
+      const originalUpsert = sessionSummaries.upsert;
+      sessionSummaries.upsert = vi.fn().mockImplementation(() => {
+        throw new Error('Database error');
+      });
+
+      const result = await summaryService.generateSummary(sessionId);
+
+      expect(result).toBeNull();
+
+      // Restore original
+      sessionSummaries.upsert = originalUpsert;
+    });
+
+    it('logs error with context', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Force an error by mocking sessionSummaries.upsert to throw
+      const originalUpsert = sessionSummaries.upsert;
+      sessionSummaries.upsert = vi.fn().mockImplementation(() => {
+        throw new Error('Database error');
+      });
+
+      await summaryService.generateSummary(sessionId);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[SummaryService] Failed to generate summary'),
+        expect.objectContaining({
+          error: 'Database error',
+          sessionId,
+        })
+      );
+
+      consoleSpy.mockRestore();
+      sessionSummaries.upsert = originalUpsert;
+    });
+  });
+
+  describe('integration with database', () => {
+    it('creates summary that can be retrieved', async () => {
+      const generated = await summaryService.generateSummary(sessionId);
+      const retrieved = sessionSummaries.getBySessionId(sessionId);
+
+      expect(retrieved.id).toBe(generated.id);
+      expect(retrieved.sessionId).toBe(sessionId);
+      expect(retrieved.shortSummary).toBe(generated.shortSummary);
+      expect(retrieved.fullSummary).toBe(generated.fullSummary);
+    });
+
+    it('updates existing summary on regeneration', async () => {
+      const first = await summaryService.generateSummary(sessionId);
+      const firstTimestamp = first.generatedAt;
+
+      // Add a message
+      messages.create(sessionId, 'assistant', 'New content');
+
+      // Wait a bit to ensure different timestamp
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const second = await summaryService.regenerateSummary(sessionId);
+
+      expect(second.id).toBe(first.id); // Same record updated
+      expect(second.generatedAt).toBeGreaterThan(firstTimestamp);
+      expect(second.messageCount).toBeGreaterThan(first.messageCount);
+    });
+
+    it('cascades delete when session is deleted', async () => {
+      await summaryService.generateSummary(sessionId);
+
+      // Verify summary exists
+      expect(sessionSummaries.getBySessionId(sessionId)).not.toBeNull();
+
+      // Delete the session
+      sessions.delete(sessionId);
+
+      // Summary should be gone too
+      expect(sessionSummaries.getBySessionId(sessionId)).toBeNull();
     });
   });
 });
