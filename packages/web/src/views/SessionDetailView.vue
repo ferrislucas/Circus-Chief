@@ -72,31 +72,6 @@
         <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
         <NotesTab v-else-if="activeTab === 'notes'" :session-id="route.params.id" />
       </div>
-
-      <div v-if="['stopped', 'completed', 'error'].includes(sessionsStore.currentSession?.status)" class="session-actions-bottom">
-        <button
-          v-if="!showDeleteConfirm"
-          class="btn btn-outline-danger"
-          @click="showDeleteConfirm = true"
-        >
-          Delete Session
-        </button>
-        <div v-else class="delete-confirm">
-          <span class="delete-confirm-text">Delete this session?</span>
-          <button
-            class="btn btn-danger btn-sm"
-            @click="handleDelete"
-          >
-            Confirm
-          </button>
-          <button
-            class="btn btn-secondary btn-sm"
-            @click="showDeleteConfirm = false"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
     </template>
   </div>
 </template>
@@ -322,14 +297,5 @@ async function handleDelete() {
   display: flex;
   gap: 0.5rem;
   align-items: center;
-}
-
-.session-actions-bottom {
-  padding: 1rem 0;
-  border-top: 1px solid var(--color-border);
-  margin-top: 1rem;
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
 }
 </style>
