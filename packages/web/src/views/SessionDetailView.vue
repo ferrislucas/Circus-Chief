@@ -24,13 +24,6 @@
         </div>
         <div class="session-actions">
           <button
-            v-if="canStop"
-            class="btn btn-danger"
-            @click="handleStop"
-          >
-            Stop Session
-          </button>
-          <button
             class="btn btn-outline-danger"
             @click="handleDelete"
           >
@@ -71,6 +64,15 @@
         <ChangesTab v-else-if="activeTab === 'changes'" :session-id="route.params.id" />
         <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
         <NotesTab v-else-if="activeTab === 'notes'" :session-id="route.params.id" />
+
+        <div v-if="activeTab === 'conversation' && canStop" class="stop-session-bottom">
+          <button
+            class="btn btn-danger"
+            @click="handleStop"
+          >
+            Stop Session
+          </button>
+        </div>
       </div>
 
       <div v-if="['stopped', 'completed', 'error'].includes(sessionsStore.currentSession?.status)" class="session-actions-bottom">
@@ -135,6 +137,7 @@ const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCan
 
 let cleanups = [];
 const pollIntervalId = ref(null);
+const showDeleteConfirm = ref(false);
 
 // Poll for updates while session is actively processing (fallback for race conditions)
 function startPolling() {
@@ -331,5 +334,13 @@ async function handleDelete() {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+.stop-session-bottom {
+  padding: 1rem 0;
+  border-top: 1px solid var(--color-border);
+  margin-top: 1rem;
+  display: flex;
+  justify-content: center;
 }
 </style>
