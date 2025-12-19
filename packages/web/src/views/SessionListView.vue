@@ -2,7 +2,6 @@
   <div class="container">
     <div class="page-header">
       <div>
-        <router-link to="/" class="back-link">&larr; Projects</router-link>
         <h1>{{ projectsStore.currentProject?.name || 'Sessions' }}</h1>
         <p v-if="projectsStore.currentProject" class="project-path">
           {{ projectsStore.currentProject.workingDirectory }}
@@ -156,13 +155,6 @@ function formatDate(timestamp) {
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 2rem;
-}
-
-.back-link {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-  display: inline-block;
-  margin-bottom: 0.5rem;
 }
 
 .page-header h1 {
