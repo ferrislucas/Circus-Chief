@@ -104,9 +104,6 @@
             <span v-if="sending" class="loading-spinner"></span>
             Send
           </button>
-          <button type="button" class="btn btn-secondary" @click="handleEndSession" :disabled="ending">
-            End Session
-          </button>
         </div>
       </div>
     </form>
@@ -153,7 +150,6 @@ const uiStore = useUiStore();
 
 const input = ref('');
 const sending = ref(false);
-const ending = ref(false);
 const stopping = ref(false);
 const restarting = ref(false);
 const togglingThinking = ref(false);
@@ -317,19 +313,6 @@ async function handleSend() {
     uiStore.error(err.message);
   } finally {
     sending.value = false;
-  }
-}
-
-async function handleEndSession() {
-  if (ending.value) return;
-
-  ending.value = true;
-  try {
-    await sessionsStore.endSession(props.sessionId);
-  } catch (err) {
-    uiStore.error(err.message);
-  } finally {
-    ending.value = false;
   }
 }
 

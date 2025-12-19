@@ -271,25 +271,6 @@ export async function stopSession(sessionId) {
 }
 
 /**
- * End a session (mark as completed)
- * @param {string} sessionId
- */
-export function endSession(sessionId) {
-  // If actively running, abort first
-  const sessionData = activeSessions.get(sessionId);
-  if (sessionData) {
-    sessionData.controller.abort();
-    activeSessions.delete(sessionId);
-  }
-
-  sessions.update(sessionId, { status: 'completed' });
-  broadcastSessionStatus(sessionId, 'completed');
-
-  // Generate summary immediately on session completion
-  summaryService.onSessionComplete(sessionId);
-}
-
-/**
  * Restart a completed or errored session (set back to stopped so it can receive messages)
  * @param {string} sessionId
  */
