@@ -21,6 +21,11 @@ module.exports = {
         browser: true,
         node: false,
       },
+      rules: {
+        // Use Vue's no-unused-vars which understands template usage
+        'no-unused-vars': 'off',
+        'vue/no-unused-vars': ['error', { ignorePattern: '^_' }],
+      },
     },
   ],
   rules: {
