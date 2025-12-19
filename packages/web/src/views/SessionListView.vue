@@ -388,5 +388,15 @@ function formatDate(timestamp) {
   .project-path {
     word-break: break-all;
   }
+
+  .session-header-row {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .session-date {
+    flex-shrink: 1;
+    align-self: flex-start;
+  }
 }
 </style>
