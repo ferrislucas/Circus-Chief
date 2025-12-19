@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { projects, sessions } from '../database.js';
 import { CreateProjectRequest, UpdateProjectRequest } from '@claudetools/shared/contracts/projects';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
+import { executeHookAsync } from '../services/hookService.js';
 
 const router = Router();
 
@@ -32,8 +33,11 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: result.error.errors[0].message });
   }
 
-  const { name, workingDirectory, systemPrompt } = result.data;
-  const project = projects.create(name, workingDirectory, systemPrompt || null);
+  const { name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted } = result.data;
+  const project = projects.create(name, workingDirectory, systemPrompt || null, {
+    onSessionCreated: onSessionCreated || null,
+    onSessionDeleted: onSessionDeleted || null,
+  });
   res.status(201).json(project);
 });
 
@@ -122,6 +126,16 @@ router.post('/:id/sessions', async (req, res) => {
 
     // Return updated session with gitWorktree if set
     const updatedSession = sessions.getById(session.id);
+
+    // Execute on_session_created hook if configured (non-blocking)
+    if (project.onSessionCreated) {
+      executeHookAsync(project.onSessionCreated, workingDirectory, {
+        sessionId: session.id,
+        projectId: project.id,
+        sessionName: session.name,
+      });
+    }
+
     res.status(201).json(updatedSession);
   } catch (error) {
     console.error('Git setup error:', error);

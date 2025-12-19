@@ -38,6 +38,23 @@ describe('ProjectRepository', () => {
       const project = repo.create('Test', '/tmp');
       expect(project.createdAt).toBe(project.updatedAt);
     });
+
+    it('creates project with session lifecycle hooks', () => {
+      const project = repo.create('Test Project', '/tmp/test', null, {
+        onSessionCreated: 'echo "session created"',
+        onSessionDeleted: 'echo "session deleted"',
+      });
+
+      expect(project.onSessionCreated).toBe('echo "session created"');
+      expect(project.onSessionDeleted).toBe('echo "session deleted"');
+    });
+
+    it('creates project with null hooks by default', () => {
+      const project = repo.create('Test Project', '/tmp/test');
+
+      expect(project.onSessionCreated).toBeNull();
+      expect(project.onSessionDeleted).toBeNull();
+    });
   });
 
   describe('getById', () => {
@@ -132,6 +149,38 @@ describe('ProjectRepository', () => {
 
       expect(result.name).toBe('Test');
       expect(result.workingDirectory).toBe('/tmp/test');
+    });
+
+    it('updates onSessionCreated hook', () => {
+      const project = repo.create('Test', '/tmp/test');
+      const updated = repo.update(project.id, {
+        onSessionCreated: 'echo "hook updated"',
+      });
+
+      expect(updated.onSessionCreated).toBe('echo "hook updated"');
+    });
+
+    it('updates onSessionDeleted hook', () => {
+      const project = repo.create('Test', '/tmp/test');
+      const updated = repo.update(project.id, {
+        onSessionDeleted: './cleanup.sh',
+      });
+
+      expect(updated.onSessionDeleted).toBe('./cleanup.sh');
+    });
+
+    it('clears hooks when set to null', () => {
+      const project = repo.create('Test', '/tmp/test', null, {
+        onSessionCreated: 'echo "created"',
+        onSessionDeleted: 'echo "deleted"',
+      });
+      const updated = repo.update(project.id, {
+        onSessionCreated: null,
+        onSessionDeleted: null,
+      });
+
+      expect(updated.onSessionCreated).toBeNull();
+      expect(updated.onSessionDeleted).toBeNull();
     });
   });
 

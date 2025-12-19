@@ -6,6 +6,7 @@ import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
 import * as summaryService from '../services/summaryService.js';
+import { executeHookAsync } from '../services/hookService.js';
 
 const router = Router();
 
@@ -280,6 +281,9 @@ router.delete('/:id', async (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
+  // Get project info before deletion for hook execution
+  const project = projects.getById(session.projectId);
+
   // Clean up active session if running
   cleanupActiveSession(req.params.id);
 
@@ -287,15 +291,12 @@ router.delete('/:id', async (req, res) => {
   summaryService.cleanupSession(req.params.id);
 
   // Remove git worktree if session has one
-  if (session.gitWorktree) {
-    const project = projects.getById(session.projectId);
-    if (project) {
-      try {
-        await gitService.removeWorktree(project.workingDirectory, session.gitWorktree, true);
-      } catch (error) {
-        // Log but don't fail - worktree may already be removed or have issues
-        console.warn(`Failed to remove worktree for session ${session.id}:`, error.message);
-      }
+  if (session.gitWorktree && project) {
+    try {
+      await gitService.removeWorktree(project.workingDirectory, session.gitWorktree, true);
+    } catch (error) {
+      // Log but don't fail - worktree may already be removed or have issues
+      console.warn(`Failed to remove worktree for session ${session.id}:`, error.message);
     }
   }
 
@@ -304,6 +305,15 @@ router.delete('/:id', async (req, res) => {
 
   // Delete session (cascade will handle messages, canvas items, notes)
   sessions.delete(req.params.id);
+
+  // Execute on_session_deleted hook if configured (non-blocking)
+  if (project?.onSessionDeleted) {
+    executeHookAsync(project.onSessionDeleted, project.workingDirectory, {
+      sessionId: session.id,
+      projectId: project.id,
+      sessionName: session.name,
+    });
+  }
 
   res.status(204).send();
 });
