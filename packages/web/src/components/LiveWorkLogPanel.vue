@@ -19,7 +19,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import CommandBlock from './CommandBlock.vue';
 
@@ -30,6 +30,10 @@ const props = defineProps({
 
 const logsContainer = ref(null);
 
+// Scroll state tracking - auto-scroll unless user manually scrolls up
+const SCROLL_THRESHOLD = 50; // pixels from bottom to consider "near bottom"
+const isNearBottom = ref(true);
+
 const totalCount = computed(() => {
   return (props.workLogs?.length || 0) + (props.partialThinking ? 1 : 0);
 });
@@ -38,14 +42,31 @@ const hasContent = computed(() => {
   return props.workLogs?.length > 0 || props.partialThinking;
 });
 
-// Auto-scroll to bottom when new logs arrive
+// Detect when user manually scrolls away from bottom
+function handleScroll() {
+  if (!logsContainer.value) return;
+  const { scrollTop, scrollHeight, clientHeight } = logsContainer.value;
+  isNearBottom.value = scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD;
+}
+
+// Auto-scroll to bottom when new logs arrive (only if user is near bottom)
 function scrollToBottom() {
   nextTick(() => {
-    if (logsContainer.value) {
+    if (logsContainer.value && isNearBottom.value) {
       logsContainer.value.scrollTop = logsContainer.value.scrollHeight;
     }
   });
 }
+
+// Attach scroll listener on mount
+onMounted(() => {
+  logsContainer.value?.addEventListener('scroll', handleScroll);
+});
+
+// Cleanup scroll listener on unmount
+onUnmounted(() => {
+  logsContainer.value?.removeEventListener('scroll', handleScroll);
+});
 
 // Watch for new work logs
 watch(() => props.workLogs?.length, () => {
