@@ -18,14 +18,23 @@ describe('diffService', () => {
       gitService.getStagedDiff.mockResolvedValue('staged diff content');
       gitService.getDiff.mockResolvedValue('unstaged diff content');
       gitService.getUntrackedFiles.mockResolvedValue(['new-file.txt', 'another.js']);
+      gitService.getUntrackedFileContent.mockImplementation(async (dir, filePath) => {
+        if (filePath === 'new-file.txt') {
+          return { content: 'file content\n', isBinary: false, isTooLarge: false, size: 13 };
+        }
+        if (filePath === 'another.js') {
+          return { content: 'const x = 1;\n', isBinary: false, isTooLarge: false, size: 13 };
+        }
+        return { content: null, isBinary: false, isTooLarge: false, size: 0, error: 'not found' };
+      });
 
       const result = await getChanges('/test/dir');
 
-      expect(result).toEqual({
-        staged: 'staged diff content',
-        unstaged: 'unstaged diff content',
-        untracked: ['new-file.txt', 'another.js'],
-      });
+      expect(result.staged).toBe('staged diff content');
+      expect(result.unstaged).toBe('unstaged diff content');
+      // untracked is now a unified diff string containing synthetic diffs for untracked files
+      expect(result.untracked).toContain('diff --git a/new-file.txt b/new-file.txt');
+      expect(result.untracked).toContain('diff --git a/another.js b/another.js');
     });
 
     it('calls git service with correct directory', async () => {
@@ -47,7 +56,7 @@ describe('diffService', () => {
 
       const result = await getChanges('/test/dir');
 
-      expect(result).toEqual({ staged: '', unstaged: '', untracked: [] });
+      expect(result).toEqual({ staged: '', unstaged: '', untracked: '' });
     });
 
     it('fetches all git info in parallel', async () => {
@@ -70,6 +79,12 @@ describe('diffService', () => {
           untrackedResolve = resolve;
         })
       );
+      gitService.getUntrackedFileContent.mockResolvedValue({
+        content: 'test content\n',
+        isBinary: false,
+        isTooLarge: false,
+        size: 13,
+      });
 
       const promise = getChanges('/test/dir');
 
@@ -84,7 +99,10 @@ describe('diffService', () => {
       untrackedResolve(['file.txt']);
 
       const result = await promise;
-      expect(result).toEqual({ staged: 'staged', unstaged: 'unstaged', untracked: ['file.txt'] });
+      expect(result.staged).toBe('staged');
+      expect(result.unstaged).toBe('unstaged');
+      // untracked is now a unified diff string
+      expect(result.untracked).toContain('diff --git a/file.txt b/file.txt');
     });
 
     it('propagates errors from getStagedDiff', async () => {
