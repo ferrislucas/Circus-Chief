@@ -273,6 +273,36 @@ export class ApiClient {
     return this.#request('GET', `/sessions/${sessionId}/todos`);
   }
 
+  // Summaries
+
+  /**
+   * Get session summary
+   * @param {string} sessionId - Session ID
+   * @param {boolean} generateIfMissing - Generate summary if not found
+   * @returns {Promise<Object|null>}
+   */
+  async getSessionSummary(sessionId, generateIfMissing = false) {
+    const params = generateIfMissing ? '?generate=true' : '';
+    try {
+      return await this.#request('GET', `/sessions/${sessionId}/summary${params}`);
+    } catch (err) {
+      // Return null instead of throwing for 404 (no summary yet)
+      if (err.message.includes('404') || err.message.includes('not found')) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Generate/regenerate session summary
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<Object>}
+   */
+  async generateSessionSummary(sessionId) {
+    return this.#request('POST', `/sessions/${sessionId}/summary`);
+  }
+
   // Notes
 
   /**

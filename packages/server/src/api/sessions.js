@@ -5,6 +5,7 @@ import { getChanges } from '../services/diffService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
+import * as summaryService from '../services/summaryService.js';
 
 const router = Router();
 
@@ -252,6 +253,45 @@ router.patch('/:id', (req, res) => {
   res.json(updated);
 });
 
+// GET /api/sessions/:id/summary - Get session summary
+router.get('/:id/summary', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Check if generateIfMissing query param is set
+  const generateIfMissing = req.query.generate === 'true';
+
+  try {
+    const summary = await summaryService.getSummary(req.params.id, generateIfMissing);
+    if (!summary) {
+      return res.status(404).json({ error: 'Summary not found' });
+    }
+    res.json(summary);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/sessions/:id/summary - Generate/regenerate session summary
+router.post('/:id/summary', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  try {
+    const summary = await summaryService.regenerateSummary(req.params.id);
+    if (!summary) {
+      return res.status(500).json({ error: 'Failed to generate summary' });
+    }
+    res.status(201).json(summary);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // DELETE /api/sessions/:id - Delete session
 router.delete('/:id', async (req, res) => {
   const session = sessions.getById(req.params.id);
@@ -261,6 +301,9 @@ router.delete('/:id', async (req, res) => {
 
   // Clean up active session if running
   cleanupActiveSession(req.params.id);
+
+  // Clean up summary service debounce timers
+  summaryService.cleanupSession(req.params.id);
 
   // Remove git worktree if session has one
   if (session.gitWorktree) {

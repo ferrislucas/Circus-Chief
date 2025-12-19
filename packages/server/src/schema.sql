@@ -104,6 +104,21 @@ CREATE TABLE IF NOT EXISTS work_logs (
   timestamp INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
+-- Session summaries (AI-generated)
+CREATE TABLE IF NOT EXISTS session_summaries (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
+  short_summary TEXT NOT NULL,      -- 1-2 sentence preview for list view (~100 chars)
+  full_summary TEXT NOT NULL,       -- Detailed summary with key points (~500 chars)
+  key_actions TEXT,                 -- JSON array of main actions taken
+  files_modified TEXT,              -- JSON array of files touched
+  outcome TEXT,                     -- 'completed' | 'partial' | 'failed' | 'ongoing'
+  message_count INTEGER,            -- Track what was summarized (staleness detection)
+  generated_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
@@ -114,3 +129,4 @@ CREATE INDEX IF NOT EXISTS idx_project_tools ON project_tool_templates(project_i
 CREATE INDEX IF NOT EXISTS idx_todos_session ON session_todos(session_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_session ON work_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_message ON work_logs(message_id);
+CREATE INDEX IF NOT EXISTS idx_summaries_session ON session_summaries(session_id);

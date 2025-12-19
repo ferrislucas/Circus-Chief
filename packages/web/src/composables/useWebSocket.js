@@ -220,6 +220,26 @@ export function useSessionSubscription(sessionId) {
     return () => off(WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL, handler);
   };
 
+  const onSummaryUpdate = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.summary);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, handler);
+  };
+
+  const onSummaryGenerating = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.generating);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -238,5 +258,7 @@ export function useSessionSubscription(sessionId) {
     onWorkLog,
     onWorkLogsAssociated,
     onThinkingPartial,
+    onSummaryUpdate,
+    onSummaryGenerating,
   };
 }
