@@ -8,33 +8,41 @@ import * as gitService from './gitService.js';
  * @param {string|null} options.gitMode - 'branch', 'worktree', or null
  * @param {string|null} options.gitBranch - Branch name
  * @param {string} options.sessionId - Session ID
- * @returns {Promise<{workingDirectory: string, gitWorktree: string|null}>}
+ * @returns {Promise<{workingDirectory: string, gitWorktree: string|null, effectiveGitMode: string|null}>}
  */
 export async function setupGitForSession({ projectDir, gitMode, gitBranch, sessionId }) {
-  // No git operations if gitMode is not specified
-  if (!gitMode || !gitBranch) {
+  // No git operations if no branch specified
+  if (!gitBranch) {
     return {
       workingDirectory: projectDir,
       gitWorktree: null,
+      effectiveGitMode: null,
     };
   }
 
-  if (gitMode === 'branch') {
+  // Default to worktree mode when branch is specified but mode is not
+  // Worktree mode provides proper isolation for concurrent sessions
+  const effectiveGitMode = gitMode || 'worktree';
+
+  if (effectiveGitMode === 'branch') {
     // Checkout (or create) the branch in the project directory
+    // WARNING: This mode shares the main repo directory and is not safe for concurrent sessions
     await gitService.checkoutBranch(projectDir, gitBranch);
     return {
       workingDirectory: projectDir,
       gitWorktree: null,
+      effectiveGitMode: 'branch',
     };
   }
 
-  if (gitMode === 'worktree') {
+  if (effectiveGitMode === 'worktree') {
     // Create a worktree in .worktrees/{sessionId}
     const worktreePath = join(projectDir, '.worktrees', sessionId);
     await gitService.createWorktreeForBranch(projectDir, gitBranch, worktreePath);
     return {
       workingDirectory: worktreePath,
       gitWorktree: worktreePath,
+      effectiveGitMode: 'worktree',
     };
   }
 
@@ -42,5 +50,6 @@ export async function setupGitForSession({ projectDir, gitMode, gitBranch, sessi
   return {
     workingDirectory: projectDir,
     gitWorktree: null,
+    effectiveGitMode: null,
   };
 }

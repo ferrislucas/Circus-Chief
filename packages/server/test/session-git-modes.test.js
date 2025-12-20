@@ -14,6 +14,67 @@ describe('Session Creation with Git Modes', () => {
     vi.restoreAllMocks();
   });
 
+  describe('default git mode behavior', () => {
+    it('defaults to worktree mode when gitBranch is specified but gitMode is not', async () => {
+      gitService.createWorktreeForBranch.mockResolvedValue({
+        path: '/test/project/path/.worktrees/session-123',
+        branch: 'feature-x',
+      });
+
+      const { setupGitForSession } = await import('../src/services/gitSessionSetup.js');
+
+      const result = await setupGitForSession({
+        projectDir: '/test/project/path',
+        gitMode: null,
+        gitBranch: 'feature-x',
+        sessionId: 'session-123',
+      });
+
+      expect(gitService.createWorktreeForBranch).toHaveBeenCalledWith(
+        '/test/project/path',
+        'feature-x',
+        '/test/project/path/.worktrees/session-123'
+      );
+      expect(result.workingDirectory).toBe('/test/project/path/.worktrees/session-123');
+      expect(result.gitWorktree).toBe('/test/project/path/.worktrees/session-123');
+      expect(result.effectiveGitMode).toBe('worktree');
+    });
+
+    it('defaults to worktree mode when gitBranch is specified and gitMode is undefined', async () => {
+      gitService.createWorktreeForBranch.mockResolvedValue({
+        path: '/project/.worktrees/session-456',
+        branch: 'develop',
+      });
+
+      const { setupGitForSession } = await import('../src/services/gitSessionSetup.js');
+
+      const result = await setupGitForSession({
+        projectDir: '/project',
+        gitMode: undefined,
+        gitBranch: 'develop',
+        sessionId: 'session-456',
+      });
+
+      expect(gitService.createWorktreeForBranch).toHaveBeenCalled();
+      expect(result.effectiveGitMode).toBe('worktree');
+    });
+
+    it('returns effectiveGitMode in the result', async () => {
+      gitService.checkoutBranch.mockResolvedValue(undefined);
+
+      const { setupGitForSession } = await import('../src/services/gitSessionSetup.js');
+
+      const result = await setupGitForSession({
+        projectDir: '/test/project/path',
+        gitMode: 'branch',
+        gitBranch: 'feature-x',
+        sessionId: 'session-123',
+      });
+
+      expect(result.effectiveGitMode).toBe('branch');
+    });
+  });
+
   describe('gitMode: branch', () => {
     it('checks out existing branch when gitMode is branch', async () => {
       gitService.branchExists.mockResolvedValue(true);
@@ -31,6 +92,7 @@ describe('Session Creation with Git Modes', () => {
       expect(gitService.checkoutBranch).toHaveBeenCalledWith('/test/project/path', 'feature-x');
       expect(result.workingDirectory).toBe('/test/project/path');
       expect(result.gitWorktree).toBeNull();
+      expect(result.effectiveGitMode).toBe('branch');
     });
 
     it('creates new branch when it does not exist', async () => {
@@ -90,6 +152,7 @@ describe('Session Creation with Git Modes', () => {
       );
       expect(result.workingDirectory).toBe('/test/project/path/.worktrees/session-123');
       expect(result.gitWorktree).toBe('/test/project/path/.worktrees/session-123');
+      expect(result.effectiveGitMode).toBe('worktree');
     });
 
     it('generates worktree path based on session ID', async () => {
@@ -115,8 +178,8 @@ describe('Session Creation with Git Modes', () => {
     });
   });
 
-  describe('gitMode: null (no git operations)', () => {
-    it('does not perform git operations when gitMode is null', async () => {
+  describe('no branch specified (no git operations)', () => {
+    it('does not perform git operations when gitBranch is null', async () => {
       const { setupGitForSession } = await import('../src/services/gitSessionSetup.js');
 
       const result = await setupGitForSession({
@@ -130,9 +193,10 @@ describe('Session Creation with Git Modes', () => {
       expect(gitService.createWorktreeForBranch).not.toHaveBeenCalled();
       expect(result.workingDirectory).toBe('/test/project/path');
       expect(result.gitWorktree).toBeNull();
+      expect(result.effectiveGitMode).toBeNull();
     });
 
-    it('uses project directory when no git mode specified', async () => {
+    it('uses project directory when no git branch specified', async () => {
       const { setupGitForSession } = await import('../src/services/gitSessionSetup.js');
 
       const result = await setupGitForSession({
@@ -143,6 +207,22 @@ describe('Session Creation with Git Modes', () => {
       });
 
       expect(result.workingDirectory).toBe('/my/project');
+      expect(result.effectiveGitMode).toBeNull();
+    });
+
+    it('ignores gitMode if no gitBranch is specified', async () => {
+      const { setupGitForSession } = await import('../src/services/gitSessionSetup.js');
+
+      const result = await setupGitForSession({
+        projectDir: '/my/project',
+        gitMode: 'worktree', // gitMode specified but no branch
+        gitBranch: null,
+        sessionId: 'session-789',
+      });
+
+      expect(gitService.createWorktreeForBranch).not.toHaveBeenCalled();
+      expect(result.workingDirectory).toBe('/my/project');
+      expect(result.effectiveGitMode).toBeNull();
     });
   });
 

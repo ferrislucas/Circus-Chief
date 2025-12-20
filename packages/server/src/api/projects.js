@@ -3,6 +3,7 @@ import { projects, sessions } from '../database.js';
 import { CreateProjectRequest, UpdateProjectRequest } from '@claudetools/shared/contracts/projects';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { executeHookAsync } from '../services/hookService.js';
+import { acquireBranchLock } from '../services/branchMutex.js';
 
 const router = Router();
 
@@ -103,6 +104,16 @@ router.post('/:id/sessions', async (req, res) => {
   const sessionName = name || generateInitialName(prompt);
   const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch);
 
+  // Determine effective git mode (defaults to worktree if branch specified)
+  const effectiveGitMode = gitBranch ? (gitMode || 'worktree') : null;
+
+  // Acquire branch lock if using branch mode to prevent race conditions
+  // The lock ensures only one branch-mode session can be set up at a time per project
+  let releaseBranchLock = null;
+  if (effectiveGitMode === 'branch') {
+    releaseBranchLock = await acquireBranchLock(project.id);
+  }
+
   // Setup git environment (branch checkout or worktree creation)
   try {
     const { workingDirectory, gitWorktree } = await setupGitForSession({
@@ -119,10 +130,26 @@ router.post('/:id/sessions', async (req, res) => {
 
     // Start session manager (non-blocking)
     const { runSession } = await import('../services/sessionManager.js');
-    runSession(session.id, prompt, workingDirectory, project.systemPrompt).catch((error) => {
-      console.error('Session error:', error);
-      sessions.update(session.id, { status: 'error', error: error.message });
-    });
+
+    // For branch mode, we need to hold the lock until the session actually starts
+    // to prevent another session from changing the branch before this one begins
+    if (releaseBranchLock) {
+      runSession(session.id, prompt, workingDirectory, project.systemPrompt)
+        .catch((error) => {
+          console.error('Session error:', error);
+          sessions.update(session.id, { status: 'error', error: error.message });
+        })
+        .finally(() => {
+          // Release the lock after the session has started (first event received)
+          // Note: We release after a small delay to ensure the session has begun executing
+          setTimeout(releaseBranchLock, 100);
+        });
+    } else {
+      runSession(session.id, prompt, workingDirectory, project.systemPrompt).catch((error) => {
+        console.error('Session error:', error);
+        sessions.update(session.id, { status: 'error', error: error.message });
+      });
+    }
 
     // Return updated session with gitWorktree if set
     const updatedSession = sessions.getById(session.id);
@@ -139,6 +166,10 @@ router.post('/:id/sessions', async (req, res) => {
     res.status(201).json(updatedSession);
   } catch (error) {
     console.error('Git setup error:', error);
+    // Release lock on error
+    if (releaseBranchLock) {
+      releaseBranchLock();
+    }
     sessions.update(session.id, { status: 'error', error: error.message });
     res.status(500).json({ error: `Git setup failed: ${error.message}` });
   }
