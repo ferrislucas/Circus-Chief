@@ -383,8 +383,8 @@ test.describe('Canvas Management', () => {
     // Empty state should be gone
     await expect(page.getByText('No canvas items yet')).not.toBeVisible();
 
-    // Verify the label is displayed (filename)
-    await expect(page.getByText('test-image.png')).toBeVisible();
+    // Verify the label is displayed (filename) - use specific selector to avoid matching toast
+    await expect(page.locator('.canvas-item-label').getByText('test-image.png')).toBeVisible();
 
     // Verify via API
     const items = await getCanvasItems(session.id);
