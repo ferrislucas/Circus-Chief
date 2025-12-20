@@ -116,20 +116,20 @@ async function callClaude(prompt, recentMessages, sessionStatus) {
   for await (const event of queryFn(queryParams)) {
     switch (event.type) {
       case 'assistant': {
-        const text = event.message?.content
-          ?.filter((c) => c.type === 'text')
-          ?.map((c) => c.text)
-          ?.join('');
-        if (text) responseText += text;
+        const content = event.message?.content || [];
+        for (const block of content) {
+          // Capture structured output from StructuredOutput tool use
+          if (block.type === 'tool_use' && block.name === 'StructuredOutput') {
+            structuredOutput = block.input;
+          } else if (block.type === 'text') {
+            responseText += block.text;
+          }
+        }
         break;
       }
       case 'result': {
         if (event.subtype === 'error') {
           throw new Error(event.error || 'Claude SDK query failed');
-        }
-        // Capture structured output when using outputFormat
-        if (event.structured_output) {
-          structuredOutput = event.structured_output;
         }
         break;
       }
