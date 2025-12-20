@@ -45,6 +45,11 @@ router.post('/:id/canvas', upload.single('file'), (req, res) => {
       }
     }
 
+    // Ensure image types always have a valid mimeType to prevent broken images in the frontend
+    if (type === 'image' && !extractedMimeType) {
+      extractedMimeType = 'image/png';
+    }
+
     itemData = {
       type,
       content: content || null,
