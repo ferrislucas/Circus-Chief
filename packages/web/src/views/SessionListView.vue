@@ -43,10 +43,11 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, watch } from 'vue';
+import { onMounted, onUnmounted, reactive, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useProjectSubscription } from '../composables/useWebSocket.js';
 import { api } from '../composables/useApi.js';
 import SessionCard from '../components/SessionCard.vue';
 
@@ -54,16 +55,53 @@ const route = useRoute();
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
 
+// Get projectId as computed to handle route changes
+const projectId = computed(() => route.params.id);
+
+// Subscribe to project updates for real-time session list changes
+const { subscribe, onSessionCreated, onSessionUpdated, onSessionDeleted } = useProjectSubscription(projectId.value);
+
 // Store summaries keyed by session ID
 const summaries = reactive({});
 const loadingSummaries = reactive({});
 const summaryErrors = reactive({});
+
+// Store cleanup functions for WebSocket listeners
+const cleanups = [];
 
 onMounted(async () => {
   projectsStore.fetchProject(route.params.id);
   await sessionsStore.fetchSessions(route.params.id);
   // Fetch summaries for loaded sessions
   fetchSummaries();
+
+  // Subscribe to project updates
+  subscribe();
+
+  // Handle new session created
+  cleanups.push(
+    onSessionCreated((session) => {
+      sessionsStore.addSessionToList(session);
+    })
+  );
+
+  // Handle session updated
+  cleanups.push(
+    onSessionUpdated((session) => {
+      sessionsStore.updateSession(session);
+    })
+  );
+
+  // Handle session deleted
+  cleanups.push(
+    onSessionDeleted((sessionId) => {
+      sessionsStore.removeSessionFromList(sessionId);
+      // Clean up summary data for deleted session
+      delete summaries[sessionId];
+      delete loadingSummaries[sessionId];
+      delete summaryErrors[sessionId];
+    })
+  );
 });
 
 // Watch for sessions changes and fetch summaries
@@ -108,6 +146,11 @@ async function retryFetchSummary(sessionId) {
   summaryErrors[sessionId] = false;
   await fetchSummary(sessionId);
 }
+
+// Cleanup WebSocket listeners on unmount
+onUnmounted(() => {
+  cleanups.forEach((cleanup) => cleanup());
+});
 </script>
 
 <style scoped>

@@ -5,5 +5,6 @@ export {
   initWebSocket,
   broadcast,
   broadcastToSession,
+  broadcastToProject,
   getWebSocketServer,
 } from './ws/index.js';

@@ -6,8 +6,11 @@ export const WS_MESSAGE_TYPES = {
   // Client -> Server
   SUBSCRIBE_SESSION: 'subscribe:session',
   UNSUBSCRIBE_SESSION: 'unsubscribe:session',
+  SUBSCRIBE_PROJECT: 'subscribe:project',
+  UNSUBSCRIBE_PROJECT: 'unsubscribe:project',
 
   // Server -> Client
+  SESSION_CREATED: 'session:created',
   SESSION_STATUS: 'session:status',
   SESSION_MESSAGE: 'session:message',
   SESSION_PARTIAL: 'session:partial',

@@ -32,6 +32,16 @@ export function broadcastToSession(sessionId, type, payload) {
 }
 
 /**
+ * Broadcast message to clients subscribed to a project
+ * @param {string} projectId
+ * @param {string} type
+ * @param {Object} payload
+ */
+export function broadcastToProject(projectId, type, payload) {
+  webSocketManager.broadcastToProject(projectId, type, payload);
+}
+
+/**
  * Get WebSocket server instance
  * @returns {import('ws').WebSocketServer|null}
  */
