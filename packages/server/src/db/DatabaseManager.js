@@ -71,6 +71,26 @@ export class DatabaseManager {
     // Migrate sessions table to add 'stopped' status to CHECK constraint
     // SQLite doesn't allow modifying CHECK constraints, so we need to recreate the table
     this.#migrateSessionsStatusConstraint();
+
+    // Check if session_summaries table has the PR status columns, add them if not
+    const summariesTableInfo = this.#db.prepare('PRAGMA table_info(session_summaries)').all();
+    const summariesColumns = summariesTableInfo.map((col) => col.name);
+
+    if (!summariesColumns.includes('pr_merged')) {
+      this.#db.exec('ALTER TABLE session_summaries ADD COLUMN pr_merged INTEGER');
+    }
+    if (!summariesColumns.includes('pr_state')) {
+      this.#db.exec('ALTER TABLE session_summaries ADD COLUMN pr_state TEXT');
+    }
+    if (!summariesColumns.includes('has_merge_conflicts')) {
+      this.#db.exec('ALTER TABLE session_summaries ADD COLUMN has_merge_conflicts INTEGER');
+    }
+    if (!summariesColumns.includes('ci_status')) {
+      this.#db.exec('ALTER TABLE session_summaries ADD COLUMN ci_status TEXT');
+    }
+    if (!summariesColumns.includes('ci_failures')) {
+      this.#db.exec('ALTER TABLE session_summaries ADD COLUMN ci_failures TEXT');
+    }
   }
 
   /**
