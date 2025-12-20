@@ -184,3 +184,13 @@ export async function updateSessionStatus(sessionId: string, status: string) {
   if (!response.ok) throw new Error('Failed to update session status');
   return response.json();
 }
+
+export async function updateSessionMode(sessionId: string, mode: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  });
+  if (!response.ok) throw new Error('Failed to update session mode');
+  return response.json();
+}

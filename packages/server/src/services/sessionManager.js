@@ -22,7 +22,7 @@ const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
  * @param {string} mode - Session mode ('plan', 'standard', 'yolo')
  * @returns {string} SDK permissionMode value
  */
-function getPermissionModeForSession(mode) {
+export function getPermissionModeForSession(mode) {
   switch (mode) {
     case 'yolo':
       return 'bypassPermissions';
@@ -34,7 +34,7 @@ function getPermissionModeForSession(mode) {
 }
 
 /** Plan mode system prompt instructions */
-const PLAN_MODE_PROMPT = `## Plan Mode Active
+export const PLAN_MODE_PROMPT = `## Plan Mode Active
 
 You are in PLAN mode. Before implementing any changes:
 
@@ -247,7 +247,7 @@ function buildSessionEnv(session) {
  * @param {string} mode - Session mode ('plan', 'standard', 'yolo')
  * @returns {string} System prompt string
  */
-function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt, mode) {
+export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt, mode) {
   const canvasInstructions = buildCanvasSystemPrompt(sessionId);
   const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
   const basePrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
