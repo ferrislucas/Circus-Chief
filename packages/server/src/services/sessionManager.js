@@ -99,7 +99,8 @@ function buildCanvasSystemPrompt(sessionId) {
 POST ${apiUrl}/api/sessions/${sessionId}/canvas
 Body: {"type": "image|markdown|text|json", "content": "...", "title": "..."}
 
-For images, use base64 encoding in the content field.`;
+For images, use filePath to reference an image file on disk:
+Body: {"type": "image", "filePath": "/path/to/image.png", "title": "..."}`;
 }
 
 /**

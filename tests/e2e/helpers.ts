@@ -67,7 +67,7 @@ export async function seedSession(
 
 export async function seedCanvasItem(
   sessionId: string,
-  data: { type: string; content?: string; label?: string }
+  data: { type: string; content?: string; data?: string; mimeType?: string; label?: string; filePath?: string }
 ) {
   const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas`, {
     method: 'POST',
