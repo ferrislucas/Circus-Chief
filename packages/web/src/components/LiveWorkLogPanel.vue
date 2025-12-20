@@ -5,7 +5,7 @@
       <span class="live-title">Claude is working...</span>
       <span v-if="totalCount" class="live-count">({{ totalCount }} {{ totalCount === 1 ? 'item' : 'items' }})</span>
     </div>
-    <div v-if="hasContent" class="live-logs" ref="logsContainer">
+    <div v-if="hasContent" class="live-logs" ref="logsContainer" @scroll="handleScroll">
       <div v-for="log in workLogs" :key="log.id" class="live-log-item">
         <ThinkingBlock v-if="log.type === 'thinking'" :content="log.content" :timestamp="log.timestamp" />
         <CommandBlock v-else :log="log" />
@@ -19,7 +19,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import ThinkingBlock from './ThinkingBlock.vue';
 import CommandBlock from './CommandBlock.vue';
 
@@ -57,16 +57,6 @@ function scrollToBottom() {
     }
   });
 }
-
-// Attach scroll listener on mount
-onMounted(() => {
-  logsContainer.value?.addEventListener('scroll', handleScroll);
-});
-
-// Cleanup scroll listener on unmount
-onUnmounted(() => {
-  logsContainer.value?.removeEventListener('scroll', handleScroll);
-});
 
 // Watch for new work logs
 watch(() => props.workLogs?.length, () => {
