@@ -9,9 +9,6 @@
 /** @type {Map<string, Promise<void>>} Maps projectId to pending lock promise */
 const locks = new Map();
 
-/** @type {Map<string, () => void>} Maps projectId to release function */
-const releaseCallbacks = new Map();
-
 /**
  * Acquire a lock for branch operations on a project.
  * If another operation is in progress, waits for it to complete.
