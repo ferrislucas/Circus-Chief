@@ -243,8 +243,8 @@ test.describe('Session Management', () => {
 
     await page.goto(`/sessions/${session.id}`);
 
-    // Verify mode badge is visible with correct mode
-    await expect(page.locator('.mode-badge, [class*="mode"]').getByText('plan')).toBeVisible();
+    // Verify mode badge is visible with correct mode (use specific class to avoid matching mode switcher buttons)
+    await expect(page.locator('.session-mode').getByText('plan')).toBeVisible();
 
     // Verify via API that mode is correctly set
     const apiSession = await getSession(session.id);
@@ -388,5 +388,238 @@ test.describe('Session Management', () => {
     const assistantMessages = finalMessages.filter((m: any) => m.role === 'assistant');
     expect(userMessages.length).toBe(3);
     expect(assistantMessages.length).toBe(3);
+  });
+});
+
+test.describe('New Session - Mode Selection', () => {
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    project = await seedProject('Test Project', '/tmp/test');
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+  });
+
+  test('mode selector is visible on new session form', async ({ page }) => {
+    await page.goto(`/projects/${project.id}/sessions/new`);
+
+    // Verify mode buttons are visible
+    await expect(page.locator('.mode-selector')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Plan' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Standard' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Auto' })).toBeVisible();
+  });
+
+  test('Auto (yolo) mode is selected by default', async ({ page }) => {
+    await page.goto(`/projects/${project.id}/sessions/new`);
+
+    // Verify Auto (yolo) is the default selected mode
+    const activeBtn = page.locator('.mode-btn.active');
+    await expect(activeBtn).toHaveText('Auto');
+  });
+
+  test('can create session with plan mode', async ({ page }) => {
+    await page.goto(`/projects/${project.id}/sessions/new`);
+
+    // Fill in required prompt field
+    await page.fill('textarea[id="prompt"]', 'Test with plan mode');
+
+    // Select plan mode
+    await page.click('button:has-text("Plan")');
+
+    // Submit the form
+    await page.click('button:has-text("Start Session")');
+
+    // Wait for redirect to session detail
+    await expect(page).toHaveURL(/\/sessions\/[\w-]+/, { timeout: 10000 });
+    await page.waitForLoadState('networkidle');
+
+    // Extract session ID from URL to verify via API
+    const url = page.url();
+    const sessionId = url.match(/\/sessions\/([\w-]+)/)?.[1];
+    expect(sessionId).toBeTruthy();
+
+    // Verify session via API
+    const session = await getSession(sessionId!);
+    expect(session).toBeTruthy();
+    expect(session.mode).toBe('plan');
+  });
+
+  test('can create session with yolo mode', async ({ page }) => {
+    await page.goto(`/projects/${project.id}/sessions/new`);
+
+    // Fill in required prompt field
+    await page.fill('textarea[id="prompt"]', 'Test with yolo mode');
+
+    // Select Auto (yolo) mode
+    await page.click('button:has-text("Auto")');
+
+    // Submit the form
+    await page.click('button:has-text("Start Session")');
+
+    // Wait for redirect to session detail
+    await expect(page).toHaveURL(/\/sessions\/[\w-]+/, { timeout: 10000 });
+    await page.waitForLoadState('networkidle');
+
+    // Extract session ID from URL
+    const url = page.url();
+    const sessionId = url.match(/\/sessions\/([\w-]+)/)?.[1];
+    expect(sessionId).toBeTruthy();
+
+    // Verify session via API
+    const session = await getSession(sessionId!);
+    expect(session).toBeTruthy();
+    expect(session.mode).toBe('yolo');
+  });
+
+  test('can switch between modes', async ({ page }) => {
+    await page.goto(`/projects/${project.id}/sessions/new`);
+
+    // Verify Auto is default
+    await expect(page.locator('.mode-btn.active')).toHaveText('Auto');
+
+    // Click Plan mode and verify it becomes active
+    await page.click('.mode-btn:has-text("Plan")');
+    await expect(page.locator('.mode-btn.active')).toHaveText('Plan');
+
+    // Click Standard mode and verify it becomes active
+    await page.click('.mode-btn:has-text("Standard")');
+    await expect(page.locator('.mode-btn.active')).toHaveText('Standard');
+
+    // Click Auto mode and verify it becomes active
+    await page.click('.mode-btn:has-text("Auto")');
+    await expect(page.locator('.mode-btn.active')).toHaveText('Auto');
+  });
+});
+
+test.describe('Conversation - Mode Switching', () => {
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    project = await seedProject('Test Project', '/tmp/test');
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+  });
+
+  test('mode switcher is visible in conversation tab when session is waiting', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test session',
+      name: 'Mode Switch Test',
+      mode: 'standard',
+    });
+
+    await page.goto(`/sessions/${session.id}/conversation`);
+
+    // Wait for session to be in waiting state (mock mode is fast)
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    // Verify mode switcher is visible
+    await expect(page.locator('.mode-switcher')).toBeVisible();
+    await expect(page.locator('.mode-switcher button:has-text("Plan")')).toBeVisible();
+    await expect(page.locator('.mode-switcher button:has-text("Standard")')).toBeVisible();
+    await expect(page.locator('.mode-switcher button:has-text("Auto")')).toBeVisible();
+  });
+
+  test('mode switcher shows current session mode', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test session',
+      name: 'Mode Display Test',
+      mode: 'plan',
+    });
+
+    await page.goto(`/sessions/${session.id}/conversation`);
+
+    // Wait for session to be in waiting state
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    // Verify Plan button is active
+    await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('Plan');
+  });
+
+  test('can switch mode from standard to yolo', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test session',
+      name: 'Mode Switch Test',
+      mode: 'standard',
+    });
+
+    await page.goto(`/sessions/${session.id}/conversation`);
+
+    // Wait for session to be in waiting state
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    // Verify Standard is active
+    await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('Standard');
+
+    // Click Auto to switch to yolo mode
+    await page.click('.mode-switcher button:has-text("Auto")');
+
+    // Wait for mode to update
+    await page.waitForTimeout(500);
+
+    // Verify Auto is now active
+    await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('Auto');
+
+    // Verify via API
+    const updatedSession = await getSession(session.id);
+    expect(updatedSession.mode).toBe('yolo');
+  });
+
+  test('can switch mode from yolo to plan', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test session',
+      name: 'Mode Switch Test',
+      mode: 'yolo',
+    });
+
+    await page.goto(`/sessions/${session.id}/conversation`);
+
+    // Wait for session to be in waiting state
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    // Verify Auto is active
+    await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('Auto');
+
+    // Click Plan to switch to plan mode
+    await page.click('.mode-switcher button:has-text("Plan")');
+
+    // Wait for mode to update
+    await page.waitForTimeout(500);
+
+    // Verify Plan is now active
+    await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('Plan');
+
+    // Verify via API
+    const updatedSession = await getSession(session.id);
+    expect(updatedSession.mode).toBe('plan');
+  });
+
+  test('mode persists after page reload', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test session',
+      name: 'Mode Persist Test',
+      mode: 'standard',
+    });
+
+    await page.goto(`/sessions/${session.id}/conversation`);
+
+    // Wait for session to be in waiting state
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    // Switch to Plan mode
+    await page.click('.mode-switcher button:has-text("Plan")');
+    await page.waitForTimeout(500);
+
+    // Reload the page
+    await page.reload();
+
+    // Verify Plan is still selected after reload
+    await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('Plan');
   });
 });

@@ -87,17 +87,36 @@
         @keydown.enter.ctrl="handleSend"
       ></textarea>
       <div class="input-controls">
-        <div class="thinking-toggle">
-          <label class="toggle-switch">
-            <input
-              type="checkbox"
-              :checked="sessionsStore.currentSession?.thinkingEnabled"
-              @change="handleThinkingToggle"
-              :disabled="togglingThinking"
-            />
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="toggle-label">Thinking</span>
+        <div class="session-options">
+          <div class="thinking-toggle">
+            <label class="toggle-switch">
+              <input
+                type="checkbox"
+                :checked="sessionsStore.currentSession?.thinkingEnabled"
+                @change="handleThinkingToggle"
+                :disabled="togglingThinking"
+              />
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Thinking</span>
+          </div>
+
+          <div class="mode-switcher">
+            <span class="mode-label">Mode:</span>
+            <div class="mode-buttons">
+              <button
+                v-for="m in modes"
+                :key="m.value"
+                type="button"
+                :class="['mode-btn', { active: sessionsStore.currentSession?.mode === m.value }]"
+                @click="handleModeChange(m.value)"
+                :disabled="togglingMode"
+                :title="m.description"
+              >
+                {{ m.label }}
+              </button>
+            </div>
+          </div>
         </div>
         <div class="input-actions">
           <button type="submit" class="btn btn-primary btn-send" :disabled="!input.trim() || sending">
@@ -153,7 +172,14 @@ const sending = ref(false);
 const stopping = ref(false);
 const restarting = ref(false);
 const togglingThinking = ref(false);
+const togglingMode = ref(false);
 const messagesContainer = ref(null);
+
+const modes = [
+  { value: 'plan', label: 'Plan', description: 'Agent plans before implementing' },
+  { value: 'standard', label: 'Standard', description: 'Balanced approach' },
+  { value: 'yolo', label: 'Auto', description: 'Auto-approve mode' },
+];
 const partialText = ref('');
 const isNearBottom = ref(true);
 const hasNewMessages = ref(false);
@@ -359,6 +385,20 @@ async function handleThinkingToggle(event) {
     togglingThinking.value = false;
   }
 }
+
+async function handleModeChange(newMode) {
+  if (togglingMode.value) return;
+  if (sessionsStore.currentSession?.mode === newMode) return;
+
+  togglingMode.value = true;
+  try {
+    await sessionsStore.updateSessionMode(props.sessionId, newMode);
+  } catch (err) {
+    uiStore.error(err.message);
+  } finally {
+    togglingMode.value = false;
+  }
+}
 </script>
 
 <style scoped>
@@ -463,6 +503,13 @@ async function handleThinkingToggle(event) {
   gap: 1rem;
 }
 
+.session-options {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
 .thinking-toggle {
   display: flex;
   align-items: center;
@@ -472,6 +519,54 @@ async function handleThinkingToggle(event) {
 .toggle-label {
   font-size: 0.875rem;
   color: var(--color-text-soft);
+}
+
+.mode-switcher {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.mode-label {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+}
+
+.mode-buttons {
+  display: flex;
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+
+.mode-btn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: var(--color-background);
+  border: none;
+  border-right: 1px solid var(--color-border);
+  color: var(--color-text-soft);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.mode-btn:last-child {
+  border-right: none;
+}
+
+.mode-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+
+.mode-btn.active {
+  background: var(--color-primary);
+  color: white;
+}
+
+.mode-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .toggle-switch {

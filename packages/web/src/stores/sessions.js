@@ -246,6 +246,25 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
+    async updateSessionMode(sessionId, mode) {
+      this.error = null;
+      try {
+        const updated = await api.updateSession(sessionId, { mode });
+        // Update local state
+        const session = this.sessions.find((s) => s.id === sessionId);
+        if (session) {
+          session.mode = mode;
+        }
+        if (this.currentSession?.id === sessionId) {
+          this.currentSession.mode = mode;
+        }
+        return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
     /**
      * Update session with new data from WebSocket
      * @param {Object} sessionData - Updated session data

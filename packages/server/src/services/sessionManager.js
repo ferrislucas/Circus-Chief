@@ -18,6 +18,40 @@ const activeSessions = new Map();
 const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
 
 /**
+ * Map session mode to SDK permissionMode
+ * @param {string} mode - Session mode ('plan', 'standard', 'yolo')
+ * @returns {string} SDK permissionMode value
+ */
+export function getPermissionModeForSession(mode) {
+  switch (mode) {
+    case 'yolo':
+      return 'bypassPermissions';
+    case 'plan':
+    case 'standard':
+    default:
+      return 'default';
+  }
+}
+
+/** Plan mode system prompt instructions */
+export const PLAN_MODE_PROMPT = `## Plan Mode Active
+
+You are in PLAN mode. Before implementing any changes:
+
+1. **Analyze the Request**: Understand what the user is asking for
+2. **Create a Plan**: Write a detailed implementation plan with:
+   - Files that need to be created or modified
+   - Order of changes
+   - Key implementation decisions
+   - Potential risks or edge cases
+3. **Get Approval**: Present the plan and wait for user approval before proceeding
+4. **Implement**: Only after approval, implement the changes step by step
+
+Do NOT start coding until you have presented a plan and received approval.
+
+`;
+
+/**
  * Mock query generator for E2E testing
  * Simulates the Claude SDK's behavior for multi-turn conversations
  * @param {Object} params
@@ -210,13 +244,18 @@ function buildSessionEnv(session) {
  * @param {string} sessionId
  * @param {string} projectId
  * @param {string|null} customSystemPrompt - Custom system prompt from project settings
+ * @param {string} mode - Session mode ('plan', 'standard', 'yolo')
  * @returns {string} System prompt string
  */
-function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt) {
+export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt, mode) {
   const canvasInstructions = buildCanvasSystemPrompt(sessionId);
   const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
   const basePrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
-  return `${basePrompt}\n\n${canvasInstructions}\n\n${sessionApiInstructions}`;
+
+  // Prepend plan mode instructions if in plan mode
+  const modePrompt = mode === 'plan' ? PLAN_MODE_PROMPT : '';
+
+  return `${modePrompt}${basePrompt}\n\n${canvasInstructions}\n\n${sessionApiInstructions}`;
 }
 
 /**
@@ -257,9 +296,9 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
             cwd: workingDirectory,
             abortController: controller,
             includePartialMessages: true,
-            permissionMode: 'bypassPermissions',
+            permissionMode: getPermissionModeForSession(session.mode),
             ...(sessionEnv && { env: sessionEnv }),
-            systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt),
+            systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
 
@@ -345,10 +384,10 @@ export async function continueSession(sessionId, content, workingDirectory, syst
             cwd: workingDirectory,
             abortController: controller,
             includePartialMessages: true,
-            permissionMode: 'bypassPermissions',
+            permissionMode: getPermissionModeForSession(session.mode),
             resume: session.claudeSessionId,
             ...(sessionEnv && { env: sessionEnv }),
-            systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt),
+            systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
 
