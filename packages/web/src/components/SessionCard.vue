@@ -18,7 +18,7 @@
             <svg class="pr-icon" viewBox="0 0 16 16" fill="currentColor">
               <path fill-rule="evenodd" d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z"/>
             </svg>
-            PR
+            {{ extractPrNumber(session.prUrl) }}
           </a>
         </p>
         <p v-if="showProject && session.projectName" class="session-project">
@@ -88,6 +88,12 @@ const dateToShow = computed(() => {
   // For active sessions view, prefer updatedAt; for project view, prefer createdAt
   return props.showProject ? props.session.updatedAt : props.session.createdAt;
 });
+
+function extractPrNumber(url) {
+  if (!url) return 'PR';
+  const match = url.match(/\/pull\/(\d+)/);
+  return match ? `PR ${match[1]}` : 'PR';
+}
 </script>
 
 <style scoped>
@@ -142,15 +148,16 @@ const dateToShow = computed(() => {
   padding: 0.125rem 0.375rem;
   font-size: 0.6875rem;
   font-weight: 500;
-  color: var(--color-primary);
-  background: var(--color-primary-soft);
+  color: white;
+  background: var(--color-primary);
   border-radius: 3px;
   text-decoration: none;
   transition: background-color 0.2s, color 0.2s;
 }
 
 .pr-link:hover {
-  background: var(--color-primary);
+  background: var(--color-primary-hover, var(--color-primary));
+  filter: brightness(1.1);
   color: white;
 }
 
