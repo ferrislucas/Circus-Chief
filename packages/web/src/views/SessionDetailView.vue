@@ -56,36 +56,27 @@
           ← Sessions
         </router-link>
         <span class="tab-separator"></span>
-        <router-link
-          :to="`/sessions/${route.params.id}/summary`"
-          :class="['tab', { active: activeTab === 'summary' }]"
-        >
-          Summary
-        </router-link>
-        <router-link
-          :to="`/sessions/${route.params.id}/conversation`"
-          :class="['tab', { active: activeTab === 'conversation' }]"
-        >
-          Conversation
-        </router-link>
-        <router-link
-          :to="`/sessions/${route.params.id}/changes`"
-          :class="['tab', { active: activeTab === 'changes' }]"
-        >
-          Changes
-        </router-link>
-        <router-link
-          :to="`/sessions/${route.params.id}/canvas`"
-          :class="['tab', { active: activeTab === 'canvas' }]"
-        >
-          Canvas
-        </router-link>
-        <router-link
-          :to="`/sessions/${route.params.id}/notes`"
-          :class="['tab', { active: activeTab === 'notes' }]"
-        >
-          Notes
-        </router-link>
+
+        <!-- Desktop tabs -->
+        <div class="tabs-desktop">
+          <router-link
+            v-for="tab in tabs"
+            :key="tab.id"
+            :to="`/sessions/${route.params.id}/${tab.id}`"
+            :class="['tab', { active: activeTab === tab.id }]"
+          >
+            {{ tab.label }}
+          </router-link>
+        </div>
+
+        <!-- Mobile dropdown -->
+        <div class="tabs-mobile">
+          <select :value="activeTab" @change="navigateToTab($event.target.value)" class="tab-select">
+            <option v-for="tab in tabs" :key="tab.id" :value="tab.id">
+              {{ tab.label }}
+            </option>
+          </select>
+        </div>
       </div>
 
       <div class="tab-content">
@@ -122,6 +113,18 @@ const uiStore = useUiStore();
 
 
 const activeTab = computed(() => route.params.tab || 'conversation');
+
+const tabs = [
+  { id: 'summary', label: 'Summary' },
+  { id: 'conversation', label: 'Conversation' },
+  { id: 'changes', label: 'Changes' },
+  { id: 'canvas', label: 'Canvas' },
+  { id: 'notes', label: 'Notes' }
+];
+
+function navigateToTab(tabId) {
+  router.push(`/sessions/${route.params.id}/${tabId}`);
+}
 
 const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate } =
   useSessionSubscription(route.params.id);
