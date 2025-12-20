@@ -20,15 +20,33 @@
 
       <div class="form-group">
         <label class="form-label">Options</label>
-        <div class="thinking-toggle">
-          <label class="toggle-switch">
-            <input
-              type="checkbox"
-              v-model="thinkingEnabled"
-            />
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="toggle-label">Enable Thinking</span>
+        <div class="options-row">
+          <div class="thinking-toggle">
+            <label class="toggle-switch">
+              <input
+                type="checkbox"
+                v-model="thinkingEnabled"
+              />
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Enable Thinking</span>
+          </div>
+
+          <div class="mode-selector">
+            <span class="mode-label">Mode:</span>
+            <div class="mode-buttons">
+              <button
+                type="button"
+                v-for="m in modes"
+                :key="m.value"
+                :class="['mode-btn', { active: mode === m.value }]"
+                @click="mode = m.value"
+                :title="m.description"
+              >
+                {{ m.label }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -111,6 +129,12 @@ const uiStore = useUiStore();
 const prompt = ref('');
 const mode = ref('yolo');
 const gitStatus = ref(null);
+
+const modes = [
+  { value: 'plan', label: 'Plan', description: 'Agent plans before implementing - good for complex tasks' },
+  { value: 'standard', label: 'Standard', description: 'Balanced approach - asks for approval when needed' },
+  { value: 'yolo', label: 'Auto', description: 'Auto-approve mode - agent acts autonomously' },
+];
 const loading = ref(false);
 const loadingGit = ref(false);
 const error = ref(null);
@@ -308,6 +332,14 @@ h1 {
   font-size: 0.75rem;
 }
 
+/* Options row */
+.options-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  align-items: center;
+}
+
 /* Thinking toggle */
 .thinking-toggle {
   display: flex;
@@ -318,6 +350,50 @@ h1 {
 .toggle-label {
   font-size: 0.875rem;
   color: var(--color-text-soft);
+}
+
+/* Mode selector */
+.mode-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.mode-label {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+}
+
+.mode-buttons {
+  display: flex;
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+
+.mode-btn {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: var(--color-background);
+  border: none;
+  border-right: 1px solid var(--color-border);
+  color: var(--color-text-soft);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.mode-btn:last-child {
+  border-right: none;
+}
+
+.mode-btn:hover {
+  background: var(--color-bg-hover);
+}
+
+.mode-btn.active {
+  background: var(--color-primary);
+  color: white;
 }
 
 .toggle-switch {
@@ -373,6 +449,12 @@ h1 {
   h1 {
     margin-bottom: 1rem;
     font-size: 1.5rem;
+  }
+
+  .options-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
   }
 
   .radio-option {
