@@ -243,6 +243,70 @@ describe('ApiClient', () => {
       });
     });
 
+    describe('uploadCanvasItem', () => {
+      it('uploads file to canvas', async () => {
+        const mockItem = { id: 'item-1', type: 'image', mimeType: 'image/png' };
+        mockFetch.mockReturnValue(mockResponse(mockItem));
+
+        const file = new File(['test content'], 'test.png', { type: 'image/png' });
+        const result = await client.uploadCanvasItem('sess-123', file);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/canvas', expect.objectContaining({
+          method: 'POST',
+        }));
+        // Check that FormData was used (not JSON)
+        const callArgs = mockFetch.mock.calls[0];
+        expect(callArgs[1].body).toBeInstanceOf(FormData);
+        expect(result).toEqual(mockItem);
+      });
+
+      it('includes label in FormData when provided', async () => {
+        mockFetch.mockReturnValue(mockResponse({ id: 'item-1' }));
+
+        const file = new File(['test'], 'doc.pdf', { type: 'application/pdf' });
+        await client.uploadCanvasItem('sess-123', file, 'My Document');
+
+        const callArgs = mockFetch.mock.calls[0];
+        const formData = callArgs[1].body;
+        expect(formData.get('file')).toBeInstanceOf(File);
+        expect(formData.get('label')).toBe('My Document');
+      });
+
+      it('does not include label in FormData when not provided', async () => {
+        mockFetch.mockReturnValue(mockResponse({ id: 'item-1' }));
+
+        const file = new File(['test'], 'image.jpg', { type: 'image/jpeg' });
+        await client.uploadCanvasItem('sess-123', file);
+
+        const callArgs = mockFetch.mock.calls[0];
+        const formData = callArgs[1].body;
+        expect(formData.get('file')).toBeInstanceOf(File);
+        expect(formData.get('label')).toBeNull();
+      });
+
+      it('throws error on upload failure', async () => {
+        mockFetch.mockReturnValue(Promise.resolve({
+          ok: false,
+          status: 413,
+          json: () => Promise.resolve({ error: 'File too large' }),
+        }));
+
+        const file = new File(['large content'], 'big.zip', { type: 'application/zip' });
+        await expect(client.uploadCanvasItem('sess-123', file)).rejects.toThrow('File too large');
+      });
+
+      it('throws HTTP status error when no error message in response', async () => {
+        mockFetch.mockReturnValue(Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.reject(new Error('Parse error')),
+        }));
+
+        const file = new File(['test'], 'test.txt', { type: 'text/plain' });
+        await expect(client.uploadCanvasItem('sess-123', file)).rejects.toThrow('HTTP 500');
+      });
+    });
+
     describe('deleteCanvasItem', () => {
       it('deletes canvas item', async () => {
         mockFetch.mockReturnValue(mockResponse(null, { status: 204 }));

@@ -224,6 +224,33 @@ export class ApiClient {
   }
 
   /**
+   * Upload a file to the canvas
+   * @param {string} sessionId - Session ID
+   * @param {File} file - File to upload
+   * @param {string|null} label - Optional label for the canvas item
+   * @returns {Promise<Object>}
+   */
+  async uploadCanvasItem(sessionId, file, label = null) {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (label) {
+      formData.append('label', label);
+    }
+
+    const response = await fetch(`${this.#baseUrl}/sessions/${sessionId}/canvas`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  /**
    * Delete a canvas item
    * @param {string} sessionId - Session ID
    * @param {string} itemId - Canvas item ID

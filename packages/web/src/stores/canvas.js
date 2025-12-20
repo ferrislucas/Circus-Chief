@@ -32,6 +32,21 @@ export const useCanvasStore = defineStore('canvas', {
       }
     },
 
+    async uploadItem(sessionId, file, label = null) {
+      this.loading = true;
+      this.error = null;
+      try {
+        const item = await api.uploadCanvasItem(sessionId, file, label);
+        this.items.unshift(item);
+        return item;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.loading = false;
+      }
+    },
+
     addItem(item) {
       this.items.unshift(item);
     },
