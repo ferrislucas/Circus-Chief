@@ -243,8 +243,8 @@ test.describe('Session Management', () => {
 
     await page.goto(`/sessions/${session.id}`);
 
-    // Verify mode badge is visible with correct mode
-    await expect(page.locator('.mode-badge, [class*="mode"]').getByText('plan')).toBeVisible();
+    // Verify mode badge is visible with correct mode (use specific class to avoid matching mode switcher buttons)
+    await expect(page.locator('.session-mode').getByText('plan')).toBeVisible();
 
     // Verify via API that mode is correctly set
     const apiSession = await getSession(session.id);
