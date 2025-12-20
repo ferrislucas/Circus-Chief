@@ -140,6 +140,7 @@ function startPolling() {
     if (status === 'running' || status === 'starting') {
       await sessionsStore.fetchSession(route.params.id, false);
       await sessionsStore.fetchMessages(route.params.id, false);
+      await sessionsStore.fetchWorkLogs(route.params.id);
     } else {
       // Session no longer actively processing, stop polling
       stopPolling();
