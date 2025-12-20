@@ -380,4 +380,80 @@ describe('ApiClient', () => {
       expect(mockFetch).toHaveBeenCalledWith('http://api.example.com/projects', expect.any(Object));
     });
   });
+
+  describe('commands', () => {
+    describe('getCommands', () => {
+      it('fetches commands with directory parameter', async () => {
+        const mockData = { commands: [{ name: 'help', source: 'builtin' }] };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getCommands('/path/to/project');
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/commands?directory=%2Fpath%2Fto%2Fproject',
+          expect.any(Object)
+        );
+        expect(result).toEqual(mockData);
+      });
+
+      it('encodes special characters in directory path', async () => {
+        mockFetch.mockReturnValue(mockResponse({ commands: [] }));
+
+        await client.getCommands('/path/with spaces/and&special');
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/commands?directory=%2Fpath%2Fwith%20spaces%2Fand%26special',
+          expect.any(Object)
+        );
+      });
+
+      it('handles empty directory', async () => {
+        mockFetch.mockReturnValue(mockResponse({ commands: [] }));
+
+        await client.getCommands('');
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/commands?directory=',
+          expect.any(Object)
+        );
+      });
+    });
+
+    describe('getCommand', () => {
+      it('fetches specific command by name', async () => {
+        const mockData = { command: { name: 'deploy', source: 'project' } };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getCommand('deploy', '/path/to/project');
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/commands/deploy?directory=%2Fpath%2Fto%2Fproject',
+          expect.any(Object)
+        );
+        expect(result).toEqual(mockData);
+      });
+
+      it('encodes command name with special characters', async () => {
+        mockFetch.mockReturnValue(mockResponse({ command: null }));
+
+        await client.getCommand('my-cmd', '/project');
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/commands/my-cmd?directory=%2Fproject',
+          expect.any(Object)
+        );
+      });
+
+      it('handles command not found', async () => {
+        mockFetch.mockReturnValue(Promise.resolve({
+          ok: false,
+          status: 404,
+          json: () => Promise.resolve({ error: 'Command not found' }),
+        }));
+
+        await expect(client.getCommand('nonexistent', '/project'))
+          .rejects.toThrow('Command not found');
+      });
+    });
+  });
 });

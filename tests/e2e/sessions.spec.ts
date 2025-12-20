@@ -623,3 +623,184 @@ test.describe('Conversation - Mode Switching', () => {
     await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('Plan');
   });
 });
+
+test.describe('Slash Command Autocomplete', () => {
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    project = await seedProject('Test Project', '/tmp/test');
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+  });
+
+  test('autocomplete appears when typing slash at start of message', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test session',
+      name: 'Autocomplete Test',
+    });
+
+    await page.goto(`/sessions/${session.id}/conversation`);
+
+    // Wait for session to be in waiting state
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    // Type slash in the input
+    const textarea = page.locator('textarea[placeholder*="follow-up"]');
+    await textarea.fill('/');
+
+    // Verify autocomplete appears
+    await expect(page.locator('.slash-command-autocomplete')).toBeVisible();
+  });
+
+  test('autocomplete shows builtin commands', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test session',
+      name: 'Builtin Commands Test',
+    });
+
+    await page.goto(`/sessions/${session.id}/conversation`);
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    // Type slash to trigger autocomplete
+    const textarea = page.locator('textarea[placeholder*="follow-up"]');
+    await textarea.fill('/');
+
+    // Verify builtin commands are shown
+    await expect(page.locator('.slash-command-autocomplete')).toBeVisible();
+    await expect(page.locator('.command-name:has-text("/help")')).toBeVisible();
+    await expect(page.locator('.command-name:has-text("/clear")')).toBeVisible();
+  });
+
+  test('autocomplete filters commands as user types', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test session',
+      name: 'Filter Test',
+    });
+
+    await page.goto(`/sessions/${session.id}/conversation`);
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    const textarea = page.locator('textarea[placeholder*="follow-up"]');
+
+    // Type /hel to filter to help
+    await textarea.fill('/hel');
+
+    // Verify autocomplete shows filtered results
+    await expect(page.locator('.slash-command-autocomplete')).toBeVisible();
+    await expect(page.locator('.command-name:has-text("/help")')).toBeVisible();
+
+    // Other commands should not be visible
+    await expect(page.locator('.command-name:has-text("/clear")')).not.toBeVisible();
+  });
+
+  test('autocomplete closes when escape is pressed', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test session',
+      name: 'Escape Test',
+    });
+
+    await page.goto(`/sessions/${session.id}/conversation`);
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    const textarea = page.locator('textarea[placeholder*="follow-up"]');
+    await textarea.fill('/');
+
+    // Verify autocomplete is visible
+    await expect(page.locator('.slash-command-autocomplete')).toBeVisible();
+
+    // Press Escape
+    await textarea.press('Escape');
+
+    // Verify autocomplete is closed
+    await expect(page.locator('.slash-command-autocomplete')).not.toBeVisible();
+  });
+
+  test('autocomplete does not appear for slash in middle of text', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test session',
+      name: 'Middle Slash Test',
+    });
+
+    await page.goto(`/sessions/${session.id}/conversation`);
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    const textarea = page.locator('textarea[placeholder*="follow-up"]');
+
+    // Type some text with a slash in the middle
+    await textarea.fill('This is a / test');
+
+    // Autocomplete should not appear
+    await expect(page.locator('.slash-command-autocomplete')).not.toBeVisible();
+  });
+
+  test('can navigate autocomplete with arrow keys', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test session',
+      name: 'Arrow Nav Test',
+    });
+
+    await page.goto(`/sessions/${session.id}/conversation`);
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    const textarea = page.locator('textarea[placeholder*="follow-up"]');
+    await textarea.fill('/');
+
+    // Wait for autocomplete
+    await expect(page.locator('.slash-command-autocomplete')).toBeVisible();
+
+    // First item should be selected
+    const firstItem = page.locator('.autocomplete-item').first();
+    await expect(firstItem).toHaveClass(/selected/);
+
+    // Press down arrow
+    await textarea.press('ArrowDown');
+
+    // Second item should now be selected
+    const secondItem = page.locator('.autocomplete-item').nth(1);
+    await expect(secondItem).toHaveClass(/selected/);
+
+    // Press up arrow
+    await textarea.press('ArrowUp');
+
+    // First item should be selected again
+    await expect(firstItem).toHaveClass(/selected/);
+  });
+
+  test('shows source badges for commands', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test session',
+      name: 'Source Badge Test',
+    });
+
+    await page.goto(`/sessions/${session.id}/conversation`);
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    const textarea = page.locator('textarea[placeholder*="follow-up"]');
+    await textarea.fill('/');
+
+    // Verify builtin badge is shown
+    await expect(page.locator('.command-source.source-builtin')).toBeVisible();
+  });
+
+  test('shows empty state when no commands match filter', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test session',
+      name: 'Empty Filter Test',
+    });
+
+    await page.goto(`/sessions/${session.id}/conversation`);
+    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+
+    const textarea = page.locator('textarea[placeholder*="follow-up"]');
+
+    // Type something that won't match any command
+    await textarea.fill('/zzzznonexistent');
+
+    // Verify empty state
+    await expect(page.locator('.autocomplete-empty')).toBeVisible();
+    await expect(page.getByText('No matching commands')).toBeVisible();
+  });
+});
