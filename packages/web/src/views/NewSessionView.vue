@@ -133,7 +133,7 @@ const gitStatus = ref(null);
 const modes = [
   { value: 'plan', label: 'Plan', description: 'Agent plans before implementing - good for complex tasks' },
   { value: 'standard', label: 'Standard', description: 'Balanced approach - asks for approval when needed' },
-  { value: 'yolo', label: 'Auto', description: 'Auto-approve mode - agent acts autonomously' },
+  { value: 'yolo', label: 'YOLO', description: 'Auto-approve mode - agent acts autonomously' },
 ];
 const loading = ref(false);
 const loadingGit = ref(false);

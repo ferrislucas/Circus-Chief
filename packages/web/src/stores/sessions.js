@@ -256,7 +256,7 @@ export const useSessionsStore = defineStore('sessions', {
           session.mode = mode;
         }
         if (this.currentSession?.id === sessionId) {
-          this.currentSession.mode = mode;
+          this.currentSession = { ...this.currentSession, mode };
         }
         return updated;
       } catch (err) {

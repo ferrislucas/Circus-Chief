@@ -178,7 +178,7 @@ const messagesContainer = ref(null);
 const modes = [
   { value: 'plan', label: 'Plan', description: 'Agent plans before implementing' },
   { value: 'standard', label: 'Standard', description: 'Balanced approach' },
-  { value: 'yolo', label: 'Auto', description: 'Auto-approve mode' },
+  { value: 'yolo', label: 'YOLO', description: 'Auto-approve mode' },
 ];
 const partialText = ref('');
 const isNearBottom = ref(true);
