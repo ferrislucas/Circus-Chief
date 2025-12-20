@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, mkdir, writeFile } from 'fs/promises';
-import { tmpdir, homedir } from 'os';
+import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   getCommands,
@@ -13,8 +13,6 @@ const { BUILTIN_COMMANDS } = slashCommandService;
 
 describe('slashCommandService', () => {
   let testDir;
-  let userCommandsDir;
-  let originalHome;
 
   beforeEach(async () => {
     // Create a temporary directory for project commands

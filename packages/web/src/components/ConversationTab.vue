@@ -96,7 +96,6 @@
           rows="3"
           @input="handleInput"
           @keydown="handleKeyDown"
-          @keydown.enter.ctrl="handleSend"
         ></textarea>
       </div>
       <div class="input-controls">
@@ -457,7 +456,13 @@ function handleInput(event) {
 }
 
 function handleKeyDown(event) {
-  // If autocomplete is not visible, don't intercept keys
+  // Handle Ctrl+Enter to send message
+  if (event.key === 'Enter' && event.ctrlKey && !event.shiftKey && !event.altKey) {
+    handleSend();
+    return;
+  }
+
+  // If autocomplete is not visible, don't intercept other keys
   if (!showSlashCommands.value) {
     return;
   }
@@ -472,8 +477,8 @@ function handleKeyDown(event) {
       moveDown();
       break;
     case 'Enter':
-      // Only intercept Enter if we have a selected command
-      if (selectedCommand.value && !event.ctrlKey) {
+      // Only intercept Enter if we have a selected command (and not Ctrl)
+      if (selectedCommand.value) {
         event.preventDefault();
         selectCommand(selectedCommand.value);
       }
