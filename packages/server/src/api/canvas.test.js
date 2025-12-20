@@ -20,6 +20,11 @@ function parseImageData(body) {
     }
   }
 
+  // Ensure image types always have a valid mimeType to prevent broken images in the frontend
+  if (type === 'image' && !extractedMimeType) {
+    extractedMimeType = 'image/png';
+  }
+
   return { mimeType: extractedMimeType, data: extractedData };
 }
 
@@ -93,13 +98,13 @@ describe('Canvas API', () => {
       expect(result.data).toBe('explicitData');
     });
 
-    it('returns null mimeType when neither explicit nor parseable', () => {
+    it('defaults to image/png mimeType when neither explicit nor parseable', () => {
       const result = parseImageData({
         type: 'image',
         data: 'someBase64Data',
       });
 
-      expect(result.mimeType).toBeNull();
+      expect(result.mimeType).toBe('image/png');
       expect(result.data).toBe('someBase64Data');
     });
 
@@ -113,24 +118,25 @@ describe('Canvas API', () => {
       expect(result.data).toBeNull();
     });
 
-    it('handles malformed data URL gracefully', () => {
+    it('handles malformed data URL gracefully with default mimeType', () => {
       const result = parseImageData({
         type: 'image',
         content: 'not-a-valid-data-url',
       });
 
-      expect(result.mimeType).toBeNull();
+      // Should default to image/png for images without parseable mimeType
+      expect(result.mimeType).toBe('image/png');
       expect(result.data).toBeNull();
     });
 
-    it('handles data URL without base64 prefix', () => {
+    it('handles data URL without base64 prefix with default mimeType', () => {
       const result = parseImageData({
         type: 'image',
         content: 'data:image/png,notbase64encoded',
       });
 
-      // Should not match since we require ;base64, prefix
-      expect(result.mimeType).toBeNull();
+      // Should not match since we require ;base64, prefix, but defaults to image/png
+      expect(result.mimeType).toBe('image/png');
       expect(result.data).toBeNull();
     });
 
@@ -207,6 +213,53 @@ describe('Canvas API', () => {
 
       expect(retrieved.mimeType).toBe('image/gif');
       expect(retrieved.data).toBe('retrieveTestData');
+    });
+
+    it('creates canvas item with default mimeType when not provided', () => {
+      // Simulate what the API does when mimeType cannot be extracted
+      const body = {
+        type: 'image',
+        data: 'someBase64DataWithoutMimeType',
+        label: 'Image without explicit mimeType',
+      };
+
+      const parsed = parseImageData(body);
+
+      const item = canvasItems.create(sessionId, {
+        type: body.type,
+        data: parsed.data,
+        mimeType: parsed.mimeType,
+        label: body.label,
+      });
+
+      expect(item.type).toBe('image');
+      expect(item.data).toBe('someBase64DataWithoutMimeType');
+      // Should default to image/png to prevent broken images
+      expect(item.mimeType).toBe('image/png');
+      expect(item.label).toBe('Image without explicit mimeType');
+    });
+
+    it('creates canvas item with default mimeType for malformed data URL', () => {
+      // Simulate what the API does when content has invalid data URL format
+      const body = {
+        type: 'image',
+        content: 'not-a-valid-data-url',
+        label: 'Malformed data URL image',
+      };
+
+      const parsed = parseImageData(body);
+
+      const item = canvasItems.create(sessionId, {
+        type: body.type,
+        content: body.content,
+        data: parsed.data,
+        mimeType: parsed.mimeType,
+        label: body.label,
+      });
+
+      expect(item.type).toBe('image');
+      // Should default to image/png to prevent broken images
+      expect(item.mimeType).toBe('image/png');
     });
   });
 });
