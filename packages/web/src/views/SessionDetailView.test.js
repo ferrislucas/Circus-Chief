@@ -1,12 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick, defineComponent } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 
+// Create a mutable route object that can be modified during tests
+const mockRouteParams = { id: 'test-session-id', tab: 'conversation' };
+
 // Mock vue-router
 vi.mock('vue-router', () => ({
   useRoute: vi.fn(() => ({
-    params: { id: 'test-session-id', tab: 'conversation' },
+    params: mockRouteParams,
   })),
   useRouter: vi.fn(() => ({
     push: vi.fn(),
@@ -71,6 +74,7 @@ vi.mock('../components/SummaryTab.vue', () => ({
 
 import SessionDetailView from './SessionDetailView.vue';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useSessionSubscription } from '../composables/useWebSocket.js';
 
 describe('SessionDetailView', () => {
   let mockSessionsStore;
@@ -78,6 +82,10 @@ describe('SessionDetailView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
+
+    // Reset route params to default values
+    mockRouteParams.id = 'test-session-id';
+    mockRouteParams.tab = 'conversation';
 
     mockSessionsStore = {
       loading: false,
@@ -238,6 +246,90 @@ describe('SessionDetailView', () => {
 
       expect(wrapper.find('.loading-state').exists()).toBe(true);
       expect(wrapper.text()).toContain('Loading session...');
+    });
+  });
+
+  describe('session ID capturing (race condition prevention)', () => {
+    it('captures session ID at component creation time', async () => {
+      // Mount component with initial session ID
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Verify initial fetch was called with the correct session ID
+      expect(mockSessionsStore.fetchSession).toHaveBeenCalledWith('test-session-id');
+      expect(mockSessionsStore.fetchMessages).toHaveBeenCalledWith('test-session-id');
+    });
+
+    it('uses captured session ID for WebSocket subscription', async () => {
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Verify useSessionSubscription was called with the session ID
+      expect(useSessionSubscription).toHaveBeenCalledWith('test-session-id');
+    });
+
+    it('uses captured session ID even after route params change (simulating navigation)', async () => {
+      // Start with the original session ID
+      mockRouteParams.id = 'original-session-id';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Verify initial fetch used original session ID
+      expect(mockSessionsStore.fetchSession).toHaveBeenCalledWith('original-session-id');
+
+      // Clear mock call history
+      mockSessionsStore.fetchSession.mockClear();
+      mockSessionsStore.fetchMessages.mockClear();
+
+      // Simulate what happens during navigation: route params change
+      // (In real navigation, Vue Router updates params BEFORE component unmounts)
+      mockRouteParams.id = 'different-project-id';
+
+      // Verify that useSessionSubscription was called with the ORIGINAL ID
+      // (captured at component creation), not the new route param
+      expect(useSessionSubscription).toHaveBeenCalledWith('original-session-id');
+      expect(useSessionSubscription).not.toHaveBeenCalledWith('different-project-id');
+    });
+
+    it('passes captured session ID to updateSessionStatus', async () => {
+      // Get the mock onStatus callback registrar
+      let capturedOnStatusCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn((callback) => {
+          capturedOnStatusCallback = callback;
+          return vi.fn();
+        }),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Simulate route change (as happens during navigation)
+      mockRouteParams.id = 'some-other-id';
+
+      // Trigger a status update through WebSocket
+      if (capturedOnStatusCallback) {
+        capturedOnStatusCallback('completed');
+      }
+
+      // Verify updateSessionStatus was called with the ORIGINAL session ID
+      expect(mockSessionsStore.updateSessionStatus).toHaveBeenCalledWith(
+        'test-session-id',
+        'completed'
+      );
     });
   });
 });

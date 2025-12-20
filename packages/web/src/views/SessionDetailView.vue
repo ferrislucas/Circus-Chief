@@ -111,6 +111,10 @@ const canvasStore = useCanvasStore();
 const todosStore = useTodosStore();
 const uiStore = useUiStore();
 
+// Capture session ID at component creation to avoid race conditions during navigation.
+// When navigating away, Vue Router updates route.params BEFORE unmounting the component.
+// If polling reads route.params.id after navigation starts, it would get the wrong ID.
+const sessionId = route.params.id;
 
 const activeTab = computed(() => route.params.tab || 'conversation');
 
@@ -127,7 +131,7 @@ function navigateToTab(tabId) {
 }
 
 const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate } =
-  useSessionSubscription(route.params.id);
+  useSessionSubscription(sessionId);
 
 let cleanups = [];
 const pollIntervalId = ref(null);
@@ -141,9 +145,9 @@ function startPolling() {
     // Only poll while actively processing, not while waiting for user input
     // Use showLoading=false to avoid flickering
     if (status === 'running' || status === 'starting') {
-      await sessionsStore.fetchSession(route.params.id, false);
-      await sessionsStore.fetchMessages(route.params.id, false);
-      await sessionsStore.fetchWorkLogs(route.params.id);
+      await sessionsStore.fetchSession(sessionId, false);
+      await sessionsStore.fetchMessages(sessionId, false);
+      await sessionsStore.fetchWorkLogs(sessionId);
     } else {
       // Session no longer actively processing, stop polling
       stopPolling();
@@ -176,10 +180,10 @@ onMounted(async () => {
   subscribe();
 
   // Then fetch data - this ensures we don't miss updates
-  await sessionsStore.fetchSession(route.params.id);
-  await sessionsStore.fetchMessages(route.params.id);
-  canvasStore.fetchItems(route.params.id);
-  todosStore.fetchTodos(route.params.id);
+  await sessionsStore.fetchSession(sessionId);
+  await sessionsStore.fetchMessages(sessionId);
+  canvasStore.fetchItems(sessionId);
+  todosStore.fetchTodos(sessionId);
 
   // Start polling if session is actively processing (handles race condition where session
   // completes before WebSocket subscription is established)
@@ -190,7 +194,7 @@ onMounted(async () => {
 
   cleanups.push(
     onStatus((status) => {
-      sessionsStore.updateSessionStatus(route.params.id, status);
+      sessionsStore.updateSessionStatus(sessionId, status);
       // Start polling when session starts processing, stop when done
       if (status === 'running' || status === 'starting') {
         startPolling();
@@ -248,7 +252,7 @@ async function handleDelete() {
 
   try {
     const projectId = sessionsStore.currentSession?.projectId;
-    await sessionsStore.deleteSession(route.params.id);
+    await sessionsStore.deleteSession(sessionId);
     uiStore.success('Session deleted');
     // Navigate to project sessions list
     if (projectId) {
