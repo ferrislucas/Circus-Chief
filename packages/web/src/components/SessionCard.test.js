@@ -97,6 +97,36 @@ describe('SessionCard', () => {
       const wrapper = mountComponent();
       expect(wrapper.find('.pr-link').exists()).toBe(false);
     });
+
+    it('displays PR number extracted from URL', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/456' },
+      });
+      const prLink = wrapper.find('.pr-link');
+      expect(prLink.text()).toContain('PR 456');
+    });
+
+    it('displays PR number for different PR numbers', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/1' },
+      });
+      expect(wrapper.find('.pr-link').text()).toContain('PR 1');
+    });
+
+    it('displays PR number for large PR numbers', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/99999' },
+      });
+      expect(wrapper.find('.pr-link').text()).toContain('PR 99999');
+    });
+
+    it('displays "PR" when URL does not contain PR number pattern', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, prUrl: 'https://github.com/org/repo/issues/123' },
+      });
+      expect(wrapper.find('.pr-link').text()).toContain('PR');
+      expect(wrapper.find('.pr-link').text()).not.toContain('123');
+    });
   });
 
   describe('project name display', () => {
