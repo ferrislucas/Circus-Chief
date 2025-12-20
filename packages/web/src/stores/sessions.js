@@ -289,5 +289,47 @@ export const useSessionsStore = defineStore('sessions', {
         this.activeSessions[activeIndex] = { ...this.activeSessions[activeIndex], ...sessionData };
       }
     },
+
+    /**
+     * Add a newly created session to the list (from WebSocket)
+     * @param {Object} session - New session data
+     */
+    addSessionToList(session) {
+      if (!session?.id) return;
+
+      // Check if session already exists (avoid duplicates)
+      const exists = this.sessions.some((s) => s.id === session.id);
+      if (!exists) {
+        // Add to the beginning of the list (most recent first)
+        this.sessions.unshift(session);
+      }
+
+      // Also add to active sessions if running/waiting
+      if (session.status === 'running' || session.status === 'waiting' || session.status === 'starting') {
+        const activeExists = this.activeSessions.some((s) => s.id === session.id);
+        if (!activeExists) {
+          this.activeSessions.unshift(session);
+        }
+      }
+    },
+
+    /**
+     * Remove a session from lists (from WebSocket deletion)
+     * @param {string} sessionId - Session ID to remove
+     */
+    removeSessionFromList(sessionId) {
+      if (!sessionId) return;
+
+      // Remove from sessions list
+      this.sessions = this.sessions.filter((s) => s.id !== sessionId);
+
+      // Remove from active sessions list
+      this.activeSessions = this.activeSessions.filter((s) => s.id !== sessionId);
+
+      // Clear current session if it matches
+      if (this.currentSession?.id === sessionId) {
+        this.currentSession = null;
+      }
+    },
   },
 });

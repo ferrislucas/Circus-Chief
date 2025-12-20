@@ -273,3 +273,62 @@ export function useSessionSubscription(sessionId) {
     onSessionUpdate,
   };
 }
+
+/**
+ * Subscribe to project updates (session list changes)
+ * @param {string} projectId
+ */
+export function useProjectSubscription(projectId) {
+  const { send, on, off } = useWebSocket();
+
+  const subscribe = () => {
+    send(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId });
+  };
+
+  const unsubscribe = () => {
+    send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId });
+  };
+
+  const onSessionCreated = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) {
+        callback(msg.session);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_CREATED, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_CREATED, handler);
+  };
+
+  const onSessionUpdated = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) {
+        callback(msg.session);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_UPDATED, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_UPDATED, handler);
+  };
+
+  const onSessionDeleted = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) {
+        callback(msg.sessionId);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_DELETED, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_DELETED, handler);
+  };
+
+  // Auto-cleanup on unmount
+  onUnmounted(() => {
+    unsubscribe();
+  });
+
+  return {
+    subscribe,
+    unsubscribe,
+    onSessionCreated,
+    onSessionUpdated,
+    onSessionDeleted,
+  };
+}

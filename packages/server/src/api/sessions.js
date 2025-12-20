@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { sessions, messages, sessionNotes, projects, todos, workLogs } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
 import * as summaryService from '../services/summaryService.js';
@@ -278,6 +278,13 @@ router.patch('/:id', (req, res) => {
     });
   }
 
+  // Broadcast session update to project subscribers for real-time list updates
+  broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    projectId: session.projectId,
+    sessionId: req.params.id,
+    session: updated,
+  });
+
   res.json(updated);
 });
 
@@ -348,6 +355,12 @@ router.delete('/:id', async (req, res) => {
 
   // Broadcast deletion to close any open WebSocket subscriptions
   broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_DELETED, { sessionId: req.params.id });
+
+  // Broadcast deletion to project subscribers for real-time list updates
+  broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_DELETED, {
+    projectId: session.projectId,
+    sessionId: req.params.id,
+  });
 
   // Delete session (cascade will handle messages, canvas items, notes)
   sessions.delete(req.params.id);

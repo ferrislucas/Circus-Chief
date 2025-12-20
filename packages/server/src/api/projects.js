@@ -3,6 +3,8 @@ import { projects, sessions } from '../database.js';
 import { CreateProjectRequest, UpdateProjectRequest } from '@claudetools/shared/contracts/projects';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { executeHookAsync } from '../services/hookService.js';
+import { broadcastToProject } from '../websocket.js';
+import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
 const router = Router();
 
@@ -126,6 +128,12 @@ router.post('/:id/sessions', async (req, res) => {
 
     // Return updated session with gitWorktree if set
     const updatedSession = sessions.getById(session.id);
+
+    // Broadcast session created to project subscribers
+    broadcastToProject(req.params.id, WS_MESSAGE_TYPES.SESSION_CREATED, {
+      projectId: req.params.id,
+      session: updatedSession,
+    });
 
     // Execute on_session_created hook if configured (non-blocking)
     if (project.onSessionCreated) {

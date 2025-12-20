@@ -14,6 +14,9 @@ export class WebSocketManager {
   /** @type {Map<string, Set<import('ws').WebSocket>>} */
   #sessionSubscriptions = new Map();
 
+  /** @type {Map<string, Set<import('ws').WebSocket>>} */
+  #projectSubscriptions = new Map();
+
   /**
    * Initialize WebSocket server
    * @param {import('http').Server} server - HTTP server to attach to
@@ -36,6 +39,10 @@ export class WebSocketManager {
         this.#clients.delete(ws);
         // Remove from all session subscriptions
         for (const subscribers of this.#sessionSubscriptions.values()) {
+          subscribers.delete(ws);
+        }
+        // Remove from all project subscriptions
+        for (const subscribers of this.#projectSubscriptions.values()) {
           subscribers.delete(ws);
         }
       });
@@ -71,6 +78,28 @@ export class WebSocketManager {
         if (!sessionId) return;
 
         const subscribers = this.#sessionSubscriptions.get(sessionId);
+        if (subscribers) {
+          subscribers.delete(ws);
+        }
+        break;
+      }
+
+      case WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT: {
+        const { projectId } = message;
+        if (!projectId) return;
+
+        if (!this.#projectSubscriptions.has(projectId)) {
+          this.#projectSubscriptions.set(projectId, new Set());
+        }
+        this.#projectSubscriptions.get(projectId).add(ws);
+        break;
+      }
+
+      case WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT: {
+        const { projectId } = message;
+        if (!projectId) return;
+
+        const subscribers = this.#projectSubscriptions.get(projectId);
         if (subscribers) {
           subscribers.delete(ws);
         }
@@ -114,6 +143,25 @@ export class WebSocketManager {
   }
 
   /**
+   * Broadcast message to clients subscribed to a project
+   * @param {string} projectId - Project ID
+   * @param {string} type - Message type
+   * @param {Object} payload - Message payload
+   */
+  broadcastToProject(projectId, type, payload) {
+    const subscribers = this.#projectSubscriptions.get(projectId);
+    if (!subscribers || subscribers.size === 0) return;
+
+    const message = createMessage(type, payload);
+    for (const client of subscribers) {
+      if (client.readyState === 1) {
+        // WebSocket.OPEN
+        client.send(message);
+      }
+    }
+  }
+
+  /**
    * Get WebSocket server instance
    * @returns {WebSocketServer|null}
    */
@@ -138,6 +186,14 @@ export class WebSocketManager {
   }
 
   /**
+   * Get project subscriptions
+   * @returns {Map<string, Set<import('ws').WebSocket>>}
+   */
+  getProjectSubscriptions() {
+    return this.#projectSubscriptions;
+  }
+
+  /**
    * Close the WebSocket server
    */
   close() {
@@ -147,6 +203,7 @@ export class WebSocketManager {
     }
     this.#clients.clear();
     this.#sessionSubscriptions.clear();
+    this.#projectSubscriptions.clear();
   }
 }
 
