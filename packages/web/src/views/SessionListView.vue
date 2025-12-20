@@ -66,9 +66,6 @@
             <span v-if="summaries[session.id].filesModified?.length" class="summary-files">
               {{ summaries[session.id].filesModified.length }} files modified
             </span>
-            <span v-if="session.costUsd" class="summary-cost">
-              ${{ session.costUsd.toFixed(2) }}
-            </span>
           </div>
         </div>
         <div v-else-if="loadingSummaries[session.id]" class="session-summary session-summary-loading">
@@ -353,10 +350,6 @@ function formatDate(timestamp) {
 
 .summary-files {
   opacity: 0.8;
-}
-
-.summary-cost {
-  font-family: var(--font-mono);
 }
 
 .loading-spinner-small {
