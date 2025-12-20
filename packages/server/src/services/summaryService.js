@@ -80,6 +80,21 @@ async function* mockSummaryQuery({ prompt: _prompt, recentMessages, sessionStatu
 async function callClaude(prompt, recentMessages, sessionStatus) {
   const queryFn = isMockMode() ? mockSummaryQuery : query;
 
+  // JSON Schema for structured output
+  const summarySchema = {
+    type: 'object',
+    properties: {
+      short_summary: { type: 'string', description: '1-2 sentence preview for list view (max 150 characters)' },
+      full_summary: { type: 'string', description: 'Detailed summary with key accomplishments and current state (max 500 characters)' },
+      key_actions: { type: 'array', items: { type: 'string' }, description: 'List of key actions taken' },
+      files_modified: { type: 'array', items: { type: 'string' }, description: 'List of files that were modified' },
+      outcome: { type: 'string', enum: ['completed', 'partial', 'failed', 'ongoing'], description: 'Session outcome status' },
+      pr_url: { type: ['string', 'null'], description: 'GitHub PR URL if one was created' },
+      session_title: { type: ['string', 'null'], description: 'Concise title for this session (max 60 characters)' },
+    },
+    required: ['short_summary', 'full_summary', 'key_actions', 'files_modified', 'outcome'],
+  };
+
   const queryParams = isMockMode()
     ? { prompt, recentMessages, sessionStatus }
     : {
@@ -88,10 +103,15 @@ async function callClaude(prompt, recentMessages, sessionStatus) {
           cwd: process.cwd(),
           permissionMode: 'bypassPermissions',
           maxTurns: 1,
+          outputFormat: {
+            type: 'json_schema',
+            schema: summarySchema,
+          },
         },
       };
 
   let responseText = '';
+  let structuredOutput = null;
 
   for await (const event of queryFn(queryParams)) {
     switch (event.type) {
@@ -107,11 +127,19 @@ async function callClaude(prompt, recentMessages, sessionStatus) {
         if (event.subtype === 'error') {
           throw new Error(event.error || 'Claude SDK query failed');
         }
+        // Capture structured output when using outputFormat
+        if (event.structured_output) {
+          structuredOutput = event.structured_output;
+        }
         break;
       }
     }
   }
 
+  // Prefer structured output (already parsed JSON) over text response
+  if (structuredOutput) {
+    return JSON.stringify(structuredOutput);
+  }
   return responseText;
 }
 
