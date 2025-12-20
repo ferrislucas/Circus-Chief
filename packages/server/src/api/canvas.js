@@ -1,11 +1,25 @@
 import { Router } from 'express';
 import multer from 'multer';
+import { readFileSync, existsSync } from 'fs';
+import { extname } from 'path';
 import { sessions, canvasItems } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
+
+// Map file extensions to MIME types
+const MIME_TYPES = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+};
 
 // POST /api/sessions/:id/canvas - Add canvas item
 router.post('/:id/canvas', upload.single('file'), (req, res) => {
@@ -28,37 +42,75 @@ router.post('/:id/canvas', upload.single('file'), (req, res) => {
     };
   } else {
     // JSON body (markdown, text, json, image)
-    const { type, content, data, label, title, width, height, mimeType } = req.body;
+    const { type, content, data, label, title, width, height, mimeType, filePath } = req.body;
     if (!type) {
       return res.status(400).json({ error: 'Type is required' });
     }
 
-    // Handle data URL format: extract mimeType and base64 data from "data:image/jpeg;base64,..."
-    let extractedMimeType = mimeType || null;
-    let extractedData = typeof data === 'object' ? JSON.stringify(data) : data || null;
-
-    if (type === 'image' && content && !data) {
-      const dataUrlMatch = content.match(/^data:([^;]+);base64,(.+)$/);
-      if (dataUrlMatch) {
-        extractedMimeType = dataUrlMatch[1];
-        extractedData = dataUrlMatch[2];
+    // Handle image from file path
+    if (type === 'image' && filePath) {
+      if (!existsSync(filePath)) {
+        return res.status(400).json({ error: `File not found: ${filePath}` });
       }
-    }
 
-    // Ensure image types always have a valid mimeType to prevent broken images in the frontend
-    if (type === 'image' && !extractedMimeType) {
-      extractedMimeType = 'image/png';
-    }
+      const ext = extname(filePath).toLowerCase();
+      const detectedMimeType = MIME_TYPES[ext];
+      if (!detectedMimeType) {
+        return res.status(400).json({
+          error: `Unsupported image format: ${ext}. Supported formats: ${Object.keys(MIME_TYPES).join(', ')}`
+        });
+      }
 
-    itemData = {
-      type,
-      content: content || null,
-      data: extractedData,
-      mimeType: extractedMimeType,
-      label: label || title || null, // Support both 'label' and 'title' fields
-      width: width || null,
-      height: height || null,
-    };
+      try {
+        const fileBuffer = readFileSync(filePath);
+        const base64 = fileBuffer.toString('base64');
+        itemData = {
+          type: 'image',
+          data: base64,
+          mimeType: detectedMimeType,
+          filename: filePath.split('/').pop(),
+          label: label || title || null,
+          width: width || null,
+          height: height || null,
+        };
+      } catch (err) {
+        return res.status(400).json({ error: `Failed to read file: ${err.message}` });
+      }
+    } else {
+      // Handle data URL format: extract mimeType and base64 data from "data:image/jpeg;base64,..."
+      let extractedMimeType = mimeType || null;
+      let extractedData = typeof data === 'object' ? JSON.stringify(data) : data || null;
+
+      if (type === 'image' && content && !data) {
+        const dataUrlMatch = content.match(/^data:([^;]+);base64,(.+)$/);
+        if (dataUrlMatch) {
+          extractedMimeType = dataUrlMatch[1];
+          extractedData = dataUrlMatch[2];
+        }
+      }
+
+      // Validate image has required data
+      if (type === 'image' && !extractedData && !extractedMimeType) {
+        return res.status(400).json({
+          error: 'Image requires either: filePath, data+mimeType, or content as data URL (data:image/...;base64,...)'
+        });
+      }
+
+      // Ensure image types always have a valid mimeType to prevent broken images in the frontend
+      if (type === 'image' && !extractedMimeType) {
+        extractedMimeType = 'image/png';
+      }
+
+      itemData = {
+        type,
+        content: content || null,
+        data: extractedData,
+        mimeType: extractedMimeType,
+        label: label || title || null, // Support both 'label' and 'title' fields
+        width: width || null,
+        height: height || null,
+      };
+    }
   }
 
   const item = canvasItems.create(req.params.id, itemData);

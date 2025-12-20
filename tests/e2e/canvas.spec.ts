@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { seedProject, seedSession, seedCanvasItem, cleanupAll, getCanvasItems } from './helpers';
 
+// A minimal 1x1 red PNG image in base64
+const TEST_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+
 test.describe('Canvas Management', () => {
   let project: any;
   let session: any;
@@ -161,5 +164,184 @@ test.describe('Canvas Management', () => {
     expect(apiJsonItem).toBeTruthy();
     expect(apiJsonItem.type).toBe('json');
     expect(JSON.parse(apiJsonItem.content)).toEqual({ key: 'value' });
+  });
+
+  test('image renders correctly when using data and mimeType fields', async ({ page }) => {
+    await seedCanvasItem(session.id, {
+      type: 'image',
+      data: TEST_PNG_BASE64,
+      mimeType: 'image/png',
+      label: 'Test Image',
+    });
+
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    // Verify the image label and type are visible
+    await expect(page.getByText('Test Image')).toBeVisible();
+    await expect(page.locator('.canvas-item-type').getByText('image')).toBeVisible();
+
+    // Verify the image renders correctly (not broken)
+    const image = page.locator('.canvas-image');
+    await expect(image).toBeVisible();
+
+    // Check that the image has loaded successfully by verifying naturalWidth > 0
+    const naturalWidth = await image.evaluate((img: HTMLImageElement) => img.naturalWidth);
+    expect(naturalWidth).toBeGreaterThan(0);
+  });
+
+  test('image renders correctly when using data URL in content field', async ({ page }) => {
+    const dataUrl = `data:image/png;base64,${TEST_PNG_BASE64}`;
+
+    await seedCanvasItem(session.id, {
+      type: 'image',
+      content: dataUrl,
+      label: 'Data URL Image',
+    });
+
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    // Verify the image label and type are visible
+    await expect(page.getByText('Data URL Image')).toBeVisible();
+    await expect(page.locator('.canvas-item-type').getByText('image')).toBeVisible();
+
+    // Verify the image renders correctly (not broken)
+    const image = page.locator('.canvas-image');
+    await expect(image).toBeVisible();
+
+    // Check that the image has loaded successfully by verifying naturalWidth > 0
+    const naturalWidth = await image.evaluate((img: HTMLImageElement) => img.naturalWidth);
+    expect(naturalWidth).toBeGreaterThan(0);
+  });
+
+  test('image with invalid data shows as broken', async ({ page }) => {
+    // Seed an image with invalid base64 data
+    await seedCanvasItem(session.id, {
+      type: 'image',
+      data: 'invalid-base64-data',
+      mimeType: 'image/png',
+      label: 'Broken Image',
+    });
+
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    // Verify the image element is present
+    const image = page.locator('.canvas-image');
+    await expect(image).toBeVisible();
+
+    // Check that the image is broken (naturalWidth === 0 for broken images)
+    const naturalWidth = await image.evaluate((img: HTMLImageElement) => img.naturalWidth);
+    expect(naturalWidth).toBe(0);
+  });
+
+  // Skip in CI - filePath requires shared filesystem between test runner and server
+  test('image renders correctly when using filePath', async ({ page }) => {
+    test.skip(!!process.env.CI, 'Skipped in CI - requires shared filesystem');
+
+    // First, create a test image file
+    const fs = await import('fs');
+    const testImagePath = '/tmp/test-canvas-image.png';
+
+    // Write the test PNG to a file
+    const imageBuffer = Buffer.from(TEST_PNG_BASE64, 'base64');
+    fs.writeFileSync(testImagePath, imageBuffer);
+
+    try {
+      await seedCanvasItem(session.id, {
+        type: 'image',
+        filePath: testImagePath,
+        label: 'File Path Image',
+      });
+
+      await page.goto(`/sessions/${session.id}/canvas`);
+
+      // Verify the image label and type are visible
+      await expect(page.getByText('File Path Image')).toBeVisible();
+      await expect(page.locator('.canvas-item-type').getByText('image')).toBeVisible();
+
+      // Verify the image renders correctly (not broken)
+      const image = page.locator('.canvas-image');
+      await expect(image).toBeVisible();
+
+      // Check that the image has loaded successfully by verifying naturalWidth > 0
+      const naturalWidth = await image.evaluate((img: HTMLImageElement) => img.naturalWidth);
+      expect(naturalWidth).toBeGreaterThan(0);
+    } finally {
+      // Clean up the test file
+      if (fs.existsSync(testImagePath)) {
+        fs.unlinkSync(testImagePath);
+      }
+    }
+  });
+
+  test('API returns error when image posted with raw base64 content (no data URL)', async () => {
+    const API_URL = process.env.API_URL || 'http://localhost:5000';
+
+    // Try to post an image with raw base64 in content (incorrect format)
+    const response = await fetch(`${API_URL}/api/sessions/${session.id}/canvas`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'image',
+        content: TEST_PNG_BASE64, // Raw base64, not a data URL
+        label: 'Bad Image',
+      }),
+    });
+
+    // Should return 400 error with helpful message
+    expect(response.status).toBe(400);
+    const error = await response.json();
+    expect(error.error).toContain('Image requires either');
+    expect(error.error).toContain('filePath');
+    expect(error.error).toContain('data URL');
+  });
+
+  test('API returns error when image file path does not exist', async () => {
+    const API_URL = process.env.API_URL || 'http://localhost:5000';
+
+    const response = await fetch(`${API_URL}/api/sessions/${session.id}/canvas`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'image',
+        filePath: '/nonexistent/path/to/image.png',
+        label: 'Missing File',
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    const error = await response.json();
+    expect(error.error).toContain('File not found');
+  });
+
+  // Skip in CI - filePath requires shared filesystem between test runner and server
+  test('API returns error for unsupported image format', async () => {
+    test.skip(!!process.env.CI, 'Skipped in CI - requires shared filesystem');
+
+    const API_URL = process.env.API_URL || 'http://localhost:5000';
+    const fs = await import('fs');
+    const testFilePath = '/tmp/test-unsupported.xyz';
+
+    // Create a file with unsupported extension
+    fs.writeFileSync(testFilePath, 'fake image data');
+
+    try {
+      const response = await fetch(`${API_URL}/api/sessions/${session.id}/canvas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'image',
+          filePath: testFilePath,
+          label: 'Unsupported Format',
+        }),
+      });
+
+      expect(response.status).toBe(400);
+      const error = await response.json();
+      expect(error.error).toContain('Unsupported image format');
+    } finally {
+      if (fs.existsSync(testFilePath)) {
+        fs.unlinkSync(testFilePath);
+      }
+    }
   });
 });
