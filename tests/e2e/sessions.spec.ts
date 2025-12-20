@@ -410,15 +410,15 @@ test.describe('New Session - Mode Selection', () => {
     await expect(page.locator('.mode-selector')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Plan' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Standard' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Auto' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'YOLO' })).toBeVisible();
   });
 
-  test('Auto (yolo) mode is selected by default', async ({ page }) => {
+  test('YOLO mode is selected by default', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions/new`);
 
-    // Verify Auto (yolo) is the default selected mode
+    // Verify YOLO is the default selected mode
     const activeBtn = page.locator('.mode-btn.active');
-    await expect(activeBtn).toHaveText('Auto');
+    await expect(activeBtn).toHaveText('YOLO');
   });
 
   test('can create session with plan mode', async ({ page }) => {
@@ -454,8 +454,8 @@ test.describe('New Session - Mode Selection', () => {
     // Fill in required prompt field
     await page.fill('textarea[id="prompt"]', 'Test with yolo mode');
 
-    // Select Auto (yolo) mode
-    await page.click('button:has-text("Auto")');
+    // Select YOLO mode
+    await page.click('button:has-text("YOLO")');
 
     // Submit the form
     await page.click('button:has-text("Start Session")');
@@ -478,8 +478,8 @@ test.describe('New Session - Mode Selection', () => {
   test('can switch between modes', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions/new`);
 
-    // Verify Auto is default
-    await expect(page.locator('.mode-btn.active')).toHaveText('Auto');
+    // Verify YOLO is default
+    await expect(page.locator('.mode-btn.active')).toHaveText('YOLO');
 
     // Click Plan mode and verify it becomes active
     await page.click('.mode-btn:has-text("Plan")');
@@ -489,9 +489,9 @@ test.describe('New Session - Mode Selection', () => {
     await page.click('.mode-btn:has-text("Standard")');
     await expect(page.locator('.mode-btn.active')).toHaveText('Standard');
 
-    // Click Auto mode and verify it becomes active
-    await page.click('.mode-btn:has-text("Auto")');
-    await expect(page.locator('.mode-btn.active')).toHaveText('Auto');
+    // Click YOLO mode and verify it becomes active
+    await page.click('.mode-btn:has-text("YOLO")');
+    await expect(page.locator('.mode-btn.active')).toHaveText('YOLO');
   });
 });
 
@@ -523,7 +523,7 @@ test.describe('Conversation - Mode Switching', () => {
     await expect(page.locator('.mode-switcher')).toBeVisible();
     await expect(page.locator('.mode-switcher button:has-text("Plan")')).toBeVisible();
     await expect(page.locator('.mode-switcher button:has-text("Standard")')).toBeVisible();
-    await expect(page.locator('.mode-switcher button:has-text("Auto")')).toBeVisible();
+    await expect(page.locator('.mode-switcher button:has-text("YOLO")')).toBeVisible();
   });
 
   test('mode switcher shows current session mode', async ({ page }) => {
@@ -557,14 +557,14 @@ test.describe('Conversation - Mode Switching', () => {
     // Verify Standard is active
     await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('Standard');
 
-    // Click Auto to switch to yolo mode
-    await page.click('.mode-switcher button:has-text("Auto")');
+    // Click YOLO to switch to yolo mode
+    await page.click('.mode-switcher button:has-text("YOLO")');
 
     // Wait for mode to update
     await page.waitForTimeout(500);
 
-    // Verify Auto is now active
-    await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('Auto');
+    // Verify YOLO is now active
+    await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('YOLO');
 
     // Verify via API
     const updatedSession = await getSession(session.id);
@@ -583,8 +583,8 @@ test.describe('Conversation - Mode Switching', () => {
     // Wait for session to be in waiting state
     await waitForSessionStatus(page, session.id, 'waiting', 15000);
 
-    // Verify Auto is active
-    await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('Auto');
+    // Verify YOLO is active
+    await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('YOLO');
 
     // Click Plan to switch to plan mode
     await page.click('.mode-switcher button:has-text("Plan")');
