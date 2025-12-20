@@ -347,6 +347,27 @@ export class ApiClient {
     const params = path ? `?path=${encodeURIComponent(path)}` : '';
     return this.#request('GET', `/filesystem/browse${params}`);
   }
+
+  // Commands
+
+  /**
+   * Get all available slash commands for a directory
+   * @param {string} directory - Working directory path
+   * @returns {Promise<{commands: Array}>}
+   */
+  async getCommands(directory) {
+    return this.#request('GET', `/commands?directory=${encodeURIComponent(directory)}`);
+  }
+
+  /**
+   * Get a specific command by name
+   * @param {string} name - Command name
+   * @param {string} directory - Working directory path
+   * @returns {Promise<{command: Object}>}
+   */
+  async getCommand(name, directory) {
+    return this.#request('GET', `/commands/${name}?directory=${encodeURIComponent(directory)}`);
+  }
 }
 
 // Singleton instance

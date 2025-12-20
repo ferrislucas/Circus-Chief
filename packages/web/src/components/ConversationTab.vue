@@ -79,13 +79,26 @@
     </div>
 
     <form v-if="canSendMessage" @submit.prevent="handleSend" class="input-form">
-      <textarea
-        v-model="input"
-        class="form-input form-textarea"
-        :placeholder="isStopped ? 'Send a message to resume session...' : 'Send a follow-up message...'"
-        rows="3"
-        @keydown.enter.ctrl="handleSend"
-      ></textarea>
+      <div class="textarea-wrapper">
+        <SlashCommandAutocomplete
+          :is-visible="showSlashCommands"
+          :filtered-commands="filteredCommands"
+          :selected-index="selectedIndex"
+          :loading="commandsLoading"
+          @select="selectCommand"
+          @highlight="handleHighlight"
+        />
+        <textarea
+          ref="textareaRef"
+          v-model="input"
+          class="form-input form-textarea"
+          :placeholder="isStopped ? 'Send a message to resume session...' : 'Type / for commands...'"
+          rows="3"
+          @input="handleInput"
+          @keydown="handleKeyDown"
+          @keydown.enter.ctrl="handleSend"
+        ></textarea>
+      </div>
       <div class="input-controls">
         <div class="session-options">
           <div class="thinking-toggle">
@@ -155,10 +168,12 @@ import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
+import { useSlashCommands } from '../composables/useSlashCommands.js';
 import TodoDrawer from './TodoDrawer.vue';
 import WorkLogPanel from './WorkLogPanel.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
+import SlashCommandAutocomplete from './SlashCommandAutocomplete.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -184,6 +199,26 @@ const partialText = ref('');
 const isNearBottom = ref(true);
 const hasNewMessages = ref(false);
 let debounceTimer = null;
+
+// Slash command autocomplete state
+const showSlashCommands = ref(false);
+const textareaRef = ref(null);
+
+const workingDirectory = computed(() =>
+  sessionsStore.currentSession?.workingDirectory || ''
+);
+
+const {
+  filteredCommands,
+  selectedIndex,
+  selectedCommand,
+  loading: commandsLoading,
+  fetchCommands,
+  setFilter,
+  moveUp,
+  moveDown,
+  reset: resetSlashCommands,
+} = useSlashCommands(workingDirectory);
 
 const SCROLL_THRESHOLD = 100; // pixels from bottom to consider "at bottom"
 
@@ -284,6 +319,8 @@ onUnmounted(() => {
   }
   // Clear work logs when leaving the conversation
   sessionsStore.clearWorkLogs();
+  // Reset slash command state
+  resetSlashCommands();
 });
 
 // Save draft to localStorage with debounce
@@ -399,6 +436,84 @@ async function handleModeChange(newMode) {
     togglingMode.value = false;
   }
 }
+
+// Slash command autocomplete handlers
+function handleInput(event) {
+  const value = event.target.value;
+
+  // Check if input starts with / and has no space yet (still typing command name)
+  if (value.startsWith('/') && !value.includes(' ')) {
+    const partial = value.slice(1); // Remove leading /
+    setFilter(partial);
+    showSlashCommands.value = true;
+
+    // Fetch commands if not loaded
+    if (filteredCommands.value.length === 0 && !commandsLoading.value) {
+      fetchCommands();
+    }
+  } else {
+    showSlashCommands.value = false;
+  }
+}
+
+function handleKeyDown(event) {
+  // If autocomplete is not visible, don't intercept keys
+  if (!showSlashCommands.value) {
+    return;
+  }
+
+  switch (event.key) {
+    case 'ArrowUp':
+      event.preventDefault();
+      moveUp();
+      break;
+    case 'ArrowDown':
+      event.preventDefault();
+      moveDown();
+      break;
+    case 'Enter':
+      // Only intercept Enter if we have a selected command
+      if (selectedCommand.value && !event.ctrlKey) {
+        event.preventDefault();
+        selectCommand(selectedCommand.value);
+      }
+      break;
+    case 'Escape':
+      event.preventDefault();
+      showSlashCommands.value = false;
+      break;
+    case 'Tab':
+      if (selectedCommand.value) {
+        event.preventDefault();
+        selectCommand(selectedCommand.value);
+      }
+      break;
+  }
+}
+
+function selectCommand(command) {
+  // Replace the partial command with the full command name
+  if (command.argumentHint) {
+    input.value = `/${command.name} `;
+  } else {
+    input.value = `/${command.name}`;
+  }
+
+  showSlashCommands.value = false;
+  resetSlashCommands();
+
+  // Focus textarea and move cursor to end
+  nextTick(() => {
+    if (textareaRef.value) {
+      textareaRef.value.focus();
+      textareaRef.value.selectionStart = textareaRef.value.selectionEnd = input.value.length;
+    }
+  });
+}
+
+function handleHighlight(index) {
+  selectedIndex.value = index;
+}
 </script>
 
 <style scoped>
@@ -490,6 +605,11 @@ async function handleModeChange(newMode) {
   gap: 0.5rem;
   padding-top: 1rem;
   border-top: 1px solid var(--color-border);
+}
+
+.textarea-wrapper {
+  position: relative;
+  width: 100%;
 }
 
 .input-form textarea {
