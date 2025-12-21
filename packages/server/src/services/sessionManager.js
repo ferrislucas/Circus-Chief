@@ -651,8 +651,9 @@ async function handleStreamEvent(sessionId, event) {
           sessions.update(sessionId, { costUsd: event.total_cost_usd });
         }
       }
-      // Clear message tracking when session completes
-      lastMessageIds.delete(sessionId);
+      // Note: Don't clear lastMessageIds here - let the post-loop association code handle it.
+      // Clearing here was causing work logs to never be associated because the 'result' event
+      // arrives before the loop ends, deleting the messageId before association can happen.
       break;
     }
   }

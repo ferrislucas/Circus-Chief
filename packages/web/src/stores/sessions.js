@@ -168,7 +168,32 @@ export const useSessionsStore = defineStore('sessions', {
       this.error = null;
       try {
         const grouped = await api.getSessionWorkLogs(sessionId);
-        this.workLogs = grouped;
+
+        // Merge strategy: Use fetched data as base, but preserve any _unassociated
+        // logs that arrived via WebSocket and aren't yet in the fetched data.
+        // This prevents race conditions where logs arrive during the fetch.
+
+        // Build a set of all log IDs from the fetched data
+        const fetchedLogIds = new Set();
+        for (const messageId of Object.keys(grouped)) {
+          for (const log of grouped[messageId] || []) {
+            fetchedLogIds.add(log.id);
+          }
+        }
+
+        // Get existing unassociated logs that aren't in the fetched data
+        // (these are logs that arrived via WebSocket during the fetch)
+        const existingUnassociated = this.workLogs['_unassociated'] || [];
+        const newUnassociatedLogs = existingUnassociated.filter(
+          log => !fetchedLogIds.has(log.id)
+        );
+
+        // Merge: use fetched data, but append any truly new unassociated logs
+        const fetchedUnassociated = grouped['_unassociated'] || [];
+        this.workLogs = {
+          ...grouped,
+          '_unassociated': [...fetchedUnassociated, ...newUnassociatedLogs],
+        };
       } catch (err) {
         this.error = err.message;
       }
