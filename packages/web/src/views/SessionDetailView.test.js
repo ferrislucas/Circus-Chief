@@ -312,6 +312,7 @@ describe('SessionDetailView', () => {
         onCanvasRemove: vi.fn(() => vi.fn()),
         onTodosUpdate: vi.fn(() => vi.fn()),
         onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
