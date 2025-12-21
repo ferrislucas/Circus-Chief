@@ -221,8 +221,9 @@ test.describe('File Attachments - UI Display', () => {
     await page.reload();
     await page.waitForLoadState('networkidle');
 
-    // Verify the attachment is displayed in the UI
-    await expect(page.getByText('display-test.txt')).toBeVisible({ timeout: 10000 });
+    // Verify the attachment is displayed in the attachment chip area specifically
+    // Use locator to find the attachment-name element within an attachment-chip
+    await expect(page.locator('.attachment-chip .attachment-name').filter({ hasText: 'display-test.txt' }).first()).toBeVisible({ timeout: 10000 });
   });
 
   test('multiple attachments display correctly', async ({ page }) => {
@@ -240,9 +241,9 @@ test.describe('File Attachments - UI Display', () => {
     await page.reload();
     await page.waitForLoadState('networkidle');
 
-    // Verify both attachments are displayed
-    await expect(page.getByText('file-a.txt')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('file-b.json')).toBeVisible({ timeout: 10000 });
+    // Verify both attachments are displayed in the attachment chip area
+    await expect(page.locator('.attachment-chip .attachment-name').filter({ hasText: 'file-a.txt' }).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.attachment-chip .attachment-name').filter({ hasText: 'file-b.json' }).first()).toBeVisible({ timeout: 10000 });
   });
 });
 
