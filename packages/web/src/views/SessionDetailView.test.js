@@ -28,6 +28,7 @@ vi.mock('../composables/useWebSocket.js', () => ({
     onCanvasRemove: vi.fn(() => vi.fn()),
     onTodosUpdate: vi.fn(() => vi.fn()),
     onSessionUpdate: vi.fn(() => vi.fn()),
+    onSummaryUpdate: vi.fn(() => vi.fn()),
   })),
 }));
 
@@ -209,7 +210,7 @@ describe('SessionDetailView', () => {
       await flushPromises();
       await nextTick();
 
-      expect(wrapper.find('.session-mode').text()).toBe('standard');
+      expect(wrapper.find('.session-mode').text()).toBe('Standard');
     });
 
     it('shows PR link when prUrl is set', async () => {
@@ -311,6 +312,7 @@ describe('SessionDetailView', () => {
         onCanvasRemove: vi.fn(() => vi.fn()),
         onTodosUpdate: vi.fn(() => vi.fn()),
         onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
