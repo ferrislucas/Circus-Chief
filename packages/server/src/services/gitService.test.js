@@ -329,9 +329,6 @@ describe('gitService', () => {
 
   describe('branch isolation', () => {
     it('bases new branches on origin default branch, not HEAD', async () => {
-      // Get the current branch name
-      const currentBranch = await getCurrentBranch(testDir);
-
       // Create a local-only commit that's ahead of origin
       await writeFile(join(testDir, 'local-only.txt'), 'local content');
       execSync('git add .', { cwd: testDir });
