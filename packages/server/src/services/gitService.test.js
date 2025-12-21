@@ -14,8 +14,13 @@ import {
 
 describe('gitService', () => {
   let testDir;
+  let bareRepoDir;
 
   beforeEach(async () => {
+    // Create a bare repo to serve as "origin"
+    bareRepoDir = await mkdtemp(join(tmpdir(), 'git-bare-'));
+    execSync('git init --bare', { cwd: bareRepoDir });
+
     // Create a temporary directory with a git repo
     testDir = await mkdtemp(join(tmpdir(), 'git-test-'));
     execSync('git init', { cwd: testDir });
@@ -25,11 +30,16 @@ describe('gitService', () => {
     await writeFile(join(testDir, 'README.md'), '# Test');
     execSync('git add .', { cwd: testDir });
     execSync('git commit -m "Initial commit"', { cwd: testDir });
+
+    // Add the bare repo as origin and push
+    execSync(`git remote add origin "${bareRepoDir}"`, { cwd: testDir });
+    execSync('git push -u origin HEAD', { cwd: testDir });
   });
 
   afterEach(async () => {
-    // Clean up temporary directory
+    // Clean up temporary directories
     await rm(testDir, { recursive: true, force: true });
+    await rm(bareRepoDir, { recursive: true, force: true });
   });
 
   describe('branchExists', () => {

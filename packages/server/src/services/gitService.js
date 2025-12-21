@@ -15,6 +15,43 @@ async function git(directory, command) {
 }
 
 /**
+ * Get the default branch from origin remote
+ * Uses GitHub CLI if available, falls back to git commands
+ * @param {string} directory
+ * @returns {Promise<string>}
+ */
+async function getOriginDefaultBranch(directory) {
+  // Try GitHub CLI first - most accurate method
+  try {
+    const { stdout } = await execAsync(
+      'gh repo view --json defaultBranchRef --jq ".defaultBranchRef.name"',
+      { cwd: directory }
+    );
+    const branch = stdout.trim();
+    if (branch) {
+      return `origin/${branch}`;
+    }
+  } catch {
+    // gh CLI not available or failed, fall back to git commands
+  }
+
+  // Try to get the default branch from the remote HEAD
+  try {
+    const ref = await git(directory, 'symbolic-ref refs/remotes/origin/HEAD');
+    // Returns something like "refs/remotes/origin/main"
+    return ref.replace('refs/remotes/', '');
+  } catch {
+    // Fallback: check if origin/main exists, otherwise use origin/master
+    try {
+      await git(directory, 'rev-parse --verify origin/main');
+      return 'origin/main';
+    } catch {
+      return 'origin/master';
+    }
+  }
+}
+
+/**
  * Check if a directory is a git repository
  * @param {string} directory
  * @returns {Promise<boolean>}
@@ -92,7 +129,12 @@ export async function getCurrentBranch(directory) {
  * @returns {Promise<{path: string, branch: string}>}
  */
 export async function createWorktree(directory, branch, path) {
-  await git(directory, `worktree add "${path}" -b "${branch}"`);
+  // Fetch latest from origin to ensure we have up-to-date default branch
+  await git(directory, 'fetch origin');
+  // Get the default branch from origin (main or master)
+  const defaultBranch = await getOriginDefaultBranch(directory);
+  // Base new branch on origin's default branch to avoid including unrelated commits from HEAD
+  await git(directory, `worktree add "${path}" -b "${branch}" ${defaultBranch}`);
   return { path, branch };
 }
 
@@ -171,11 +213,16 @@ export async function checkoutBranch(directory, branch) {
  * @returns {Promise<{path: string, branch: string}>}
  */
 export async function createWorktreeForBranch(directory, branch, worktreePath) {
+  // Fetch latest from origin to ensure we have up-to-date default branch
+  await git(directory, 'fetch origin');
   const exists = await branchExists(directory, branch);
   if (exists) {
     await git(directory, `worktree add "${worktreePath}" "${branch}"`);
   } else {
-    await git(directory, `worktree add -b "${branch}" "${worktreePath}"`);
+    // Get the default branch from origin (main or master)
+    const defaultBranch = await getOriginDefaultBranch(directory);
+    // Base new branch on origin's default branch to avoid including unrelated commits from HEAD
+    await git(directory, `worktree add -b "${branch}" "${worktreePath}" ${defaultBranch}`);
   }
   return { path: worktreePath, branch };
 }
