@@ -15,31 +15,31 @@
             </span>
             <span class="session-mode">{{ formatMode(sessionsStore.currentSession.mode) }}</span>
           </div>
-          <div v-if="sessionsStore.currentSession.gitBranch || sessionsStore.currentSession.prUrl" class="branch-line">
-            <span
-              v-if="sessionsStore.currentSession.gitBranch"
-              class="branch-indicator"
-              :title="sessionsStore.currentSession.gitBranch"
+          <div class="branch-line">
+            <div class="branch-pr-indicators">
+              <span
+                v-if="sessionsStore.currentSession.gitBranch"
+                class="branch-indicator"
+                :title="sessionsStore.currentSession.gitBranch"
+              >
+                <svg class="branch-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z"/>
+                </svg>
+                {{ sessionsStore.currentSession.gitBranch }}
+              </span>
+              <PrIndicators
+                v-if="sessionsStore.currentSession.prUrl"
+                :pr-url="sessionsStore.currentSession.prUrl"
+                :summary="summary"
+              />
+            </div>
+            <button
+              class="btn btn-outline-danger btn-delete-session"
+              @click="handleDelete"
             >
-              <svg class="branch-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                <path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.492 2.492 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z"/>
-              </svg>
-              {{ sessionsStore.currentSession.gitBranch }}
-            </span>
-            <PrIndicators
-              v-if="sessionsStore.currentSession.prUrl"
-              :pr-url="sessionsStore.currentSession.prUrl"
-              :summary="summary"
-            />
+              Delete Session
+            </button>
           </div>
-        </div>
-        <div class="session-actions">
-          <button
-            class="btn btn-outline-danger"
-            @click="handleDelete"
-          >
-            Delete Session
-          </button>
         </div>
       </div>
 
@@ -82,7 +82,7 @@
       <div class="tab-content">
         <SummaryTab v-if="activeTab === 'summary'" :session-id="route.params.id" />
         <ConversationTab v-else-if="activeTab === 'conversation'" :session-id="route.params.id" />
-        <ChangesTab v-else-if="activeTab === 'changes'" :session-id="route.params.id" />
+        <ChangesTab v-else-if="activeTab === 'changes'" :session-id="route.params.id" @update:file-count="changesFileCount = $event" />
         <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
         <NotesTab v-else-if="activeTab === 'notes'" :session-id="route.params.id" />
       </div>
@@ -119,14 +119,15 @@ const uiStore = useUiStore();
 const sessionId = route.params.id;
 
 const activeTab = computed(() => route.params.tab || 'conversation');
+const changesFileCount = ref(0);
 
-const tabs = [
+const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
   { id: 'conversation', label: 'Conversation' },
-  { id: 'changes', label: 'Changes' },
+  { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
   { id: 'canvas', label: 'Canvas' },
   { id: 'notes', label: 'Notes' }
-];
+]);
 
 function navigateToTab(tabId) {
   router.push(`/sessions/${route.params.id}/${tabId}`);
@@ -338,9 +339,22 @@ async function handleDelete() {
 .branch-line {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
   margin-top: 0.5rem;
   flex-wrap: wrap;
+}
+
+.branch-pr-indicators {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.btn-delete-session {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .session-mode {
@@ -371,12 +385,6 @@ async function handleDelete() {
 
 .tab-content {
   min-height: 400px;
-}
-
-.session-actions {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
 }
 
 .changes-indicator {

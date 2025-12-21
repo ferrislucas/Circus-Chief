@@ -39,7 +39,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { api } from '../api/ApiClient.js';
 import { parseDiff } from '../utils/diffParser.js';
 import DiffViewer from './DiffViewer.vue';
@@ -47,6 +47,8 @@ import DiffViewer from './DiffViewer.vue';
 const props = defineProps({
   sessionId: { type: String, required: true },
 });
+
+const emit = defineEmits(['update:fileCount']);
 
 const staged = ref('');
 const unstaged = ref('');
@@ -63,6 +65,12 @@ const stagedFiles = computed(() => parseDiff(staged.value));
 const unstagedFiles = computed(() => parseDiff(unstaged.value));
 const untrackedFiles = computed(() => parseDiff(untracked.value));
 const hasChanges = computed(() => staged.value || unstaged.value || untracked.value);
+const fileCount = computed(
+  () => stagedFiles.value.length + unstagedFiles.value.length + untrackedFiles.value.length
+);
+
+// Emit file count whenever it changes
+watch(fileCount, (count) => emit('update:fileCount', count), { immediate: true });
 
 function toggleAllFiles() {
   if (allExpanded.value) {
@@ -108,6 +116,7 @@ defineExpose({
   stagedFiles,
   unstagedFiles,
   untrackedFiles,
+  fileCount,
 });
 </script>
 
