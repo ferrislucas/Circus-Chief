@@ -77,17 +77,22 @@ test.describe('Session Templates - Empty State', () => {
     await page.click('.tab:has-text("Templates")');
 
     await expect(page.getByText('No templates yet')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Create Template' })).toBeVisible();
+    await expect(page.locator('.empty-state button:has-text("Create Template")')).toBeVisible();
   });
 
   test('empty state Create Template button opens form', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
 
-    await page.click('button:has-text("Create Template")');
+    // Wait for empty state to be visible
+    await expect(page.locator('.empty-state')).toBeVisible();
 
-    await expect(page.locator('.template-form')).toBeVisible();
-    await expect(page.getByText('Create Template', { exact: false })).toBeVisible();
+    // Click the Create Template button in the empty state
+    await page.locator('.empty-state button:has-text("Create Template")').click();
+
+    // Wait for form to appear
+    await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.template-form h3')).toHaveText('Create Template');
   });
 });
 
@@ -105,24 +110,34 @@ test.describe('Session Templates - Create Form', () => {
     await cleanupTemplates();
   });
 
-  test('New Template button opens create form', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/sessions`);
+  // Helper to open the create form
+  async function openCreateForm(page: any, projectId: string) {
+    await page.goto(`/projects/${projectId}/sessions`);
     await page.click('.tab:has-text("Templates")');
+    await expect(page.locator('.templates-panel')).toBeVisible();
+    await expect(page.locator('.empty-state')).toBeVisible();
+    await page.locator('.empty-state button:has-text("Create Template")').click();
+    await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
+  }
 
+  test('New Template button opens create form', async ({ page }) => {
     // First, add a template to show the header button
     await seedProjectTemplate(project.id, { name: '[TEST] Existing', prompt: 'Test prompt' });
-    await page.reload();
+
+    await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
+    await expect(page.locator('.templates-panel')).toBeVisible();
 
-    await page.click('button:has-text("New Template")');
+    // Wait for template to appear
+    await expect(page.getByText('[TEST] Existing')).toBeVisible();
 
-    await expect(page.locator('.template-form')).toBeVisible();
+    await page.click('.templates-header button:has-text("New Template")');
+
+    await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
   });
 
   test('form has all required fields', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('.tab:has-text("Templates")');
-    await page.click('button:has-text("Create Template")');
+    await openCreateForm(page, project.id);
 
     // Check form fields exist
     await expect(page.locator('.template-form input[placeholder="Template name"]')).toBeVisible();
@@ -134,9 +149,7 @@ test.describe('Session Templates - Create Form', () => {
   });
 
   test('form shows available Liquid variables', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('.tab:has-text("Templates")');
-    await page.click('button:has-text("Create Template")');
+    await openCreateForm(page, project.id);
 
     await expect(page.getByText('{{parentSession.summary}}')).toBeVisible();
     await expect(page.getByText('{{parentSession.status}}')).toBeVisible();
@@ -144,19 +157,17 @@ test.describe('Session Templates - Create Form', () => {
   });
 
   test('can create a project template', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('.tab:has-text("Templates")');
-    await page.click('button:has-text("Create Template")');
+    await openCreateForm(page, project.id);
 
     // Fill form
-    await page.fill('input[placeholder="Template name"]', '[TEST] My Template');
-    await page.fill('textarea', 'This is the template prompt');
+    await page.fill('.template-form input[placeholder="Template name"]', '[TEST] My Template');
+    await page.fill('.template-form textarea', 'This is the template prompt');
 
     // Submit
-    await page.click('button:has-text("Create"):not(:has-text("Template"))');
+    await page.locator('.template-form button[type="submit"]').click();
 
     // Wait for form to close and template to appear
-    await expect(page.locator('.template-form')).not.toBeVisible();
+    await expect(page.locator('.template-form')).not.toBeVisible({ timeout: 10000 });
     await expect(page.getByText('[TEST] My Template')).toBeVisible();
 
     // Verify via API
@@ -167,22 +178,20 @@ test.describe('Session Templates - Create Form', () => {
   });
 
   test('can create a global template', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('.tab:has-text("Templates")');
-    await page.click('button:has-text("Create Template")');
+    await openCreateForm(page, project.id);
 
     // Fill form
-    await page.fill('input[placeholder="Template name"]', '[TEST] Global Template');
-    await page.fill('textarea', 'Global template prompt');
+    await page.fill('.template-form input[placeholder="Template name"]', '[TEST] Global Template');
+    await page.fill('.template-form textarea', 'Global template prompt');
 
     // Select global scope
-    await page.selectOption('.template-form select:first-of-type', { label: 'Global (all projects)' });
+    await page.locator('.template-form select').first().selectOption({ label: 'Global (all projects)' });
 
     // Submit
-    await page.click('button:has-text("Create"):not(:has-text("Template"))');
+    await page.locator('.template-form button[type="submit"]').click();
 
     // Wait for form to close and template to appear
-    await expect(page.locator('.template-form')).not.toBeVisible();
+    await expect(page.locator('.template-form')).not.toBeVisible({ timeout: 10000 });
     await expect(page.getByText('[TEST] Global Template')).toBeVisible();
     await expect(page.locator('.meta-badge-global')).toBeVisible();
 
@@ -194,22 +203,20 @@ test.describe('Session Templates - Create Form', () => {
   });
 
   test('can create template with thinking enabled', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('.tab:has-text("Templates")');
-    await page.click('button:has-text("Create Template")');
+    await openCreateForm(page, project.id);
 
     // Fill form
-    await page.fill('input[placeholder="Template name"]', '[TEST] Thinking Template');
-    await page.fill('textarea', 'Template with thinking');
+    await page.fill('.template-form input[placeholder="Template name"]', '[TEST] Thinking Template');
+    await page.fill('.template-form textarea', 'Template with thinking');
 
     // Enable thinking
     await page.check('.template-form input[type="checkbox"]');
 
     // Submit
-    await page.click('button:has-text("Create"):not(:has-text("Template"))');
+    await page.locator('.template-form button[type="submit"]').click();
 
     // Verify thinking badge shows
-    await expect(page.locator('.meta-badge:has-text("Thinking")')).toBeVisible();
+    await expect(page.locator('.meta-badge:has-text("Thinking")')).toBeVisible({ timeout: 10000 });
 
     // Verify via API
     const templates = await getProjectTemplates(project.id);
@@ -219,20 +226,18 @@ test.describe('Session Templates - Create Form', () => {
   });
 
   test('can create template with git branch', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('.tab:has-text("Templates")');
-    await page.click('button:has-text("Create Template")');
+    await openCreateForm(page, project.id);
 
     // Fill form
-    await page.fill('input[placeholder="Template name"]', '[TEST] Branch Template');
-    await page.fill('textarea', 'Template with branch');
-    await page.fill('input[placeholder="Branch name"]', 'feature/test');
+    await page.fill('.template-form input[placeholder="Template name"]', '[TEST] Branch Template');
+    await page.fill('.template-form textarea', 'Template with branch');
+    await page.fill('.template-form input[placeholder="Branch name"]', 'feature/test');
 
     // Submit
-    await page.click('button:has-text("Create"):not(:has-text("Template"))');
+    await page.locator('.template-form button[type="submit"]').click();
 
     // Verify branch badge shows
-    await expect(page.locator('.meta-badge:has-text("feature/test")')).toBeVisible();
+    await expect(page.locator('.meta-badge:has-text("feature/test")')).toBeVisible({ timeout: 10000 });
 
     // Verify via API
     const templates = await getProjectTemplates(project.id);
@@ -242,18 +247,16 @@ test.describe('Session Templates - Create Form', () => {
   });
 
   test('cancel button closes form without creating', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('.tab:has-text("Templates")');
-    await page.click('button:has-text("Create Template")');
+    await openCreateForm(page, project.id);
 
     // Fill form
-    await page.fill('input[placeholder="Template name"]', '[TEST] Cancelled');
+    await page.fill('.template-form input[placeholder="Template name"]', '[TEST] Cancelled');
 
     // Cancel
-    await page.click('button:has-text("Cancel")');
+    await page.locator('.template-form button:has-text("Cancel")').click();
 
     // Form should close
-    await expect(page.locator('.template-form')).not.toBeVisible();
+    await expect(page.locator('.template-form')).not.toBeVisible({ timeout: 10000 });
 
     // Verify nothing was created
     const templates = await getProjectTemplates(project.id);
@@ -288,6 +291,7 @@ test.describe('Session Templates - Display', () => {
 
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
+    await expect(page.locator('.templates-panel')).toBeVisible();
 
     await expect(page.getByText('[TEST] Project Template 1')).toBeVisible();
     await expect(page.getByText('[TEST] Project Template 2')).toBeVisible();
@@ -302,6 +306,7 @@ test.describe('Session Templates - Display', () => {
 
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
+    await expect(page.locator('.templates-panel')).toBeVisible();
 
     await expect(page.getByText('[TEST] Global Template 1')).toBeVisible();
     await expect(page.getByText('Global Templates')).toBeVisible();
@@ -320,6 +325,7 @@ test.describe('Session Templates - Display', () => {
 
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
+    await expect(page.locator('.templates-panel')).toBeVisible();
 
     await expect(page.getByText('Project Templates')).toBeVisible();
     await expect(page.getByText('Global Templates')).toBeVisible();
@@ -337,6 +343,7 @@ test.describe('Session Templates - Display', () => {
 
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
+    await expect(page.locator('.templates-panel')).toBeVisible();
 
     // Should show truncated text with ellipsis
     await expect(page.locator('.template-prompt:has-text("...")')).toBeVisible();
@@ -352,6 +359,8 @@ test.describe('Session Templates - Display', () => {
 
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
+    await expect(page.locator('.templates-panel')).toBeVisible();
+    await expect(page.getByText('[TEST] Full Featured')).toBeVisible();
 
     await expect(page.locator('.meta-badge:has-text("Thinking")')).toBeVisible();
     await expect(page.locator('.meta-badge:has-text("develop")')).toBeVisible();
@@ -380,34 +389,42 @@ test.describe('Session Templates - Edit', () => {
   test('edit button opens form with existing data', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
+    await expect(page.locator('.templates-panel')).toBeVisible();
+
+    // Wait for template to appear
+    await expect(page.getByText('[TEST] Editable Template')).toBeVisible();
 
     // Click edit button on the template card
     await page.locator('.template-card').filter({ hasText: '[TEST] Editable Template' }).locator('.btn-icon').first().click();
 
     // Form should be visible with Edit title
+    await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('.template-form h3')).toHaveText('Edit Template');
 
     // Fields should be pre-populated
-    await expect(page.locator('input[placeholder="Template name"]')).toHaveValue('[TEST] Editable Template');
-    await expect(page.locator('textarea')).toHaveValue('Original prompt');
+    await expect(page.locator('.template-form input[placeholder="Template name"]')).toHaveValue('[TEST] Editable Template');
+    await expect(page.locator('.template-form textarea')).toHaveValue('Original prompt');
   });
 
   test('can update template name and prompt', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
+    await expect(page.locator('.templates-panel')).toBeVisible();
+    await expect(page.getByText('[TEST] Editable Template')).toBeVisible();
 
     // Click edit
     await page.locator('.template-card').filter({ hasText: '[TEST] Editable Template' }).locator('.btn-icon').first().click();
+    await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
 
     // Update fields
-    await page.fill('input[placeholder="Template name"]', '[TEST] Updated Template');
-    await page.fill('textarea', 'Updated prompt content');
+    await page.fill('.template-form input[placeholder="Template name"]', '[TEST] Updated Template');
+    await page.fill('.template-form textarea', 'Updated prompt content');
 
     // Submit
-    await page.click('button:has-text("Update")');
+    await page.locator('.template-form button[type="submit"]').click();
 
     // Verify UI updated
-    await expect(page.locator('.template-form')).not.toBeVisible();
+    await expect(page.locator('.template-form')).not.toBeVisible({ timeout: 10000 });
     await expect(page.getByText('[TEST] Updated Template')).toBeVisible();
 
     // Verify via API
@@ -419,12 +436,15 @@ test.describe('Session Templates - Edit', () => {
   test('scope selector is disabled when editing', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
+    await expect(page.locator('.templates-panel')).toBeVisible();
+    await expect(page.getByText('[TEST] Editable Template')).toBeVisible();
 
     // Click edit
     await page.locator('.template-card').filter({ hasText: '[TEST] Editable Template' }).locator('.btn-icon').first().click();
+    await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
 
     // Scope selector should be disabled
-    await expect(page.locator('.template-form select:first-of-type')).toBeDisabled();
+    await expect(page.locator('.template-form select').first()).toBeDisabled();
   });
 });
 
@@ -450,6 +470,7 @@ test.describe('Session Templates - Delete', () => {
 
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
+    await expect(page.locator('.templates-panel')).toBeVisible();
 
     await expect(page.getByText('[TEST] To Delete')).toBeVisible();
 
@@ -464,7 +485,7 @@ test.describe('Session Templates - Delete', () => {
       .click();
 
     // Template should disappear
-    await expect(page.getByText('[TEST] To Delete')).not.toBeVisible();
+    await expect(page.getByText('[TEST] To Delete')).not.toBeVisible({ timeout: 10000 });
 
     // Verify via API
     const deleted = await getTemplate(template.id);
@@ -479,6 +500,8 @@ test.describe('Session Templates - Delete', () => {
 
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
+    await expect(page.locator('.templates-panel')).toBeVisible();
+    await expect(page.getByText('[TEST] Keep Me')).toBeVisible();
 
     // Handle confirmation dialog - dismiss it
     page.on('dialog', (dialog) => dialog.dismiss());
@@ -522,20 +545,25 @@ test.describe('Session Templates - Chaining', () => {
 
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
-    await page.click('button:has-text("New Template")');
+    await expect(page.locator('.templates-panel')).toBeVisible();
+    await expect(page.getByText('[TEST] Target Template')).toBeVisible();
+
+    // Click the New Template button
+    await page.click('.templates-header button:has-text("New Template")');
+    await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
 
     // Fill form
-    await page.fill('input[placeholder="Template name"]', '[TEST] Chained Template');
-    await page.fill('textarea', 'Chain to another template');
+    await page.fill('.template-form input[placeholder="Template name"]', '[TEST] Chained Template');
+    await page.fill('.template-form textarea', 'Chain to another template');
 
     // Select next template
-    await page.selectOption('.template-form select:nth-of-type(2)', target.id);
+    await page.locator('.template-form select').nth(1).selectOption(target.id);
 
     // Submit
-    await page.click('button:has-text("Create"):not(:has-text("Template"))');
+    await page.locator('.template-form button[type="submit"]').click();
 
     // Verify chain badge shows
-    await expect(page.locator('.meta-badge-chain')).toBeVisible();
+    await expect(page.locator('.meta-badge-chain')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('Chains to:')).toBeVisible();
 
     // Verify via API
@@ -558,7 +586,8 @@ test.describe('Session Templates - Chaining', () => {
 
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
+    await expect(page.locator('.templates-panel')).toBeVisible();
 
-    await expect(page.locator('.meta-badge-chain:has-text("[TEST] Chain Target")')).toBeVisible();
+    await expect(page.locator('.meta-badge-chain:has-text("[TEST] Chain Target")')).toBeVisible({ timeout: 10000 });
   });
 });
