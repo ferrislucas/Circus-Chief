@@ -1,5 +1,8 @@
 <template>
   <div class="conversation-tab">
+    <!-- Conversation Selector -->
+    <ConversationSelector :session-id="sessionId" />
+
     <div class="messages" ref="messagesContainer">
       <div
         v-for="message in sessionsStore.messages"
@@ -141,6 +144,7 @@ import TodoDrawer from './TodoDrawer.vue';
 import WorkLogPanel from './WorkLogPanel.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
+import ConversationSelector from './ConversationSelector.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -216,6 +220,9 @@ onMounted(async () => {
     messagesContainer.value.addEventListener('scroll', handleScroll);
   }
 
+  // Fetch conversations for this session
+  await sessionsStore.fetchConversations(props.sessionId);
+
   unsubPartial = onPartial((text) => {
     partialText.value = text;
     scrollToBottom();
@@ -264,8 +271,9 @@ onUnmounted(() => {
   if (messagesContainer.value) {
     messagesContainer.value.removeEventListener('scroll', handleScroll);
   }
-  // Clear work logs when leaving the conversation
+  // Clear work logs and conversations when leaving the conversation tab
   sessionsStore.clearWorkLogs();
+  sessionsStore.clearConversations();
 });
 
 // Save draft to localStorage with debounce

@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { sessions, messages, sessionSummaries } from '../database.js';
+import { sessions, messages, sessionSummaries, conversations } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as ghService from './ghService.js';
@@ -474,6 +474,124 @@ export function cleanupSession(sessionId) {
   if (debounceTimers.has(sessionId)) {
     clearTimeout(debounceTimers.get(sessionId));
     debounceTimers.delete(sessionId);
+  }
+}
+
+/**
+ * Build prompt for conversation summary generation
+ * @param {Array} conversationMessages - Messages in the conversation
+ * @returns {string}
+ */
+function buildConversationSummaryPrompt(conversationMessages) {
+  const formattedMessages = formatMessages(conversationMessages);
+
+  return `You are generating a brief summary for a conversation thread within a Claude Code session.
+
+CONVERSATION:
+${formattedMessages}
+
+Generate a concise summary of this conversation. Focus on:
+1. The main topic or goal discussed
+2. Key actions taken or decisions made
+3. Current status (completed, in progress, blocked, etc.)
+
+Respond with JSON only (no markdown code blocks):
+{
+  "summary": "A 2-3 sentence summary of the conversation (max 200 characters)"
+}`;
+}
+
+/**
+ * Parse conversation summary response
+ * @param {string} responseText
+ * @returns {string} The summary text
+ */
+function parseConversationSummaryResponse(responseText) {
+  let textToParse = responseText.trim();
+
+  // Strip markdown if detected
+  if (textToParse.startsWith('```')) {
+    const codeBlockMatch = textToParse.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
+    if (codeBlockMatch) {
+      textToParse = codeBlockMatch[1].trim();
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(textToParse);
+    return parsed.summary || 'Summary generation failed';
+  } catch {
+    // If parsing fails, return the raw text truncated
+    return textToParse.substring(0, 200);
+  }
+}
+
+/**
+ * Generate summary for a specific conversation
+ * @param {string} sessionId - The session ID
+ * @param {string} conversationId - The conversation ID
+ * @returns {Promise<string|null>} The generated summary text
+ */
+export async function generateConversationSummary(sessionId, conversationId) {
+  try {
+    const conversation = conversations.getById(conversationId);
+    if (!conversation || conversation.sessionId !== sessionId) {
+      console.warn(`[SummaryService] Conversation ${conversationId} not found for session ${sessionId}`);
+      return null;
+    }
+
+    // Get messages for this conversation
+    const conversationMessages = messages.getByConversationId(conversationId);
+
+    if (conversationMessages.length === 0) {
+      console.warn(`[SummaryService] No messages found for conversation ${conversationId}`);
+      return null;
+    }
+
+    // Skip very short conversations
+    if (conversationMessages.length < 2) {
+      const summary = 'Brief conversation with minimal content.';
+      conversations.update(conversationId, {
+        summary,
+        summaryGeneratedAt: Date.now(),
+      });
+      return summary;
+    }
+
+    // Take recent messages (limit to MAX_MESSAGES)
+    const recentMessages = conversationMessages.slice(-MAX_MESSAGES);
+
+    // Build prompt
+    const prompt = buildConversationSummaryPrompt(recentMessages);
+
+    // Call Claude
+    const responseText = await callClaude(prompt, recentMessages, 'waiting');
+
+    // Parse response
+    const summary = parseConversationSummaryResponse(responseText);
+
+    // Update conversation with summary
+    const updatedConversation = conversations.update(conversationId, {
+      summary,
+      summaryGeneratedAt: Date.now(),
+    });
+
+    // Broadcast conversation summary updated
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.CONVERSATION_SUMMARY_UPDATED, {
+      sessionId,
+      conversationId,
+      conversation: updatedConversation,
+    });
+
+    console.log(`[SummaryService] Successfully generated summary for conversation ${conversationId}`);
+    return summary;
+  } catch (error) {
+    console.error(`[SummaryService] Failed to generate conversation summary:`, {
+      error: error.message,
+      sessionId,
+      conversationId,
+    });
+    return null;
   }
 }
 

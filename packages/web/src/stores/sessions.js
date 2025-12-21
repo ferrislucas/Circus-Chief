@@ -7,6 +7,8 @@ export const useSessionsStore = defineStore('sessions', {
     activeSessions: [],
     currentSession: null,
     messages: [],
+    conversations: [], // All conversations for current session
+    activeConversationId: null, // Currently selected conversation ID
     workLogs: {}, // Keyed by messageId: { [messageId]: WorkLog[] }
     partialThinking: null, // Current streaming thinking content
     loading: false,
@@ -22,6 +24,12 @@ export const useSessionsStore = defineStore('sessions', {
     },
     getUnassociatedWorkLogs: (state) => {
       return state.workLogs['_unassociated'] || [];
+    },
+    activeConversation: (state) => {
+      return state.conversations.find((c) => c.id === state.activeConversationId) || null;
+    },
+    getConversationById: (state) => (id) => {
+      return state.conversations.find((c) => c.id === id);
     },
   },
 
@@ -355,6 +363,219 @@ export const useSessionsStore = defineStore('sessions', {
       if (this.currentSession?.id === sessionId) {
         this.currentSession = null;
       }
+    },
+
+    // ==================== CONVERSATION ACTIONS ====================
+
+    /**
+     * Fetch all conversations for a session
+     * @param {string} sessionId - Session ID
+     */
+    async fetchConversations(sessionId) {
+      this.error = null;
+      try {
+        this.conversations = await api.getConversations(sessionId);
+        // Set active conversation to the one marked as active, or first one
+        const active = this.conversations.find((c) => c.isActive);
+        this.activeConversationId = active?.id || this.conversations[0]?.id || null;
+      } catch (err) {
+        this.error = err.message;
+        this.conversations = [];
+        this.activeConversationId = null;
+      }
+    },
+
+    /**
+     * Create a new conversation
+     * @param {string} sessionId - Session ID
+     * @param {string|null} name - Optional conversation name
+     * @returns {Promise<Object>} The created conversation
+     */
+    async createConversation(sessionId, name = null) {
+      this.error = null;
+      try {
+        const conversation = await api.createConversation(sessionId, name);
+        // Add to list and set as active
+        this.conversations.push(conversation);
+        // Update isActive flags
+        this.conversations = this.conversations.map((c) => ({
+          ...c,
+          isActive: c.id === conversation.id,
+        }));
+        this.activeConversationId = conversation.id;
+        // Clear messages for new conversation
+        this.messages = [];
+        return conversation;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    /**
+     * Switch to a different conversation
+     * @param {string} sessionId - Session ID
+     * @param {string} conversationId - Conversation ID to switch to
+     */
+    async switchConversation(sessionId, conversationId) {
+      if (this.activeConversationId === conversationId) return;
+
+      this.error = null;
+      try {
+        // Update on server
+        await api.updateConversation(sessionId, conversationId, { isActive: true });
+
+        // Update local state
+        this.conversations = this.conversations.map((c) => ({
+          ...c,
+          isActive: c.id === conversationId,
+        }));
+        this.activeConversationId = conversationId;
+
+        // Fetch messages for new conversation
+        const messages = await api.getConversationMessages(sessionId, conversationId);
+        this.messages = messages;
+
+        // Clear work logs and thinking for new conversation context
+        this.workLogs = {};
+        this.partialThinking = null;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    /**
+     * Rename a conversation
+     * @param {string} sessionId - Session ID
+     * @param {string} conversationId - Conversation ID
+     * @param {string} name - New name
+     */
+    async renameConversation(sessionId, conversationId, name) {
+      this.error = null;
+      try {
+        const updated = await api.updateConversation(sessionId, conversationId, { name });
+        // Update in local state
+        const index = this.conversations.findIndex((c) => c.id === conversationId);
+        if (index !== -1) {
+          this.conversations[index] = { ...this.conversations[index], ...updated };
+        }
+        return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    /**
+     * Delete a conversation
+     * @param {string} sessionId - Session ID
+     * @param {string} conversationId - Conversation ID
+     */
+    async deleteConversation(sessionId, conversationId) {
+      this.error = null;
+      try {
+        await api.deleteConversation(sessionId, conversationId);
+        // Remove from list
+        this.conversations = this.conversations.filter((c) => c.id !== conversationId);
+
+        // If we deleted the active conversation, switch to another
+        if (this.activeConversationId === conversationId) {
+          if (this.conversations.length > 0) {
+            // Fetch conversations again to get the new active one
+            await this.fetchConversations(sessionId);
+            // Fetch messages for new active conversation
+            if (this.activeConversationId) {
+              const messages = await api.getConversationMessages(sessionId, this.activeConversationId);
+              this.messages = messages;
+            }
+          } else {
+            this.activeConversationId = null;
+            this.messages = [];
+          }
+        }
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    /**
+     * Update conversation from WebSocket event
+     * @param {Object} conversation - Updated conversation data
+     */
+    updateConversation(conversation) {
+      if (!conversation?.id) return;
+
+      const index = this.conversations.findIndex((c) => c.id === conversation.id);
+      if (index !== -1) {
+        this.conversations[index] = { ...this.conversations[index], ...conversation };
+      }
+
+      // Update isActive flags if this conversation became active
+      if (conversation.isActive) {
+        this.conversations = this.conversations.map((c) => ({
+          ...c,
+          isActive: c.id === conversation.id,
+        }));
+        this.activeConversationId = conversation.id;
+      }
+    },
+
+    /**
+     * Add a new conversation from WebSocket event
+     * @param {Object} conversation - New conversation data
+     */
+    addConversation(conversation) {
+      if (!conversation?.id) return;
+
+      // Check if already exists
+      const exists = this.conversations.some((c) => c.id === conversation.id);
+      if (!exists) {
+        this.conversations.push(conversation);
+      }
+
+      // Update active state if this is the new active conversation
+      if (conversation.isActive) {
+        this.conversations = this.conversations.map((c) => ({
+          ...c,
+          isActive: c.id === conversation.id,
+        }));
+        this.activeConversationId = conversation.id;
+      }
+    },
+
+    /**
+     * Remove a conversation from WebSocket event
+     * @param {string} conversationId - Conversation ID
+     * @param {Object|null} newActiveConversation - New active conversation if any
+     */
+    removeConversation(conversationId, newActiveConversation = null) {
+      this.conversations = this.conversations.filter((c) => c.id !== conversationId);
+
+      if (newActiveConversation) {
+        // Add or update the new active conversation
+        const exists = this.conversations.some((c) => c.id === newActiveConversation.id);
+        if (!exists) {
+          this.conversations.push(newActiveConversation);
+        }
+        this.conversations = this.conversations.map((c) => ({
+          ...c,
+          isActive: c.id === newActiveConversation.id,
+        }));
+        this.activeConversationId = newActiveConversation.id;
+      } else if (this.activeConversationId === conversationId) {
+        // Deleted the active conversation, pick first available
+        this.activeConversationId = this.conversations[0]?.id || null;
+      }
+    },
+
+    /**
+     * Clear conversation state (when leaving session)
+     */
+    clearConversations() {
+      this.conversations = [];
+      this.activeConversationId = null;
     },
   },
 });
