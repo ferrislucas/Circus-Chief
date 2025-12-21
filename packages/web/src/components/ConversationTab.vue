@@ -730,4 +730,27 @@ async function handleModeChange(newMode) {
   justify-content: flex-end;
   padding-top: 1rem;
 }
+
+/* Responsive styles for input controls */
+@media (max-width: 600px) {
+  .input-controls {
+    flex-wrap: wrap;
+  }
+
+  .session-options {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .input-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 400px) {
+  .mode-label {
+    display: none;
+  }
+}
 </style>
