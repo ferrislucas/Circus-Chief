@@ -14,6 +14,8 @@
               {{ sessionsStore.currentSession.status }}
             </span>
             <span class="session-mode">{{ sessionsStore.currentSession.mode }}</span>
+          </div>
+          <div v-if="sessionsStore.currentSession.gitBranch || sessionsStore.currentSession.prUrl" class="branch-row">
             <span
               v-if="sessionsStore.currentSession.gitBranch"
               class="branch-indicator"
@@ -34,7 +36,7 @@
               <svg class="pr-icon" viewBox="0 0 16 16" fill="currentColor">
                 <path fill-rule="evenodd" d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z"/>
               </svg>
-              View PR
+              View PR #{{ prNumber }}
             </a>
           </div>
         </div>
@@ -117,6 +119,14 @@ const uiStore = useUiStore();
 const sessionId = route.params.id;
 
 const activeTab = computed(() => route.params.tab || 'conversation');
+
+// Extract PR number from prUrl (e.g., https://github.com/owner/repo/pull/123 -> 123)
+const prNumber = computed(() => {
+  const prUrl = sessionsStore.currentSession?.prUrl;
+  if (!prUrl) return '';
+  const match = prUrl.match(/\/pull\/(\d+)/);
+  return match ? match[1] : '';
+});
 
 const tabs = [
   { id: 'summary', label: 'Summary' },
@@ -300,25 +310,21 @@ async function handleDelete() {
   text-transform: capitalize;
 }
 
+.branch-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
 .branch-indicator {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
   font-family: var(--font-mono);
-  font-weight: 500;
-  color: var(--color-secondary, #8b5cf6);
-  background: var(--color-secondary-soft, rgba(139, 92, 246, 0.1));
-  border-radius: 4px;
-  max-width: 200px;
-  text-decoration: none;
-}
-
-.branch-indicator span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--color-text-soft);
 }
 
 .branch-icon {
@@ -344,16 +350,15 @@ async function handleDelete() {
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
   font-weight: 500;
-  color: var(--color-primary);
-  background: var(--color-primary-soft);
+  color: white;
+  background: var(--color-primary);
   border-radius: 4px;
   text-decoration: none;
-  transition: background-color 0.2s, color 0.2s;
+  transition: background-color 0.2s;
 }
 
 .pr-link:hover {
-  background: var(--color-primary);
-  color: white;
+  background: var(--color-primary-hover, #2563eb);
 }
 
 .pr-icon {
