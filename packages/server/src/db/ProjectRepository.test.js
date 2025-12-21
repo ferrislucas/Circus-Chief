@@ -55,6 +55,20 @@ describe('ProjectRepository', () => {
       expect(project.onSessionCreated).toBeNull();
       expect(project.onSessionDeleted).toBeNull();
     });
+
+    it('creates project with default prPollInterval of 60000', () => {
+      const project = repo.create('Test Project', '/tmp/test');
+
+      expect(project.prPollInterval).toBe(60000);
+    });
+
+    it('creates project with custom prPollInterval', () => {
+      const project = repo.create('Test Project', '/tmp/test', null, {
+        prPollInterval: 30000,
+      });
+
+      expect(project.prPollInterval).toBe(30000);
+    });
   });
 
   describe('getById', () => {
@@ -181,6 +195,17 @@ describe('ProjectRepository', () => {
 
       expect(updated.onSessionCreated).toBeNull();
       expect(updated.onSessionDeleted).toBeNull();
+    });
+
+    it('updates prPollInterval', () => {
+      const project = repo.create('Test', '/tmp/test');
+      expect(project.prPollInterval).toBe(60000);
+
+      const updated = repo.update(project.id, {
+        prPollInterval: 120000,
+      });
+
+      expect(updated.prPollInterval).toBe(120000);
     });
   });
 

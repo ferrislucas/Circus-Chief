@@ -289,4 +289,92 @@ describe('ChangesTab', () => {
 
     expect(wrapper.text()).toContain('No git changes to show');
   });
+
+  describe('fileCount', () => {
+    it('computes fileCount as sum of all file types', async () => {
+      const stagedDiff = [
+        'diff --git a/staged1.js b/staged1.js',
+        'index 1234567..abcdefg 100644',
+        '--- a/staged1.js',
+        '+++ b/staged1.js',
+        '@@ -1,2 +1,3 @@',
+        ' const x = 1;',
+        '+const y = 2;',
+      ].join('\n');
+
+      const unstagedDiff = [
+        'diff --git a/unstaged1.js b/unstaged1.js',
+        'index 1234567..abcdefg 100644',
+        '--- a/unstaged1.js',
+        '+++ b/unstaged1.js',
+        '@@ -1,2 +1,3 @@',
+        ' const a = 1;',
+        '+const b = 2;',
+        'diff --git a/unstaged2.js b/unstaged2.js',
+        'index 1234567..abcdefg 100644',
+        '--- a/unstaged2.js',
+        '+++ b/unstaged2.js',
+        '@@ -1,2 +1,3 @@',
+        ' const c = 1;',
+        '+const d = 2;',
+      ].join('\n');
+
+      const untrackedDiff = [
+        'diff --git a/new.js b/new.js',
+        'new file mode 100644',
+        '--- /dev/null',
+        '+++ b/new.js',
+        '@@ -0,0 +1 @@',
+        '+console.log("new");',
+      ].join('\n');
+
+      api.getSessionChanges.mockResolvedValue({
+        staged: stagedDiff,
+        unstaged: unstagedDiff,
+        untracked: untrackedDiff,
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // 1 staged + 2 unstaged + 1 untracked = 4
+      expect(wrapper.vm.fileCount).toBe(4);
+    });
+
+    it('returns 1 when single staged file', async () => {
+      const stagedDiff = [
+        'diff --git a/file.js b/file.js',
+        'index 1234567..abcdefg 100644',
+        '--- a/file.js',
+        '+++ b/file.js',
+        '@@ -1,2 +1,3 @@',
+        ' const x = 1;',
+        '+const y = 2;',
+      ].join('\n');
+
+      api.getSessionChanges.mockResolvedValue({
+        staged: stagedDiff,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.vm.fileCount).toBe(1);
+    });
+
+    it('returns 0 when no changes', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: '',
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.vm.fileCount).toBe(0);
+    });
+  });
 });
