@@ -77,7 +77,7 @@
       <div class="tab-content">
         <SummaryTab v-if="activeTab === 'summary'" :session-id="route.params.id" />
         <ConversationTab v-else-if="activeTab === 'conversation'" :session-id="route.params.id" />
-        <ChangesTab v-else-if="activeTab === 'changes'" :session-id="route.params.id" />
+        <ChangesTab v-else-if="activeTab === 'changes'" :session-id="route.params.id" @update:file-count="changesFileCount = $event" />
         <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
         <NotesTab v-else-if="activeTab === 'notes'" :session-id="route.params.id" />
       </div>
@@ -114,14 +114,15 @@ const uiStore = useUiStore();
 const sessionId = route.params.id;
 
 const activeTab = computed(() => route.params.tab || 'conversation');
+const changesFileCount = ref(0);
 
-const tabs = [
+const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
   { id: 'conversation', label: 'Conversation' },
-  { id: 'changes', label: 'Changes' },
+  { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
   { id: 'canvas', label: 'Canvas' },
   { id: 'notes', label: 'Notes' }
-];
+]);
 
 function navigateToTab(tabId) {
   router.push(`/sessions/${route.params.id}/${tabId}`);
