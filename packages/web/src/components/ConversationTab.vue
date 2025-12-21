@@ -227,9 +227,9 @@ onMounted(async () => {
   });
 
   // Subscribe to work log updates
+  // Note: Work logs are displayed in LiveWorkLogPanel which has its own scroll management
   unsubWorkLog = onWorkLog((log) => {
     sessionsStore.addWorkLog(log);
-    scrollToBottom();
   });
 
   // Subscribe to work log association events (re-associate _unassociated logs)
@@ -238,13 +238,13 @@ onMounted(async () => {
   });
 
   // Subscribe to partial thinking updates for streaming display
+  // Note: Partial thinking is displayed in LiveWorkLogPanel which has its own scroll management
   unsubThinkingPartial = onThinkingPartial((thinking) => {
     if (thinking === null) {
       sessionsStore.clearPartialThinking();
     } else {
       sessionsStore.setPartialThinking(thinking);
     }
-    scrollToBottom();
   });
 
   // Fetch initial work logs
@@ -396,6 +396,7 @@ async function handleModeChange(newMode) {
   max-height: 500px;
   padding: 1rem 0;
   position: relative;
+  overflow-anchor: none; /* Prevent browser scroll anchoring issues during streaming */
 }
 
 .message {
