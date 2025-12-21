@@ -943,31 +943,8 @@ describe('summaryService', () => {
   });
 
   describe('retry logic on parse failure', () => {
-    it('retries when parsing fails', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-      // Mock callClaude to return invalid JSON first two times, then valid JSON
-      let callCount = 0;
-      const originalCallClaude = summaryService.callClaude;
-
-      // We need to mock at the module level - use a different approach
-      // Instead, we'll test that the retry logic works by checking console output
-      // Since mock mode always returns valid JSON, we test the mechanism differently
-
-      // For this test, we verify the retry mechanism is in place by checking the constant
-      expect(MAX_RETRIES).toBe(2);
-
-      consoleSpy.mockRestore();
-    });
-
-    it('logs retry attempts with attempt number', async () => {
-      // This test verifies the log message format is correct
-      // We can't easily trigger a retry in mock mode, but we can verify the constant
-      expect(MAX_RETRIES).toBe(2);
-    });
-
-    it('stops retrying after MAX_RETRIES attempts', async () => {
-      // Verify MAX_RETRIES is respected
+    it('has MAX_RETRIES set to 2', () => {
+      // Verify the retry mechanism is configured correctly
       expect(MAX_RETRIES).toBe(2);
     });
 
