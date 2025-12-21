@@ -7,6 +7,59 @@ const execAsync = promisify(exec);
 // Key: directory path, Value: { branch: string, timestamp: number }
 const defaultBranchCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHE_SIZE = 100; // Maximum number of repositories to cache
+
+// Configurable logger for warning messages
+// Can be overridden via setLogger() for custom logging behavior
+let logger = {
+  warn: (...args) => console.warn(...args),
+};
+
+/**
+ * Set a custom logger for git service warnings.
+ * Useful for integrating with application logging or suppressing warnings in tests.
+ * @param {Object} customLogger - Logger object with a warn method
+ * @param {Function} customLogger.warn - Function to handle warning messages
+ */
+export function setLogger(customLogger) {
+  logger = customLogger;
+}
+
+/**
+ * Evict oldest entries from cache if it exceeds MAX_CACHE_SIZE.
+ * Uses LRU-like eviction based on timestamp.
+ */
+function evictOldestCacheEntries() {
+  if (defaultBranchCache.size <= MAX_CACHE_SIZE) {
+    return;
+  }
+
+  // Sort entries by timestamp and remove oldest ones
+  const entries = [...defaultBranchCache.entries()];
+  entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+
+  const entriesToRemove = entries.slice(0, entries.length - MAX_CACHE_SIZE);
+  for (const [key] of entriesToRemove) {
+    defaultBranchCache.delete(key);
+  }
+}
+
+/**
+ * Safely fetch from origin remote.
+ * Logs a warning if fetch fails but does not throw.
+ * @param {string} directory - The git repository directory
+ * @returns {Promise<boolean>} - True if fetch succeeded, false otherwise
+ */
+async function safeFetchOrigin(directory) {
+  try {
+    await git(directory, 'fetch origin');
+    return true;
+  } catch (err) {
+    // No origin or network unavailable, proceed without fetch
+    logger.warn('Could not fetch from origin, proceeding with local refs:', err.message);
+    return false;
+  }
+}
 
 /**
  * Execute a git command in a directory
@@ -73,16 +126,26 @@ export async function getOriginDefaultBranch(directory) {
     }
   }
 
-  // Cache the result
+  // Cache the result and evict old entries if needed
   defaultBranchCache.set(directory, { branch, timestamp: Date.now() });
+  evictOldestCacheEntries();
   return branch;
 }
 
 /**
- * Clear the default branch cache (useful for testing)
+ * Clear the default branch cache for all repositories.
+ * Useful for testing or when repository remote configuration has changed.
  */
 export function clearDefaultBranchCache() {
   defaultBranchCache.clear();
+}
+
+/**
+ * Get the current cache size (for testing purposes).
+ * @returns {number} The number of entries in the cache
+ */
+export function getCacheSize() {
+  return defaultBranchCache.size;
 }
 
 /**
@@ -169,12 +232,7 @@ export async function createWorktree(directory, branch, path, options = {}) {
 
   // Fetch latest from origin to ensure we have up-to-date default branch
   if (!skipFetch) {
-    try {
-      await git(directory, 'fetch origin');
-    } catch (err) {
-      // No origin or network unavailable, proceed without fetch
-      console.warn('Could not fetch from origin, proceeding with local refs:', err.message);
-    }
+    await safeFetchOrigin(directory);
   }
 
   // Get the default branch from origin (main or master)
@@ -265,12 +323,7 @@ export async function createWorktreeForBranch(directory, branch, worktreePath, o
 
   // Fetch latest from origin to ensure we have up-to-date default branch
   if (!skipFetch) {
-    try {
-      await git(directory, 'fetch origin');
-    } catch (err) {
-      // No origin or network unavailable, proceed without fetch
-      console.warn('Could not fetch from origin, proceeding with local refs:', err.message);
-    }
+    await safeFetchOrigin(directory);
   }
 
   const exists = await branchExists(directory, branch);

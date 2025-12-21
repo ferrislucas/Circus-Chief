@@ -10,10 +10,12 @@ import {
   clearDefaultBranchCache,
   createWorktree,
   createWorktreeForBranch,
+  getCacheSize,
   getCurrentBranch,
   getOriginDefaultBranch,
   getUntrackedFiles,
   isGitRepo,
+  setLogger,
 } from './gitService.js';
 
 describe('gitService', () => {
@@ -216,10 +218,47 @@ describe('gitService', () => {
     });
 
     it('caches the result for subsequent calls', async () => {
+      // Clear cache and verify it's empty
+      clearDefaultBranchCache();
+      expect(getCacheSize()).toBe(0);
+
+      // First call should populate cache
       const result1 = await getOriginDefaultBranch(testDir);
+      expect(getCacheSize()).toBe(1);
+
+      // Second call should use cache (cache size stays at 1)
       const result2 = await getOriginDefaultBranch(testDir);
+      expect(getCacheSize()).toBe(1);
 
       expect(result1).toBe(result2);
+    });
+
+    it('stores separate cache entries for different directories', async () => {
+      // Create a second test repo
+      const secondTestDir = await mkdtemp(join(tmpdir(), 'git-test-2-'));
+      const secondBareDir = await mkdtemp(join(tmpdir(), 'git-bare-2-'));
+      execSync('git init --bare', { cwd: secondBareDir });
+      execSync('git init', { cwd: secondTestDir });
+      execSync('git config user.email "test@test.com"', { cwd: secondTestDir });
+      execSync('git config user.name "Test"', { cwd: secondTestDir });
+      await writeFile(join(secondTestDir, 'README.md'), '# Test 2');
+      execSync('git add .', { cwd: secondTestDir });
+      execSync('git commit -m "Initial commit"', { cwd: secondTestDir });
+      execSync(`git remote add origin "${secondBareDir}"`, { cwd: secondTestDir });
+      execSync('git push -u origin HEAD', { cwd: secondTestDir });
+
+      clearDefaultBranchCache();
+      expect(getCacheSize()).toBe(0);
+
+      await getOriginDefaultBranch(testDir);
+      expect(getCacheSize()).toBe(1);
+
+      await getOriginDefaultBranch(secondTestDir);
+      expect(getCacheSize()).toBe(2);
+
+      // Cleanup
+      await rm(secondTestDir, { recursive: true, force: true });
+      await rm(secondBareDir, { recursive: true, force: true });
     });
 
     it('returns fresh result after cache is cleared', async () => {
@@ -256,6 +295,24 @@ describe('gitService', () => {
   });
 
   describe('createWorktreeForBranch - error handling', () => {
+    let mockLogger;
+    let originalLogger;
+
+    beforeEach(() => {
+      // Set up mock logger to capture warnings
+      mockLogger = {
+        warn: vi.fn(),
+      };
+      // Store reference to reset later
+      originalLogger = { warn: console.warn };
+      setLogger(mockLogger);
+    });
+
+    afterEach(() => {
+      // Reset to default logger
+      setLogger({ warn: (...args) => console.warn(...args) });
+    });
+
     it('creates worktree when fetch fails (no network simulation)', async () => {
       // Remove the origin to simulate no remote
       execSync('git remote remove origin', { cwd: testDir });
@@ -264,22 +321,17 @@ describe('gitService', () => {
 
       const worktreePath = join(testDir, '.worktrees', 'no-origin-test');
 
-      // Spy on console.warn to verify warning is logged
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
       // This should still succeed despite no origin (falls back to HEAD)
       const result = await createWorktreeForBranch(testDir, 'test-branch', worktreePath);
 
       expect(result.path).toBe(worktreePath);
       expect(result.branch).toBe('test-branch');
 
-      // Verify warning was logged
-      expect(warnSpy).toHaveBeenCalledWith(
+      // Verify warning was logged via the configurable logger
+      expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Could not fetch from origin'),
         expect.any(String)
       );
-
-      warnSpy.mockRestore();
     });
 
     it('creates worktree successfully with skipFetch option', async () => {
@@ -303,7 +355,6 @@ describe('gitService', () => {
       clearDefaultBranchCache();
 
       const worktreePath = join(testDir, '.worktrees', 'no-warn-test');
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       // This should succeed (falls back to HEAD when no origin)
       await createWorktreeForBranch(testDir, 'test-branch', worktreePath, {
@@ -311,9 +362,7 @@ describe('gitService', () => {
       });
 
       // Warning should NOT be called when skipFetch is true
-      expect(warnSpy).not.toHaveBeenCalled();
-
-      warnSpy.mockRestore();
+      expect(mockLogger.warn).not.toHaveBeenCalled();
     });
 
     it('falls back to HEAD when no origin remote exists', async () => {
@@ -324,6 +373,24 @@ describe('gitService', () => {
 
       const result = await getOriginDefaultBranch(testDir);
       expect(result).toBe('HEAD');
+    });
+
+    it('allows custom logger to be configured', async () => {
+      const customWarnMessages = [];
+      const customLogger = {
+        warn: (...args) => customWarnMessages.push(args),
+      };
+      setLogger(customLogger);
+
+      // Remove origin and trigger a fetch failure
+      execSync('git remote remove origin', { cwd: testDir });
+      clearDefaultBranchCache();
+
+      const worktreePath = join(testDir, '.worktrees', 'custom-logger-test');
+      await createWorktreeForBranch(testDir, 'custom-logger-branch', worktreePath);
+
+      expect(customWarnMessages.length).toBe(1);
+      expect(customWarnMessages[0][0]).toContain('Could not fetch from origin');
     });
   });
 
