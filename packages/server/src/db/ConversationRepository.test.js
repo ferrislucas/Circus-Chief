@@ -120,6 +120,7 @@ describe('ConversationRepository', () => {
       const convs = repo.getBySessionId(sessionId);
 
       expect(convs[0].id).toBe(c1.id);
+      expect(convs[1].id).toBe(c2.id);
       expect(convs[2].id).toBe(c3.id);
     });
   });
