@@ -96,9 +96,10 @@ fi
 # Auto-kill any process on port 5000 if that's our target port
 #
 # Kill existing process on port 5000 to avoid conflicts when restarting.
-# Only applies when the script needs port 5000 specifically.
+# Only applies when running from the MAIN repo (not a worktree).
+# Worktrees should never kill port 5000 as that belongs to the main repo.
 # -----------------------------------------------------------------------------
-if [ "$SELECTED_PORT" == "5000" ]; then
+if [ "$SELECTED_PORT" == "5000" ] && ! is_worktree; then
     PID_5000=$(lsof -t -i:5000 2>/dev/null)
     if [ -n "$PID_5000" ]; then
         echo "Killing existing process $PID_5000 on port 5000..."
