@@ -16,11 +16,25 @@ async function git(directory, command) {
 
 /**
  * Get the default branch from origin remote
- * Tries origin/main first, then origin/master as fallback
+ * Uses GitHub CLI if available, falls back to git commands
  * @param {string} directory
  * @returns {Promise<string>}
  */
 async function getOriginDefaultBranch(directory) {
+  // Try GitHub CLI first - most accurate method
+  try {
+    const { stdout } = await execAsync(
+      'gh repo view --json defaultBranchRef --jq ".defaultBranchRef.name"',
+      { cwd: directory }
+    );
+    const branch = stdout.trim();
+    if (branch) {
+      return `origin/${branch}`;
+    }
+  } catch {
+    // gh CLI not available or failed, fall back to git commands
+  }
+
   // Try to get the default branch from the remote HEAD
   try {
     const ref = await git(directory, 'symbolic-ref refs/remotes/origin/HEAD');
