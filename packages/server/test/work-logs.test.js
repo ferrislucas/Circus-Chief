@@ -135,6 +135,98 @@ describe('Work Logs API', () => {
     });
   });
 
+  describe('End-of-turn work log association', () => {
+    // These tests document the expected behavior where work logs are:
+    // 1. Created as unassociated during the turn (shown in LiveWorkLogPanel)
+    // 2. Associated with the message at the END of the turn (moved to WorkLogPanel)
+
+    it('work logs created with null messageId are unassociated', () => {
+      // During a turn, work logs are created without a messageId
+      workLogs.create(session.id, 'thinking', 'First thought', null);
+      workLogs.create(session.id, 'tool_input', '{"command": "ls"}', null, 'Bash');
+      workLogs.create(session.id, 'tool_output', 'file1.txt\nfile2.txt', null, 'Bash');
+
+      const grouped = workLogs.getBySessionIdGrouped(session.id);
+
+      // All logs should be in _unassociated
+      expect(grouped['_unassociated']).toBeDefined();
+      expect(grouped['_unassociated'].length).toBe(3);
+    });
+
+    it('unassociated logs remain visible until associated', () => {
+      // Create unassociated logs (simulating work during turn)
+      workLogs.create(session.id, 'thinking', 'Analyzing request');
+      workLogs.create(session.id, 'tool_input', 'Some tool input');
+
+      // Before association, logs should be in _unassociated
+      let grouped = workLogs.getBySessionIdGrouped(session.id);
+      expect(grouped['_unassociated'].length).toBe(2);
+
+      // Create a message (this happens during the turn)
+      const message = messages.create(session.id, 'assistant', 'Response');
+
+      // Logs are STILL unassociated (association happens at end of turn)
+      grouped = workLogs.getBySessionIdGrouped(session.id);
+      expect(grouped['_unassociated'].length).toBe(2);
+      expect(grouped[message.id]).toBeUndefined();
+
+      // Now associate logs (this happens at end of turn)
+      const count = workLogs.associatePendingLogs(session.id, message.id);
+      expect(count).toBe(2);
+
+      // After association, logs move to the message
+      grouped = workLogs.getBySessionIdGrouped(session.id);
+      expect(grouped['_unassociated']).toBeUndefined();
+      expect(grouped[message.id].length).toBe(2);
+    });
+
+    it('multiple logs can be associated in a single call', () => {
+      // Simulate a full turn with multiple work log entries
+      workLogs.create(session.id, 'thinking', 'Let me analyze this');
+      workLogs.create(session.id, 'tool_input', '{"pattern": "*.js"}', null, 'Glob');
+      workLogs.create(session.id, 'tool_output', 'src/index.js\nsrc/app.js', null, 'Glob');
+      workLogs.create(session.id, 'thinking', 'Found the files, now reading');
+      workLogs.create(session.id, 'tool_input', '{"path": "src/index.js"}', null, 'Read');
+      workLogs.create(session.id, 'tool_output', 'console.log("Hello");', null, 'Read');
+
+      const message = messages.create(session.id, 'assistant', 'I found 2 JS files.');
+
+      // All 6 logs should be associated
+      const count = workLogs.associatePendingLogs(session.id, message.id);
+      expect(count).toBe(6);
+
+      const grouped = workLogs.getBySessionIdGrouped(session.id);
+      expect(grouped[message.id].length).toBe(6);
+    });
+
+    it('returns 0 when no logs to associate', () => {
+      const message = messages.create(session.id, 'assistant', 'Quick response');
+
+      // No unassociated logs exist
+      const count = workLogs.associatePendingLogs(session.id, message.id);
+      expect(count).toBe(0);
+    });
+
+    it('only associates logs for the correct session', () => {
+      // Create a second session
+      const session2 = sessions.create(project.id, 'Session 2', 'Prompt 2', 'standard');
+
+      // Create logs in both sessions
+      workLogs.create(session.id, 'thinking', 'Session 1 thought');
+      workLogs.create(session2.id, 'thinking', 'Session 2 thought');
+
+      const message = messages.create(session.id, 'assistant', 'Response');
+
+      // Associate only session 1 logs
+      const count = workLogs.associatePendingLogs(session.id, message.id);
+      expect(count).toBe(1);
+
+      // Session 2 logs should still be unassociated
+      const grouped2 = workLogs.getBySessionIdGrouped(session2.id);
+      expect(grouped2['_unassociated'].length).toBe(1);
+    });
+  });
+
   describe('Session status update for polling', () => {
     it('can update session status', () => {
       // This tests that status can be updated, which is needed for the

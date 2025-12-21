@@ -20,28 +20,10 @@
             <pre>{{ JSON.stringify(tool.input, null, 2) }}</pre>
           </details>
         </div>
-        <!-- Work Log Panel for assistant messages -->
+        <!-- Work Log Panel for assistant messages (collapsed by default) -->
         <WorkLogPanel
           v-if="message.role === 'assistant'"
           :work-logs="sessionsStore.getWorkLogsForMessage(message.id)"
-          :is-latest-message="index === sessionsStore.messages.length - 1"
-        />
-      </div>
-
-      <!-- Streaming thinking indicator -->
-      <div v-if="sessionsStore.partialThinking" class="message message-assistant message-streaming">
-        <div class="message-header">
-          <span class="message-role">assistant</span>
-          <span class="streaming-indicator">
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
-          </span>
-        </div>
-        <WorkLogPanel
-          :work-logs="[]"
-          :partial-thinking="sessionsStore.partialThinking"
-          :is-latest-message="true"
         />
       </div>
 
