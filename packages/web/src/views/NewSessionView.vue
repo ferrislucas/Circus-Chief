@@ -64,9 +64,9 @@
         <label class="form-label">Git Options</label>
         <div class="quick-git-options">
           <label class="radio-option">
-            <input type="radio" v-model="quickGitMode" value="" />
-            <span class="radio-label">Use current branch</span>
-            <span class="radio-help">{{ gitStatus.currentBranch }}</span>
+            <input type="radio" v-model="quickGitMode" value="worktree" />
+            <span class="radio-label">Create isolated worktree</span>
+            <span class="radio-help">Separate working directory for this session</span>
           </label>
           <label class="radio-option">
             <input type="radio" v-model="quickGitMode" value="branch" />
@@ -74,9 +74,9 @@
             <span class="radio-help">Work in the project directory</span>
           </label>
           <label class="radio-option">
-            <input type="radio" v-model="quickGitMode" value="worktree" />
-            <span class="radio-label">Create isolated worktree</span>
-            <span class="radio-help">Separate working directory for this session</span>
+            <input type="radio" v-model="quickGitMode" value="" />
+            <span class="radio-label">Use current branch</span>
+            <span class="radio-help">{{ gitStatus.currentBranch }}</span>
           </label>
         </div>
 
@@ -227,7 +227,7 @@ h1 {
 }
 
 .form {
-  max-width: 600px;
+  width: 100%;
 }
 
 .form-help {
