@@ -13,6 +13,7 @@ export { SessionNoteRepository } from './SessionNoteRepository.js';
 export { TodoRepository } from './TodoRepository.js';
 export { WorkLogRepository } from './WorkLogRepository.js';
 export { SessionSummaryRepository } from './SessionSummaryRepository.js';
+export { AttachmentRepository } from './AttachmentRepository.js';
 
 // Singleton instances
 import { ProjectRepository } from './ProjectRepository.js';
@@ -22,6 +23,7 @@ import { SessionNoteRepository } from './SessionNoteRepository.js';
 import { TodoRepository } from './TodoRepository.js';
 import { WorkLogRepository } from './WorkLogRepository.js';
 import { SessionSummaryRepository } from './SessionSummaryRepository.js';
+import { AttachmentRepository } from './AttachmentRepository.js';
 
 export const projects = new ProjectRepository();
 export const messages = new MessageRepository();
@@ -30,6 +32,7 @@ export const sessionNotes = new SessionNoteRepository();
 export const todos = new TodoRepository();
 export const workLogs = new WorkLogRepository();
 export const sessionSummaries = new SessionSummaryRepository();
+export const attachments = new AttachmentRepository();
 
 // SessionRepository needs to be instantiated after messages is available
 import { SessionRepository } from './SessionRepository.js';

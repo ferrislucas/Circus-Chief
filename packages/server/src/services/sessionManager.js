@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { sessions, messages, workLogs } from '../database.js';
+import { sessions, messages, workLogs, attachments } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
 import { updateTodos } from './todoStore.js';
@@ -16,6 +16,47 @@ const activeSessions = new Map();
 
 /** Check if mock mode is enabled (for E2E testing) */
 const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
+
+/**
+ * Build prompt with file attachment context
+ * Includes text file contents inline, describes other file types
+ * @param {string} prompt - Original prompt
+ * @param {Array} fileAttachments - Array of attachment objects
+ * @returns {string} Prompt with file context
+ */
+function buildPromptWithAttachments(prompt, fileAttachments) {
+  if (!fileAttachments || fileAttachments.length === 0) {
+    return prompt;
+  }
+
+  const attachmentSections = fileAttachments.map((att) => {
+    // Check if it's a text-based file that can be included inline
+    const isTextFile =
+      att.mimeType.startsWith('text/') ||
+      att.mimeType === 'application/json' ||
+      att.mimeType === 'application/javascript' ||
+      att.mimeType === 'application/xml' ||
+      att.mimeType === 'application/x-yaml' ||
+      att.mimeType === 'application/x-sh';
+
+    if (isTextFile && att.content) {
+      try {
+        const textContent = Buffer.from(att.content, 'base64').toString('utf-8');
+        return `\n--- File: ${att.filename} (${att.mimeType}) ---\n${textContent}\n--- End of ${att.filename} ---`;
+      } catch {
+        return `\n[Attached file: ${att.filename} (${att.mimeType}, ${att.size} bytes) - could not decode]`;
+      }
+    } else if (att.mimeType.startsWith('image/')) {
+      return `\n[Attached image: ${att.filename} (${att.mimeType}, ${att.size} bytes)]`;
+    } else if (att.mimeType === 'application/pdf') {
+      return `\n[Attached PDF: ${att.filename} (${att.size} bytes)]`;
+    } else {
+      return `\n[Attached file: ${att.filename} (${att.mimeType}, ${att.size} bytes)]`;
+    }
+  });
+
+  return `${prompt}\n\n## Attached Files${attachmentSections.join('\n')}`;
+}
 
 /**
  * Map session mode to SDK permissionMode
@@ -303,8 +344,9 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
  * @param {string} prompt
  * @param {string} workingDirectory
  * @param {string|null} systemPrompt - Custom system prompt from project settings
+ * @param {Array} fileAttachments - File attachments for context
  */
-export async function runSession(sessionId, prompt, workingDirectory, systemPrompt = null) {
+export async function runSession(sessionId, prompt, workingDirectory, systemPrompt = null, fileAttachments = []) {
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
@@ -317,6 +359,14 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     broadcastSessionStatus(sessionId, 'running');
 
     // Note: Initial user message is already created in SessionRepository.create()
+    // Associate any pending attachments with the initial message
+    const initialMessage = messages.getBySessionId(sessionId)[0];
+    if (initialMessage && fileAttachments.length > 0) {
+      attachments.updateMessageIdForSession(sessionId, initialMessage.id);
+    }
+
+    // Build prompt with attachment context
+    const promptWithAttachments = buildPromptWithAttachments(prompt, fileAttachments);
 
     // Choose between mock and real query based on environment
     const queryFn = isMockMode() ? mockQuery : query;
@@ -325,9 +375,9 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     const sessionEnv = buildSessionEnv(session);
 
     const queryParams = isMockMode()
-      ? { prompt }
+      ? { prompt: promptWithAttachments }
       : {
-          prompt,
+          prompt: promptWithAttachments,
           options: {
             cwd: workingDirectory,
             abortController: controller,
@@ -381,8 +431,9 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
  * @param {string} content
  * @param {string} workingDirectory
  * @param {string|null} systemPrompt - Custom system prompt from project settings
+ * @param {Array} fileAttachments - File attachments for context
  */
-export async function continueSession(sessionId, content, workingDirectory, systemPrompt = null) {
+export async function continueSession(sessionId, content, workingDirectory, systemPrompt = null, fileAttachments = []) {
   // Check if session is already running
   if (activeSessions.has(sessionId)) {
     throw new Error('Session is already processing');
@@ -406,6 +457,14 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     const message = messages.create(sessionId, 'user', content);
     broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
 
+    // Associate any pending attachments with the message
+    if (fileAttachments.length > 0) {
+      attachments.updateMessageIdForSession(sessionId, message.id);
+    }
+
+    // Build prompt with attachment context
+    const promptWithAttachments = buildPromptWithAttachments(content, fileAttachments);
+
     // Update status to running
     sessions.update(sessionId, { status: 'running' });
     broadcastSessionStatus(sessionId, 'running');
@@ -417,9 +476,9 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     const sessionEnv = buildSessionEnv(session);
 
     const queryParams = isMockMode()
-      ? { prompt: content }
+      ? { prompt: promptWithAttachments }
       : {
-          prompt: content,
+          prompt: promptWithAttachments,
           options: {
             cwd: workingDirectory,
             abortController: controller,

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sessions, messages, sessionNotes, projects, todos, workLogs } from '../database.js';
+import { sessions, messages, sessionNotes, projects, todos, workLogs, attachments } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -7,6 +7,7 @@ import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
 import * as summaryService from '../services/summaryService.js';
 import { executeHookAsync } from '../services/hookService.js';
+import { upload, handleUploadError } from '../middleware/upload.js';
 
 const router = Router();
 
@@ -56,7 +57,14 @@ router.get('/:id/messages', (req, res) => {
   }
 
   const sessionMessages = messages.getBySessionId(req.params.id);
-  res.json(sessionMessages);
+
+  // Attach file attachments to each message (without content for efficiency)
+  const messagesWithAttachments = sessionMessages.map((msg) => ({
+    ...msg,
+    attachments: attachments.getByMessageIdWithoutContent(msg.id),
+  }));
+
+  res.json(messagesWithAttachments);
 });
 
 // GET /api/sessions/:id/work-logs - Get work logs for session
@@ -95,13 +103,16 @@ router.post('/:id/work-logs', (req, res) => {
 });
 
 // POST /api/sessions/:id/message - Send follow-up message
-router.post('/:id/message', async (req, res) => {
+// Supports both JSON and multipart/form-data (for file attachments)
+router.post('/:id/message', upload.array('files', 10), handleUploadError, async (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const { content } = req.body;
+  const content = req.body.content;
+  const files = req.files || [];
+
   if (!content) {
     return res.status(400).json({ error: 'Content is required' });
   }
@@ -117,11 +128,14 @@ router.post('/:id/message', async (req, res) => {
   }
 
   try {
+    // Store file attachments if any (associated with session, no message yet)
+    const messageAttachments = attachments.createBatch(session.id, null, files);
+
     // Use gitWorktree if set, otherwise use the project's working directory
     const workingDirectory = session.gitWorktree || project.workingDirectory;
 
-    // Start continuation (non-blocking)
-    continueSession(session.id, content, workingDirectory, project.systemPrompt).catch((error) => {
+    // Start continuation (non-blocking) - pass attachments for context
+    continueSession(session.id, content, workingDirectory, project.systemPrompt, messageAttachments).catch((error) => {
       console.error('Continue session error:', error);
     });
     res.json({ success: true });
