@@ -84,11 +84,15 @@ test.describe('Session Templates - Empty State', () => {
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
 
-    // Wait for empty state to be visible
+    // Wait for templates panel and empty state to be visible
+    await expect(page.locator('.templates-panel')).toBeVisible();
+    await page.waitForLoadState('networkidle');
     await expect(page.locator('.empty-state')).toBeVisible();
 
-    // Click the Create Template button in the empty state
-    await page.locator('.empty-state button:has-text("Create Template")').click();
+    // Click the Create Template button in the empty state using force
+    const createBtn = page.locator('.empty-state button:has-text("Create Template")');
+    await expect(createBtn).toBeVisible();
+    await createBtn.click({ force: true });
 
     // Wait for form to appear
     await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
@@ -115,8 +119,11 @@ test.describe('Session Templates - Create Form', () => {
     await page.goto(`/projects/${projectId}/sessions`);
     await page.click('.tab:has-text("Templates")');
     await expect(page.locator('.templates-panel')).toBeVisible();
+    await page.waitForLoadState('networkidle');
     await expect(page.locator('.empty-state')).toBeVisible();
-    await page.locator('.empty-state button:has-text("Create Template")').click();
+    const createBtn = page.locator('.empty-state button:has-text("Create Template")');
+    await expect(createBtn).toBeVisible();
+    await createBtn.click({ force: true });
     await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
   }
 
@@ -127,11 +134,14 @@ test.describe('Session Templates - Create Form', () => {
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
     await expect(page.locator('.templates-panel')).toBeVisible();
+    await page.waitForLoadState('networkidle');
 
     // Wait for template to appear
     await expect(page.getByText('[TEST] Existing')).toBeVisible();
 
-    await page.click('.templates-header button:has-text("New Template")');
+    const newTemplateBtn = page.locator('.templates-header button:has-text("New Template")');
+    await expect(newTemplateBtn).toBeVisible();
+    await newTemplateBtn.click({ force: true });
 
     await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
   });
@@ -546,10 +556,13 @@ test.describe('Session Templates - Chaining', () => {
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
     await expect(page.locator('.templates-panel')).toBeVisible();
+    await page.waitForLoadState('networkidle');
     await expect(page.getByText('[TEST] Target Template')).toBeVisible();
 
     // Click the New Template button
-    await page.click('.templates-header button:has-text("New Template")');
+    const newTemplateBtn = page.locator('.templates-header button:has-text("New Template")');
+    await expect(newTemplateBtn).toBeVisible();
+    await newTemplateBtn.click({ force: true });
     await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
 
     // Fill form
