@@ -2,7 +2,7 @@
   <div class="conversation-tab">
     <div class="messages" ref="messagesContainer">
       <div
-        v-for="(message, index) in sessionsStore.messages"
+        v-for="message in sessionsStore.messages"
         :key="message.id"
         :class="['message', `message-${message.role}`]"
       >
