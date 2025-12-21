@@ -2,17 +2,20 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { SessionRepository } from './SessionRepository.js';
 import { ProjectRepository } from './ProjectRepository.js';
 import { MessageRepository } from './MessageRepository.js';
+import { SessionTemplateRepository } from './SessionTemplateRepository.js';
 
 describe('SessionRepository', () => {
   // Uses global setup from test/setup.js
   let repo;
   let projectRepo;
   let messageRepo;
+  let templateRepo;
   let projectId;
 
   beforeEach(() => {
     projectRepo = new ProjectRepository();
     messageRepo = new MessageRepository();
+    templateRepo = new SessionTemplateRepository();
 
     // Create a project for testing
     const project = projectRepo.create('Test Project', '/tmp/test');
@@ -78,6 +81,8 @@ describe('SessionRepository', () => {
       expect(session.gitWorktree).toBeNull();
       expect(session.prUrl).toBeNull();
       expect(session.error).toBeNull();
+      expect(session.nextTemplateId).toBeNull();
+      expect(session.parentSessionId).toBeNull();
     });
   });
 
@@ -369,6 +374,31 @@ describe('SessionRepository', () => {
 
       expect(result.name).toBe('Test');
       expect(result.status).toBe('starting');
+    });
+
+    it('updates nextTemplateId', () => {
+      const template = templateRepo.create({ projectId: null, name: 'Test', prompt: 'Prompt' });
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const updated = repo.update(session.id, { nextTemplateId: template.id });
+
+      expect(updated.nextTemplateId).toBe(template.id);
+    });
+
+    it('clears nextTemplateId when set to null', () => {
+      const template = templateRepo.create({ projectId: null, name: 'Test', prompt: 'Prompt' });
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { nextTemplateId: template.id });
+      const updated = repo.update(session.id, { nextTemplateId: null });
+
+      expect(updated.nextTemplateId).toBeNull();
+    });
+
+    it('updates parentSessionId', () => {
+      const parentSession = repo.create(projectId, 'Parent', 'Prompt');
+      const childSession = repo.create(projectId, 'Child', 'Prompt');
+      const updated = repo.update(childSession.id, { parentSessionId: parentSession.id });
+
+      expect(updated.parentSessionId).toBe(parentSession.id);
     });
   });
 
