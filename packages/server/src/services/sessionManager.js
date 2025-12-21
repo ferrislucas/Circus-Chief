@@ -5,8 +5,8 @@ import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@c
 import { updateTodos } from './todoStore.js';
 import * as summaryService from './summaryService.js';
 
-/** @type {Map<string, string|null>} Track current message ID for work log association */
-const currentMessageIds = new Map();
+/** @type {Map<string, string|null>} Track last message ID for end-of-turn work log association */
+const lastMessageIds = new Map();
 
 /** @type {Map<string, string>} Accumulate thinking content per session */
 const thinkingAccumulators = new Map();
@@ -270,9 +270,6 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
-  // Reset message tracking for this turn - ensures work logs start as unassociated
-  currentMessageIds.set(sessionId, null);
-
   try {
     // Get session for settings
     const session = sessions.getById(sessionId);
@@ -308,6 +305,13 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
       if (controller.signal.aborted) break;
 
       await handleStreamEvent(sessionId, event);
+    }
+
+    // Associate work logs with the last message now that the turn is complete
+    const lastMessageId = lastMessageIds.get(sessionId);
+    if (lastMessageId) {
+      associateAndBroadcastWorkLogs(sessionId, lastMessageId);
+      lastMessageIds.delete(sessionId);
     }
 
     // Session ready for follow-up - set to waiting instead of completed
@@ -359,9 +363,6 @@ export async function continueSession(sessionId, content, workingDirectory, syst
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
-  // Reset message tracking for this turn - ensures work logs start as unassociated
-  currentMessageIds.set(sessionId, null);
-
   try {
     // Store the user message
     const message = messages.create(sessionId, 'user', content);
@@ -397,6 +398,13 @@ export async function continueSession(sessionId, content, workingDirectory, syst
       if (controller.signal.aborted) break;
 
       await handleStreamEvent(sessionId, event);
+    }
+
+    // Associate work logs with the last message now that the turn is complete
+    const lastMessageId = lastMessageIds.get(sessionId);
+    if (lastMessageId) {
+      associateAndBroadcastWorkLogs(sessionId, lastMessageId);
+      lastMessageIds.delete(sessionId);
     }
 
     // Session ready for more follow-ups
@@ -468,19 +476,37 @@ export function cleanupActiveSession(sessionId) {
 
 /**
  * Create and broadcast a work log entry
+ * Work logs are always created as unassociated during the turn,
+ * then associated with the message when the turn completes.
  * @param {string} sessionId
  * @param {string} type - 'thinking', 'tool_input', or 'tool_output'
  * @param {string} content
  * @param {string|null} toolName
  */
 function createWorkLog(sessionId, type, content, toolName = null) {
-  const messageId = currentMessageIds.get(sessionId) || null;
-  const log = workLogs.create(sessionId, type, content, messageId, toolName);
+  // Always create as unassociated - will be associated at end of turn
+  const log = workLogs.create(sessionId, type, content, null, toolName);
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_WORK_LOG, {
     sessionId,
     log
   });
   return log;
+}
+
+/**
+ * Associate pending work logs with a message and broadcast the event
+ * @param {string} sessionId
+ * @param {string} messageId
+ */
+function associateAndBroadcastWorkLogs(sessionId, messageId) {
+  const associatedCount = workLogs.associatePendingLogs(sessionId, messageId);
+  if (associatedCount > 0) {
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_WORK_LOGS_ASSOCIATED, {
+      sessionId,
+      messageId,
+    });
+  }
+  return associatedCount;
 }
 
 /**
@@ -498,7 +524,7 @@ async function handleStreamEvent(sessionId, event) {
           model: event.model,
         });
         // Reset message tracking for new session
-        currentMessageIds.set(sessionId, null);
+        lastMessageIds.delete(sessionId);
       }
       break;
     }
@@ -517,13 +543,10 @@ async function handleStreamEvent(sessionId, event) {
         const toolUse = toolUseBlocks.length > 0 ? toolUseBlocks : null;
         const message = messages.create(sessionId, 'assistant', textContent, toolUse);
 
-        // Update current message ID for work log association
-        currentMessageIds.set(sessionId, message.id);
+        // Track the message ID for end-of-turn work log association
+        lastMessageIds.set(sessionId, message.id);
 
-        // Associate any pending work logs with this message
-        const associatedCount = workLogs.associatePendingLogs(sessionId, message.id);
-
-        // Broadcast message first
+        // Broadcast message
         broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
 
         // Check for TodoWrite tool and update todos
@@ -532,14 +555,6 @@ async function handleStreamEvent(sessionId, event) {
           if (todoWrite?.input?.todos) {
             updateTodos(sessionId, todoWrite.input.todos);
           }
-        }
-
-        // Notify client to re-associate work logs in their state
-        if (associatedCount > 0) {
-          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_WORK_LOGS_ASSOCIATED, {
-            sessionId,
-            messageId: message.id,
-          });
         }
 
         // Trigger debounced summary generation on new message
@@ -637,7 +652,7 @@ async function handleStreamEvent(sessionId, event) {
         }
       }
       // Clear message tracking when session completes
-      currentMessageIds.delete(sessionId);
+      lastMessageIds.delete(sessionId);
       break;
     }
   }
