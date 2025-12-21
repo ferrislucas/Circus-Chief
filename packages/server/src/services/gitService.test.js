@@ -296,15 +296,12 @@ describe('gitService', () => {
 
   describe('createWorktreeForBranch - error handling', () => {
     let mockLogger;
-    let originalLogger;
 
     beforeEach(() => {
       // Set up mock logger to capture warnings
       mockLogger = {
         warn: vi.fn(),
       };
-      // Store reference to reset later
-      originalLogger = { warn: console.warn };
       setLogger(mockLogger);
     });
 
