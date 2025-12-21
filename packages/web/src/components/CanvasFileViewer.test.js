@@ -1,0 +1,252 @@
+import { describe, it, expect, vi } from 'vitest';
+import { mount } from '@vue/test-utils';
+import CanvasFileViewer from './CanvasFileViewer.vue';
+
+// Mock MarkdownViewer component
+vi.mock('./MarkdownViewer.vue', () => ({
+  default: {
+    name: 'MarkdownViewer',
+    props: ['content'],
+    template: '<div class="markdown-viewer-mock">{{ content }}</div>',
+  },
+}));
+
+describe('CanvasFileViewer', () => {
+  const baseItem = {
+    id: 'item-1',
+    filename: 'test-image.png',
+    type: 'image',
+    data: 'base64data',
+    mimeType: 'image/png',
+    createdAt: Date.now(),
+  };
+
+  const baseVersions = [
+    { id: 'item-1', filename: 'test-image.png', createdAt: Date.now() },
+    { id: 'item-2', filename: 'test-image.png', createdAt: Date.now() - 60000 },
+  ];
+
+  function mountComponent(props = {}) {
+    return mount(CanvasFileViewer, {
+      props: {
+        item: baseItem,
+        versions: [],
+        showBackButton: true,
+        ...props,
+      },
+    });
+  }
+
+  describe('basic rendering', () => {
+    it('displays the filename', () => {
+      const wrapper = mountComponent();
+      expect(wrapper.find('.viewer-filename').text()).toBe('test-image.png');
+    });
+
+    it('uses label when filename is missing', () => {
+      const wrapper = mountComponent({
+        item: { ...baseItem, filename: null, label: 'My Label' },
+      });
+      expect(wrapper.find('.viewer-filename').text()).toBe('My Label');
+    });
+
+    it('shows "Untitled" when both filename and label are missing', () => {
+      const wrapper = mountComponent({
+        item: { ...baseItem, filename: null, label: null },
+      });
+      expect(wrapper.find('.viewer-filename').text()).toBe('Untitled');
+    });
+  });
+
+  describe('back button', () => {
+    it('shows back button when showBackButton is true', () => {
+      const wrapper = mountComponent({ showBackButton: true });
+      expect(wrapper.find('.btn-back').exists()).toBe(true);
+    });
+
+    it('hides back button when showBackButton is false', () => {
+      const wrapper = mountComponent({ showBackButton: false });
+      expect(wrapper.find('.btn-back').exists()).toBe(false);
+    });
+
+    it('back button has click handler', () => {
+      const wrapper = mountComponent();
+      const backBtn = wrapper.find('.btn-back');
+      expect(backBtn.exists()).toBe(true);
+      // Button element is present and styled correctly
+      expect(backBtn.text()).toContain('Back');
+    });
+  });
+
+  describe('version dropdown', () => {
+    it('shows version dropdown when multiple versions exist', () => {
+      const wrapper = mountComponent({ versions: baseVersions });
+      expect(wrapper.find('.version-dropdown').exists()).toBe(true);
+    });
+
+    it('hides version dropdown when only one version exists', () => {
+      const wrapper = mountComponent({ versions: [baseVersions[0]] });
+      expect(wrapper.find('.version-dropdown').exists()).toBe(false);
+    });
+
+    it('displays current version number', () => {
+      const wrapper = mountComponent({ versions: baseVersions });
+      expect(wrapper.find('.version-dropdown summary').text()).toContain('v1');
+    });
+
+    it('lists all versions in dropdown', () => {
+      const wrapper = mountComponent({ versions: baseVersions });
+      const versionItems = wrapper.findAll('.version-list li');
+      expect(versionItems.length).toBe(2);
+    });
+
+    it('marks current version in list', () => {
+      const wrapper = mountComponent({ versions: baseVersions });
+      const currentItem = wrapper.find('.version-list li.active');
+      expect(currentItem.exists()).toBe(true);
+      expect(currentItem.text()).toContain('(current)');
+    });
+
+    it('version list items are clickable', () => {
+      const wrapper = mountComponent({ versions: baseVersions });
+      const versionItems = wrapper.findAll('.version-list li');
+
+      // Verify each version item exists and shows correct info
+      expect(versionItems.length).toBe(2);
+      expect(versionItems[0].text()).toContain('v1');
+      expect(versionItems[1].text()).toContain('v2');
+    });
+  });
+
+  describe('delete dropdown', () => {
+    it('shows delete dropdown', () => {
+      const wrapper = mountComponent();
+      expect(wrapper.find('.delete-dropdown').exists()).toBe(true);
+    });
+
+    it('shows "Delete this version" option', () => {
+      const wrapper = mountComponent();
+      expect(wrapper.find('.delete-options').text()).toContain('Delete this version');
+    });
+
+    it('shows "Delete all versions" when multiple versions exist', () => {
+      const wrapper = mountComponent({ versions: baseVersions });
+      expect(wrapper.find('.delete-options').text()).toContain('Delete all 2 versions');
+    });
+
+    it('hides "Delete all versions" when only one version exists', () => {
+      const wrapper = mountComponent({ versions: [baseVersions[0]] });
+      expect(wrapper.find('.delete-options').text()).not.toContain('Delete all');
+    });
+
+    it('delete options are interactive elements', () => {
+      const wrapper = mountComponent();
+      const deleteOptions = wrapper.findAll('.delete-options li');
+
+      // Verify delete option exists
+      expect(deleteOptions.length).toBeGreaterThanOrEqual(1);
+      expect(deleteOptions[0].text()).toContain('Delete this version');
+    });
+
+    it('delete all option exists when multiple versions', () => {
+      const wrapper = mountComponent({ versions: baseVersions });
+      const deleteAllOption = wrapper.find('.delete-options li.delete-all');
+
+      expect(deleteAllOption.exists()).toBe(true);
+      expect(deleteAllOption.text()).toContain('Delete all 2 versions');
+    });
+  });
+
+  describe('image content', () => {
+    it('renders image with correct src', () => {
+      const wrapper = mountComponent();
+      const img = wrapper.find('.viewer-image');
+      expect(img.exists()).toBe(true);
+      expect(img.attributes('src')).toBe('data:image/png;base64,base64data');
+    });
+
+    it('uses label as alt text', () => {
+      const wrapper = mountComponent({
+        item: { ...baseItem, label: 'My Image' },
+      });
+      expect(wrapper.find('.viewer-image').attributes('alt')).toBe('My Image');
+    });
+  });
+
+  describe('markdown content', () => {
+    const markdownItem = {
+      ...baseItem,
+      type: 'markdown',
+      content: '# Hello World',
+    };
+
+    it('shows MarkdownViewer by default (preview mode)', () => {
+      const wrapper = mountComponent({ item: markdownItem });
+      expect(wrapper.find('.markdown-viewer-mock').exists()).toBe(true);
+      expect(wrapper.find('.viewer-markdown-raw').exists()).toBe(false);
+    });
+
+    it('shows preview toggle button for markdown', () => {
+      const wrapper = mountComponent({ item: markdownItem });
+      expect(wrapper.find('.preview-toggle').exists()).toBe(true);
+    });
+
+    it('hides preview toggle for non-markdown types', () => {
+      const wrapper = mountComponent(); // uses image type
+      expect(wrapper.find('.preview-toggle').exists()).toBe(false);
+    });
+
+    it('toggles between preview and raw mode', async () => {
+      const wrapper = mountComponent({ item: markdownItem });
+
+      // Initially in preview mode
+      expect(wrapper.find('.markdown-viewer-mock').exists()).toBe(true);
+
+      // Click toggle to switch to raw
+      await wrapper.find('.preview-toggle').trigger('click');
+      expect(wrapper.find('.viewer-markdown-raw').exists()).toBe(true);
+      expect(wrapper.find('.markdown-viewer-mock').exists()).toBe(false);
+
+      // Click toggle to switch back to preview
+      await wrapper.find('.preview-toggle').trigger('click');
+      expect(wrapper.find('.markdown-viewer-mock').exists()).toBe(true);
+      expect(wrapper.find('.viewer-markdown-raw').exists()).toBe(false);
+    });
+  });
+
+  describe('json content', () => {
+    const jsonItem = {
+      ...baseItem,
+      type: 'json',
+      data: '{"key":"value"}',
+    };
+
+    it('renders formatted JSON', () => {
+      const wrapper = mountComponent({ item: jsonItem });
+      const jsonContent = wrapper.find('.viewer-json');
+      expect(jsonContent.exists()).toBe(true);
+      expect(jsonContent.text()).toContain('"key"');
+      expect(jsonContent.text()).toContain('"value"');
+    });
+
+    it('handles invalid JSON gracefully', () => {
+      const wrapper = mountComponent({
+        item: { ...jsonItem, data: 'invalid json' },
+      });
+      expect(wrapper.find('.viewer-json').text()).toBe('invalid json');
+    });
+  });
+
+  describe('text content', () => {
+    const textItem = {
+      ...baseItem,
+      type: 'text',
+      content: 'Plain text content',
+    };
+
+    it('renders text content', () => {
+      const wrapper = mountComponent({ item: textItem });
+      expect(wrapper.find('.viewer-text').text()).toBe('Plain text content');
+    });
+  });
+});

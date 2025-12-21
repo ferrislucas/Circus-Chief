@@ -26,7 +26,7 @@ test.describe('Canvas Management', () => {
     await expect(page.getByRole('button', { name: 'Upload File' })).toBeVisible();
   });
 
-  test('displays canvas items', async ({ page }) => {
+  test('displays single canvas item directly in viewer (no list)', async ({ page }) => {
     const item = await seedCanvasItem(session.id, {
       type: 'markdown',
       content: '# Test Markdown',
@@ -35,9 +35,14 @@ test.describe('Canvas Management', () => {
 
     await page.goto(`/sessions/${session.id}/canvas`);
 
-    // Verify item label and type are visible
-    await expect(page.getByText('Test Label')).toBeVisible();
-    await expect(page.locator('.canvas-item-type').getByText('markdown')).toBeVisible();
+    // Single item should show directly in viewer (not in list)
+    await expect(page.locator('.viewer-filename')).toContainText('Test Label');
+
+    // Back button should NOT be visible (only one item)
+    await expect(page.locator('.btn-back')).not.toBeVisible();
+
+    // Upload button should still be visible
+    await expect(page.getByRole('button', { name: 'Upload File' })).toBeVisible();
 
     // Verify via API that the item exists with correct data
     const items = await getCanvasItems(session.id);
@@ -46,6 +51,76 @@ test.describe('Canvas Management', () => {
     expect(items[0].type).toBe('markdown');
     expect(items[0].label).toBe('Test Label');
     expect(items[0].content).toBe('# Test Markdown');
+  });
+
+  test('displays file list when multiple items exist', async ({ page }) => {
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# First',
+      label: 'First Item',
+    });
+
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Second content',
+      label: 'Second Item',
+    });
+
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    // Should show list view with both items
+    await expect(page.locator('.file-row')).toHaveCount(2);
+    await expect(page.getByText('First Item')).toBeVisible();
+    await expect(page.getByText('Second Item')).toBeVisible();
+  });
+
+  test('clicking list item opens viewer', async ({ page }) => {
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# First',
+      label: 'First Item',
+    });
+
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Second content',
+      label: 'Second Item',
+    });
+
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    // Click on first item
+    await page.locator('.file-row').filter({ hasText: 'First Item' }).click();
+
+    // Should show viewer with back button
+    await expect(page.locator('.viewer-filename')).toContainText('First Item');
+    await expect(page.locator('.btn-back')).toBeVisible();
+  });
+
+  test('back button returns to list view', async ({ page }) => {
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# First',
+      label: 'First Item',
+    });
+
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Second content',
+      label: 'Second Item',
+    });
+
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    // Click on first item to open viewer
+    await page.locator('.file-row').filter({ hasText: 'First Item' }).click();
+    await expect(page.locator('.viewer-filename')).toBeVisible();
+
+    // Click back button
+    await page.locator('.btn-back').click();
+
+    // Should show list view again
+    await expect(page.locator('.file-row')).toHaveCount(2);
   });
 
   test('markdown items default to preview mode and can toggle to raw', async ({ page }) => {
@@ -58,21 +133,20 @@ test.describe('Canvas Management', () => {
     await page.goto(`/sessions/${session.id}/canvas`);
 
     // Should be in preview mode by default - shows rendered markdown
-    const canvasItem = page.locator('.canvas-item').first();
-    await expect(canvasItem.locator('.markdown-viewer')).toBeVisible();
-    await expect(canvasItem.locator('.canvas-markdown-raw')).not.toBeVisible();
+    await expect(page.locator('.markdown-viewer')).toBeVisible();
+    await expect(page.locator('.viewer-markdown-raw')).not.toBeVisible();
 
     // Preview toggle button should show "Raw" option (since we're in preview mode)
-    const toggleButton = canvasItem.locator('.preview-toggle');
+    const toggleButton = page.locator('.preview-toggle');
     await expect(toggleButton).toContainText('Raw');
 
     // Click to switch to raw mode
     await toggleButton.click();
 
     // Should now show raw markdown
-    await expect(canvasItem.locator('.canvas-markdown-raw')).toBeVisible();
-    await expect(canvasItem.locator('.markdown-viewer')).not.toBeVisible();
-    await expect(canvasItem.locator('.canvas-markdown-raw')).toContainText('# Heading');
+    await expect(page.locator('.viewer-markdown-raw')).toBeVisible();
+    await expect(page.locator('.markdown-viewer')).not.toBeVisible();
+    await expect(page.locator('.viewer-markdown-raw')).toContainText('# Heading');
 
     // Toggle button should now show "Preview" option
     await expect(toggleButton).toContainText('Preview');
@@ -81,8 +155,8 @@ test.describe('Canvas Management', () => {
     await toggleButton.click();
 
     // Should be back in preview mode
-    await expect(canvasItem.locator('.markdown-viewer')).toBeVisible();
-    await expect(canvasItem.locator('.canvas-markdown-raw')).not.toBeVisible();
+    await expect(page.locator('.markdown-viewer')).toBeVisible();
+    await expect(page.locator('.viewer-markdown-raw')).not.toBeVisible();
   });
 
   test('markdown items render properly with MarkdownViewer', async ({ page }) => {
@@ -94,15 +168,13 @@ test.describe('Canvas Management', () => {
 
     await page.goto(`/sessions/${session.id}/canvas`);
 
-    const canvasItem = page.locator('.canvas-item').first();
-
     // Verify markdown is rendered (not raw)
-    await expect(canvasItem.locator('.markdown-viewer h1')).toContainText('Main Heading');
-    await expect(canvasItem.locator('.markdown-viewer ul li').first()).toContainText('List item 1');
-    await expect(canvasItem.locator('.markdown-viewer pre code')).toContainText('const x = 1;');
+    await expect(page.locator('.markdown-viewer h1')).toContainText('Main Heading');
+    await expect(page.locator('.markdown-viewer ul li').first()).toContainText('List item 1');
+    await expect(page.locator('.markdown-viewer pre code')).toContainText('const x = 1;');
   });
 
-  test('can delete canvas item', async ({ page }) => {
+  test('can delete single canvas item', async ({ page }) => {
     const item = await seedCanvasItem(session.id, {
       type: 'text',
       content: 'Delete me',
@@ -115,14 +187,14 @@ test.describe('Canvas Management', () => {
     expect(items[0].id).toBe(item.id);
 
     await page.goto(`/sessions/${session.id}/canvas`);
-    await expect(page.getByText('To Delete')).toBeVisible();
+    await expect(page.locator('.viewer-filename')).toContainText('To Delete');
 
     // Handle confirmation dialog
     page.on('dialog', (dialog) => dialog.accept());
-    await page.click('button[title="Delete"]');
 
-    // Verify not visible in UI
-    await expect(page.getByText('To Delete')).not.toBeVisible();
+    // Open delete dropdown and click delete
+    await page.locator('.delete-dropdown summary').click();
+    await page.getByText('Delete this version').click();
 
     // Verify empty state is shown
     await expect(page.getByText('No canvas items yet')).toBeVisible();
@@ -132,7 +204,7 @@ test.describe('Canvas Management', () => {
     expect(items.length).toBe(0);
   });
 
-  test('displays different canvas item types', async ({ page }) => {
+  test('displays different canvas item types in list', async ({ page }) => {
     const textItem = await seedCanvasItem(session.id, {
       type: 'text',
       content: 'Plain text content',
@@ -147,11 +219,11 @@ test.describe('Canvas Management', () => {
 
     await page.goto(`/sessions/${session.id}/canvas`);
 
-    // Verify both items are visible with correct labels and types
+    // Verify both items are visible in list with correct labels and types
     await expect(page.getByText('Text Item')).toBeVisible();
     await expect(page.getByText('JSON Item')).toBeVisible();
-    await expect(page.locator('.canvas-item-type').getByText('text')).toBeVisible();
-    await expect(page.locator('.canvas-item-type').getByText('json')).toBeVisible();
+    await expect(page.locator('.file-type').getByText('text')).toBeVisible();
+    await expect(page.locator('.file-type').getByText('json')).toBeVisible();
 
     // Verify via API that both items exist with correct types
     const items = await getCanvasItems(session.id);
@@ -169,7 +241,7 @@ test.describe('Canvas Management', () => {
     expect(JSON.parse(apiJsonItem.content)).toEqual({ key: 'value' });
   });
 
-  test('image renders correctly when using data and mimeType fields', async ({ page }) => {
+  test('image renders correctly in viewer when using data and mimeType fields', async ({ page }) => {
     await seedCanvasItem(session.id, {
       type: 'image',
       data: TEST_PNG_BASE64,
@@ -179,12 +251,11 @@ test.describe('Canvas Management', () => {
 
     await page.goto(`/sessions/${session.id}/canvas`);
 
-    // Verify the image label and type are visible
-    await expect(page.getByText('Test Image')).toBeVisible();
-    await expect(page.locator('.canvas-item-type').getByText('image')).toBeVisible();
+    // Should be in viewer directly (single item)
+    await expect(page.locator('.viewer-filename')).toContainText('Test Image');
 
     // Verify the image renders correctly (not broken)
-    const image = page.locator('.canvas-image');
+    const image = page.locator('.viewer-image');
     await expect(image).toBeVisible();
 
     // Check that the image has loaded successfully by verifying naturalWidth > 0
@@ -203,12 +274,11 @@ test.describe('Canvas Management', () => {
 
     await page.goto(`/sessions/${session.id}/canvas`);
 
-    // Verify the image label and type are visible
-    await expect(page.getByText('Data URL Image')).toBeVisible();
-    await expect(page.locator('.canvas-item-type').getByText('image')).toBeVisible();
+    // Should be in viewer directly (single item)
+    await expect(page.locator('.viewer-filename')).toContainText('Data URL Image');
 
     // Verify the image renders correctly (not broken)
-    const image = page.locator('.canvas-image');
+    const image = page.locator('.viewer-image');
     await expect(image).toBeVisible();
 
     // Check that the image has loaded successfully by verifying naturalWidth > 0
@@ -228,7 +298,7 @@ test.describe('Canvas Management', () => {
     await page.goto(`/sessions/${session.id}/canvas`);
 
     // Verify the image element is present
-    const image = page.locator('.canvas-image');
+    const image = page.locator('.viewer-image');
     await expect(image).toBeVisible();
 
     // Check that the image is broken (naturalWidth === 0 for broken images)
@@ -257,12 +327,11 @@ test.describe('Canvas Management', () => {
 
       await page.goto(`/sessions/${session.id}/canvas`);
 
-      // Verify the image label and type are visible
-      await expect(page.getByText('File Path Image')).toBeVisible();
-      await expect(page.locator('.canvas-item-type').getByText('image')).toBeVisible();
+      // Should be in viewer directly (single item)
+      await expect(page.locator('.viewer-filename')).toContainText('File Path Image');
 
       // Verify the image renders correctly (not broken)
-      const image = page.locator('.canvas-image');
+      const image = page.locator('.viewer-image');
       await expect(image).toBeVisible();
 
       // Check that the image has loaded successfully by verifying naturalWidth > 0
@@ -377,14 +446,11 @@ test.describe('Canvas Management', () => {
       buffer: pngBuffer,
     });
 
-    // Wait for upload to complete - look for the image type indicator
-    await expect(page.locator('.canvas-item-type').getByText('image')).toBeVisible({ timeout: 10000 });
+    // Wait for upload to complete - should show in viewer (single item)
+    await expect(page.locator('.viewer-filename')).toContainText('test-image.png', { timeout: 10000 });
 
     // Empty state should be gone
     await expect(page.getByText('No canvas items yet')).not.toBeVisible();
-
-    // Verify the label is displayed (filename) - use specific selector to avoid matching toast
-    await expect(page.locator('.canvas-item-label').getByText('test-image.png')).toBeVisible();
 
     // Verify via API
     const items = await getCanvasItems(session.id);
@@ -392,5 +458,122 @@ test.describe('Canvas Management', () => {
     expect(items[0].type).toBe('image');
     expect(items[0].mimeType).toBe('image/png');
     expect(items[0].label).toBe('test-image.png');
+  });
+
+  test('version grouping: shows version badge in list for files with same name', async ({ page }) => {
+    // Upload multiple versions of the same file
+    await seedCanvasItem(session.id, {
+      type: 'image',
+      data: TEST_PNG_BASE64,
+      mimeType: 'image/png',
+      filename: 'screenshot.png',
+      label: 'screenshot.png',
+    });
+
+    // Wait a bit to ensure different createdAt
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await seedCanvasItem(session.id, {
+      type: 'image',
+      data: TEST_PNG_BASE64,
+      mimeType: 'image/png',
+      filename: 'screenshot.png',
+      label: 'screenshot.png',
+    });
+
+    // Add another file
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Other content',
+      filename: 'other.txt',
+      label: 'other.txt',
+    });
+
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    // Should show list with 2 groups (screenshot.png with v2, other.txt with no badge)
+    const rows = page.locator('.file-row');
+    await expect(rows).toHaveCount(2);
+
+    // Find the screenshot row and verify it has version badge
+    const screenshotRow = page.locator('.file-row').filter({ hasText: 'screenshot.png' });
+    await expect(screenshotRow.locator('.version-badge')).toContainText('v2');
+
+    // Other.txt should not have version badge
+    const otherRow = page.locator('.file-row').filter({ hasText: 'other.txt' });
+    await expect(otherRow.locator('.version-badge')).not.toBeVisible();
+  });
+
+  test('version dropdown: can switch between versions', async ({ page }) => {
+    // Upload multiple versions of the same file
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Version 1 content',
+      filename: 'doc.txt',
+      label: 'doc.txt',
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Version 2 content',
+      filename: 'doc.txt',
+      label: 'doc.txt',
+    });
+
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    // Single group, should show viewer directly
+    await expect(page.locator('.viewer-filename')).toContainText('doc.txt');
+
+    // Should show version dropdown with v1 (newest)
+    const versionDropdown = page.locator('.version-dropdown');
+    await expect(versionDropdown).toBeVisible();
+    await expect(versionDropdown.locator('summary')).toContainText('v1');
+
+    // Content should be latest version
+    await expect(page.locator('.viewer-text')).toContainText('Version 2 content');
+
+    // Open dropdown and switch to older version
+    await versionDropdown.locator('summary').click();
+    await page.locator('.version-list li').nth(1).click();
+
+    // Content should now be older version
+    await expect(page.locator('.viewer-text')).toContainText('Version 1 content');
+    await expect(versionDropdown.locator('summary')).toContainText('v2');
+  });
+
+  test('delete all versions: removes entire file group', async ({ page }) => {
+    // Upload multiple versions of the same file
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Version 1',
+      filename: 'doc.txt',
+      label: 'doc.txt',
+    });
+
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Version 2',
+      filename: 'doc.txt',
+      label: 'doc.txt',
+    });
+
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    // Handle confirmation dialog
+    page.on('dialog', (dialog) => dialog.accept());
+
+    // Open delete dropdown and click "Delete all versions"
+    await page.locator('.delete-dropdown summary').click();
+    await page.getByText('Delete all 2 versions').click();
+
+    // Should show empty state
+    await expect(page.getByText('No canvas items yet')).toBeVisible();
+
+    // Verify via API
+    const items = await getCanvasItems(session.id);
+    expect(items.length).toBe(0);
   });
 });
