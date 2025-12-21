@@ -288,4 +288,190 @@ describe('SessionCard', () => {
       });
     });
   });
+
+  describe('PR status indicators', () => {
+    describe('PR state badge', () => {
+      it('shows merged badge when prState is merged', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: { shortSummary: 'Test', prState: 'merged' },
+        });
+        const badge = wrapper.find('.pr-state-badge');
+        expect(badge.exists()).toBe(true);
+        expect(badge.text()).toBe('Merged');
+        expect(badge.classes()).toContain('pr-state-merged');
+      });
+
+      it('shows open badge when prState is open', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: { shortSummary: 'Test', prState: 'open' },
+        });
+        const badge = wrapper.find('.pr-state-badge');
+        expect(badge.exists()).toBe(true);
+        expect(badge.text()).toBe('Open');
+        expect(badge.classes()).toContain('pr-state-open');
+      });
+
+      it('shows closed badge when prState is closed', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: { shortSummary: 'Test', prState: 'closed' },
+        });
+        const badge = wrapper.find('.pr-state-badge');
+        expect(badge.exists()).toBe(true);
+        expect(badge.text()).toBe('Closed');
+        expect(badge.classes()).toContain('pr-state-closed');
+      });
+
+      it('shows draft badge when prState is draft', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: { shortSummary: 'Test', prState: 'draft' },
+        });
+        const badge = wrapper.find('.pr-state-badge');
+        expect(badge.exists()).toBe(true);
+        expect(badge.text()).toBe('Draft');
+        expect(badge.classes()).toContain('pr-state-draft');
+      });
+
+      it('does not show PR state badge when prState is not present', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: { shortSummary: 'Test' },
+        });
+        expect(wrapper.find('.pr-state-badge').exists()).toBe(false);
+      });
+
+      it('does not show PR state badge when summary is null', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: null,
+        });
+        expect(wrapper.find('.pr-state-badge').exists()).toBe(false);
+      });
+    });
+
+    describe('merge conflict indicator', () => {
+      it('shows conflict indicator when hasMergeConflicts is true', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: { shortSummary: 'Test', hasMergeConflicts: true },
+        });
+        const indicator = wrapper.find('.conflict-indicator');
+        expect(indicator.exists()).toBe(true);
+        expect(indicator.attributes('title')).toBe('Merge conflicts detected');
+      });
+
+      it('does not show conflict indicator when hasMergeConflicts is false', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: { shortSummary: 'Test', hasMergeConflicts: false },
+        });
+        expect(wrapper.find('.conflict-indicator').exists()).toBe(false);
+      });
+
+      it('does not show conflict indicator when hasMergeConflicts is not present', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: { shortSummary: 'Test' },
+        });
+        expect(wrapper.find('.conflict-indicator').exists()).toBe(false);
+      });
+    });
+
+    describe('CI status indicator', () => {
+      it('shows success indicator when ciStatus is success', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: { shortSummary: 'Test', ciStatus: 'success' },
+        });
+        const indicator = wrapper.find('.ci-indicator');
+        expect(indicator.exists()).toBe(true);
+        expect(indicator.text()).toBe('✓');
+        expect(indicator.classes()).toContain('ci-success');
+        expect(indicator.attributes('title')).toBe('CI passing');
+      });
+
+      it('shows failure indicator when ciStatus is failure', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: { shortSummary: 'Test', ciStatus: 'failure' },
+        });
+        const indicator = wrapper.find('.ci-indicator');
+        expect(indicator.exists()).toBe(true);
+        expect(indicator.text()).toBe('✗');
+        expect(indicator.classes()).toContain('ci-failure');
+        expect(indicator.attributes('title')).toBe('CI failing');
+      });
+
+      it('shows pending indicator when ciStatus is pending', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: { shortSummary: 'Test', ciStatus: 'pending' },
+        });
+        const indicator = wrapper.find('.ci-indicator');
+        expect(indicator.exists()).toBe(true);
+        expect(indicator.text()).toBe('○');
+        expect(indicator.classes()).toContain('ci-pending');
+        expect(indicator.attributes('title')).toBe('CI pending');
+      });
+
+      it('does not show CI indicator when ciStatus is not present', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: { shortSummary: 'Test' },
+        });
+        expect(wrapper.find('.ci-indicator').exists()).toBe(false);
+      });
+
+      it('does not show CI indicator when ciStatus is null', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: { shortSummary: 'Test', ciStatus: null },
+        });
+        expect(wrapper.find('.ci-indicator').exists()).toBe(false);
+      });
+    });
+
+    describe('graceful degradation', () => {
+      it('shows all indicators when all data is present', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: {
+            shortSummary: 'Test',
+            prState: 'open',
+            hasMergeConflicts: true,
+            ciStatus: 'failure',
+          },
+        });
+        expect(wrapper.find('.pr-state-badge').exists()).toBe(true);
+        expect(wrapper.find('.conflict-indicator').exists()).toBe(true);
+        expect(wrapper.find('.ci-indicator').exists()).toBe(true);
+      });
+
+      it('shows no indicators when summary is missing', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+        });
+        expect(wrapper.find('.pr-state-badge').exists()).toBe(false);
+        expect(wrapper.find('.conflict-indicator').exists()).toBe(false);
+        expect(wrapper.find('.ci-indicator').exists()).toBe(false);
+      });
+
+      it('shows only available indicators (partial data)', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, prUrl: 'https://github.com/org/repo/pull/123' },
+          summary: {
+            shortSummary: 'Test',
+            prState: 'open',
+            // No hasMergeConflicts or ciStatus
+          },
+        });
+        expect(wrapper.find('.pr-state-badge').exists()).toBe(true);
+        expect(wrapper.find('.conflict-indicator').exists()).toBe(false);
+        expect(wrapper.find('.ci-indicator').exists()).toBe(false);
+      });
+    });
+  });
 });
