@@ -13,9 +13,9 @@
             <span :class="['status-badge', `status-${sessionsStore.currentSession.status}`]">
               {{ sessionsStore.currentSession.status }}
             </span>
-            <span class="session-mode">{{ sessionsStore.currentSession.mode }}</span>
+            <span class="session-mode">{{ formatMode(sessionsStore.currentSession.mode) }}</span>
           </div>
-          <div v-if="sessionsStore.currentSession.gitBranch || sessionsStore.currentSession.prUrl" class="branch-row">
+          <div v-if="sessionsStore.currentSession.gitBranch || sessionsStore.currentSession.prUrl" class="branch-line">
             <span
               v-if="sessionsStore.currentSession.gitBranch"
               class="branch-indicator"
@@ -26,18 +26,11 @@
               </svg>
               {{ sessionsStore.currentSession.gitBranch }}
             </span>
-            <a
+            <PrIndicators
               v-if="sessionsStore.currentSession.prUrl"
-              :href="sessionsStore.currentSession.prUrl"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="pr-link"
-            >
-              <svg class="pr-icon" viewBox="0 0 16 16" fill="currentColor">
-                <path fill-rule="evenodd" d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z"/>
-              </svg>
-              View PR #{{ prNumber }}
-            </a>
+              :pr-url="sessionsStore.currentSession.prUrl"
+              :summary="summary"
+            />
           </div>
         </div>
         <div class="session-actions">
@@ -100,11 +93,13 @@ import { useCanvasStore } from '../stores/canvas.js';
 import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
+import { api } from '../composables/useApi.js';
 import ConversationTab from '../components/ConversationTab.vue';
 import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
 import NotesTab from '../components/NotesTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
+import PrIndicators from '../components/PrIndicators.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -120,14 +115,6 @@ const sessionId = route.params.id;
 
 const activeTab = computed(() => route.params.tab || 'conversation');
 
-// Extract PR number from prUrl (e.g., https://github.com/owner/repo/pull/123 -> 123)
-const prNumber = computed(() => {
-  const prUrl = sessionsStore.currentSession?.prUrl;
-  if (!prUrl) return '';
-  const match = prUrl.match(/\/pull\/(\d+)/);
-  return match ? match[1] : '';
-});
-
 const tabs = [
   { id: 'summary', label: 'Summary' },
   { id: 'conversation', label: 'Conversation' },
@@ -140,12 +127,13 @@ function navigateToTab(tabId) {
   router.push(`/sessions/${route.params.id}/${tabId}`);
 }
 
-const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate } =
+const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate } =
   useSessionSubscription(sessionId);
 
 let cleanups = [];
 const pollIntervalId = ref(null);
 const showDeleteConfirm = ref(false);
+const summary = ref(null);
 
 // Poll for updates while session is actively processing (fallback for race conditions)
 function startPolling() {
@@ -194,6 +182,13 @@ onMounted(async () => {
   await sessionsStore.fetchMessages(sessionId);
   canvasStore.fetchItems(sessionId);
   todosStore.fetchTodos(sessionId);
+
+  // Fetch summary for PR indicators (don't await, not critical)
+  api.getSessionSummary(sessionId).then((s) => {
+    summary.value = s;
+  }).catch(() => {
+    // Ignore errors - summary may not exist yet
+  });
 
   // Start polling if session is actively processing (handles race condition where session
   // completes before WebSocket subscription is established)
@@ -249,6 +244,12 @@ onMounted(async () => {
       sessionsStore.updateSession(session);
     })
   );
+
+  cleanups.push(
+    onSummaryUpdate((newSummary) => {
+      summary.value = newSummary;
+    })
+  );
 });
 
 onUnmounted(() => {
@@ -256,6 +257,11 @@ onUnmounted(() => {
   unsubscribe();
   cleanups.forEach((cleanup) => cleanup());
 });
+
+function formatMode(mode) {
+  if (mode === 'yolo') return 'YOLO';
+  return mode.charAt(0).toUpperCase() + mode.slice(1);
+}
 
 async function handleDelete() {
   if (!confirm('Are you sure you want to delete this session?')) return;
@@ -304,27 +310,32 @@ async function handleDelete() {
   gap: 0.75rem;
 }
 
-.session-mode {
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
-  text-transform: capitalize;
-}
-
-.branch-row {
+.branch-line {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.session-mode {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
 }
 
 .branch-indicator {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
   font-family: var(--font-mono);
-  color: var(--color-text-soft);
+  font-weight: 500;
+  color: var(--color-secondary, #8b5cf6);
+  background: var(--color-secondary-soft, rgba(139, 92, 246, 0.1));
+  border-radius: 4px;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
 .branch-icon {
@@ -341,28 +352,5 @@ async function handleDelete() {
   display: flex;
   gap: 0.5rem;
   align-items: center;
-}
-
-.pr-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: white;
-  background: var(--color-primary);
-  border-radius: 4px;
-  text-decoration: none;
-  transition: background-color 0.2s;
-}
-
-.pr-link:hover {
-  background: var(--color-primary-hover, #2563eb);
-}
-
-.pr-icon {
-  width: 14px;
-  height: 14px;
 }
 </style>

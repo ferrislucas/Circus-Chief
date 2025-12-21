@@ -527,10 +527,10 @@ test.describe('Canvas Management', () => {
     // Single group, should show viewer directly
     await expect(page.locator('.viewer-filename')).toContainText('doc.txt');
 
-    // Should show version dropdown with v1 (newest)
+    // Should show version dropdown with v2 (newest has highest version number)
     const versionDropdown = page.locator('.version-dropdown');
     await expect(versionDropdown).toBeVisible();
-    await expect(versionDropdown.locator('summary')).toContainText('v1');
+    await expect(versionDropdown.locator('summary')).toContainText('v2');
 
     // Content should be latest version
     await expect(page.locator('.viewer-text')).toContainText('Version 2 content');
@@ -541,7 +541,7 @@ test.describe('Canvas Management', () => {
 
     // Content should now be older version
     await expect(page.locator('.viewer-text')).toContainText('Version 1 content');
-    await expect(versionDropdown.locator('summary')).toContainText('v2');
+    await expect(versionDropdown.locator('summary')).toContainText('v1');
   });
 
   test('delete all versions: removes entire file group', async ({ page }) => {
