@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { exec } from 'child_process';
-import { promisify } from 'util';
 
 // Mock child_process exec
 vi.mock('child_process', () => ({
@@ -9,8 +8,6 @@ vi.mock('child_process', () => ({
 
 // Import after mocking
 import { isGhAvailable, getPrInfo, resetGhAvailableCache } from './ghService.js';
-
-const execAsync = promisify(exec);
 
 describe('ghService', () => {
   beforeEach(() => {
