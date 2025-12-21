@@ -194,3 +194,69 @@ export async function updateSessionMode(sessionId: string, mode: string) {
   if (!response.ok) throw new Error('Failed to update session mode');
   return response.json();
 }
+
+// ============================================================
+// Template Helpers
+// ============================================================
+
+export async function seedProjectTemplate(
+  projectId: string,
+  data: { name: string; prompt: string; nextTemplateId?: string; thinkingEnabled?: boolean; gitBranch?: string }
+) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/templates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to seed project template');
+  return response.json();
+}
+
+export async function seedGlobalTemplate(data: {
+  name: string;
+  prompt: string;
+  nextTemplateId?: string;
+  thinkingEnabled?: boolean;
+  gitBranch?: string;
+}) {
+  const response = await fetch(`${API_URL}/api/templates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to seed global template');
+  return response.json();
+}
+
+export async function getTemplate(id: string) {
+  const response = await fetch(`${API_URL}/api/templates/${id}`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+export async function getProjectTemplates(projectId: string) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/templates`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function getGlobalTemplates() {
+  const response = await fetch(`${API_URL}/api/templates`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function deleteTemplate(id: string) {
+  const response = await fetch(`${API_URL}/api/templates/${id}`, { method: 'DELETE' });
+  return response.ok;
+}
+
+export async function cleanupTemplates() {
+  // Clean up global templates
+  const globalTemplates = await getGlobalTemplates();
+  for (const template of globalTemplates) {
+    if (template.name.startsWith(TEST_PREFIX)) {
+      await deleteTemplate(template.id);
+    }
+  }
+}
