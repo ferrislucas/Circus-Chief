@@ -13,6 +13,9 @@ const DEBOUNCE_DELAY = 5000;
 // Maximum number of recent messages to include in generation
 const MAX_MESSAGES = 50;
 
+// Maximum retry attempts for failed parsing
+const MAX_RETRIES = 2;
+
 // Check if mock mode is enabled
 const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
 
@@ -226,13 +229,24 @@ Session title guidelines:
 
 /**
  * Parse the Claude API response into a summary object
+ * Handles markdown code block wrapping (```json ... ```) that Claude sometimes returns
  * @param {string} responseText
  * @returns {Object}
  */
 function parseSummaryResponse(responseText) {
+  let textToParse = responseText.trim();
+
+  // Only strip markdown if detected (starts with ```)
+  if (textToParse.startsWith('```')) {
+    const codeBlockMatch = textToParse.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
+    if (codeBlockMatch) {
+      textToParse = codeBlockMatch[1].trim();
+      console.log('[SummaryService] Stripped markdown code block from response');
+    }
+  }
+
   try {
-    // Try to parse as JSON directly
-    const parsed = JSON.parse(responseText);
+    const parsed = JSON.parse(textToParse);
     return {
       shortSummary: parsed.short_summary || 'Summary generation failed',
       fullSummary: parsed.full_summary || 'Unable to generate summary',
@@ -241,9 +255,10 @@ function parseSummaryResponse(responseText) {
       outcome: parsed.outcome || 'ongoing',
       prUrl: parsed.pr_url || null,
       sessionTitle: parsed.session_title || null,
+      _parseFailed: false,
     };
   } catch {
-    // If JSON parsing fails, try to extract from the response
+    // If JSON parsing fails, return fallback with flag for retry logic
     console.warn('[SummaryService] Failed to parse summary response as JSON, using fallback');
     return {
       shortSummary: responseText.substring(0, 150),
@@ -253,6 +268,7 @@ function parseSummaryResponse(responseText) {
       outcome: 'ongoing',
       prUrl: null,
       sessionTitle: null,
+      _parseFailed: true,
     };
   }
 }
@@ -260,9 +276,10 @@ function parseSummaryResponse(responseText) {
 /**
  * Generate summary for a session using Claude Code SDK
  * @param {string} sessionId
+ * @param {number} retryCount - Internal retry counter (do not set manually)
  * @returns {Promise<Object|null>}
  */
-export async function generateSummary(sessionId) {
+export async function generateSummary(sessionId, retryCount = 0) {
   try {
     // Get session info
     const session = sessions.getById(sessionId);
@@ -297,6 +314,19 @@ export async function generateSummary(sessionId) {
 
     // Parse response
     const summaryData = parseSummaryResponse(responseText);
+
+    // Retry if parsing failed and we haven't exhausted retries
+    if (summaryData._parseFailed && retryCount < MAX_RETRIES) {
+      console.log(
+        `[SummaryService] Parse failed for session ${sessionId}, retrying (attempt ${retryCount + 2}/${MAX_RETRIES + 1})`
+      );
+      const backoffMs = 1000 * (retryCount + 1); // 1s, 2s
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      return generateSummary(sessionId, retryCount + 1);
+    }
+
+    // Clean up internal flag before saving
+    delete summaryData._parseFailed;
 
     // Add message count for staleness tracking
     summaryData.messageCount = allMessages.length;
@@ -448,4 +478,4 @@ export function cleanupSession(sessionId) {
 }
 
 // Export for testing
-export { DEBOUNCE_DELAY, MAX_MESSAGES, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse };
+export { DEBOUNCE_DELAY, MAX_MESSAGES, MAX_RETRIES, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse };
