@@ -257,6 +257,123 @@ describe('File Attachments API', () => {
 
       expect(response.body.error).toBe('Project not found');
     });
+
+    it('parses thinkingEnabled as string "true" from form-data', async () => {
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .field('prompt', 'Test thinking')
+        .field('thinkingEnabled', 'true')
+        .expect(201);
+
+      expect(response.body.thinkingEnabled).toBe(true);
+    });
+
+    it('parses thinkingEnabled as boolean true from form-data', async () => {
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .field('prompt', 'Test thinking')
+        .field('thinkingEnabled', true)
+        .expect(201);
+
+      expect(response.body.thinkingEnabled).toBe(true);
+    });
+
+    it('thinkingEnabled defaults to false when not provided', async () => {
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .field('prompt', 'Test default')
+        .expect(201);
+
+      expect(response.body.thinkingEnabled).toBe(false);
+    });
+
+    it('parses mode from form-data', async () => {
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .field('prompt', 'Test mode')
+        .field('mode', 'yolo')
+        .expect(201);
+
+      expect(response.body.mode).toBe('yolo');
+    });
+
+    it('parses custom name from form-data', async () => {
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .field('prompt', 'Test name')
+        .field('name', 'My Custom Session')
+        .expect(201);
+
+      expect(response.body.name).toBe('My Custom Session');
+    });
+
+    it('generates session name from prompt when not provided', async () => {
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .field('prompt', 'This is a test prompt for name generation')
+        .expect(201);
+
+      expect(response.body.name).toBe('This is a test prompt for name generation');
+    });
+
+    it('truncates long prompts for session name', async () => {
+      const longPrompt = 'A'.repeat(100);
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .field('prompt', longPrompt)
+        .expect(201);
+
+      expect(response.body.name.length).toBeLessThanOrEqual(53); // 50 + '...'
+      expect(response.body.name).toContain('...');
+    });
+
+    it('parses gitBranch from form-data', async () => {
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .field('prompt', 'Test git branch')
+        .field('gitBranch', 'feature/test-branch')
+        .expect(201);
+
+      expect(response.body.gitBranch).toBe('feature/test-branch');
+    });
+
+    it('handles form-data without files', async () => {
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .field('prompt', 'No files in form-data')
+        .field('mode', 'plan')
+        .field('thinkingEnabled', 'true')
+        .expect(201);
+
+      expect(response.body.mode).toBe('plan');
+      expect(response.body.thinkingEnabled).toBe(true);
+
+      // Verify no attachments created
+      const sessionAttachments = attachments.getBySessionId(response.body.id);
+      expect(sessionAttachments).toHaveLength(0);
+    });
+
+    it('combines files with other form-data fields', async () => {
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .field('prompt', 'Full form-data test')
+        .field('name', 'Complete Test')
+        .field('mode', 'yolo')
+        .field('thinkingEnabled', 'true')
+        .attach('files', Buffer.from('config content'), {
+          filename: 'config.json',
+          contentType: 'application/json',
+        })
+        .expect(201);
+
+      expect(response.body.name).toBe('Complete Test');
+      expect(response.body.mode).toBe('yolo');
+      expect(response.body.thinkingEnabled).toBe(true);
+
+      const sessionAttachments = attachments.getBySessionId(response.body.id);
+      expect(sessionAttachments).toHaveLength(1);
+      expect(sessionAttachments[0].filename).toBe('config.json');
+    });
   });
 
   describe('POST /api/sessions/:id/message - Follow-up with Files', () => {
@@ -358,6 +475,86 @@ describe('File Attachments API', () => {
         .expect(404);
 
       expect(response.body.error).toBe('Session not found');
+    });
+
+    it('accepts message when session is stopped', async () => {
+      sessions.update(session.id, { status: 'stopped' });
+
+      const response = await request(app)
+        .post(`/api/sessions/${session.id}/message`)
+        .field('content', 'Message to stopped session')
+        .attach('files', Buffer.from('content'), {
+          filename: 'test.txt',
+          contentType: 'text/plain',
+        })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+    });
+
+    it('sends multiple files in a single message', async () => {
+      const response = await request(app)
+        .post(`/api/sessions/${session.id}/message`)
+        .field('content', 'Multiple files')
+        .attach('files', Buffer.from('file 1'), {
+          filename: 'first.txt',
+          contentType: 'text/plain',
+        })
+        .attach('files', Buffer.from('file 2'), {
+          filename: 'second.txt',
+          contentType: 'text/plain',
+        })
+        .attach('files', Buffer.from('file 3'), {
+          filename: 'third.txt',
+          contentType: 'text/plain',
+        })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+
+      const sessionAttachments = attachments.getBySessionId(session.id);
+      expect(sessionAttachments).toHaveLength(3);
+    });
+
+    it('uses gitWorktree path when session has one', async () => {
+      // Update session to have a gitWorktree
+      sessions.update(session.id, { gitWorktree: '/tmp/worktree/session-123' });
+
+      await request(app)
+        .post(`/api/sessions/${session.id}/message`)
+        .field('content', 'Using worktree')
+        .attach('files', Buffer.from('content'), {
+          filename: 'test.txt',
+          contentType: 'text/plain',
+        })
+        .expect(200);
+
+      // Verify continueSession was called with the worktree path
+      expect(continueSession).toHaveBeenCalledWith(
+        session.id,
+        'Using worktree',
+        '/tmp/worktree/session-123', // Should use gitWorktree, not project.workingDirectory
+        null,
+        expect.any(Array)
+      );
+    });
+
+    it('handles message with form-data but no files', async () => {
+      const response = await request(app)
+        .post(`/api/sessions/${session.id}/message`)
+        .field('content', 'Form-data without files')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+
+      // Verify continueSession was called with empty attachments array
+      expect(continueSession).toHaveBeenCalledWith(
+        session.id,
+        'Form-data without files',
+        expect.any(String),
+        null,
+        [] // Empty attachments
+      );
     });
   });
 
