@@ -21,7 +21,7 @@
           class="version-dropdown"
         >
           <summary class="version-badge">
-            v{{ currentVersionIndex + 1 }}
+            v{{ versions.length - currentVersionIndex }}
             <span class="dropdown-arrow">&#9662;</span>
           </summary>
           <ul class="version-list">
@@ -31,7 +31,7 @@
               :class="{ active: v.id === item.id }"
               @click="selectVersion(v.id)"
             >
-              <span class="version-number">v{{ index + 1 }}</span>
+              <span class="version-number">v{{ versions.length - index }}</span>
               <span class="version-time">{{ formatRelativeTime(v.createdAt) }}</span>
               <span v-if="v.id === item.id" class="version-current">(current)</span>
             </li>

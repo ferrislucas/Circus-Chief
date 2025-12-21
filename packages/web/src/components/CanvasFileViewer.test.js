@@ -91,7 +91,8 @@ describe('CanvasFileViewer', () => {
 
     it('displays current version number', () => {
       const wrapper = mountComponent({ versions: baseVersions });
-      expect(wrapper.find('.version-dropdown summary').text()).toContain('v1');
+      // Current item is at index 0, so version number is versions.length - 0 = 2
+      expect(wrapper.find('.version-dropdown summary').text()).toContain('v2');
     });
 
     it('lists all versions in dropdown', () => {
@@ -112,9 +113,10 @@ describe('CanvasFileViewer', () => {
       const versionItems = wrapper.findAll('.version-list li');
 
       // Verify each version item exists and shows correct info
+      // Newest version (index 0) should have highest version number
       expect(versionItems.length).toBe(2);
-      expect(versionItems[0].text()).toContain('v1');
-      expect(versionItems[1].text()).toContain('v2');
+      expect(versionItems[0].text()).toContain('v2');
+      expect(versionItems[1].text()).toContain('v1');
     });
   });
 
