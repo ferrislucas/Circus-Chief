@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ConversationSelector from './ConversationSelector.vue';
 import { useSessionsStore } from '../stores/sessions.js';
@@ -167,6 +167,7 @@ describe('ConversationSelector', () => {
 
       const items = wrapper.findAll('.dropdown-item');
       await items[0].trigger('click');
+      await flushPromises(); // Wait for async switchConversation to complete
 
       expect(wrapper.find('.dropdown-menu').exists()).toBe(false);
     });
