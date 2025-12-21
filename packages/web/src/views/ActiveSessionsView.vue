@@ -3,7 +3,6 @@
     <div class="page-header">
       <div>
         <router-link to="/" class="back-link">&larr; Projects</router-link>
-        <h1>Active Sessions</h1>
         <p class="page-description">Sessions that are running or waiting for input</p>
       </div>
     </div>
