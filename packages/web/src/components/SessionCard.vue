@@ -6,33 +6,37 @@
         <p class="session-meta">
           <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
           <span class="session-mode">{{ session.mode }}</span>
-          <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
-          <a
-            v-if="session.prUrl"
-            :href="session.prUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="pr-link"
-            @click.stop
-          >
-            <svg class="pr-icon" viewBox="0 0 16 16" fill="currentColor">
-              <path fill-rule="evenodd" d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z"/>
-            </svg>
-            {{ extractPrNumber(session.prUrl) }}
-          </a>
-          <span v-if="summary?.prState" :class="['pr-state-badge', `pr-state-${summary.prState}`]">
-            {{ formatPrState(summary.prState) }}
-          </span>
-          <span v-if="summary?.hasMergeConflicts" class="conflict-indicator" title="Merge conflicts detected">
-            <svg viewBox="0 0 16 16" fill="currentColor" class="conflict-icon">
-              <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8z"/>
-              <path d="M7.25 4.5a.75.75 0 011.5 0v3.25a.75.75 0 01-1.5 0V4.5zM8 10a1 1 0 100 2 1 1 0 000-2z"/>
-            </svg>
-          </span>
-          <span v-if="summary?.ciStatus" :class="['ci-indicator', `ci-${summary.ciStatus}`]" :title="ciStatusTitle">
-            {{ ciStatusIcon }}
-          </span>
         </p>
+        <div v-if="session.gitBranch || session.prUrl" class="branch-row">
+          <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
+          <span class="pr-indicators">
+            <a
+              v-if="session.prUrl"
+              :href="session.prUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="pr-link"
+              @click.stop
+            >
+              <svg class="pr-icon" viewBox="0 0 16 16" fill="currentColor">
+                <path fill-rule="evenodd" d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z"/>
+              </svg>
+              {{ extractPrNumber(session.prUrl) }}
+            </a>
+            <span v-if="summary?.prState" :class="['pr-state-badge', `pr-state-${summary.prState}`]">
+              {{ formatPrState(summary.prState) }}
+            </span>
+            <span v-if="summary?.hasMergeConflicts" class="conflict-indicator" title="Merge conflicts detected">
+              <svg viewBox="0 0 16 16" fill="currentColor" class="conflict-icon">
+                <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8z"/>
+                <path d="M7.25 4.5a.75.75 0 011.5 0v3.25a.75.75 0 01-1.5 0V4.5zM8 10a1 1 0 100 2 1 1 0 000-2z"/>
+              </svg>
+            </span>
+            <span v-if="summary?.ciStatus" :class="['ci-indicator', `ci-${summary.ciStatus}`]" :title="ciStatusTitle">
+              {{ ciStatusIcon }}
+            </span>
+          </span>
+        </div>
         <p v-if="showProject && session.projectName" class="session-project">
           <span class="project-name">{{ session.projectName }}</span>
         </p>
@@ -175,10 +179,25 @@ function formatPrState(state) {
   text-transform: capitalize;
 }
 
+.branch-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.375rem;
+}
+
 .session-branch {
   font-size: 0.75rem;
   color: var(--color-text-soft);
   font-family: var(--font-mono);
+}
+
+.pr-indicators {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .pr-link {
