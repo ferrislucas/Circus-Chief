@@ -190,5 +190,97 @@ describe('Sessions Store', () => {
       expect(store.workLogs['_unassociated']).toEqual([]);
       expect(store.workLogs['msg-1']).toEqual([log1, log2]);
     });
+
+    describe('fetchWorkLogs merge behavior', () => {
+      it('merges fetched work logs with existing unassociated logs', async () => {
+        const store = useSessionsStore();
+
+        // Simulate logs that arrived via WebSocket (before fetch)
+        const wsLog = { id: 'ws-log-1', content: 'arrived via websocket' };
+        store.addWorkLog(wsLog);
+
+        expect(store.workLogs['_unassociated']).toEqual([wsLog]);
+
+        // Mock API returning different logs (already associated in DB)
+        const fetchedLog = { id: 'db-log-1', content: 'from database' };
+        api.getSessionWorkLogs.mockResolvedValue({
+          'msg-1': [fetchedLog],
+          '_unassociated': [],
+        });
+
+        await store.fetchWorkLogs('session-1');
+
+        // WebSocket log should be preserved since it's not in fetched data
+        expect(store.workLogs['_unassociated']).toEqual([wsLog]);
+        // Fetched associated logs should be present
+        expect(store.workLogs['msg-1']).toEqual([fetchedLog]);
+      });
+
+      it('removes unassociated logs that are now associated in fetched data', async () => {
+        const store = useSessionsStore();
+
+        // Simulate log that arrived via WebSocket as unassociated
+        const log = { id: 'log-1', content: 'test log' };
+        store.addWorkLog(log);
+
+        expect(store.workLogs['_unassociated']).toEqual([log]);
+
+        // Mock API returning the same log but now associated with a message
+        api.getSessionWorkLogs.mockResolvedValue({
+          'msg-1': [log],
+          '_unassociated': [],
+        });
+
+        await store.fetchWorkLogs('session-1');
+
+        // Log should be removed from _unassociated since it's in fetched data
+        expect(store.workLogs['_unassociated']).toEqual([]);
+        // Log should be under the message ID
+        expect(store.workLogs['msg-1']).toEqual([log]);
+      });
+
+      it('preserves new WebSocket logs that arrived during fetch', async () => {
+        const store = useSessionsStore();
+
+        // Simulate logs in the store (some old, one new)
+        const oldLog = { id: 'old-log', content: 'old log' };
+        const newLog = { id: 'new-log', content: 'arrived during fetch' };
+        store.workLogs = { '_unassociated': [oldLog, newLog] };
+
+        // Mock API returning the old log as associated (but not the new one)
+        api.getSessionWorkLogs.mockResolvedValue({
+          'msg-1': [oldLog],
+          '_unassociated': [],
+        });
+
+        await store.fetchWorkLogs('session-1');
+
+        // New log should be preserved in _unassociated
+        expect(store.workLogs['_unassociated']).toEqual([newLog]);
+        // Old log should be under the message ID
+        expect(store.workLogs['msg-1']).toEqual([oldLog]);
+      });
+
+      it('combines fetched unassociated with new WebSocket unassociated', async () => {
+        const store = useSessionsStore();
+
+        // Simulate WebSocket log
+        const wsLog = { id: 'ws-log', content: 'from websocket' };
+        store.addWorkLog(wsLog);
+
+        // Mock API returning some unassociated logs from DB
+        const dbLog = { id: 'db-log', content: 'from database' };
+        api.getSessionWorkLogs.mockResolvedValue({
+          '_unassociated': [dbLog],
+        });
+
+        await store.fetchWorkLogs('session-1');
+
+        // Both logs should be in _unassociated
+        expect(store.workLogs['_unassociated']).toHaveLength(2);
+        expect(store.workLogs['_unassociated']).toContainEqual(dbLog);
+        expect(store.workLogs['_unassociated']).toContainEqual(wsLog);
+      });
+    });
   });
 });
