@@ -52,7 +52,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useUiStore } from '../stores/ui.js';
 import CanvasFileList from './CanvasFileList.vue';
@@ -66,6 +66,11 @@ const props = defineProps({
 
 const canvasStore = useCanvasStore();
 const uiStore = useUiStore();
+
+// Fetch canvas items when tab is mounted/navigated to
+onMounted(() => {
+  canvasStore.fetchItems(props.sessionId);
+});
 const fileInput = ref(null);
 const isDragOver = ref(false);
 const uploading = ref(false);
