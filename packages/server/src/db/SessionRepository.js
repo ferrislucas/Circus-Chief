@@ -25,6 +25,8 @@ export class SessionRepository extends BaseRepository {
       costUsd: row.cost_usd,
       claudeSessionId: row.claude_session_id,
       model: row.model,
+      nextTemplateId: row.next_template_id,
+      parentSessionId: row.parent_session_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -123,6 +125,14 @@ export class SessionRepository extends BaseRepository {
     if (data.thinkingEnabled !== undefined) {
       updates.push('thinking_enabled = ?');
       values.push(data.thinkingEnabled ? 1 : 0);
+    }
+    if (data.nextTemplateId !== undefined) {
+      updates.push('next_template_id = ?');
+      values.push(data.nextTemplateId);
+    }
+    if (data.parentSessionId !== undefined) {
+      updates.push('parent_session_id = ?');
+      values.push(data.parentSessionId);
     }
 
     if (updates.length === 0) return this.getById(id);

@@ -91,6 +91,14 @@ export class DatabaseManager {
     if (!summariesColumns.includes('ci_failures')) {
       this.#db.exec('ALTER TABLE session_summaries ADD COLUMN ci_failures TEXT');
     }
+
+    // Check if sessions table has the template chaining columns, add them if not
+    if (!sessionsColumns.includes('next_template_id')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL');
+    }
+    if (!sessionsColumns.includes('parent_session_id')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL');
+    }
   }
 
   /**

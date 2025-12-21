@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sessions, messages, sessionNotes, projects, todos, workLogs } from '../database.js';
+import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -7,6 +7,7 @@ import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
 import * as summaryService from '../services/summaryService.js';
 import { executeHookAsync } from '../services/hookService.js';
+import { checkAndTriggerNextTemplate } from '../services/templateTriggerService.js';
 
 const router = Router();
 
@@ -242,7 +243,7 @@ router.patch('/:id', (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const { thinkingEnabled, status, mode } = req.body;
+  const { thinkingEnabled, status, mode, nextTemplateId } = req.body;
 
   // Build update object with only provided fields
   const updateData = {};
@@ -263,6 +264,16 @@ router.patch('/:id', (req, res) => {
     }
     updateData.mode = mode;
   }
+  if (nextTemplateId !== undefined) {
+    // Validate template exists if not null
+    if (nextTemplateId !== null) {
+      const template = sessionTemplates.getById(nextTemplateId);
+      if (!template) {
+        return res.status(400).json({ error: 'Template not found' });
+      }
+    }
+    updateData.nextTemplateId = nextTemplateId;
+  }
 
   if (Object.keys(updateData).length === 0) {
     return res.status(400).json({ error: 'No valid fields to update' });
@@ -276,6 +287,13 @@ router.patch('/:id', (req, res) => {
       sessionId: req.params.id,
       status: updateData.status,
     });
+
+    // Trigger next template if session completed
+    if (updateData.status === 'completed') {
+      checkAndTriggerNextTemplate(req.params.id).catch((error) => {
+        console.error('Template trigger error:', error);
+      });
+    }
   }
 
   // Broadcast session update to project subscribers for real-time list updates

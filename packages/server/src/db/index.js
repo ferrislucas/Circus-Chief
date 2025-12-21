@@ -7,6 +7,7 @@ export { BaseRepository } from './BaseRepository.js';
 // Repository classes
 export { ProjectRepository } from './ProjectRepository.js';
 export { SessionRepository } from './SessionRepository.js';
+export { SessionTemplateRepository } from './SessionTemplateRepository.js';
 export { MessageRepository } from './MessageRepository.js';
 export { CanvasItemRepository } from './CanvasItemRepository.js';
 export { SessionNoteRepository } from './SessionNoteRepository.js';
@@ -22,6 +23,7 @@ import { SessionNoteRepository } from './SessionNoteRepository.js';
 import { TodoRepository } from './TodoRepository.js';
 import { WorkLogRepository } from './WorkLogRepository.js';
 import { SessionSummaryRepository } from './SessionSummaryRepository.js';
+import { SessionTemplateRepository } from './SessionTemplateRepository.js';
 
 export const projects = new ProjectRepository();
 export const messages = new MessageRepository();
@@ -30,6 +32,7 @@ export const sessionNotes = new SessionNoteRepository();
 export const todos = new TodoRepository();
 export const workLogs = new WorkLogRepository();
 export const sessionSummaries = new SessionSummaryRepository();
+export const sessionTemplates = new SessionTemplateRepository();
 
 // SessionRepository needs to be instantiated after messages is available
 import { SessionRepository } from './SessionRepository.js';

@@ -6,10 +6,12 @@ export const CreateSessionRequest = z.object({
   mode: z.enum(['plan', 'standard', 'yolo']).optional(),
   thinkingEnabled: z.boolean().optional(),
   gitBranch: z.string().optional(),
+  nextTemplateId: z.string().uuid().nullable().optional(),
 });
 
 export const UpdateSessionRequest = z.object({
   thinkingEnabled: z.boolean().optional(),
+  nextTemplateId: z.string().uuid().nullable().optional(),
 });
 
 export const SendMessageRequest = z.object({
@@ -20,13 +22,15 @@ export const SessionResponse = z.object({
   id: z.string().uuid(),
   projectId: z.string().uuid(),
   name: z.string(),
-  status: z.enum(['starting', 'running', 'waiting', 'completed', 'error']),
+  status: z.enum(['starting', 'running', 'waiting', 'stopped', 'completed', 'error']),
   mode: z.enum(['plan', 'standard', 'yolo']),
   thinkingEnabled: z.boolean(),
   gitBranch: z.string().nullable(),
   gitWorktree: z.string().nullable(),
   prUrl: z.string().nullable(),
   error: z.string().nullable(),
+  nextTemplateId: z.string().uuid().nullable(),
+  parentSessionId: z.string().uuid().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

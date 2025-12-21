@@ -10,6 +10,21 @@ CREATE TABLE IF NOT EXISTS projects (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
+-- Session templates (reusable prompts that can chain sessions)
+-- Must be created before sessions due to foreign key reference
+CREATE TABLE IF NOT EXISTS session_templates (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
+  thinking_enabled INTEGER,
+  git_branch TEXT,
+  git_mode TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
 -- Sessions table
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
@@ -25,6 +40,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   cost_usd REAL DEFAULT 0,
   claude_session_id TEXT,
   model TEXT,
+  next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
+  parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -133,6 +150,9 @@ CREATE INDEX IF NOT EXISTS idx_messages_session ON conversation_messages(session
 CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
 CREATE INDEX IF NOT EXISTS idx_notes_session ON session_notes(session_id);
 CREATE INDEX IF NOT EXISTS idx_project_tools ON project_tool_templates(project_id);
+CREATE INDEX IF NOT EXISTS idx_session_templates_project ON session_templates(project_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
 CREATE INDEX IF NOT EXISTS idx_todos_session ON session_todos(session_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_session ON work_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_message ON work_logs(message_id);
