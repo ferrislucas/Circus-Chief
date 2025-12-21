@@ -38,10 +38,11 @@ export async function getPrInfo(prUrl) {
   if (!(await isGhAvailable())) return null;
 
   try {
-    const { stdout } = await execAsync(
-      `gh pr view "${prUrl}" --json state,mergedAt,mergeable,isDraft,statusCheckRollup`
+    // First fetch basic PR info (this should always work)
+    const { stdout: basicStdout } = await execAsync(
+      `gh pr view "${prUrl}" --json state,mergedAt,mergeable,isDraft`
     );
-    const data = JSON.parse(stdout);
+    const data = JSON.parse(basicStdout);
 
     // Determine PR state
     let state = data.state.toLowerCase();
@@ -52,30 +53,40 @@ export async function getPrInfo(prUrl) {
     // mergeable can be: 'MERGEABLE', 'CONFLICTING', 'UNKNOWN'
     const hasMergeConflicts = data.mergeable === 'CONFLICTING';
 
-    // Process CI checks
-    const checks = data.statusCheckRollup || [];
+    // Try to fetch CI status separately (may fail due to token permissions)
     let ciStatus = null;
     let ciFailures = [];
 
-    if (checks.length > 0) {
-      // Get failed checks with their names
-      const failedChecks = checks.filter(
-        (c) => c.conclusion === 'FAILURE' || c.conclusion === 'TIMED_OUT'
+    try {
+      const { stdout: ciStdout } = await execAsync(
+        `gh pr view "${prUrl}" --json statusCheckRollup`
       );
-      ciFailures = failedChecks.map((c) => c.name || c.context || 'Unknown check');
+      const ciData = JSON.parse(ciStdout);
+      const checks = ciData.statusCheckRollup || [];
 
-      // Determine overall CI status
-      const hasPending = checks.some(
-        (c) => c.status === 'IN_PROGRESS' || c.status === 'QUEUED' || c.status === 'PENDING'
-      );
+      if (checks.length > 0) {
+        // Get failed checks with their names
+        const failedChecks = checks.filter(
+          (c) => c.conclusion === 'FAILURE' || c.conclusion === 'TIMED_OUT'
+        );
+        ciFailures = failedChecks.map((c) => c.name || c.context || 'Unknown check');
 
-      if (failedChecks.length > 0) {
-        ciStatus = 'failure';
-      } else if (hasPending) {
-        ciStatus = 'pending';
-      } else {
-        ciStatus = 'success';
+        // Determine overall CI status
+        const hasPending = checks.some(
+          (c) => c.status === 'IN_PROGRESS' || c.status === 'QUEUED' || c.status === 'PENDING'
+        );
+
+        if (failedChecks.length > 0) {
+          ciStatus = 'failure';
+        } else if (hasPending) {
+          ciStatus = 'pending';
+        } else {
+          ciStatus = 'success';
+        }
       }
+    } catch (ciError) {
+      // CI status unavailable (likely token permissions) - continue without it
+      console.warn('[ghService] CI status unavailable:', ciError.message);
     }
 
     return {

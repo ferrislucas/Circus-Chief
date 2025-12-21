@@ -20,6 +20,18 @@
             </svg>
             {{ extractPrNumber(session.prUrl) }}
           </a>
+          <span v-if="summary?.prState" :class="['pr-state-badge', `pr-state-${summary.prState}`]">
+            {{ formatPrState(summary.prState) }}
+          </span>
+          <span v-if="summary?.hasMergeConflicts" class="conflict-indicator" title="Merge conflicts detected">
+            <svg viewBox="0 0 16 16" fill="currentColor" class="conflict-icon">
+              <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8z"/>
+              <path d="M7.25 4.5a.75.75 0 011.5 0v3.25a.75.75 0 01-1.5 0V4.5zM8 10a1 1 0 100 2 1 1 0 000-2z"/>
+            </svg>
+          </span>
+          <span v-if="summary?.ciStatus" :class="['ci-indicator', `ci-${summary.ciStatus}`]" :title="ciStatusTitle">
+            {{ ciStatusIcon }}
+          </span>
         </p>
         <p v-if="showProject && session.projectName" class="session-project">
           <span class="project-name">{{ session.projectName }}</span>
@@ -89,10 +101,38 @@ const dateToShow = computed(() => {
   return props.showProject ? props.session.updatedAt : props.session.createdAt;
 });
 
+const ciStatusIcon = computed(() => {
+  const icons = {
+    success: '✓',
+    failure: '✗',
+    pending: '○',
+  };
+  return icons[props.summary?.ciStatus] || '';
+});
+
+const ciStatusTitle = computed(() => {
+  const titles = {
+    success: 'CI passing',
+    failure: 'CI failing',
+    pending: 'CI pending',
+  };
+  return titles[props.summary?.ciStatus] || '';
+});
+
 function extractPrNumber(url) {
   if (!url) return 'PR';
   const match = url.match(/\/pull\/(\d+)/);
   return match ? `PR ${match[1]}` : 'PR';
+}
+
+function formatPrState(state) {
+  const labels = {
+    merged: 'Merged',
+    open: 'Open',
+    closed: 'Closed',
+    draft: 'Draft',
+  };
+  return labels[state] || state;
 }
 </script>
 
@@ -164,6 +204,75 @@ function extractPrNumber(url) {
 .pr-icon {
   width: 12px;
   height: 12px;
+}
+
+/* PR State Badges */
+.pr-state-badge {
+  display: inline-block;
+  padding: 0.125rem 0.375rem;
+  font-size: 0.625rem;
+  font-weight: 500;
+  border-radius: 3px;
+  text-transform: capitalize;
+}
+
+.pr-state-merged {
+  background: rgba(130, 80, 223, 0.15);
+  color: #8250df;
+}
+
+.pr-state-open {
+  background: rgba(46, 160, 67, 0.15);
+  color: #2ea043;
+}
+
+.pr-state-closed {
+  background: rgba(110, 119, 129, 0.15);
+  color: #6e7781;
+}
+
+.pr-state-draft {
+  background: rgba(210, 153, 34, 0.15);
+  color: #9a6700;
+}
+
+/* Merge Conflict Indicator */
+.conflict-indicator {
+  display: inline-flex;
+  align-items: center;
+  color: #cf222e;
+}
+
+.conflict-icon {
+  width: 12px;
+  height: 12px;
+}
+
+/* CI Status Indicators */
+.ci-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border-radius: 50%;
+}
+
+.ci-success {
+  background: rgba(46, 160, 67, 0.15);
+  color: #2ea043;
+}
+
+.ci-failure {
+  background: rgba(207, 34, 46, 0.15);
+  color: #cf222e;
+}
+
+.ci-pending {
+  background: rgba(210, 153, 34, 0.15);
+  color: #9a6700;
 }
 
 .session-project {
