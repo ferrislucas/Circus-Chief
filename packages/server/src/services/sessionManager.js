@@ -69,10 +69,48 @@ async function* mockQuery({ prompt }) {
   // Small delay to simulate processing
   await new Promise((resolve) => setTimeout(resolve, 100));
 
+  // Simulate thinking (creates a work log)
+  yield {
+    type: 'stream_event',
+    event: {
+      type: 'content_block_delta',
+      delta: { type: 'thinking_delta', thinking: 'Analyzing the request...' },
+    },
+  };
+  yield {
+    type: 'stream_event',
+    event: { type: 'content_block_stop' },
+  };
+
+  // Simulate tool use (creates work logs for input)
+  const toolUseId = 'mock-tool-' + Date.now();
+  yield {
+    type: 'assistant',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          id: toolUseId,
+          name: 'Bash',
+          input: { command: 'echo "mock command"' },
+        },
+      ],
+    },
+  };
+
+  // Simulate tool result (creates work log for output)
+  yield {
+    type: 'tool_result',
+    tool_name: 'Bash',
+    content: 'mock command output',
+  };
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
   // Generate a mock response based on the user's message
   const responseText = `Mock response to: "${prompt}"`;
 
-  // Yield assistant message
+  // Yield assistant message with text
   yield {
     type: 'assistant',
     message: {
