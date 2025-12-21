@@ -374,6 +374,72 @@ export class ApiClient {
     const params = path ? `?path=${encodeURIComponent(path)}` : '';
     return this.#request('GET', `/filesystem/browse${params}`);
   }
+
+  // Templates
+
+  /**
+   * Get all global templates
+   * @returns {Promise<Array>}
+   */
+  async getGlobalTemplates() {
+    return this.#request('GET', '/templates');
+  }
+
+  /**
+   * Create a global template
+   * @param {Object} data - Template data
+   * @returns {Promise<Object>}
+   */
+  async createGlobalTemplate(data) {
+    return this.#request('POST', '/templates', data);
+  }
+
+  /**
+   * Get a template by ID
+   * @param {string} id - Template ID
+   * @returns {Promise<Object>}
+   */
+  async getTemplate(id) {
+    return this.#request('GET', `/templates/${id}`);
+  }
+
+  /**
+   * Update a template
+   * @param {string} id - Template ID
+   * @param {Object} data - Updated template data
+   * @returns {Promise<Object>}
+   */
+  async updateTemplate(id, data) {
+    return this.#request('PATCH', `/templates/${id}`, data);
+  }
+
+  /**
+   * Delete a template
+   * @param {string} id - Template ID
+   * @returns {Promise<void>}
+   */
+  async deleteTemplate(id) {
+    return this.#request('DELETE', `/templates/${id}`);
+  }
+
+  /**
+   * Get templates for a project (includes both project and global templates)
+   * @param {string} projectId - Project ID
+   * @returns {Promise<{project: Array, global: Array}>}
+   */
+  async getProjectTemplates(projectId) {
+    return this.#request('GET', `/projects/${projectId}/templates`);
+  }
+
+  /**
+   * Create a project template
+   * @param {string} projectId - Project ID
+   * @param {Object} data - Template data
+   * @returns {Promise<Object>}
+   */
+  async createProjectTemplate(projectId, data) {
+    return this.#request('POST', `/projects/${projectId}/templates`, data);
+  }
 }
 
 // Singleton instance

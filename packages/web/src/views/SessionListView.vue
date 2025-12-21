@@ -7,51 +7,79 @@
           {{ projectsStore.currentProject.workingDirectory }}
         </p>
       </div>
-      <router-link :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary">
+      <router-link v-if="activeTab === 'sessions'" :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary">
         New Session
       </router-link>
     </div>
 
-    <div v-if="sessionsStore.loading" class="skeleton-list">
-      <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
+    <!-- Tabs -->
+    <div class="tabs">
+      <button
+        class="tab"
+        :class="{ active: activeTab === 'sessions' }"
+        @click="activeTab = 'sessions'"
+      >
+        Sessions
+      </button>
+      <button
+        class="tab"
+        :class="{ active: activeTab === 'templates' }"
+        @click="activeTab = 'templates'"
+      >
+        Templates
+      </button>
     </div>
 
-    <div v-else-if="sessionsStore.error" class="error-message">
-      {{ sessionsStore.error }}
+    <!-- Sessions Tab -->
+    <div v-if="activeTab === 'sessions'">
+      <div v-if="sessionsStore.loading" class="skeleton-list">
+        <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
+      </div>
+
+      <div v-else-if="sessionsStore.error" class="error-message">
+        {{ sessionsStore.error }}
+      </div>
+
+      <div v-else-if="sessionsStore.sessions.length === 0" class="empty-state">
+        <p>No sessions yet. Start a new session to interact with Claude.</p>
+        <router-link :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary">
+          Start Session
+        </router-link>
+      </div>
+
+      <div v-else class="session-list">
+        <SessionCard
+          v-for="session in sessionsStore.sessions"
+          :key="session.id"
+          :session="session"
+          :show-summary="true"
+          :summary="summaries[session.id]"
+          :summary-loading="loadingSummaries[session.id]"
+          :summary-error="summaryErrors[session.id]"
+          @retry-summary="retryFetchSummary"
+        />
+      </div>
     </div>
 
-    <div v-else-if="sessionsStore.sessions.length === 0" class="empty-state">
-      <p>No sessions yet. Start a new session to interact with Claude.</p>
-      <router-link :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary">
-        Start Session
-      </router-link>
-    </div>
-
-    <div v-else class="session-list">
-      <SessionCard
-        v-for="session in sessionsStore.sessions"
-        :key="session.id"
-        :session="session"
-        :show-summary="true"
-        :summary="summaries[session.id]"
-        :summary-loading="loadingSummaries[session.id]"
-        :summary-error="summaryErrors[session.id]"
-        @retry-summary="retryFetchSummary"
-      />
+    <!-- Templates Tab -->
+    <div v-if="activeTab === 'templates'">
+      <TemplatesPanel :project-id="route.params.id" />
     </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, reactive, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, reactive, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useProjectSubscription } from '../composables/useWebSocket.js';
 import { api } from '../composables/useApi.js';
 import SessionCard from '../components/SessionCard.vue';
+import TemplatesPanel from '../components/TemplatesPanel.vue';
 
 const route = useRoute();
+const activeTab = ref('sessions');
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
 
@@ -158,7 +186,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 }
 
 .page-header h1 {
@@ -170,6 +198,35 @@ onUnmounted(() => {
   font-size: 0.875rem;
   color: var(--color-text-soft);
   font-family: var(--font-mono);
+}
+
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 1.5rem;
+}
+
+.tab {
+  background: none;
+  border: none;
+  padding: 0.75rem 1.25rem;
+  font-size: 0.9rem;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab:hover {
+  color: var(--color-text);
+}
+
+.tab.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: 500;
 }
 
 .skeleton-list {

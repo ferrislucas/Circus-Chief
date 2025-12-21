@@ -18,7 +18,6 @@
     "eslint": "^8.56.0",
     "eslint-plugin-vue": "9",
     "prettier": "^3.2.4",
-    "supertest": "^7.1.4",
     "vitest": "^4.0.16",
     "vue-eslint-parser": "9"
   },
