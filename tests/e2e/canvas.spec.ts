@@ -18,9 +18,12 @@ test.describe('Canvas Management', () => {
     await cleanupAll();
   });
 
-  test('displays empty canvas state', async ({ page }) => {
+  test('displays empty canvas state with upload option', async ({ page }) => {
     await page.goto(`/sessions/${session.id}/canvas`);
+    // Empty state message should be visible
     await expect(page.getByText('No canvas items yet')).toBeVisible();
+    // Upload button should be present
+    await expect(page.getByRole('button', { name: 'Upload File' })).toBeVisible();
   });
 
   test('displays canvas items', async ({ page }) => {
@@ -343,5 +346,51 @@ test.describe('Canvas Management', () => {
         fs.unlinkSync(testFilePath);
       }
     }
+  });
+
+  test('can upload an image file via file input', async ({ page }) => {
+    await page.goto(`/sessions/${session.id}/canvas`);
+
+    // Initially empty
+    await expect(page.getByText('No canvas items yet')).toBeVisible();
+
+    // Get the file input (hidden but accessible)
+    const fileInput = page.locator('input[type="file"]');
+
+    // Create a minimal valid PNG (1x1 pixel transparent)
+    const pngBuffer = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // PNG signature
+      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
+      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+      0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, // IDAT chunk
+      0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
+      0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, // IEND chunk
+      0x42, 0x60, 0x82,
+    ]);
+
+    // Upload the image file
+    await fileInput.setInputFiles({
+      name: 'test-image.png',
+      mimeType: 'image/png',
+      buffer: pngBuffer,
+    });
+
+    // Wait for upload to complete - look for the image type indicator
+    await expect(page.locator('.canvas-item-type').getByText('image')).toBeVisible({ timeout: 10000 });
+
+    // Empty state should be gone
+    await expect(page.getByText('No canvas items yet')).not.toBeVisible();
+
+    // Verify the label is displayed (filename) - use specific selector to avoid matching toast
+    await expect(page.locator('.canvas-item-label').getByText('test-image.png')).toBeVisible();
+
+    // Verify via API
+    const items = await getCanvasItems(session.id);
+    expect(items.length).toBe(1);
+    expect(items[0].type).toBe('image');
+    expect(items[0].mimeType).toBe('image/png');
+    expect(items[0].label).toBe('test-image.png');
   });
 });
