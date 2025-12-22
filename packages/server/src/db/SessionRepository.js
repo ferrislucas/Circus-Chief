@@ -53,7 +53,9 @@ export class SessionRepository extends BaseRepository {
          WHERE project_id = ?
          ORDER BY
            CASE WHEN status = 'completed' THEN 1 ELSE 0 END,
-           updated_at DESC`
+           updated_at DESC,
+           created_at DESC,
+           rowid DESC`
       )
       .all(projectId);
     return this.mapAll(rows);
@@ -66,7 +68,7 @@ export class SessionRepository extends BaseRepository {
          FROM sessions s
          JOIN projects p ON s.project_id = p.id
          WHERE s.status IN ('starting', 'running', 'waiting')
-         ORDER BY s.updated_at DESC`
+         ORDER BY s.updated_at DESC, s.created_at DESC, s.rowid DESC`
       )
       .all();
     return rows.map(row => ({
@@ -134,5 +136,17 @@ export class SessionRepository extends BaseRepository {
     this.db.prepare(`UPDATE sessions SET ${updates.join(', ')} WHERE id = ?`).run(...values);
 
     return this.getById(id);
+  }
+
+  /**
+   * Get all sessions that have a PR URL set
+   * Used by prStatusService for polling CI status
+   * @returns {Array<Object>} Sessions with PR URLs
+   */
+  getSessionsWithPrUrls() {
+    const rows = this.db
+      .prepare('SELECT * FROM sessions WHERE pr_url IS NOT NULL ORDER BY updated_at DESC, created_at DESC, rowid DESC')
+      .all();
+    return this.mapAll(rows);
   }
 }

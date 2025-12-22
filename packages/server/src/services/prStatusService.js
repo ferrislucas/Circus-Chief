@@ -10,8 +10,15 @@ const DEFAULT_POLL_INTERVAL_MS = 60000;
 const FINAL_PR_STATES = ['merged', 'closed'];
 
 // Session states that should have their PRs polled (allowlist for future-proofing)
+// Includes completed/stopped because CI may still be running after session ends
 // When 'archived' is added, it won't be in this list
-const ACTIVE_SESSION_STATES = ['running', 'waiting'];
+const POLLABLE_SESSION_STATES = ['running', 'waiting', 'completed', 'stopped'];
+
+// Time-based filtering constants
+// Sessions updated within this time are polled regardless of subscribers
+const RECENT_ACTIVITY_MS = 2 * 60 * 60 * 1000; // 2 hours
+// Maximum age for polling sessions (even with pending CI)
+const MAX_POLL_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // Polling interval handle
 let pollIntervalId = null;
@@ -45,36 +52,62 @@ export function stop() {
 
 /**
  * Get all sessions with PRs that should be checked
+ * Uses time-based filtering to poll recently active sessions without requiring subscribers
  * @returns {Array<{sessionId: string, prUrl: string}>}
  */
 export function getSessionsToCheck() {
+  // Get all sessions that have PR URLs
+  const sessionsWithPrs = sessions.getSessionsWithPrUrls();
   const subscriptions = webSocketManager.getSessionSubscriptions();
+  const now = Date.now();
   const result = [];
 
-  for (const sessionId of subscriptions.keys()) {
-    // Check if there are active subscribers
-    const subscribers = subscriptions.get(sessionId);
-    if (!subscribers || subscribers.size === 0) continue;
-
-    const session = sessions.getById(sessionId);
-
-    // Skip if session not found
-    if (!session) continue;
-
-    // Skip if no PR URL
-    if (!session.prUrl) continue;
-
-    // Skip if session is not in an active state (future-proofs for 'archived')
-    if (!ACTIVE_SESSION_STATES.includes(session.status)) continue;
+  for (const session of sessionsWithPrs) {
+    // Skip if session is not in a pollable state (future-proofs for 'archived')
+    if (!POLLABLE_SESSION_STATES.includes(session.status)) continue;
 
     // Skip if PR is in a final state (merged/closed)
-    const summary = sessionSummaries.getBySessionId(sessionId);
+    const summary = sessionSummaries.getBySessionId(session.id);
     if (summary?.prState && FINAL_PR_STATES.includes(summary.prState)) continue;
 
-    result.push({ sessionId, prUrl: session.prUrl });
+    // Calculate session age based on updatedAt
+    const sessionAge = now - new Date(session.updatedAt).getTime();
+    const hasSubscribers = subscriptions.get(session.id)?.size > 0;
+
+    // Always poll sessions with active subscribers
+    if (hasSubscribers) {
+      result.push({ sessionId: session.id, prUrl: session.prUrl });
+      continue;
+    }
+
+    // Skip sessions older than max poll age
+    if (sessionAge > MAX_POLL_AGE_MS) continue;
+
+    // For sessions within recent activity window, poll without subscribers
+    if (sessionAge <= RECENT_ACTIVITY_MS) {
+      result.push({ sessionId: session.id, prUrl: session.prUrl });
+      continue;
+    }
+
+    // For older sessions without subscribers, only poll if CI is pending
+    if (summary?.ciStatus === 'pending') {
+      result.push({ sessionId: session.id, prUrl: session.prUrl });
+    }
   }
 
   return result;
+}
+
+/**
+ * Immediately check CI status for a specific session
+ * Used for on-demand checks when a session completes or PR URL is set
+ * @param {string} sessionId
+ * @returns {Promise<boolean>} Whether status was updated
+ */
+export async function checkSessionCiStatusNow(sessionId) {
+  const session = sessions.getById(sessionId);
+  if (!session?.prUrl) return false;
+  return await checkPrStatus(sessionId, session.prUrl);
 }
 
 /**
@@ -165,6 +198,8 @@ async function pollLoop() {
 export {
   DEFAULT_POLL_INTERVAL_MS,
   FINAL_PR_STATES,
-  ACTIVE_SESSION_STATES,
+  POLLABLE_SESSION_STATES,
+  RECENT_ACTIVITY_MS,
+  MAX_POLL_AGE_MS,
   pollLoop,
 };
