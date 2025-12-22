@@ -93,12 +93,20 @@ export class DatabaseManager {
     }
 
     // Check if sessions table has the template chaining columns, add them if not
-    if (!sessionsColumns.includes('next_template_id')) {
+    // Re-fetch column info since table may have been recreated
+    const updatedSessionsTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const updatedSessionsColumns = updatedSessionsTableInfo.map((col) => col.name);
+
+    if (!updatedSessionsColumns.includes('next_template_id')) {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL');
     }
-    if (!sessionsColumns.includes('parent_session_id')) {
+    if (!updatedSessionsColumns.includes('parent_session_id')) {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL');
     }
+
+    // Create indexes for the template chaining columns (moved from schema.sql for migration compatibility)
+    this.#db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id)');
+    this.#db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id)');
 
     // Check if message_attachments table has the file_path column, add it if not
     const attachmentsTableInfo = this.#db.prepare('PRAGMA table_info(message_attachments)').all();
@@ -186,12 +194,15 @@ export class DatabaseManager {
         cost_usd REAL DEFAULT 0,
         claude_session_id TEXT,
         model TEXT,
+        next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
+        parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
         created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
         updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
       );
 
-      -- Copy data from old table
-      INSERT INTO sessions_new SELECT * FROM sessions;
+      -- Copy data from old table (explicitly list columns that exist in both tables)
+      INSERT INTO sessions_new (id, project_id, name, status, mode, thinking_enabled, git_branch, git_worktree, pr_url, error, cost_usd, claude_session_id, model, created_at, updated_at)
+      SELECT id, project_id, name, status, mode, thinking_enabled, git_branch, git_worktree, pr_url, error, cost_usd, claude_session_id, model, created_at, updated_at FROM sessions;
 
       -- Drop old table
       DROP TABLE sessions;

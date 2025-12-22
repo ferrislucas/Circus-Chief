@@ -181,8 +181,8 @@ CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
 CREATE INDEX IF NOT EXISTS idx_notes_session ON session_notes(session_id);
 CREATE INDEX IF NOT EXISTS idx_project_tools ON project_tool_templates(project_id);
 CREATE INDEX IF NOT EXISTS idx_session_templates_project ON session_templates(project_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
+-- Note: idx_sessions_next_template and idx_sessions_parent are created in migrations
+-- to handle existing databases that may not have these columns yet
 CREATE INDEX IF NOT EXISTS idx_todos_session ON session_todos(session_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_session ON work_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_message ON work_logs(message_id);
