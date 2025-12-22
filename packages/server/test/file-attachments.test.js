@@ -145,7 +145,8 @@ describe('File Attachments API', () => {
             filename: 'test.txt',
             mimeType: 'text/plain',
           }),
-        ])
+        ]),
+        undefined // model
       );
     });
 

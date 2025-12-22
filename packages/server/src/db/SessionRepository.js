@@ -30,15 +30,15 @@ export class SessionRepository extends BaseRepository {
     };
   }
 
-  create(projectId, name, prompt, mode = 'standard', thinkingEnabled = false, gitBranch = null) {
+  create(projectId, name, prompt, mode = 'standard', thinkingEnabled = false, gitBranch = null, model = null) {
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, created_at, updated_at)
-         VALUES (?, ?, ?, 'starting', ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, model, created_at, updated_at)
+         VALUES (?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, projectId, name, mode, thinkingEnabled ? 1 : 0, gitBranch, now, now);
+      .run(id, projectId, name, mode, thinkingEnabled ? 1 : 0, gitBranch, model, now, now);
 
     // Create initial user message
     messages.create(id, 'user', prompt);

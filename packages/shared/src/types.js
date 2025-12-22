@@ -7,6 +7,10 @@
  */
 
 /**
+ * @typedef {'claude-sonnet-4-5-20250929' | 'claude-opus-4-5-20251101' | 'claude-haiku-4-5-20251001'} ClaudeModel
+ */
+
+/**
  * @typedef {'user' | 'assistant' | 'system'} MessageRole
  */
 
@@ -34,6 +38,7 @@
  * @property {string} name
  * @property {SessionStatus} status
  * @property {SessionMode} mode
+ * @property {ClaudeModel|null} model
  * @property {string|null} gitBranch
  * @property {string|null} gitWorktree
  * @property {string|null} prUrl
@@ -102,3 +107,10 @@ export const SESSION_MODES = ['plan', 'standard', 'yolo'];
 export const MESSAGE_ROLES = ['user', 'assistant', 'system'];
 export const CANVAS_ITEM_TYPES = ['image', 'markdown', 'text', 'json'];
 export const TOOL_TEMPLATE_PAYLOAD_TYPES = ['command', 'prompt'];
+
+export const CLAUDE_MODELS = [
+  { id: 'claude-sonnet-4-5-20250929', name: 'Sonnet 4.5', description: 'Balanced (default)' },
+  { id: 'claude-opus-4-5-20251101', name: 'Opus 4.5', description: 'Most capable' },
+  { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', description: 'Fast & lightweight' },
+];
+export const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';

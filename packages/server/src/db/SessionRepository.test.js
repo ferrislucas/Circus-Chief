@@ -78,6 +78,12 @@ describe('SessionRepository', () => {
       expect(session.gitWorktree).toBeNull();
       expect(session.prUrl).toBeNull();
       expect(session.error).toBeNull();
+      expect(session.model).toBeNull();
+    });
+
+    it('creates session with model', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, 'claude-opus-4-5-20251101');
+      expect(session.model).toBe('claude-opus-4-5-20251101');
     });
   });
 
@@ -361,6 +367,15 @@ describe('SessionRepository', () => {
       expect(updated.status).toBe('completed');
       expect(updated.prUrl).toBe('https://github.com/pr/456');
       expect(updated.gitBranch).toBe('feature');
+    });
+
+    it('updates model', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      expect(session.model).toBeNull();
+
+      const updated = repo.update(session.id, { model: 'claude-haiku-4-5-20251001' });
+
+      expect(updated.model).toBe('claude-haiku-4-5-20251001');
     });
 
     it('returns unchanged session when no updates provided', () => {

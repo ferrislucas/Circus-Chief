@@ -170,6 +170,36 @@ describe('ApiClient', () => {
           body: JSON.stringify({ prompt: 'Hello' }),
         }));
       });
+
+      it('includes model in FormData when files are attached', async () => {
+        mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+
+        const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
+        const sessionData = {
+          prompt: 'Hello',
+          model: 'claude-opus-4-5-20251101',
+          files: [file],
+        };
+
+        await client.createSession('proj-123', sessionData);
+
+        const callArgs = mockFetch.mock.calls[0];
+        expect(callArgs[1].body).toBeInstanceOf(FormData);
+        const formData = callArgs[1].body;
+        expect(formData.get('model')).toBe('claude-opus-4-5-20251101');
+      });
+
+      it('includes model in JSON when no files', async () => {
+        mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+
+        const sessionData = { prompt: 'Hello', model: 'claude-haiku-4-5-20251001' };
+        await client.createSession('proj-123', sessionData);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/sessions', expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify(sessionData),
+        }));
+      });
     });
 
     describe('getSession', () => {
