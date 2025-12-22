@@ -186,4 +186,73 @@ describe('CanvasItemRepository', () => {
       expect(() => repo.delete('non-existent')).not.toThrow();
     });
   });
+
+  describe('getAllVersionsByFilename', () => {
+    it('returns empty array when no items with filename exist', () => {
+      const items = repo.getAllVersionsByFilename(sessionId, 'nonexistent.txt');
+      expect(items).toEqual([]);
+    });
+
+    it('returns all items with matching filename', () => {
+      repo.create(sessionId, { type: 'text', content: 'Version 1', filename: 'test.txt' });
+      repo.create(sessionId, { type: 'text', content: 'Version 2', filename: 'test.txt' });
+      repo.create(sessionId, { type: 'text', content: 'Version 3', filename: 'test.txt' });
+
+      const items = repo.getAllVersionsByFilename(sessionId, 'test.txt');
+
+      expect(items).toHaveLength(3);
+      expect(items.every(i => i.filename === 'test.txt')).toBe(true);
+    });
+
+    it('returns items ordered by createdAt descending (newest first)', () => {
+      const v1 = repo.create(sessionId, { type: 'text', content: 'Version 1', filename: 'test.txt' });
+      const v2 = repo.create(sessionId, { type: 'text', content: 'Version 2', filename: 'test.txt' });
+      const v3 = repo.create(sessionId, { type: 'text', content: 'Version 3', filename: 'test.txt' });
+
+      const items = repo.getAllVersionsByFilename(sessionId, 'test.txt');
+
+      // Newest should be first
+      expect(items[0].createdAt).toBeGreaterThanOrEqual(items[1].createdAt);
+      expect(items[1].createdAt).toBeGreaterThanOrEqual(items[2].createdAt);
+    });
+
+    it('does not return items with different filenames', () => {
+      repo.create(sessionId, { type: 'text', content: 'File A', filename: 'a.txt' });
+      repo.create(sessionId, { type: 'text', content: 'File B', filename: 'b.txt' });
+      repo.create(sessionId, { type: 'text', content: 'File A v2', filename: 'a.txt' });
+
+      const items = repo.getAllVersionsByFilename(sessionId, 'a.txt');
+
+      expect(items).toHaveLength(2);
+      expect(items.every(i => i.filename === 'a.txt')).toBe(true);
+    });
+
+    it('does not return items from other sessions', () => {
+      // Create another session
+      const project = projectRepo.create('Another Project', '/tmp/another');
+      const now = Date.now();
+      const otherId = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(otherId, project.id, 'Other Session', 'running', 'standard', now, now);
+
+      repo.create(sessionId, { type: 'text', content: 'Session 1', filename: 'shared.txt' });
+      repo.create(otherId, { type: 'text', content: 'Session 2', filename: 'shared.txt' });
+
+      const items = repo.getAllVersionsByFilename(sessionId, 'shared.txt');
+
+      expect(items).toHaveLength(1);
+      expect(items[0].sessionId).toBe(sessionId);
+    });
+
+    it('works with PDF type', () => {
+      repo.create(sessionId, { type: 'pdf', data: 'base64pdfdata', filename: 'doc.pdf', mimeType: 'application/pdf' });
+
+      const items = repo.getAllVersionsByFilename(sessionId, 'doc.pdf');
+
+      expect(items).toHaveLength(1);
+      expect(items[0].type).toBe('pdf');
+      expect(items[0].mimeType).toBe('application/pdf');
+    });
+  });
 });

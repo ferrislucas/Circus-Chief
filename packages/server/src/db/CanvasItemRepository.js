@@ -55,4 +55,21 @@ export class CanvasItemRepository extends BaseRepository {
       .all(sessionId);
     return this.mapAll(rows);
   }
+
+  /**
+   * Get all versions of a file by filename, ordered newest first
+   * @param {string} sessionId
+   * @param {string} filename
+   * @returns {Array} Array of canvas items with matching filename
+   */
+  getAllVersionsByFilename(sessionId, filename) {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM canvas_items
+         WHERE session_id = ? AND filename = ?
+         ORDER BY created_at DESC`
+      )
+      .all(sessionId, filename);
+    return this.mapAll(rows);
+  }
 }
