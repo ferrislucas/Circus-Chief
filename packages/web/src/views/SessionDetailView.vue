@@ -61,6 +61,11 @@
             :class="['tab', { active: activeTab === tab.id }]"
           >
             {{ tab.label }}
+            <span
+              v-if="tab.id === 'changes' && hasChanges"
+              class="changes-indicator"
+              title="Uncommitted changes"
+            ></span>
           </router-link>
         </div>
 
@@ -68,7 +73,7 @@
         <div class="tabs-mobile">
           <select :value="activeTab" @change="navigateToTab($event.target.value)" class="tab-select">
             <option v-for="tab in tabs" :key="tab.id" :value="tab.id">
-              {{ tab.label }}
+              {{ tab.label }}{{ tab.id === 'changes' && hasChanges ? ' •' : '' }}
             </option>
           </select>
         </div>
@@ -135,6 +140,19 @@ let cleanups = [];
 const pollIntervalId = ref(null);
 const showDeleteConfirm = ref(false);
 const summary = ref(null);
+const hasChanges = ref(false);
+
+// Check for file system changes (staged, unstaged, untracked)
+async function checkForChanges() {
+  if (!sessionId) return;
+  try {
+    const changes = await api.getSessionChanges(sessionId);
+    hasChanges.value = !!(changes.staged || changes.unstaged || changes.untracked);
+  } catch (error) {
+    // Silently fail - changes indicator is not critical
+    console.error('Failed to check for changes:', error);
+  }
+}
 
 // Poll for updates while session is actively processing (fallback for race conditions)
 function startPolling() {
@@ -191,6 +209,9 @@ onMounted(async () => {
     // Ignore errors - summary may not exist yet
   });
 
+  // Check for file system changes initially
+  checkForChanges();
+
   // Start polling if session is actively processing (handles race condition where session
   // completes before WebSocket subscription is established)
   const status = sessionsStore.currentSession?.status;
@@ -206,6 +227,10 @@ onMounted(async () => {
         startPolling();
       } else {
         stopPolling();
+        // Check for changes when session becomes idle (after conversation returns)
+        if (status === 'waiting' || status === 'completed') {
+          checkForChanges();
+        }
       }
     })
   );
@@ -360,5 +385,15 @@ async function handleDelete() {
 
 .tab-content {
   min-height: 400px;
+}
+
+.changes-indicator {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background-color: var(--color-warning, #d29922);
+  border-radius: 50%;
+  margin-left: 4px;
+  vertical-align: middle;
 }
 </style>
