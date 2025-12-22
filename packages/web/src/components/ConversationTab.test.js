@@ -115,8 +115,8 @@ describe('ConversationTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // Check that ConversationSelector is stubbed and rendered
-      expect(wrapper.findComponent({ name: 'ConversationSelector' }).exists()).toBe(true);
+      // Check that ConversationSelector stub is rendered
+      expect(wrapper.find('.conversation-selector-stub').exists()).toBe(true);
     });
 
     it('renders messages container', async () => {
@@ -151,7 +151,8 @@ describe('ConversationTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.findComponent({ name: 'FileAttachment' }).exists()).toBe(true);
+      // Check that FileAttachment stub is rendered
+      expect(wrapper.find('.file-attachment-stub').exists()).toBe(true);
     });
   });
 
