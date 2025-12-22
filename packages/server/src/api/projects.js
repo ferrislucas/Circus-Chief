@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { projects, sessions, attachments } from '../database.js';
+import { projects, sessions, sessionTemplates, attachments } from '../database.js';
 import { CreateProjectRequest, UpdateProjectRequest } from '@claudetools/shared/contracts/projects';
+import { CreateSessionTemplateRequest } from '@claudetools/shared/contracts/templates';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
@@ -164,6 +165,36 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
     sessions.update(session.id, { status: 'error', error: error.message });
     res.status(500).json({ error: `Git setup failed: ${error.message}` });
   }
+});
+
+// GET /api/projects/:id/templates - List available templates for project (project + global)
+router.get('/:id/templates', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const available = sessionTemplates.getAvailableForProject(req.params.id);
+  res.json(available);
+});
+
+// POST /api/projects/:id/templates - Create project template
+router.post('/:id/templates', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const result = CreateSessionTemplateRequest.safeParse(req.body);
+  if (!result.success) {
+    return res.status(400).json({ error: result.error.errors[0].message });
+  }
+
+  const template = sessionTemplates.create({
+    projectId: req.params.id,
+    ...result.data,
+  });
+  res.status(201).json(template);
 });
 
 export default router;

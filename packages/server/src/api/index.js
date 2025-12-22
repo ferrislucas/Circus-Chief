@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import projectsRouter from './projects.js';
 import sessionsRouter from './sessions.js';
+import templatesRouter from './templates.js';
 import canvasRouter from './canvas.js';
 import gitRouter from './git.js';
 import filesystemRouter from './filesystem.js';
@@ -9,6 +10,7 @@ const router = Router();
 
 router.use('/projects', projectsRouter);
 router.use('/sessions', sessionsRouter);
+router.use('/templates', templatesRouter);
 router.use('/git', gitRouter);
 router.use('/filesystem', filesystemRouter);
 

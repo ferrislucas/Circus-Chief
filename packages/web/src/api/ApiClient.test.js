@@ -547,6 +547,105 @@ describe('ApiClient', () => {
     });
   });
 
+  describe('templates', () => {
+    describe('getGlobalTemplates', () => {
+      it('fetches from /api/templates', async () => {
+        const mockData = [{ id: '1', name: 'Global Template' }];
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getGlobalTemplates();
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/templates', expect.objectContaining({
+          method: 'GET',
+        }));
+        expect(result).toEqual(mockData);
+      });
+    });
+
+    describe('createGlobalTemplate', () => {
+      it('posts to /api/templates', async () => {
+        const templateData = { name: 'New Template', prompt: 'Do something' };
+        const mockData = { id: '1', ...templateData };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.createGlobalTemplate(templateData);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/templates', expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify(templateData),
+        }));
+        expect(result).toEqual(mockData);
+      });
+    });
+
+    describe('getTemplate', () => {
+      it('fetches template by ID', async () => {
+        const mockData = { id: 'tmpl-123', name: 'Test' };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getTemplate('tmpl-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/templates/tmpl-123', expect.any(Object));
+        expect(result).toEqual(mockData);
+      });
+    });
+
+    describe('updateTemplate', () => {
+      it('patches template by ID', async () => {
+        const updateData = { name: 'Updated' };
+        mockFetch.mockReturnValue(mockResponse({ id: 'tmpl-123', name: 'Updated' }));
+
+        const result = await client.updateTemplate('tmpl-123', updateData);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/templates/tmpl-123', expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify(updateData),
+        }));
+        expect(result.name).toBe('Updated');
+      });
+    });
+
+    describe('deleteTemplate', () => {
+      it('deletes template by ID', async () => {
+        mockFetch.mockReturnValue(mockResponse(null, { status: 204 }));
+
+        await client.deleteTemplate('tmpl-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/templates/tmpl-123', expect.objectContaining({
+          method: 'DELETE',
+        }));
+      });
+    });
+
+    describe('getProjectTemplates', () => {
+      it('fetches templates for project', async () => {
+        const mockData = { project: [{ id: '1' }], global: [{ id: '2' }] };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getProjectTemplates('proj-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/templates', expect.any(Object));
+        expect(result).toEqual(mockData);
+      });
+    });
+
+    describe('createProjectTemplate', () => {
+      it('posts to project templates endpoint', async () => {
+        const templateData = { name: 'Project Template', prompt: 'Do work' };
+        const mockData = { id: '1', projectId: 'proj-123', ...templateData };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.createProjectTemplate('proj-123', templateData);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/templates', expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify(templateData),
+        }));
+        expect(result.projectId).toBe('proj-123');
+      });
+    });
+  });
+
   describe('conversations', () => {
     describe('getConversations', () => {
       it('fetches conversations for session', async () => {

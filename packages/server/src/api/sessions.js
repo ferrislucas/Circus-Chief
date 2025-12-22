@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sessions, messages, sessionNotes, projects, todos, workLogs, conversations, attachments } from '../database.js';
+import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -7,6 +7,7 @@ import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
 import * as summaryService from '../services/summaryService.js';
 import { executeHookAsync } from '../services/hookService.js';
+import { checkAndTriggerNextTemplate } from '../services/templateTriggerService.js';
 import { upload, handleUploadError } from '../middleware/upload.js';
 
 const router = Router();
@@ -430,7 +431,7 @@ router.patch('/:id', (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const { thinkingEnabled, status, mode, model } = req.body;
+  const { thinkingEnabled, status, mode, nextTemplateId, model } = req.body;
 
   // Build update object with only provided fields
   const updateData = {};
@@ -450,6 +451,16 @@ router.patch('/:id', (req, res) => {
       return res.status(400).json({ error: 'Invalid mode. Must be one of: plan, standard, yolo' });
     }
     updateData.mode = mode;
+  }
+  if (nextTemplateId !== undefined) {
+    // Validate template exists if not null
+    if (nextTemplateId !== null) {
+      const template = sessionTemplates.getById(nextTemplateId);
+      if (!template) {
+        return res.status(400).json({ error: 'Template not found' });
+      }
+    }
+    updateData.nextTemplateId = nextTemplateId;
   }
   if (model !== undefined) {
     const validModels = ['claude-sonnet-4-5-20250929', 'claude-opus-4-5-20251101', 'claude-haiku-4-5-20251001'];
@@ -471,6 +482,13 @@ router.patch('/:id', (req, res) => {
       sessionId: req.params.id,
       status: updateData.status,
     });
+
+    // Trigger next template if session completed
+    if (updateData.status === 'completed') {
+      checkAndTriggerNextTemplate(req.params.id).catch((error) => {
+        console.error('Template trigger error:', error);
+      });
+    }
   }
 
   // Broadcast session update to project subscribers for real-time list updates
