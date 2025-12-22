@@ -208,18 +208,50 @@ async function* mockQuery({ prompt }) {
 }
 
 /**
- * Build system prompt with canvas instructions
+ * Build system prompt with canvas write instructions
  * @param {string} sessionId
  * @returns {string}
  */
-function buildCanvasSystemPrompt(sessionId) {
+function buildCanvasWriteSystemPrompt(sessionId) {
   const apiUrl = process.env.CLAUDETOOLS_API_URL || `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`;
-  return `When you generate artifacts that should be displayed on the canvas (images, markdown documents, code snippets, data visualizations), POST them to:
+  return `When you generate artifacts that should be displayed on the canvas (images, markdown documents, code snippets, data visualizations, PDFs), POST them to:
 POST ${apiUrl}/api/sessions/${sessionId}/canvas
-Body: {"type": "image|markdown|text|json", "content": "...", "title": "..."}
+Body: {"type": "image|markdown|text|json|pdf", "content": "...", "filename": "example.md", "label": "Description"}
 
-For images, use filePath to reference an image file on disk:
-Body: {"type": "image", "filePath": "/path/to/image.png", "title": "..."}`;
+For images and PDFs, use filePath to reference a file on disk:
+Body: {"type": "image", "filePath": "/path/to/image.png", "filename": "image.png", "label": "Description"}
+Body: {"type": "pdf", "filePath": "/path/to/document.pdf", "filename": "document.pdf", "label": "Description"}`;
+}
+
+/**
+ * Build system prompt with canvas read instructions
+ * @param {string} sessionId
+ * @returns {string}
+ */
+function buildCanvasReadSystemPrompt(sessionId) {
+  const apiUrl = process.env.CLAUDETOOLS_API_URL || `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`;
+  return `## Reading from Canvas
+
+To list all files on the canvas:
+\`\`\`bash
+curl ${apiUrl}/api/sessions/${sessionId}/canvas
+\`\`\`
+
+To read a specific file from the canvas (returns file path for Read tool):
+\`\`\`bash
+curl ${apiUrl}/api/sessions/${sessionId}/canvas/file/{filename}
+\`\`\`
+
+To read an earlier version of a file (version 1 = latest, 2 = previous, etc.):
+\`\`\`bash
+curl "${apiUrl}/api/sessions/${sessionId}/canvas/file/{filename}?version=2"
+\`\`\`
+
+Response: { filePath, type, mimeType, createdAt, version, totalVersions }
+
+Then use the Read tool on the returned filePath to view the content.
+
+Supported types: images, PDFs, markdown, text, JSON`;
 }
 
 /**
@@ -368,7 +400,8 @@ function buildSessionEnv(session) {
  * @returns {string} System prompt string
  */
 export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt, mode) {
-  const canvasInstructions = buildCanvasSystemPrompt(sessionId);
+  const canvasWriteInstructions = buildCanvasWriteSystemPrompt(sessionId);
+  const canvasReadInstructions = buildCanvasReadSystemPrompt(sessionId);
   const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
   const attachmentsContext = getSessionAttachmentsContext(sessionId);
   const basePrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
@@ -377,7 +410,7 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
   const modePrompt = mode === 'plan' ? PLAN_MODE_PROMPT : '';
 
   // Build prompt parts, filtering out empty sections
-  const parts = [modePrompt, basePrompt, attachmentsContext, canvasInstructions, sessionApiInstructions].filter(
+  const parts = [modePrompt, basePrompt, attachmentsContext, canvasWriteInstructions, canvasReadInstructions, sessionApiInstructions].filter(
     Boolean
   );
 

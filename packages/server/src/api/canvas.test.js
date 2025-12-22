@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { canvasItems, projects } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
+import { existsSync, rmSync } from 'fs';
 
 /**
  * Extracts mimeType and base64 data from request body for canvas image items.
@@ -260,6 +261,140 @@ describe('Canvas API', () => {
       expect(item.type).toBe('image');
       // Should default to image/png to prevent broken images
       expect(item.mimeType).toBe('image/png');
+    });
+
+    it('creates PDF canvas item', () => {
+      const item = canvasItems.create(sessionId, {
+        type: 'pdf',
+        data: 'JVBERi0xLjQKJeLjz9MK', // PDF header in base64
+        mimeType: 'application/pdf',
+        filename: 'document.pdf',
+        label: 'Test PDF',
+      });
+
+      expect(item.type).toBe('pdf');
+      expect(item.data).toBe('JVBERi0xLjQKJeLjz9MK');
+      expect(item.mimeType).toBe('application/pdf');
+      expect(item.filename).toBe('document.pdf');
+    });
+  });
+
+  describe('Canvas File Retrieval by Filename', () => {
+    let sessionId;
+    let tempDir;
+
+    beforeEach(() => {
+      // Create a project and session for testing
+      const project = projects.create('Test Project', '/tmp/test');
+      const now = Date.now();
+      const id = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, project.id, 'Test Session', 'running', 'standard', now, now);
+      sessionId = id;
+      tempDir = `/tmp/canvas-${sessionId}`;
+    });
+
+    afterEach(() => {
+      // Clean up temp directory
+      if (existsSync(tempDir)) {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('retrieves all versions of a file by filename', () => {
+      // Create multiple versions
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 1', filename: 'notes.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 2', filename: 'notes.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 3', filename: 'notes.txt' });
+
+      const versions = canvasItems.getAllVersionsByFilename(sessionId, 'notes.txt');
+
+      expect(versions).toHaveLength(3);
+      // All versions should be present
+      const contents = versions.map(v => v.content);
+      expect(contents).toContain('Version 1');
+      expect(contents).toContain('Version 2');
+      expect(contents).toContain('Version 3');
+    });
+
+    it('returns empty array for non-existent filename', () => {
+      const versions = canvasItems.getAllVersionsByFilename(sessionId, 'nonexistent.txt');
+      expect(versions).toEqual([]);
+    });
+
+    it('returns versions ordered by createdAt descending', () => {
+      // Create versions
+      canvasItems.create(sessionId, { type: 'markdown', content: '# First', filename: 'doc.md' });
+      canvasItems.create(sessionId, { type: 'markdown', content: '# Second', filename: 'doc.md' });
+      canvasItems.create(sessionId, { type: 'markdown', content: '# Third', filename: 'doc.md' });
+
+      const versions = canvasItems.getAllVersionsByFilename(sessionId, 'doc.md');
+
+      expect(versions).toHaveLength(3);
+      // Verify ordering is by createdAt DESC (newest first)
+      for (let i = 0; i < versions.length - 1; i++) {
+        expect(versions[i].createdAt).toBeGreaterThanOrEqual(versions[i + 1].createdAt);
+      }
+    });
+
+    it('correctly handles image data for temp file writing', () => {
+      // Test that base64 image data can be decoded
+      const base64Image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      const item = canvasItems.create(sessionId, {
+        type: 'image',
+        data: base64Image,
+        mimeType: 'image/png',
+        filename: 'pixel.png',
+      });
+
+      // Verify the data can be decoded
+      const buffer = Buffer.from(item.data, 'base64');
+      expect(buffer.length).toBeGreaterThan(0);
+      // PNG magic number
+      expect(buffer[0]).toBe(0x89);
+      expect(buffer[1]).toBe(0x50); // 'P'
+      expect(buffer[2]).toBe(0x4E); // 'N'
+      expect(buffer[3]).toBe(0x47); // 'G'
+    });
+
+    it('correctly handles PDF data', () => {
+      // PDF header: %PDF-1.4
+      const pdfBase64 = Buffer.from('%PDF-1.4\n').toString('base64');
+      const item = canvasItems.create(sessionId, {
+        type: 'pdf',
+        data: pdfBase64,
+        mimeType: 'application/pdf',
+        filename: 'test.pdf',
+      });
+
+      // Verify the data can be decoded
+      const buffer = Buffer.from(item.data, 'base64');
+      const content = buffer.toString('utf-8');
+      expect(content).toContain('%PDF');
+    });
+
+    it('correctly handles JSON data', () => {
+      const jsonData = JSON.stringify({ key: 'value', nested: { a: 1 } });
+      const item = canvasItems.create(sessionId, {
+        type: 'json',
+        data: jsonData,
+        filename: 'data.json',
+      });
+
+      expect(item.data).toBe(jsonData);
+      expect(JSON.parse(item.data)).toEqual({ key: 'value', nested: { a: 1 } });
+    });
+
+    it('correctly handles markdown content', () => {
+      const item = canvasItems.create(sessionId, {
+        type: 'markdown',
+        content: '# Heading\n\nParagraph text.',
+        filename: 'readme.md',
+      });
+
+      expect(item.content).toBe('# Heading\n\nParagraph text.');
+      expect(item.type).toBe('markdown');
     });
   });
 });
