@@ -63,6 +63,19 @@ vi.mock('./FileAttachment.vue', () => ({
   },
 }));
 
+vi.mock('./ModelSelector.vue', () => ({
+  default: {
+    name: 'ModelSelector',
+    props: ['modelValue', 'disabled'],
+    emits: ['update:modelValue'],
+    template: '<div class="model-selector"></div>',
+  },
+}));
+
+vi.mock('@claudetools/shared', () => ({
+  DEFAULT_MODEL: 'claude-sonnet-4-5-20250929',
+}));
+
 // TODO: These tests have a Vue runtime issue with template refs during mounting.
 // The component works correctly in production - this is a test environment issue.
 // See: TypeError: Cannot read properties of null (reading 'refs') at setRef
