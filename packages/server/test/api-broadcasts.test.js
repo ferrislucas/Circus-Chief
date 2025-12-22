@@ -194,6 +194,32 @@ describe('API Broadcast Tests', () => {
       // But broadcastToProject should still be called
       expect(broadcastToProject).toHaveBeenCalled();
     });
+
+    it('broadcasts SESSION_UPDATED when model changes', async () => {
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ model: 'claude-opus-4-5-20251101' })
+        .expect(200);
+
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        project.id,
+        WS_MESSAGE_TYPES.SESSION_UPDATED,
+        expect.objectContaining({
+          session: expect.objectContaining({
+            model: 'claude-opus-4-5-20251101',
+          }),
+        })
+      );
+    });
+
+    it('returns 400 for invalid model', async () => {
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ model: 'invalid-model' })
+        .expect(400);
+
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
   });
 
   describe('DELETE /api/sessions/:id', () => {
