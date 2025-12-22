@@ -134,6 +134,7 @@ export class ApiClient {
       formData.append('prompt', jsonData.prompt);
       if (jsonData.name) formData.append('name', jsonData.name);
       if (jsonData.mode) formData.append('mode', jsonData.mode);
+      if (jsonData.model) formData.append('model', jsonData.model);
       if (jsonData.thinkingEnabled !== undefined) {
         formData.append('thinkingEnabled', String(jsonData.thinkingEnabled));
       }
@@ -493,6 +494,78 @@ export class ApiClient {
    */
   async createProjectTemplate(projectId, data) {
     return this.#request('POST', `/projects/${projectId}/templates`, data);
+  }
+
+  // Conversations
+
+  /**
+   * Get all conversations for a session
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<Array>}
+   */
+  async getConversations(sessionId) {
+    return this.#request('GET', `/sessions/${sessionId}/conversations`);
+  }
+
+  /**
+   * Create a new conversation
+   * @param {string} sessionId - Session ID
+   * @param {string|null} name - Optional conversation name
+   * @returns {Promise<Object>}
+   */
+  async createConversation(sessionId, name = null) {
+    return this.#request('POST', `/sessions/${sessionId}/conversations`, { name });
+  }
+
+  /**
+   * Get a specific conversation
+   * @param {string} sessionId - Session ID
+   * @param {string} conversationId - Conversation ID
+   * @returns {Promise<Object>}
+   */
+  async getConversation(sessionId, conversationId) {
+    return this.#request('GET', `/sessions/${sessionId}/conversations/${conversationId}`);
+  }
+
+  /**
+   * Update a conversation
+   * @param {string} sessionId - Session ID
+   * @param {string} conversationId - Conversation ID
+   * @param {Object} data - Update data (name, isActive)
+   * @returns {Promise<Object>}
+   */
+  async updateConversation(sessionId, conversationId, data) {
+    return this.#request('PATCH', `/sessions/${sessionId}/conversations/${conversationId}`, data);
+  }
+
+  /**
+   * Delete a conversation
+   * @param {string} sessionId - Session ID
+   * @param {string} conversationId - Conversation ID
+   * @returns {Promise<void>}
+   */
+  async deleteConversation(sessionId, conversationId) {
+    return this.#request('DELETE', `/sessions/${sessionId}/conversations/${conversationId}`);
+  }
+
+  /**
+   * Generate summary for a conversation
+   * @param {string} sessionId - Session ID
+   * @param {string} conversationId - Conversation ID
+   * @returns {Promise<Object>}
+   */
+  async generateConversationSummary(sessionId, conversationId) {
+    return this.#request('POST', `/sessions/${sessionId}/conversations/${conversationId}/summary`);
+  }
+
+  /**
+   * Get messages for a specific conversation
+   * @param {string} sessionId - Session ID
+   * @param {string} conversationId - Conversation ID
+   * @returns {Promise<Array>}
+   */
+  async getConversationMessages(sessionId, conversationId) {
+    return this.#request('GET', `/sessions/${sessionId}/messages?conversation_id=${conversationId}`);
   }
 }
 

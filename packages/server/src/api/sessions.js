@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, attachments } from '../database.js';
+import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -51,13 +51,33 @@ router.get('/:id/changes', async (req, res) => {
 });
 
 // GET /api/sessions/:id/messages - Get session messages
+// Supports ?conversation_id=xxx to filter by conversation
 router.get('/:id/messages', (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const sessionMessages = messages.getBySessionId(req.params.id);
+  const { conversation_id } = req.query;
+
+  let sessionMessages;
+  if (conversation_id) {
+    // Get messages for specific conversation
+    const conv = conversations.getById(conversation_id);
+    if (!conv || conv.sessionId !== req.params.id) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+    sessionMessages = messages.getByConversationId(conversation_id);
+  } else {
+    // Get messages for active conversation, or all messages if no active conversation
+    const activeConv = conversations.getActiveBySessionId(req.params.id);
+    if (activeConv) {
+      sessionMessages = messages.getByConversationId(activeConv.id);
+    } else {
+      // Fall back to all messages (for legacy/migration)
+      sessionMessages = messages.getBySessionId(req.params.id);
+    }
+  }
 
   // Attach file attachments to each message (without content for efficiency)
   const messagesWithAttachments = sessionMessages.map((msg) => ({
@@ -129,11 +149,11 @@ router.post('/:id/message', upload.array('files', 10), handleUploadError, async 
   }
 
   try {
-    // Store file attachments if any (associated with session, no message yet)
-    const messageAttachments = attachments.createBatch(session.id, null, files);
-
     // Use gitWorktree if set, otherwise use the project's working directory
     const workingDirectory = session.gitWorktree || project.workingDirectory;
+
+    // Store file attachments if any - saves to disk in workingDirectory/.attachments
+    const messageAttachments = attachments.createBatch(session.id, null, files, workingDirectory);
 
     // Start continuation (non-blocking) - pass attachments for context
     continueSession(session.id, content, workingDirectory, project.systemPrompt, messageAttachments).catch((error) => {
@@ -239,6 +259,160 @@ router.delete('/:id/notes/:noteId', (req, res) => {
   res.status(204).send();
 });
 
+// ==================== CONVERSATION ENDPOINTS ====================
+
+// GET /api/sessions/:id/conversations - List all conversations for a session
+router.get('/:id/conversations', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const sessionConversations = conversations.getBySessionIdWithMessageCount(req.params.id);
+  res.json(sessionConversations);
+});
+
+// POST /api/sessions/:id/conversations - Create new conversation
+router.post('/:id/conversations', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Block creating new conversation while session is running
+  if (session.status === 'running') {
+    return res.status(400).json({ error: 'Cannot create new conversation while session is running' });
+  }
+
+  const { name } = req.body;
+
+  // Auto-generate summary for the current active conversation before creating new one
+  const previousActive = conversations.getActiveBySessionId(req.params.id);
+  if (previousActive && !previousActive.summary) {
+    // Generate summary in background (don't block the request)
+    summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
+      console.error('Failed to generate conversation summary:', err);
+    });
+  }
+
+  const conversation = conversations.create(req.params.id, name || null, true);
+
+  // Broadcast conversation created event
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CONVERSATION_CREATED, {
+    sessionId: req.params.id,
+    conversation,
+  });
+
+  res.status(201).json(conversation);
+});
+
+// GET /api/sessions/:id/conversations/:convId - Get specific conversation
+router.get('/:id/conversations/:convId', (req, res) => {
+  const conversation = conversations.getById(req.params.convId);
+  if (!conversation || conversation.sessionId !== req.params.id) {
+    return res.status(404).json({ error: 'Conversation not found' });
+  }
+
+  // Include message count
+  const messageCount = messages.getCountByConversationId(req.params.convId);
+  res.json({ ...conversation, messageCount });
+});
+
+// PATCH /api/sessions/:id/conversations/:convId - Update conversation
+router.patch('/:id/conversations/:convId', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const conversation = conversations.getById(req.params.convId);
+  if (!conversation || conversation.sessionId !== req.params.id) {
+    return res.status(404).json({ error: 'Conversation not found' });
+  }
+
+  const { name, isActive } = req.body;
+
+  // Block switching conversation while session is running
+  if (isActive && session.status === 'running') {
+    return res.status(400).json({ error: 'Cannot switch conversation while session is running' });
+  }
+
+  // If switching to this conversation, generate summary for the previous active one
+  if (isActive && !conversation.isActive) {
+    const previousActive = conversations.getActiveBySessionId(req.params.id);
+    if (previousActive && previousActive.id !== req.params.convId && !previousActive.summary) {
+      // Generate summary in background
+      summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
+        console.error('Failed to generate conversation summary:', err);
+      });
+    }
+  }
+
+  const updateData = {};
+  if (name !== undefined) updateData.name = name;
+  if (isActive !== undefined) updateData.isActive = isActive;
+
+  const updated = conversations.update(req.params.convId, updateData);
+
+  // Broadcast conversation updated event
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CONVERSATION_UPDATED, {
+    sessionId: req.params.id,
+    conversation: updated,
+  });
+
+  res.json(updated);
+});
+
+// DELETE /api/sessions/:id/conversations/:convId - Delete conversation
+router.delete('/:id/conversations/:convId', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Block deleting conversation while session is running
+  if (session.status === 'running') {
+    return res.status(400).json({ error: 'Cannot delete conversation while session is running' });
+  }
+
+  const conversation = conversations.getById(req.params.convId);
+  if (!conversation || conversation.sessionId !== req.params.id) {
+    return res.status(404).json({ error: 'Conversation not found' });
+  }
+
+  // Delete and handle active conversation logic
+  const newActive = conversations.deleteAndHandleActive(req.params.convId);
+
+  // Broadcast conversation deleted event
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CONVERSATION_DELETED, {
+    sessionId: req.params.id,
+    conversationId: req.params.convId,
+    newActiveConversation: newActive,
+  });
+
+  res.status(204).send();
+});
+
+// POST /api/sessions/:id/conversations/:convId/summary - Generate summary for conversation
+router.post('/:id/conversations/:convId/summary', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const conversation = conversations.getById(req.params.convId);
+  if (!conversation || conversation.sessionId !== req.params.id) {
+    return res.status(404).json({ error: 'Conversation not found' });
+  }
+
+  try {
+    const summary = await summaryService.generateConversationSummary(req.params.id, req.params.convId);
+    res.json({ summary });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/sessions/:id/todos - Get session todos
 router.get('/:id/todos', (req, res) => {
   const session = sessions.getById(req.params.id);
@@ -257,7 +431,7 @@ router.patch('/:id', (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const { thinkingEnabled, status, mode, nextTemplateId } = req.body;
+  const { thinkingEnabled, status, mode, nextTemplateId, model } = req.body;
 
   // Build update object with only provided fields
   const updateData = {};
@@ -287,6 +461,13 @@ router.patch('/:id', (req, res) => {
       }
     }
     updateData.nextTemplateId = nextTemplateId;
+  }
+  if (model !== undefined) {
+    const validModels = ['claude-sonnet-4-5-20250929', 'claude-opus-4-5-20251101', 'claude-haiku-4-5-20251001'];
+    if (!validModels.includes(model)) {
+      return res.status(400).json({ error: 'Invalid model. Must be one of: ' + validModels.join(', ') });
+    }
+    updateData.model = model;
   }
 
   if (Object.keys(updateData).length === 0) {
@@ -382,6 +563,17 @@ router.delete('/:id', async (req, res) => {
     } catch (error) {
       // Log but don't fail - worktree may already be removed or have issues
       console.warn(`Failed to remove worktree for session ${session.id}:`, error.message);
+    }
+  }
+
+  // Clean up attachment files from disk
+  if (project) {
+    const workingDirectory = session.gitWorktree || project.workingDirectory;
+    try {
+      attachments.deleteSessionAttachmentsFromDisk(workingDirectory, session.id);
+    } catch (error) {
+      // Log but don't fail - files may already be removed
+      console.warn(`Failed to remove attachment files for session ${session.id}:`, error.message);
     }
   }
 

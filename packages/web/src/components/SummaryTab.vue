@@ -1,5 +1,92 @@
 <template>
   <div class="summary-tab">
+    <!-- Session Overview Section -->
+    <div class="session-overview card">
+      <div class="overview-header">
+        <h3>Session Overview</h3>
+        <button class="btn-link" @click="handleRegenerate" :disabled="generatingManual || generating">
+          <span v-if="generatingManual" class="loading-spinner"></span>
+          Regenerate
+        </button>
+      </div>
+
+      <div class="overview-stats">
+        <div class="stat-item">
+          <span class="stat-value">{{ conversations.length }}</span>
+          <span class="stat-label">Conversations</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-value">{{ totalMessages }}</span>
+          <span class="stat-label">Messages</span>
+        </div>
+        <div v-if="session" class="stat-item">
+          <span class="stat-value status-badge" :class="`status-${session.status}`">{{ session.status }}</span>
+          <span class="stat-label">Status</span>
+        </div>
+      </div>
+
+      <!-- PR Info in Overview -->
+      <div v-if="hasPrInfo" class="overview-pr">
+        <a :href="prUrl" target="_blank" class="pr-link">
+          {{ extractPrNumber(prUrl) }}
+        </a>
+        <span :class="['status-badge', `pr-${summary?.prState}`]">
+          {{ formatPrState(summary?.prState) }}
+        </span>
+        <span v-if="summary?.ciStatus" :class="['status-badge', `ci-${summary.ciStatus}`]">
+          {{ summary.ciStatus === 'success' ? 'CI Passing' : summary.ciStatus === 'failure' ? 'CI Failing' : 'CI Pending' }}
+        </span>
+      </div>
+    </div>
+
+    <!-- Conversations Section -->
+    <div class="conversations-section">
+      <h3>Conversations</h3>
+
+      <div v-if="loadingConversations" class="loading-state">
+        <span class="loading-spinner"></span>
+        Loading conversations...
+      </div>
+
+      <div v-else-if="conversations.length === 0" class="empty-conversations">
+        <p>No conversations yet.</p>
+      </div>
+
+      <div v-else class="conversation-cards">
+        <div
+          v-for="conv in conversations"
+          :key="conv.id"
+          :class="['conversation-card card', { active: conv.isActive }]"
+        >
+          <div class="conv-header">
+            <span class="conv-number">{{ getConversationNumber(conv.id) }}.</span>
+            <span class="conv-name">{{ conv.name || 'Untitled' }}</span>
+            <span v-if="conv.isActive" class="active-badge">Active</span>
+            <span class="conv-meta">{{ conv.messageCount || 0 }} msgs</span>
+          </div>
+
+          <div class="conv-summary">
+            <template v-if="conv.summary">
+              {{ conv.summary }}
+            </template>
+            <template v-else-if="conv.isActive">
+              <span class="pending-summary">Summary will generate when conversation ends</span>
+            </template>
+            <template v-else>
+              <span class="pending-summary">No summary available</span>
+            </template>
+          </div>
+
+          <div class="conv-footer">
+            <button class="btn-link" @click="viewConversation(conv.id)">
+              View Conversation
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Session Summary Section (existing) -->
     <div v-if="loading" class="loading-state">
       <span class="loading-spinner"></span>
       Loading summary...
@@ -10,15 +97,7 @@
       Generating summary...
     </div>
 
-    <div v-else-if="!summary" class="empty-state">
-      <p>No summary available yet.</p>
-      <button class="btn btn-primary" @click="handleGenerate" :disabled="generatingManual">
-        <span v-if="generatingManual" class="loading-spinner"></span>
-        Generate Summary
-      </button>
-    </div>
-
-    <div v-else class="summary-content card">
+    <div v-else-if="summary" class="summary-content card">
       <div v-if="generating" class="summary-updating">
         <span class="loading-spinner"></span>
         Updating summary...
@@ -112,7 +191,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
@@ -122,6 +202,7 @@ const props = defineProps({
   sessionId: { type: String, required: true },
 });
 
+const router = useRouter();
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
 const { onSummaryUpdate, onSummaryGenerating } = useSessionSubscription(props.sessionId);
@@ -130,18 +211,59 @@ const summary = ref(null);
 const loading = ref(false);
 const generating = ref(false);
 const generatingManual = ref(false);
+const loadingConversations = ref(false);
+const conversations = ref([]);
 
 // Computed property to get the session's prUrl
 const session = computed(() => sessionsStore.sessions.find((s) => s.id === props.sessionId));
 const prUrl = computed(() => session.value?.prUrl || null);
 const hasPrInfo = computed(() => prUrl.value && summary.value?.prState);
 
+// Calculate total messages across all conversations
+const totalMessages = computed(() => {
+  return conversations.value.reduce((sum, conv) => sum + (conv.messageCount || 0), 0);
+});
+
+// Get conversation number (1-indexed)
+function getConversationNumber(convId) {
+  const index = conversations.value.findIndex((c) => c.id === convId);
+  return index + 1;
+}
+
+// Navigate to conversation tab with specific conversation
+function viewConversation(conversationId) {
+  // Switch to the conversation in the store
+  sessionsStore.switchConversation(props.sessionId, conversationId).then(() => {
+    // Navigate to conversation tab
+    router.push({
+      name: 'session-detail',
+      params: { id: props.sessionId, tab: 'conversation' },
+    });
+  }).catch((err) => {
+    uiStore.error(err.message);
+  });
+}
+
 onMounted(async () => {
+  // Fetch conversations
+  loadingConversations.value = true;
+  try {
+    conversations.value = await api.getConversations(props.sessionId);
+  } catch (err) {
+    console.error('Failed to load conversations:', err);
+  } finally {
+    loadingConversations.value = false;
+  }
+
+  // Fetch session summary
   loading.value = true;
   try {
     summary.value = await api.getSessionSummary(props.sessionId);
   } catch (err) {
-    uiStore.error(err.message);
+    // Don't show error for missing summary
+    if (!err.message.includes('404')) {
+      uiStore.error(err.message);
+    }
   } finally {
     loading.value = false;
   }
@@ -155,6 +277,10 @@ onMounted(async () => {
   onSummaryGenerating((isGenerating) => {
     generating.value = isGenerating;
   });
+});
+
+onUnmounted(() => {
+  // Clean up if needed
 });
 
 function formatDate(timestamp) {
@@ -483,5 +609,171 @@ async function handleRegenerate() {
 
 .ci-status {
   margin-top: 0.25rem;
+}
+
+/* Session Overview Styles */
+.session-overview {
+  margin-bottom: 1.5rem;
+}
+
+.overview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.overview-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.overview-stats {
+  display: flex;
+  gap: 2rem;
+  margin-bottom: 1rem;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stat-value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.status-running {
+  background: rgba(88, 166, 255, 0.15);
+  color: var(--color-primary);
+}
+
+.status-waiting {
+  background: rgba(210, 153, 34, 0.15);
+  color: var(--color-warning);
+}
+
+.status-completed {
+  background: rgba(46, 160, 67, 0.15);
+  color: var(--color-success);
+}
+
+.status-stopped, .status-error {
+  background: rgba(248, 81, 73, 0.15);
+  color: var(--color-error);
+}
+
+.overview-pr {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Conversations Section Styles */
+.conversations-section {
+  margin-bottom: 1.5rem;
+}
+
+.conversations-section h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-soft);
+  margin: 0 0 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.empty-conversations {
+  text-align: center;
+  padding: 1.5rem;
+  color: var(--color-text-soft);
+  background: var(--color-background-soft);
+  border-radius: var(--border-radius);
+}
+
+.empty-conversations p {
+  margin: 0;
+}
+
+.conversation-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.conversation-card {
+  padding: 1rem;
+  transition: border-color 0.15s;
+}
+
+.conversation-card.active {
+  border-color: var(--color-primary);
+  border-left: 3px solid var(--color-primary);
+}
+
+.conv-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.conv-number {
+  font-weight: 600;
+  color: var(--color-text-soft);
+}
+
+.conv-name {
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.active-badge {
+  padding: 0.125rem 0.5rem;
+  background: rgba(88, 166, 255, 0.15);
+  color: var(--color-primary);
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.conv-meta {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+  white-space: nowrap;
+}
+
+.conv-summary {
+  font-size: 0.875rem;
+  color: var(--color-text);
+  line-height: 1.5;
+  margin-bottom: 0.75rem;
+}
+
+.pending-summary {
+  color: var(--color-text-soft);
+  font-style: italic;
+}
+
+.conv-footer {
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

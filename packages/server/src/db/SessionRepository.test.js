@@ -83,6 +83,12 @@ describe('SessionRepository', () => {
       expect(session.error).toBeNull();
       expect(session.nextTemplateId).toBeNull();
       expect(session.parentSessionId).toBeNull();
+      expect(session.model).toBeNull();
+    });
+
+    it('creates session with model', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, 'claude-opus-4-5-20251101');
+      expect(session.model).toBe('claude-opus-4-5-20251101');
     });
   });
 
@@ -368,6 +374,15 @@ describe('SessionRepository', () => {
       expect(updated.gitBranch).toBe('feature');
     });
 
+    it('updates model', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      expect(session.model).toBeNull();
+
+      const updated = repo.update(session.id, { model: 'claude-haiku-4-5-20251001' });
+
+      expect(updated.model).toBe('claude-haiku-4-5-20251001');
+    });
+
     it('returns unchanged session when no updates provided', () => {
       const session = repo.create(projectId, 'Test', 'Prompt');
       const result = repo.update(session.id, {});
@@ -417,6 +432,82 @@ describe('SessionRepository', () => {
       projectRepo.delete(projectId);
 
       expect(repo.getById(session.id)).toBeNull();
+    });
+  });
+
+  describe('getSessionsWithPrUrls', () => {
+    it('returns empty array when no sessions have PR URLs', () => {
+      repo.create(projectId, 'Session 1', 'Prompt 1');
+      repo.create(projectId, 'Session 2', 'Prompt 2');
+
+      const result = repo.getSessionsWithPrUrls();
+      expect(result).toEqual([]);
+    });
+
+    it('returns only sessions that have PR URLs', () => {
+      const session1 = repo.create(projectId, 'Session 1', 'Prompt 1');
+      repo.create(projectId, 'Session 2', 'Prompt 2');
+      const session3 = repo.create(projectId, 'Session 3', 'Prompt 3');
+
+      // Set PR URL on session 1 and 3
+      repo.update(session1.id, { prUrl: 'https://github.com/org/repo/pull/1' });
+      repo.update(session3.id, { prUrl: 'https://github.com/org/repo/pull/3' });
+
+      const result = repo.getSessionsWithPrUrls();
+      expect(result).toHaveLength(2);
+      expect(result.map(s => s.id)).toContain(session1.id);
+      expect(result.map(s => s.id)).toContain(session3.id);
+    });
+
+    it('orders sessions by updated_at descending', () => {
+      const session1 = repo.create(projectId, 'Session 1', 'Prompt 1');
+      const session2 = repo.create(projectId, 'Session 2', 'Prompt 2');
+
+      // Set PR URLs
+      repo.update(session1.id, { prUrl: 'https://github.com/org/repo/pull/1' });
+      // Update session2 after session1 so it has a later updated_at
+      repo.update(session2.id, { prUrl: 'https://github.com/org/repo/pull/2' });
+
+      const result = repo.getSessionsWithPrUrls();
+      expect(result).toHaveLength(2);
+      // Session 2 should be first because it was updated more recently
+      expect(result[0].id).toBe(session2.id);
+      expect(result[1].id).toBe(session1.id);
+    });
+
+    it('includes sessions from all projects', () => {
+      const project2 = projectRepo.create('Project 2', '/tmp/project2');
+
+      const session1 = repo.create(projectId, 'Session 1', 'Prompt 1');
+      const session2 = repo.create(project2.id, 'Session 2', 'Prompt 2');
+
+      repo.update(session1.id, { prUrl: 'https://github.com/org/repo1/pull/1' });
+      repo.update(session2.id, { prUrl: 'https://github.com/org/repo2/pull/2' });
+
+      const result = repo.getSessionsWithPrUrls();
+      expect(result).toHaveLength(2);
+      expect(result.map(s => s.projectId)).toContain(projectId);
+      expect(result.map(s => s.projectId)).toContain(project2.id);
+    });
+
+    it('returns correct session properties', () => {
+      const session = repo.create(projectId, 'Test Session', 'Prompt');
+      repo.update(session.id, {
+        prUrl: 'https://github.com/org/repo/pull/123',
+        status: 'completed',
+        gitBranch: 'feature/test',
+      });
+
+      const result = repo.getSessionsWithPrUrls();
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        id: session.id,
+        projectId: projectId,
+        name: 'Test Session',
+        prUrl: 'https://github.com/org/repo/pull/123',
+        status: 'completed',
+        gitBranch: 'feature/test',
+      });
     });
   });
 });

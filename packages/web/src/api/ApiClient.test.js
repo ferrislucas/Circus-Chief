@@ -170,6 +170,36 @@ describe('ApiClient', () => {
           body: JSON.stringify({ prompt: 'Hello' }),
         }));
       });
+
+      it('includes model in FormData when files are attached', async () => {
+        mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+
+        const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
+        const sessionData = {
+          prompt: 'Hello',
+          model: 'claude-opus-4-5-20251101',
+          files: [file],
+        };
+
+        await client.createSession('proj-123', sessionData);
+
+        const callArgs = mockFetch.mock.calls[0];
+        expect(callArgs[1].body).toBeInstanceOf(FormData);
+        const formData = callArgs[1].body;
+        expect(formData.get('model')).toBe('claude-opus-4-5-20251101');
+      });
+
+      it('includes model in JSON when no files', async () => {
+        mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+
+        const sessionData = { prompt: 'Hello', model: 'claude-haiku-4-5-20251001' };
+        await client.createSession('proj-123', sessionData);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/sessions', expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify(sessionData),
+        }));
+      });
     });
 
     describe('getSession', () => {
@@ -612,6 +642,126 @@ describe('ApiClient', () => {
           body: JSON.stringify(templateData),
         }));
         expect(result.projectId).toBe('proj-123');
+      });
+    });
+  });
+
+  describe('conversations', () => {
+    describe('getConversations', () => {
+      it('fetches conversations for session', async () => {
+        const mockData = [
+          { id: 'conv-1', name: 'First', isActive: true, messageCount: 5 },
+          { id: 'conv-2', name: 'Second', isActive: false, messageCount: 3 },
+        ];
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getConversations('sess-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/conversations', expect.any(Object));
+        expect(result).toEqual(mockData);
+      });
+    });
+
+    describe('createConversation', () => {
+      it('creates conversation with name', async () => {
+        const mockData = { id: 'conv-new', name: 'My Conv', isActive: true };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.createConversation('sess-123', 'My Conv');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/conversations', expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ name: 'My Conv' }),
+        }));
+        expect(result).toEqual(mockData);
+      });
+
+      it('creates conversation without name', async () => {
+        mockFetch.mockReturnValue(mockResponse({ id: 'conv-new', name: null }));
+
+        await client.createConversation('sess-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/conversations', expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ name: null }),
+        }));
+      });
+    });
+
+    describe('getConversation', () => {
+      it('fetches specific conversation', async () => {
+        const mockData = { id: 'conv-1', name: 'Test', messageCount: 10 };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getConversation('sess-123', 'conv-1');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/conversations/conv-1', expect.any(Object));
+        expect(result).toEqual(mockData);
+      });
+    });
+
+    describe('updateConversation', () => {
+      it('updates conversation name', async () => {
+        mockFetch.mockReturnValue(mockResponse({ id: 'conv-1', name: 'Updated' }));
+
+        await client.updateConversation('sess-123', 'conv-1', { name: 'Updated' });
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/conversations/conv-1', expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ name: 'Updated' }),
+        }));
+      });
+
+      it('updates conversation isActive', async () => {
+        mockFetch.mockReturnValue(mockResponse({ id: 'conv-1', isActive: true }));
+
+        await client.updateConversation('sess-123', 'conv-1', { isActive: true });
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/conversations/conv-1', expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ isActive: true }),
+        }));
+      });
+    });
+
+    describe('deleteConversation', () => {
+      it('deletes conversation', async () => {
+        mockFetch.mockReturnValue(mockResponse(null, { status: 204 }));
+
+        await client.deleteConversation('sess-123', 'conv-1');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/conversations/conv-1', expect.objectContaining({
+          method: 'DELETE',
+        }));
+      });
+    });
+
+    describe('generateConversationSummary', () => {
+      it('generates summary for conversation', async () => {
+        const mockData = { summary: 'This is a test summary' };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.generateConversationSummary('sess-123', 'conv-1');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/conversations/conv-1/summary', expect.objectContaining({
+          method: 'POST',
+        }));
+        expect(result).toEqual(mockData);
+      });
+    });
+
+    describe('getConversationMessages', () => {
+      it('fetches messages for conversation', async () => {
+        const mockData = [
+          { id: 'msg-1', content: 'Hello', role: 'user' },
+          { id: 'msg-2', content: 'Hi there', role: 'assistant' },
+        ];
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getConversationMessages('sess-123', 'conv-1');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/messages?conversation_id=conv-1', expect.any(Object));
+        expect(result).toEqual(mockData);
       });
     });
   });

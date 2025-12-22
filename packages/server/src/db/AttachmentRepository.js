@@ -1,5 +1,20 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
+import { mkdirSync, writeFileSync, rmSync, existsSync } from 'fs';
+import { join } from 'path';
+
+/** Directory name for storing attachments within working directory */
+export const ATTACHMENTS_DIR = '.attachments';
+
+/**
+ * Get the attachments directory path for a session
+ * @param {string} workingDirectory - Project working directory
+ * @param {string} sessionId - Session ID
+ * @returns {string} Path to attachments directory
+ */
+export function getAttachmentsDir(workingDirectory, sessionId) {
+  return join(workingDirectory, ATTACHMENTS_DIR, sessionId);
+}
 
 /**
  * Attachment repository class for message file attachments
@@ -19,29 +34,43 @@ export class AttachmentRepository extends BaseRepository {
       size: row.size_bytes,
       storageType: row.storage_type,
       content: row.content,
+      filePath: row.file_path,
       createdAt: row.created_at,
     };
   }
 
   /**
-   * Create an attachment
+   * Create an attachment - stores in DB and saves to disk
    * @param {string} sessionId - Session ID
    * @param {string|null} messageId - Message ID (null for initial session creation)
    * @param {Object} file - File object with buffer, originalname, mimetype, size
+   * @param {string} workingDirectory - Working directory to save file to
    * @returns {Object} Created attachment
    */
-  create(sessionId, messageId, file) {
+  create(sessionId, messageId, file, workingDirectory) {
     const id = databaseManager.generateId();
     const now = Date.now();
 
-    // Store as base64
+    // Store as base64 for backwards compatibility
     const content = file.buffer.toString('base64');
+
+    // Save file to disk if working directory provided
+    let filePath = null;
+    if (workingDirectory) {
+      const attachmentsDir = getAttachmentsDir(workingDirectory, sessionId);
+      mkdirSync(attachmentsDir, { recursive: true });
+
+      // Use ID prefix to ensure uniqueness, preserve original filename for readability
+      const diskFilename = `${id}_${file.originalname}`;
+      filePath = join(attachmentsDir, diskFilename);
+      writeFileSync(filePath, file.buffer);
+    }
 
     this.db
       .prepare(
         `INSERT INTO message_attachments
-         (id, message_id, session_id, filename, mime_type, size_bytes, storage_type, content, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, message_id, session_id, filename, mime_type, size_bytes, storage_type, content, file_path, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -52,6 +81,7 @@ export class AttachmentRepository extends BaseRepository {
         file.size,
         'base64',
         content,
+        filePath,
         now
       );
 
@@ -63,11 +93,12 @@ export class AttachmentRepository extends BaseRepository {
    * @param {string} sessionId - Session ID
    * @param {string|null} messageId - Message ID
    * @param {Array} files - Array of file objects
+   * @param {string} workingDirectory - Working directory to save files to
    * @returns {Array} Created attachments
    */
-  createBatch(sessionId, messageId, files) {
+  createBatch(sessionId, messageId, files, workingDirectory) {
     if (!files || files.length === 0) return [];
-    return files.map((file) => this.create(sessionId, messageId, file));
+    return files.map((file) => this.create(sessionId, messageId, file, workingDirectory));
   }
 
   /**
@@ -102,7 +133,7 @@ export class AttachmentRepository extends BaseRepository {
   getByMessageIdWithoutContent(messageId) {
     const rows = this.db
       .prepare(
-        `SELECT id, message_id, session_id, filename, mime_type, size_bytes, storage_type, created_at
+        `SELECT id, message_id, session_id, filename, mime_type, size_bytes, storage_type, file_path, created_at
          FROM message_attachments WHERE message_id = ? ORDER BY created_at ASC`
       )
       .all(messageId);
@@ -114,6 +145,7 @@ export class AttachmentRepository extends BaseRepository {
       mimeType: row.mime_type,
       size: row.size_bytes,
       storageType: row.storage_type,
+      filePath: row.file_path,
       createdAt: row.created_at,
     }));
   }
@@ -141,5 +173,19 @@ export class AttachmentRepository extends BaseRepository {
       )
       .all(sessionId);
     return this.mapAll(rows);
+  }
+
+  /**
+   * Delete all attachments for a session from disk
+   * @param {string} workingDirectory - Working directory
+   * @param {string} sessionId - Session ID
+   */
+  deleteSessionAttachmentsFromDisk(workingDirectory, sessionId) {
+    if (!workingDirectory) return;
+
+    const attachmentsDir = getAttachmentsDir(workingDirectory, sessionId);
+    if (existsSync(attachmentsDir)) {
+      rmSync(attachmentsDir, { recursive: true, force: true });
+    }
   }
 }

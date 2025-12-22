@@ -47,10 +47,23 @@ CREATE TABLE IF NOT EXISTS sessions (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
+-- Conversations (multiple conversation threads per session)
+CREATE TABLE IF NOT EXISTS conversations (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  name TEXT,                           -- Auto from first message or user-defined
+  summary TEXT,                        -- Per-conversation summary
+  summary_generated_at INTEGER,        -- When summary was last generated
+  is_active INTEGER NOT NULL DEFAULT 0, -- Currently selected conversation (1 = active)
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
 -- Conversation messages
 CREATE TABLE IF NOT EXISTS conversation_messages (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
   content TEXT NOT NULL,
   tool_use TEXT, -- JSON array of tool uses
@@ -61,7 +74,7 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 CREATE TABLE IF NOT EXISTS canvas_items (
   id TEXT PRIMARY KEY,
   session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
-  type TEXT NOT NULL CHECK (type IN ('image', 'markdown', 'text', 'json')),
+  type TEXT NOT NULL CHECK (type IN ('image', 'markdown', 'text', 'json', 'pdf')),
   content TEXT,           -- For markdown/text
   data TEXT,              -- For json (stored as JSON string) or image (base64)
   mime_type TEXT,         -- For images
@@ -153,14 +166,17 @@ CREATE TABLE IF NOT EXISTS message_attachments (
   mime_type TEXT NOT NULL,
   size_bytes INTEGER NOT NULL,
   storage_type TEXT NOT NULL DEFAULT 'base64' CHECK (storage_type IN ('base64', 'file_path', 'project_file')),
-  content TEXT,  -- base64 data or file path depending on storage_type
+  content TEXT,  -- base64 data or file reference depending on storage_type
+  file_path TEXT,  -- absolute path to file on disk (for Claude's Read tool)
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON conversation_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
 CREATE INDEX IF NOT EXISTS idx_notes_session ON session_notes(session_id);
 CREATE INDEX IF NOT EXISTS idx_project_tools ON project_tool_templates(project_id);

@@ -1,6 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { sessions, messages, workLogs, attachments } from '../database.js';
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
 import { updateTodos } from './todoStore.js';
 import * as summaryService from './summaryService.js';
@@ -18,7 +18,7 @@ const activeSessions = new Map();
 const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
 
 /**
- * Build prompt with file attachment context
+ * Build prompt with file attachment context for the current turn
  * Includes text file contents inline, describes other file types
  * @param {string} prompt - Original prompt
  * @param {Array} fileAttachments - Array of attachment objects
@@ -56,6 +56,46 @@ export function buildPromptWithAttachments(prompt, fileAttachments) {
   });
 
   return `${prompt}\n\n## Attached Files${attachmentSections.join('\n')}`;
+}
+
+/**
+ * Format file size in human-readable format
+ * @param {number} bytes - Size in bytes
+ * @returns {string} Formatted size
+ */
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Get session attachments context for system prompt
+ * Returns a string describing all files attached to the session that Claude can read
+ * @param {string} sessionId - Session ID
+ * @returns {string} Attachments context for system prompt
+ */
+export function getSessionAttachmentsContext(sessionId) {
+  const sessionAttachments = attachments.getBySessionId(sessionId);
+
+  // Only include attachments that have been saved to disk
+  const readableAttachments = sessionAttachments.filter((att) => att.filePath);
+
+  if (readableAttachments.length === 0) {
+    return '';
+  }
+
+  const fileList = readableAttachments
+    .map((att) => `- \`${att.filePath}\` (${att.filename}, ${att.mimeType}, ${formatFileSize(att.size)})`)
+    .join('\n');
+
+  return `## Session Attached Files
+
+The user has attached the following files to this session. You can read these files at any time using your Read tool:
+
+${fileList}
+
+These files persist throughout the conversation. When the user asks about attached files, use the Read tool with the file paths above.`;
 }
 
 /**
@@ -168,18 +208,50 @@ async function* mockQuery({ prompt }) {
 }
 
 /**
- * Build system prompt with canvas instructions
+ * Build system prompt with canvas write instructions
  * @param {string} sessionId
  * @returns {string}
  */
-function buildCanvasSystemPrompt(sessionId) {
+function buildCanvasWriteSystemPrompt(sessionId) {
   const apiUrl = process.env.CLAUDETOOLS_API_URL || `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`;
-  return `When you generate artifacts that should be displayed on the canvas (images, markdown documents, code snippets, data visualizations), POST them to:
+  return `When you generate artifacts that should be displayed on the canvas (images, markdown documents, code snippets, data visualizations, PDFs), POST them to:
 POST ${apiUrl}/api/sessions/${sessionId}/canvas
-Body: {"type": "image|markdown|text|json", "content": "...", "title": "..."}
+Body: {"type": "image|markdown|text|json|pdf", "content": "...", "filename": "example.md", "label": "Description"}
 
-For images, use filePath to reference an image file on disk:
-Body: {"type": "image", "filePath": "/path/to/image.png", "title": "..."}`;
+For images and PDFs, use filePath to reference a file on disk:
+Body: {"type": "image", "filePath": "/path/to/image.png", "filename": "image.png", "label": "Description"}
+Body: {"type": "pdf", "filePath": "/path/to/document.pdf", "filename": "document.pdf", "label": "Description"}`;
+}
+
+/**
+ * Build system prompt with canvas read instructions
+ * @param {string} sessionId
+ * @returns {string}
+ */
+function buildCanvasReadSystemPrompt(sessionId) {
+  const apiUrl = process.env.CLAUDETOOLS_API_URL || `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`;
+  return `## Reading from Canvas
+
+To list all files on the canvas:
+\`\`\`bash
+curl ${apiUrl}/api/sessions/${sessionId}/canvas
+\`\`\`
+
+To read a specific file from the canvas (returns file path for Read tool):
+\`\`\`bash
+curl ${apiUrl}/api/sessions/${sessionId}/canvas/file/{filename}
+\`\`\`
+
+To read an earlier version of a file (version 1 = latest, 2 = previous, etc.):
+\`\`\`bash
+curl "${apiUrl}/api/sessions/${sessionId}/canvas/file/{filename}?version=2"
+\`\`\`
+
+Response: { filePath, type, mimeType, createdAt, version, totalVersions }
+
+Then use the Read tool on the returned filePath to view the content.
+
+Supported types: images, PDFs, markdown, text, JSON`;
 }
 
 /**
@@ -328,14 +400,21 @@ function buildSessionEnv(session) {
  * @returns {string} System prompt string
  */
 export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt, mode) {
-  const canvasInstructions = buildCanvasSystemPrompt(sessionId);
+  const canvasWriteInstructions = buildCanvasWriteSystemPrompt(sessionId);
+  const canvasReadInstructions = buildCanvasReadSystemPrompt(sessionId);
   const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
+  const attachmentsContext = getSessionAttachmentsContext(sessionId);
   const basePrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
 
   // Prepend plan mode instructions if in plan mode
   const modePrompt = mode === 'plan' ? PLAN_MODE_PROMPT : '';
 
-  return `${modePrompt}${basePrompt}\n\n${canvasInstructions}\n\n${sessionApiInstructions}`;
+  // Build prompt parts, filtering out empty sections
+  const parts = [modePrompt, basePrompt, attachmentsContext, canvasWriteInstructions, canvasReadInstructions, sessionApiInstructions].filter(
+    Boolean
+  );
+
+  return parts.join('\n\n');
 }
 
 /**
@@ -345,8 +424,9 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
  * @param {string} workingDirectory
  * @param {string|null} systemPrompt - Custom system prompt from project settings
  * @param {Array} fileAttachments - File attachments for context
+ * @param {string|null} model - Claude model to use
  */
-export async function runSession(sessionId, prompt, workingDirectory, systemPrompt = null, fileAttachments = []) {
+export async function runSession(sessionId, prompt, workingDirectory, systemPrompt = null, fileAttachments = [], model = null) {
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
@@ -374,6 +454,9 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     // Build environment variables for thinking mode
     const sessionEnv = buildSessionEnv(session);
 
+    // Use model from parameter or session record
+    const sessionModel = model || session.model;
+
     const queryParams = isMockMode()
       ? { prompt: promptWithAttachments }
       : {
@@ -384,6 +467,7 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
             includePartialMessages: true,
             permissionMode: getPermissionModeForSession(session.mode),
             ...(sessionEnv && { env: sessionEnv }),
+            ...(sessionModel && { model: sessionModel }),
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
@@ -486,6 +570,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
             permissionMode: getPermissionModeForSession(session.mode),
             resume: session.claudeSessionId,
             ...(sessionEnv && { env: sessionEnv }),
+            ...(session.model && { model: session.model }),
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
@@ -762,5 +847,16 @@ async function handleStreamEvent(sessionId, event) {
  * @param {string} status
  */
 function broadcastSessionStatus(sessionId, status) {
+  // Broadcast to session subscribers (for session detail view)
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status });
+
+  // Also broadcast SESSION_UPDATED to project subscribers (for session list updates)
+  const session = sessions.getById(sessionId);
+  if (session) {
+    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: session.projectId,
+      sessionId,
+      session: { ...session, status },
+    });
+  }
 }

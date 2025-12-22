@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const CreateCanvasItemRequest = z.object({
-  type: z.enum(['image', 'markdown', 'text', 'json']),
+  type: z.enum(['image', 'markdown', 'text', 'json', 'pdf']),
   content: z.string().optional(),
   data: z.string().optional(),
   mimeType: z.string().optional(),
@@ -14,7 +14,7 @@ export const CreateCanvasItemRequest = z.object({
 export const CanvasItemResponse = z.object({
   id: z.string().uuid(),
   sessionId: z.string().uuid().nullable(),
-  type: z.enum(['image', 'markdown', 'text', 'json']),
+  type: z.enum(['image', 'markdown', 'text', 'json', 'pdf']),
   content: z.string().nullable(),
   data: z.string().nullable(),
   mimeType: z.string().nullable(),

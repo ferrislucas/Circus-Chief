@@ -86,9 +86,6 @@ const sessionsStore = useSessionsStore();
 // Get projectId as computed to handle route changes
 const projectId = computed(() => route.params.id);
 
-// Subscribe to project updates for real-time session list changes
-const { subscribe, onSessionCreated, onSessionUpdated, onSessionDeleted } = useProjectSubscription(projectId.value);
-
 // Store summaries keyed by session ID
 const summaries = reactive({});
 const loadingSummaries = reactive({});
@@ -97,40 +94,64 @@ const summaryErrors = reactive({});
 // Store cleanup functions for WebSocket listeners
 const cleanups = [];
 
-onMounted(async () => {
-  projectsStore.fetchProject(route.params.id);
-  await sessionsStore.fetchSessions(route.params.id);
-  // Fetch summaries for loaded sessions
-  fetchSummaries();
+// Track current unsubscribe function for cleanup when projectId changes
+let currentUnsubscribe = null;
 
-  // Subscribe to project updates
-  subscribe();
+// Watch for projectId changes to properly subscribe/unsubscribe
+watch(
+  projectId,
+  async (newProjectId) => {
+    if (!newProjectId) return;
 
-  // Handle new session created
-  cleanups.push(
-    onSessionCreated((session) => {
-      sessionsStore.addSessionToList(session);
-    })
-  );
+    // Clean up previous subscription handlers
+    cleanups.forEach((cleanup) => cleanup());
+    cleanups.length = 0;
 
-  // Handle session updated
-  cleanups.push(
-    onSessionUpdated((session) => {
-      sessionsStore.updateSession(session);
-    })
-  );
+    // Unsubscribe from old project
+    if (currentUnsubscribe) {
+      currentUnsubscribe();
+      currentUnsubscribe = null;
+    }
 
-  // Handle session deleted
-  cleanups.push(
-    onSessionDeleted((sessionId) => {
-      sessionsStore.removeSessionFromList(sessionId);
-      // Clean up summary data for deleted session
-      delete summaries[sessionId];
-      delete loadingSummaries[sessionId];
-      delete summaryErrors[sessionId];
-    })
-  );
-});
+    // Fetch new project data
+    projectsStore.fetchProject(newProjectId);
+    await sessionsStore.fetchSessions(newProjectId);
+    fetchSummaries();
+
+    // Create new subscription for new project
+    const { subscribe, unsubscribe, onSessionCreated, onSessionUpdated, onSessionDeleted } =
+      useProjectSubscription(newProjectId);
+
+    currentUnsubscribe = unsubscribe;
+    subscribe();
+
+    // Handle new session created
+    cleanups.push(
+      onSessionCreated((session) => {
+        sessionsStore.addSessionToList(session);
+      })
+    );
+
+    // Handle session updated
+    cleanups.push(
+      onSessionUpdated((session) => {
+        sessionsStore.updateSession(session);
+      })
+    );
+
+    // Handle session deleted
+    cleanups.push(
+      onSessionDeleted((sessionId) => {
+        sessionsStore.removeSessionFromList(sessionId);
+        // Clean up summary data for deleted session
+        delete summaries[sessionId];
+        delete loadingSummaries[sessionId];
+        delete summaryErrors[sessionId];
+      })
+    );
+  },
+  { immediate: true }
+);
 
 // Watch for sessions changes and fetch summaries
 watch(
@@ -178,6 +199,9 @@ async function retryFetchSummary(sessionId) {
 // Cleanup WebSocket listeners on unmount
 onUnmounted(() => {
   cleanups.forEach((cleanup) => cleanup());
+  if (currentUnsubscribe) {
+    currentUnsubscribe();
+  }
 });
 </script>
 

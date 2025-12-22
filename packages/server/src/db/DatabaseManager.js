@@ -99,6 +99,57 @@ export class DatabaseManager {
     if (!sessionsColumns.includes('parent_session_id')) {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL');
     }
+
+    // Check if message_attachments table has the file_path column, add it if not
+    const attachmentsTableInfo = this.#db.prepare('PRAGMA table_info(message_attachments)').all();
+    const attachmentsColumns = attachmentsTableInfo.map((col) => col.name);
+
+    if (!attachmentsColumns.includes('file_path')) {
+      this.#db.exec('ALTER TABLE message_attachments ADD COLUMN file_path TEXT');
+    }
+
+    // Migrate conversation_messages to add conversation_id column
+    const messagesTableInfo = this.#db.prepare('PRAGMA table_info(conversation_messages)').all();
+    const messagesColumns = messagesTableInfo.map((col) => col.name);
+
+    if (!messagesColumns.includes('conversation_id')) {
+      this.#db.exec('ALTER TABLE conversation_messages ADD COLUMN conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE');
+      this.#db.exec('CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversation_id)');
+    }
+
+    // Create default conversations for existing sessions that don't have one
+    this.#migrateExistingSessionsToConversations();
+  }
+
+  /**
+   * Create default conversations for existing sessions that don't have any
+   * and associate orphaned messages with the default conversation
+   * @private
+   */
+  #migrateExistingSessionsToConversations() {
+    // Find sessions that have messages but no conversations
+    const sessionsWithoutConversations = this.#db.prepare(`
+      SELECT DISTINCT s.id FROM sessions s
+      LEFT JOIN conversations c ON c.session_id = s.id
+      WHERE c.id IS NULL
+      AND EXISTS (SELECT 1 FROM conversation_messages m WHERE m.session_id = s.id)
+    `).all();
+
+    for (const session of sessionsWithoutConversations) {
+      // Create a default conversation for this session
+      const convId = this.generateId();
+      const now = Date.now();
+
+      this.#db.prepare(`
+        INSERT INTO conversations (id, session_id, name, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, 1, ?, ?)
+      `).run(convId, session.id, 'Initial', now, now);
+
+      // Associate all existing messages with this conversation
+      this.#db.prepare(`
+        UPDATE conversation_messages SET conversation_id = ? WHERE session_id = ? AND conversation_id IS NULL
+      `).run(convId, session.id);
+    }
   }
 
   /**
