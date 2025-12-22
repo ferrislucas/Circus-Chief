@@ -357,6 +357,12 @@ async function handleDelete() {
   flex-shrink: 0;
 }
 
+@media (max-width: 768px) {
+  .btn-delete-session {
+    margin-left: 0;
+  }
+}
+
 .session-mode {
   font-size: 0.75rem;
   color: var(--color-text-soft);

@@ -1,8 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { AttachmentRepository } from './AttachmentRepository.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { AttachmentRepository, getAttachmentsDir, ATTACHMENTS_DIR } from './AttachmentRepository.js';
 import { ProjectRepository } from './ProjectRepository.js';
 import { MessageRepository } from './MessageRepository.js';
 import { databaseManager } from './DatabaseManager.js';
+import { mkdtempSync, existsSync, readFileSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 
 describe('AttachmentRepository', () => {
   // Uses global setup from test/setup.js
@@ -11,14 +14,18 @@ describe('AttachmentRepository', () => {
   let messageRepo;
   let sessionId;
   let messageId;
+  let tempDir;
 
   beforeEach(() => {
     repo = new AttachmentRepository();
     projectRepo = new ProjectRepository();
     messageRepo = new MessageRepository();
 
+    // Create a temp directory for disk file tests
+    tempDir = mkdtempSync(join(tmpdir(), 'attachment-test-'));
+
     // Create a project and session for testing
-    const project = projectRepo.create('Test Project', '/tmp/test');
+    const project = projectRepo.create('Test Project', tempDir);
     const now = Date.now();
     sessionId = databaseManager.generateId();
     databaseManager.get().prepare(
@@ -28,6 +35,13 @@ describe('AttachmentRepository', () => {
     // Create a message for testing
     const message = messageRepo.create(sessionId, 'user', 'Test message');
     messageId = message.id;
+  });
+
+  afterEach(() => {
+    // Clean up temp directory
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   describe('constructor', () => {
@@ -256,6 +270,222 @@ describe('AttachmentRepository', () => {
 
       // Attachments should be deleted via cascade
       expect(repo.getByMessageId(messageId)).toHaveLength(0);
+    });
+  });
+
+  describe('getAttachmentsDir', () => {
+    it('returns correct path for session attachments', () => {
+      const result = getAttachmentsDir('/home/user/project', 'session-123');
+      expect(result).toBe('/home/user/project/.attachments/session-123');
+    });
+
+    it('uses the ATTACHMENTS_DIR constant', () => {
+      expect(ATTACHMENTS_DIR).toBe('.attachments');
+    });
+  });
+
+  describe('disk file operations', () => {
+    describe('create with workingDirectory', () => {
+      it('saves file to disk when workingDirectory provided', () => {
+        const mockFile = {
+          buffer: Buffer.from('Hello, World!'),
+          originalname: 'test.txt',
+          mimetype: 'text/plain',
+          size: 13,
+        };
+
+        const attachment = repo.create(sessionId, messageId, mockFile, tempDir);
+
+        // Check filePath is set
+        expect(attachment.filePath).toBeDefined();
+        expect(attachment.filePath).toContain(tempDir);
+        expect(attachment.filePath).toContain('.attachments');
+        expect(attachment.filePath).toContain(sessionId);
+        expect(attachment.filePath).toContain('test.txt');
+
+        // Check file actually exists on disk
+        expect(existsSync(attachment.filePath)).toBe(true);
+
+        // Check file content matches
+        const fileContent = readFileSync(attachment.filePath, 'utf-8');
+        expect(fileContent).toBe('Hello, World!');
+      });
+
+      it('creates attachments directory if it does not exist', () => {
+        const mockFile = {
+          buffer: Buffer.from('test'),
+          originalname: 'test.txt',
+          mimetype: 'text/plain',
+          size: 4,
+        };
+
+        const attachmentsDir = getAttachmentsDir(tempDir, sessionId);
+        expect(existsSync(attachmentsDir)).toBe(false);
+
+        repo.create(sessionId, messageId, mockFile, tempDir);
+
+        expect(existsSync(attachmentsDir)).toBe(true);
+      });
+
+      it('handles binary files correctly', () => {
+        const binaryData = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]); // PNG header
+        const mockFile = {
+          buffer: binaryData,
+          originalname: 'image.png',
+          mimetype: 'image/png',
+          size: binaryData.length,
+        };
+
+        const attachment = repo.create(sessionId, messageId, mockFile, tempDir);
+
+        expect(existsSync(attachment.filePath)).toBe(true);
+        const savedContent = readFileSync(attachment.filePath);
+        expect(savedContent).toEqual(binaryData);
+      });
+
+      it('does not save to disk when workingDirectory is null', () => {
+        const mockFile = {
+          buffer: Buffer.from('test'),
+          originalname: 'test.txt',
+          mimetype: 'text/plain',
+          size: 4,
+        };
+
+        const attachment = repo.create(sessionId, messageId, mockFile, null);
+
+        expect(attachment.filePath).toBeNull();
+        // Should still have base64 content
+        expect(attachment.content).toBe(Buffer.from('test').toString('base64'));
+      });
+
+      it('ensures unique filenames with ID prefix', () => {
+        const mockFile = {
+          buffer: Buffer.from('test'),
+          originalname: 'duplicate.txt',
+          mimetype: 'text/plain',
+          size: 4,
+        };
+
+        const attachment1 = repo.create(sessionId, messageId, mockFile, tempDir);
+        const attachment2 = repo.create(sessionId, messageId, mockFile, tempDir);
+
+        // Both files should exist with different names (ID prefixed)
+        expect(existsSync(attachment1.filePath)).toBe(true);
+        expect(existsSync(attachment2.filePath)).toBe(true);
+        expect(attachment1.filePath).not.toBe(attachment2.filePath);
+        expect(attachment1.filePath).toContain(attachment1.id);
+        expect(attachment2.filePath).toContain(attachment2.id);
+      });
+    });
+
+    describe('createBatch with workingDirectory', () => {
+      it('saves multiple files to disk', () => {
+        const mockFiles = [
+          {
+            buffer: Buffer.from('file1 content'),
+            originalname: 'file1.txt',
+            mimetype: 'text/plain',
+            size: 13,
+          },
+          {
+            buffer: Buffer.from('file2 content'),
+            originalname: 'file2.txt',
+            mimetype: 'text/plain',
+            size: 13,
+          },
+        ];
+
+        const attachments = repo.createBatch(sessionId, messageId, mockFiles, tempDir);
+
+        expect(attachments).toHaveLength(2);
+        expect(existsSync(attachments[0].filePath)).toBe(true);
+        expect(existsSync(attachments[1].filePath)).toBe(true);
+
+        expect(readFileSync(attachments[0].filePath, 'utf-8')).toBe('file1 content');
+        expect(readFileSync(attachments[1].filePath, 'utf-8')).toBe('file2 content');
+      });
+    });
+
+    describe('deleteSessionAttachmentsFromDisk', () => {
+      it('removes session attachments directory', () => {
+        const mockFile = {
+          buffer: Buffer.from('test'),
+          originalname: 'test.txt',
+          mimetype: 'text/plain',
+          size: 4,
+        };
+
+        const attachment = repo.create(sessionId, messageId, mockFile, tempDir);
+        const attachmentsDir = getAttachmentsDir(tempDir, sessionId);
+
+        expect(existsSync(attachmentsDir)).toBe(true);
+        expect(existsSync(attachment.filePath)).toBe(true);
+
+        repo.deleteSessionAttachmentsFromDisk(tempDir, sessionId);
+
+        expect(existsSync(attachmentsDir)).toBe(false);
+        expect(existsSync(attachment.filePath)).toBe(false);
+      });
+
+      it('handles non-existent directory gracefully', () => {
+        // Should not throw
+        expect(() => {
+          repo.deleteSessionAttachmentsFromDisk(tempDir, 'non-existent-session');
+        }).not.toThrow();
+      });
+
+      it('handles null workingDirectory gracefully', () => {
+        expect(() => {
+          repo.deleteSessionAttachmentsFromDisk(null, sessionId);
+        }).not.toThrow();
+      });
+
+      it('removes all files for a session', () => {
+        const mockFiles = [
+          {
+            buffer: Buffer.from('file1'),
+            originalname: 'file1.txt',
+            mimetype: 'text/plain',
+            size: 5,
+          },
+          {
+            buffer: Buffer.from('file2'),
+            originalname: 'file2.txt',
+            mimetype: 'text/plain',
+            size: 5,
+          },
+        ];
+
+        const attachments = repo.createBatch(sessionId, messageId, mockFiles, tempDir);
+        const attachmentsDir = getAttachmentsDir(tempDir, sessionId);
+
+        expect(existsSync(attachments[0].filePath)).toBe(true);
+        expect(existsSync(attachments[1].filePath)).toBe(true);
+
+        repo.deleteSessionAttachmentsFromDisk(tempDir, sessionId);
+
+        expect(existsSync(attachmentsDir)).toBe(false);
+      });
+    });
+
+    describe('getByMessageIdWithoutContent includes filePath', () => {
+      it('includes filePath in returned attachments', () => {
+        const mockFile = {
+          buffer: Buffer.from('test'),
+          originalname: 'test.txt',
+          mimetype: 'text/plain',
+          size: 4,
+        };
+
+        repo.create(sessionId, messageId, mockFile, tempDir);
+
+        const attachments = repo.getByMessageIdWithoutContent(messageId);
+
+        expect(attachments).toHaveLength(1);
+        expect(attachments[0].filePath).toBeDefined();
+        expect(attachments[0].filePath).toContain('.attachments');
+        expect(attachments[0].content).toBeUndefined();
+      });
     });
   });
 });

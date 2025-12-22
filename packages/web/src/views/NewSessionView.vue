@@ -50,6 +50,8 @@
               </button>
             </div>
           </div>
+
+          <ModelSelector v-model="model" />
         </div>
       </div>
 
@@ -122,8 +124,9 @@ import { useRoute, useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { api } from '../composables/useApi.js';
-import { generateWorktreeBranch } from '@claudetools/shared';
+import { generateWorktreeBranch, DEFAULT_MODEL } from '@claudetools/shared';
 import FileAttachment from '../components/FileAttachment.vue';
+import ModelSelector from '../components/ModelSelector.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -132,6 +135,7 @@ const uiStore = useUiStore();
 
 const prompt = ref('');
 const mode = ref('yolo');
+const model = ref(DEFAULT_MODEL);
 const gitStatus = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
@@ -206,6 +210,7 @@ async function handleSubmit() {
     const session = await sessionsStore.createSession(route.params.id, {
       prompt: prompt.value,
       mode: mode.value,
+      model: model.value,
       thinkingEnabled: thinkingEnabled.value,
       gitMode: submitGitMode,
       gitBranch: submitGitBranch,

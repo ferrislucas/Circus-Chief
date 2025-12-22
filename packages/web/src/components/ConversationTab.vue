@@ -1,5 +1,8 @@
 <template>
   <div class="conversation-tab">
+    <!-- Conversation Selector -->
+    <ConversationSelector :session-id="sessionId" />
+
     <div class="messages" ref="messagesContainer">
       <div
         v-for="message in sessionsStore.messages"
@@ -116,6 +119,13 @@
           </button>
         </div>
       </div>
+      <div class="model-row">
+        <ModelSelector
+          :modelValue="sessionsStore.currentSession?.model || DEFAULT_MODEL"
+          @update:modelValue="handleModelChange"
+          :disabled="togglingModel"
+        />
+      </div>
     </form>
 
     <div v-else-if="sessionsStore.currentSession?.status === 'running'" class="running-state">
@@ -146,11 +156,14 @@ import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
+import { DEFAULT_MODEL } from '@claudetools/shared';
 import TodoDrawer from './TodoDrawer.vue';
 import WorkLogPanel from './WorkLogPanel.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
+import ConversationSelector from './ConversationSelector.vue';
 import FileAttachment from './FileAttachment.vue';
+import ModelSelector from './ModelSelector.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -165,6 +178,7 @@ const stopping = ref(false);
 const restarting = ref(false);
 const togglingThinking = ref(false);
 const togglingMode = ref(false);
+const togglingModel = ref(false);
 const messagesContainer = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
@@ -228,6 +242,9 @@ onMounted(async () => {
     messagesContainer.value.addEventListener('scroll', handleScroll);
   }
 
+  // Fetch conversations for this session
+  await sessionsStore.fetchConversations(props.sessionId);
+
   unsubPartial = onPartial((text) => {
     partialText.value = text;
     scrollToBottom();
@@ -276,8 +293,9 @@ onUnmounted(() => {
   if (messagesContainer.value) {
     messagesContainer.value.removeEventListener('scroll', handleScroll);
   }
-  // Clear work logs when leaving the conversation
+  // Clear work logs and conversations when leaving the conversation tab
   sessionsStore.clearWorkLogs();
+  sessionsStore.clearConversations();
 });
 
 // Save draft to localStorage with debounce
@@ -408,6 +426,20 @@ async function handleModeChange(newMode) {
     uiStore.error(err.message);
   } finally {
     togglingMode.value = false;
+  }
+}
+
+async function handleModelChange(newModel) {
+  if (togglingModel.value) return;
+  if (sessionsStore.currentSession?.model === newModel) return;
+
+  togglingModel.value = true;
+  try {
+    await sessionsStore.updateSessionModel(props.sessionId, newModel);
+  } catch (err) {
+    uiStore.error(err.message);
+  } finally {
+    togglingModel.value = false;
   }
 }
 </script>
@@ -674,6 +706,12 @@ async function handleModeChange(newMode) {
 .input-actions {
   display: flex;
   gap: 0.5rem;
+}
+
+.model-row {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+  margin-top: 0.75rem;
 }
 
 .btn-send {

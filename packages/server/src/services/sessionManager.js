@@ -1,6 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { sessions, messages, workLogs, attachments } from '../database.js';
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
 import { updateTodos } from './todoStore.js';
 import * as summaryService from './summaryService.js';
@@ -18,7 +18,7 @@ const activeSessions = new Map();
 const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
 
 /**
- * Build prompt with file attachment context
+ * Build prompt with file attachment context for the current turn
  * Includes text file contents inline, describes other file types
  * @param {string} prompt - Original prompt
  * @param {Array} fileAttachments - Array of attachment objects
@@ -56,6 +56,46 @@ export function buildPromptWithAttachments(prompt, fileAttachments) {
   });
 
   return `${prompt}\n\n## Attached Files${attachmentSections.join('\n')}`;
+}
+
+/**
+ * Format file size in human-readable format
+ * @param {number} bytes - Size in bytes
+ * @returns {string} Formatted size
+ */
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Get session attachments context for system prompt
+ * Returns a string describing all files attached to the session that Claude can read
+ * @param {string} sessionId - Session ID
+ * @returns {string} Attachments context for system prompt
+ */
+export function getSessionAttachmentsContext(sessionId) {
+  const sessionAttachments = attachments.getBySessionId(sessionId);
+
+  // Only include attachments that have been saved to disk
+  const readableAttachments = sessionAttachments.filter((att) => att.filePath);
+
+  if (readableAttachments.length === 0) {
+    return '';
+  }
+
+  const fileList = readableAttachments
+    .map((att) => `- \`${att.filePath}\` (${att.filename}, ${att.mimeType}, ${formatFileSize(att.size)})`)
+    .join('\n');
+
+  return `## Session Attached Files
+
+The user has attached the following files to this session. You can read these files at any time using your Read tool:
+
+${fileList}
+
+These files persist throughout the conversation. When the user asks about attached files, use the Read tool with the file paths above.`;
 }
 
 /**
@@ -363,12 +403,18 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
   const canvasWriteInstructions = buildCanvasWriteSystemPrompt(sessionId);
   const canvasReadInstructions = buildCanvasReadSystemPrompt(sessionId);
   const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
+  const attachmentsContext = getSessionAttachmentsContext(sessionId);
   const basePrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
 
   // Prepend plan mode instructions if in plan mode
   const modePrompt = mode === 'plan' ? PLAN_MODE_PROMPT : '';
 
-  return `${modePrompt}${basePrompt}\n\n${canvasWriteInstructions}\n\n${canvasReadInstructions}\n\n${sessionApiInstructions}`;
+  // Build prompt parts, filtering out empty sections
+  const parts = [modePrompt, basePrompt, attachmentsContext, canvasWriteInstructions, canvasReadInstructions, sessionApiInstructions].filter(
+    Boolean
+  );
+
+  return parts.join('\n\n');
 }
 
 /**
@@ -378,8 +424,9 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
  * @param {string} workingDirectory
  * @param {string|null} systemPrompt - Custom system prompt from project settings
  * @param {Array} fileAttachments - File attachments for context
+ * @param {string|null} model - Claude model to use
  */
-export async function runSession(sessionId, prompt, workingDirectory, systemPrompt = null, fileAttachments = []) {
+export async function runSession(sessionId, prompt, workingDirectory, systemPrompt = null, fileAttachments = [], model = null) {
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
@@ -407,6 +454,9 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     // Build environment variables for thinking mode
     const sessionEnv = buildSessionEnv(session);
 
+    // Use model from parameter or session record
+    const sessionModel = model || session.model;
+
     const queryParams = isMockMode()
       ? { prompt: promptWithAttachments }
       : {
@@ -417,6 +467,7 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
             includePartialMessages: true,
             permissionMode: getPermissionModeForSession(session.mode),
             ...(sessionEnv && { env: sessionEnv }),
+            ...(sessionModel && { model: sessionModel }),
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
@@ -519,6 +570,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
             permissionMode: getPermissionModeForSession(session.mode),
             resume: session.claudeSessionId,
             ...(sessionEnv && { env: sessionEnv }),
+            ...(session.model && { model: session.model }),
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
@@ -795,5 +847,16 @@ async function handleStreamEvent(sessionId, event) {
  * @param {string} status
  */
 function broadcastSessionStatus(sessionId, status) {
+  // Broadcast to session subscribers (for session detail view)
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status });
+
+  // Also broadcast SESSION_UPDATED to project subscribers (for session list updates)
+  const session = sessions.getById(sessionId);
+  if (session) {
+    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: session.projectId,
+      sessionId,
+      session: { ...session, status },
+    });
+  }
 }

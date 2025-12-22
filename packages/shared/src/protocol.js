@@ -25,6 +25,12 @@ export const WS_MESSAGE_TYPES = {
   CANVAS_ADD: 'canvas:add',
   CANVAS_REMOVE: 'canvas:remove',
   TODOS_UPDATE: 'todos:update',
+
+  // Conversation events
+  CONVERSATION_CREATED: 'conversation:created',
+  CONVERSATION_UPDATED: 'conversation:updated',
+  CONVERSATION_DELETED: 'conversation:deleted',
+  CONVERSATION_SUMMARY_UPDATED: 'conversation:summary_updated',
 };
 
 /**
