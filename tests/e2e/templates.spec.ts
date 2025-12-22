@@ -89,12 +89,22 @@ test.describe('Session Templates - Empty State', () => {
     await page.waitForLoadState('networkidle');
     await expect(page.locator('.empty-state')).toBeVisible();
 
-    // Click the Create Template button in the empty state using force
+    // Get the button and verify it's clickable
     const createBtn = page.locator('.empty-state button:has-text("Create Template")');
     await expect(createBtn).toBeVisible();
-    await createBtn.click({ force: true });
+    await expect(createBtn).toBeEnabled();
 
-    // Wait for form to appear
+    // Wait for any pending Vue updates
+    await page.waitForTimeout(500);
+
+    // Click using dispatchEvent for more reliable Vue event handling
+    await createBtn.dispatchEvent('click');
+
+    // Wait a bit for Vue reactivity to process
+    await page.waitForTimeout(500);
+
+    // Wait for form to appear - the empty state should disappear and form should show
+    await expect(page.locator('.empty-state')).not.toBeVisible({ timeout: 5000 });
     await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('.template-form h3')).toHaveText('Create Template');
   });
@@ -123,7 +133,10 @@ test.describe('Session Templates - Create Form', () => {
     await expect(page.locator('.empty-state')).toBeVisible();
     const createBtn = page.locator('.empty-state button:has-text("Create Template")');
     await expect(createBtn).toBeVisible();
-    await createBtn.click({ force: true });
+    await expect(createBtn).toBeEnabled();
+    await page.waitForTimeout(500);
+    await createBtn.dispatchEvent('click');
+    await page.waitForTimeout(500);
     await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
   }
 
@@ -141,7 +154,10 @@ test.describe('Session Templates - Create Form', () => {
 
     const newTemplateBtn = page.locator('.templates-header button:has-text("New Template")');
     await expect(newTemplateBtn).toBeVisible();
-    await newTemplateBtn.click({ force: true });
+    await expect(newTemplateBtn).toBeEnabled();
+    await page.waitForTimeout(500);
+    await newTemplateBtn.dispatchEvent('click');
+    await page.waitForTimeout(500);
 
     await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
   });
@@ -562,7 +578,10 @@ test.describe('Session Templates - Chaining', () => {
     // Click the New Template button
     const newTemplateBtn = page.locator('.templates-header button:has-text("New Template")');
     await expect(newTemplateBtn).toBeVisible();
-    await newTemplateBtn.click({ force: true });
+    await expect(newTemplateBtn).toBeEnabled();
+    await page.waitForTimeout(500);
+    await newTemplateBtn.dispatchEvent('click');
+    await page.waitForTimeout(500);
     await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
 
     // Fill form
