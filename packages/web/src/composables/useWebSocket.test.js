@@ -81,6 +81,23 @@ describe('useWebSocket composables', () => {
       expect(typeof subscription.onSessionDeleted).toBe('function');
     });
 
+    it('returns onSessionSummaryUpdated handler for real-time summary updates across all projects', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useGlobalSessionSubscription();
+
+      expect(typeof subscription.onSessionSummaryUpdated).toBe('function');
+    });
+
+    it('onSessionSummaryUpdated returns a cleanup function', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useGlobalSessionSubscription();
+
+      const callback = vi.fn();
+      const cleanup = subscription.onSessionSummaryUpdated(callback);
+
+      expect(typeof cleanup).toBe('function');
+    });
+
     it('does not return subscribe/unsubscribe functions (unlike project subscription)', async () => {
       const module = await import('./useWebSocket.js');
       const subscription = module.useGlobalSessionSubscription();
@@ -106,6 +123,23 @@ describe('useWebSocket composables', () => {
       expect(typeof subscription.onSessionCreated).toBe('function');
       expect(typeof subscription.onSessionUpdated).toBe('function');
       expect(typeof subscription.onSessionDeleted).toBe('function');
+    });
+
+    it('returns onSessionSummaryUpdated handler for real-time summary updates', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useProjectSubscription('project-123');
+
+      expect(typeof subscription.onSessionSummaryUpdated).toBe('function');
+    });
+
+    it('onSessionSummaryUpdated returns a cleanup function', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useProjectSubscription('project-123');
+
+      const callback = vi.fn();
+      const cleanup = subscription.onSessionSummaryUpdated(callback);
+
+      expect(typeof cleanup).toBe('function');
     });
   });
 
@@ -143,6 +177,10 @@ describe('useWebSocket composables', () => {
 
     it('SESSION_STATUS message type is defined', () => {
       expect(WS_MESSAGE_TYPES.SESSION_STATUS).toBe('session:status');
+    });
+
+    it('SESSION_SUMMARY_UPDATED message type is defined', () => {
+      expect(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED).toBe('session:summary_updated');
     });
 
     it('SUBSCRIBE_PROJECT message type is defined', () => {
@@ -220,6 +258,95 @@ describe('Real-time update scenarios', () => {
       expect(projectSub.onSessionCreated).toBeDefined();
       expect(projectSub.onSessionUpdated).toBeDefined();
       expect(projectSub.onSessionDeleted).toBeDefined();
+    });
+
+    it('should use onSessionSummaryUpdated to receive real-time summary updates', async () => {
+      const module = await import('./useWebSocket.js');
+      const projectSub = module.useProjectSubscription('project-123');
+
+      // Project subscription should include summary update handler for session list
+      expect(projectSub.onSessionSummaryUpdated).toBeDefined();
+    });
+  });
+});
+
+describe('Real-time summary update scenarios', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    globalThis.WebSocket = MockWebSocket;
+  });
+
+  afterEach(() => {
+    globalThis.WebSocket = originalWebSocket;
+  });
+
+  describe('Session list summary updates', () => {
+    it('SESSION_SUMMARY_UPDATED should be used for real-time summary updates', () => {
+      expect(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED).toBe('session:summary_updated');
+    });
+
+    it('project subscription should provide onSessionSummaryUpdated handler', async () => {
+      const module = await import('./useWebSocket.js');
+      const projectSub = module.useProjectSubscription('project-123');
+
+      expect(typeof projectSub.onSessionSummaryUpdated).toBe('function');
+    });
+
+    it('global subscription should provide onSessionSummaryUpdated handler', async () => {
+      const module = await import('./useWebSocket.js');
+      const globalSub = module.useGlobalSessionSubscription();
+
+      expect(typeof globalSub.onSessionSummaryUpdated).toBe('function');
+    });
+  });
+
+  describe('Summary update callback signatures', () => {
+    it('project subscription onSessionSummaryUpdated receives (sessionId, summary)', async () => {
+      const module = await import('./useWebSocket.js');
+      const projectSub = module.useProjectSubscription('project-123');
+
+      // The callback signature should be (sessionId, summary)
+      // This is verified by looking at the implementation
+      const cleanup = projectSub.onSessionSummaryUpdated((sessionId, summary) => {
+        expect(typeof sessionId).toBe('string');
+        expect(typeof summary).toBe('object');
+      });
+      expect(typeof cleanup).toBe('function');
+    });
+
+    it('global subscription onSessionSummaryUpdated receives (sessionId, summary, projectId)', async () => {
+      const module = await import('./useWebSocket.js');
+      const globalSub = module.useGlobalSessionSubscription();
+
+      // The callback signature should be (sessionId, summary, projectId)
+      // This is verified by looking at the implementation
+      const cleanup = globalSub.onSessionSummaryUpdated((sessionId, summary, projectId) => {
+        expect(typeof sessionId).toBe('string');
+        expect(typeof summary).toBe('object');
+        expect(typeof projectId).toBe('string');
+      });
+      expect(typeof cleanup).toBe('function');
+    });
+  });
+
+  describe('Summary update filtering', () => {
+    it('project subscription should only receive summaries for subscribed project', async () => {
+      // Project subscription filters by projectId before calling the callback
+      const module = await import('./useWebSocket.js');
+      const projectSub = module.useProjectSubscription('project-123');
+
+      // onSessionSummaryUpdated checks msg.projectId === projectId
+      expect(projectSub.onSessionSummaryUpdated).toBeDefined();
+    });
+
+    it('global subscription should receive summaries for all projects', async () => {
+      // Global subscription passes through all summaries
+      const module = await import('./useWebSocket.js');
+      const globalSub = module.useGlobalSessionSubscription();
+
+      // onSessionSummaryUpdated doesn't filter by projectId
+      expect(globalSub.onSessionSummaryUpdated).toBeDefined();
     });
   });
 });

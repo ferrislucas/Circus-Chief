@@ -4,6 +4,7 @@ import { projects, sessions, messages, sessionSummaries } from '../src/database.
 // Mock the websocket module
 vi.mock('../src/websocket.js', () => ({
   broadcastToSession: vi.fn(),
+  broadcastToProject: vi.fn(),
 }));
 
 // Import summaryService after mock setup

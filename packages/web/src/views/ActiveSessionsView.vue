@@ -56,7 +56,7 @@ let refreshInterval = null;
 const cleanups = [];
 
 // Get global session subscription for real-time updates across all projects
-const { onSessionCreated, onSessionUpdated, onSessionDeleted } = useGlobalSessionSubscription();
+const { onSessionCreated, onSessionUpdated, onSessionDeleted, onSessionSummaryUpdated } = useGlobalSessionSubscription();
 
 onMounted(() => {
   sessionsStore.fetchActiveSessions();
@@ -112,6 +112,15 @@ onMounted(() => {
       delete summaries[sessionId];
       delete loadingSummaries[sessionId];
       delete summaryErrors[sessionId];
+    })
+  );
+
+  // Handle session summary updated (real-time updates when summaries are generated)
+  cleanups.push(
+    onSessionSummaryUpdated((sessionId, summary) => {
+      summaries[sessionId] = summary;
+      loadingSummaries[sessionId] = false;
+      summaryErrors[sessionId] = false;
     })
   );
 

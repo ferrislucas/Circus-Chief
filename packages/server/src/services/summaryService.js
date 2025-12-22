@@ -1,6 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { sessions, messages, sessionSummaries, conversations } from '../database.js';
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as ghService from './ghService.js';
 // Note: prStatusService is imported dynamically in onSessionComplete to avoid circular dependency
@@ -370,11 +370,20 @@ export async function generateSummary(sessionId, retryCount = 0) {
       });
     }
 
-    // Broadcast updated summary
+    // Broadcast updated summary to session subscribers
     broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
       sessionId,
       summary,
     });
+
+    // Also broadcast to project subscribers so session lists update in real-time
+    if (session.projectId) {
+      broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
+        projectId: session.projectId,
+        sessionId,
+        summary,
+      });
+    }
 
     console.log(`[SummaryService] Successfully generated summary for session ${sessionId}`);
     return summary;
