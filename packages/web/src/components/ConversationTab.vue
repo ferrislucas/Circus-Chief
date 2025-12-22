@@ -335,6 +335,17 @@ watch(
   }
 );
 
+// Re-fetch work logs when session status changes from running to waiting/completed
+// This ensures work logs are properly associated after Claude's turn ends
+watch(
+  () => sessionsStore.currentSession?.status,
+  async (newStatus, oldStatus) => {
+    if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
+      await sessionsStore.fetchWorkLogs(props.sessionId);
+    }
+  }
+);
+
 function formatTime(timestamp) {
   return new Date(timestamp).toLocaleTimeString();
 }
