@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { canvasItems, projects, sessions } from '../database.js';
+import { canvasItems, projects } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
-import { existsSync, readFileSync, rmSync } from 'fs';
-import { join } from 'path';
+import { existsSync, rmSync } from 'fs';
 
 /**
  * Extracts mimeType and base64 data from request body for canvas image items.

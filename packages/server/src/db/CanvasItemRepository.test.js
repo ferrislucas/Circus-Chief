@@ -205,9 +205,9 @@ describe('CanvasItemRepository', () => {
     });
 
     it('returns items ordered by createdAt descending (newest first)', () => {
-      const v1 = repo.create(sessionId, { type: 'text', content: 'Version 1', filename: 'test.txt' });
-      const v2 = repo.create(sessionId, { type: 'text', content: 'Version 2', filename: 'test.txt' });
-      const v3 = repo.create(sessionId, { type: 'text', content: 'Version 3', filename: 'test.txt' });
+      repo.create(sessionId, { type: 'text', content: 'Version 1', filename: 'test.txt' });
+      repo.create(sessionId, { type: 'text', content: 'Version 2', filename: 'test.txt' });
+      repo.create(sessionId, { type: 'text', content: 'Version 3', filename: 'test.txt' });
 
       const items = repo.getAllVersionsByFilename(sessionId, 'test.txt');
 
