@@ -545,4 +545,57 @@ describe.skip('ConversationTab', () => {
       expect(mockSessionsStore.fetchWorkLogs).toHaveBeenCalledWith('sess-123');
     });
   });
+
+  describe('Work logs re-fetch on status change', () => {
+    it('re-fetches work logs when status changes from running to waiting', async () => {
+      // Start with running status
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'running', mode: 'standard' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Clear mock to track new calls
+      mockSessionsStore.fetchWorkLogs.mockClear();
+
+      // Simulate status change to waiting
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard' };
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.fetchWorkLogs).toHaveBeenCalledWith('sess-123');
+    });
+
+    it('re-fetches work logs when status changes from running to completed', async () => {
+      // Start with running status
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'running', mode: 'standard' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Clear mock to track new calls
+      mockSessionsStore.fetchWorkLogs.mockClear();
+
+      // Simulate status change to completed
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'completed', mode: 'standard' };
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.fetchWorkLogs).toHaveBeenCalledWith('sess-123');
+    });
+
+    it('does not re-fetch work logs for other status transitions', async () => {
+      // Start with waiting status
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Clear mock to track new calls
+      mockSessionsStore.fetchWorkLogs.mockClear();
+
+      // Change to running (not from running, so should not trigger)
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'running', mode: 'standard' };
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.fetchWorkLogs).not.toHaveBeenCalled();
+    });
+  });
 });

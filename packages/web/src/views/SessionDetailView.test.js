@@ -279,6 +279,40 @@ describe('SessionDetailView', () => {
     });
   });
 
+  describe('data fetching on mount', () => {
+    it('fetches session, messages, and work logs on mount', async () => {
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(mockSessionsStore.fetchSession).toHaveBeenCalledWith('test-session-id');
+      expect(mockSessionsStore.fetchMessages).toHaveBeenCalledWith('test-session-id');
+      expect(mockSessionsStore.fetchWorkLogs).toHaveBeenCalledWith('test-session-id');
+    });
+
+    it('fetches work logs after messages to ensure proper ordering', async () => {
+      const callOrder = [];
+      mockSessionsStore.fetchSession.mockImplementation(() => {
+        callOrder.push('fetchSession');
+        return Promise.resolve();
+      });
+      mockSessionsStore.fetchMessages.mockImplementation(() => {
+        callOrder.push('fetchMessages');
+        return Promise.resolve();
+      });
+      mockSessionsStore.fetchWorkLogs.mockImplementation(() => {
+        callOrder.push('fetchWorkLogs');
+        return Promise.resolve();
+      });
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(callOrder).toEqual(['fetchSession', 'fetchMessages', 'fetchWorkLogs']);
+    });
+  });
+
   describe('session ID capturing (race condition prevention)', () => {
     it('captures session ID at component creation time', async () => {
       // Mount component with initial session ID
