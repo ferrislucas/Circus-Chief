@@ -68,10 +68,14 @@ vi.mock('../components/ModelSelector.vue', () => ({
 }));
 
 // Mock shared package
-vi.mock('@claudetools/shared', () => ({
-  generateWorktreeBranch: vi.fn(() => 'generated-branch'),
-  DEFAULT_MODEL: 'claude-sonnet-4-5-20250929',
-}));
+vi.mock('@claudetools/shared', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    generateWorktreeBranch: vi.fn(() => 'generated-branch'),
+    DEFAULT_MODEL: 'claude-sonnet-4-5-20250929',
+  };
+});
 
 // TODO: These tests have a Vue runtime issue with template refs during mounting.
 // The component works correctly in production - this is a test environment issue.

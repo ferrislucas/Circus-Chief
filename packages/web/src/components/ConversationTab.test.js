@@ -72,9 +72,13 @@ vi.mock('./ModelSelector.vue', () => ({
   },
 }));
 
-vi.mock('@claudetools/shared', () => ({
-  DEFAULT_MODEL: 'claude-sonnet-4-5-20250929',
-}));
+vi.mock('@claudetools/shared', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    DEFAULT_MODEL: 'claude-sonnet-4-5-20250929',
+  };
+});
 
 // TODO: These tests have a Vue runtime issue with template refs during mounting.
 // The component works correctly in production - this is a test environment issue.
