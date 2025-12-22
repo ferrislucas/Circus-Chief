@@ -16,6 +16,14 @@ vi.mock('../composables/useApi.js', () => ({
     deleteSession: vi.fn(),
     getSessionWorkLogs: vi.fn(),
     updateSession: vi.fn(),
+    // Conversation API methods
+    getConversations: vi.fn(),
+    createConversation: vi.fn(),
+    getConversation: vi.fn(),
+    updateConversation: vi.fn(),
+    deleteConversation: vi.fn(),
+    generateConversationSummary: vi.fn(),
+    getConversationMessages: vi.fn(),
   },
 }));
 
@@ -280,6 +288,256 @@ describe('Sessions Store', () => {
         expect(store.workLogs['_unassociated']).toHaveLength(2);
         expect(store.workLogs['_unassociated']).toContainEqual(dbLog);
         expect(store.workLogs['_unassociated']).toContainEqual(wsLog);
+      });
+    });
+  });
+
+  describe('conversations', () => {
+    describe('fetchConversations', () => {
+      it('fetches conversations and sets active', async () => {
+        const store = useSessionsStore();
+
+        const mockConversations = [
+          { id: 'conv-1', name: 'First', isActive: false, messageCount: 5 },
+          { id: 'conv-2', name: 'Second', isActive: true, messageCount: 10 },
+        ];
+        api.getConversations.mockResolvedValue(mockConversations);
+
+        await store.fetchConversations('session-1');
+
+        expect(store.conversations).toEqual(mockConversations);
+        expect(store.activeConversationId).toBe('conv-2');
+      });
+
+      it('sets first conversation as active if none marked', async () => {
+        const store = useSessionsStore();
+
+        const mockConversations = [
+          { id: 'conv-1', name: 'First', isActive: false },
+          { id: 'conv-2', name: 'Second', isActive: false },
+        ];
+        api.getConversations.mockResolvedValue(mockConversations);
+
+        await store.fetchConversations('session-1');
+
+        expect(store.activeConversationId).toBe('conv-1');
+      });
+
+      it('handles empty conversations list', async () => {
+        const store = useSessionsStore();
+
+        api.getConversations.mockResolvedValue([]);
+
+        await store.fetchConversations('session-1');
+
+        expect(store.conversations).toEqual([]);
+        expect(store.activeConversationId).toBeNull();
+      });
+
+      it('handles fetch error gracefully', async () => {
+        const store = useSessionsStore();
+
+        api.getConversations.mockRejectedValue(new Error('Network error'));
+
+        await store.fetchConversations('session-1');
+
+        expect(store.conversations).toEqual([]);
+        expect(store.activeConversationId).toBeNull();
+        expect(store.error).toBe('Network error');
+      });
+    });
+
+    describe('createConversation', () => {
+      it('creates conversation and sets it as active', async () => {
+        const store = useSessionsStore();
+        store.conversations = [{ id: 'conv-1', name: 'First', isActive: true }];
+
+        const newConv = { id: 'conv-2', name: 'New Conv', isActive: true };
+        api.createConversation.mockResolvedValue(newConv);
+
+        const result = await store.createConversation('session-1', 'New Conv');
+
+        expect(result.id).toBe('conv-2');
+        expect(store.conversations).toHaveLength(2);
+        expect(store.activeConversationId).toBe('conv-2');
+        // Previous conversation should be marked inactive
+        expect(store.conversations.find((c) => c.id === 'conv-1').isActive).toBe(false);
+      });
+
+      it('clears messages when creating new conversation', async () => {
+        const store = useSessionsStore();
+        store.messages = [{ id: 'msg-1', content: 'Old message' }];
+
+        api.createConversation.mockResolvedValue({ id: 'conv-new', name: null, isActive: true });
+
+        await store.createConversation('session-1');
+
+        expect(store.messages).toEqual([]);
+      });
+
+      it('handles creation error', async () => {
+        const store = useSessionsStore();
+        store.conversations = [{ id: 'conv-1', isActive: true }];
+
+        api.createConversation.mockRejectedValue(new Error('Failed to create'));
+
+        await expect(store.createConversation('session-1')).rejects.toThrow('Failed to create');
+        expect(store.error).toBe('Failed to create');
+      });
+    });
+
+    describe('switchConversation', () => {
+      it('switches to different conversation', async () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1', isActive: true },
+          { id: 'conv-2', isActive: false },
+        ];
+        store.activeConversationId = 'conv-1';
+
+        api.updateConversation.mockResolvedValue({ id: 'conv-2', isActive: true });
+        api.getConversationMessages.mockResolvedValue([{ id: 'msg-1', content: 'Hello' }]);
+
+        await store.switchConversation('session-1', 'conv-2');
+
+        expect(store.activeConversationId).toBe('conv-2');
+        expect(store.conversations.find((c) => c.id === 'conv-2').isActive).toBe(true);
+        expect(store.conversations.find((c) => c.id === 'conv-1').isActive).toBe(false);
+        expect(store.messages).toEqual([{ id: 'msg-1', content: 'Hello' }]);
+      });
+
+      it('does nothing if switching to same conversation', async () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+
+        await store.switchConversation('session-1', 'conv-1');
+
+        expect(api.updateConversation).not.toHaveBeenCalled();
+      });
+
+      it('handles switch error', async () => {
+        const store = useSessionsStore();
+        store.conversations = [{ id: 'conv-1', isActive: true }];
+        store.activeConversationId = 'conv-1';
+
+        api.updateConversation.mockRejectedValue(new Error('Switch failed'));
+
+        await expect(store.switchConversation('session-1', 'conv-2')).rejects.toThrow('Switch failed');
+        expect(store.error).toBe('Switch failed');
+      });
+    });
+
+    describe('deleteConversation', () => {
+      it('deletes conversation and fetches updated list', async () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1', isActive: true },
+          { id: 'conv-2', isActive: false },
+        ];
+        store.activeConversationId = 'conv-1';
+
+        api.deleteConversation.mockResolvedValue();
+        api.getConversations.mockResolvedValue([{ id: 'conv-2', isActive: true }]);
+        api.getConversationMessages.mockResolvedValue([]);
+
+        await store.deleteConversation('session-1', 'conv-1');
+
+        expect(api.deleteConversation).toHaveBeenCalledWith('session-1', 'conv-1');
+        // After deletion of active, should fetch new list
+        expect(api.getConversations).toHaveBeenCalled();
+      });
+
+      it('does not refetch if deleted non-active conversation', async () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1', isActive: true },
+          { id: 'conv-2', isActive: false },
+        ];
+        store.activeConversationId = 'conv-1';
+
+        api.deleteConversation.mockResolvedValue();
+
+        await store.deleteConversation('session-1', 'conv-2');
+
+        expect(store.conversations).toHaveLength(1);
+        expect(store.conversations[0].id).toBe('conv-1');
+        expect(api.getConversations).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('activeConversation getter', () => {
+      it('returns active conversation', () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1', name: 'First' },
+          { id: 'conv-2', name: 'Second' },
+        ];
+        store.activeConversationId = 'conv-2';
+
+        expect(store.activeConversation).toEqual({ id: 'conv-2', name: 'Second' });
+      });
+
+      it('returns null if no active conversation', () => {
+        const store = useSessionsStore();
+        store.conversations = [];
+        store.activeConversationId = null;
+
+        expect(store.activeConversation).toBeNull();
+      });
+    });
+
+    describe('clearConversations', () => {
+      it('clears all conversation state', () => {
+        const store = useSessionsStore();
+        store.conversations = [{ id: 'conv-1' }];
+        store.activeConversationId = 'conv-1';
+
+        store.clearConversations();
+
+        expect(store.conversations).toEqual([]);
+        expect(store.activeConversationId).toBeNull();
+      });
+    });
+
+    describe('addConversation', () => {
+      it('adds conversation to list', () => {
+        const store = useSessionsStore();
+        store.conversations = [{ id: 'conv-1' }];
+
+        store.addConversation({ id: 'conv-2', name: 'New' });
+
+        expect(store.conversations).toHaveLength(2);
+        expect(store.conversations[1].id).toBe('conv-2');
+      });
+    });
+
+    describe('updateConversation', () => {
+      it('updates conversation in list', () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1', name: 'Original', isActive: true },
+          { id: 'conv-2', name: 'Second', isActive: false },
+        ];
+
+        store.updateConversation({ id: 'conv-1', name: 'Updated', isActive: true });
+
+        expect(store.conversations.find((c) => c.id === 'conv-1').name).toBe('Updated');
+        expect(store.conversations.find((c) => c.id === 'conv-2').name).toBe('Second');
+      });
+    });
+
+    describe('removeConversation', () => {
+      it('removes conversation from list', () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1' },
+          { id: 'conv-2' },
+        ];
+
+        store.removeConversation('conv-1');
+
+        expect(store.conversations).toHaveLength(1);
+        expect(store.conversations[0].id).toBe('conv-2');
       });
     });
   });
