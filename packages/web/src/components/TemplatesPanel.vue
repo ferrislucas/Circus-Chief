@@ -2,13 +2,18 @@
   <div class="templates-panel">
     <div class="templates-header">
       <h2>Session Templates</h2>
-      <button class="btn btn-primary btn-sm" @click="showCreateForm = true" v-if="!showCreateForm">
+      <button
+        class="btn btn-primary btn-sm"
+        @click="openCreateForm"
+        v-if="!showCreateForm"
+        data-testid="new-template-btn"
+      >
         New Template
       </button>
     </div>
 
     <!-- Create Template Form -->
-    <div v-if="showCreateForm" class="template-form card">
+    <div v-if="showCreateForm" class="template-form card" data-testid="template-form">
       <h3>{{ editingTemplate ? 'Edit Template' : 'Create Template' }}</h3>
       <form @submit.prevent="handleSubmit">
         <div class="form-group">
@@ -32,7 +37,7 @@
             required
           ></textarea>
           <p class="form-help">
-            Available variables: <code>{{parentSession.summary}}</code>, <code>{{parentSession.status}}</code>, <code>{{parentSession.name}}</code>
+            Available variables: <code v-pre>{{parentSession.summary}}</code>, <code v-pre>{{parentSession.status}}</code>, <code v-pre>{{parentSession.name}}</code>
           </p>
         </div>
 
@@ -75,8 +80,8 @@
         </div>
 
         <div class="form-actions">
-          <button type="button" class="btn" @click="cancelForm">Cancel</button>
-          <button type="submit" class="btn btn-primary" :disabled="saving">
+          <button type="button" class="btn" @click="cancelForm" data-testid="cancel-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" :disabled="saving" data-testid="submit-btn">
             <span v-if="saving" class="loading-spinner"></span>
             {{ editingTemplate ? 'Update' : 'Create' }}
           </button>
@@ -96,17 +101,17 @@
       <div v-if="projectTemplates.length > 0" class="template-section">
         <h3 class="section-title">Project Templates</h3>
         <div class="templates-list">
-          <div v-for="template in projectTemplates" :key="template.id" class="template-card card">
+          <div v-for="template in projectTemplates" :key="template.id" class="template-card card" :data-testid="`template-card-${template.id}`">
             <div class="template-header">
               <h4 class="template-name">{{ template.name }}</h4>
               <div class="template-actions">
-                <button class="btn-icon" @click="editTemplate(template)" title="Edit">
+                <button class="btn-icon" @click="editTemplate(template)" title="Edit" data-testid="edit-btn">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                   </svg>
                 </button>
-                <button class="btn-icon btn-icon-danger" @click="handleDelete(template)" title="Delete">
+                <button class="btn-icon btn-icon-danger" @click="handleDelete(template)" title="Delete" data-testid="delete-btn">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                   </svg>
@@ -129,17 +134,17 @@
       <div v-if="globalTemplates.length > 0" class="template-section">
         <h3 class="section-title">Global Templates</h3>
         <div class="templates-list">
-          <div v-for="template in globalTemplates" :key="template.id" class="template-card card">
+          <div v-for="template in globalTemplates" :key="template.id" class="template-card card" :data-testid="`template-card-${template.id}`">
             <div class="template-header">
               <h4 class="template-name">{{ template.name }}</h4>
               <div class="template-actions">
-                <button class="btn-icon" @click="editTemplate(template)" title="Edit">
+                <button class="btn-icon" @click="editTemplate(template)" title="Edit" data-testid="edit-btn">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                   </svg>
                 </button>
-                <button class="btn-icon btn-icon-danger" @click="handleDelete(template)" title="Delete">
+                <button class="btn-icon btn-icon-danger" @click="handleDelete(template)" title="Delete" data-testid="delete-btn">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                   </svg>
@@ -162,7 +167,7 @@
       <!-- Empty State -->
       <div v-if="projectTemplates.length === 0 && globalTemplates.length === 0 && !showCreateForm" class="empty-state">
         <p>No templates yet. Create a template to automate session workflows.</p>
-        <button class="btn btn-primary" @click="showCreateForm = true">
+        <button class="btn btn-primary" @click="openCreateForm" data-testid="create-template-btn">
           Create Template
         </button>
       </div>
@@ -239,6 +244,10 @@ function resetForm() {
     gitBranch: '',
   };
   editingTemplate.value = null;
+}
+
+function openCreateForm() {
+  showCreateForm.value = true;
 }
 
 function cancelForm() {
