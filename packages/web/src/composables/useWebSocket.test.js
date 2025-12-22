@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
 // Mock Vue's onUnmounted
@@ -51,7 +51,7 @@ class MockWebSocket {
 }
 
 // Store the original WebSocket
-const originalWebSocket = global.WebSocket;
+const originalWebSocket = globalThis.WebSocket;
 
 describe('useWebSocket composables', () => {
   beforeEach(() => {
@@ -59,11 +59,11 @@ describe('useWebSocket composables', () => {
     vi.resetModules();
 
     // Reset WebSocket mock
-    global.WebSocket = MockWebSocket;
+    globalThis.WebSocket = MockWebSocket;
   });
 
   afterEach(() => {
-    global.WebSocket = originalWebSocket;
+    globalThis.WebSocket = originalWebSocket;
   });
 
   describe('useGlobalSessionSubscription', () => {
