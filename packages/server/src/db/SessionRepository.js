@@ -135,4 +135,16 @@ export class SessionRepository extends BaseRepository {
 
     return this.getById(id);
   }
+
+  /**
+   * Get all sessions that have a PR URL set
+   * Used by prStatusService for polling CI status
+   * @returns {Array<Object>} Sessions with PR URLs
+   */
+  getSessionsWithPrUrls() {
+    const rows = this.db
+      .prepare('SELECT * FROM sessions WHERE pr_url IS NOT NULL ORDER BY updated_at DESC')
+      .all();
+    return this.mapAll(rows);
+  }
 }

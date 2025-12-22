@@ -21,9 +21,12 @@ import * as ghService from './ghService.js';
 import {
   DEFAULT_POLL_INTERVAL_MS,
   FINAL_PR_STATES,
-  ACTIVE_SESSION_STATES,
+  POLLABLE_SESSION_STATES,
+  RECENT_ACTIVITY_MS,
+  MAX_POLL_AGE_MS,
   getSessionsToCheck,
   checkPrStatus,
+  checkSessionCiStatusNow,
 } from './prStatusService.js';
 
 describe('prStatusService', () => {
@@ -54,21 +57,42 @@ describe('prStatusService', () => {
       expect(FINAL_PR_STATES).toEqual(['merged', 'closed']);
     });
 
-    it('has running and waiting as active session states', () => {
-      expect(ACTIVE_SESSION_STATES).toEqual(['running', 'waiting']);
+    it('has running, waiting, completed, and stopped as pollable session states', () => {
+      expect(POLLABLE_SESSION_STATES).toEqual(['running', 'waiting', 'completed', 'stopped']);
+    });
+
+    it('has 2 hour recent activity window', () => {
+      expect(RECENT_ACTIVITY_MS).toBe(2 * 60 * 60 * 1000);
+    });
+
+    it('has 24 hour max poll age', () => {
+      expect(MAX_POLL_AGE_MS).toBe(24 * 60 * 60 * 1000);
     });
   });
 
   describe('getSessionsToCheck', () => {
-    it('returns empty array when no subscriptions', () => {
+    it('returns empty array when no sessions have PR URLs', () => {
+      // Session has no PR URL
+      sessions.update(sessionId, { status: 'waiting' });
       webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
 
       const result = getSessionsToCheck();
       expect(result).toEqual([]);
     });
 
-    it('returns sessions with PRs that have subscribers', () => {
+    it('returns recently active sessions with PRs (no subscribers needed)', () => {
       // Update session to have PR URL and be in waiting state
+      // Session is recently updated so should be polled without subscribers
+      sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'waiting' });
+
+      // No subscribers
+      webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
+
+      const result = getSessionsToCheck();
+      expect(result).toEqual([{ sessionId, prUrl: 'https://github.com/org/repo/pull/123' }]);
+    });
+
+    it('returns sessions with PRs that have subscribers', () => {
       sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'waiting' });
 
       // Mock subscription with active subscriber
@@ -92,29 +116,27 @@ describe('prStatusService', () => {
       expect(result).toEqual([]);
     });
 
-    it('excludes sessions not in active states (completed)', () => {
+    it('includes sessions in completed state (recently updated)', () => {
       sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'completed' });
 
-      const mockSubscriptions = new Map();
-      mockSubscriptions.set(sessionId, new Set([{ readyState: 1 }]));
-      webSocketManager.getSessionSubscriptions.mockReturnValue(mockSubscriptions);
+      webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
 
       const result = getSessionsToCheck();
-      expect(result).toEqual([]);
+      expect(result).toHaveLength(1);
+      expect(result[0].sessionId).toBe(sessionId);
     });
 
-    it('excludes sessions not in active states (stopped)', () => {
+    it('includes sessions in stopped state (recently updated)', () => {
       sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'stopped' });
 
-      const mockSubscriptions = new Map();
-      mockSubscriptions.set(sessionId, new Set([{ readyState: 1 }]));
-      webSocketManager.getSessionSubscriptions.mockReturnValue(mockSubscriptions);
+      webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
 
       const result = getSessionsToCheck();
-      expect(result).toEqual([]);
+      expect(result).toHaveLength(1);
+      expect(result[0].sessionId).toBe(sessionId);
     });
 
-    it('excludes sessions not in active states (error)', () => {
+    it('excludes sessions in error state', () => {
       sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'error' });
 
       const mockSubscriptions = new Map();
@@ -128,9 +150,7 @@ describe('prStatusService', () => {
     it('includes sessions in running state', () => {
       sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'running' });
 
-      const mockSubscriptions = new Map();
-      mockSubscriptions.set(sessionId, new Set([{ readyState: 1 }]));
-      webSocketManager.getSessionSubscriptions.mockReturnValue(mockSubscriptions);
+      webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
 
       const result = getSessionsToCheck();
       expect(result).toHaveLength(1);
@@ -140,9 +160,7 @@ describe('prStatusService', () => {
     it('includes sessions in waiting state', () => {
       sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'waiting' });
 
-      const mockSubscriptions = new Map();
-      mockSubscriptions.set(sessionId, new Set([{ readyState: 1 }]));
-      webSocketManager.getSessionSubscriptions.mockReturnValue(mockSubscriptions);
+      webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
 
       const result = getSessionsToCheck();
       expect(result).toHaveLength(1);
@@ -159,9 +177,7 @@ describe('prStatusService', () => {
         prState: 'merged',
       });
 
-      const mockSubscriptions = new Map();
-      mockSubscriptions.set(sessionId, new Set([{ readyState: 1 }]));
-      webSocketManager.getSessionSubscriptions.mockReturnValue(mockSubscriptions);
+      webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
 
       const result = getSessionsToCheck();
       expect(result).toEqual([]);
@@ -177,9 +193,7 @@ describe('prStatusService', () => {
         prState: 'closed',
       });
 
-      const mockSubscriptions = new Map();
-      mockSubscriptions.set(sessionId, new Set([{ readyState: 1 }]));
-      webSocketManager.getSessionSubscriptions.mockReturnValue(mockSubscriptions);
+      webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
 
       const result = getSessionsToCheck();
       expect(result).toEqual([]);
@@ -195,24 +209,58 @@ describe('prStatusService', () => {
         prState: 'open',
       });
 
+      webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
+
+      const result = getSessionsToCheck();
+      expect(result).toHaveLength(1);
+    });
+
+    it('always includes subscribed sessions regardless of age', () => {
+      sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'completed' });
+
+      // Mock subscription with active subscriber
       const mockSubscriptions = new Map();
       mockSubscriptions.set(sessionId, new Set([{ readyState: 1 }]));
       webSocketManager.getSessionSubscriptions.mockReturnValue(mockSubscriptions);
 
       const result = getSessionsToCheck();
       expect(result).toHaveLength(1);
+      expect(result[0].sessionId).toBe(sessionId);
+    });
+  });
+
+  describe('checkSessionCiStatusNow', () => {
+    const prUrl = 'https://github.com/org/repo/pull/123';
+
+    it('returns false when session has no PR URL', async () => {
+      // Session has no PR URL
+      sessions.update(sessionId, { status: 'waiting' });
+
+      const result = await checkSessionCiStatusNow(sessionId);
+      expect(result).toBe(false);
     });
 
-    it('excludes subscriptions with no active subscribers', () => {
-      sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'waiting' });
+    it('checks and updates CI status for session with PR URL', async () => {
+      sessions.update(sessionId, { prUrl, status: 'completed' });
 
-      // Mock subscription with empty set
-      const mockSubscriptions = new Map();
-      mockSubscriptions.set(sessionId, new Set());
-      webSocketManager.getSessionSubscriptions.mockReturnValue(mockSubscriptions);
+      ghService.getPrInfo.mockResolvedValue({
+        state: 'open',
+        merged: false,
+        hasMergeConflicts: false,
+        ciStatus: 'success',
+        ciFailures: [],
+      });
 
-      const result = getSessionsToCheck();
-      expect(result).toEqual([]);
+      const result = await checkSessionCiStatusNow(sessionId);
+      expect(result).toBe(true);
+
+      const summary = sessionSummaries.getBySessionId(sessionId);
+      expect(summary.ciStatus).toBe('success');
+    });
+
+    it('returns false when session does not exist', async () => {
+      const result = await checkSessionCiStatusNow('non-existent-id');
+      expect(result).toBe(false);
     });
   });
 
@@ -427,12 +475,12 @@ describe('prStatusService', () => {
     it('would exclude archived sessions (if state existed)', () => {
       // This test documents the intended behavior when 'archived' is added
       // Currently we can't actually set status to 'archived' due to CHECK constraint
-      // But the logic should work because 'archived' is not in ACTIVE_SESSION_STATES
+      // But the logic should work because 'archived' is not in POLLABLE_SESSION_STATES
 
-      expect(ACTIVE_SESSION_STATES).not.toContain('archived');
+      expect(POLLABLE_SESSION_STATES).not.toContain('archived');
 
       // If a session somehow had status 'archived', it would be excluded
-      // because !ACTIVE_SESSION_STATES.includes('archived') === true
+      // because !POLLABLE_SESSION_STATES.includes('archived') === true
     });
   });
 });

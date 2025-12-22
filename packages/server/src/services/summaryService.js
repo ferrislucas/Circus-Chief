@@ -3,6 +3,7 @@ import { sessions, messages, sessionSummaries } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as ghService from './ghService.js';
+// Note: prStatusService is imported dynamically in onSessionComplete to avoid circular dependency
 
 // Debounce timers per session
 const debounceTimers = new Map();
@@ -415,6 +416,7 @@ export function onSessionActivity(sessionId) {
 
 /**
  * Called when session completes - generate immediately
+ * Also schedules follow-up CI checks for sessions with PRs
  * @param {string} sessionId
  */
 export function onSessionComplete(sessionId) {
@@ -426,6 +428,23 @@ export function onSessionComplete(sessionId) {
 
   // Generate summary immediately
   generateSummary(sessionId);
+
+  // Schedule follow-up CI checks for sessions with PRs
+  // CI might still be running after the session completes
+  const session = sessions.getById(sessionId);
+  if (session?.prUrl) {
+    // Use dynamic import to avoid circular dependency with prStatusService
+    const scheduleCiCheck = async () => {
+      const prStatusService = await import('./prStatusService.js');
+      prStatusService.checkSessionCiStatusNow(sessionId);
+    };
+
+    // Check after 2 minutes (CI often takes a few minutes)
+    setTimeout(scheduleCiCheck, 2 * 60 * 1000);
+
+    // Check again after 5 minutes
+    setTimeout(scheduleCiCheck, 5 * 60 * 1000);
+  }
 }
 
 /**
