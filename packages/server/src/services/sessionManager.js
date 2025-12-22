@@ -24,7 +24,7 @@ const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
  * @param {Array} fileAttachments - Array of attachment objects
  * @returns {string} Prompt with file context
  */
-function buildPromptWithAttachments(prompt, fileAttachments) {
+export function buildPromptWithAttachments(prompt, fileAttachments) {
   if (!fileAttachments || fileAttachments.length === 0) {
     return prompt;
   }
