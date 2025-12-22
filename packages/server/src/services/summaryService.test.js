@@ -5,11 +5,12 @@ import { databaseManager } from '../db/DatabaseManager.js';
 // Mock the websocket module to avoid WebSocket server dependency
 vi.mock('../websocket.js', () => ({
   broadcastToSession: vi.fn(),
+  broadcastToProject: vi.fn(),
 }));
 
 // Import after mock setup
 import * as summaryService from './summaryService.js';
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import {
   DEBOUNCE_DELAY,
   MAX_MESSAGES,
@@ -564,6 +565,45 @@ describe('summaryService', () => {
           summary: expect.any(Object),
         })
       );
+    });
+
+    it('broadcasts summary update to project subscribers for session list real-time updates', async () => {
+      await summaryService.generateSummary(sessionId);
+
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        'session:summary_updated',
+        expect.objectContaining({
+          projectId,
+          sessionId,
+          summary: expect.any(Object),
+        })
+      );
+    });
+
+    it('includes projectId in project broadcast payload', async () => {
+      await summaryService.generateSummary(sessionId);
+
+      const projectBroadcastCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === 'session:summary_updated'
+      );
+      expect(projectBroadcastCalls.length).toBeGreaterThan(0);
+      expect(projectBroadcastCalls[0][2].projectId).toBe(projectId);
+    });
+
+    it('broadcasts to both session and project subscribers', async () => {
+      await summaryService.generateSummary(sessionId);
+
+      // Both should be called with summary_updated
+      const sessionCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === 'session:summary_updated'
+      );
+      const projectCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === 'session:summary_updated'
+      );
+
+      expect(sessionCalls.length).toBe(1);
+      expect(projectCalls.length).toBe(1);
     });
 
     it('stores summary in database', async () => {

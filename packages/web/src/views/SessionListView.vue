@@ -119,7 +119,7 @@ watch(
     fetchSummaries();
 
     // Create new subscription for new project
-    const { subscribe, unsubscribe, onSessionCreated, onSessionUpdated, onSessionDeleted } =
+    const { subscribe, unsubscribe, onSessionCreated, onSessionUpdated, onSessionDeleted, onSessionSummaryUpdated } =
       useProjectSubscription(newProjectId);
 
     currentUnsubscribe = unsubscribe;
@@ -147,6 +147,15 @@ watch(
         delete summaries[sessionId];
         delete loadingSummaries[sessionId];
         delete summaryErrors[sessionId];
+      })
+    );
+
+    // Handle session summary updated (real-time updates when summaries are generated)
+    cleanups.push(
+      onSessionSummaryUpdated((sessionId, summary) => {
+        summaries[sessionId] = summary;
+        loadingSummaries[sessionId] = false;
+        summaryErrors[sessionId] = false;
       })
     );
   },

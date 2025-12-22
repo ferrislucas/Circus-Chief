@@ -319,6 +319,16 @@ export function useProjectSubscription(projectId) {
     return () => off(WS_MESSAGE_TYPES.SESSION_DELETED, handler);
   };
 
+  const onSessionSummaryUpdated = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) {
+        callback(msg.sessionId, msg.summary);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -330,6 +340,7 @@ export function useProjectSubscription(projectId) {
     onSessionCreated,
     onSessionUpdated,
     onSessionDeleted,
+    onSessionSummaryUpdated,
   };
 }
 
@@ -373,9 +384,21 @@ export function useGlobalSessionSubscription() {
     return () => off(WS_MESSAGE_TYPES.SESSION_DELETED, handler);
   };
 
+  // Listen for session summary updated across ALL projects
+  const onSessionSummaryUpdated = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId && msg.summary) {
+        callback(msg.sessionId, msg.summary, msg.projectId);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, handler);
+  };
+
   return {
     onSessionCreated,
     onSessionUpdated,
     onSessionDeleted,
+    onSessionSummaryUpdated,
   };
 }
