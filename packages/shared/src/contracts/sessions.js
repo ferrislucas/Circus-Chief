@@ -37,12 +37,24 @@ export const SessionResponse = z.object({
 
 export const SessionListResponse = z.array(SessionResponse);
 
+export const AttachmentResponse = z.object({
+  id: z.string().uuid(),
+  messageId: z.string().uuid().nullable(),
+  sessionId: z.string().uuid(),
+  filename: z.string(),
+  mimeType: z.string(),
+  size: z.number(),
+  storageType: z.enum(['base64', 'file_path', 'project_file']).optional(),
+  createdAt: z.number(),
+});
+
 export const ConversationMessageResponse = z.object({
   id: z.string().uuid(),
   sessionId: z.string().uuid(),
   role: z.enum(['user', 'assistant', 'system']),
   content: z.string(),
   toolUse: z.array(z.any()).nullable(),
+  attachments: z.array(AttachmentResponse).optional(),
   timestamp: z.number(),
 });
 

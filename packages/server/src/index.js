@@ -4,6 +4,7 @@ import { createApp } from './app.js';
 import { initDatabase } from './database.js';
 import { initWebSocket } from './websocket.js';
 import { DEFAULT_SERVER_PORT } from '@claudetools/shared';
+import * as prStatusService from './services/prStatusService.js';
 
 const { values } = parseArgs({
   options: {
@@ -39,6 +40,28 @@ const server = createServer(app);
 
 // Initialize WebSocket for app
 initWebSocket(server);
+
+// Start PR status polling service
+prStatusService.start();
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  prStatusService.stop();
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully');
+  prStatusService.stop();
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
 
 // Start server on all interfaces
 server.listen(port, '0.0.0.0', () => {

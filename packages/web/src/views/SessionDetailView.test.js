@@ -56,6 +56,17 @@ vi.mock('../stores/ui.js', () => ({
   })),
 }));
 
+// Mock the API - use object reference so value can be changed between tests
+let mockChangesResult = { staged: '', unstaged: '', untracked: '' };
+const mockGetSessionChanges = vi.fn(() => Promise.resolve(mockChangesResult));
+const mockGetSessionSummary = vi.fn(() => Promise.resolve(null));
+vi.mock('../composables/useApi.js', () => ({
+  api: {
+    getSessionChanges: (...args) => mockGetSessionChanges(...args),
+    getSessionSummary: (...args) => mockGetSessionSummary(...args),
+  },
+}));
+
 // Mock child components to avoid their internal dependencies
 vi.mock('../components/ConversationTab.vue', () => ({
   default: defineComponent({ name: 'ConversationTab', template: '<div />' }),
@@ -88,6 +99,23 @@ describe('SessionDetailView', () => {
     mockRouteParams.id = 'test-session-id';
     mockRouteParams.tab = 'conversation';
 
+    // Reset API mocks with default returns
+    mockChangesResult = { staged: '', unstaged: '', untracked: '' };
+
+    // Reset useSessionSubscription to default mock
+    useSessionSubscription.mockImplementation(() => ({
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      onStatus: vi.fn(() => vi.fn()),
+      onMessage: vi.fn(() => vi.fn()),
+      onError: vi.fn(() => vi.fn()),
+      onCanvasAdd: vi.fn(() => vi.fn()),
+      onCanvasRemove: vi.fn(() => vi.fn()),
+      onTodosUpdate: vi.fn(() => vi.fn()),
+      onSessionUpdate: vi.fn(() => vi.fn()),
+      onSummaryUpdate: vi.fn(() => vi.fn()),
+    }));
+
     mockSessionsStore = {
       loading: false,
       currentSession: {
@@ -101,6 +129,7 @@ describe('SessionDetailView', () => {
       },
       fetchSession: vi.fn(),
       fetchMessages: vi.fn(),
+      fetchWorkLogs: vi.fn(),
       deleteSession: vi.fn(),
       updateSessionStatus: vi.fn(),
       addMessage: vi.fn(),
@@ -333,5 +362,93 @@ describe('SessionDetailView', () => {
         'completed'
       );
     });
+  });
+
+  describe('changes indicator', () => {
+    it('does not show changes indicator when hasChanges is false', async () => {
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // With default empty changes, indicator should not be visible
+      expect(wrapper.find('.changes-indicator').exists()).toBe(false);
+    });
+
+    it('checks for changes on mount', async () => {
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(mockGetSessionChanges).toHaveBeenCalledWith('test-session-id');
+    });
+
+    it('checks for changes when status changes to waiting', async () => {
+      let capturedOnStatusCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn((callback) => {
+          capturedOnStatusCallback = callback;
+          return vi.fn();
+        }),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Clear initial call
+      mockGetSessionChanges.mockClear();
+
+      // Trigger status change to 'waiting'
+      if (capturedOnStatusCallback) {
+        capturedOnStatusCallback('waiting');
+      }
+      await flushPromises();
+
+      expect(mockGetSessionChanges).toHaveBeenCalledWith('test-session-id');
+    });
+
+    it('checks for changes when status changes to completed', async () => {
+      let capturedOnStatusCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn((callback) => {
+          capturedOnStatusCallback = callback;
+          return vi.fn();
+        }),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Clear initial call
+      mockGetSessionChanges.mockClear();
+
+      // Trigger status change to 'completed'
+      if (capturedOnStatusCallback) {
+        capturedOnStatusCallback('completed');
+      }
+      await flushPromises();
+
+      expect(mockGetSessionChanges).toHaveBeenCalledWith('test-session-id');
+    });
+
   });
 });

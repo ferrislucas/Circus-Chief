@@ -17,6 +17,7 @@ export class ProjectRepository extends BaseRepository {
       systemPrompt: row.system_prompt,
       onSessionCreated: row.on_session_created,
       onSessionDeleted: row.on_session_deleted,
+      prPollInterval: row.pr_poll_interval,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -25,13 +26,13 @@ export class ProjectRepository extends BaseRepository {
   create(name, workingDirectory, systemPrompt = null, options = {}) {
     const id = databaseManager.generateId();
     const now = Date.now();
-    const { onSessionCreated = null, onSessionDeleted = null } = options;
+    const { onSessionCreated = null, onSessionDeleted = null, prPollInterval = 60000 } = options;
     this.db
       .prepare(
-        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, pr_poll_interval, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted, now, now);
+      .run(id, name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted, prPollInterval, now, now);
     return this.getById(id);
   }
 
@@ -63,6 +64,10 @@ export class ProjectRepository extends BaseRepository {
     if (data.onSessionDeleted !== undefined) {
       updates.push('on_session_deleted = ?');
       values.push(data.onSessionDeleted);
+    }
+    if (data.prPollInterval !== undefined) {
+      updates.push('pr_poll_interval = ?');
+      values.push(data.prPollInterval);
     }
 
     if (updates.length === 0) return this.getById(id);

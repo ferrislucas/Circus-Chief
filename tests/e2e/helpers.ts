@@ -1,6 +1,21 @@
 import { Page, expect } from '@playwright/test';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 
-const API_URL = process.env.API_URL || 'http://localhost:5000';
+function getAPIURL(): string {
+  if (process.env.API_URL) return process.env.API_URL;
+
+  // Look for .server-port file in the project root (relative to cwd)
+  const portFile = join(process.cwd(), '.server-port');
+  if (existsSync(portFile)) {
+    const port = readFileSync(portFile, 'utf-8').trim();
+    return `http://localhost:${port}`;
+  }
+
+  return 'http://localhost:5000';
+}
+
+const API_URL = getAPIURL();
 const TEST_PREFIX = '[TEST] ';
 
 // ============================================================
@@ -259,4 +274,80 @@ export async function cleanupTemplates() {
       await deleteTemplate(template.id);
     }
   }
+}
+
+// ============================================================
+// File Attachment Helpers
+// ============================================================
+
+/**
+ * Seed a session with file attachments using FormData
+ */
+export async function seedSessionWithFiles(
+  projectId: string,
+  data: { prompt: string; name?: string; mode?: string },
+  files: Array<{ name: string; content: string; type: string }>
+) {
+  const formData = new FormData();
+  formData.append('prompt', data.prompt);
+  if (data.name) formData.append('name', data.name);
+  if (data.mode) formData.append('mode', data.mode);
+
+  // Add files to FormData
+  for (const file of files) {
+    const blob = new Blob([file.content], { type: file.type });
+    formData.append('files', blob, file.name);
+  }
+
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) throw new Error('Failed to seed session with files');
+  return response.json();
+}
+
+/**
+ * Send a message with file attachments
+ */
+export async function sendMessageWithFiles(
+  sessionId: string,
+  content: string,
+  files: Array<{ name: string; content: string; type: string }>
+) {
+  const formData = new FormData();
+  formData.append('content', content);
+
+  // Add files to FormData
+  for (const file of files) {
+    const blob = new Blob([file.content], { type: file.type });
+    formData.append('files', blob, file.name);
+  }
+
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/message`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to send message with files');
+  }
+  return response.json();
+}
+
+/**
+ * Get attachments for a session
+ */
+export async function getSessionAttachments(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/messages`);
+  if (!response.ok) return [];
+  const messages = await response.json();
+  // Collect all attachments from all messages
+  const allAttachments: any[] = [];
+  for (const msg of messages) {
+    if (msg.attachments && msg.attachments.length > 0) {
+      allAttachments.push(...msg.attachments);
+    }
+  }
+  return allAttachments;
 }

@@ -122,11 +122,42 @@ export class ApiClient {
   /**
    * Create a new session
    * @param {string} projectId - Project ID
-   * @param {Object} data - Session data
+   * @param {Object} data - Session data (may include files array)
    * @returns {Promise<Object>}
    */
   async createSession(projectId, data) {
-    return this.#request('POST', `/projects/${projectId}/sessions`, data);
+    const { files, ...jsonData } = data;
+
+    // Use FormData if files are attached, otherwise JSON
+    if (files && files.length > 0) {
+      const formData = new FormData();
+      formData.append('prompt', jsonData.prompt);
+      if (jsonData.name) formData.append('name', jsonData.name);
+      if (jsonData.mode) formData.append('mode', jsonData.mode);
+      if (jsonData.thinkingEnabled !== undefined) {
+        formData.append('thinkingEnabled', String(jsonData.thinkingEnabled));
+      }
+      if (jsonData.gitBranch) formData.append('gitBranch', jsonData.gitBranch);
+      if (jsonData.gitMode) formData.append('gitMode', jsonData.gitMode);
+
+      for (const file of files) {
+        formData.append('files', file);
+      }
+
+      const response = await fetch(`${this.#baseUrl}/projects/${projectId}/sessions`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
+      return response.json();
+    }
+
+    return this.#request('POST', `/projects/${projectId}/sessions`, jsonData);
   }
 
   /**
@@ -160,9 +191,32 @@ export class ApiClient {
    * Send a message to a session
    * @param {string} sessionId - Session ID
    * @param {string} content - Message content
+   * @param {Array} files - Optional array of files to attach
    * @returns {Promise<Object>}
    */
-  async sendMessage(sessionId, content) {
+  async sendMessage(sessionId, content, files = []) {
+    // Use FormData if files are attached, otherwise JSON
+    if (files && files.length > 0) {
+      const formData = new FormData();
+      formData.append('content', content);
+
+      for (const file of files) {
+        formData.append('files', file);
+      }
+
+      const response = await fetch(`${this.#baseUrl}/sessions/${sessionId}/message`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
+      return response.json();
+    }
+
     return this.#request('POST', `/sessions/${sessionId}/message`, { content });
   }
 
