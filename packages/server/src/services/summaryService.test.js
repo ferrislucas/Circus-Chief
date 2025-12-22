@@ -844,8 +844,8 @@ describe('summaryService', () => {
 
   describe('message formatting edge cases', () => {
     it('handles messages with tool use', async () => {
-      // Add a message with tool use
-      messages.create(sessionId, 'assistant', 'I will read the file', null, [
+      // Add a message with tool use (toolUse is 4th param, conversationId is 5th)
+      messages.create(sessionId, 'assistant', 'I will read the file', [
         { name: 'Read', input: { path: '/tmp/test.js' } },
       ]);
 
