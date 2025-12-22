@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { projects, sessions, messages, conversations } from '../database.js';
-import { databaseManager } from '../db/DatabaseManager.js';
 
 // Mock websocket and summary service
 vi.mock('../websocket.js', () => ({
@@ -125,7 +124,7 @@ describe('Sessions API - Conversation Endpoints', () => {
     });
 
     it('switches active conversation', () => {
-      const conv1 = conversations.create(session.id, 'Conv 1', true);
+      conversations.create(session.id, 'Conv 1', true);
       const conv2 = conversations.create(session.id, 'Conv 2', false);
 
       conversations.setActive(conv2.id, session.id);
