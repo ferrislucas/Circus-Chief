@@ -136,7 +136,8 @@ CREATE TABLE IF NOT EXISTS message_attachments (
   mime_type TEXT NOT NULL,
   size_bytes INTEGER NOT NULL,
   storage_type TEXT NOT NULL DEFAULT 'base64' CHECK (storage_type IN ('base64', 'file_path', 'project_file')),
-  content TEXT,  -- base64 data or file path depending on storage_type
+  content TEXT,  -- base64 data (kept for backwards compatibility)
+  file_path TEXT,  -- absolute path to file on disk (for Claude's Read tool)
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 

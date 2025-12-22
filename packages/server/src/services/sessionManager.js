@@ -18,7 +18,7 @@ const activeSessions = new Map();
 const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
 
 /**
- * Build prompt with file attachment context
+ * Build prompt with file attachment context for the current turn
  * Includes text file contents inline, describes other file types
  * @param {string} prompt - Original prompt
  * @param {Array} fileAttachments - Array of attachment objects
@@ -56,6 +56,46 @@ export function buildPromptWithAttachments(prompt, fileAttachments) {
   });
 
   return `${prompt}\n\n## Attached Files${attachmentSections.join('\n')}`;
+}
+
+/**
+ * Format file size in human-readable format
+ * @param {number} bytes - Size in bytes
+ * @returns {string} Formatted size
+ */
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Get session attachments context for system prompt
+ * Returns a string describing all files attached to the session that Claude can read
+ * @param {string} sessionId - Session ID
+ * @returns {string} Attachments context for system prompt
+ */
+export function getSessionAttachmentsContext(sessionId) {
+  const sessionAttachments = attachments.getBySessionId(sessionId);
+
+  // Only include attachments that have been saved to disk
+  const readableAttachments = sessionAttachments.filter((att) => att.filePath);
+
+  if (readableAttachments.length === 0) {
+    return '';
+  }
+
+  const fileList = readableAttachments
+    .map((att) => `- \`${att.filePath}\` (${att.filename}, ${att.mimeType}, ${formatFileSize(att.size)})`)
+    .join('\n');
+
+  return `## Session Attached Files
+
+The user has attached the following files to this session. You can read these files at any time using your Read tool:
+
+${fileList}
+
+These files persist throughout the conversation. When the user asks about attached files, use the Read tool with the file paths above.`;
 }
 
 /**
@@ -330,12 +370,18 @@ function buildSessionEnv(session) {
 export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt, mode) {
   const canvasInstructions = buildCanvasSystemPrompt(sessionId);
   const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
+  const attachmentsContext = getSessionAttachmentsContext(sessionId);
   const basePrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
 
   // Prepend plan mode instructions if in plan mode
   const modePrompt = mode === 'plan' ? PLAN_MODE_PROMPT : '';
 
-  return `${modePrompt}${basePrompt}\n\n${canvasInstructions}\n\n${sessionApiInstructions}`;
+  // Build prompt parts, filtering out empty sections
+  const parts = [modePrompt, basePrompt, attachmentsContext, canvasInstructions, sessionApiInstructions].filter(
+    Boolean
+  );
+
+  return parts.join('\n\n');
 }
 
 /**

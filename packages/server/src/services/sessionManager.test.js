@@ -1,10 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   getPermissionModeForSession,
   buildSystemPromptConfig,
   buildPromptWithAttachments,
+  getSessionAttachmentsContext,
   PLAN_MODE_PROMPT,
 } from './sessionManager.js';
+import { databaseManager } from '../db/DatabaseManager.js';
+import { AttachmentRepository } from '../db/AttachmentRepository.js';
+import { ProjectRepository } from '../db/ProjectRepository.js';
+import { mkdtempSync, existsSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 
 describe('sessionManager', () => {
   describe('buildPromptWithAttachments', () => {
@@ -341,6 +348,214 @@ describe('sessionManager', () => {
       const canvasIndex = result.indexOf('canvas');
 
       expect(planModeIndex).toBeLessThan(canvasIndex);
+    });
+  });
+
+  describe('getSessionAttachmentsContext', () => {
+    // Uses global setup from test/setup.js for database
+    let attachmentRepo;
+    let projectRepo;
+    let sessionId;
+    let tempDir;
+
+    beforeEach(() => {
+      attachmentRepo = new AttachmentRepository();
+      projectRepo = new ProjectRepository();
+
+      // Create temp directory for disk files
+      tempDir = mkdtempSync(join(tmpdir(), 'session-manager-test-'));
+
+      // Create a project and session for testing
+      const project = projectRepo.create('Test Project', tempDir);
+      const now = Date.now();
+      sessionId = databaseManager.generateId();
+      databaseManager
+        .get()
+        .prepare(
+          'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )
+        .run(sessionId, project.id, 'Test Session', 'running', 'standard', now, now);
+    });
+
+    afterEach(() => {
+      // Clean up temp directory
+      if (tempDir && existsSync(tempDir)) {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('returns empty string when no attachments', () => {
+      const result = getSessionAttachmentsContext(sessionId);
+      expect(result).toBe('');
+    });
+
+    it('returns empty string when attachments have no file paths', () => {
+      // Create attachment without workingDirectory (no file path)
+      const mockFile = {
+        buffer: Buffer.from('test content'),
+        originalname: 'test.txt',
+        mimetype: 'text/plain',
+        size: 12,
+      };
+      attachmentRepo.create(sessionId, null, mockFile); // No working directory
+
+      const result = getSessionAttachmentsContext(sessionId);
+      expect(result).toBe('');
+    });
+
+    it('includes attachments with file paths in context', () => {
+      const mockFile = {
+        buffer: Buffer.from('test content'),
+        originalname: 'test.txt',
+        mimetype: 'text/plain',
+        size: 12,
+      };
+      attachmentRepo.create(sessionId, null, mockFile, tempDir);
+
+      const result = getSessionAttachmentsContext(sessionId);
+
+      expect(result).toContain('Session Attached Files');
+      expect(result).toContain('test.txt');
+      expect(result).toContain('text/plain');
+      expect(result).toContain('.attachments');
+      expect(result).toContain('Read tool');
+    });
+
+    it('formats file size correctly', () => {
+      // Test various file sizes
+      const smallFile = {
+        buffer: Buffer.from('a'),
+        originalname: 'small.txt',
+        mimetype: 'text/plain',
+        size: 500,
+      };
+      attachmentRepo.create(sessionId, null, smallFile, tempDir);
+
+      const result = getSessionAttachmentsContext(sessionId);
+      expect(result).toContain('500 B');
+    });
+
+    it('formats KB size correctly', () => {
+      const kbFile = {
+        buffer: Buffer.from('test'),
+        originalname: 'medium.txt',
+        mimetype: 'text/plain',
+        size: 2048,
+      };
+      attachmentRepo.create(sessionId, null, kbFile, tempDir);
+
+      const result = getSessionAttachmentsContext(sessionId);
+      expect(result).toContain('2.0 KB');
+    });
+
+    it('includes multiple attachments in context', () => {
+      const mockFiles = [
+        {
+          buffer: Buffer.from('file1'),
+          originalname: 'file1.txt',
+          mimetype: 'text/plain',
+          size: 5,
+        },
+        {
+          buffer: Buffer.from('file2'),
+          originalname: 'file2.json',
+          mimetype: 'application/json',
+          size: 5,
+        },
+      ];
+      attachmentRepo.createBatch(sessionId, null, mockFiles, tempDir);
+
+      const result = getSessionAttachmentsContext(sessionId);
+
+      expect(result).toContain('file1.txt');
+      expect(result).toContain('file2.json');
+      expect(result).toContain('text/plain');
+      expect(result).toContain('application/json');
+    });
+
+    it('includes instructions for using Read tool', () => {
+      const mockFile = {
+        buffer: Buffer.from('test'),
+        originalname: 'test.txt',
+        mimetype: 'text/plain',
+        size: 4,
+      };
+      attachmentRepo.create(sessionId, null, mockFile, tempDir);
+
+      const result = getSessionAttachmentsContext(sessionId);
+
+      expect(result).toContain('Read tool');
+      expect(result).toContain('persist throughout the conversation');
+    });
+  });
+
+  describe('buildSystemPromptConfig with attachments', () => {
+    let attachmentRepo;
+    let projectRepo;
+    let sessionId;
+    let projectId;
+    let tempDir;
+
+    beforeEach(() => {
+      attachmentRepo = new AttachmentRepository();
+      projectRepo = new ProjectRepository();
+
+      tempDir = mkdtempSync(join(tmpdir(), 'session-manager-test-'));
+      const project = projectRepo.create('Test Project', tempDir);
+      projectId = project.id;
+
+      const now = Date.now();
+      sessionId = databaseManager.generateId();
+      databaseManager
+        .get()
+        .prepare(
+          'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )
+        .run(sessionId, project.id, 'Test Session', 'running', 'standard', now, now);
+    });
+
+    afterEach(() => {
+      if (tempDir && existsSync(tempDir)) {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('includes attachment context when session has attachments', () => {
+      const mockFile = {
+        buffer: Buffer.from('config content'),
+        originalname: 'config.json',
+        mimetype: 'application/json',
+        size: 14,
+      };
+      attachmentRepo.create(sessionId, null, mockFile, tempDir);
+
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).toContain('Session Attached Files');
+      expect(result).toContain('config.json');
+      expect(result).toContain('application/json');
+    });
+
+    it('does not include attachment section when no attachments', () => {
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).not.toContain('Session Attached Files');
+    });
+
+    it('includes attachments in plan mode', () => {
+      const mockFile = {
+        buffer: Buffer.from('test'),
+        originalname: 'test.txt',
+        mimetype: 'text/plain',
+        size: 4,
+      };
+      attachmentRepo.create(sessionId, null, mockFile, tempDir);
+
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'plan');
+
+      expect(result).toContain('Plan Mode Active');
+      expect(result).toContain('Session Attached Files');
+      expect(result).toContain('test.txt');
     });
   });
 });

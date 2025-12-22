@@ -91,6 +91,14 @@ export class DatabaseManager {
     if (!summariesColumns.includes('ci_failures')) {
       this.#db.exec('ALTER TABLE session_summaries ADD COLUMN ci_failures TEXT');
     }
+
+    // Check if message_attachments table has the file_path column, add it if not
+    const attachmentsTableInfo = this.#db.prepare('PRAGMA table_info(message_attachments)').all();
+    const attachmentsColumns = attachmentsTableInfo.map((col) => col.name);
+
+    if (!attachmentsColumns.includes('file_path')) {
+      this.#db.exec('ALTER TABLE message_attachments ADD COLUMN file_path TEXT');
+    }
   }
 
   /**
