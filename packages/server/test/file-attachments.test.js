@@ -1,7 +1,14 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { projects, sessions, messages, attachments } from '../src/database.js';
+import { existsSync, mkdtempSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { getAttachmentsDir } from '../src/db/AttachmentRepository.js';
+
+// Create a temp directory for testing disk file operations
+let testTempDir;
 
 // Mock only external services that have side effects
 vi.mock('../src/websocket.js', () => ({
@@ -18,12 +25,9 @@ vi.mock('../src/services/sessionManager.js', () => ({
   cleanupActiveSession: vi.fn(),
 }));
 
-// Mock git setup
+// Mock git setup - will be updated in beforeEach to use dynamic temp dir
 vi.mock('../src/services/gitSessionSetup.js', () => ({
-  setupGitForSession: vi.fn().mockResolvedValue({
-    workingDirectory: '/tmp/test',
-    gitWorktree: null,
-  }),
+  setupGitForSession: vi.fn(),
 }));
 
 // Mock git service
@@ -47,6 +51,7 @@ vi.mock('../src/services/hookService.js', () => ({
 import sessionsRouter from '../src/api/sessions.js';
 import projectsRouter from '../src/api/projects.js';
 import { runSession, continueSession } from '../src/services/sessionManager.js';
+import { setupGitForSession } from '../src/services/gitSessionSetup.js';
 
 describe('File Attachments API', () => {
   let app;
@@ -55,14 +60,30 @@ describe('File Attachments API', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
+    // Create a fresh temp directory for each test
+    testTempDir = mkdtempSync(join(tmpdir(), 'file-attachments-test-'));
+
+    // Update setupGitForSession mock to return the temp directory
+    setupGitForSession.mockResolvedValue({
+      workingDirectory: testTempDir,
+      gitWorktree: null,
+    });
+
     // Create test Express app
     app = express();
     app.use(express.json());
     app.use('/api/sessions', sessionsRouter);
     app.use('/api/projects', projectsRouter);
 
-    // Create test project
-    project = projects.create('Test Project', '/tmp/test');
+    // Create test project with temp directory
+    project = projects.create('Test Project', testTempDir);
+  });
+
+  afterEach(() => {
+    // Clean up temp directory
+    if (testTempDir && existsSync(testTempDir)) {
+      rmSync(testTempDir, { recursive: true, force: true });
+    }
   });
 
   describe('POST /api/projects/:id/sessions - Session Creation with Files', () => {
@@ -138,7 +159,7 @@ describe('File Attachments API', () => {
       expect(runSession).toHaveBeenCalledWith(
         expect.any(String), // sessionId
         'Analyze this', // prompt
-        '/tmp/test', // workingDirectory
+        testTempDir, // workingDirectory (dynamic)
         null, // systemPrompt
         expect.arrayContaining([
           expect.objectContaining({
@@ -148,6 +169,29 @@ describe('File Attachments API', () => {
         ]),
         undefined // model
       );
+    });
+
+    it('saves file to disk when creating session', async () => {
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .field('prompt', 'Analyze this')
+        .attach('files', Buffer.from('Hello, World!'), {
+          filename: 'test.txt',
+          contentType: 'text/plain',
+        })
+        .expect(201);
+
+      const sessionAttachments = attachments.getBySessionId(response.body.id);
+      expect(sessionAttachments).toHaveLength(1);
+
+      // Verify file path is set
+      const attachment = sessionAttachments[0];
+      expect(attachment.filePath).toBeDefined();
+      expect(attachment.filePath).toContain('.attachments');
+      expect(attachment.filePath).toContain(response.body.id);
+
+      // Verify file actually exists on disk
+      expect(existsSync(attachment.filePath)).toBe(true);
     });
 
     it('stores file content as base64', async () => {
@@ -418,7 +462,7 @@ describe('File Attachments API', () => {
       expect(continueSession).toHaveBeenCalledWith(
         session.id,
         'Analyze this',
-        '/tmp/test', // Uses project workingDirectory since no gitWorktree
+        testTempDir, // Uses project workingDirectory since no gitWorktree
         null, // systemPrompt
         expect.arrayContaining([
           expect.objectContaining({
@@ -427,6 +471,27 @@ describe('File Attachments API', () => {
           }),
         ])
       );
+    });
+
+    it('saves file to disk when sending follow-up message', async () => {
+      const response = await request(app)
+        .post(`/api/sessions/${session.id}/message`)
+        .field('content', 'Analyze this file')
+        .attach('files', Buffer.from('Follow-up content'), {
+          filename: 'followup.txt',
+          contentType: 'text/plain',
+        })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+
+      const sessionAttachments = attachments.getBySessionId(session.id);
+      expect(sessionAttachments).toHaveLength(1);
+
+      // Verify file path is set and file exists
+      const attachment = sessionAttachments[0];
+      expect(attachment.filePath).toBeDefined();
+      expect(existsSync(attachment.filePath)).toBe(true);
     });
 
     it('sends follow-up message without files', async () => {
@@ -807,6 +872,87 @@ describe('File Attachments API', () => {
 
       // Verify attachments are deleted via cascade
       expect(attachments.getByMessageId(message.id)).toHaveLength(0);
+    });
+  });
+
+  describe('Disk File Cleanup', () => {
+    it('deletes attachment files from disk when session is deleted', async () => {
+      // Create session with file attachment via API
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .field('prompt', 'Test attachment')
+        .attach('files', Buffer.from('test content'), {
+          filename: 'test.txt',
+          contentType: 'text/plain',
+        })
+        .expect(201);
+
+      const sessionId = response.body.id;
+      const sessionAttachments = attachments.getBySessionId(sessionId);
+      expect(sessionAttachments).toHaveLength(1);
+
+      const filePath = sessionAttachments[0].filePath;
+      expect(filePath).toBeDefined();
+      expect(existsSync(filePath)).toBe(true);
+
+      // Get the attachments directory
+      const attachmentsDir = getAttachmentsDir(testTempDir, sessionId);
+      expect(existsSync(attachmentsDir)).toBe(true);
+
+      // Delete the session
+      await request(app).delete(`/api/sessions/${sessionId}`).expect(204);
+
+      // Verify files are deleted from disk
+      expect(existsSync(filePath)).toBe(false);
+      expect(existsSync(attachmentsDir)).toBe(false);
+    });
+
+    it('deletes multiple files from disk when session is deleted', async () => {
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .field('prompt', 'Multiple files')
+        .attach('files', Buffer.from('file 1'), {
+          filename: 'first.txt',
+          contentType: 'text/plain',
+        })
+        .attach('files', Buffer.from('file 2'), {
+          filename: 'second.txt',
+          contentType: 'text/plain',
+        })
+        .expect(201);
+
+      const sessionId = response.body.id;
+      const sessionAttachments = attachments.getBySessionId(sessionId);
+      expect(sessionAttachments).toHaveLength(2);
+
+      // Verify both files exist
+      for (const att of sessionAttachments) {
+        expect(existsSync(att.filePath)).toBe(true);
+      }
+
+      // Delete the session
+      await request(app).delete(`/api/sessions/${sessionId}`).expect(204);
+
+      // Verify all files are deleted
+      for (const att of sessionAttachments) {
+        expect(existsSync(att.filePath)).toBe(false);
+      }
+    });
+
+    it('handles session delete gracefully when files already removed', async () => {
+      const session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
+      const message = messages.create(session.id, 'user', 'Test');
+
+      // Create attachment without workingDirectory (no disk file)
+      attachments.create(session.id, message.id, {
+        buffer: Buffer.from('content'),
+        originalname: 'test.txt',
+        mimetype: 'text/plain',
+        size: 7,
+      });
+
+      // Delete session should not throw
+      await request(app).delete(`/api/sessions/${session.id}`).expect(204);
     });
   });
 });

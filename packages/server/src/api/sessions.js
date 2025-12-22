@@ -148,11 +148,11 @@ router.post('/:id/message', upload.array('files', 10), handleUploadError, async 
   }
 
   try {
-    // Store file attachments if any (associated with session, no message yet)
-    const messageAttachments = attachments.createBatch(session.id, null, files);
-
     // Use gitWorktree if set, otherwise use the project's working directory
     const workingDirectory = session.gitWorktree || project.workingDirectory;
+
+    // Store file attachments if any - saves to disk in workingDirectory/.attachments
+    const messageAttachments = attachments.createBatch(session.id, null, files, workingDirectory);
 
     // Start continuation (non-blocking) - pass attachments for context
     continueSession(session.id, content, workingDirectory, project.systemPrompt, messageAttachments).catch((error) => {
@@ -545,6 +545,17 @@ router.delete('/:id', async (req, res) => {
     } catch (error) {
       // Log but don't fail - worktree may already be removed or have issues
       console.warn(`Failed to remove worktree for session ${session.id}:`, error.message);
+    }
+  }
+
+  // Clean up attachment files from disk
+  if (project) {
+    const workingDirectory = session.gitWorktree || project.workingDirectory;
+    try {
+      attachments.deleteSessionAttachmentsFromDisk(workingDirectory, session.id);
+    } catch (error) {
+      // Log but don't fail - files may already be removed
+      console.warn(`Failed to remove attachment files for session ${session.id}:`, error.message);
     }
   }
 

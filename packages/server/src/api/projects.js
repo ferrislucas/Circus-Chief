@@ -116,9 +116,6 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   const sessionName = name || generateInitialName(prompt);
   const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, model);
 
-  // Store file attachments if any (associated with session, no message yet)
-  const sessionAttachments = attachments.createBatch(session.id, null, files);
-
   // Setup git environment (branch checkout or worktree creation)
   try {
     const { workingDirectory, gitWorktree } = await setupGitForSession({
@@ -132,6 +129,9 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
     if (gitWorktree) {
       sessions.update(session.id, { gitWorktree });
     }
+
+    // Store file attachments if any - saves to disk in workingDirectory/.attachments
+    const sessionAttachments = attachments.createBatch(session.id, null, files, workingDirectory);
 
     // Start session manager (non-blocking) - pass attachments for context
     const { runSession } = await import('../services/sessionManager.js');
