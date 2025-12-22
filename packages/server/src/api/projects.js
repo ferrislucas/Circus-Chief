@@ -103,6 +103,7 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   const prompt = req.body.prompt;
   const name = req.body.name;
   const mode = req.body.mode;
+  const model = req.body.model;
   const thinkingEnabled = req.body.thinkingEnabled === true || req.body.thinkingEnabled === 'true';
   const gitBranch = req.body.gitBranch;
   const gitMode = req.body.gitMode;
@@ -113,7 +114,7 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   }
 
   const sessionName = name || generateInitialName(prompt);
-  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch);
+  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, model);
 
   // Store file attachments if any (associated with session, no message yet)
   const sessionAttachments = attachments.createBatch(session.id, null, files);
@@ -134,7 +135,7 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
 
     // Start session manager (non-blocking) - pass attachments for context
     const { runSession } = await import('../services/sessionManager.js');
-    runSession(session.id, prompt, workingDirectory, project.systemPrompt, sessionAttachments).catch((error) => {
+    runSession(session.id, prompt, workingDirectory, project.systemPrompt, sessionAttachments, model).catch((error) => {
       console.error('Session error:', error);
       sessions.update(session.id, { status: 'error', error: error.message });
     });

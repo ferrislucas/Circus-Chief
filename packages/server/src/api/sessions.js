@@ -256,7 +256,7 @@ router.patch('/:id', (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const { thinkingEnabled, status, mode } = req.body;
+  const { thinkingEnabled, status, mode, model } = req.body;
 
   // Build update object with only provided fields
   const updateData = {};
@@ -276,6 +276,13 @@ router.patch('/:id', (req, res) => {
       return res.status(400).json({ error: 'Invalid mode. Must be one of: plan, standard, yolo' });
     }
     updateData.mode = mode;
+  }
+  if (model !== undefined) {
+    const validModels = ['claude-sonnet-4-5-20250929', 'claude-opus-4-5-20251101', 'claude-haiku-4-5-20251001'];
+    if (!validModels.includes(model)) {
+      return res.status(400).json({ error: 'Invalid model. Must be one of: ' + validModels.join(', ') });
+    }
+    updateData.model = model;
   }
 
   if (Object.keys(updateData).length === 0) {

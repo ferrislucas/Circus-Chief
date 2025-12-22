@@ -345,8 +345,9 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
  * @param {string} workingDirectory
  * @param {string|null} systemPrompt - Custom system prompt from project settings
  * @param {Array} fileAttachments - File attachments for context
+ * @param {string|null} model - Claude model to use
  */
-export async function runSession(sessionId, prompt, workingDirectory, systemPrompt = null, fileAttachments = []) {
+export async function runSession(sessionId, prompt, workingDirectory, systemPrompt = null, fileAttachments = [], model = null) {
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
@@ -374,6 +375,9 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     // Build environment variables for thinking mode
     const sessionEnv = buildSessionEnv(session);
 
+    // Use model from parameter or session record
+    const sessionModel = model || session.model;
+
     const queryParams = isMockMode()
       ? { prompt: promptWithAttachments }
       : {
@@ -384,6 +388,7 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
             includePartialMessages: true,
             permissionMode: getPermissionModeForSession(session.mode),
             ...(sessionEnv && { env: sessionEnv }),
+            ...(sessionModel && { model: sessionModel }),
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
@@ -486,6 +491,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
             permissionMode: getPermissionModeForSession(session.mode),
             resume: session.claudeSessionId,
             ...(sessionEnv && { env: sessionEnv }),
+            ...(session.model && { model: session.model }),
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };

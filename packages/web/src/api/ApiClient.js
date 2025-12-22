@@ -134,6 +134,7 @@ export class ApiClient {
       formData.append('prompt', jsonData.prompt);
       if (jsonData.name) formData.append('name', jsonData.name);
       if (jsonData.mode) formData.append('mode', jsonData.mode);
+      if (jsonData.model) formData.append('model', jsonData.model);
       if (jsonData.thinkingEnabled !== undefined) {
         formData.append('thinkingEnabled', String(jsonData.thinkingEnabled));
       }
