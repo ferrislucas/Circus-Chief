@@ -3,6 +3,64 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
+// Cache for default branch detection per repository
+// Key: directory path, Value: { branch: string, timestamp: number }
+const defaultBranchCache = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHE_SIZE = 100; // Maximum number of repositories to cache
+
+// Configurable logger for warning messages
+// Can be overridden via setLogger() for custom logging behavior
+let logger = {
+  warn: (...args) => console.warn(...args),
+};
+
+/**
+ * Set a custom logger for git service warnings.
+ * Useful for integrating with application logging or suppressing warnings in tests.
+ * @param {Object} customLogger - Logger object with a warn method
+ * @param {Function} customLogger.warn - Function to handle warning messages
+ */
+export function setLogger(customLogger) {
+  logger = customLogger;
+}
+
+/**
+ * Evict oldest entries from cache if it exceeds MAX_CACHE_SIZE.
+ * Uses LRU-like eviction based on timestamp.
+ */
+function evictOldestCacheEntries() {
+  if (defaultBranchCache.size <= MAX_CACHE_SIZE) {
+    return;
+  }
+
+  // Sort entries by timestamp and remove oldest ones
+  const entries = [...defaultBranchCache.entries()];
+  entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+
+  const entriesToRemove = entries.slice(0, entries.length - MAX_CACHE_SIZE);
+  for (const [key] of entriesToRemove) {
+    defaultBranchCache.delete(key);
+  }
+}
+
+/**
+ * Safely fetch from origin remote.
+ * Logs a warning if fetch fails but does not throw.
+ * @param {string} directory - The git repository directory
+ * @returns {Promise<boolean>} - True if fetch succeeded, false otherwise
+ */
+async function safeFetchOrigin(directory) {
+  try {
+    await git(directory, 'fetch origin');
+    return true;
+  } catch (err) {
+    // No origin or network unavailable, proceed without fetch
+    logger.warn('Could not fetch from origin, proceeding with local refs:', err.message);
+    return false;
+  }
+}
+
 /**
  * Execute a git command in a directory
  * @param {string} directory
@@ -17,38 +75,77 @@ async function git(directory, command) {
 /**
  * Get the default branch from origin remote
  * Uses GitHub CLI if available, falls back to git commands
+ * Results are cached per repository with a 5-minute TTL
+ * Falls back to HEAD if no origin remote is configured
  * @param {string} directory
  * @returns {Promise<string>}
  */
-async function getOriginDefaultBranch(directory) {
+export async function getOriginDefaultBranch(directory) {
+  // Check cache first
+  const cached = defaultBranchCache.get(directory);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.branch;
+  }
+
+  let branch;
+
   // Try GitHub CLI first - most accurate method
   try {
     const { stdout } = await execAsync(
       'gh repo view --json defaultBranchRef --jq ".defaultBranchRef.name"',
       { cwd: directory }
     );
-    const branch = stdout.trim();
-    if (branch) {
-      return `origin/${branch}`;
+    const branchName = stdout.trim();
+    if (branchName) {
+      branch = `origin/${branchName}`;
     }
   } catch {
     // gh CLI not available or failed, fall back to git commands
   }
 
-  // Try to get the default branch from the remote HEAD
-  try {
-    const ref = await git(directory, 'symbolic-ref refs/remotes/origin/HEAD');
-    // Returns something like "refs/remotes/origin/main"
-    return ref.replace('refs/remotes/', '');
-  } catch {
-    // Fallback: check if origin/main exists, otherwise use origin/master
+  if (!branch) {
+    // Try to get the default branch from the remote HEAD
     try {
-      await git(directory, 'rev-parse --verify origin/main');
-      return 'origin/main';
+      const ref = await git(directory, 'symbolic-ref refs/remotes/origin/HEAD');
+      // Returns something like "refs/remotes/origin/main"
+      branch = ref.replace('refs/remotes/', '');
     } catch {
-      return 'origin/master';
+      // Fallback: check if origin/main exists, otherwise try origin/master
+      try {
+        await git(directory, 'rev-parse --verify origin/main');
+        branch = 'origin/main';
+      } catch {
+        try {
+          await git(directory, 'rev-parse --verify origin/master');
+          branch = 'origin/master';
+        } catch {
+          // No origin remote available, fall back to HEAD
+          branch = 'HEAD';
+        }
+      }
     }
   }
+
+  // Cache the result and evict old entries if needed
+  defaultBranchCache.set(directory, { branch, timestamp: Date.now() });
+  evictOldestCacheEntries();
+  return branch;
+}
+
+/**
+ * Clear the default branch cache for all repositories.
+ * Useful for testing or when repository remote configuration has changed.
+ */
+export function clearDefaultBranchCache() {
+  defaultBranchCache.clear();
+}
+
+/**
+ * Get the current cache size (for testing purposes).
+ * @returns {number} The number of entries in the cache
+ */
+export function getCacheSize() {
+  return defaultBranchCache.size;
 }
 
 /**
@@ -126,11 +223,18 @@ export async function getCurrentBranch(directory) {
  * @param {string} directory
  * @param {string} branch
  * @param {string} path
+ * @param {Object} options
+ * @param {boolean} options.skipFetch - Skip fetching from origin (default: false)
  * @returns {Promise<{path: string, branch: string}>}
  */
-export async function createWorktree(directory, branch, path) {
+export async function createWorktree(directory, branch, path, options = {}) {
+  const { skipFetch = false } = options;
+
   // Fetch latest from origin to ensure we have up-to-date default branch
-  await git(directory, 'fetch origin');
+  if (!skipFetch) {
+    await safeFetchOrigin(directory);
+  }
+
   // Get the default branch from origin (main or master)
   const defaultBranch = await getOriginDefaultBranch(directory);
   // Base new branch on origin's default branch to avoid including unrelated commits from HEAD
@@ -210,11 +314,18 @@ export async function checkoutBranch(directory, branch) {
  * @param {string} directory - Main repo directory
  * @param {string} branch - Branch name
  * @param {string} worktreePath - Path for the new worktree
+ * @param {Object} options
+ * @param {boolean} options.skipFetch - Skip fetching from origin (default: false)
  * @returns {Promise<{path: string, branch: string}>}
  */
-export async function createWorktreeForBranch(directory, branch, worktreePath) {
+export async function createWorktreeForBranch(directory, branch, worktreePath, options = {}) {
+  const { skipFetch = false } = options;
+
   // Fetch latest from origin to ensure we have up-to-date default branch
-  await git(directory, 'fetch origin');
+  if (!skipFetch) {
+    await safeFetchOrigin(directory);
+  }
+
   const exists = await branchExists(directory, branch);
   if (exists) {
     await git(directory, `worktree add "${worktreePath}" "${branch}"`);

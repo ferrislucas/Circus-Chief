@@ -12,6 +12,7 @@ export {
   TodoRepository,
   WorkLogRepository,
   SessionSummaryRepository,
+  AttachmentRepository,
   // Singleton instances
   databaseManager,
   projects,
@@ -23,6 +24,7 @@ export {
   todos,
   workLogs,
   sessionSummaries,
+  attachments,
   // Legacy functions
   initDatabase,
   getDatabase,

@@ -98,6 +98,7 @@ describe('ConversationTab', () => {
           WorkLogPanel: { template: '<div class="work-log-panel-stub"></div>' },
           LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+          FileAttachment: { template: '<div class="file-attachment-stub"></div>' },
         },
       },
     });
@@ -142,6 +143,15 @@ describe('ConversationTab', () => {
 
       expect(wrapper.find('.input-form').exists()).toBe(true);
       expect(wrapper.find('.status-stopped').exists()).toBe(true);
+    });
+
+    it('renders file attachment component', async () => {
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.findComponent({ name: 'FileAttachment' }).exists()).toBe(true);
     });
   });
 
@@ -208,6 +218,66 @@ describe('ConversationTab', () => {
 
       expect(wrapper.find('.message-tools').exists()).toBe(true);
       expect(wrapper.text()).toContain('Tool: Read');
+    });
+
+    it('displays attachments for messages with attachments', async () => {
+      mockSessionsStore.messages = [
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'Check this file',
+          timestamp: Date.now(),
+          attachments: [
+            { id: 'att-1', filename: 'test.txt', mimeType: 'text/plain', size: 1024 },
+          ],
+        },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.message-attachments').exists()).toBe(true);
+      expect(wrapper.find('.attachment-chip').exists()).toBe(true);
+      expect(wrapper.find('.attachment-name').text()).toBe('test.txt');
+    });
+
+    it('displays multiple attachment chips', async () => {
+      mockSessionsStore.messages = [
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'Multiple files',
+          timestamp: Date.now(),
+          attachments: [
+            { id: 'att-1', filename: 'file1.txt', mimeType: 'text/plain', size: 100 },
+            { id: 'att-2', filename: 'file2.json', mimeType: 'application/json', size: 200 },
+            { id: 'att-3', filename: 'file3.png', mimeType: 'image/png', size: 300 },
+          ],
+        },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const chips = wrapper.findAll('.attachment-chip');
+      expect(chips).toHaveLength(3);
+    });
+
+    it('does not show attachments section when message has no attachments', async () => {
+      mockSessionsStore.messages = [
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'No attachments here',
+          timestamp: Date.now(),
+          attachments: [],
+        },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.message-attachments').exists()).toBe(false);
     });
   });
 
@@ -304,7 +374,7 @@ describe('ConversationTab', () => {
       await wrapper.find('form').trigger('submit.prevent');
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message');
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', []);
     });
 
     it('clears input after sending', async () => {

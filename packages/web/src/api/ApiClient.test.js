@@ -125,7 +125,7 @@ describe('ApiClient', () => {
     });
 
     describe('createSession', () => {
-      it('posts to /api/projects/:id/sessions', async () => {
+      it('posts to /api/projects/:id/sessions with JSON when no files', async () => {
         const sessionData = { name: 'New Session', prompt: 'Hello' };
         mockFetch.mockReturnValue(mockResponse({ id: '1', ...sessionData }));
 
@@ -134,6 +134,40 @@ describe('ApiClient', () => {
         expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/sessions', expect.objectContaining({
           method: 'POST',
           body: JSON.stringify(sessionData),
+        }));
+      });
+
+      it('uses FormData when files are attached', async () => {
+        mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+
+        const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
+        const sessionData = {
+          prompt: 'Hello',
+          mode: 'standard',
+          thinkingEnabled: true,
+          files: [file],
+        };
+
+        await client.createSession('proj-123', sessionData);
+
+        const callArgs = mockFetch.mock.calls[0];
+        expect(callArgs[1].body).toBeInstanceOf(FormData);
+        const formData = callArgs[1].body;
+        expect(formData.get('prompt')).toBe('Hello');
+        expect(formData.get('mode')).toBe('standard');
+        expect(formData.get('thinkingEnabled')).toBe('true');
+        expect(formData.getAll('files')).toHaveLength(1);
+      });
+
+      it('uses JSON when files array is empty', async () => {
+        mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+
+        const sessionData = { prompt: 'Hello', files: [] };
+        await client.createSession('proj-123', sessionData);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/sessions', expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ prompt: 'Hello' }),
         }));
       });
     });
@@ -159,7 +193,7 @@ describe('ApiClient', () => {
     });
 
     describe('sendMessage', () => {
-      it('posts message content', async () => {
+      it('posts message content with JSON when no files', async () => {
         mockFetch.mockReturnValue(mockResponse({ id: '1' }));
 
         await client.sendMessage('sess-123', 'Hello');
@@ -168,6 +202,44 @@ describe('ApiClient', () => {
           method: 'POST',
           body: JSON.stringify({ content: 'Hello' }),
         }));
+      });
+
+      it('uses FormData when files are attached', async () => {
+        mockFetch.mockReturnValue(mockResponse({ success: true }));
+
+        const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
+        await client.sendMessage('sess-123', 'Hello', [file]);
+
+        const callArgs = mockFetch.mock.calls[0];
+        expect(callArgs[1].body).toBeInstanceOf(FormData);
+        const formData = callArgs[1].body;
+        expect(formData.get('content')).toBe('Hello');
+        expect(formData.getAll('files')).toHaveLength(1);
+      });
+
+      it('uses JSON when files array is empty', async () => {
+        mockFetch.mockReturnValue(mockResponse({ success: true }));
+
+        await client.sendMessage('sess-123', 'Hello', []);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/message', expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ content: 'Hello' }),
+        }));
+      });
+
+      it('handles multiple files', async () => {
+        mockFetch.mockReturnValue(mockResponse({ success: true }));
+
+        const files = [
+          new File(['content1'], 'file1.txt', { type: 'text/plain' }),
+          new File(['content2'], 'file2.txt', { type: 'text/plain' }),
+        ];
+        await client.sendMessage('sess-123', 'Hello', files);
+
+        const callArgs = mockFetch.mock.calls[0];
+        const formData = callArgs[1].body;
+        expect(formData.getAll('files')).toHaveLength(2);
       });
     });
 

@@ -97,10 +97,10 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
-    async sendMessage(sessionId, content) {
+    async sendMessage(sessionId, content, files = []) {
       this.error = null;
       try {
-        await api.sendMessage(sessionId, content);
+        await api.sendMessage(sessionId, content, files);
         // Optimistically update status to 'running' immediately after send succeeds
         // This ensures the UI shows "Claude is working..." without waiting for WebSocket
         const session = this.sessions.find((s) => s.id === sessionId);

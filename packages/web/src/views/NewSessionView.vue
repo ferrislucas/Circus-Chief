@@ -16,6 +16,9 @@
           rows="5"
           required
         ></textarea>
+        <div class="attachment-row">
+          <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
+        </div>
       </div>
 
       <div class="form-group">
@@ -120,6 +123,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { api } from '../composables/useApi.js';
 import { generateWorktreeBranch } from '@claudetools/shared';
+import FileAttachment from '../components/FileAttachment.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -129,6 +133,8 @@ const uiStore = useUiStore();
 const prompt = ref('');
 const mode = ref('yolo');
 const gitStatus = ref(null);
+const attachedFiles = ref([]);
+const fileAttachment = ref(null);
 
 const modes = [
   { value: 'plan', label: 'Plan', description: 'Agent plans before implementing - good for complex tasks' },
@@ -203,8 +209,10 @@ async function handleSubmit() {
       thinkingEnabled: thinkingEnabled.value,
       gitMode: submitGitMode,
       gitBranch: submitGitBranch,
+      files: attachedFiles.value,
     });
     uiStore.success('Session started');
+    fileAttachment.value?.clear();
     router.push(`/sessions/${session.id}`);
   } catch (err) {
     error.value = err.message;
@@ -234,6 +242,10 @@ h1 {
   margin: 0.5rem 0 0;
   font-size: 0.75rem;
   color: var(--color-text-soft);
+}
+
+.attachment-row {
+  margin-top: 0.5rem;
 }
 
 .git-loading {
