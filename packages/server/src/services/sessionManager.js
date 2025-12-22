@@ -1,6 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { sessions, messages, workLogs, attachments } from '../database.js';
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
 import { updateTodos } from './todoStore.js';
 import * as summaryService from './summaryService.js';
@@ -768,5 +768,16 @@ async function handleStreamEvent(sessionId, event) {
  * @param {string} status
  */
 function broadcastSessionStatus(sessionId, status) {
+  // Broadcast to session subscribers (for session detail view)
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status });
+
+  // Also broadcast SESSION_UPDATED to project subscribers (for session list updates)
+  const session = sessions.getById(sessionId);
+  if (session) {
+    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: session.projectId,
+      sessionId,
+      session: { ...session, status },
+    });
+  }
 }

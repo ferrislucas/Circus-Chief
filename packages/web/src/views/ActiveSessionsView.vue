@@ -39,6 +39,7 @@
 <script setup>
 import { onMounted, onUnmounted, reactive, watch } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useGlobalSessionSubscription } from '../composables/useWebSocket.js';
 import { api } from '../composables/useApi.js';
 import SessionCard from '../components/SessionCard.vue';
 
@@ -51,16 +52,78 @@ const summaryErrors = reactive({});
 
 let refreshInterval = null;
 
+// Store cleanup functions for WebSocket listeners
+const cleanups = [];
+
+// Get global session subscription for real-time updates across all projects
+const { onSessionCreated, onSessionUpdated, onSessionDeleted } = useGlobalSessionSubscription();
+
 onMounted(() => {
   sessionsStore.fetchActiveSessions();
 
-  // Auto-refresh every 10 seconds
+  // Set up WebSocket listeners for real-time updates
+  cleanups.push(
+    onSessionCreated((session) => {
+      // Add if it's an active session (running/waiting/starting)
+      if (['running', 'waiting', 'starting'].includes(session.status)) {
+        // Check if session already exists to avoid duplicates
+        const exists = sessionsStore.activeSessions.some((s) => s.id === session.id);
+        if (!exists) {
+          sessionsStore.activeSessions.unshift(session);
+        }
+      }
+    })
+  );
+
+  cleanups.push(
+    onSessionUpdated((session) => {
+      // Handle status transitions: add to active if becoming active, remove if not
+      const isActive = ['running', 'waiting', 'starting'].includes(session.status);
+      const existingIndex = sessionsStore.activeSessions.findIndex((s) => s.id === session.id);
+
+      if (isActive) {
+        if (existingIndex >= 0) {
+          // Update existing session
+          sessionsStore.activeSessions[existingIndex] = session;
+        } else {
+          // Add to active sessions
+          sessionsStore.activeSessions.unshift(session);
+        }
+      } else {
+        // Remove from active sessions if no longer active
+        if (existingIndex >= 0) {
+          sessionsStore.activeSessions.splice(existingIndex, 1);
+          // Clean up summary data
+          delete summaries[session.id];
+          delete loadingSummaries[session.id];
+          delete summaryErrors[session.id];
+        }
+      }
+    })
+  );
+
+  cleanups.push(
+    onSessionDeleted((sessionId) => {
+      const existingIndex = sessionsStore.activeSessions.findIndex((s) => s.id === sessionId);
+      if (existingIndex >= 0) {
+        sessionsStore.activeSessions.splice(existingIndex, 1);
+      }
+      // Clean up summary data
+      delete summaries[sessionId];
+      delete loadingSummaries[sessionId];
+      delete summaryErrors[sessionId];
+    })
+  );
+
+  // Keep polling as a fallback (increased to 30s since we have real-time updates)
   refreshInterval = setInterval(() => {
     sessionsStore.fetchActiveSessions(false);
-  }, 10000);
+  }, 30000);
 });
 
 onUnmounted(() => {
+  // Clean up WebSocket listeners
+  cleanups.forEach((cleanup) => cleanup());
   if (refreshInterval) {
     clearInterval(refreshInterval);
   }
