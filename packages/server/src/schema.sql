@@ -127,6 +127,19 @@ CREATE TABLE IF NOT EXISTS session_summaries (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
+-- Message attachments (files attached to user messages)
+CREATE TABLE IF NOT EXISTS message_attachments (
+  id TEXT PRIMARY KEY,
+  message_id TEXT REFERENCES conversation_messages(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  filename TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  storage_type TEXT NOT NULL DEFAULT 'base64' CHECK (storage_type IN ('base64', 'file_path', 'project_file')),
+  content TEXT,  -- base64 data or file path depending on storage_type
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
@@ -138,3 +151,5 @@ CREATE INDEX IF NOT EXISTS idx_todos_session ON session_todos(session_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_session ON work_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_message ON work_logs(message_id);
 CREATE INDEX IF NOT EXISTS idx_summaries_session ON session_summaries(session_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_message ON message_attachments(message_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_session ON message_attachments(session_id);

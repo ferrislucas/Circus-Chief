@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import { projects, sessions } from '../database.js';
+import { projects, sessions, attachments } from '../database.js';
 import { CreateProjectRequest, UpdateProjectRequest } from '@claudetools/shared/contracts/projects';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { upload, handleUploadError } from '../middleware/upload.js';
 
 const router = Router();
 
@@ -91,19 +92,31 @@ router.get('/:id/sessions', (req, res) => {
 });
 
 // POST /api/projects/:id/sessions - Create session
-router.post('/:id/sessions', async (req, res) => {
+// Supports both JSON and multipart/form-data (for file attachments)
+router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
 
-  const { prompt, name, mode, thinkingEnabled, gitBranch, gitMode } = req.body;
+  // Handle both JSON and form-data - parse booleans from form-data strings
+  const prompt = req.body.prompt;
+  const name = req.body.name;
+  const mode = req.body.mode;
+  const thinkingEnabled = req.body.thinkingEnabled === true || req.body.thinkingEnabled === 'true';
+  const gitBranch = req.body.gitBranch;
+  const gitMode = req.body.gitMode;
+  const files = req.files || [];
+
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
   const sessionName = name || generateInitialName(prompt);
   const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch);
+
+  // Store file attachments if any (associated with session, no message yet)
+  const sessionAttachments = attachments.createBatch(session.id, null, files);
 
   // Setup git environment (branch checkout or worktree creation)
   try {
@@ -119,9 +132,9 @@ router.post('/:id/sessions', async (req, res) => {
       sessions.update(session.id, { gitWorktree });
     }
 
-    // Start session manager (non-blocking)
+    // Start session manager (non-blocking) - pass attachments for context
     const { runSession } = await import('../services/sessionManager.js');
-    runSession(session.id, prompt, workingDirectory, project.systemPrompt).catch((error) => {
+    runSession(session.id, prompt, workingDirectory, project.systemPrompt, sessionAttachments).catch((error) => {
       console.error('Session error:', error);
       sessions.update(session.id, { status: 'error', error: error.message });
     });
