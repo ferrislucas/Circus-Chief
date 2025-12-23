@@ -17,6 +17,7 @@ export class ConversationRepository extends BaseRepository {
       summary: row.summary,
       summaryGeneratedAt: row.summary_generated_at,
       isActive: row.is_active === 1,
+      claudeSessionId: row.claude_session_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -118,6 +119,10 @@ export class ConversationRepository extends BaseRepository {
     if (data.summaryGeneratedAt !== undefined) {
       updates.push('summary_generated_at = ?');
       values.push(data.summaryGeneratedAt);
+    }
+    if (data.claudeSessionId !== undefined) {
+      updates.push('claude_session_id = ?');
+      values.push(data.claudeSessionId);
     }
     if (data.isActive !== undefined) {
       // If setting this conversation as active, deactivate others first

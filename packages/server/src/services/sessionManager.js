@@ -529,16 +529,15 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     throw new Error('Session not found');
   }
 
-  if (!session.claudeSessionId && !isMockMode()) {
-    throw new Error('Session has no Claude session ID - cannot resume');
-  }
-
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
   try {
     // Ensure there's an active conversation for this session
     const activeConversation = conversations.ensureActiveConversation(sessionId);
+
+    // Each conversation has its own Claude session context
+    // If null, Claude will start a fresh session (no resume)
 
     // Store the user message with conversation ID
     const message = messages.create(sessionId, 'user', content, null, activeConversation.id);
@@ -571,7 +570,9 @@ export async function continueSession(sessionId, content, workingDirectory, syst
             abortController: controller,
             includePartialMessages: true,
             permissionMode: getPermissionModeForSession(session.mode),
-            resume: session.claudeSessionId,
+            // Use conversation's claudeSessionId for context isolation
+            // Only pass resume if the conversation has an existing Claude session
+            ...(activeConversation.claudeSessionId && { resume: activeConversation.claudeSessionId }),
             ...(sessionEnv && { env: sessionEnv }),
             ...(session.model && { model: session.model }),
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
@@ -704,8 +705,15 @@ async function handleStreamEvent(sessionId, event) {
     case 'system': {
       // Store Claude's session info
       if (event.subtype === 'init') {
+        // Save Claude session ID to the active conversation for context isolation
+        const activeConversation = conversations.getActiveBySessionId(sessionId);
+        if (activeConversation) {
+          conversations.update(activeConversation.id, {
+            claudeSessionId: event.session_id,
+          });
+        }
+        // Still update session's model
         sessions.update(sessionId, {
-          claudeSessionId: event.session_id,
           model: event.model,
         });
         // Reset message tracking for new session
