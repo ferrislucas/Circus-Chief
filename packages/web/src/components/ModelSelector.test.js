@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import ModelSelector from './ModelSelector.vue';
 import { CLAUDE_MODELS } from '@claudetools/shared';
@@ -7,12 +7,13 @@ import { CLAUDE_MODELS } from '@claudetools/shared';
 const [sonnet, opus, haiku] = CLAUDE_MODELS;
 
 describe('ModelSelector', () => {
-  const mountComponent = (props = {}) => {
+  const mountComponent = (props = {}, attrs = {}) => {
     return mount(ModelSelector, {
       props: {
         modelValue: sonnet.id,
         ...props,
       },
+      attrs,
     });
   };
 
@@ -71,33 +72,38 @@ describe('ModelSelector', () => {
     });
   });
 
-  // TODO: These emit tests have a Vue Test Utils issue where custom events from
-  // inline template $emit() calls are not captured by wrapper.emitted().
-  // The component works correctly in production - this is a test environment issue.
-  // Similar to FileAttachment.test.js which is also skipped for Vue runtime issues.
-  describe.skip('interactions', () => {
+  describe('interactions', () => {
     it('emits update:modelValue when button clicked', async () => {
-      const wrapper = mountComponent({ modelValue: sonnet.id });
+      const onUpdateModelValue = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: sonnet.id },
+        { 'onUpdate:modelValue': onUpdateModelValue }
+      );
       const buttons = wrapper.findAll('.model-btn');
 
       await buttons[1].trigger('click');
 
-      expect(wrapper.emitted('update:modelValue')).toBeTruthy();
-      expect(wrapper.emitted('update:modelValue')[0]).toEqual([opus.id]);
+      expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
     });
 
     it('emits correct model id for each button', async () => {
-      const wrapper = mountComponent({ modelValue: sonnet.id });
+      const onUpdateModelValue = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: sonnet.id },
+        { 'onUpdate:modelValue': onUpdateModelValue }
+      );
       const buttons = wrapper.findAll('.model-btn');
 
       await buttons[0].trigger('click');
-      expect(wrapper.emitted('update:modelValue')[0]).toEqual([sonnet.id]);
+      expect(onUpdateModelValue).toHaveBeenCalledWith(sonnet.id);
 
       await buttons[1].trigger('click');
-      expect(wrapper.emitted('update:modelValue')[1]).toEqual([opus.id]);
+      expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
 
       await buttons[2].trigger('click');
-      expect(wrapper.emitted('update:modelValue')[2]).toEqual([haiku.id]);
+      expect(onUpdateModelValue).toHaveBeenCalledWith(haiku.id);
+
+      expect(onUpdateModelValue).toHaveBeenCalledTimes(3);
     });
   });
 
