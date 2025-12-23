@@ -80,29 +80,34 @@ test.describe('Session Templates - Empty State', () => {
     await expect(page.locator('.empty-state button:has-text("Create Template")')).toBeVisible();
   });
 
-  // TODO: Investigate Vue click handler not triggering in E2E tests
-  // The button click is executed but Vue's @click handler doesn't update the state
-  // This may be related to Vue 3 reactivity or the test environment
-  test.skip('empty state Create Template button opens form', async ({ page }) => {
+  test('empty state Create Template button opens form', async ({ page }) => {
+    // Capture console errors
+    const errors: string[] = [];
+    page.on('console', msg => {
+      if (msg.type() === 'error') errors.push(msg.text());
+    });
+
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
     await expect(page.locator('.templates-panel')).toBeVisible();
     await page.waitForLoadState('networkidle');
     await expect(page.locator('.empty-state')).toBeVisible();
 
-    const createBtn = page.locator('.empty-state button:has-text("Create Template")');
+    const createBtn = page.getByTestId('create-template-btn');
     await expect(createBtn).toBeVisible();
-    await createBtn.click();
+    await createBtn.click({ force: true });
 
-    await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
+    // Debug: log any console errors
+    if (errors.length > 0) {
+      console.log('Console errors:', errors);
+    }
+
+    await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('.template-form h3')).toHaveText('Create Template');
   });
 });
 
-// TODO: These form tests are skipped due to Vue click handler not triggering in E2E tests
-// The button click is executed but Vue's @click handler doesn't update the state
-// See: https://github.com/vuejs/core/issues/... (investigate further)
-test.describe.skip('Session Templates - Create Form', () => {
+test.describe('Session Templates - Create Form', () => {
   let project: any;
 
   test.beforeEach(async () => {
@@ -121,9 +126,10 @@ test.describe.skip('Session Templates - Create Form', () => {
     await page.goto(`/projects/${projectId}/sessions`);
     await page.click('.tab:has-text("Templates")');
     await expect(page.locator('.templates-panel')).toBeVisible();
+    await page.waitForLoadState('networkidle');
     await expect(page.locator('.empty-state')).toBeVisible();
-    await page.locator('.empty-state button:has-text("Create Template")').click();
-    await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
+    await page.getByTestId('create-template-btn').click();
+    await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
   }
 
   test('New Template button opens create form', async ({ page }) => {
@@ -131,8 +137,8 @@ test.describe.skip('Session Templates - Create Form', () => {
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
     await expect(page.getByText('[TEST] Existing')).toBeVisible();
-    await page.click('.templates-header button:has-text("New Template")');
-    await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
+    await page.getByTestId('new-template-btn').click();
+    await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
   });
 
   test('form has all required fields', async ({ page }) => {
@@ -145,8 +151,26 @@ test.describe.skip('Session Templates - Create Form', () => {
     await openCreateForm(page, project.id);
     await page.fill('.template-form input[placeholder="Template name"]', '[TEST] My Template');
     await page.fill('.template-form textarea', 'This is the template prompt');
-    await page.locator('.template-form button[type="submit"]').click();
-    await expect(page.getByText('[TEST] My Template')).toBeVisible();
+    await page.getByTestId('submit-btn').click();
+    await expect(page.getByText('[TEST] My Template')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('can create a global template', async ({ page }) => {
+    await openCreateForm(page, project.id);
+    await page.fill('.template-form input[placeholder="Template name"]', '[TEST] Global Template');
+    await page.fill('.template-form textarea', 'This is a global template prompt');
+    // Select global scope
+    await page.locator('.template-form select').first().selectOption('true');
+    await page.getByTestId('submit-btn').click();
+    await expect(page.getByText('[TEST] Global Template')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.meta-badge-global')).toBeVisible();
+  });
+
+  test('cancel button closes form', async ({ page }) => {
+    await openCreateForm(page, project.id);
+    await page.getByTestId('cancel-btn').click();
+    await expect(page.getByTestId('template-form')).not.toBeVisible();
+    await expect(page.locator('.empty-state')).toBeVisible();
   });
 });
 
@@ -252,8 +276,7 @@ test.describe('Session Templates - Display', () => {
   });
 });
 
-// TODO: Edit tests are skipped due to same Vue click handler issue as Create Form tests
-test.describe.skip('Session Templates - Edit', () => {
+test.describe('Session Templates - Edit', () => {
   let project: any;
   let template: any;
 
@@ -276,20 +299,47 @@ test.describe.skip('Session Templates - Edit', () => {
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
     await expect(page.getByText('[TEST] Editable Template')).toBeVisible();
-    await page.locator('.template-card').filter({ hasText: '[TEST] Editable Template' }).locator('.btn-icon').first().click();
-    await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
+    await page.locator('.template-card').filter({ hasText: '[TEST] Editable Template' }).getByTestId('edit-btn').click();
+    await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('.template-form h3')).toHaveText('Edit Template');
+  });
+
+  test('form is pre-filled with existing template data', async ({ page }) => {
+    await page.goto(`/projects/${project.id}/sessions`);
+    await page.click('.tab:has-text("Templates")');
+    await expect(page.getByText('[TEST] Editable Template')).toBeVisible();
+    await page.locator('.template-card').filter({ hasText: '[TEST] Editable Template' }).getByTestId('edit-btn').click();
+    await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
+
+    // Check form is pre-filled
+    await expect(page.locator('.template-form input[placeholder="Template name"]')).toHaveValue('[TEST] Editable Template');
+    await expect(page.locator('.template-form textarea')).toHaveValue('Original prompt');
   });
 
   test('can update template name and prompt', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
     await expect(page.getByText('[TEST] Editable Template')).toBeVisible();
-    await page.locator('.template-card').filter({ hasText: '[TEST] Editable Template' }).locator('.btn-icon').first().click();
-    await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
+    await page.locator('.template-card').filter({ hasText: '[TEST] Editable Template' }).getByTestId('edit-btn').click();
+    await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
     await page.fill('.template-form input[placeholder="Template name"]', '[TEST] Updated Template');
-    await page.locator('.template-form button[type="submit"]').click();
-    await expect(page.getByText('[TEST] Updated Template')).toBeVisible();
+    await page.getByTestId('submit-btn').click();
+    await expect(page.getByText('[TEST] Updated Template')).toBeVisible({ timeout: 10000 });
+    // Old name should not be visible
+    await expect(page.getByText('[TEST] Editable Template')).not.toBeVisible();
+  });
+
+  test('cancel edit returns to template list without changes', async ({ page }) => {
+    await page.goto(`/projects/${project.id}/sessions`);
+    await page.click('.tab:has-text("Templates")');
+    await expect(page.getByText('[TEST] Editable Template')).toBeVisible();
+    await page.locator('.template-card').filter({ hasText: '[TEST] Editable Template' }).getByTestId('edit-btn').click();
+    await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
+    await page.fill('.template-form input[placeholder="Template name"]', '[TEST] Changed Name');
+    await page.getByTestId('cancel-btn').click();
+    await expect(page.getByTestId('template-form')).not.toBeVisible();
+    // Original name should still be there
+    await expect(page.getByText('[TEST] Editable Template')).toBeVisible();
   });
 });
 
@@ -381,8 +431,7 @@ test.describe('Session Templates - Chaining', () => {
     await cleanupTemplates();
   });
 
-  // TODO: Skipped due to Vue click handler issue with form
-  test.skip('can chain templates when creating', async ({ page }) => {
+  test('can chain templates when creating', async ({ page }) => {
     const target = await seedProjectTemplate(project.id, {
       name: '[TEST] Target Template',
       prompt: 'Target prompt',
@@ -391,12 +440,13 @@ test.describe('Session Templates - Chaining', () => {
     await page.goto(`/projects/${project.id}/sessions`);
     await page.click('.tab:has-text("Templates")');
     await expect(page.getByText('[TEST] Target Template')).toBeVisible();
-    await page.click('.templates-header button:has-text("New Template")');
-    await expect(page.locator('.template-form')).toBeVisible({ timeout: 10000 });
+    await page.getByTestId('new-template-btn').click();
+    await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
     await page.fill('.template-form input[placeholder="Template name"]', '[TEST] Chained Template');
     await page.fill('.template-form textarea', 'Chain to another template');
+    // Select next template (second select dropdown)
     await page.locator('.template-form select').nth(1).selectOption(target.id);
-    await page.locator('.template-form button[type="submit"]').click();
+    await page.getByTestId('submit-btn').click();
     await expect(page.locator('.meta-badge-chain')).toBeVisible({ timeout: 10000 });
   });
 
