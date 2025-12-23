@@ -834,12 +834,22 @@ async function handleStreamEvent(sessionId, event) {
       if (event.subtype === 'error') {
         sessions.update(sessionId, { status: 'error', error: event.error });
         broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: event.error });
+        // Broadcast error status to project subscribers for session list updates
+        broadcastSessionStatus(sessionId, 'error');
         // Generate summary on error
         summaryService.onSessionComplete(sessionId);
       } else {
-        // Store cost info
+        // Store cost info and broadcast to project subscribers
         if (event.total_cost_usd !== undefined) {
-          sessions.update(sessionId, { costUsd: event.total_cost_usd });
+          const updatedSession = sessions.update(sessionId, { costUsd: event.total_cost_usd });
+          // Broadcast cost update to project subscribers for session list updates
+          if (updatedSession) {
+            broadcastToProject(updatedSession.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+              projectId: updatedSession.projectId,
+              sessionId,
+              session: updatedSession,
+            });
+          }
         }
       }
       // Note: Don't clear lastMessageIds here - let the post-loop association code handle it.

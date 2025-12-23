@@ -2,6 +2,8 @@ import { Liquid } from 'liquidjs';
 import { sessions, sessionTemplates, sessionSummaries, projects } from '../database.js';
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
+import { broadcastToProject } from '../websocket.js';
+import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
 const liquid = new Liquid();
 
@@ -105,10 +107,23 @@ export async function checkAndTriggerNextTemplate(sessionId) {
       sessions.update(newSession.id, { gitWorktree });
     }
 
+    // Get the fully updated session and broadcast to project subscribers
+    const updatedSession = sessions.getById(newSession.id);
+    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_CREATED, {
+      projectId: session.projectId,
+      session: updatedSession,
+    });
+
     // Start the new session (non-blocking)
     runSession(newSession.id, renderedPrompt, workingDirectory, project.systemPrompt).catch((error) => {
       console.error(`Template trigger: Error running session ${newSession.id}:`, error);
-      sessions.update(newSession.id, { status: 'error', error: error.message });
+      const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
+      // Broadcast error status to project subscribers for session list updates
+      broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: session.projectId,
+        sessionId: newSession.id,
+        session: errorSession,
+      });
     });
 
     console.log(`Template trigger: Created and started session ${newSession.id}`);

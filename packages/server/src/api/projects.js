@@ -162,7 +162,15 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
     res.status(201).json(updatedSession);
   } catch (error) {
     console.error('Git setup error:', error);
-    sessions.update(session.id, { status: 'error', error: error.message });
+    const updatedSession = sessions.update(session.id, { status: 'error', error: error.message });
+
+    // Broadcast error status to project subscribers for session list updates
+    broadcastToProject(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: req.params.id,
+      sessionId: session.id,
+      session: updatedSession,
+    });
+
     res.status(500).json({ error: `Git setup failed: ${error.message}` });
   }
 });
