@@ -1,23 +1,19 @@
 import { describe, it, expect, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import ModelSelector from './ModelSelector.vue';
+import { CLAUDE_MODELS } from '@claudetools/shared';
 
-// Mock the shared package
-vi.mock('@claudetools/shared', () => ({
-  CLAUDE_MODELS: [
-    { id: 'claude-sonnet-4-5-20250929', name: 'Sonnet 4.5', description: 'Balanced (default)' },
-    { id: 'claude-opus-4-5-20251101', name: 'Opus 4.5', description: 'Most capable' },
-    { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', description: 'Fast & lightweight' },
-  ],
-}));
+// Use actual model data from the shared package
+const [sonnet, opus, haiku] = CLAUDE_MODELS;
 
 describe('ModelSelector', () => {
-  const mountComponent = (props = {}) => {
+  const mountComponent = (props = {}, attrs = {}) => {
     return mount(ModelSelector, {
       props: {
-        modelValue: 'claude-sonnet-4-5-20250929',
+        modelValue: sonnet.id,
         ...props,
       },
+      attrs,
     });
   };
 
@@ -36,23 +32,23 @@ describe('ModelSelector', () => {
     it('displays model names on buttons', () => {
       const wrapper = mountComponent();
       const buttons = wrapper.findAll('.model-btn');
-      expect(buttons[0].text()).toBe('Sonnet 4.5');
-      expect(buttons[1].text()).toBe('Opus 4.5');
-      expect(buttons[2].text()).toBe('Haiku 4.5');
+      expect(buttons[0].text()).toBe(sonnet.name);
+      expect(buttons[1].text()).toBe(opus.name);
+      expect(buttons[2].text()).toBe(haiku.name);
     });
 
     it('shows description as title attribute', () => {
       const wrapper = mountComponent();
       const buttons = wrapper.findAll('.model-btn');
-      expect(buttons[0].attributes('title')).toBe('Balanced (default)');
-      expect(buttons[1].attributes('title')).toBe('Most capable');
-      expect(buttons[2].attributes('title')).toBe('Fast & lightweight');
+      expect(buttons[0].attributes('title')).toBe(sonnet.description);
+      expect(buttons[1].attributes('title')).toBe(opus.description);
+      expect(buttons[2].attributes('title')).toBe(haiku.description);
     });
   });
 
   describe('active state', () => {
     it('marks sonnet as active when selected', () => {
-      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-5-20250929' });
+      const wrapper = mountComponent({ modelValue: sonnet.id });
       const buttons = wrapper.findAll('.model-btn');
       expect(buttons[0].classes()).toContain('active');
       expect(buttons[1].classes()).not.toContain('active');
@@ -60,7 +56,7 @@ describe('ModelSelector', () => {
     });
 
     it('marks opus as active when selected', () => {
-      const wrapper = mountComponent({ modelValue: 'claude-opus-4-5-20251101' });
+      const wrapper = mountComponent({ modelValue: opus.id });
       const buttons = wrapper.findAll('.model-btn');
       expect(buttons[0].classes()).not.toContain('active');
       expect(buttons[1].classes()).toContain('active');
@@ -68,7 +64,7 @@ describe('ModelSelector', () => {
     });
 
     it('marks haiku as active when selected', () => {
-      const wrapper = mountComponent({ modelValue: 'claude-haiku-4-5-20251001' });
+      const wrapper = mountComponent({ modelValue: haiku.id });
       const buttons = wrapper.findAll('.model-btn');
       expect(buttons[0].classes()).not.toContain('active');
       expect(buttons[1].classes()).not.toContain('active');
@@ -78,27 +74,36 @@ describe('ModelSelector', () => {
 
   describe('interactions', () => {
     it('emits update:modelValue when button clicked', async () => {
-      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-5-20250929' });
+      const onUpdateModelValue = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: sonnet.id },
+        { 'onUpdate:modelValue': onUpdateModelValue }
+      );
       const buttons = wrapper.findAll('.model-btn');
 
       await buttons[1].trigger('click');
 
-      expect(wrapper.emitted('update:modelValue')).toBeTruthy();
-      expect(wrapper.emitted('update:modelValue')[0]).toEqual(['claude-opus-4-5-20251101']);
+      expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
     });
 
     it('emits correct model id for each button', async () => {
-      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-5-20250929' });
+      const onUpdateModelValue = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: sonnet.id },
+        { 'onUpdate:modelValue': onUpdateModelValue }
+      );
       const buttons = wrapper.findAll('.model-btn');
 
       await buttons[0].trigger('click');
-      expect(wrapper.emitted('update:modelValue')[0]).toEqual(['claude-sonnet-4-5-20250929']);
+      expect(onUpdateModelValue).toHaveBeenCalledWith(sonnet.id);
 
       await buttons[1].trigger('click');
-      expect(wrapper.emitted('update:modelValue')[1]).toEqual(['claude-opus-4-5-20251101']);
+      expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
 
       await buttons[2].trigger('click');
-      expect(wrapper.emitted('update:modelValue')[2]).toEqual(['claude-haiku-4-5-20251001']);
+      expect(onUpdateModelValue).toHaveBeenCalledWith(haiku.id);
+
+      expect(onUpdateModelValue).toHaveBeenCalledTimes(3);
     });
   });
 

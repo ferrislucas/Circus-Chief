@@ -7,7 +7,7 @@
         :key="m.id"
         type="button"
         :class="['model-btn', { active: modelValue === m.id }]"
-        @click="$emit('update:modelValue', m.id)"
+        @click="selectModel(m.id)"
         :disabled="disabled"
         :title="m.description"
       >
@@ -31,7 +31,11 @@ defineProps({
   },
 });
 
-defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue']);
+
+function selectModel(id) {
+  emit('update:modelValue', id);
+}
 
 const models = CLAUDE_MODELS;
 </script>

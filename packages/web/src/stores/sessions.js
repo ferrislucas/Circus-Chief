@@ -318,6 +318,31 @@ export const useSessionsStore = defineStore('sessions', {
     },
 
     /**
+     * Update session's next template (for template chaining)
+     * @param {string} sessionId - Session ID
+     * @param {string|null} nextTemplateId - Template ID or null to clear
+     * @returns {Promise<Object>}
+     */
+    async updateNextTemplate(sessionId, nextTemplateId) {
+      this.error = null;
+      try {
+        const updated = await api.updateSession(sessionId, { nextTemplateId });
+        // Update local state
+        const session = this.sessions.find((s) => s.id === sessionId);
+        if (session) {
+          session.nextTemplateId = nextTemplateId;
+        }
+        if (this.currentSession?.id === sessionId) {
+          this.currentSession = { ...this.currentSession, nextTemplateId };
+        }
+        return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    /**
      * Update session with new data from WebSocket
      * @param {Object} sessionData - Updated session data
      */

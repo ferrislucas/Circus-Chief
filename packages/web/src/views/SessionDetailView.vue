@@ -14,6 +14,9 @@
               {{ sessionsStore.currentSession.status }}
             </span>
             <span class="session-mode">{{ formatMode(sessionsStore.currentSession.mode) }}</span>
+            <span v-if="sessionsStore.currentSession.nextTemplateId" class="template-badge">
+              🔗 Next: {{ getTemplateName(sessionsStore.currentSession.nextTemplateId) }}
+            </span>
           </div>
           <div class="branch-line">
             <div class="branch-pr-indicators">
@@ -42,6 +45,15 @@
           </div>
         </div>
       </div>
+
+      <!-- Template Selector -->
+      <TemplateSelector
+        :session-id="sessionId"
+        :project-id="sessionsStore.currentSession.projectId"
+        :current-template-id="sessionsStore.currentSession.nextTemplateId"
+        :disabled="sessionsStore.currentSession.status === 'running' || sessionsStore.currentSession.status === 'starting'"
+        @update:template-id="handleTemplateChange"
+      />
 
       <div class="tabs">
         <router-link
@@ -105,6 +117,8 @@ import CanvasTab from '../components/CanvasTab.vue';
 import NotesTab from '../components/NotesTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
+import TemplateSelector from '../components/TemplateSelector.vue';
+import { useTemplatesStore } from '../stores/templates.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -112,6 +126,7 @@ const sessionsStore = useSessionsStore();
 const canvasStore = useCanvasStore();
 const todosStore = useTodosStore();
 const uiStore = useUiStore();
+const templatesStore = useTemplatesStore();
 
 // Capture session ID at component creation to avoid race conditions during navigation.
 // When navigating away, Vue Router updates route.params BEFORE unmounting the component.
@@ -213,6 +228,11 @@ onMounted(async () => {
   // Check for file system changes initially
   checkForChanges();
 
+  // Fetch templates for the selector
+  if (sessionsStore.currentSession?.projectId) {
+    templatesStore.fetchProjectTemplates(sessionsStore.currentSession.projectId);
+  }
+
   // Start polling if session is actively processing (handles race condition where session
   // completes before WebSocket subscription is established)
   const status = sessionsStore.currentSession?.status;
@@ -307,6 +327,20 @@ async function handleDelete() {
     uiStore.error(err.message);
   }
 }
+
+async function handleTemplateChange(templateId) {
+  try {
+    await sessionsStore.updateNextTemplate(sessionId, templateId);
+    uiStore.success(templateId ? 'Template assigned' : 'Template removed');
+  } catch (err) {
+    uiStore.error(err.message);
+  }
+}
+
+function getTemplateName(templateId) {
+  const template = templatesStore.getTemplateById(templateId);
+  return template?.name || 'Unknown template';
+}
 </script>
 
 <style scoped>
@@ -367,6 +401,19 @@ async function handleDelete() {
 .session-mode {
   font-size: 0.75rem;
   color: var(--color-text-soft);
+}
+
+.template-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #333;
+  background: var(--color-warning, #f0ad4e);
+  border-radius: 4px;
+  white-space: nowrap;
 }
 
 .branch-indicator {
