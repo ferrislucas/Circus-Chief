@@ -725,7 +725,11 @@ async function handleStreamEvent(sessionId, event) {
         const toolUse = toolUseBlocks.length > 0 ? toolUseBlocks : null;
         const message = messages.create(sessionId, 'assistant', textContent, toolUse);
 
-        // Track the message ID for end-of-turn work log association
+        // Associate pending work logs with this message immediately
+        // This ensures work logs are attached to the correct message, not just the last one
+        associateAndBroadcastWorkLogs(sessionId, message.id);
+
+        // Track the message ID in case there are trailing work logs after the last message
         lastMessageIds.set(sessionId, message.id);
 
         // Broadcast message
