@@ -250,6 +250,36 @@ export function useSessionSubscription(sessionId) {
     return () => off(WS_MESSAGE_TYPES.SESSION_UPDATED, handler);
   };
 
+  const onConversationCreated = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.conversation);
+      }
+    };
+    on(WS_MESSAGE_TYPES.CONVERSATION_CREATED, handler);
+    return () => off(WS_MESSAGE_TYPES.CONVERSATION_CREATED, handler);
+  };
+
+  const onConversationUpdated = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.conversation);
+      }
+    };
+    on(WS_MESSAGE_TYPES.CONVERSATION_UPDATED, handler);
+    return () => off(WS_MESSAGE_TYPES.CONVERSATION_UPDATED, handler);
+  };
+
+  const onConversationDeleted = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.conversationId, msg.newActiveConversation);
+      }
+    };
+    on(WS_MESSAGE_TYPES.CONVERSATION_DELETED, handler);
+    return () => off(WS_MESSAGE_TYPES.CONVERSATION_DELETED, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -271,6 +301,9 @@ export function useSessionSubscription(sessionId) {
     onSummaryUpdate,
     onSummaryGenerating,
     onSessionUpdate,
+    onConversationCreated,
+    onConversationUpdated,
+    onConversationDeleted,
   };
 }
 
