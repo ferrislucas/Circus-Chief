@@ -363,11 +363,20 @@ export async function generateSummary(sessionId, retryCount = 0) {
       }
       const updatedSession = sessions.update(sessionId, updateData);
 
-      // Broadcast session update for real-time UI sync
+      // Broadcast session update for real-time UI sync (session detail view)
       broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
         sessionId,
         session: updatedSession,
       });
+
+      // Also broadcast to project subscribers for session list updates
+      if (session.projectId) {
+        broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+          projectId: session.projectId,
+          sessionId,
+          session: updatedSession,
+        });
+      }
     }
 
     // Broadcast updated summary to session subscribers

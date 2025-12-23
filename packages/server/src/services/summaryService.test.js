@@ -695,6 +695,41 @@ describe('summaryService', () => {
       expect(sessionUpdatedCall[0]).toBe(sessionId);
       expect(sessionUpdatedCall[2].session.id).toBe(sessionId);
     });
+
+    it('broadcasts SESSION_UPDATED to project subscribers when session name changes', async () => {
+      await summaryService.generateSummary(sessionId);
+
+      // Find the project broadcast call for session:updated
+      const projectUpdatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === 'session:updated'
+      );
+      expect(projectUpdatedCalls.length).toBeGreaterThan(0);
+
+      const projectUpdatedCall = projectUpdatedCalls[0];
+      expect(projectUpdatedCall[0]).toBe(projectId); // First arg is projectId
+      expect(projectUpdatedCall[2].projectId).toBe(projectId);
+      expect(projectUpdatedCall[2].sessionId).toBe(sessionId);
+      expect(projectUpdatedCall[2].session).toBeDefined();
+      expect(projectUpdatedCall[2].session.name).toContain('Mock:');
+    });
+
+    it('broadcasts session name update to both session and project subscribers', async () => {
+      await summaryService.generateSummary(sessionId);
+
+      // Both should have session:updated broadcasts
+      const sessionUpdatedCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === 'session:updated'
+      );
+      const projectUpdatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === 'session:updated'
+      );
+
+      expect(sessionUpdatedCalls.length).toBe(1);
+      expect(projectUpdatedCalls.length).toBe(1);
+
+      // Both should have the same session data
+      expect(sessionUpdatedCalls[0][2].session.id).toBe(projectUpdatedCalls[0][2].session.id);
+    });
   });
 
   describe('getSummary', () => {
