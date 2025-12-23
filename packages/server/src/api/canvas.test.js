@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { canvasItems, projects } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { existsSync, rmSync } from 'fs';
+import { isBinaryContent, getTypeFromExtension } from './canvas.js';
 
 /**
  * Extracts mimeType and base64 data from request body for canvas image items.
@@ -395,6 +396,182 @@ describe('Canvas API', () => {
 
       expect(item.content).toBe('# Heading\n\nParagraph text.');
       expect(item.type).toBe('markdown');
+    });
+  });
+
+  describe('isBinaryContent', () => {
+    it('returns true for buffer containing null bytes', () => {
+      const buffer = Buffer.from([0x48, 0x65, 0x00, 0x6c, 0x6f]); // "He\0lo"
+      expect(isBinaryContent(buffer)).toBe(true);
+    });
+
+    it('returns false for plain text buffer', () => {
+      const buffer = Buffer.from('Hello, world!', 'utf-8');
+      expect(isBinaryContent(buffer)).toBe(false);
+    });
+
+    it('returns false for UTF-8 text with special characters', () => {
+      const buffer = Buffer.from('Hello, 世界! 🌍', 'utf-8');
+      expect(isBinaryContent(buffer)).toBe(false);
+    });
+
+    it('returns true for binary data with null bytes (like PNG image data)', () => {
+      // PNG files typically have null bytes in the image data portion
+      const pngData = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D]);
+      expect(isBinaryContent(pngData)).toBe(true);
+    });
+
+    it('only checks first 8KB of large buffers', () => {
+      const largeText = Buffer.alloc(16384, 0x41); // 16KB of 'A'
+      largeText[10000] = 0x00; // Null byte after 8KB mark
+      expect(isBinaryContent(largeText)).toBe(false);
+    });
+
+    it('returns true for null byte within first 8KB', () => {
+      const buffer = Buffer.alloc(10000, 0x41); // 10KB of 'A'
+      buffer[5000] = 0x00; // Null byte at 5KB
+      expect(isBinaryContent(buffer)).toBe(true);
+    });
+
+    it('returns false for empty buffer', () => {
+      const buffer = Buffer.alloc(0);
+      expect(isBinaryContent(buffer)).toBe(false);
+    });
+  });
+
+  describe('getTypeFromExtension', () => {
+    it('returns "image" for image extensions', () => {
+      expect(getTypeFromExtension('.png')).toBe('image');
+      expect(getTypeFromExtension('.jpg')).toBe('image');
+      expect(getTypeFromExtension('.jpeg')).toBe('image');
+      expect(getTypeFromExtension('.gif')).toBe('image');
+      expect(getTypeFromExtension('.webp')).toBe('image');
+      expect(getTypeFromExtension('.svg')).toBe('image');
+      expect(getTypeFromExtension('.bmp')).toBe('image');
+      expect(getTypeFromExtension('.ico')).toBe('image');
+    });
+
+    it('returns "pdf" for .pdf extension', () => {
+      expect(getTypeFromExtension('.pdf')).toBe('pdf');
+    });
+
+    it('returns "json" for json extensions', () => {
+      expect(getTypeFromExtension('.json')).toBe('json');
+      expect(getTypeFromExtension('.jsonc')).toBe('json');
+      expect(getTypeFromExtension('.json5')).toBe('json');
+    });
+
+    it('returns "markdown" for markdown extensions', () => {
+      expect(getTypeFromExtension('.md')).toBe('markdown');
+      expect(getTypeFromExtension('.mdx')).toBe('markdown');
+      expect(getTypeFromExtension('.markdown')).toBe('markdown');
+    });
+
+    it('returns "code" for code file extensions', () => {
+      expect(getTypeFromExtension('.js')).toBe('code');
+      expect(getTypeFromExtension('.ts')).toBe('code');
+      expect(getTypeFromExtension('.tsx')).toBe('code');
+      expect(getTypeFromExtension('.jsx')).toBe('code');
+      expect(getTypeFromExtension('.py')).toBe('code');
+      expect(getTypeFromExtension('.go')).toBe('code');
+      expect(getTypeFromExtension('.rs')).toBe('code');
+      expect(getTypeFromExtension('.vue')).toBe('code');
+      expect(getTypeFromExtension('.css')).toBe('code');
+      expect(getTypeFromExtension('.html')).toBe('code');
+      expect(getTypeFromExtension('.sh')).toBe('code');
+      expect(getTypeFromExtension('.sql')).toBe('code');
+    });
+
+    it('returns "code" for config file extensions', () => {
+      expect(getTypeFromExtension('.yaml')).toBe('code');
+      expect(getTypeFromExtension('.yml')).toBe('code');
+      expect(getTypeFromExtension('.toml')).toBe('code');
+      expect(getTypeFromExtension('.xml')).toBe('code');
+    });
+
+    it('returns null for unknown extensions', () => {
+      expect(getTypeFromExtension('.xyz')).toBe(null);
+      expect(getTypeFromExtension('.unknown')).toBe(null);
+      expect(getTypeFromExtension('.bin')).toBe(null);
+    });
+  });
+
+  describe('Code Canvas Item Creation', () => {
+    let sessionId;
+
+    beforeEach(() => {
+      const project = projects.create('Test Project', '/tmp/test');
+      const now = Date.now();
+      const id = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, project.id, 'Test Session', 'running', 'standard', now, now);
+      sessionId = id;
+    });
+
+    it('creates code canvas item with content field', () => {
+      const item = canvasItems.create(sessionId, {
+        type: 'code',
+        content: 'function hello() { return "world"; }',
+        mimeType: 'text/javascript',
+        filename: 'hello.js',
+      });
+
+      expect(item.type).toBe('code');
+      expect(item.content).toBe('function hello() { return "world"; }');
+      expect(item.mimeType).toBe('text/javascript');
+      expect(item.filename).toBe('hello.js');
+    });
+
+    it('creates code item from TypeScript file', () => {
+      const item = canvasItems.create(sessionId, {
+        type: 'code',
+        content: 'const x: number = 42;',
+        mimeType: 'text/typescript',
+        filename: 'test.ts',
+      });
+
+      expect(item.type).toBe('code');
+      expect(item.content).toBe('const x: number = 42;');
+    });
+
+    it('creates code item from Python file', () => {
+      const item = canvasItems.create(sessionId, {
+        type: 'code',
+        content: 'def hello():\n    return "world"',
+        mimeType: 'text/x-python',
+        filename: 'hello.py',
+      });
+
+      expect(item.type).toBe('code');
+      expect(item.content).toBe('def hello():\n    return "world"');
+    });
+
+    it('creates code item with label', () => {
+      const item = canvasItems.create(sessionId, {
+        type: 'code',
+        content: 'package main',
+        mimeType: 'text/x-go',
+        filename: 'main.go',
+        label: 'Go entry point',
+      });
+
+      expect(item.type).toBe('code');
+      expect(item.label).toBe('Go entry point');
+    });
+
+    it('retrieves code canvas item correctly', () => {
+      const created = canvasItems.create(sessionId, {
+        type: 'code',
+        content: 'console.log("test");',
+        mimeType: 'text/javascript',
+        filename: 'test.js',
+      });
+
+      const retrieved = canvasItems.getById(created.id);
+      expect(retrieved.type).toBe('code');
+      expect(retrieved.content).toBe('console.log("test");');
+      expect(retrieved.filename).toBe('test.js');
     });
   });
 });

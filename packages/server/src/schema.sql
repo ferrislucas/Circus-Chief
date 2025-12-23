@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 CREATE TABLE IF NOT EXISTS canvas_items (
   id TEXT PRIMARY KEY,
   session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
-  type TEXT NOT NULL CHECK (type IN ('image', 'markdown', 'text', 'json', 'pdf')),
+  type TEXT NOT NULL CHECK (type IN ('image', 'markdown', 'text', 'json', 'pdf', 'code')),
   content TEXT,           -- For markdown/text
   data TEXT,              -- For json (stored as JSON string) or image (base64)
   mime_type TEXT,         -- For images

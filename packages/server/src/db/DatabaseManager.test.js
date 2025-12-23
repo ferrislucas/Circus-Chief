@@ -162,4 +162,87 @@ describe('DatabaseManager', () => {
       expect(tableSchema.sql).toContain("'stopped'");
     });
   });
+
+  describe('canvas_items type migration', () => {
+    it('allows code type in canvas_items table', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      // Create a project and session first
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-canvas-1', 'Test Project', '/tmp', now, now);
+      db.prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('sess-canvas-1', 'proj-canvas-1', 'Test Session', 'running', now, now);
+
+      // This should NOT throw - code type should be allowed
+      expect(() => {
+        db.prepare('INSERT INTO canvas_items (id, session_id, type, content, filename, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+          .run('canvas-1', 'sess-canvas-1', 'code', 'const x = 1;', 'test.js', now);
+      }).not.toThrow();
+
+      // Verify the insert worked
+      const item = db.prepare('SELECT * FROM canvas_items WHERE id = ?').get('canvas-1');
+      expect(item.type).toBe('code');
+      expect(item.content).toBe('const x = 1;');
+    });
+
+    it('canvas_items table schema includes code in CHECK constraint', () => {
+      const db = manager.get();
+      const tableSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='canvas_items'").get();
+
+      expect(tableSchema.sql).toContain("'code'");
+    });
+
+    it('still allows existing types after migration', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-canvas-2', 'Test Project 2', '/tmp', now, now);
+      db.prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('sess-canvas-2', 'proj-canvas-2', 'Test Session 2', 'running', now, now);
+
+      // All original types should still work
+      expect(() => {
+        db.prepare('INSERT INTO canvas_items (id, session_id, type, content, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run('c-1', 'sess-canvas-2', 'text', 'plain text', now);
+      }).not.toThrow();
+
+      expect(() => {
+        db.prepare('INSERT INTO canvas_items (id, session_id, type, content, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run('c-2', 'sess-canvas-2', 'markdown', '# Heading', now);
+      }).not.toThrow();
+
+      expect(() => {
+        db.prepare('INSERT INTO canvas_items (id, session_id, type, data, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run('c-3', 'sess-canvas-2', 'json', '{"key":"value"}', now);
+      }).not.toThrow();
+
+      expect(() => {
+        db.prepare('INSERT INTO canvas_items (id, session_id, type, data, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run('c-4', 'sess-canvas-2', 'image', 'base64data', now);
+      }).not.toThrow();
+
+      expect(() => {
+        db.prepare('INSERT INTO canvas_items (id, session_id, type, data, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run('c-5', 'sess-canvas-2', 'pdf', 'base64pdfdata', now);
+      }).not.toThrow();
+    });
+
+    it('rejects invalid canvas item type', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-canvas-3', 'Test Project 3', '/tmp', now, now);
+      db.prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('sess-canvas-3', 'proj-canvas-3', 'Test Session 3', 'running', now, now);
+
+      // Invalid type should throw
+      expect(() => {
+        db.prepare('INSERT INTO canvas_items (id, session_id, type, content, created_at) VALUES (?, ?, ?, ?, ?)')
+          .run('c-invalid', 'sess-canvas-3', 'invalid_type', 'content', now);
+      }).toThrow();
+    });
+  });
 });

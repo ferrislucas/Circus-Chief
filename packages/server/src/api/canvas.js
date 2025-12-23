@@ -10,7 +10,7 @@ import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Map file extensions to MIME types
+// Map file extensions to MIME types for binary files (images/PDF)
 const MIME_TYPES = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -22,6 +22,108 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon',
   '.pdf': 'application/pdf',
 };
+
+// Text-based file extensions mapped to MIME types
+const TEXT_EXTENSIONS = {
+  // Code files
+  '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.cjs': 'text/javascript',
+  '.ts': 'text/typescript',
+  '.mts': 'text/typescript',
+  '.cts': 'text/typescript',
+  '.jsx': 'text/javascript',
+  '.tsx': 'text/typescript',
+  '.py': 'text/x-python',
+  '.rb': 'text/x-ruby',
+  '.go': 'text/x-go',
+  '.rs': 'text/x-rust',
+  '.java': 'text/x-java',
+  '.c': 'text/x-c',
+  '.cpp': 'text/x-c++',
+  '.h': 'text/x-c',
+  '.hpp': 'text/x-c++',
+  '.cs': 'text/x-csharp',
+  '.php': 'text/x-php',
+  '.swift': 'text/x-swift',
+  '.kt': 'text/x-kotlin',
+  '.scala': 'text/x-scala',
+  '.sh': 'text/x-shellscript',
+  '.bash': 'text/x-shellscript',
+  '.zsh': 'text/x-shellscript',
+  '.sql': 'text/x-sql',
+  '.html': 'text/html',
+  '.htm': 'text/html',
+  '.css': 'text/css',
+  '.scss': 'text/x-scss',
+  '.sass': 'text/x-sass',
+  '.less': 'text/x-less',
+  '.vue': 'text/x-vue',
+  '.svelte': 'text/x-svelte',
+  // Config/data files
+  '.yaml': 'text/yaml',
+  '.yml': 'text/yaml',
+  '.toml': 'text/x-toml',
+  '.xml': 'text/xml',
+  '.ini': 'text/plain',
+  '.cfg': 'text/plain',
+  '.conf': 'text/plain',
+  '.env': 'text/plain',
+  '.properties': 'text/plain',
+  // Special files
+  '.gitignore': 'text/plain',
+  '.dockerignore': 'text/plain',
+  '.editorconfig': 'text/plain',
+  '.prettierrc': 'text/plain',
+  '.eslintrc': 'text/plain',
+  // Markdown
+  '.md': 'text/markdown',
+  '.mdx': 'text/markdown',
+  '.markdown': 'text/markdown',
+  // Plain text
+  '.txt': 'text/plain',
+  '.log': 'text/plain',
+  '.csv': 'text/csv',
+  // JSON
+  '.json': 'application/json',
+  '.jsonc': 'application/json',
+  '.json5': 'application/json',
+};
+
+/**
+ * Check if a buffer contains binary content by looking for null bytes
+ * @param {Buffer} buffer - The buffer to check
+ * @returns {boolean} True if binary content detected
+ */
+export function isBinaryContent(buffer) {
+  // Check first 8KB for null bytes (common indicator of binary content)
+  const checkLength = Math.min(buffer.length, 8192);
+  for (let i = 0; i < checkLength; i++) {
+    if (buffer[i] === 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Determine canvas type from file extension
+ * @param {string} ext - The file extension (with leading dot)
+ * @returns {string|null} The canvas type or null if unknown
+ */
+export function getTypeFromExtension(ext) {
+  if (MIME_TYPES[ext]) {
+    return ext === '.pdf' ? 'pdf' : 'image';
+  }
+  if (ext === '.json' || ext === '.jsonc' || ext === '.json5') {
+    return 'json';
+  }
+  if (ext === '.md' || ext === '.mdx' || ext === '.markdown') {
+    return 'markdown';
+  }
+  if (TEXT_EXTENSIONS[ext]) {
+    return 'code';
+  }
+  return null; // Unknown, will try binary detection
+}
 
 // POST /api/sessions/:id/canvas - Add canvas item
 router.post('/:id/canvas', upload.single('file'), (req, res) => {
@@ -49,39 +151,59 @@ router.post('/:id/canvas', upload.single('file'), (req, res) => {
       return res.status(400).json({ error: 'Type is required' });
     }
 
-    // Handle image or PDF from file path
-    if ((type === 'image' || type === 'pdf') && filePath) {
+    // Handle file from file path
+    if (filePath) {
       if (!existsSync(filePath)) {
         return res.status(400).json({ error: `File not found: ${filePath}` });
       }
 
       const ext = extname(filePath).toLowerCase();
-      const detectedMimeType = MIME_TYPES[ext];
-      if (!detectedMimeType) {
-        return res.status(400).json({
-          error: `Unsupported file format: ${ext}. Supported formats: ${Object.keys(MIME_TYPES).join(', ')}`
-        });
-      }
-
-      // Determine actual type from extension (pdf vs image)
-      const actualType = ext === '.pdf' ? 'pdf' : 'image';
+      let detectedType = getTypeFromExtension(ext);
+      let detectedMimeType = MIME_TYPES[ext] || TEXT_EXTENSIONS[ext];
 
       try {
         const fileBuffer = readFileSync(filePath);
-        const base64 = fileBuffer.toString('base64');
-        itemData = {
-          type: actualType,
-          data: base64,
-          mimeType: detectedMimeType,
-          filename: filePath.split('/').pop(),
-          label: label || title || null,
-          width: width || null,
-          height: height || null,
-        };
+
+        // For unknown extensions, detect if binary or text
+        if (!detectedType) {
+          if (isBinaryContent(fileBuffer)) {
+            return res.status(400).json({
+              error: `Unsupported binary file format: ${ext}. Supported binary formats: ${Object.keys(MIME_TYPES).join(', ')}`
+            });
+          }
+          // It's a text file with unknown extension, treat as code
+          detectedType = 'code';
+          detectedMimeType = 'text/plain';
+        }
+
+        // Handle binary types (image, pdf)
+        if (detectedType === 'image' || detectedType === 'pdf') {
+          const base64 = fileBuffer.toString('base64');
+          itemData = {
+            type: detectedType,
+            data: base64,
+            mimeType: detectedMimeType,
+            filename: filePath.split('/').pop(),
+            label: label || title || null,
+            width: width || null,
+            height: height || null,
+          };
+        } else {
+          // Handle text-based types (code, markdown, text, json)
+          const textContent = fileBuffer.toString('utf-8');
+          itemData = {
+            type: detectedType,
+            content: detectedType === 'json' ? null : textContent,
+            data: detectedType === 'json' ? textContent : null,
+            mimeType: detectedMimeType,
+            filename: filePath.split('/').pop(),
+            label: label || title || null,
+          };
+        }
       } catch (err) {
         return res.status(400).json({ error: `Failed to read file: ${err.message}` });
       }
-    } else {
+    } else if (type === 'image' || type === 'pdf') {
       // Handle data URL format: extract mimeType and base64 data from "data:image/jpeg;base64,..."
       let extractedMimeType = mimeType || null;
       let extractedData = typeof data === 'object' ? JSON.stringify(data) : data || null;
@@ -112,6 +234,17 @@ router.post('/:id/canvas', upload.single('file'), (req, res) => {
         data: extractedData,
         mimeType: extractedMimeType,
         label: label || title || null, // Support both 'label' and 'title' fields
+        width: width || null,
+        height: height || null,
+      };
+    } else {
+      // Handle other types (markdown, text, json, code) without filePath
+      itemData = {
+        type,
+        content: content || null,
+        data: typeof data === 'object' ? JSON.stringify(data) : data || null,
+        mimeType: mimeType || null,
+        label: label || title || null,
         width: width || null,
         height: height || null,
       };
@@ -184,7 +317,7 @@ router.get('/:id/canvas/file/:filename', async (req, res) => {
       // JSON: write the data field
       await writeFile(filePath, item.data || '{}');
     } else {
-      // text/markdown: write content field
+      // text/markdown/code: write content field
       await writeFile(filePath, item.content || '');
     }
 
