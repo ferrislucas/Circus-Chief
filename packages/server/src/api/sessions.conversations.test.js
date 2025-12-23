@@ -24,23 +24,26 @@ describe('Sessions API - Conversation Endpoints', () => {
   });
 
   describe('GET /sessions/:id/conversations', () => {
-    it('returns empty array when no conversations exist', () => {
+    it('returns initial conversation created with session', () => {
+      // Sessions now auto-create an initial conversation with the initial message
       const result = conversations.getBySessionIdWithMessageCount(session.id);
-      expect(result).toEqual([]);
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('Initial');
+      expect(result[0].messageCount).toBe(1); // Initial user message
     });
 
     it('returns all conversations with message counts', () => {
-      const conv1 = conversations.create(session.id, 'Conv 1', true);
+      // Session already has initial conversation with 1 message
+      const initialConv = conversations.getActiveBySessionId(session.id);
       const conv2 = conversations.create(session.id, 'Conv 2', false);
 
-      messages.create(session.id, 'user', 'Hello', null, conv1.id);
-      messages.create(session.id, 'assistant', 'Hi', null, conv1.id);
+      messages.create(session.id, 'assistant', 'Hi', null, initialConv.id);
       messages.create(session.id, 'user', 'Test', null, conv2.id);
 
       const result = conversations.getBySessionIdWithMessageCount(session.id);
 
       expect(result).toHaveLength(2);
-      expect(result.find((c) => c.id === conv1.id).messageCount).toBe(2);
+      expect(result.find((c) => c.id === initialConv.id).messageCount).toBe(2); // Initial + assistant
       expect(result.find((c) => c.id === conv2.id).messageCount).toBe(1);
     });
   });
@@ -147,13 +150,14 @@ describe('Sessions API - Conversation Endpoints', () => {
 
   describe('DELETE /sessions/:id/conversations/:convId', () => {
     it('deletes conversation', () => {
+      // Session already has initial conversation
       const conv = conversations.create(session.id, 'To Delete', false);
       conversations.create(session.id, 'Keep', true);
 
       conversations.deleteAndHandleActive(conv.id);
 
       const all = conversations.getBySessionId(session.id);
-      expect(all).toHaveLength(1);
+      expect(all).toHaveLength(2); // Initial + Keep
       expect(all.find((c) => c.id === conv.id)).toBeUndefined();
     });
 

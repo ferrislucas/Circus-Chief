@@ -1,6 +1,6 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
-import { messages } from './index.js';
+import { messages, conversations } from './index.js';
 
 /**
  * Session repository class
@@ -42,8 +42,9 @@ export class SessionRepository extends BaseRepository {
       )
       .run(id, projectId, name, mode, thinkingEnabled ? 1 : 0, gitBranch, model, now, now);
 
-    // Create initial user message
-    messages.create(id, 'user', prompt);
+    // Create initial conversation and user message
+    const conversation = conversations.create(id, 'Initial', true);
+    messages.create(id, 'user', prompt, null, conversation.id);
 
     return this.getById(id);
   }

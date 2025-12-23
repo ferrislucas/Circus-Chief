@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { sessions, messages, workLogs, attachments } from '../database.js';
+import { sessions, messages, workLogs, attachments, conversations } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
 import { updateTodos } from './todoStore.js';
@@ -537,8 +537,11 @@ export async function continueSession(sessionId, content, workingDirectory, syst
   activeSessions.set(sessionId, { controller });
 
   try {
-    // Store the user message
-    const message = messages.create(sessionId, 'user', content);
+    // Ensure there's an active conversation for this session
+    const activeConversation = conversations.ensureActiveConversation(sessionId);
+
+    // Store the user message with conversation ID
+    const message = messages.create(sessionId, 'user', content, null, activeConversation.id);
     broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
 
     // Associate any pending attachments with the message
@@ -723,7 +726,9 @@ async function handleStreamEvent(sessionId, event) {
 
       if (textContent) {
         const toolUse = toolUseBlocks.length > 0 ? toolUseBlocks : null;
-        const message = messages.create(sessionId, 'assistant', textContent, toolUse);
+        const activeConversation = conversations.getActiveBySessionId(sessionId);
+        const conversationId = activeConversation?.id || null;
+        const message = messages.create(sessionId, 'assistant', textContent, toolUse, conversationId);
 
         // Associate pending work logs with this message immediately
         // This ensures work logs are attached to the correct message, not just the last one

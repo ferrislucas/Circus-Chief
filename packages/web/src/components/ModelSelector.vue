@@ -33,11 +33,11 @@ defineProps({
 
 const emit = defineEmits(['update:modelValue']);
 
+const models = CLAUDE_MODELS;
+
 function selectModel(id) {
   emit('update:modelValue', id);
 }
-
-const models = CLAUDE_MODELS;
 </script>
 
 <style scoped>

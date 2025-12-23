@@ -45,13 +45,14 @@ describe('Sessions Conversations API', () => {
     });
 
     it('retrieves all conversations for a session', () => {
+      // Session already has 1 initial conversation
       conversations.create(session.id, 'Conv 1', false);
       conversations.create(session.id, 'Conv 2', false);
       conversations.create(session.id, 'Conv 3', true);
 
       const all = conversations.getBySessionId(session.id);
 
-      expect(all).toHaveLength(3);
+      expect(all).toHaveLength(4); // 3 new + 1 initial
     });
 
     it('retrieves active conversation for a session', () => {
@@ -64,12 +65,12 @@ describe('Sessions Conversations API', () => {
       expect(result.name).toBe('Active');
     });
 
-    it('returns null when no active conversation', () => {
-      conversations.create(session.id, 'Inactive', false);
-
+    it('returns initial active conversation after session creation', () => {
+      // Sessions now auto-create an initial conversation
       const result = conversations.getActiveBySessionId(session.id);
 
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result.name).toBe('Initial');
     });
 
     it('updates conversation name', () => {
@@ -105,43 +106,52 @@ describe('Sessions Conversations API', () => {
       expect(activeCount).toBe(1);
     });
 
-    it('ensureActiveConversation creates one if none exists', () => {
-      // No conversations yet
-      expect(conversations.getBySessionId(session.id)).toHaveLength(0);
+    it('ensureActiveConversation returns initial conversation', () => {
+      // Session already has an initial conversation
+      expect(conversations.getBySessionId(session.id)).toHaveLength(1);
 
       const conv = conversations.ensureActiveConversation(session.id);
 
       expect(conv.isActive).toBe(true);
+      expect(conv.name).toBe('Initial');
       expect(conversations.getBySessionId(session.id)).toHaveLength(1);
     });
 
     it('ensureActiveConversation returns existing active', () => {
+      // Session has initial conversation, create another one and make it active
       const existing = conversations.create(session.id, 'Existing', true);
 
       const result = conversations.ensureActiveConversation(session.id);
 
       expect(result.id).toBe(existing.id);
-      expect(conversations.getBySessionId(session.id)).toHaveLength(1);
+      expect(conversations.getBySessionId(session.id)).toHaveLength(2); // Initial + new
     });
 
     it('ensureActiveConversation activates first if none active', () => {
-      const conv1 = conversations.create(session.id, 'Conv 1', false);
+      // Get the initial conversation and deactivate it
+      const initial = conversations.getActiveBySessionId(session.id);
+      conversations.update(initial.id, { isActive: false });
+
+      // Create more inactive conversations
       conversations.create(session.id, 'Conv 2', false);
 
       const result = conversations.ensureActiveConversation(session.id);
 
-      expect(result.id).toBe(conv1.id);
+      // Should activate the initial (first) conversation
+      expect(result.id).toBe(initial.id);
       expect(result.isActive).toBe(true);
     });
   });
 
   describe('Conversation deletion', () => {
     it('deletes a conversation', () => {
+      // Session has initial conversation, create another one to delete
       const conv = conversations.create(session.id, 'To Delete', false);
+      expect(conversations.getBySessionId(session.id)).toHaveLength(2);
 
       conversations.deleteAndHandleActive(conv.id, session.id);
 
-      expect(conversations.getBySessionId(session.id)).toHaveLength(0);
+      expect(conversations.getBySessionId(session.id)).toHaveLength(1); // Initial remains
     });
 
     it('deleting active conversation activates another', () => {
@@ -201,11 +211,13 @@ describe('Sessions Conversations API', () => {
     });
 
     it('message count is 0 for empty conversation', () => {
-      conversations.create(session.id, 'Empty', true);
+      const emptyConv = conversations.create(session.id, 'Empty', true);
 
       const convs = conversations.getBySessionIdWithMessageCount(session.id);
 
-      expect(convs[0].messageCount).toBe(0);
+      // Find the empty conversation we just created (initial has 1 message)
+      const empty = convs.find(c => c.id === emptyConv.id);
+      expect(empty.messageCount).toBe(0);
     });
   });
 
@@ -323,10 +335,11 @@ describe('Sessions Conversations API', () => {
 
   describe('Session lifecycle integration', () => {
     it('conversations deleted when session deleted', () => {
+      // Session already has 1 initial conversation
       conversations.create(session.id, 'Conv 1', true);
       conversations.create(session.id, 'Conv 2', false);
 
-      expect(conversations.getBySessionId(session.id)).toHaveLength(2);
+      expect(conversations.getBySessionId(session.id)).toHaveLength(3); // Initial + 2 new
 
       sessions.delete(session.id);
 
@@ -343,18 +356,19 @@ describe('Sessions Conversations API', () => {
     });
 
     it('multiple sessions have independent conversations', () => {
+      // Each session auto-creates an initial conversation
       const session2 = sessions.create(project.id, 'Session 2', 'Prompt 2', 'standard');
 
       conversations.create(session.id, 'Session 1 Conv', true);
       conversations.create(session2.id, 'Session 2 Conv', true);
 
-      expect(conversations.getBySessionId(session.id)).toHaveLength(1);
-      expect(conversations.getBySessionId(session2.id)).toHaveLength(1);
+      expect(conversations.getBySessionId(session.id)).toHaveLength(2); // Initial + new
+      expect(conversations.getBySessionId(session2.id)).toHaveLength(2); // Initial + new
 
       // Deleting one session doesn't affect the other
       sessions.delete(session.id);
 
-      expect(conversations.getBySessionId(session2.id)).toHaveLength(1);
+      expect(conversations.getBySessionId(session2.id)).toHaveLength(2);
 
       // Cleanup
       sessions.delete(session2.id);
@@ -363,15 +377,18 @@ describe('Sessions Conversations API', () => {
 
   describe('Conversation ordering', () => {
     it('conversations returned in createdAt order (oldest first)', () => {
+      // Session already has initial conversation at index 0
       const conv1 = conversations.create(session.id, 'First', false);
       const conv2 = conversations.create(session.id, 'Second', false);
       const conv3 = conversations.create(session.id, 'Third', true);
 
       const all = conversations.getBySessionId(session.id);
 
-      expect(all[0].id).toBe(conv1.id);
-      expect(all[1].id).toBe(conv2.id);
-      expect(all[2].id).toBe(conv3.id);
+      // Initial is at index 0, then our created ones follow in order
+      expect(all).toHaveLength(4); // Initial + 3 new
+      expect(all[1].id).toBe(conv1.id);
+      expect(all[2].id).toBe(conv2.id);
+      expect(all[3].id).toBe(conv3.id);
     });
   });
 });
