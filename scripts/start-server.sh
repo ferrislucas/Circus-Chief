@@ -119,4 +119,4 @@ echo "$SELECTED_PORT" > "$PORT_FILE"
 # Start the server
 # -----------------------------------------------------------------------------
 echo "Starting server on port ${SELECTED_PORT}..."
-PORT=$SELECTED_PORT yarn dev
+yarn build && NODE_ENV=production node packages/server/src/index.js -p ${SELECTED_PORT}
