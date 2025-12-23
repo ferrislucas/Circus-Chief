@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { projects, sessions, messages, attachments } from '../src/database.js';
+import { projects, sessions, messages, attachments, conversations } from '../src/database.js';
 import { existsSync, mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -705,9 +705,10 @@ describe('File Attachments API', () => {
     });
 
     it('returns empty attachments for messages without files', async () => {
-      // Session creation creates one user message
+      // Session creation creates one user message in the initial conversation
       const session = sessions.create(project.id, 'Test Session', 'Initial prompt with file', 'standard');
-      const sessionMessages = messages.getBySessionId(session.id);
+      const activeConv = conversations.getActiveBySessionId(session.id);
+      const sessionMessages = messages.getByConversationId(activeConv.id);
       const initialMessage = sessionMessages[0];
 
       // Add attachment to the initial message
@@ -718,8 +719,8 @@ describe('File Attachments API', () => {
         size: 12,
       });
 
-      // Create an assistant message without attachment
-      messages.create(session.id, 'assistant', 'Response without attachments');
+      // Create an assistant message in the same conversation without attachment
+      messages.create(session.id, 'assistant', 'Response without attachments', null, activeConv.id);
 
       const response = await request(app)
         .get(`/api/sessions/${session.id}/messages`)
