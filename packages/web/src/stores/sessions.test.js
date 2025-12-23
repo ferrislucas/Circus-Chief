@@ -445,6 +445,7 @@ describe('Sessions Store', () => {
 
         api.updateConversation.mockResolvedValue({ id: 'conv-2', isActive: true });
         api.getConversationMessages.mockResolvedValue([{ id: 'msg-1', content: 'Hello' }]);
+        api.getSessionWorkLogs.mockResolvedValue({ 'msg-1': [] });
 
         await store.switchConversation('session-1', 'conv-2');
 
@@ -452,6 +453,34 @@ describe('Sessions Store', () => {
         expect(store.conversations.find((c) => c.id === 'conv-2').isActive).toBe(true);
         expect(store.conversations.find((c) => c.id === 'conv-1').isActive).toBe(false);
         expect(store.messages).toEqual([{ id: 'msg-1', content: 'Hello' }]);
+      });
+
+      it('clears work logs and re-fetches them when switching conversations', async () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1', isActive: true },
+          { id: 'conv-2', isActive: false },
+        ];
+        store.activeConversationId = 'conv-1';
+        store.workLogs = { 'msg-old': [{ id: 'old-log' }] };
+        store.partialThinking = 'some thinking';
+
+        api.updateConversation.mockResolvedValue({ id: 'conv-2', isActive: true });
+        api.getConversationMessages.mockResolvedValue([{ id: 'msg-1', content: 'Hello' }]);
+        api.getSessionWorkLogs.mockResolvedValue({
+          'msg-1': [{ id: 'new-log', content: 'New work log' }],
+        });
+
+        await store.switchConversation('session-1', 'conv-2');
+
+        // Work logs should have been re-fetched
+        expect(api.getSessionWorkLogs).toHaveBeenCalledWith('session-1');
+        // New work logs should be present
+        expect(store.workLogs['msg-1']).toEqual([{ id: 'new-log', content: 'New work log' }]);
+        // Old work logs should be gone
+        expect(store.workLogs['msg-old']).toBeUndefined();
+        // Partial thinking should be cleared
+        expect(store.partialThinking).toBeNull();
       });
 
       it('does nothing if switching to same conversation', async () => {

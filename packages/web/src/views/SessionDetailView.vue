@@ -199,6 +199,7 @@ onMounted(async () => {
   // Then fetch data - this ensures we don't miss updates
   await sessionsStore.fetchSession(sessionId);
   await sessionsStore.fetchMessages(sessionId);
+  await sessionsStore.fetchWorkLogs(sessionId);
   canvasStore.fetchItems(sessionId);
   todosStore.fetchTodos(sessionId);
 

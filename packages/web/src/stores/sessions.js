@@ -455,9 +455,10 @@ export const useSessionsStore = defineStore('sessions', {
         const messages = await api.getConversationMessages(sessionId, conversationId);
         this.messages = messages;
 
-        // Clear work logs and thinking for new conversation context
+        // Clear work logs and thinking, then re-fetch for new conversation context
         this.workLogs = {};
         this.partialThinking = null;
+        await this.fetchWorkLogs(sessionId);
       } catch (err) {
         this.error = err.message;
         throw err;
