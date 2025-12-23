@@ -57,20 +57,22 @@
         <template v-else>
           <div v-for="(hunk, hunkIndex) in file.hunks" :key="hunkIndex" class="diff-hunk">
             <div class="diff-hunk-header">{{ hunk.header }}</div>
-            <table class="diff-table">
-              <tbody>
-                <tr
-                  v-for="(line, lineIndex) in hunk.lines"
-                  :key="lineIndex"
-                  :class="['diff-line', `diff-line-${line.type}`]"
-                >
-                  <td class="diff-line-num diff-line-num-old">{{ line.oldLineNumber ?? '' }}</td>
-                  <td class="diff-line-num diff-line-num-new">{{ line.newLineNumber ?? '' }}</td>
-                  <td class="diff-line-prefix">{{ getLinePrefix(line.type) }}</td>
-                  <td class="diff-line-content">{{ line.content }}</td>
-                </tr>
-              </tbody>
-            </table>
+            <div class="diff-table-wrapper">
+              <table class="diff-table">
+                <tbody>
+                  <tr
+                    v-for="(line, lineIndex) in hunk.lines"
+                    :key="lineIndex"
+                    :class="['diff-line', `diff-line-${line.type}`]"
+                  >
+                    <td class="diff-line-num diff-line-num-old">{{ line.oldLineNumber ?? '' }}</td>
+                    <td class="diff-line-num diff-line-num-new">{{ line.newLineNumber ?? '' }}</td>
+                    <td class="diff-line-prefix">{{ getLinePrefix(line.type) }}</td>
+                    <td class="diff-line-content">{{ line.content }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </template>
       </div>
@@ -270,10 +272,13 @@ function getLinePrefix(type) {
   font-size: 0.75rem;
 }
 
+.diff-table-wrapper {
+  overflow-x: auto;
+}
+
 .diff-table {
-  width: 100%;
+  min-width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
 }
 
 .diff-line {
@@ -331,7 +336,6 @@ function getLinePrefix(type) {
 .diff-line-content {
   padding: 0 0.5rem;
   white-space: pre;
-  overflow-x: auto;
   vertical-align: top;
 }
 
