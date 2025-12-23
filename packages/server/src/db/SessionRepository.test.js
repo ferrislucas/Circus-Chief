@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { SessionRepository } from './SessionRepository.js';
 import { ProjectRepository } from './ProjectRepository.js';
 import { MessageRepository } from './MessageRepository.js';
+import { ConversationRepository } from './ConversationRepository.js';
 import { SessionTemplateRepository } from './SessionTemplateRepository.js';
 
 describe('SessionRepository', () => {
@@ -9,12 +10,14 @@ describe('SessionRepository', () => {
   let repo;
   let projectRepo;
   let messageRepo;
+  let conversationRepo;
   let templateRepo;
   let projectId;
 
   beforeEach(() => {
     projectRepo = new ProjectRepository();
     messageRepo = new MessageRepository();
+    conversationRepo = new ConversationRepository();
     templateRepo = new SessionTemplateRepository();
 
     // Create a project for testing
@@ -72,6 +75,28 @@ describe('SessionRepository', () => {
       expect(messages).toHaveLength(1);
       expect(messages[0].role).toBe('user');
       expect(messages[0].content).toBe('Hello Claude');
+    });
+
+    it('creates initial conversation on session creation', () => {
+      const session = repo.create(projectId, 'Test', 'Hello Claude');
+
+      const conversations = conversationRepo.getBySessionId(session.id);
+
+      expect(conversations).toHaveLength(1);
+      expect(conversations[0].name).toBe('Initial');
+      expect(conversations[0].isActive).toBe(true);
+    });
+
+    it('associates initial message with the initial conversation', () => {
+      const session = repo.create(projectId, 'Test', 'Hello Claude');
+
+      const conversations = conversationRepo.getBySessionId(session.id);
+      expect(conversations).toHaveLength(1);
+
+      const conversationMessages = messageRepo.getByConversationId(conversations[0].id);
+      expect(conversationMessages).toHaveLength(1);
+      expect(conversationMessages[0].role).toBe('user');
+      expect(conversationMessages[0].content).toBe('Hello Claude');
     });
 
     it('has null optional fields by default', () => {
