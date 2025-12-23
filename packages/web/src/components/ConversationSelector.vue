@@ -11,7 +11,7 @@
           :title="isDisabled ? 'Stop the session to switch conversations' : 'Switch conversation'"
         >
           <span class="dropdown-label">
-            {{ activeConversation?.name || 'Select conversation' }}
+            {{ activeConversationDisplayName }}
           </span>
           <span v-if="isDisabled" class="lock-icon">🔒</span>
           <span v-else class="dropdown-arrow">▼</span>
@@ -19,12 +19,12 @@
 
         <div v-if="isOpen && !isDisabled" class="dropdown-menu">
           <div
-            v-for="conv in conversations"
+            v-for="(conv, index) in conversations"
             :key="conv.id"
             :class="['dropdown-item', { active: conv.id === activeConversationId }]"
             @click="selectConversation(conv.id)"
           >
-            <span class="conv-name">{{ conv.name || 'Untitled' }}</span>
+            <span class="conv-name">{{ getConversationDisplayName(conv, index) }}</span>
             <span class="conv-meta">{{ conv.messageCount || 0 }} msgs</span>
             <button
               v-if="conversations.length > 1 && conv.id !== activeConversationId"
@@ -79,6 +79,18 @@ const showWarning = ref(false);
 const conversations = computed(() => sessionsStore.conversations);
 const activeConversationId = computed(() => sessionsStore.activeConversationId);
 const activeConversation = computed(() => sessionsStore.activeConversation);
+
+// Generate display names for conversations (fallback to "Conversation N" if no name)
+function getConversationDisplayName(conv, index) {
+  return conv.name || `Conversation ${index + 1}`;
+}
+
+// Get display name for the active conversation
+const activeConversationDisplayName = computed(() => {
+  if (!activeConversation.value) return 'Select conversation';
+  const index = conversations.value.findIndex(c => c.id === activeConversationId.value);
+  return getConversationDisplayName(activeConversation.value, index >= 0 ? index : 0);
+});
 
 // Disable switching while session is running
 const isDisabled = computed(() => {

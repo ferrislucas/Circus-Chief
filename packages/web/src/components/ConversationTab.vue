@@ -210,13 +210,25 @@ const unassociatedWorkLogs = computed(() => {
   return sessionsStore.getUnassociatedWorkLogs;
 });
 
-// Subscribe to partial messages for streaming and work logs
-const { onPartial, onMessage, onWorkLog, onWorkLogsAssociated, onThinkingPartial } = useSessionSubscription(props.sessionId);
+// Subscribe to partial messages for streaming, work logs, and conversation events
+const {
+  onPartial,
+  onMessage,
+  onWorkLog,
+  onWorkLogsAssociated,
+  onThinkingPartial,
+  onConversationCreated,
+  onConversationUpdated,
+  onConversationDeleted,
+} = useSessionSubscription(props.sessionId);
 let unsubPartial = null;
 let unsubMessage = null;
 let unsubWorkLog = null;
 let unsubWorkLogsAssociated = null;
 let unsubThinkingPartial = null;
+let unsubConvCreated = null;
+let unsubConvUpdated = null;
+let unsubConvDeleted = null;
 
 function handleScroll() {
   if (!messagesContainer.value) return;
@@ -276,6 +288,27 @@ onMounted(async () => {
     }
   });
 
+  // Subscribe to conversation events for real-time updates
+  unsubConvCreated = onConversationCreated((conversation) => {
+    sessionsStore.addConversation(conversation);
+    // If this is now the active conversation, fetch its messages
+    if (conversation.isActive) {
+      sessionsStore.fetchMessages(props.sessionId, false);
+    }
+  });
+
+  unsubConvUpdated = onConversationUpdated((conversation) => {
+    sessionsStore.updateConversation(conversation);
+  });
+
+  unsubConvDeleted = onConversationDeleted((conversationId, newActiveConv) => {
+    sessionsStore.removeConversation(conversationId, newActiveConv);
+    // If we have a new active conversation, fetch its messages
+    if (newActiveConv) {
+      sessionsStore.fetchMessages(props.sessionId, false);
+    }
+  });
+
   // Fetch initial work logs
   await sessionsStore.fetchWorkLogs(props.sessionId);
 
@@ -289,13 +322,17 @@ onUnmounted(() => {
   if (unsubWorkLog) unsubWorkLog();
   if (unsubWorkLogsAssociated) unsubWorkLogsAssociated();
   if (unsubThinkingPartial) unsubThinkingPartial();
+  if (unsubConvCreated) unsubConvCreated();
+  if (unsubConvUpdated) unsubConvUpdated();
+  if (unsubConvDeleted) unsubConvDeleted();
   if (debounceTimer) clearTimeout(debounceTimer);
   if (messagesContainer.value) {
     messagesContainer.value.removeEventListener('scroll', handleScroll);
   }
-  // Clear work logs and conversations when leaving the conversation tab
+  // Clear work logs when leaving the conversation tab
+  // Note: Don't clear conversations here - they should persist when switching tabs
+  // within the same session. They will be refreshed when switching sessions.
   sessionsStore.clearWorkLogs();
-  sessionsStore.clearConversations();
 });
 
 // Save draft to localStorage with debounce
