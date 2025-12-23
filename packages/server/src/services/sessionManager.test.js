@@ -1,14 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   getPermissionModeForSession,
   buildSystemPromptConfig,
   buildPromptWithAttachments,
   getSessionAttachmentsContext,
   PLAN_MODE_PROMPT,
+  continueSession,
 } from './sessionManager.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { AttachmentRepository } from '../db/AttachmentRepository.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
+import { SessionRepository } from '../db/SessionRepository.js';
+import { MessageRepository } from '../db/MessageRepository.js';
+import { ConversationRepository } from '../db/ConversationRepository.js';
 import { mkdtempSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -556,6 +560,130 @@ describe('sessionManager', () => {
       expect(result).toContain('Plan Mode Active');
       expect(result).toContain('Session Attached Files');
       expect(result).toContain('test.txt');
+    });
+  });
+
+  describe('continueSession conversation ID handling', () => {
+    let sessionRepo;
+    let messageRepo;
+    let conversationRepo;
+    let projectRepo;
+    let session;
+    let tempDir;
+
+    beforeEach(() => {
+      // Enable mock mode to avoid calling the real Claude API
+      process.env.MOCK_CLAUDE = 'true';
+
+      sessionRepo = new SessionRepository();
+      messageRepo = new MessageRepository();
+      conversationRepo = new ConversationRepository();
+      projectRepo = new ProjectRepository();
+
+      tempDir = mkdtempSync(join(tmpdir(), 'session-manager-conv-test-'));
+      const project = projectRepo.create('Test Project', tempDir);
+
+      // Create a session with a Claude session ID (required for continueSession)
+      session = sessionRepo.create(project.id, 'Test Session', 'Test prompt', 'standard');
+      sessionRepo.update(session.id, { claudeSessionId: 'mock-claude-session-id' });
+    });
+
+    afterEach(() => {
+      delete process.env.MOCK_CLAUDE;
+      if (tempDir && existsSync(tempDir)) {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('creates user message with conversation ID when sending follow-up message', async () => {
+      // Create an active conversation for the session
+      const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+      // Send a follow-up message
+      await continueSession(session.id, 'Follow-up message', tempDir);
+
+      // Get messages for this conversation
+      const conversationMessages = messageRepo.getByConversationId(conversation.id);
+
+      // Should have the user message with correct conversation ID
+      const userMessages = conversationMessages.filter((m) => m.role === 'user');
+      expect(userMessages.length).toBeGreaterThanOrEqual(1);
+      expect(userMessages.some((m) => m.content === 'Follow-up message')).toBe(true);
+    });
+
+    it('creates assistant message with conversation ID', async () => {
+      // Create an active conversation for the session
+      const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+      // Send a message which will trigger mock assistant response
+      await continueSession(session.id, 'Hello', tempDir);
+
+      // Get messages for this conversation
+      const conversationMessages = messageRepo.getByConversationId(conversation.id);
+
+      // Should have the assistant message with correct conversation ID
+      const assistantMessages = conversationMessages.filter((m) => m.role === 'assistant');
+      expect(assistantMessages.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('ensures active conversation exists when none is present', async () => {
+      // Don't create a conversation - ensureActiveConversation should create one
+
+      // Send a follow-up message
+      await continueSession(session.id, 'Message without conversation', tempDir);
+
+      // Should have created a conversation
+      const activeConversation = conversationRepo.getActiveBySessionId(session.id);
+      expect(activeConversation).not.toBeNull();
+
+      // Message should be associated with the created conversation
+      const conversationMessages = messageRepo.getByConversationId(activeConversation.id);
+      const userMessages = conversationMessages.filter((m) => m.role === 'user');
+      expect(userMessages.some((m) => m.content === 'Message without conversation')).toBe(true);
+    });
+
+    it('uses the active conversation when multiple conversations exist', async () => {
+      // Create two conversations, the second one will be active
+      const conv1 = conversationRepo.create(session.id, 'Conversation 1');
+      const conv2 = conversationRepo.create(session.id, 'Conversation 2');
+
+      // Verify conv2 is active (the most recently created one)
+      const activeConv = conversationRepo.getActiveBySessionId(session.id);
+      expect(activeConv.id).toBe(conv2.id);
+
+      // Send a message
+      await continueSession(session.id, 'Message to active conversation', tempDir);
+
+      // Message should be in conv2, not conv1
+      const conv1Messages = messageRepo.getByConversationId(conv1.id);
+      const conv2Messages = messageRepo.getByConversationId(conv2.id);
+
+      expect(conv1Messages.filter((m) => m.content === 'Message to active conversation').length).toBe(0);
+      expect(conv2Messages.filter((m) => m.content === 'Message to active conversation').length).toBe(1);
+    });
+
+    it('messages are retrievable by conversation ID after session continues', async () => {
+      // Create a conversation
+      const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+      // Send multiple messages
+      await continueSession(session.id, 'First message', tempDir);
+
+      // Refresh session to get new claudeSessionId from mock
+      const updatedSession = sessionRepo.getById(session.id);
+      sessionRepo.update(session.id, { claudeSessionId: updatedSession.claudeSessionId || 'mock-session-2' });
+
+      await continueSession(session.id, 'Second message', tempDir);
+
+      // All messages should be retrievable by conversation ID
+      const messages = messageRepo.getByConversationId(conversation.id);
+
+      expect(messages.filter((m) => m.content === 'First message').length).toBe(1);
+      expect(messages.filter((m) => m.content === 'Second message').length).toBe(1);
+
+      // Both user and assistant messages should be present
+      expect(messages.filter((m) => m.role === 'user').length).toBeGreaterThanOrEqual(2);
+      expect(messages.filter((m) => m.role === 'assistant').length).toBeGreaterThanOrEqual(2);
     });
   });
 });
