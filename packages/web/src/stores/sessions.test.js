@@ -340,6 +340,113 @@ describe('Sessions Store', () => {
     });
   });
 
+  describe('updateNextTemplate', () => {
+    it('updates nextTemplateId in currentSession with new object reference for reactivity', async () => {
+      const store = useSessionsStore();
+
+      // Set up initial session
+      const initialSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        nextTemplateId: null,
+      };
+      store.currentSession = initialSession;
+      store.sessions = [{ ...initialSession }];
+
+      // Mock the API response
+      api.updateSession.mockResolvedValue({ ...initialSession, nextTemplateId: 'template-1' });
+
+      // Get original reference
+      const originalRef = store.currentSession;
+
+      // Update nextTemplateId
+      await store.updateNextTemplate('session-1', 'template-1');
+
+      // Verify nextTemplateId was updated
+      expect(store.currentSession.nextTemplateId).toBe('template-1');
+
+      // Verify new object reference was created (important for Vue reactivity)
+      expect(store.currentSession).not.toBe(originalRef);
+
+      // Verify other properties are preserved
+      expect(store.currentSession.id).toBe('session-1');
+      expect(store.currentSession.name).toBe('Test Session');
+    });
+
+    it('updates nextTemplateId in sessions list', async () => {
+      const store = useSessionsStore();
+
+      // Set up initial sessions
+      store.sessions = [
+        { id: 'session-1', nextTemplateId: null },
+        { id: 'session-2', nextTemplateId: 'template-a' },
+      ];
+
+      // Mock the API response
+      api.updateSession.mockResolvedValue({ id: 'session-1', nextTemplateId: 'template-b' });
+
+      // Update nextTemplateId for session-1
+      await store.updateNextTemplate('session-1', 'template-b');
+
+      // Verify correct session was updated
+      expect(store.sessions[0].nextTemplateId).toBe('template-b');
+      expect(store.sessions[1].nextTemplateId).toBe('template-a');
+    });
+
+    it('can clear nextTemplateId by setting to null', async () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', nextTemplateId: 'template-1' };
+      store.sessions = [{ id: 'session-1', nextTemplateId: 'template-1' }];
+
+      api.updateSession.mockResolvedValue({ id: 'session-1', nextTemplateId: null });
+
+      await store.updateNextTemplate('session-1', null);
+
+      expect(store.currentSession.nextTemplateId).toBeNull();
+      expect(store.sessions[0].nextTemplateId).toBeNull();
+    });
+
+    it('does not update currentSession if IDs do not match', async () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', nextTemplateId: null };
+      store.sessions = [{ id: 'session-2', nextTemplateId: null }];
+
+      api.updateSession.mockResolvedValue({ id: 'session-2', nextTemplateId: 'template-1' });
+
+      await store.updateNextTemplate('session-2', 'template-1');
+
+      // currentSession should be unchanged
+      expect(store.currentSession.nextTemplateId).toBeNull();
+    });
+
+    it('throws error and sets store error on API failure', async () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', nextTemplateId: null };
+
+      api.updateSession.mockRejectedValue(new Error('API Error'));
+
+      await expect(store.updateNextTemplate('session-1', 'template-1')).rejects.toThrow('API Error');
+
+      expect(store.error).toBe('API Error');
+      expect(store.currentSession.nextTemplateId).toBeNull();
+    });
+
+    it('calls api.updateSession with correct parameters', async () => {
+      const store = useSessionsStore();
+
+      store.sessions = [{ id: 'session-1', nextTemplateId: null }];
+
+      api.updateSession.mockResolvedValue({ id: 'session-1', nextTemplateId: 'template-1' });
+
+      await store.updateNextTemplate('session-1', 'template-1');
+
+      expect(api.updateSession).toHaveBeenCalledWith('session-1', { nextTemplateId: 'template-1' });
+    });
+  });
+
   describe('conversations', () => {
     describe('fetchConversations', () => {
       it('fetches conversations and sets active', async () => {
