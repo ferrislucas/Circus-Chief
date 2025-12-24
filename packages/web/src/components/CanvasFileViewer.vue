@@ -10,7 +10,7 @@
         >
           &#8249; Back
         </button>
-        <span class="viewer-filename">{{ item.filename || item.label || 'Untitled' }}</span>
+        <span class="viewer-filename">{{ item.label || item.filename || 'Untitled' }}</span>
       </div>
 
       <div class="viewer-header-right">

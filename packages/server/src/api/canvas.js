@@ -161,6 +161,19 @@ router.post('/:id/canvas', upload.single('file'), (req, res) => {
       let detectedType = getTypeFromExtension(ext);
       let detectedMimeType = MIME_TYPES[ext] || TEXT_EXTENSIONS[ext];
 
+      // Validate requested type matches detected type for binary formats
+      if (type === 'image' && detectedType !== 'image') {
+        const supportedImageExts = Object.keys(MIME_TYPES).filter(e => e !== '.pdf').join(', ');
+        return res.status(400).json({
+          error: `Unsupported image format: ${ext || '(no extension)'}. Supported formats: ${supportedImageExts}`
+        });
+      }
+      if (type === 'pdf' && detectedType !== 'pdf') {
+        return res.status(400).json({
+          error: `Unsupported PDF format: ${ext || '(no extension)'}. Expected .pdf extension`
+        });
+      }
+
       try {
         const fileBuffer = readFileSync(filePath);
 
