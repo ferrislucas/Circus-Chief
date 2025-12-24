@@ -69,6 +69,35 @@
         </div>
       </details>
 
+      <details class="advanced-settings">
+        <summary>Summary Settings</summary>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              v-model="disableSessionSummaries"
+            />
+            Disable session summaries
+          </label>
+          <p class="form-help">
+            When enabled, automatic session summaries will not be generated. Session summaries provide an overview of what was accomplished.
+          </p>
+        </div>
+
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              v-model="disableConversationSummaries"
+            />
+            Disable conversation summaries
+          </label>
+          <p class="form-help">
+            When enabled, automatic conversation summaries will not be generated when switching between conversations.
+          </p>
+        </div>
+      </details>
+
       <div v-if="error" class="error-message">{{ error }}</div>
 
       <div class="form-actions">
@@ -103,6 +132,8 @@ const workingDirectory = ref('');
 const systemPrompt = ref('');
 const onSessionCreated = ref('');
 const onSessionDeleted = ref('');
+const disableSessionSummaries = ref(false);
+const disableConversationSummaries = ref(false);
 const saving = ref(false);
 const error = ref(null);
 
@@ -117,6 +148,8 @@ watch(() => projectsStore.currentProject, (project) => {
     systemPrompt.value = project.systemPrompt || '';
     onSessionCreated.value = project.onSessionCreated || '';
     onSessionDeleted.value = project.onSessionDeleted || '';
+    disableSessionSummaries.value = project.disableSessionSummaries || false;
+    disableConversationSummaries.value = project.disableConversationSummaries || false;
   }
 }, { immediate: true });
 
@@ -131,6 +164,8 @@ async function handleSubmit() {
       systemPrompt: systemPrompt.value || null,
       onSessionCreated: onSessionCreated.value || null,
       onSessionDeleted: onSessionDeleted.value || null,
+      disableSessionSummaries: disableSessionSummaries.value,
+      disableConversationSummaries: disableConversationSummaries.value,
     });
     uiStore.success('Project updated successfully');
     router.push(`/projects/${route.params.id}/sessions`);
@@ -222,5 +257,19 @@ h1 {
   font-family: monospace;
   font-size: 0.875rem;
   line-height: 1.5;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
 }
 </style>

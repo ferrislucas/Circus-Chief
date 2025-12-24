@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { sessions, messages, sessionSummaries, conversations } from '../database.js';
+import { sessions, messages, sessionSummaries, conversations, projects } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as ghService from './ghService.js';
@@ -107,6 +107,7 @@ async function callClaude(prompt, recentMessages, sessionStatus) {
           cwd: process.cwd(),
           permissionMode: 'bypassPermissions',
           maxTurns: 1,
+          model: 'claude-haiku-4-5-20251001',
           outputFormat: {
             type: 'json_schema',
             schema: summarySchema,
@@ -286,6 +287,13 @@ export async function generateSummary(sessionId, retryCount = 0) {
     const session = sessions.getById(sessionId);
     if (!session) {
       console.warn(`[SummaryService] Session ${sessionId} not found for summary generation`);
+      return null;
+    }
+
+    // Check if session summaries are disabled for this project
+    const project = projects.getById(session.projectId);
+    if (project?.disableSessionSummaries) {
+      console.log(`[SummaryService] Session summaries disabled for project ${session.projectId}, skipping generation`);
       return null;
     }
 
@@ -571,6 +579,20 @@ function parseConversationSummaryResponse(responseText) {
  */
 export async function generateConversationSummary(sessionId, conversationId) {
   try {
+    // Get session to check project settings
+    const session = sessions.getById(sessionId);
+    if (!session) {
+      console.warn(`[SummaryService] Session ${sessionId} not found for conversation summary generation`);
+      return null;
+    }
+
+    // Check if conversation summaries are disabled for this project
+    const project = projects.getById(session.projectId);
+    if (project?.disableConversationSummaries) {
+      console.log(`[SummaryService] Conversation summaries disabled for project ${session.projectId}, skipping generation`);
+      return null;
+    }
+
     const conversation = conversations.getById(conversationId);
     if (!conversation || conversation.sessionId !== sessionId) {
       console.warn(`[SummaryService] Conversation ${conversationId} not found for session ${sessionId}`);
