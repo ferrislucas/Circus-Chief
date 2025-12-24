@@ -5,7 +5,7 @@
         <h3 class="session-name">{{ session.name }}</h3>
         <p class="session-meta">
           <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
-          <span class="session-mode">{{ session.mode }}</span>
+          <span class="session-mode">{{ formattedMode }}</span>
         </p>
         <div v-if="session.gitBranch || session.prUrl" class="branch-row">
           <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
@@ -83,6 +83,13 @@ const dateToShow = computed(() => {
   // For active sessions view, prefer updatedAt; for project view, prefer createdAt
   return props.showProject ? props.session.updatedAt : props.session.createdAt;
 });
+
+const formattedMode = computed(() => {
+  const mode = props.session.mode;
+  if (mode === 'yolo') return 'YOLO';
+  // Capitalize first letter for other modes
+  return mode ? mode.charAt(0).toUpperCase() + mode.slice(1) : '';
+});
 </script>
 
 <style scoped>
@@ -121,7 +128,6 @@ const dateToShow = computed(() => {
 .session-mode {
   font-size: 0.75rem;
   color: var(--color-text-soft);
-  text-transform: capitalize;
 }
 
 .branch-row {
