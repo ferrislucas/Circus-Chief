@@ -6,9 +6,9 @@
         v-for="m in models"
         :key="m.id"
         type="button"
-        :class="['model-btn', { active: modelValue === m.id }]"
-        @click="selectModel(m.id)"
-        :disabled="disabled"
+        :class="['model-btn', { active: currentModel === m.id }]"
+        @click="handleModelChange(m.id)"
+        :disabled="disabled || togglingModel"
         :title="m.description"
       >
         {{ m.name }}
@@ -18,12 +18,19 @@
 </template>
 
 <script setup>
+import { ref, computed } from 'vue';
 import { CLAUDE_MODELS } from '@claudetools/shared';
+import { useSessionsStore } from '../stores/sessions.js';
+import { useUiStore } from '../stores/ui.js';
 
-defineProps({
+const props = defineProps({
+  sessionId: {
+    type: String,
+    default: null,
+  },
   modelValue: {
     type: String,
-    required: true,
+    default: null,
   },
   disabled: {
     type: Boolean,
@@ -33,10 +40,37 @@ defineProps({
 
 const emit = defineEmits(['update:modelValue']);
 
+const sessionsStore = useSessionsStore();
+const uiStore = useUiStore();
 const models = CLAUDE_MODELS;
+const togglingModel = ref(false);
 
-function selectModel(id) {
-  emit('update:modelValue', id);
+// Use store state when sessionId provided, otherwise use modelValue prop
+const currentModel = computed(() => {
+  if (props.sessionId) {
+    return sessionsStore.currentSession?.model;
+  }
+  return props.modelValue;
+});
+
+async function handleModelChange(id) {
+  if (togglingModel.value) return;
+  if (currentModel.value === id) return;
+
+  if (props.sessionId) {
+    // Session context: update store directly for immediate visual feedback
+    togglingModel.value = true;
+    try {
+      await sessionsStore.updateSessionModel(props.sessionId, id);
+    } catch (err) {
+      uiStore.error(err.message);
+    } finally {
+      togglingModel.value = false;
+    }
+  } else {
+    // Form context: emit for v-model
+    emit('update:modelValue', id);
+  }
 }
 </script>
 
@@ -69,6 +103,8 @@ function selectModel(id) {
   color: var(--color-text-soft);
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .model-btn:last-child {
@@ -79,9 +115,11 @@ function selectModel(id) {
   background: var(--color-bg-hover);
 }
 
-.model-btn.active {
+.model-btn.active,
+.model-btn.active:focus {
   background: var(--color-primary);
   color: white;
+  outline: none;
 }
 
 .model-btn:disabled {

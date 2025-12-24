@@ -120,11 +120,7 @@
         </div>
       </div>
       <div class="model-row">
-        <ModelSelector
-          :modelValue="sessionsStore.currentSession?.model || DEFAULT_MODEL"
-          @update:modelValue="handleModelChange"
-          :disabled="togglingModel"
-        />
+        <ModelSelector :sessionId="sessionId" />
       </div>
     </form>
 
@@ -156,7 +152,6 @@ import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
-import { DEFAULT_MODEL } from '@claudetools/shared';
 import TodoDrawer from './TodoDrawer.vue';
 import WorkLogPanel from './WorkLogPanel.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
@@ -178,7 +173,6 @@ const stopping = ref(false);
 const restarting = ref(false);
 const togglingThinking = ref(false);
 const togglingMode = ref(false);
-const togglingModel = ref(false);
 const messagesContainer = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
@@ -477,19 +471,6 @@ async function handleModeChange(newMode) {
   }
 }
 
-async function handleModelChange(newModel) {
-  if (togglingModel.value) return;
-  if (sessionsStore.currentSession?.model === newModel) return;
-
-  togglingModel.value = true;
-  try {
-    await sessionsStore.updateSessionModel(props.sessionId, newModel);
-  } catch (err) {
-    uiStore.error(err.message);
-  } finally {
-    togglingModel.value = false;
-  }
-}
 </script>
 
 <style scoped>
@@ -678,6 +659,8 @@ async function handleModelChange(newModel) {
   color: var(--color-text-soft);
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .mode-btn:last-child {
@@ -688,9 +671,11 @@ async function handleModelChange(newModel) {
   background: var(--color-bg-hover);
 }
 
-.mode-btn.active {
+.mode-btn.active,
+.mode-btn.active:focus {
   background: var(--color-primary);
   color: white;
+  outline: none;
 }
 
 .mode-btn:disabled {
