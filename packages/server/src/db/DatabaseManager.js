@@ -127,6 +127,14 @@ export class DatabaseManager {
 
     // Create default conversations for existing sessions that don't have one
     this.#migrateExistingSessionsToConversations();
+
+    // Add claude_session_id column to conversations table for per-conversation context isolation
+    const conversationsTableInfo = this.#db.prepare('PRAGMA table_info(conversations)').all();
+    const conversationsColumns = conversationsTableInfo.map((col) => col.name);
+
+    if (!conversationsColumns.includes('claude_session_id')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN claude_session_id TEXT');
+    }
   }
 
   /**
