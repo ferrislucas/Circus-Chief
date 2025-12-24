@@ -49,9 +49,16 @@ describe('SessionCard', () => {
       expect(badge.classes()).toContain('status-running');
     });
 
-    it('renders session mode', () => {
+    it('renders session mode capitalized', () => {
       const wrapper = mountComponent();
-      expect(wrapper.find('.session-mode').text()).toBe('code');
+      expect(wrapper.find('.session-mode').text()).toBe('Code');
+    });
+
+    it('renders YOLO mode in uppercase', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, mode: 'yolo' },
+      });
+      expect(wrapper.find('.session-mode').text()).toBe('YOLO');
     });
 
     it('links to session detail page', () => {
