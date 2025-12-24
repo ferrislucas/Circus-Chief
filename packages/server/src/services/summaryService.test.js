@@ -1144,6 +1144,139 @@ describe('summaryService', () => {
     });
   });
 
+  describe('disable flags', () => {
+    it('skips session summary generation when disableSessionSummaries is true', async () => {
+      // Update project to disable session summaries
+      projects.update(projectId, { disableSessionSummaries: true });
+
+      const result = await summaryService.generateSummary(sessionId);
+
+      expect(result).toBeNull();
+      expect(sessionSummaries.getBySessionId(sessionId)).toBeNull();
+    });
+
+    it('generates session summary when disableSessionSummaries is false', async () => {
+      // Ensure project has summaries enabled
+      projects.update(projectId, { disableSessionSummaries: false });
+
+      const result = await summaryService.generateSummary(sessionId);
+
+      expect(result).not.toBeNull();
+      expect(result.sessionId).toBe(sessionId);
+    });
+
+    it('skips conversation summary generation when disableConversationSummaries is true', async () => {
+      const { conversations } = await import('../database.js');
+
+      // Update project to disable conversation summaries
+      projects.update(projectId, { disableConversationSummaries: true });
+
+      // Create a conversation
+      const conversation = conversations.create(sessionId, 'Test Conversation', true);
+
+      // Add some messages
+      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+
+      const result = await summaryService.generateConversationSummary(sessionId, conversation.id);
+
+      expect(result).toBeNull();
+    });
+
+    it('generates conversation summary when disableConversationSummaries is false', async () => {
+      const { conversations } = await import('../database.js');
+
+      // Ensure project has conversation summaries enabled
+      projects.update(projectId, { disableConversationSummaries: false });
+
+      // Create a conversation
+      const conversation = conversations.create(sessionId, 'Test Conversation', true);
+
+      // Add some messages
+      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+
+      const result = await summaryService.generateConversationSummary(sessionId, conversation.id);
+
+      expect(result).not.toBeNull();
+    });
+
+    it('logs message when skipping session summary due to disabled flag', async () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      projects.update(projectId, { disableSessionSummaries: true });
+
+      await summaryService.generateSummary(sessionId);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[SummaryService] Session summaries disabled')
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it('logs message when skipping conversation summary due to disabled flag', async () => {
+      const { conversations } = await import('../database.js');
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      projects.update(projectId, { disableConversationSummaries: true });
+
+      const conversation = conversations.create(sessionId, 'Test', true);
+      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi', null, conversation.id);
+
+      await summaryService.generateConversationSummary(sessionId, conversation.id);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[SummaryService] Conversation summaries disabled')
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it('allows session summary but disables conversation summary independently', async () => {
+      const { conversations } = await import('../database.js');
+
+      projects.update(projectId, {
+        disableSessionSummaries: false,
+        disableConversationSummaries: true,
+      });
+
+      // Session summary should work
+      const sessionResult = await summaryService.generateSummary(sessionId);
+      expect(sessionResult).not.toBeNull();
+
+      // Conversation summary should be skipped
+      const conversation = conversations.create(sessionId, 'Test', true);
+      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi', null, conversation.id);
+
+      const convResult = await summaryService.generateConversationSummary(sessionId, conversation.id);
+      expect(convResult).toBeNull();
+    });
+
+    it('allows conversation summary but disables session summary independently', async () => {
+      const { conversations } = await import('../database.js');
+
+      projects.update(projectId, {
+        disableSessionSummaries: true,
+        disableConversationSummaries: false,
+      });
+
+      // Session summary should be skipped
+      const sessionResult = await summaryService.generateSummary(sessionId);
+      expect(sessionResult).toBeNull();
+
+      // Conversation summary should work
+      const conversation = conversations.create(sessionId, 'Test', true);
+      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi', null, conversation.id);
+
+      const convResult = await summaryService.generateConversationSummary(sessionId, conversation.id);
+      expect(convResult).not.toBeNull();
+    });
+  });
+
   describe('integration with database', () => {
     it('creates summary that can be retrieved', async () => {
       const generated = await summaryService.generateSummary(sessionId);
