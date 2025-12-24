@@ -106,6 +106,9 @@ test.describe('Work Logs API', () => {
 });
 
 test.describe('Work Log Association', () => {
+  // Increase timeout for this entire describe block - sessions take time to complete
+  test.describe.configure({ timeout: 90000 });
+
   let project: any;
 
   test.beforeEach(async () => {
@@ -117,11 +120,7 @@ test.describe('Work Log Association', () => {
     await cleanupAll();
   });
 
-  // TODO: This test is flaky - session sometimes doesn't reach 'waiting' status
-  // The similar test below (multiple turns) passes consistently
-  test.skip('work logs are associated with messages after session turn completes', async () => {
-    test.setTimeout(60000); // Increase test timeout for slow session startup
-
+  test('work logs are associated with messages after session turn completes', async () => {
     // Create a session - this triggers the mock query which creates work logs
     const session = await seedSession(project.id, {
       prompt: 'Test work log association',
@@ -129,7 +128,8 @@ test.describe('Work Log Association', () => {
     });
 
     // Wait for session to complete its first turn (status becomes 'waiting')
-    await waitForSessionStatus(session.id, 'waiting', 45000);
+    // Use longer timeout as mock sessions can be slow under load
+    await waitForSessionStatus(session.id, 'waiting', 60000);
 
     // Get messages - should have the assistant response
     const messages = await getSessionMessages(session.id);
@@ -168,7 +168,7 @@ test.describe('Work Log Association', () => {
     });
 
     // Wait for first turn to complete
-    await waitForSessionStatus(session.id, 'waiting', 15000);
+    await waitForSessionStatus(session.id, 'waiting', 30000);
 
     // Send follow-up message
     const response = await fetch(`${API_URL}/api/sessions/${session.id}/message`, {
@@ -179,7 +179,7 @@ test.describe('Work Log Association', () => {
     expect(response.ok).toBe(true);
 
     // Wait for second turn to complete
-    await waitForSessionStatus(session.id, 'waiting', 15000);
+    await waitForSessionStatus(session.id, 'waiting', 30000);
 
     // Get all messages and work logs
     const messages = await getSessionMessages(session.id);

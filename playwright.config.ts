@@ -17,7 +17,7 @@ export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: 0,
+  retries: process.env.CI ? 2 : 1, // Retry flaky tests
   workers: 1,
   reporter: 'list',
   use: {
