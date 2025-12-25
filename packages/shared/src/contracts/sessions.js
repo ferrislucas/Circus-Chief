@@ -6,6 +6,8 @@ export const CreateSessionRequest = z.object({
   mode: z.enum(['plan', 'standard', 'yolo']).optional(),
   thinkingEnabled: z.boolean().optional(),
   gitBranch: z.string().optional(),
+  gitMode: z.enum(['branch', 'worktree']).optional(),
+  templateId: z.string().uuid().optional(), // Template to apply on session creation
   nextTemplateId: z.string().uuid().nullable().optional(),
 });
 
@@ -22,7 +24,7 @@ export const SessionResponse = z.object({
   id: z.string().uuid(),
   projectId: z.string().uuid(),
   name: z.string(),
-  status: z.enum(['starting', 'running', 'waiting', 'stopped', 'completed', 'error']),
+  status: z.enum(['starting', 'running', 'waiting', 'stopped', 'error']),
   mode: z.enum(['plan', 'standard', 'yolo']),
   thinkingEnabled: z.boolean(),
   gitBranch: z.string().nullable(),

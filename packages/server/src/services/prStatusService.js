@@ -10,9 +10,9 @@ const DEFAULT_POLL_INTERVAL_MS = 60000;
 const FINAL_PR_STATES = ['merged', 'closed'];
 
 // Session states that should have their PRs polled (allowlist for future-proofing)
-// Includes completed/stopped because CI may still be running after session ends
+// Includes stopped because CI may still be running after session ends
 // When 'archived' is added, it won't be in this list
-const POLLABLE_SESSION_STATES = ['running', 'waiting', 'completed', 'stopped'];
+const POLLABLE_SESSION_STATES = ['running', 'waiting', 'stopped'];
 
 // Time-based filtering constants
 // Sessions updated within this time are polled regardless of subscribers

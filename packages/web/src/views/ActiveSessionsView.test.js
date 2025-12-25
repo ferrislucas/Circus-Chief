@@ -247,10 +247,10 @@ describe('ActiveSessionsView', () => {
       onSessionSummaryUpdatedCallback('session-1', summary, 'project-1');
       await nextTick();
 
-      // Session status changes to completed (no longer active)
+      // Session status changes to stopped (no longer active)
       const updatedSession = {
         id: 'session-1',
-        status: 'completed',
+        status: 'stopped',
         projectId: 'project-1',
       };
       onSessionUpdatedCallback(updatedSession, 'project-1');

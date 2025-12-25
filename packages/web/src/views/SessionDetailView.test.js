@@ -387,13 +387,13 @@ describe('SessionDetailView', () => {
 
       // Trigger a status update through WebSocket
       if (capturedOnStatusCallback) {
-        capturedOnStatusCallback('completed');
+        capturedOnStatusCallback('stopped');
       }
 
       // Verify updateSessionStatus was called with the ORIGINAL session ID
       expect(mockSessionsStore.updateSessionStatus).toHaveBeenCalledWith(
         'test-session-id',
-        'completed'
+        'stopped'
       );
     });
   });
@@ -450,7 +450,7 @@ describe('SessionDetailView', () => {
       expect(mockGetSessionChanges).toHaveBeenCalledWith('test-session-id');
     });
 
-    it('checks for changes when status changes to completed', async () => {
+    it('checks for changes when status changes to waiting', async () => {
       let capturedOnStatusCallback;
       useSessionSubscription.mockImplementation(() => ({
         subscribe: vi.fn(),
@@ -475,9 +475,9 @@ describe('SessionDetailView', () => {
       // Clear initial call
       mockGetSessionChanges.mockClear();
 
-      // Trigger status change to 'completed'
+      // Trigger status change to 'waiting' (session completed a turn)
       if (capturedOnStatusCallback) {
-        capturedOnStatusCallback('completed');
+        capturedOnStatusCallback('waiting');
       }
       await flushPromises();
 

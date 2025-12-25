@@ -284,7 +284,7 @@ describe('SessionCard', () => {
   });
 
   describe('status badge classes', () => {
-    const statuses = ['running', 'waiting', 'completed', 'error', 'stopped'];
+    const statuses = ['running', 'waiting', 'error', 'stopped'];
 
     statuses.forEach((status) => {
       it(`applies correct class for ${status} status`, () => {

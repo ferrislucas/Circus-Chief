@@ -476,12 +476,12 @@ describe('WebSocketManager', () => {
       manager.broadcastToProject('proj-123', WS_MESSAGE_TYPES.SESSION_UPDATED, {
         projectId: 'proj-123',
         sessionId: 'sess-456',
-        session: { id: 'sess-456', status: 'completed' },
+        session: { id: 'sess-456', status: 'stopped' },
       });
 
       const msg = await msgPromise;
       expect(msg.type).toBe(WS_MESSAGE_TYPES.SESSION_UPDATED);
-      expect(msg.session.status).toBe('completed');
+      expect(msg.session.status).toBe('stopped');
 
       ws.close();
     });
