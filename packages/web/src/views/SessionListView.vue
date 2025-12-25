@@ -23,6 +23,13 @@
       </button>
       <button
         class="tab"
+        :class="{ active: activeTab === 'archived' }"
+        @click="handleArchivedTabClick"
+      >
+        Archived
+      </button>
+      <button
+        class="tab"
         :class="{ active: activeTab === 'templates' }"
         @click="activeTab = 'templates'"
       >
@@ -73,7 +80,39 @@
           :summary="summaries[session.id]"
           :summary-loading="loadingSummaries[session.id]"
           :summary-error="summaryErrors[session.id]"
+          :show-archive="true"
           @retry-summary="retryFetchSummary"
+          @archive="handleArchive"
+        />
+      </div>
+    </div>
+
+    <!-- Archived Tab -->
+    <div v-if="activeTab === 'archived'">
+      <div v-if="sessionsStore.loading" class="skeleton-list">
+        <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
+      </div>
+
+      <div v-else-if="sessionsStore.error" class="error-message">
+        {{ sessionsStore.error }}
+      </div>
+
+      <div v-else-if="sessionsStore.archivedSessions.length === 0" class="empty-state">
+        <p>No archived sessions. Archive completed sessions to keep your session list tidy.</p>
+      </div>
+
+      <div v-else class="session-list">
+        <SessionCard
+          v-for="session in sessionsStore.archivedSessions"
+          :key="session.id"
+          :session="session"
+          :show-summary="true"
+          :summary="summaries[session.id]"
+          :summary-loading="loadingSummaries[session.id]"
+          :summary-error="summaryErrors[session.id]"
+          :show-unarchive="true"
+          @retry-summary="retryFetchSummary"
+          @unarchive="handleUnarchive"
         />
       </div>
     </div>
@@ -125,6 +164,9 @@ const projectId = computed(() => route.params.id);
 const summaries = reactive({});
 const loadingSummaries = reactive({});
 const summaryErrors = reactive({});
+
+// Track if archived sessions have been loaded
+const archivedLoaded = ref(false);
 
 // Store cleanup functions for WebSocket listeners
 const cleanups = [];
@@ -238,6 +280,42 @@ async function fetchSummary(sessionId) {
 async function retryFetchSummary(sessionId) {
   summaryErrors[sessionId] = false;
   await fetchSummary(sessionId);
+}
+
+async function handleArchivedTabClick() {
+  activeTab.value = 'archived';
+  if (!archivedLoaded.value) {
+    await sessionsStore.fetchArchivedSessions(projectId.value);
+    archivedLoaded.value = true;
+    fetchArchivedSummaries();
+  }
+}
+
+function fetchArchivedSummaries() {
+  const archived = sessionsStore.archivedSessions;
+  for (const session of archived) {
+    if (!summaries[session.id] && !loadingSummaries[session.id]) {
+      fetchSummary(session.id);
+    }
+  }
+}
+
+async function handleArchive(sessionId) {
+  try {
+    await sessionsStore.archiveSession(sessionId);
+    // If archived tab has been loaded, the session will already be in archivedSessions
+    // via the store action
+  } catch (error) {
+    console.error('Failed to archive session:', error);
+  }
+}
+
+async function handleUnarchive(sessionId) {
+  try {
+    await sessionsStore.unarchiveSession(sessionId);
+  } catch (error) {
+    console.error('Failed to unarchive session:', error);
+  }
 }
 
 // Cleanup WebSocket listeners on unmount

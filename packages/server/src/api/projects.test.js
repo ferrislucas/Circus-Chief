@@ -292,4 +292,72 @@ describe('Projects API', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe('GET /api/projects/:id/sessions with archived filter', () => {
+    let session1Id;
+    let session2Id;
+    let session3Id;
+
+    beforeEach(async () => {
+      // Create multiple sessions with different archived states
+      const session1 = sessions.create(projectId, 'Session 1', 'completed');
+      const session2 = sessions.create(projectId, 'Session 2', 'completed');
+      const session3 = sessions.create(projectId, 'Session 3', 'running');
+
+      session1Id = session1.id;
+      session2Id = session2.id;
+      session3Id = session3.id;
+
+      // Archive session1
+      sessions.update(session1Id, { archived: true });
+    });
+
+    it('returns all sessions when no archived filter is provided', async () => {
+      const res = await request(app).get(`/api/projects/${projectId}/sessions`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBe(3);
+
+      const sessionIds = res.body.map((s) => s.id);
+      expect(sessionIds).toContain(session1Id);
+      expect(sessionIds).toContain(session2Id);
+      expect(sessionIds).toContain(session3Id);
+    });
+
+    it('returns only archived sessions when archived=true', async () => {
+      const res = await request(app).get(`/api/projects/${projectId}/sessions?archived=true`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBe(1);
+      expect(res.body[0].id).toBe(session1Id);
+      expect(res.body[0].archived).toBe(true);
+    });
+
+    it('returns only non-archived sessions when archived=false', async () => {
+      const res = await request(app).get(`/api/projects/${projectId}/sessions?archived=false`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBe(2);
+
+      const sessionIds = res.body.map((s) => s.id);
+      expect(sessionIds).toContain(session2Id);
+      expect(sessionIds).toContain(session3Id);
+      expect(sessionIds).not.toContain(session1Id);
+
+      // Verify all returned sessions are not archived
+      res.body.forEach((s) => {
+        expect(s.archived).toBe(false);
+      });
+    });
+
+    it('returns 404 for non-existent project', async () => {
+      const res = await request(app).get('/api/projects/non-existent-id/sessions');
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Project not found');
+    });
+  });
 });

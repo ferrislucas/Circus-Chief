@@ -532,6 +532,49 @@ router.post('/:id/summary', async (req, res) => {
   }
 });
 
+// POST /api/sessions/:id/archive - Archive a session
+router.post('/:id/archive', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Only allow archiving stopped/completed/error sessions
+  if (!['stopped', 'completed', 'error'].includes(session.status)) {
+    return res.status(400).json({ error: 'Can only archive stopped, completed, or error sessions' });
+  }
+
+  const updated = sessions.update(req.params.id, { archived: true });
+
+  // Broadcast update to project subscribers
+  broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    projectId: session.projectId,
+    sessionId: req.params.id,
+    session: updated,
+  });
+
+  res.json(updated);
+});
+
+// POST /api/sessions/:id/unarchive - Unarchive a session
+router.post('/:id/unarchive', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const updated = sessions.update(req.params.id, { archived: false });
+
+  // Broadcast update to project subscribers
+  broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    projectId: session.projectId,
+    sessionId: req.params.id,
+    session: updated,
+  });
+
+  res.json(updated);
+});
+
 // DELETE /api/sessions/:id - Delete session
 router.delete('/:id', async (req, res) => {
   const session = sessions.getById(req.params.id);

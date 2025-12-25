@@ -111,6 +111,11 @@ describe('SessionRepository', () => {
       expect(session.model).toBeNull();
     });
 
+    it('creates session with archived set to false', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      expect(session.archived).toBe(false);
+    });
+
     it('creates session with model', () => {
       const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, 'claude-opus-4-5-20251101');
       expect(session.model).toBe('claude-opus-4-5-20251101');
@@ -241,6 +246,48 @@ describe('SessionRepository', () => {
       expect(sessions).toHaveLength(1);
       expect(sessions[0].name).toBe('Project 1 Session');
     });
+
+    it('filters by archived=false', () => {
+      const session1 = repo.create(projectId, 'Active Session', 'Prompt');
+      const session2 = repo.create(projectId, 'Archived Session', 'Prompt');
+      repo.update(session2.id, { archived: true });
+
+      const sessions = repo.getByProjectId(projectId, { archived: false });
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].id).toBe(session1.id);
+    });
+
+    it('filters by archived=true', () => {
+      const session1 = repo.create(projectId, 'Active Session', 'Prompt');
+      const session2 = repo.create(projectId, 'Archived Session', 'Prompt');
+      repo.update(session2.id, { archived: true });
+
+      const sessions = repo.getByProjectId(projectId, { archived: true });
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].id).toBe(session2.id);
+    });
+
+    it('returns all sessions when archived filter is null', () => {
+      const session1 = repo.create(projectId, 'Active Session', 'Prompt');
+      const session2 = repo.create(projectId, 'Archived Session', 'Prompt');
+      repo.update(session2.id, { archived: true });
+
+      const sessions = repo.getByProjectId(projectId, { archived: null });
+
+      expect(sessions).toHaveLength(2);
+    });
+
+    it('returns all sessions when no filter option provided', () => {
+      const session1 = repo.create(projectId, 'Active Session', 'Prompt');
+      const session2 = repo.create(projectId, 'Archived Session', 'Prompt');
+      repo.update(session2.id, { archived: true });
+
+      const sessions = repo.getByProjectId(projectId);
+
+      expect(sessions).toHaveLength(2);
+    });
   });
 
   describe('getActiveAndWaiting', () => {
@@ -315,6 +362,19 @@ describe('SessionRepository', () => {
 
       expect(sessions).toHaveLength(2);
       expect(sessions[0].updatedAt).toBeGreaterThanOrEqual(sessions[1].updatedAt);
+    });
+
+    it('excludes archived sessions', () => {
+      const running = repo.create(projectId, 'Running Session', 'Prompt');
+      repo.update(running.id, { status: 'running' });
+
+      const archivedRunning = repo.create(projectId, 'Archived Running', 'Prompt');
+      repo.update(archivedRunning.id, { status: 'running', archived: true });
+
+      const sessions = repo.getActiveAndWaiting();
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].id).toBe(running.id);
     });
   });
 
@@ -432,6 +492,24 @@ describe('SessionRepository', () => {
       const updated = repo.update(childSession.id, { parentSessionId: parentSession.id });
 
       expect(updated.parentSessionId).toBe(parentSession.id);
+    });
+
+    it('updates archived to true', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      expect(session.archived).toBe(false);
+
+      const updated = repo.update(session.id, { archived: true });
+
+      expect(updated.archived).toBe(true);
+    });
+
+    it('updates archived to false', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { archived: true });
+
+      const updated = repo.update(session.id, { archived: false });
+
+      expect(updated.archived).toBe(false);
     });
   });
 
