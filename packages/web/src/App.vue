@@ -32,7 +32,9 @@ import ToastContainer from './components/ToastContainer.vue';
 .app-header {
   background-color: var(--color-background-soft);
   border-bottom: 1px solid var(--color-border);
-  padding: 0.75rem 0;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
   position: sticky;
   top: 0;
   z-index: 100;
