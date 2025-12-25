@@ -539,9 +539,9 @@ router.post('/:id/archive', (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  // Only allow archiving stopped/completed/error sessions
-  if (!['stopped', 'completed', 'error'].includes(session.status)) {
-    return res.status(400).json({ error: 'Can only archive stopped, completed, or error sessions' });
+  // Only allow archiving stopped/waiting/error sessions (not active sessions like starting/running)
+  if (!['stopped', 'waiting', 'error'].includes(session.status)) {
+    return res.status(400).json({ error: 'Can only archive stopped, waiting, or error sessions' });
   }
 
   const updated = sessions.update(req.params.id, { archived: true });
