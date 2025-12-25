@@ -36,12 +36,26 @@
                 :summary="summary"
               />
             </div>
-            <button
-              class="btn btn-outline-danger btn-delete-session"
-              @click="handleDelete"
-            >
-              Delete Session
-            </button>
+            <div class="session-action-buttons">
+              <button
+                v-if="canArchive"
+                class="btn btn-outline-secondary btn-archive-session"
+                @click="handleArchive"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="4" width="20" height="5" rx="1" ry="1"></rect>
+                  <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path>
+                  <path d="M10 13h4"></path>
+                </svg>
+                Archive
+              </button>
+              <button
+                class="btn btn-outline-danger btn-delete-session"
+                @click="handleDelete"
+              >
+                Delete Session
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -125,6 +139,12 @@ const sessionId = route.params.id;
 
 const activeTab = computed(() => route.params.tab || 'conversation');
 const changesFileCount = ref(0);
+
+// Allow archiving any session that isn't running
+const canArchive = computed(() => {
+  const status = sessionsStore.currentSession?.status;
+  return status && status !== 'running';
+});
 
 const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
@@ -318,6 +338,24 @@ async function handleDelete() {
   }
 }
 
+async function handleArchive() {
+  if (!confirm('Are you sure you want to archive this session?')) return;
+
+  try {
+    const projectId = sessionsStore.currentSession?.projectId;
+    await sessionsStore.archiveSession(sessionId);
+    uiStore.success('Session archived');
+    // Navigate to project sessions list
+    if (projectId) {
+      router.push(`/projects/${projectId}/sessions`);
+    } else {
+      router.push('/');
+    }
+  } catch (err) {
+    uiStore.error(err.message);
+  }
+}
+
 function getTemplateName(templateId) {
   const template = templatesStore.getTemplateById(templateId);
   return template?.name || 'Unknown template';
@@ -368,14 +406,32 @@ function getTemplateName(templateId) {
   flex-wrap: wrap;
 }
 
-.btn-delete-session {
+.session-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin-left: auto;
   flex-shrink: 0;
 }
 
+.btn-archive-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.btn-archive-session svg {
+  flex-shrink: 0;
+}
+
+.btn-delete-session {
+  flex-shrink: 0;
+}
+
 @media (max-width: 768px) {
-  .btn-delete-session {
+  .session-action-buttons {
     margin-left: 0;
+    flex-wrap: wrap;
   }
 }
 
