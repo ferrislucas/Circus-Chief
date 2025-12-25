@@ -54,7 +54,7 @@ describe('SessionSummaryRepository', () => {
         fullSummary: 'Full summary',
         keyActions: ['Action 1', 'Action 2'],
         filesModified: ['file1.js', 'file2.js'],
-        outcome: 'completed',
+        outcome: 'partial',
         messageCount: 10,
       });
 
@@ -62,7 +62,7 @@ describe('SessionSummaryRepository', () => {
       expect(summary.fullSummary).toBe('Full summary');
       expect(summary.keyActions).toEqual(['Action 1', 'Action 2']);
       expect(summary.filesModified).toEqual(['file1.js', 'file2.js']);
-      expect(summary.outcome).toBe('completed');
+      expect(summary.outcome).toBe('partial');
       expect(summary.messageCount).toBe(10);
     });
 
@@ -200,9 +200,9 @@ describe('SessionSummaryRepository', () => {
         fullSummary: 'Full',
         outcome: 'ongoing',
       });
-      const updated = repo.update(summary.id, { outcome: 'completed' });
+      const updated = repo.update(summary.id, { outcome: 'partial' });
 
-      expect(updated.outcome).toBe('completed');
+      expect(updated.outcome).toBe('partial');
     });
 
     it('updates messageCount', () => {
@@ -228,7 +228,7 @@ describe('SessionSummaryRepository', () => {
         fullSummary: 'Updated full',
         keyActions: ['New action'],
         filesModified: ['new-file.js'],
-        outcome: 'completed',
+        outcome: 'partial',
         messageCount: 5,
       });
 
@@ -236,7 +236,7 @@ describe('SessionSummaryRepository', () => {
       expect(updated.fullSummary).toBe('Updated full');
       expect(updated.keyActions).toEqual(['New action']);
       expect(updated.filesModified).toEqual(['new-file.js']);
-      expect(updated.outcome).toBe('completed');
+      expect(updated.outcome).toBe('partial');
       expect(updated.messageCount).toBe(5);
     });
 

@@ -400,7 +400,7 @@ describe('Work Logs API', () => {
     });
 
     it('supports all valid statuses', () => {
-      const validStatuses = ['starting', 'running', 'waiting', 'completed', 'error', 'stopped'];
+      const validStatuses = ['starting', 'running', 'waiting', 'error', 'stopped'];
 
       for (const status of validStatuses) {
         sessions.update(session.id, { status });
