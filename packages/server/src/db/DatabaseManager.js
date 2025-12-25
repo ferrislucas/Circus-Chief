@@ -67,6 +67,12 @@ export class DatabaseManager {
     if (!projectsColumns.includes('on_session_deleted')) {
       this.#db.exec('ALTER TABLE projects ADD COLUMN on_session_deleted TEXT');
     }
+    if (!projectsColumns.includes('disable_session_summaries')) {
+      this.#db.exec('ALTER TABLE projects ADD COLUMN disable_session_summaries INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!projectsColumns.includes('disable_conversation_summaries')) {
+      this.#db.exec('ALTER TABLE projects ADD COLUMN disable_conversation_summaries INTEGER NOT NULL DEFAULT 0');
+    }
 
     // Migrate sessions table to add 'stopped' status to CHECK constraint
     // SQLite doesn't allow modifying CHECK constraints, so we need to recreate the table
@@ -127,6 +133,14 @@ export class DatabaseManager {
 
     // Create default conversations for existing sessions that don't have one
     this.#migrateExistingSessionsToConversations();
+
+    // Add claude_session_id column to conversations table for per-conversation context isolation
+    const conversationsTableInfo = this.#db.prepare('PRAGMA table_info(conversations)').all();
+    const conversationsColumns = conversationsTableInfo.map((col) => col.name);
+
+    if (!conversationsColumns.includes('claude_session_id')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN claude_session_id TEXT');
+    }
   }
 
   /**

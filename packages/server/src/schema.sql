@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS projects (
   on_session_created TEXT,
   on_session_deleted TEXT,
   pr_poll_interval INTEGER NOT NULL DEFAULT 60000,  -- PR status poll interval in ms (default 1 minute)
+  disable_session_summaries INTEGER NOT NULL DEFAULT 0,  -- Disable automatic session summary generation
+  disable_conversation_summaries INTEGER NOT NULL DEFAULT 0,  -- Disable automatic conversation summary generation
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -55,6 +57,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   summary TEXT,                        -- Per-conversation summary
   summary_generated_at INTEGER,        -- When summary was last generated
   is_active INTEGER NOT NULL DEFAULT 0, -- Currently selected conversation (1 = active)
+  claude_session_id TEXT,              -- Claude SDK session ID for this conversation's context
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
