@@ -150,8 +150,8 @@ describe('Project Subscription Broadcasts', () => {
     });
 
     it('getActiveAndWaiting returns only active sessions', () => {
-      // Update initial session to be completed
-      sessions.update(session.id, { status: 'completed' });
+      // Update initial session to be stopped
+      sessions.update(session.id, { status: 'stopped' });
 
       // Create an active session
       const activeSession = sessions.create(project.id, 'Active Session', 'Prompt', 'standard');
@@ -163,7 +163,7 @@ describe('Project Subscription Broadcasts', () => {
 
       const activeSessions = sessions.getActiveAndWaiting();
 
-      // Should include running and waiting, but not completed
+      // Should include running and waiting, but not stopped
       expect(activeSessions.some(s => s.id === activeSession.id)).toBe(true);
       expect(activeSessions.some(s => s.id === waitingSession.id)).toBe(true);
       expect(activeSessions.some(s => s.id === session.id)).toBe(false);

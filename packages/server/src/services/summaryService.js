@@ -41,7 +41,7 @@ async function* mockSummaryQuery({ prompt: _prompt, recentMessages, sessionStatu
 
   // Derive outcome from session status
   let outcome = 'ongoing';
-  if (sessionStatus === 'completed') outcome = 'completed';
+  if (sessionStatus === 'stopped') outcome = 'partial';
   else if (sessionStatus === 'error') outcome = 'failed';
 
   // Create contextual mock response
@@ -438,6 +438,22 @@ export function onSessionActivity(sessionId) {
   }, DEBOUNCE_DELAY);
 
   debounceTimers.set(sessionId, timer);
+}
+
+/**
+ * Generate summary immediately and wait for completion (synchronous)
+ * Used by template trigger to ensure summary is ready before creating new session
+ * @param {string} sessionId
+ * @returns {Promise<Object|null>}
+ */
+export async function generateSummaryNow(sessionId) {
+  // Cancel any pending debounced generation for this session
+  if (debounceTimers.has(sessionId)) {
+    clearTimeout(debounceTimers.get(sessionId));
+    debounceTimers.delete(sessionId);
+  }
+  // Generate summary immediately and wait for completion
+  return await generateSummary(sessionId);
 }
 
 /**

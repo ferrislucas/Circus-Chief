@@ -172,19 +172,19 @@ describe('SessionRepository', () => {
       expect(sessions[0].updatedAt).toBeGreaterThanOrEqual(sessions[2].updatedAt);
     });
 
-    it('returns completed sessions after non-completed sessions', () => {
+    it('returns all sessions sorted by updatedAt descending regardless of status', () => {
       // Create sessions with different statuses
       const waiting = repo.create(projectId, 'Waiting Session', 'Prompt');
       repo.update(waiting.id, { status: 'waiting' });
 
-      const completed1 = repo.create(projectId, 'Completed Session 1', 'Prompt');
-      repo.update(completed1.id, { status: 'completed' });
+      const stopped1 = repo.create(projectId, 'Stopped Session 1', 'Prompt');
+      repo.update(stopped1.id, { status: 'stopped' });
 
       const running = repo.create(projectId, 'Running Session', 'Prompt');
       repo.update(running.id, { status: 'running' });
 
-      const completed2 = repo.create(projectId, 'Completed Session 2', 'Prompt');
-      repo.update(completed2.id, { status: 'completed' });
+      const stopped2 = repo.create(projectId, 'Stopped Session 2', 'Prompt');
+      repo.update(stopped2.id, { status: 'stopped' });
 
       const _starting = repo.create(projectId, 'Starting Session', 'Prompt');
       // _starting is default status, no update needed
@@ -193,27 +193,20 @@ describe('SessionRepository', () => {
 
       expect(sessions).toHaveLength(5);
 
-      // Non-completed sessions should come first
-      const nonCompleted = sessions.filter((s) => s.status !== 'completed');
-      const completed = sessions.filter((s) => s.status === 'completed');
-
-      expect(nonCompleted).toHaveLength(3);
-      expect(completed).toHaveLength(2);
-
-      // Verify non-completed come before completed
-      const firstCompletedIndex = sessions.findIndex((s) => s.status === 'completed');
-      const lastNonCompletedIndex = sessions.findLastIndex((s) => s.status !== 'completed');
-      expect(lastNonCompletedIndex).toBeLessThan(firstCompletedIndex);
+      // Sessions should be sorted by updatedAt descending (most recent first)
+      for (let i = 0; i < sessions.length - 1; i++) {
+        expect(sessions[i].updatedAt).toBeGreaterThanOrEqual(sessions[i + 1].updatedAt);
+      }
     });
 
-    it('sorts completed sessions by updatedAt descending', () => {
-      // Create two completed sessions with different updatedAt times
-      const older = repo.create(projectId, 'Older Completed', 'Prompt');
-      repo.update(older.id, { status: 'completed' });
+    it('sorts sessions by updatedAt descending', () => {
+      // Create two sessions with different updatedAt times
+      const older = repo.create(projectId, 'Older Session', 'Prompt');
+      repo.update(older.id, { status: 'stopped' });
 
       // Small delay to ensure different timestamps
-      const newer = repo.create(projectId, 'Newer Completed', 'Prompt');
-      repo.update(newer.id, { status: 'completed' });
+      const newer = repo.create(projectId, 'Newer Session', 'Prompt');
+      repo.update(newer.id, { status: 'stopped' });
 
       const sessions = repo.getByProjectId(projectId);
 
@@ -266,8 +259,8 @@ describe('SessionRepository', () => {
       const waiting = repo.create(projectId, 'Waiting Session', 'Prompt');
       repo.update(waiting.id, { status: 'waiting' });
 
-      const completed = repo.create(projectId, 'Completed Session', 'Prompt');
-      repo.update(completed.id, { status: 'completed' });
+      const stopped = repo.create(projectId, 'Stopped Session', 'Prompt');
+      repo.update(stopped.id, { status: 'stopped' });
 
       const errorSession = repo.create(projectId, 'Error Session', 'Prompt');
       repo.update(errorSession.id, { status: 'error' });
@@ -279,7 +272,7 @@ describe('SessionRepository', () => {
       expect(statuses).toContain('starting');
       expect(statuses).toContain('running');
       expect(statuses).toContain('waiting');
-      expect(statuses).not.toContain('completed');
+      expect(statuses).not.toContain('stopped');
       expect(statuses).not.toContain('error');
     });
 
@@ -389,12 +382,12 @@ describe('SessionRepository', () => {
     it('updates multiple fields at once', () => {
       const session = repo.create(projectId, 'Test', 'Prompt');
       const updated = repo.update(session.id, {
-        status: 'completed',
+        status: 'stopped',
         prUrl: 'https://github.com/pr/456',
         gitBranch: 'feature',
       });
 
-      expect(updated.status).toBe('completed');
+      expect(updated.status).toBe('stopped');
       expect(updated.prUrl).toBe('https://github.com/pr/456');
       expect(updated.gitBranch).toBe('feature');
     });
@@ -519,7 +512,7 @@ describe('SessionRepository', () => {
       const session = repo.create(projectId, 'Test Session', 'Prompt');
       repo.update(session.id, {
         prUrl: 'https://github.com/org/repo/pull/123',
-        status: 'completed',
+        status: 'stopped',
         gitBranch: 'feature/test',
       });
 
@@ -530,7 +523,7 @@ describe('SessionRepository', () => {
         projectId: projectId,
         name: 'Test Session',
         prUrl: 'https://github.com/org/repo/pull/123',
-        status: 'completed',
+        status: 'stopped',
         gitBranch: 'feature/test',
       });
     });

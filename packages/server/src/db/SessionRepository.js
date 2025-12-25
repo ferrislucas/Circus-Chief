@@ -55,7 +55,6 @@ export class SessionRepository extends BaseRepository {
         `SELECT * FROM sessions
          WHERE project_id = ?
          ORDER BY
-           CASE WHEN status = 'completed' THEN 1 ELSE 0 END,
            updated_at DESC,
            created_at DESC,
            rowid DESC`

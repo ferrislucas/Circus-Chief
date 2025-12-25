@@ -27,7 +27,7 @@ describe('templateTriggerService', () => {
       const parentSession = {
         id: 'session-123',
         name: 'Test Session',
-        status: 'completed',
+        status: 'stopped',
       };
       const summary = {
         fullSummary: 'Built a new feature for user authentication.',
@@ -44,7 +44,7 @@ describe('templateTriggerService', () => {
       const parentSession = {
         id: 'abc-123-def',
         name: 'Test',
-        status: 'completed',
+        status: 'stopped',
       };
 
       const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null);
@@ -57,7 +57,7 @@ describe('templateTriggerService', () => {
       const parentSession = {
         id: 'session-123',
         name: 'Build login page',
-        status: 'completed',
+        status: 'stopped',
       };
 
       const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null);
@@ -83,7 +83,7 @@ describe('templateTriggerService', () => {
       const parentSession = {
         id: 'session-123',
         name: 'Test',
-        status: 'completed',
+        status: 'stopped',
       };
       const summary = {
         shortSummary: 'Short summary only',
@@ -100,7 +100,7 @@ describe('templateTriggerService', () => {
       const parentSession = {
         id: 'session-123',
         name: 'Test',
-        status: 'completed',
+        status: 'stopped',
       };
 
       const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null);
@@ -113,7 +113,7 @@ describe('templateTriggerService', () => {
       const parentSession = {
         id: 'session-123',
         name: 'Test',
-        status: 'completed',
+        status: 'stopped',
       };
       const summary = {
         keyActions: ['Added login form', 'Updated API', 'Fixed bug'],
@@ -129,7 +129,7 @@ describe('templateTriggerService', () => {
       const parentSession = {
         id: 'session-123',
         name: 'Test',
-        status: 'completed',
+        status: 'stopped',
       };
       const summary = {
         filesModified: ['src/login.js', 'src/api.js'],
@@ -145,7 +145,7 @@ describe('templateTriggerService', () => {
       const parentSession = {
         id: 'session-123',
         name: 'Test',
-        status: 'completed',
+        status: 'stopped',
       };
       const summary = {
         outcome: 'partial',
@@ -182,7 +182,7 @@ Please review the above work.
       const parentSession = {
         id: 'session-123',
         name: 'Build feature X',
-        status: 'completed',
+        status: 'stopped',
       };
       const summary = {
         fullSummary: 'Implemented feature X with tests.',
@@ -191,7 +191,7 @@ Please review the above work.
       const rendered = await renderTemplatePrompt(templatePrompt, parentSession, summary);
 
       expect(rendered).toContain('Review Session: Build feature X');
-      expect(rendered).toContain('Status: completed');
+      expect(rendered).toContain('Status: stopped');
       expect(rendered).toContain('Summary: Implemented feature X with tests.');
     });
 
@@ -200,7 +200,7 @@ Please review the above work.
       const parentSession = {
         id: 'session-123',
         name: 'Test',
-        status: 'completed',
+        status: 'stopped',
       };
 
       const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null);
@@ -242,7 +242,7 @@ Please review the above work.
       // Create parent session with nextTemplateId
       const session = sessions.create(projectId, 'Parent Session', 'Initial prompt', 'standard');
       parentSessionId = session.id;
-      sessions.update(parentSessionId, { nextTemplateId: templateId, status: 'completed' });
+      sessions.update(parentSessionId, { nextTemplateId: templateId, status: 'stopped' });
     });
 
     afterEach(() => {
@@ -354,7 +354,7 @@ Please review the above work.
         fullSummary: 'Full summary of the parent session work',
         keyActions: ['action1'],
         filesModified: ['file.js'],
-        outcome: 'completed',
+        outcome: 'partial',
         messageCount: 5,
       });
 
