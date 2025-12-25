@@ -27,6 +27,13 @@ export class SessionRepository extends BaseRepository {
       model: row.model,
       nextTemplateId: row.next_template_id,
       parentSessionId: row.parent_session_id,
+      // Token usage fields
+      inputTokens: row.input_tokens || 0,
+      outputTokens: row.output_tokens || 0,
+      cacheReadInputTokens: row.cache_read_input_tokens || 0,
+      cacheCreationInputTokens: row.cache_creation_input_tokens || 0,
+      webSearchRequests: row.web_search_requests || 0,
+      contextWindow: row.context_window || 200000,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -159,5 +166,44 @@ export class SessionRepository extends BaseRepository {
       .prepare('SELECT * FROM sessions WHERE pr_url IS NOT NULL ORDER BY updated_at DESC, created_at DESC, rowid DESC')
       .all();
     return this.mapAll(rows);
+  }
+
+  /**
+   * Update token usage statistics for a session
+   * @param {string} id - Session ID
+   * @param {Object} usage - Usage data
+   * @param {number} usage.inputTokens
+   * @param {number} usage.outputTokens
+   * @param {number} usage.cacheReadInputTokens
+   * @param {number} usage.cacheCreationInputTokens
+   * @param {number} usage.webSearchRequests
+   * @param {number} usage.contextWindow
+   * @returns {Object} Updated session
+   */
+  updateUsage(id, usage) {
+    const now = Date.now();
+    this.db
+      .prepare(
+        `UPDATE sessions SET
+          input_tokens = ?,
+          output_tokens = ?,
+          cache_read_input_tokens = ?,
+          cache_creation_input_tokens = ?,
+          web_search_requests = ?,
+          context_window = ?,
+          updated_at = ?
+        WHERE id = ?`
+      )
+      .run(
+        usage.inputTokens,
+        usage.outputTokens,
+        usage.cacheReadInputTokens,
+        usage.cacheCreationInputTokens,
+        usage.webSearchRequests,
+        usage.contextWindow,
+        now,
+        id
+      );
+    return this.getById(id);
   }
 }

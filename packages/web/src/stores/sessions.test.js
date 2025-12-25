@@ -725,4 +725,238 @@ describe('Sessions Store', () => {
       });
     });
   });
+
+  describe('token usage', () => {
+    describe('totalTokens getter', () => {
+      it('returns 0 when no current session', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+
+        expect(store.totalTokens).toBe(0);
+      });
+
+      it('returns sum of input and output tokens', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 1000,
+          outputTokens: 500,
+        };
+
+        expect(store.totalTokens).toBe(1500);
+      });
+
+      it('handles missing token values', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          // no token values set
+        };
+
+        expect(store.totalTokens).toBe(0);
+      });
+    });
+
+    describe('formattedTokens getter', () => {
+      it('returns zeros when no current session', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('0');
+        expect(formatted.output).toBe('0');
+        expect(formatted.total).toBe('0');
+      });
+
+      it('formats small numbers as-is', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 500,
+          outputTokens: 250,
+          cacheReadInputTokens: 100,
+          cacheCreationInputTokens: 50,
+        };
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('500');
+        expect(formatted.output).toBe('250');
+        expect(formatted.total).toBe('750');
+        expect(formatted.cacheRead).toBe('100');
+        expect(formatted.cacheCreation).toBe('50');
+      });
+
+      it('formats thousands with K suffix', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 5500,
+          outputTokens: 2500,
+        };
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('5.5K');
+        expect(formatted.output).toBe('2.5K');
+        expect(formatted.total).toBe('8.0K');
+      });
+
+      it('formats millions with M suffix', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 1500000,
+          outputTokens: 500000,
+        };
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('1.5M');
+        expect(formatted.output).toBe('500.0K'); // 500K is below 1M threshold
+        expect(formatted.total).toBe('2.0M');
+      });
+
+      it('handles exactly 1000 tokens', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 1000,
+          outputTokens: 0,
+        };
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('1.0K');
+      });
+
+      it('handles exactly 1000000 tokens', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 1000000,
+          outputTokens: 0,
+        };
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('1.0M');
+      });
+    });
+
+    describe('isUsageUpdating getter', () => {
+      it('returns false when runningUsage is null', () => {
+        const store = useSessionsStore();
+        store.runningUsage = null;
+
+        expect(store.isUsageUpdating).toBe(false);
+      });
+
+      it('returns true when runningUsage has value', () => {
+        const store = useSessionsStore();
+        store.runningUsage = { inputTokens: 100, outputTokens: 50 };
+
+        expect(store.isUsageUpdating).toBe(true);
+      });
+    });
+
+    describe('updateRunningUsage action', () => {
+      it('sets runningUsage value', () => {
+        const store = useSessionsStore();
+        const usage = { inputTokens: 100, outputTokens: 50 };
+
+        store.updateRunningUsage(usage);
+
+        expect(store.runningUsage).toEqual(usage);
+      });
+
+      it('can update runningUsage multiple times', () => {
+        const store = useSessionsStore();
+
+        store.updateRunningUsage({ inputTokens: 100, outputTokens: 50 });
+        expect(store.runningUsage.inputTokens).toBe(100);
+
+        store.updateRunningUsage({ inputTokens: 200, outputTokens: 100 });
+        expect(store.runningUsage.inputTokens).toBe(200);
+      });
+    });
+
+    describe('finalizeUsage action', () => {
+      it('updates currentSession with usage values', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          name: 'Test',
+          inputTokens: 0,
+          outputTokens: 0,
+        };
+
+        const usage = {
+          inputTokens: 1000,
+          outputTokens: 500,
+          cacheReadInputTokens: 200,
+          cacheCreationInputTokens: 100,
+          webSearchRequests: 2,
+          contextWindow: 200000,
+        };
+
+        store.finalizeUsage(usage);
+
+        expect(store.currentSession.inputTokens).toBe(1000);
+        expect(store.currentSession.outputTokens).toBe(500);
+        expect(store.currentSession.cacheReadInputTokens).toBe(200);
+        expect(store.currentSession.cacheCreationInputTokens).toBe(100);
+        expect(store.currentSession.webSearchRequests).toBe(2);
+        expect(store.currentSession.contextWindow).toBe(200000);
+      });
+
+      it('clears runningUsage', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+        store.runningUsage = { inputTokens: 100 };
+
+        store.finalizeUsage({ inputTokens: 1000, outputTokens: 500 });
+
+        expect(store.runningUsage).toBeNull();
+      });
+
+      it('creates new object reference for reactivity', () => {
+        const store = useSessionsStore();
+        const originalSession = { id: 'session-1', name: 'Test' };
+        store.currentSession = originalSession;
+
+        store.finalizeUsage({ inputTokens: 1000, outputTokens: 500 });
+
+        expect(store.currentSession).not.toBe(originalSession);
+        expect(store.currentSession.id).toBe('session-1');
+        expect(store.currentSession.name).toBe('Test');
+      });
+
+      it('does nothing when currentSession is null', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+        store.runningUsage = { inputTokens: 100 };
+
+        store.finalizeUsage({ inputTokens: 1000, outputTokens: 500 });
+
+        expect(store.currentSession).toBeNull();
+        expect(store.runningUsage).toBeNull();
+      });
+    });
+
+    describe('clearRunningUsage action', () => {
+      it('clears runningUsage to null', () => {
+        const store = useSessionsStore();
+        store.runningUsage = { inputTokens: 100, outputTokens: 50 };
+
+        store.clearRunningUsage();
+
+        expect(store.runningUsage).toBeNull();
+      });
+
+      it('is idempotent', () => {
+        const store = useSessionsStore();
+        store.runningUsage = null;
+
+        store.clearRunningUsage();
+
+        expect(store.runningUsage).toBeNull();
+      });
+    });
+  });
 });

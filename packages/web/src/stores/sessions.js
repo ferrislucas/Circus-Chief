@@ -11,6 +11,7 @@ export const useSessionsStore = defineStore('sessions', {
     activeConversationId: null, // Currently selected conversation ID
     workLogs: {}, // Keyed by messageId: { [messageId]: WorkLog[] }
     partialThinking: null, // Current streaming thinking content
+    runningUsage: null, // Partial usage during a turn
     loading: false,
     error: null,
   }),
@@ -30,6 +31,33 @@ export const useSessionsStore = defineStore('sessions', {
     },
     getConversationById: (state) => (id) => {
       return state.conversations.find((c) => c.id === id);
+    },
+    // Token usage getters
+    totalTokens: (state) => {
+      const session = state.currentSession;
+      if (!session) return 0;
+      return (session.inputTokens || 0) + (session.outputTokens || 0);
+    },
+    formattedTokens: (state) => {
+      const session = state.currentSession;
+      if (!session) return { input: '0', output: '0', total: '0' };
+
+      const format = (n) => {
+        if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+        if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+        return String(n);
+      };
+
+      return {
+        input: format(session.inputTokens || 0),
+        output: format(session.outputTokens || 0),
+        total: format((session.inputTokens || 0) + (session.outputTokens || 0)),
+        cacheRead: format(session.cacheReadInputTokens || 0),
+        cacheCreation: format(session.cacheCreationInputTokens || 0),
+      };
+    },
+    isUsageUpdating: (state) => {
+      return state.runningUsage !== null;
     },
   },
 
@@ -248,6 +276,42 @@ export const useSessionsStore = defineStore('sessions', {
     // Clear partial thinking when complete
     clearPartialThinking() {
       this.partialThinking = null;
+    },
+
+    // ==================== USAGE ACTIONS ====================
+
+    /**
+     * Update running usage during a turn (partial update)
+     * @param {Object} usage - Usage data
+     */
+    updateRunningUsage(usage) {
+      this.runningUsage = usage;
+    },
+
+    /**
+     * Finalize usage at end of turn (update session with final values)
+     * @param {Object} usage - Final cumulative usage
+     */
+    finalizeUsage(usage) {
+      if (this.currentSession) {
+        this.currentSession = {
+          ...this.currentSession,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadInputTokens: usage.cacheReadInputTokens,
+          cacheCreationInputTokens: usage.cacheCreationInputTokens,
+          webSearchRequests: usage.webSearchRequests,
+          contextWindow: usage.contextWindow,
+        };
+      }
+      this.runningUsage = null;
+    },
+
+    /**
+     * Clear running usage (on session unmount)
+     */
+    clearRunningUsage() {
+      this.runningUsage = null;
     },
 
     updateSessionStatus(sessionId, status) {
