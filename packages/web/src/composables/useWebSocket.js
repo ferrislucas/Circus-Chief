@@ -280,6 +280,16 @@ export function useSessionSubscription(sessionId) {
     return () => off(WS_MESSAGE_TYPES.CONVERSATION_DELETED, handler);
   };
 
+  const onUsageUpdate = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -304,6 +314,7 @@ export function useSessionSubscription(sessionId) {
     onConversationCreated,
     onConversationUpdated,
     onConversationDeleted,
+    onUsageUpdate,
   };
 }
 

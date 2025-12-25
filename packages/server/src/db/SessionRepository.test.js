@@ -606,4 +606,185 @@ describe('SessionRepository', () => {
       });
     });
   });
+
+  describe('updateUsage', () => {
+    it('updates all token usage fields', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      const usage = {
+        inputTokens: 1000,
+        outputTokens: 500,
+        cacheReadInputTokens: 200,
+        cacheCreationInputTokens: 100,
+        webSearchRequests: 2,
+        contextWindow: 200000,
+      };
+
+      const updated = repo.updateUsage(session.id, usage);
+
+      expect(updated.inputTokens).toBe(1000);
+      expect(updated.outputTokens).toBe(500);
+      expect(updated.cacheReadInputTokens).toBe(200);
+      expect(updated.cacheCreationInputTokens).toBe(100);
+      expect(updated.webSearchRequests).toBe(2);
+      expect(updated.contextWindow).toBe(200000);
+    });
+
+    it('updates usage with zero values', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      const usage = {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        webSearchRequests: 0,
+        contextWindow: 200000,
+      };
+
+      const updated = repo.updateUsage(session.id, usage);
+
+      expect(updated.inputTokens).toBe(0);
+      expect(updated.outputTokens).toBe(0);
+      expect(updated.cacheReadInputTokens).toBe(0);
+      expect(updated.cacheCreationInputTokens).toBe(0);
+    });
+
+    it('updates usage with large token counts', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      const usage = {
+        inputTokens: 1500000,
+        outputTokens: 500000,
+        cacheReadInputTokens: 1000000,
+        cacheCreationInputTokens: 50000,
+        webSearchRequests: 10,
+        contextWindow: 200000,
+      };
+
+      const updated = repo.updateUsage(session.id, usage);
+
+      expect(updated.inputTokens).toBe(1500000);
+      expect(updated.outputTokens).toBe(500000);
+      expect(updated.cacheReadInputTokens).toBe(1000000);
+    });
+
+    it('updates updatedAt timestamp', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const originalUpdatedAt = session.updatedAt;
+
+      // Small delay to ensure different timestamp
+      const usage = {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        webSearchRequests: 0,
+        contextWindow: 200000,
+      };
+
+      const updated = repo.updateUsage(session.id, usage);
+
+      expect(updated.updatedAt).toBeGreaterThanOrEqual(originalUpdatedAt);
+    });
+
+    it('returns updated session with all fields', () => {
+      const session = repo.create(projectId, 'Test Session', 'Prompt');
+
+      const usage = {
+        inputTokens: 500,
+        outputTokens: 250,
+        cacheReadInputTokens: 100,
+        cacheCreationInputTokens: 50,
+        webSearchRequests: 1,
+        contextWindow: 200000,
+      };
+
+      const updated = repo.updateUsage(session.id, usage);
+
+      // Verify other fields are preserved
+      expect(updated.id).toBe(session.id);
+      expect(updated.name).toBe('Test Session');
+      expect(updated.projectId).toBe(projectId);
+      expect(updated.status).toBe('starting');
+    });
+
+    it('can be retrieved after update', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      const usage = {
+        inputTokens: 1000,
+        outputTokens: 500,
+        cacheReadInputTokens: 200,
+        cacheCreationInputTokens: 100,
+        webSearchRequests: 3,
+        contextWindow: 200000,
+      };
+
+      repo.updateUsage(session.id, usage);
+
+      // Retrieve and verify
+      const retrieved = repo.getById(session.id);
+      expect(retrieved.inputTokens).toBe(1000);
+      expect(retrieved.outputTokens).toBe(500);
+      expect(retrieved.cacheReadInputTokens).toBe(200);
+      expect(retrieved.cacheCreationInputTokens).toBe(100);
+      expect(retrieved.webSearchRequests).toBe(3);
+    });
+  });
+
+  describe('token usage in getById', () => {
+    it('returns default token usage values for new session', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const retrieved = repo.getById(session.id);
+
+      expect(retrieved.inputTokens).toBe(0);
+      expect(retrieved.outputTokens).toBe(0);
+      expect(retrieved.cacheReadInputTokens).toBe(0);
+      expect(retrieved.cacheCreationInputTokens).toBe(0);
+      expect(retrieved.webSearchRequests).toBe(0);
+      expect(retrieved.contextWindow).toBe(200000);
+    });
+  });
+
+  describe('token usage in getByProjectId', () => {
+    it('includes token usage in session list', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.updateUsage(session.id, {
+        inputTokens: 1000,
+        outputTokens: 500,
+        cacheReadInputTokens: 200,
+        cacheCreationInputTokens: 100,
+        webSearchRequests: 2,
+        contextWindow: 200000,
+      });
+
+      const sessions = repo.getByProjectId(projectId);
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].inputTokens).toBe(1000);
+      expect(sessions[0].outputTokens).toBe(500);
+    });
+  });
+
+  describe('token usage in getActiveAndWaiting', () => {
+    it('includes token usage in active sessions', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { status: 'running' });
+      repo.updateUsage(session.id, {
+        inputTokens: 750,
+        outputTokens: 350,
+        cacheReadInputTokens: 150,
+        cacheCreationInputTokens: 75,
+        webSearchRequests: 1,
+        contextWindow: 200000,
+      });
+
+      const sessions = repo.getActiveAndWaiting();
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].inputTokens).toBe(750);
+      expect(sessions[0].outputTokens).toBe(350);
+    });
+  });
 });

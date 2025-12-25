@@ -31,6 +31,9 @@ export const WS_MESSAGE_TYPES = {
   CONVERSATION_UPDATED: 'conversation:updated',
   CONVERSATION_DELETED: 'conversation:deleted',
   CONVERSATION_SUMMARY_UPDATED: 'conversation:summary_updated',
+
+  // Usage events
+  SESSION_USAGE_UPDATE: 'session:usage_update',
 };
 
 /**

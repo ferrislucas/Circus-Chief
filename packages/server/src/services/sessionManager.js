@@ -15,6 +15,56 @@ const thinkingAccumulators = new Map();
 /** @type {Map<string, { controller: AbortController }>} */
 const activeSessions = new Map();
 
+/** @type {Map<string, {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, cacheCreationInputTokens: number}>} */
+const usageAccumulators = new Map();
+
+/**
+ * Initialize or reset usage accumulator for a session turn
+ * @param {string} sessionId
+ */
+function resetUsageAccumulator(sessionId) {
+  usageAccumulators.set(sessionId, {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+  });
+}
+
+/**
+ * Accumulate usage from an assistant message
+ * @param {string} sessionId
+ * @param {Object} usage - Usage data from SDK (snake_case)
+ * @returns {Object} Accumulated usage
+ */
+function accumulateUsage(sessionId, usage) {
+  const current = usageAccumulators.get(sessionId) || {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+  };
+
+  const accumulated = {
+    inputTokens: current.inputTokens + (usage.input_tokens || 0),
+    outputTokens: current.outputTokens + (usage.output_tokens || 0),
+    cacheReadInputTokens: current.cacheReadInputTokens + (usage.cache_read_input_tokens || 0),
+    cacheCreationInputTokens: current.cacheCreationInputTokens + (usage.cache_creation_input_tokens || 0),
+  };
+
+  usageAccumulators.set(sessionId, accumulated);
+  return accumulated;
+}
+
+/**
+ * Get current accumulated usage for a session
+ * @param {string} sessionId
+ * @returns {Object|undefined}
+ */
+function _getAccumulatedUsage(sessionId) {
+  return usageAccumulators.get(sessionId);
+}
+
 /** Check if mock mode is enabled (for E2E testing) */
 const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
 
@@ -459,6 +509,9 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
+  // Reset usage accumulator for this turn
+  resetUsageAccumulator(sessionId);
+
   try {
     // Get session for settings
     const session = sessions.getById(sessionId);
@@ -563,6 +616,9 @@ export async function continueSession(sessionId, content, workingDirectory, syst
 
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
+
+  // Reset usage accumulator for this turn
+  resetUsageAccumulator(sessionId);
 
   try {
     // Ensure there's an active conversation for this session
@@ -767,6 +823,19 @@ async function handleStreamEvent(sessionId, event) {
       // Extract tool use for logging
       const toolUseBlocks = event.message?.content?.filter((c) => c.type === 'tool_use') || [];
 
+      // Extract and broadcast usage from assistant message
+      const messageUsage = event.message?.usage;
+      if (messageUsage) {
+        const accumulated = accumulateUsage(sessionId, messageUsage);
+
+        // Broadcast partial usage update
+        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
+          sessionId,
+          usage: accumulated,
+          isFinal: false,
+        });
+      }
+
       if (textContent) {
         const toolUse = toolUseBlocks.length > 0 ? toolUseBlocks : null;
         const activeConversation = conversations.getActiveBySessionId(sessionId);
@@ -884,15 +953,55 @@ async function handleStreamEvent(sessionId, event) {
       } else {
         // Store cost info and broadcast to project subscribers
         if (event.total_cost_usd !== undefined) {
-          const updatedSession = sessions.update(sessionId, { costUsd: event.total_cost_usd });
-          // Broadcast cost update to project subscribers for session list updates
-          if (updatedSession) {
-            broadcastToProject(updatedSession.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-              projectId: updatedSession.projectId,
-              sessionId,
-              session: updatedSession,
-            });
-          }
+          sessions.update(sessionId, { costUsd: event.total_cost_usd });
+        }
+
+        // Store final usage stats
+        if (event.usage || event.modelUsage) {
+          // Extract from modelUsage if available (has more detail)
+          const modelUsageEntry = event.modelUsage
+            ? Object.values(event.modelUsage)[0]
+            : null;
+
+          const finalUsage = {
+            inputTokens: modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
+            outputTokens: modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
+            cacheReadInputTokens: modelUsageEntry?.cacheReadInputTokens || event.usage?.cache_read_input_tokens || 0,
+            cacheCreationInputTokens: modelUsageEntry?.cacheCreationInputTokens || event.usage?.cache_creation_input_tokens || 0,
+            webSearchRequests: modelUsageEntry?.webSearchRequests || 0,
+            contextWindow: modelUsageEntry?.contextWindow || 200000,
+          };
+
+          // Get existing session usage and add to it (cumulative across turns)
+          const currentSession = sessions.getById(sessionId);
+          const cumulativeUsage = {
+            inputTokens: (currentSession.inputTokens || 0) + finalUsage.inputTokens,
+            outputTokens: (currentSession.outputTokens || 0) + finalUsage.outputTokens,
+            cacheReadInputTokens: (currentSession.cacheReadInputTokens || 0) + finalUsage.cacheReadInputTokens,
+            cacheCreationInputTokens: (currentSession.cacheCreationInputTokens || 0) + finalUsage.cacheCreationInputTokens,
+            webSearchRequests: (currentSession.webSearchRequests || 0) + finalUsage.webSearchRequests,
+            contextWindow: finalUsage.contextWindow,
+          };
+
+          const updatedSession = sessions.updateUsage(sessionId, cumulativeUsage);
+
+          // Broadcast final usage update
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
+            sessionId,
+            usage: cumulativeUsage,
+            turnUsage: finalUsage,
+            isFinal: true,
+          });
+
+          // Also broadcast session update for session list
+          broadcastToProject(updatedSession.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+            projectId: updatedSession.projectId,
+            sessionId,
+            session: updatedSession,
+          });
+
+          // Clean up accumulator
+          usageAccumulators.delete(sessionId);
         }
       }
       // Note: Don't clear lastMessageIds here - let the post-loop association code handle it.

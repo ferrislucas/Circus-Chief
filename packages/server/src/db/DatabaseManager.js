@@ -142,6 +142,29 @@ export class DatabaseManager {
       this.#db.exec('ALTER TABLE conversations ADD COLUMN claude_session_id TEXT');
     }
 
+    // Token usage columns for sessions table (re-fetch column info)
+    const sessionsUsageTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const sessionsUsageColumns = sessionsUsageTableInfo.map((col) => col.name);
+
+    if (!sessionsUsageColumns.includes('input_tokens')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN input_tokens INTEGER DEFAULT 0');
+    }
+    if (!sessionsUsageColumns.includes('output_tokens')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN output_tokens INTEGER DEFAULT 0');
+    }
+    if (!sessionsUsageColumns.includes('cache_read_input_tokens')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN cache_read_input_tokens INTEGER DEFAULT 0');
+    }
+    if (!sessionsUsageColumns.includes('cache_creation_input_tokens')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN cache_creation_input_tokens INTEGER DEFAULT 0');
+    }
+    if (!sessionsUsageColumns.includes('web_search_requests')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN web_search_requests INTEGER DEFAULT 0');
+    }
+    if (!sessionsUsageColumns.includes('context_window')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN context_window INTEGER DEFAULT 200000');
+    }
+
     // Check if sessions table has the archived column, add it if not
     // Re-fetch column info since table may have been recreated
     const finalSessionsTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();

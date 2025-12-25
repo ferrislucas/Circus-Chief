@@ -18,6 +18,7 @@
               🔗 Next: {{ getTemplateName(sessionsStore.currentSession.nextTemplateId) }}
             </span>
           </div>
+          <TokenUsagePanel class="session-usage" />
           <div class="branch-line">
             <div class="branch-pr-indicators">
               <span
@@ -108,6 +109,7 @@ import CanvasTab from '../components/CanvasTab.vue';
 import NotesTab from '../components/NotesTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
+import TokenUsagePanel from '../components/TokenUsagePanel.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
 const route = useRoute();
@@ -138,7 +140,7 @@ function navigateToTab(tabId) {
   router.push(`/sessions/${route.params.id}/${tabId}`);
 }
 
-const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate } =
+const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onUsageUpdate } =
   useSessionSubscription(sessionId);
 
 let cleanups = [];
@@ -287,12 +289,23 @@ onMounted(async () => {
       summary.value = newSummary;
     })
   );
+
+  cleanups.push(
+    onUsageUpdate((msg) => {
+      if (msg.isFinal) {
+        sessionsStore.finalizeUsage(msg.usage);
+      } else {
+        sessionsStore.updateRunningUsage(msg.usage);
+      }
+    })
+  );
 });
 
 onUnmounted(() => {
   stopPolling();
   unsubscribe();
   cleanups.forEach((cleanup) => cleanup());
+  sessionsStore.clearRunningUsage();
 });
 
 function formatMode(mode) {
@@ -382,6 +395,10 @@ function getTemplateName(templateId) {
 .session-mode {
   font-size: 0.75rem;
   color: var(--color-text-soft);
+}
+
+.session-usage {
+  margin-top: 0.75rem;
 }
 
 .template-badge {
