@@ -198,7 +198,7 @@ describe('DatabaseManager', () => {
       db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
         .run('proj-arch2', 'Test Project', '/tmp', now, now);
       db.prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run('sess-arch2', 'proj-arch2', 'Test Session', 'completed', now, now);
+        .run('sess-arch2', 'proj-arch2', 'Test Session', 'stopped', now, now);
 
       // Update archived to 1
       db.prepare('UPDATE sessions SET archived = 1 WHERE id = ?').run('sess-arch2');

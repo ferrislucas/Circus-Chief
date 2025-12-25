@@ -30,7 +30,7 @@ describe('Session Archive', () => {
   describe('getByProjectId with archived filter', () => {
     beforeEach(() => {
       // Complete and archive the first session
-      sessions.update(session.id, { status: 'completed', archived: true });
+      sessions.update(session.id, { status: 'stopped', archived: true });
       // Create another non-archived session
       sessions.create(project.id, 'Second Session', 'Second prompt');
     });
@@ -107,7 +107,7 @@ describe('Session Archive', () => {
     });
 
     it('should only allow archiving completed sessions', () => {
-      sessions.update(session.id, { status: 'completed' });
+      sessions.update(session.id, { status: 'stopped' });
 
       const updated = sessions.update(session.id, { archived: true });
 
@@ -128,12 +128,12 @@ describe('Session Archive', () => {
       const project2 = projects.create('Project 2', '/tmp/test2');
 
       // Archive session in project 1
-      sessions.update(session.id, { status: 'completed', archived: true });
+      sessions.update(session.id, { status: 'stopped', archived: true });
 
       // Create sessions in project 2
       const session2a = sessions.create(project2.id, 'Session 2a', 'Prompt');
       const session2b = sessions.create(project2.id, 'Session 2b', 'Prompt');
-      sessions.update(session2a.id, { status: 'completed', archived: true });
+      sessions.update(session2a.id, { status: 'stopped', archived: true });
 
       // Check project 1 - should have 1 archived
       const project1Archived = sessions.getByProjectId(project.id, { archived: true });
