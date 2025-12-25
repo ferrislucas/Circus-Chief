@@ -548,6 +548,7 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
             abortController: controller,
             includePartialMessages: true,
             permissionMode: getPermissionModeForSession(session.mode),
+            settingSources: ['project'],
             ...(sessionEnv && { env: sessionEnv }),
             ...(sessionModel && { model: sessionModel }),
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
@@ -658,6 +659,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
             abortController: controller,
             includePartialMessages: true,
             permissionMode: getPermissionModeForSession(session.mode),
+            settingSources: ['project'],
             // Use conversation's claudeSessionId for context isolation
             // Only pass resume if the conversation has an existing Claude session
             ...(activeConversation.claudeSessionId && { resume: activeConversation.claudeSessionId }),
