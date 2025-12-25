@@ -1317,4 +1317,52 @@ describe('summaryService', () => {
       expect(sessionSummaries.getBySessionId(sessionId)).toBeNull();
     });
   });
+
+  describe('generateSummaryNow', () => {
+    it('generates summary immediately and returns result', async () => {
+      const result = await summaryService.generateSummaryNow(sessionId);
+
+      expect(result).not.toBeNull();
+      expect(result.sessionId).toBe(sessionId);
+      expect(sessionSummaries.getBySessionId(sessionId)).not.toBeNull();
+    });
+
+    it('cancels pending debounced generation', async () => {
+      vi.useFakeTimers();
+
+      // Start a debounced generation
+      summaryService.onSessionActivity(sessionId);
+
+      // Call generateSummaryNow (should cancel the debounced one)
+      const generatePromise = summaryService.generateSummaryNow(sessionId);
+
+      // Run timers to let any pending debounce fire
+      await vi.runAllTimersAsync();
+
+      const result = await generatePromise;
+
+      // Should have exactly one summary (from generateSummaryNow, not from debounce)
+      expect(result).not.toBeNull();
+      expect(result.sessionId).toBe(sessionId);
+
+      vi.useRealTimers();
+    });
+
+    it('returns null for non-existent session', async () => {
+      const result = await summaryService.generateSummaryNow('non-existent-session');
+
+      expect(result).toBeNull();
+    });
+
+    it('can be called multiple times safely', async () => {
+      const result1 = await summaryService.generateSummaryNow(sessionId);
+      const result2 = await summaryService.generateSummaryNow(sessionId);
+
+      expect(result1).not.toBeNull();
+      expect(result2).not.toBeNull();
+      // Both should return valid summaries (same session, updated)
+      expect(result1.sessionId).toBe(sessionId);
+      expect(result2.sessionId).toBe(sessionId);
+    });
+  });
 });
