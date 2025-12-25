@@ -112,17 +112,43 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   const name = req.body.name;
   const mode = req.body.mode;
   const model = req.body.model;
-  const thinkingEnabled = req.body.thinkingEnabled === true || req.body.thinkingEnabled === 'true';
-  const gitBranch = req.body.gitBranch;
-  const gitMode = req.body.gitMode;
+  let thinkingEnabled = req.body.thinkingEnabled === true || req.body.thinkingEnabled === 'true';
+  let gitBranch = req.body.gitBranch;
+  let gitMode = req.body.gitMode;
+  const templateId = req.body.templateId;
   const files = req.files || [];
 
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
+  // Apply template settings if templateId is provided
+  let nextTemplateId = null;
+  if (templateId) {
+    const template = sessionTemplates.getById(templateId);
+    if (template) {
+      // Template settings override if set (not null/undefined)
+      if (template.thinkingEnabled !== null && template.thinkingEnabled !== undefined) {
+        thinkingEnabled = template.thinkingEnabled;
+      }
+      if (template.gitBranch) {
+        gitBranch = template.gitBranch;
+      }
+      if (template.gitMode) {
+        gitMode = template.gitMode;
+      }
+      // Set nextTemplateId so template triggers after Claude finishes
+      nextTemplateId = templateId;
+    }
+  }
+
   const sessionName = name || generateInitialName(prompt);
   const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, model);
+
+  // Set nextTemplateId if template was selected
+  if (nextTemplateId) {
+    sessions.update(session.id, { nextTemplateId });
+  }
 
   // Setup git environment (branch checkout or worktree creation)
   try {

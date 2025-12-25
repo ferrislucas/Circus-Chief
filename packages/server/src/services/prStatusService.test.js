@@ -57,8 +57,8 @@ describe('prStatusService', () => {
       expect(FINAL_PR_STATES).toEqual(['merged', 'closed']);
     });
 
-    it('has running, waiting, completed, and stopped as pollable session states', () => {
-      expect(POLLABLE_SESSION_STATES).toEqual(['running', 'waiting', 'completed', 'stopped']);
+    it('has running, waiting, and stopped as pollable session states', () => {
+      expect(POLLABLE_SESSION_STATES).toEqual(['running', 'waiting', 'stopped']);
     });
 
     it('has 2 hour recent activity window', () => {
@@ -114,16 +114,6 @@ describe('prStatusService', () => {
 
       const result = getSessionsToCheck();
       expect(result).toEqual([]);
-    });
-
-    it('includes sessions in completed state (recently updated)', () => {
-      sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'completed' });
-
-      webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
-
-      const result = getSessionsToCheck();
-      expect(result).toHaveLength(1);
-      expect(result[0].sessionId).toBe(sessionId);
     });
 
     it('includes sessions in stopped state (recently updated)', () => {
@@ -216,7 +206,7 @@ describe('prStatusService', () => {
     });
 
     it('always includes subscribed sessions regardless of age', () => {
-      sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'completed' });
+      sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'stopped' });
 
       // Mock subscription with active subscriber
       const mockSubscriptions = new Map();
@@ -241,7 +231,7 @@ describe('prStatusService', () => {
     });
 
     it('checks and updates CI status for session with PR URL', async () => {
-      sessions.update(sessionId, { prUrl, status: 'completed' });
+      sessions.update(sessionId, { prUrl, status: 'stopped' });
 
       ghService.getPrInfo.mockResolvedValue({
         state: 'open',

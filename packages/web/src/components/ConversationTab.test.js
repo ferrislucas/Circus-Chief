@@ -332,16 +332,6 @@ describe.skip('ConversationTab', () => {
       expect(wrapper.find('.btn-danger').text()).toContain('Stop');
     });
 
-    it('shows restart button when completed', async () => {
-      mockSessionsStore.currentSession = { id: 'sess-123', status: 'completed', mode: 'standard' };
-
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      expect(wrapper.find('.status-completed').exists()).toBe(true);
-      expect(wrapper.find('.btn-restart').text()).toContain('Restart');
-    });
-
     it('shows restart button when error', async () => {
       mockSessionsStore.currentSession = { id: 'sess-123', status: 'error', mode: 'standard' };
 
@@ -518,7 +508,7 @@ describe.skip('ConversationTab', () => {
     });
 
     it('restarts session on restart button click', async () => {
-      mockSessionsStore.currentSession = { id: 'sess-123', status: 'completed', mode: 'standard' };
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'error', mode: 'standard' };
 
       const wrapper = mountComponent();
       await flushAll(wrapper);
@@ -564,7 +554,7 @@ describe.skip('ConversationTab', () => {
       expect(mockSessionsStore.fetchWorkLogs).toHaveBeenCalledWith('sess-123');
     });
 
-    it('re-fetches work logs when status changes from running to completed', async () => {
+    it('re-fetches work logs when status changes from running to waiting', async () => {
       // Start with running status
       mockSessionsStore.currentSession = { id: 'sess-123', status: 'running', mode: 'standard' };
 
@@ -574,8 +564,8 @@ describe.skip('ConversationTab', () => {
       // Clear mock to track new calls
       mockSessionsStore.fetchWorkLogs.mockClear();
 
-      // Simulate status change to completed
-      mockSessionsStore.currentSession = { id: 'sess-123', status: 'completed', mode: 'standard' };
+      // Simulate status change to waiting (session finished a turn)
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard' };
       await flushAll(wrapper);
 
       expect(mockSessionsStore.fetchWorkLogs).toHaveBeenCalledWith('sess-123');

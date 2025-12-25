@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
-import { projects, sessions } from '../database.js';
+import { projects, sessions, sessionTemplates } from '../database.js';
 
 // Mock websocket and sessionManager before importing the router
 vi.mock('../websocket.js', () => ({
@@ -150,6 +150,120 @@ describe('Projects API', () => {
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({});
 
       expect(res.status).toBe(400);
+    });
+
+    describe('with templateId', () => {
+      let templateId;
+
+      beforeEach(() => {
+        // Create a template with specific settings
+        const template = sessionTemplates.create({
+          name: 'Test Template',
+          prompt: 'Template prompt',
+          projectId: projectId,
+          thinkingEnabled: true,
+          gitBranch: 'feature/from-template',
+          gitMode: 'worktree',
+        });
+        templateId = template.id;
+      });
+
+      afterEach(() => {
+        // Clean up template
+        if (templateId) {
+          sessionTemplates.delete(templateId);
+        }
+      });
+
+      it('applies template settings when templateId is provided', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: templateId,
+          thinkingEnabled: false, // Should be overridden by template
+        });
+
+        expect(res.status).toBe(201);
+
+        // Check the session was created with template settings
+        const session = sessions.getById(res.body.id);
+        expect(session.thinkingEnabled).toBe(true); // From template
+      });
+
+      it('sets nextTemplateId on session when templateId is provided', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: templateId,
+        });
+
+        expect(res.status).toBe(201);
+
+        const session = sessions.getById(res.body.id);
+        expect(session.nextTemplateId).toBe(templateId);
+      });
+
+      it('passes template gitBranch to git setup', async () => {
+        await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: templateId,
+        });
+
+        expect(setupGitForSession).toHaveBeenCalledWith(
+          expect.objectContaining({
+            gitBranch: 'feature/from-template',
+            gitMode: 'worktree',
+          })
+        );
+      });
+
+      it('ignores non-existent templateId gracefully', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: 'non-existent-template-id',
+          thinkingEnabled: false,
+        });
+
+        expect(res.status).toBe(201);
+
+        // Session should be created with provided settings, not template settings
+        const session = sessions.getById(res.body.id);
+        expect(session.thinkingEnabled).toBe(false);
+        expect(session.nextTemplateId).toBeNull();
+      });
+
+      it('does not override settings when template has null values', async () => {
+        // Create template with null settings
+        const minimalTemplate = sessionTemplates.create({
+          name: 'Minimal Template',
+          prompt: 'Minimal prompt',
+          projectId: projectId,
+          thinkingEnabled: null,
+          gitBranch: null,
+          gitMode: null,
+        });
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: minimalTemplate.id,
+          thinkingEnabled: true,
+          gitBranch: 'my-branch',
+        });
+
+        expect(res.status).toBe(201);
+
+        // Should keep provided values since template has null
+        const session = sessions.getById(res.body.id);
+        expect(session.thinkingEnabled).toBe(true);
+
+        // Verify git setup was called with provided branch
+        expect(setupGitForSession).toHaveBeenCalledWith(
+          expect.objectContaining({
+            gitBranch: 'my-branch',
+          })
+        );
+
+        // Clean up
+        sessionTemplates.delete(minimalTemplate.id);
+      });
     });
   });
 

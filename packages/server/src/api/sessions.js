@@ -7,7 +7,6 @@ import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
 import * as summaryService from '../services/summaryService.js';
 import { executeHookAsync } from '../services/hookService.js';
-import { checkAndTriggerNextTemplate } from '../services/templateTriggerService.js';
 import { upload, handleUploadError } from '../middleware/upload.js';
 
 const router = Router();
@@ -173,8 +172,8 @@ router.post('/:id/stop', async (req, res) => {
   }
 
   // Allow stopping running, waiting, or stuck sessions (crashed sessions may be stuck in 'running')
-  // Don't allow stopping already completed or errored sessions
-  if (session.status === 'completed' || session.status === 'error' || session.status === 'stopped') {
+  // Don't allow stopping already errored or stopped sessions
+  if (session.status === 'error' || session.status === 'stopped') {
     return res.status(400).json({ error: 'Session is not active' });
   }
 
@@ -193,8 +192,8 @@ router.post('/:id/restart', (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  if (session.status !== 'completed' && session.status !== 'error') {
-    return res.status(400).json({ error: 'Session can only be restarted when completed or in error state' });
+  if (session.status !== 'stopped' && session.status !== 'error') {
+    return res.status(400).json({ error: 'Session can only be restarted when stopped or in error state' });
   }
 
   try {
@@ -439,7 +438,7 @@ router.patch('/:id', (req, res) => {
     updateData.thinkingEnabled = Boolean(thinkingEnabled);
   }
   if (status !== undefined) {
-    const validStatuses = ['starting', 'running', 'waiting', 'completed', 'error', 'stopped'];
+    const validStatuses = ['starting', 'running', 'waiting', 'error', 'stopped'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
@@ -482,13 +481,6 @@ router.patch('/:id', (req, res) => {
       sessionId: req.params.id,
       status: updateData.status,
     });
-
-    // Trigger next template if session completed
-    if (updateData.status === 'completed') {
-      checkAndTriggerNextTemplate(req.params.id).catch((error) => {
-        console.error('Template trigger error:', error);
-      });
-    }
   }
 
   // Broadcast session update to project subscribers for real-time list updates

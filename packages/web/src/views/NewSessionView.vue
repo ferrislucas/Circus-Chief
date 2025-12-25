@@ -55,6 +55,27 @@
         </div>
       </div>
 
+      <!-- Session Template (optional) -->
+      <div v-if="allTemplates.length > 0" class="form-group">
+        <label class="form-label" for="template">Session Template (optional)</label>
+        <select id="template" v-model="selectedTemplateId" class="form-input">
+          <option :value="null">None - single session</option>
+          <optgroup v-if="projectTemplates.length" label="Project Templates">
+            <option v-for="template in projectTemplates" :key="template.id" :value="template.id">
+              {{ template.name }}
+            </option>
+          </optgroup>
+          <optgroup v-if="globalTemplates.length" label="Global Templates">
+            <option v-for="template in globalTemplates" :key="template.id" :value="template.id">
+              {{ template.name }}
+            </option>
+          </optgroup>
+        </select>
+        <p class="form-help">
+          When selected, the template's settings are applied and a new session will automatically start when Claude finishes.
+        </p>
+      </div>
+
       <div v-if="error" class="error-message">{{ error }}</div>
 
       <div class="form-actions">
@@ -123,6 +144,7 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
+import { useTemplatesStore } from '../stores/templates.js';
 import { api } from '../composables/useApi.js';
 import { generateWorktreeBranch, DEFAULT_MODEL } from '@claudetools/shared';
 import FileAttachment from '../components/FileAttachment.vue';
@@ -132,6 +154,7 @@ const route = useRoute();
 const router = useRouter();
 const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
+const templatesStore = useTemplatesStore();
 
 const prompt = ref('');
 const mode = ref('yolo');
@@ -139,6 +162,11 @@ const model = ref(DEFAULT_MODEL);
 const gitStatus = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
+const selectedTemplateId = ref(null);
+
+const projectTemplates = computed(() => templatesStore.projectTemplates);
+const globalTemplates = computed(() => templatesStore.globalTemplates);
+const allTemplates = computed(() => [...projectTemplates.value, ...globalTemplates.value]);
 
 const modes = [
   { value: 'plan', label: 'Plan', description: 'Agent plans before implementing - good for complex tasks' },
@@ -187,6 +215,9 @@ onMounted(async () => {
   } finally {
     loadingGit.value = false;
   }
+
+  // Fetch templates for this project
+  templatesStore.fetchProjectTemplates(route.params.id);
 });
 
 function handleBranchEdit() {
@@ -215,6 +246,7 @@ async function handleSubmit() {
       gitMode: submitGitMode,
       gitBranch: submitGitBranch,
       files: attachedFiles.value,
+      templateId: selectedTemplateId.value,
     });
     uiStore.success('Session started');
     fileAttachment.value?.clear();
@@ -398,6 +430,8 @@ h1 {
   color: var(--color-text-soft);
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .mode-btn:last-child {
@@ -408,9 +442,11 @@ h1 {
   background: var(--color-bg-hover);
 }
 
-.mode-btn.active {
+.mode-btn.active,
+.mode-btn.active:focus {
   background: var(--color-primary);
   color: white;
+  outline: none;
 }
 
 .toggle-switch {

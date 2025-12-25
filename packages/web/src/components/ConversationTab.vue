@@ -120,10 +120,17 @@
         </div>
       </div>
       <div class="model-row">
-        <ModelSelector
-          :modelValue="sessionsStore.currentSession?.model || DEFAULT_MODEL"
-          @update:modelValue="handleModelChange"
-          :disabled="togglingModel"
+        <ModelSelector :sessionId="sessionId" />
+      </div>
+
+      <!-- Template selector for chaining sessions -->
+      <div class="template-row">
+        <TemplateSelector
+          :session-id="sessionId"
+          :project-id="sessionsStore.currentSession?.projectId"
+          :current-template-id="sessionsStore.currentSession?.nextTemplateId"
+          :disabled="sessionsStore.currentSession?.status === 'running'"
+          @update:templateId="handleTemplateChange"
         />
       </div>
     </form>
@@ -139,10 +146,16 @@
           Stop
         </button>
       </div>
+
+      <!-- Show template indicator while running -->
+      <div v-if="sessionsStore.currentSession?.nextTemplateId" class="template-pending">
+        <span class="template-pending-label">Next:</span>
+        <span class="template-pending-name">Template will trigger when Claude finishes</span>
+      </div>
     </div>
 
-    <div v-else-if="sessionsStore.currentSession?.status === 'completed' || sessionsStore.currentSession?.status === 'error'" class="status-message" :class="sessionsStore.currentSession?.status === 'completed' ? 'status-completed' : 'status-error'">
-      <span>{{ sessionsStore.currentSession?.status === 'completed' ? 'Session completed' : 'Session error' }}</span>
+    <div v-else-if="sessionsStore.currentSession?.status === 'error'" class="status-message status-error">
+      <span>Session error</span>
       <button type="button" class="btn btn-primary btn-restart" @click="handleRestart" :disabled="restarting">
         <span v-if="restarting" class="loading-spinner"></span>
         Restart Session
@@ -156,7 +169,6 @@ import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
-import { DEFAULT_MODEL } from '@claudetools/shared';
 import TodoDrawer from './TodoDrawer.vue';
 import WorkLogPanel from './WorkLogPanel.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
@@ -164,6 +176,7 @@ import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
 import ConversationSelector from './ConversationSelector.vue';
 import FileAttachment from './FileAttachment.vue';
 import ModelSelector from './ModelSelector.vue';
+import TemplateSelector from './TemplateSelector.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -178,7 +191,6 @@ const stopping = ref(false);
 const restarting = ref(false);
 const togglingThinking = ref(false);
 const togglingMode = ref(false);
-const togglingModel = ref(false);
 const messagesContainer = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
@@ -477,17 +489,11 @@ async function handleModeChange(newMode) {
   }
 }
 
-async function handleModelChange(newModel) {
-  if (togglingModel.value) return;
-  if (sessionsStore.currentSession?.model === newModel) return;
-
-  togglingModel.value = true;
+async function handleTemplateChange(templateId) {
   try {
-    await sessionsStore.updateSessionModel(props.sessionId, newModel);
+    await sessionsStore.updateNextTemplate(props.sessionId, templateId);
   } catch (err) {
     uiStore.error(err.message);
-  } finally {
-    togglingModel.value = false;
   }
 }
 </script>
@@ -678,6 +684,8 @@ async function handleModelChange(newModel) {
   color: var(--color-text-soft);
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .mode-btn:last-child {
@@ -688,9 +696,11 @@ async function handleModelChange(newModel) {
   background: var(--color-bg-hover);
 }
 
-.mode-btn.active {
+.mode-btn.active,
+.mode-btn.active:focus {
   background: var(--color-primary);
   color: white;
+  outline: none;
 }
 
 .mode-btn:disabled {
@@ -762,6 +772,35 @@ async function handleModelChange(newModel) {
   margin-top: 0.75rem;
 }
 
+.template-row {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+  margin-top: 0.75rem;
+}
+
+.template-pending {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  margin-top: 0.75rem;
+  background: var(--color-bg-soft);
+  border-radius: 0.375rem;
+  border: 1px solid var(--color-border);
+  font-size: 0.875rem;
+}
+
+.template-pending-label {
+  color: var(--color-text-soft);
+  font-weight: 500;
+}
+
+.template-pending-name {
+  color: var(--color-text);
+  font-size: 0.75rem;
+  font-style: italic;
+}
+
 .btn-send {
   min-width: 100px;
   min-height: 48px;
@@ -788,10 +827,6 @@ async function handleModelChange(newModel) {
   padding: 1rem;
   color: var(--color-text-soft);
   border-top: 1px solid var(--color-border);
-}
-
-.status-completed {
-  color: var(--color-success, #10b981);
 }
 
 .status-error {

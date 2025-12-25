@@ -199,10 +199,10 @@ describe('Sessions Store', () => {
       store.currentSession = { id: 'session-1', status: 'running' };
       store.sessions = [{ id: 'session-1', status: 'running' }];
 
-      store.updateSessionStatus('session-1', 'completed');
+      store.updateSessionStatus('session-1', 'stopped');
 
-      expect(store.currentSession.status).toBe('completed');
-      expect(store.sessions[0].status).toBe('completed');
+      expect(store.currentSession.status).toBe('stopped');
+      expect(store.sessions[0].status).toBe('stopped');
     });
   });
 

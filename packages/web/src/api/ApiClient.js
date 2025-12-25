@@ -145,6 +145,7 @@ export class ApiClient {
       }
       if (jsonData.gitBranch) formData.append('gitBranch', jsonData.gitBranch);
       if (jsonData.gitMode) formData.append('gitMode', jsonData.gitMode);
+      if (jsonData.templateId) formData.append('templateId', jsonData.templateId);
 
       for (const file of files) {
         formData.append('files', file);
