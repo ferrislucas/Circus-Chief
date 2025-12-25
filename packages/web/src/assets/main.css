@@ -14,6 +14,7 @@
   --color-info: #58a6ff;
   --border-radius: 6px;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --header-height: 3rem;
 }
 
 *,
@@ -242,11 +243,11 @@ input, textarea, select {
   display: flex;
   border-bottom: 1px solid var(--color-border);
   margin-bottom: 1rem;
-  /* Sticky positioning */
+  /* Sticky positioning - top value accounts for sticky header height */
   position: sticky;
-  top: 0;
+  top: var(--header-height, 3rem);
   background-color: var(--color-background);
-  z-index: 100;
+  z-index: 99;
   padding-top: 0.5rem;
 }
 
