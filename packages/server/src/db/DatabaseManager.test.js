@@ -161,6 +161,60 @@ describe('DatabaseManager', () => {
 
       expect(tableSchema.sql).toContain("'stopped'");
     });
+
+    it('sessions table has archived column', () => {
+      const db = manager.get();
+      const columns = db.prepare('PRAGMA table_info(sessions)').all();
+      const archivedColumn = columns.find((col) => col.name === 'archived');
+
+      expect(archivedColumn).toBeDefined();
+      expect(archivedColumn.type).toBe('INTEGER');
+      expect(archivedColumn.notnull).toBe(1);
+      expect(archivedColumn.dflt_value).toBe('0');
+    });
+
+    it('sessions archived column defaults to 0 (false)', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      // Create a project first
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-arch', 'Test Project', '/tmp', now, now);
+
+      // Create a session without specifying archived
+      db.prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('sess-arch', 'proj-arch', 'Test Session', 'running', now, now);
+
+      // Verify archived is 0 by default
+      const session = db.prepare('SELECT archived FROM sessions WHERE id = ?').get('sess-arch');
+      expect(session.archived).toBe(0);
+    });
+
+    it('can update archived column to 1', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      // Create a project and session
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-arch2', 'Test Project', '/tmp', now, now);
+      db.prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('sess-arch2', 'proj-arch2', 'Test Session', 'stopped', now, now);
+
+      // Update archived to 1
+      db.prepare('UPDATE sessions SET archived = 1 WHERE id = ?').run('sess-arch2');
+
+      // Verify archived is now 1
+      const session = db.prepare('SELECT archived FROM sessions WHERE id = ?').get('sess-arch2');
+      expect(session.archived).toBe(1);
+    });
+
+    it('has index on archived column', () => {
+      const db = manager.get();
+      const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='sessions'").all();
+      const archivedIndex = indexes.find((idx) => idx.name === 'idx_sessions_archived');
+
+      expect(archivedIndex).toBeDefined();
+    });
   });
 
   describe('canvas_items type migration', () => {

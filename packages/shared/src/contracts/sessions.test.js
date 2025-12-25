@@ -140,7 +140,7 @@ describe('SessionResponse', () => {
   });
 
   it('validates all status enum values', () => {
-    const statuses = ['starting', 'running', 'waiting', 'stopped', 'completed', 'error'];
+    const statuses = ['starting', 'running', 'waiting', 'stopped', 'error'];
     for (const status of statuses) {
       const result = SessionResponse.safeParse({ ...validSession, status });
       expect(result.success).toBe(true);
@@ -181,7 +181,7 @@ describe('SessionListResponse', () => {
         id: '550e8400-e29b-41d4-a716-446655440000',
         projectId: '550e8400-e29b-41d4-a716-446655440001',
         name: 'Session 1',
-        status: 'completed',
+        status: 'waiting',
         mode: 'standard',
         thinkingEnabled: false,
         gitBranch: null,

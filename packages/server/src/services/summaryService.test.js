@@ -139,8 +139,8 @@ describe('summaryService', () => {
 
     it('includes session status', () => {
       const recentMessages = [{ role: 'user', content: 'Test message' }];
-      const result = buildIncrementalPrompt(null, recentMessages, 'completed');
-      expect(result).toContain('Current session status: completed');
+      const result = buildIncrementalPrompt(null, recentMessages, 'stopped');
+      expect(result).toContain('Current session status: stopped');
     });
 
     it('includes formatted messages', () => {
@@ -162,7 +162,6 @@ describe('summaryService', () => {
     it('includes outcome guidelines', () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
       const result = buildIncrementalPrompt(null, recentMessages, 'running');
-      expect(result).toContain('completed');
       expect(result).toContain('partial');
       expect(result).toContain('failed');
       expect(result).toContain('ongoing');
@@ -195,7 +194,7 @@ describe('summaryService', () => {
         full_summary: 'Full test summary',
         key_actions: ['action1', 'action2'],
         files_modified: ['file1.js'],
-        outcome: 'completed',
+        outcome: 'partial',
       });
 
       const result = parseSummaryResponse(responseText);
@@ -204,7 +203,7 @@ describe('summaryService', () => {
       expect(result.fullSummary).toBe('Full test summary');
       expect(result.keyActions).toEqual(['action1', 'action2']);
       expect(result.filesModified).toEqual(['file1.js']);
-      expect(result.outcome).toBe('completed');
+      expect(result.outcome).toBe('partial');
     });
 
     it('provides defaults for missing fields', () => {
@@ -253,7 +252,7 @@ describe('summaryService', () => {
         full_summary: 'Full test summary',
         key_actions: [],
         files_modified: [],
-        outcome: 'completed',
+        outcome: 'partial',
         pr_url: 'https://github.com/owner/repo/pull/123',
         session_title: 'PR #123: Test feature',
       });
@@ -270,7 +269,7 @@ describe('summaryService', () => {
         full_summary: 'Full test summary',
         key_actions: [],
         files_modified: [],
-        outcome: 'completed',
+        outcome: 'partial',
         pr_url: null,
         session_title: 'Fix login bug',
       });
@@ -308,7 +307,7 @@ describe('summaryService', () => {
         full_summary: 'Full test',
         key_actions: [],
         files_modified: [],
-        outcome: 'completed',
+        outcome: 'partial',
       });
 
       const result = parseSummaryResponse(responseText);
@@ -331,7 +330,7 @@ describe('summaryService', () => {
           full_summary: 'Full test summary',
           key_actions: ['action1'],
           files_modified: ['file.js'],
-          outcome: 'completed',
+          outcome: 'partial',
         };
         const responseText = '```json\n' + JSON.stringify(jsonContent) + '\n```';
 
@@ -365,7 +364,7 @@ describe('summaryService', () => {
           full_summary: 'Full summary',
           key_actions: [],
           files_modified: [],
-          outcome: 'completed',
+          outcome: 'partial',
         };
         const responseText = '  ```json\n' + JSON.stringify(jsonContent) + '\n```  ';
 
@@ -381,7 +380,7 @@ describe('summaryService', () => {
           full_summary: 'Full summary',
           key_actions: [],
           files_modified: [],
-          outcome: 'completed',
+          outcome: 'partial',
         };
         const responseText = JSON.stringify(jsonContent);
 
@@ -408,7 +407,7 @@ describe('summaryService', () => {
           full_summary: 'Full',
           key_actions: [],
           files_modified: [],
-          outcome: 'completed',
+          outcome: 'partial',
         };
         const responseText = '```json\n' + JSON.stringify(jsonContent) + '\n```';
 
@@ -438,13 +437,13 @@ describe('summaryService', () => {
       expect(parsed.outcome).toBeDefined();
     });
 
-    it('derives outcome from session status - completed', async () => {
+    it('derives outcome from session status - stopped', async () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
 
-      const result = await callClaude('Test prompt', recentMessages, 'completed');
+      const result = await callClaude('Test prompt', recentMessages, 'stopped');
       const parsed = JSON.parse(result);
 
-      expect(parsed.outcome).toBe('completed');
+      expect(parsed.outcome).toBe('partial');
     });
 
     it('derives outcome from session status - error', async () => {
@@ -639,12 +638,12 @@ describe('summaryService', () => {
     });
 
     it('sets outcome based on session status', async () => {
-      // Update session to completed status
-      sessions.update(sessionId, { status: 'completed' });
+      // Update session to stopped status (previously 'completed' was removed)
+      sessions.update(sessionId, { status: 'stopped' });
 
       const result = await summaryService.generateSummary(sessionId);
 
-      expect(result.outcome).toBe('completed');
+      expect(result.outcome).toBe('partial');
     });
 
     it('sets outcome to failed for error status', async () => {
@@ -1073,7 +1072,7 @@ describe('summaryService', () => {
                   full_summary: 'Full summary from StructuredOutput tool',
                   key_actions: ['action1'],
                   files_modified: ['file.js'],
-                  outcome: 'completed',
+                  outcome: 'partial',
                   pr_url: null,
                   session_title: 'Test Session',
                 },
@@ -1128,11 +1127,11 @@ describe('summaryService', () => {
       const result = await callClaude(
         'Test prompt',
         [{ role: 'user', content: 'Create a summary with thinking and tool output' }],
-        'completed'
+        'stopped'
       );
       const parsed = JSON.parse(result);
 
-      expect(parsed.outcome).toBe('completed');
+      expect(parsed.outcome).toBe('partial');
     });
 
     it('handles empty content array gracefully', async () => {
@@ -1316,6 +1315,54 @@ describe('summaryService', () => {
 
       // Summary should be gone too
       expect(sessionSummaries.getBySessionId(sessionId)).toBeNull();
+    });
+  });
+
+  describe('generateSummaryNow', () => {
+    it('generates summary immediately and returns result', async () => {
+      const result = await summaryService.generateSummaryNow(sessionId);
+
+      expect(result).not.toBeNull();
+      expect(result.sessionId).toBe(sessionId);
+      expect(sessionSummaries.getBySessionId(sessionId)).not.toBeNull();
+    });
+
+    it('cancels pending debounced generation', async () => {
+      vi.useFakeTimers();
+
+      // Start a debounced generation
+      summaryService.onSessionActivity(sessionId);
+
+      // Call generateSummaryNow (should cancel the debounced one)
+      const generatePromise = summaryService.generateSummaryNow(sessionId);
+
+      // Run timers to let any pending debounce fire
+      await vi.runAllTimersAsync();
+
+      const result = await generatePromise;
+
+      // Should have exactly one summary (from generateSummaryNow, not from debounce)
+      expect(result).not.toBeNull();
+      expect(result.sessionId).toBe(sessionId);
+
+      vi.useRealTimers();
+    });
+
+    it('returns null for non-existent session', async () => {
+      const result = await summaryService.generateSummaryNow('non-existent-session');
+
+      expect(result).toBeNull();
+    });
+
+    it('can be called multiple times safely', async () => {
+      const result1 = await summaryService.generateSummaryNow(sessionId);
+      const result2 = await summaryService.generateSummaryNow(sessionId);
+
+      expect(result1).not.toBeNull();
+      expect(result2).not.toBeNull();
+      // Both should return valid summaries (same session, updated)
+      expect(result1.sessionId).toBe(sessionId);
+      expect(result2.sessionId).toBe(sessionId);
     });
   });
 });

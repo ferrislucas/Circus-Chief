@@ -111,6 +111,11 @@ describe('SessionRepository', () => {
       expect(session.model).toBeNull();
     });
 
+    it('creates session with archived set to false', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      expect(session.archived).toBe(false);
+    });
+
     it('creates session with model', () => {
       const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, 'claude-opus-4-5-20251101');
       expect(session.model).toBe('claude-opus-4-5-20251101');
@@ -172,19 +177,19 @@ describe('SessionRepository', () => {
       expect(sessions[0].updatedAt).toBeGreaterThanOrEqual(sessions[2].updatedAt);
     });
 
-    it('returns completed sessions after non-completed sessions', () => {
+    it('returns all sessions sorted by updatedAt descending regardless of status', () => {
       // Create sessions with different statuses
       const waiting = repo.create(projectId, 'Waiting Session', 'Prompt');
       repo.update(waiting.id, { status: 'waiting' });
 
-      const completed1 = repo.create(projectId, 'Completed Session 1', 'Prompt');
-      repo.update(completed1.id, { status: 'completed' });
+      const stopped1 = repo.create(projectId, 'Stopped Session 1', 'Prompt');
+      repo.update(stopped1.id, { status: 'stopped' });
 
       const running = repo.create(projectId, 'Running Session', 'Prompt');
       repo.update(running.id, { status: 'running' });
 
-      const completed2 = repo.create(projectId, 'Completed Session 2', 'Prompt');
-      repo.update(completed2.id, { status: 'completed' });
+      const stopped2 = repo.create(projectId, 'Stopped Session 2', 'Prompt');
+      repo.update(stopped2.id, { status: 'stopped' });
 
       const _starting = repo.create(projectId, 'Starting Session', 'Prompt');
       // _starting is default status, no update needed
@@ -193,27 +198,20 @@ describe('SessionRepository', () => {
 
       expect(sessions).toHaveLength(5);
 
-      // Non-completed sessions should come first
-      const nonCompleted = sessions.filter((s) => s.status !== 'completed');
-      const completed = sessions.filter((s) => s.status === 'completed');
-
-      expect(nonCompleted).toHaveLength(3);
-      expect(completed).toHaveLength(2);
-
-      // Verify non-completed come before completed
-      const firstCompletedIndex = sessions.findIndex((s) => s.status === 'completed');
-      const lastNonCompletedIndex = sessions.findLastIndex((s) => s.status !== 'completed');
-      expect(lastNonCompletedIndex).toBeLessThan(firstCompletedIndex);
+      // Sessions should be sorted by updatedAt descending (most recent first)
+      for (let i = 0; i < sessions.length - 1; i++) {
+        expect(sessions[i].updatedAt).toBeGreaterThanOrEqual(sessions[i + 1].updatedAt);
+      }
     });
 
-    it('sorts completed sessions by updatedAt descending', () => {
-      // Create two completed sessions with different updatedAt times
-      const older = repo.create(projectId, 'Older Completed', 'Prompt');
-      repo.update(older.id, { status: 'completed' });
+    it('sorts sessions by updatedAt descending', () => {
+      // Create two sessions with different updatedAt times
+      const older = repo.create(projectId, 'Older Session', 'Prompt');
+      repo.update(older.id, { status: 'stopped' });
 
       // Small delay to ensure different timestamps
-      const newer = repo.create(projectId, 'Newer Completed', 'Prompt');
-      repo.update(newer.id, { status: 'completed' });
+      const newer = repo.create(projectId, 'Newer Session', 'Prompt');
+      repo.update(newer.id, { status: 'stopped' });
 
       const sessions = repo.getByProjectId(projectId);
 
@@ -248,6 +246,48 @@ describe('SessionRepository', () => {
       expect(sessions).toHaveLength(1);
       expect(sessions[0].name).toBe('Project 1 Session');
     });
+
+    it('filters by archived=false', () => {
+      const session1 = repo.create(projectId, 'Active Session', 'Prompt');
+      const session2 = repo.create(projectId, 'Archived Session', 'Prompt');
+      repo.update(session2.id, { archived: true });
+
+      const sessions = repo.getByProjectId(projectId, { archived: false });
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].id).toBe(session1.id);
+    });
+
+    it('filters by archived=true', () => {
+      const session1 = repo.create(projectId, 'Active Session', 'Prompt');
+      const session2 = repo.create(projectId, 'Archived Session', 'Prompt');
+      repo.update(session2.id, { archived: true });
+
+      const sessions = repo.getByProjectId(projectId, { archived: true });
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].id).toBe(session2.id);
+    });
+
+    it('returns all sessions when archived filter is null', () => {
+      const session1 = repo.create(projectId, 'Active Session', 'Prompt');
+      const session2 = repo.create(projectId, 'Archived Session', 'Prompt');
+      repo.update(session2.id, { archived: true });
+
+      const sessions = repo.getByProjectId(projectId, { archived: null });
+
+      expect(sessions).toHaveLength(2);
+    });
+
+    it('returns all sessions when no filter option provided', () => {
+      const session1 = repo.create(projectId, 'Active Session', 'Prompt');
+      const session2 = repo.create(projectId, 'Archived Session', 'Prompt');
+      repo.update(session2.id, { archived: true });
+
+      const sessions = repo.getByProjectId(projectId);
+
+      expect(sessions).toHaveLength(2);
+    });
   });
 
   describe('getActiveAndWaiting', () => {
@@ -266,8 +306,8 @@ describe('SessionRepository', () => {
       const waiting = repo.create(projectId, 'Waiting Session', 'Prompt');
       repo.update(waiting.id, { status: 'waiting' });
 
-      const completed = repo.create(projectId, 'Completed Session', 'Prompt');
-      repo.update(completed.id, { status: 'completed' });
+      const stopped = repo.create(projectId, 'Stopped Session', 'Prompt');
+      repo.update(stopped.id, { status: 'stopped' });
 
       const errorSession = repo.create(projectId, 'Error Session', 'Prompt');
       repo.update(errorSession.id, { status: 'error' });
@@ -279,7 +319,7 @@ describe('SessionRepository', () => {
       expect(statuses).toContain('starting');
       expect(statuses).toContain('running');
       expect(statuses).toContain('waiting');
-      expect(statuses).not.toContain('completed');
+      expect(statuses).not.toContain('stopped');
       expect(statuses).not.toContain('error');
     });
 
@@ -322,6 +362,19 @@ describe('SessionRepository', () => {
 
       expect(sessions).toHaveLength(2);
       expect(sessions[0].updatedAt).toBeGreaterThanOrEqual(sessions[1].updatedAt);
+    });
+
+    it('excludes archived sessions', () => {
+      const running = repo.create(projectId, 'Running Session', 'Prompt');
+      repo.update(running.id, { status: 'running' });
+
+      const archivedRunning = repo.create(projectId, 'Archived Running', 'Prompt');
+      repo.update(archivedRunning.id, { status: 'running', archived: true });
+
+      const sessions = repo.getActiveAndWaiting();
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].id).toBe(running.id);
     });
   });
 
@@ -389,12 +442,12 @@ describe('SessionRepository', () => {
     it('updates multiple fields at once', () => {
       const session = repo.create(projectId, 'Test', 'Prompt');
       const updated = repo.update(session.id, {
-        status: 'completed',
+        status: 'stopped',
         prUrl: 'https://github.com/pr/456',
         gitBranch: 'feature',
       });
 
-      expect(updated.status).toBe('completed');
+      expect(updated.status).toBe('stopped');
       expect(updated.prUrl).toBe('https://github.com/pr/456');
       expect(updated.gitBranch).toBe('feature');
     });
@@ -439,6 +492,24 @@ describe('SessionRepository', () => {
       const updated = repo.update(childSession.id, { parentSessionId: parentSession.id });
 
       expect(updated.parentSessionId).toBe(parentSession.id);
+    });
+
+    it('updates archived to true', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      expect(session.archived).toBe(false);
+
+      const updated = repo.update(session.id, { archived: true });
+
+      expect(updated.archived).toBe(true);
+    });
+
+    it('updates archived to false', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { archived: true });
+
+      const updated = repo.update(session.id, { archived: false });
+
+      expect(updated.archived).toBe(false);
     });
   });
 
@@ -519,7 +590,7 @@ describe('SessionRepository', () => {
       const session = repo.create(projectId, 'Test Session', 'Prompt');
       repo.update(session.id, {
         prUrl: 'https://github.com/org/repo/pull/123',
-        status: 'completed',
+        status: 'stopped',
         gitBranch: 'feature/test',
       });
 
@@ -530,9 +601,190 @@ describe('SessionRepository', () => {
         projectId: projectId,
         name: 'Test Session',
         prUrl: 'https://github.com/org/repo/pull/123',
-        status: 'completed',
+        status: 'stopped',
         gitBranch: 'feature/test',
       });
+    });
+  });
+
+  describe('updateUsage', () => {
+    it('updates all token usage fields', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      const usage = {
+        inputTokens: 1000,
+        outputTokens: 500,
+        cacheReadInputTokens: 200,
+        cacheCreationInputTokens: 100,
+        webSearchRequests: 2,
+        contextWindow: 200000,
+      };
+
+      const updated = repo.updateUsage(session.id, usage);
+
+      expect(updated.inputTokens).toBe(1000);
+      expect(updated.outputTokens).toBe(500);
+      expect(updated.cacheReadInputTokens).toBe(200);
+      expect(updated.cacheCreationInputTokens).toBe(100);
+      expect(updated.webSearchRequests).toBe(2);
+      expect(updated.contextWindow).toBe(200000);
+    });
+
+    it('updates usage with zero values', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      const usage = {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        webSearchRequests: 0,
+        contextWindow: 200000,
+      };
+
+      const updated = repo.updateUsage(session.id, usage);
+
+      expect(updated.inputTokens).toBe(0);
+      expect(updated.outputTokens).toBe(0);
+      expect(updated.cacheReadInputTokens).toBe(0);
+      expect(updated.cacheCreationInputTokens).toBe(0);
+    });
+
+    it('updates usage with large token counts', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      const usage = {
+        inputTokens: 1500000,
+        outputTokens: 500000,
+        cacheReadInputTokens: 1000000,
+        cacheCreationInputTokens: 50000,
+        webSearchRequests: 10,
+        contextWindow: 200000,
+      };
+
+      const updated = repo.updateUsage(session.id, usage);
+
+      expect(updated.inputTokens).toBe(1500000);
+      expect(updated.outputTokens).toBe(500000);
+      expect(updated.cacheReadInputTokens).toBe(1000000);
+    });
+
+    it('updates updatedAt timestamp', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const originalUpdatedAt = session.updatedAt;
+
+      // Small delay to ensure different timestamp
+      const usage = {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        webSearchRequests: 0,
+        contextWindow: 200000,
+      };
+
+      const updated = repo.updateUsage(session.id, usage);
+
+      expect(updated.updatedAt).toBeGreaterThanOrEqual(originalUpdatedAt);
+    });
+
+    it('returns updated session with all fields', () => {
+      const session = repo.create(projectId, 'Test Session', 'Prompt');
+
+      const usage = {
+        inputTokens: 500,
+        outputTokens: 250,
+        cacheReadInputTokens: 100,
+        cacheCreationInputTokens: 50,
+        webSearchRequests: 1,
+        contextWindow: 200000,
+      };
+
+      const updated = repo.updateUsage(session.id, usage);
+
+      // Verify other fields are preserved
+      expect(updated.id).toBe(session.id);
+      expect(updated.name).toBe('Test Session');
+      expect(updated.projectId).toBe(projectId);
+      expect(updated.status).toBe('starting');
+    });
+
+    it('can be retrieved after update', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      const usage = {
+        inputTokens: 1000,
+        outputTokens: 500,
+        cacheReadInputTokens: 200,
+        cacheCreationInputTokens: 100,
+        webSearchRequests: 3,
+        contextWindow: 200000,
+      };
+
+      repo.updateUsage(session.id, usage);
+
+      // Retrieve and verify
+      const retrieved = repo.getById(session.id);
+      expect(retrieved.inputTokens).toBe(1000);
+      expect(retrieved.outputTokens).toBe(500);
+      expect(retrieved.cacheReadInputTokens).toBe(200);
+      expect(retrieved.cacheCreationInputTokens).toBe(100);
+      expect(retrieved.webSearchRequests).toBe(3);
+    });
+  });
+
+  describe('token usage in getById', () => {
+    it('returns default token usage values for new session', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const retrieved = repo.getById(session.id);
+
+      expect(retrieved.inputTokens).toBe(0);
+      expect(retrieved.outputTokens).toBe(0);
+      expect(retrieved.cacheReadInputTokens).toBe(0);
+      expect(retrieved.cacheCreationInputTokens).toBe(0);
+      expect(retrieved.webSearchRequests).toBe(0);
+      expect(retrieved.contextWindow).toBe(200000);
+    });
+  });
+
+  describe('token usage in getByProjectId', () => {
+    it('includes token usage in session list', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.updateUsage(session.id, {
+        inputTokens: 1000,
+        outputTokens: 500,
+        cacheReadInputTokens: 200,
+        cacheCreationInputTokens: 100,
+        webSearchRequests: 2,
+        contextWindow: 200000,
+      });
+
+      const sessions = repo.getByProjectId(projectId);
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].inputTokens).toBe(1000);
+      expect(sessions[0].outputTokens).toBe(500);
+    });
+  });
+
+  describe('token usage in getActiveAndWaiting', () => {
+    it('includes token usage in active sessions', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { status: 'running' });
+      repo.updateUsage(session.id, {
+        inputTokens: 750,
+        outputTokens: 350,
+        cacheReadInputTokens: 150,
+        cacheCreationInputTokens: 75,
+        webSearchRequests: 1,
+        contextWindow: 200000,
+      });
+
+      const sessions = repo.getActiveAndWaiting();
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].inputTokens).toBe(750);
+      expect(sessions[0].outputTokens).toBe(350);
     });
   });
 });

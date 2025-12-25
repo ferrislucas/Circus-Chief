@@ -1,6 +1,6 @@
 <template>
   <div class="template-selector">
-    <label class="selector-label">When Claude Finishes</label>
+    <label class="selector-label">Next Template</label>
     <div class="selector-wrapper">
       <select
         v-model="selectedTemplateId"
@@ -39,7 +39,7 @@
       </span>
     </div>
     <p v-else class="selector-help">
-      Optional: Automatically start a new session from a template when this session completes
+      When Claude finishes responding, a new session will automatically start using this template.
     </p>
     <div v-if="saving" class="saving-indicator">
       <span class="loading-spinner"></span>

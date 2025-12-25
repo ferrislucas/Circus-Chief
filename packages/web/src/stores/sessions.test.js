@@ -16,6 +16,8 @@ vi.mock('../composables/useApi.js', () => ({
     deleteSession: vi.fn(),
     getSessionWorkLogs: vi.fn(),
     updateSession: vi.fn(),
+    archiveSession: vi.fn(),
+    unarchiveSession: vi.fn(),
     // Conversation API methods
     getConversations: vi.fn(),
     createConversation: vi.fn(),
@@ -197,10 +199,10 @@ describe('Sessions Store', () => {
       store.currentSession = { id: 'session-1', status: 'running' };
       store.sessions = [{ id: 'session-1', status: 'running' }];
 
-      store.updateSessionStatus('session-1', 'completed');
+      store.updateSessionStatus('session-1', 'stopped');
 
-      expect(store.currentSession.status).toBe('completed');
-      expect(store.sessions[0].status).toBe('completed');
+      expect(store.currentSession.status).toBe('stopped');
+      expect(store.sessions[0].status).toBe('stopped');
     });
   });
 
@@ -722,6 +724,428 @@ describe('Sessions Store', () => {
 
         expect(store.conversations).toHaveLength(1);
         expect(store.conversations[0].id).toBe('conv-2');
+      });
+    });
+  });
+
+  describe('token usage', () => {
+    describe('totalTokens getter', () => {
+      it('returns 0 when no current session', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+
+        expect(store.totalTokens).toBe(0);
+      });
+
+      it('returns sum of input and output tokens', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 1000,
+          outputTokens: 500,
+        };
+
+        expect(store.totalTokens).toBe(1500);
+      });
+
+      it('handles missing token values', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          // no token values set
+        };
+
+        expect(store.totalTokens).toBe(0);
+      });
+    });
+
+    describe('formattedTokens getter', () => {
+      it('returns zeros when no current session', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('0');
+        expect(formatted.output).toBe('0');
+        expect(formatted.total).toBe('0');
+      });
+
+      it('formats small numbers as-is', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 500,
+          outputTokens: 250,
+          cacheReadInputTokens: 100,
+          cacheCreationInputTokens: 50,
+        };
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('500');
+        expect(formatted.output).toBe('250');
+        expect(formatted.total).toBe('750');
+        expect(formatted.cacheRead).toBe('100');
+        expect(formatted.cacheCreation).toBe('50');
+      });
+
+      it('formats thousands with K suffix', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 5500,
+          outputTokens: 2500,
+        };
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('5.5K');
+        expect(formatted.output).toBe('2.5K');
+        expect(formatted.total).toBe('8.0K');
+      });
+
+      it('formats millions with M suffix', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 1500000,
+          outputTokens: 500000,
+        };
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('1.5M');
+        expect(formatted.output).toBe('500.0K'); // 500K is below 1M threshold
+        expect(formatted.total).toBe('2.0M');
+      });
+
+      it('handles exactly 1000 tokens', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 1000,
+          outputTokens: 0,
+        };
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('1.0K');
+      });
+
+      it('handles exactly 1000000 tokens', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 1000000,
+          outputTokens: 0,
+        };
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('1.0M');
+      });
+    });
+
+    describe('isUsageUpdating getter', () => {
+      it('returns false when runningUsage is null', () => {
+        const store = useSessionsStore();
+        store.runningUsage = null;
+
+        expect(store.isUsageUpdating).toBe(false);
+      });
+
+      it('returns true when runningUsage has value', () => {
+        const store = useSessionsStore();
+        store.runningUsage = { inputTokens: 100, outputTokens: 50 };
+
+        expect(store.isUsageUpdating).toBe(true);
+      });
+    });
+
+    describe('updateRunningUsage action', () => {
+      it('sets runningUsage value', () => {
+        const store = useSessionsStore();
+        const usage = { inputTokens: 100, outputTokens: 50 };
+
+        store.updateRunningUsage(usage);
+
+        expect(store.runningUsage).toEqual(usage);
+      });
+
+      it('can update runningUsage multiple times', () => {
+        const store = useSessionsStore();
+
+        store.updateRunningUsage({ inputTokens: 100, outputTokens: 50 });
+        expect(store.runningUsage.inputTokens).toBe(100);
+
+        store.updateRunningUsage({ inputTokens: 200, outputTokens: 100 });
+        expect(store.runningUsage.inputTokens).toBe(200);
+      });
+    });
+
+    describe('finalizeUsage action', () => {
+      it('updates currentSession with usage values', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          name: 'Test',
+          inputTokens: 0,
+          outputTokens: 0,
+        };
+
+        const usage = {
+          inputTokens: 1000,
+          outputTokens: 500,
+          cacheReadInputTokens: 200,
+          cacheCreationInputTokens: 100,
+          webSearchRequests: 2,
+          contextWindow: 200000,
+        };
+
+        store.finalizeUsage(usage);
+
+        expect(store.currentSession.inputTokens).toBe(1000);
+        expect(store.currentSession.outputTokens).toBe(500);
+        expect(store.currentSession.cacheReadInputTokens).toBe(200);
+        expect(store.currentSession.cacheCreationInputTokens).toBe(100);
+        expect(store.currentSession.webSearchRequests).toBe(2);
+        expect(store.currentSession.contextWindow).toBe(200000);
+      });
+
+      it('clears runningUsage', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+        store.runningUsage = { inputTokens: 100 };
+
+        store.finalizeUsage({ inputTokens: 1000, outputTokens: 500 });
+
+        expect(store.runningUsage).toBeNull();
+      });
+
+      it('creates new object reference for reactivity', () => {
+        const store = useSessionsStore();
+        const originalSession = { id: 'session-1', name: 'Test' };
+        store.currentSession = originalSession;
+
+        store.finalizeUsage({ inputTokens: 1000, outputTokens: 500 });
+
+        expect(store.currentSession).not.toBe(originalSession);
+        expect(store.currentSession.id).toBe('session-1');
+        expect(store.currentSession.name).toBe('Test');
+      });
+
+      it('does nothing when currentSession is null', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+        store.runningUsage = { inputTokens: 100 };
+
+        store.finalizeUsage({ inputTokens: 1000, outputTokens: 500 });
+
+        expect(store.currentSession).toBeNull();
+        expect(store.runningUsage).toBeNull();
+      });
+    });
+
+    describe('clearRunningUsage action', () => {
+      it('clears runningUsage to null', () => {
+        const store = useSessionsStore();
+        store.runningUsage = { inputTokens: 100, outputTokens: 50 };
+
+        store.clearRunningUsage();
+
+        expect(store.runningUsage).toBeNull();
+      });
+
+      it('is idempotent', () => {
+        const store = useSessionsStore();
+        store.runningUsage = null;
+
+        store.clearRunningUsage();
+
+        expect(store.runningUsage).toBeNull();
+      });
+    });
+  });
+
+  describe('session archiving', () => {
+    describe('archiveSession', () => {
+      it('archives a session and moves it to archivedSessions', async () => {
+        const store = useSessionsStore();
+
+        store.sessions = [
+          { id: 'session-1', status: 'completed', archived: false },
+          { id: 'session-2', status: 'running', archived: false },
+        ];
+        store.archivedSessions = [];
+
+        api.archiveSession.mockResolvedValue({ id: 'session-1', status: 'completed', archived: true });
+
+        await store.archiveSession('session-1');
+
+        // Session should be removed from sessions
+        expect(store.sessions.find((s) => s.id === 'session-1')).toBeUndefined();
+        // Session should be added to archivedSessions
+        expect(store.archivedSessions).toHaveLength(1);
+        expect(store.archivedSessions[0].id).toBe('session-1');
+        expect(store.archivedSessions[0].archived).toBe(true);
+      });
+
+      it('removes session from activeSessions when archiving', async () => {
+        const store = useSessionsStore();
+
+        store.activeSessions = [{ id: 'session-1', status: 'waiting', archived: false }];
+
+        api.archiveSession.mockResolvedValue({ id: 'session-1', status: 'waiting', archived: true });
+
+        await store.archiveSession('session-1');
+
+        expect(store.activeSessions).toHaveLength(0);
+      });
+
+      it('updates currentSession archived flag when archiving current session', async () => {
+        const store = useSessionsStore();
+
+        store.currentSession = { id: 'session-1', status: 'completed', archived: false };
+        store.sessions = [];
+
+        api.archiveSession.mockResolvedValue({ id: 'session-1', status: 'completed', archived: true });
+
+        await store.archiveSession('session-1');
+
+        expect(store.currentSession.archived).toBe(true);
+      });
+
+      it('throws error and sets store error on API failure', async () => {
+        const store = useSessionsStore();
+
+        store.sessions = [{ id: 'session-1', archived: false }];
+
+        api.archiveSession.mockRejectedValue(new Error('Archive failed'));
+
+        await expect(store.archiveSession('session-1')).rejects.toThrow('Archive failed');
+        expect(store.error).toBe('Archive failed');
+      });
+    });
+
+    describe('unarchiveSession', () => {
+      it('unarchives a session and moves it to sessions', async () => {
+        const store = useSessionsStore();
+
+        store.sessions = [];
+        store.archivedSessions = [
+          { id: 'session-1', status: 'completed', archived: true },
+        ];
+
+        api.unarchiveSession.mockResolvedValue({ id: 'session-1', status: 'completed', archived: false });
+
+        await store.unarchiveSession('session-1');
+
+        // Session should be removed from archivedSessions
+        expect(store.archivedSessions).toHaveLength(0);
+        // Session should be added to sessions
+        expect(store.sessions).toHaveLength(1);
+        expect(store.sessions[0].id).toBe('session-1');
+        expect(store.sessions[0].archived).toBe(false);
+      });
+
+      it('updates currentSession archived flag when unarchiving current session', async () => {
+        const store = useSessionsStore();
+
+        store.currentSession = { id: 'session-1', status: 'completed', archived: true };
+        store.archivedSessions = [];
+
+        api.unarchiveSession.mockResolvedValue({ id: 'session-1', status: 'completed', archived: false });
+
+        await store.unarchiveSession('session-1');
+
+        expect(store.currentSession.archived).toBe(false);
+      });
+
+      it('throws error and sets store error on API failure', async () => {
+        const store = useSessionsStore();
+
+        store.archivedSessions = [{ id: 'session-1', archived: true }];
+
+        api.unarchiveSession.mockRejectedValue(new Error('Unarchive failed'));
+
+        await expect(store.unarchiveSession('session-1')).rejects.toThrow('Unarchive failed');
+        expect(store.error).toBe('Unarchive failed');
+      });
+    });
+
+    describe('fetchArchivedSessions', () => {
+      it('fetches archived sessions for a project', async () => {
+        const store = useSessionsStore();
+
+        const mockSessions = [
+          { id: 'session-1', archived: true },
+          { id: 'session-2', archived: true },
+        ];
+        api.getProjectSessions.mockResolvedValue(mockSessions);
+
+        await store.fetchArchivedSessions('project-1');
+
+        expect(api.getProjectSessions).toHaveBeenCalledWith('project-1', true);
+        expect(store.archivedSessions).toEqual(mockSessions);
+      });
+
+      it('handles fetch error', async () => {
+        const store = useSessionsStore();
+
+        api.getProjectSessions.mockRejectedValue(new Error('Fetch failed'));
+
+        await store.fetchArchivedSessions('project-1');
+
+        expect(store.error).toBe('Fetch failed');
+      });
+    });
+
+    describe('updateSession with archive changes', () => {
+      it('moves session to archivedSessions when archived is set to true', () => {
+        const store = useSessionsStore();
+
+        store.sessions = [{ id: 'session-1', archived: false }];
+        store.archivedSessions = [];
+
+        store.updateSession({ id: 'session-1', archived: true });
+
+        expect(store.sessions).toHaveLength(0);
+        expect(store.archivedSessions).toHaveLength(1);
+        expect(store.archivedSessions[0].id).toBe('session-1');
+      });
+
+      it('moves session to sessions when archived is set to false', () => {
+        const store = useSessionsStore();
+
+        store.sessions = [];
+        store.archivedSessions = [{ id: 'session-1', archived: true }];
+
+        store.updateSession({ id: 'session-1', archived: false });
+
+        expect(store.archivedSessions).toHaveLength(0);
+        expect(store.sessions).toHaveLength(1);
+        expect(store.sessions[0].id).toBe('session-1');
+      });
+
+      it('removes from activeSessions when archived', () => {
+        const store = useSessionsStore();
+
+        store.activeSessions = [{ id: 'session-1', status: 'waiting' }];
+        store.sessions = [{ id: 'session-1', status: 'waiting' }];
+        store.archivedSessions = [];
+
+        store.updateSession({ id: 'session-1', archived: true });
+
+        expect(store.activeSessions).toHaveLength(0);
+      });
+    });
+
+    describe('deleteSession with archived sessions', () => {
+      it('removes session from archivedSessions list', async () => {
+        const store = useSessionsStore();
+
+        store.archivedSessions = [{ id: 'session-1', archived: true }];
+
+        api.deleteSession.mockResolvedValue();
+
+        await store.deleteSession('session-1');
+
+        expect(store.archivedSessions).toHaveLength(0);
       });
     });
   });

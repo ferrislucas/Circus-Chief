@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
 import ModelSelector from './ModelSelector.vue';
 import { CLAUDE_MODELS } from '@claudetools/shared';
 
@@ -7,6 +8,10 @@ import { CLAUDE_MODELS } from '@claudetools/shared';
 const [sonnet, opus, haiku] = CLAUDE_MODELS;
 
 describe('ModelSelector', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
   const mountComponent = (props = {}, attrs = {}) => {
     return mount(ModelSelector, {
       props: {
@@ -94,8 +99,9 @@ describe('ModelSelector', () => {
       );
       const buttons = wrapper.findAll('.model-btn');
 
+      // Clicking already selected model doesn't emit (early return optimization)
       await buttons[0].trigger('click');
-      expect(onUpdateModelValue).toHaveBeenCalledWith(sonnet.id);
+      expect(onUpdateModelValue).not.toHaveBeenCalled();
 
       await buttons[1].trigger('click');
       expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
@@ -103,7 +109,7 @@ describe('ModelSelector', () => {
       await buttons[2].trigger('click');
       expect(onUpdateModelValue).toHaveBeenCalledWith(haiku.id);
 
-      expect(onUpdateModelValue).toHaveBeenCalledTimes(3);
+      expect(onUpdateModelValue).toHaveBeenCalledTimes(2);
     });
   });
 

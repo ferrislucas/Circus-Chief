@@ -75,10 +75,10 @@ describe('Session Status Broadcasts to Project Subscribers', () => {
       expect(updated.status).toBe('waiting');
     });
 
-    it('session can transition from waiting to completed', () => {
+    it('session can transition from waiting to stopped', () => {
       sessions.update(session.id, { status: 'waiting' });
-      const updated = sessions.update(session.id, { status: 'completed' });
-      expect(updated.status).toBe('completed');
+      const updated = sessions.update(session.id, { status: 'stopped' });
+      expect(updated.status).toBe('stopped');
     });
 
     it('session can transition to error status', () => {
@@ -129,8 +129,8 @@ describe('Session Status Broadcasts to Project Subscribers', () => {
       expect(activeSessions.some((s) => s.id === session.id)).toBe(true);
     });
 
-    it('getActiveAndWaiting excludes sessions with completed status', () => {
-      sessions.update(session.id, { status: 'completed' });
+    it('getActiveAndWaiting excludes sessions with stopped status', () => {
+      sessions.update(session.id, { status: 'stopped' });
       const activeSessions = sessions.getActiveAndWaiting();
       expect(activeSessions.some((s) => s.id === session.id)).toBe(false);
     });

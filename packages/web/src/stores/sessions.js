@@ -4,6 +4,7 @@ import { api } from '../composables/useApi.js';
 export const useSessionsStore = defineStore('sessions', {
   state: () => ({
     sessions: [],
+    archivedSessions: [],
     activeSessions: [],
     currentSession: null,
     messages: [],
@@ -11,6 +12,7 @@ export const useSessionsStore = defineStore('sessions', {
     activeConversationId: null, // Currently selected conversation ID
     workLogs: {}, // Keyed by messageId: { [messageId]: WorkLog[] }
     partialThinking: null, // Current streaming thinking content
+    runningUsage: null, // Partial usage during a turn
     loading: false,
     error: null,
   }),
@@ -31,6 +33,33 @@ export const useSessionsStore = defineStore('sessions', {
     getConversationById: (state) => (id) => {
       return state.conversations.find((c) => c.id === id);
     },
+    // Token usage getters
+    totalTokens: (state) => {
+      const session = state.currentSession;
+      if (!session) return 0;
+      return (session.inputTokens || 0) + (session.outputTokens || 0);
+    },
+    formattedTokens: (state) => {
+      const session = state.currentSession;
+      if (!session) return { input: '0', output: '0', total: '0' };
+
+      const format = (n) => {
+        if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+        if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+        return String(n);
+      };
+
+      return {
+        input: format(session.inputTokens || 0),
+        output: format(session.outputTokens || 0),
+        total: format((session.inputTokens || 0) + (session.outputTokens || 0)),
+        cacheRead: format(session.cacheReadInputTokens || 0),
+        cacheCreation: format(session.cacheCreationInputTokens || 0),
+      };
+    },
+    isUsageUpdating: (state) => {
+      return state.runningUsage !== null;
+    },
   },
 
   actions: {
@@ -50,7 +79,19 @@ export const useSessionsStore = defineStore('sessions', {
       this.loading = true;
       this.error = null;
       try {
-        this.sessions = await api.getProjectSessions(projectId);
+        this.sessions = await api.getProjectSessions(projectId, false);
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async fetchArchivedSessions(projectId) {
+      this.loading = true;
+      this.error = null;
+      try {
+        this.archivedSessions = await api.getProjectSessions(projectId, true);
       } catch (err) {
         this.error = err.message;
       } finally {
@@ -158,10 +199,49 @@ export const useSessionsStore = defineStore('sessions', {
         await api.deleteSession(id);
         // Remove session from list
         this.sessions = this.sessions.filter((s) => s.id !== id);
+        this.archivedSessions = this.archivedSessions.filter((s) => s.id !== id);
         // Clear current session if it's the deleted one
         if (this.currentSession?.id === id) {
           this.currentSession = null;
         }
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    async archiveSession(id) {
+      this.error = null;
+      try {
+        const updated = await api.archiveSession(id);
+        // Move from sessions to archivedSessions
+        this.sessions = this.sessions.filter((s) => s.id !== id);
+        this.archivedSessions.unshift(updated);
+        // Also remove from activeSessions if present
+        this.activeSessions = this.activeSessions.filter((s) => s.id !== id);
+        // Update current session if it matches
+        if (this.currentSession?.id === id) {
+          this.currentSession = { ...this.currentSession, archived: true };
+        }
+        return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    async unarchiveSession(id) {
+      this.error = null;
+      try {
+        const updated = await api.unarchiveSession(id);
+        // Move from archivedSessions to sessions
+        this.archivedSessions = this.archivedSessions.filter((s) => s.id !== id);
+        this.sessions.unshift(updated);
+        // Update current session if it matches
+        if (this.currentSession?.id === id) {
+          this.currentSession = { ...this.currentSession, archived: false };
+        }
+        return updated;
       } catch (err) {
         this.error = err.message;
         throw err;
@@ -248,6 +328,42 @@ export const useSessionsStore = defineStore('sessions', {
     // Clear partial thinking when complete
     clearPartialThinking() {
       this.partialThinking = null;
+    },
+
+    // ==================== USAGE ACTIONS ====================
+
+    /**
+     * Update running usage during a turn (partial update)
+     * @param {Object} usage - Usage data
+     */
+    updateRunningUsage(usage) {
+      this.runningUsage = usage;
+    },
+
+    /**
+     * Finalize usage at end of turn (update session with final values)
+     * @param {Object} usage - Final cumulative usage
+     */
+    finalizeUsage(usage) {
+      if (this.currentSession) {
+        this.currentSession = {
+          ...this.currentSession,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadInputTokens: usage.cacheReadInputTokens,
+          cacheCreationInputTokens: usage.cacheCreationInputTokens,
+          webSearchRequests: usage.webSearchRequests,
+          contextWindow: usage.contextWindow,
+        };
+      }
+      this.runningUsage = null;
+    },
+
+    /**
+     * Clear running usage (on session unmount)
+     */
+    clearRunningUsage() {
+      this.runningUsage = null;
     },
 
     updateSessionStatus(sessionId, status) {
@@ -349,10 +465,39 @@ export const useSessionsStore = defineStore('sessions', {
     updateSession(sessionData) {
       if (!sessionData?.id) return;
 
-      // Update in sessions list
-      const sessionIndex = this.sessions.findIndex((s) => s.id === sessionData.id);
-      if (sessionIndex !== -1) {
-        this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
+      // Handle archive status changes - route to correct list
+      if (sessionData.archived === true) {
+        // Remove from non-archived lists
+        this.sessions = this.sessions.filter((s) => s.id !== sessionData.id);
+        this.activeSessions = this.activeSessions.filter((s) => s.id !== sessionData.id);
+        // Update or add to archived list
+        const archivedIndex = this.archivedSessions.findIndex((s) => s.id === sessionData.id);
+        if (archivedIndex !== -1) {
+          this.archivedSessions[archivedIndex] = { ...this.archivedSessions[archivedIndex], ...sessionData };
+        } else {
+          this.archivedSessions.unshift(sessionData);
+        }
+      } else if (sessionData.archived === false) {
+        // Remove from archived list
+        this.archivedSessions = this.archivedSessions.filter((s) => s.id !== sessionData.id);
+        // Update or add to sessions list
+        const sessionIndex = this.sessions.findIndex((s) => s.id === sessionData.id);
+        if (sessionIndex !== -1) {
+          this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
+        } else {
+          this.sessions.unshift(sessionData);
+        }
+      } else {
+        // No archive change - update in existing lists
+        const sessionIndex = this.sessions.findIndex((s) => s.id === sessionData.id);
+        if (sessionIndex !== -1) {
+          this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
+        }
+
+        const archivedIndex = this.archivedSessions.findIndex((s) => s.id === sessionData.id);
+        if (archivedIndex !== -1) {
+          this.archivedSessions[archivedIndex] = { ...this.archivedSessions[archivedIndex], ...sessionData };
+        }
       }
 
       // Update current session if it matches
@@ -399,6 +544,9 @@ export const useSessionsStore = defineStore('sessions', {
 
       // Remove from sessions list
       this.sessions = this.sessions.filter((s) => s.id !== sessionId);
+
+      // Remove from archived sessions list
+      this.archivedSessions = this.archivedSessions.filter((s) => s.id !== sessionId);
 
       // Remove from active sessions list
       this.activeSessions = this.activeSessions.filter((s) => s.id !== sessionId);

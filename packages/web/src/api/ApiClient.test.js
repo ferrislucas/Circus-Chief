@@ -122,6 +122,64 @@ describe('ApiClient', () => {
         expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/sessions', expect.any(Object));
         expect(result).toEqual(mockData);
       });
+
+      it('fetches archived sessions when archived=true', async () => {
+        const mockData = [{ id: '1', name: 'Archived Session', archived: true }];
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getProjectSessions('proj-123', true);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/sessions?archived=true', expect.any(Object));
+        expect(result).toEqual(mockData);
+      });
+
+      it('fetches non-archived sessions when archived=false', async () => {
+        const mockData = [{ id: '1', name: 'Active Session', archived: false }];
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getProjectSessions('proj-123', false);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/sessions?archived=false', expect.any(Object));
+        expect(result).toEqual(mockData);
+      });
+
+      it('fetches all sessions when archived=null', async () => {
+        const mockData = [{ id: '1' }, { id: '2' }];
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getProjectSessions('proj-123', null);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/sessions', expect.any(Object));
+        expect(result).toEqual(mockData);
+      });
+    });
+
+    describe('archiveSession', () => {
+      it('posts to archive endpoint', async () => {
+        const mockData = { id: 'sess-123', archived: true };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.archiveSession('sess-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/archive', expect.objectContaining({
+          method: 'POST',
+        }));
+        expect(result.archived).toBe(true);
+      });
+    });
+
+    describe('unarchiveSession', () => {
+      it('posts to unarchive endpoint', async () => {
+        const mockData = { id: 'sess-123', archived: false };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.unarchiveSession('sess-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/unarchive', expect.objectContaining({
+          method: 'POST',
+        }));
+        expect(result.archived).toBe(false);
+      });
     });
 
     describe('createSession', () => {
