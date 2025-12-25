@@ -6,6 +6,18 @@
       </div>
     </div>
 
+    <div class="status-filters">
+      <span class="filter-label">Filter:</span>
+      <button
+        v-for="status in ['running', 'waiting']"
+        :key="status"
+        :class="['filter-btn', { active: statusFilters.includes(status) }]"
+        @click="toggleFilter(status)"
+      >
+        {{ status }}
+      </button>
+    </div>
+
     <div v-if="sessionsStore.loading" class="skeleton-list">
       <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
     </div>
@@ -19,9 +31,13 @@
       <router-link to="/" class="btn btn-primary">View Projects</router-link>
     </div>
 
+    <div v-else-if="filteredSessions.length === 0" class="empty-state">
+      <p>No sessions match the current filter.</p>
+    </div>
+
     <div v-else class="session-list">
       <SessionCard
-        v-for="session in sessionsStore.activeSessions"
+        v-for="session in filteredSessions"
         :key="session.id"
         :session="session"
         :show-project="true"
@@ -36,13 +52,31 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, reactive, watch } from 'vue';
+import { onMounted, onUnmounted, reactive, watch, ref, computed } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useGlobalSessionSubscription } from '../composables/useWebSocket.js';
 import { api } from '../composables/useApi.js';
 import SessionCard from '../components/SessionCard.vue';
 
 const sessionsStore = useSessionsStore();
+
+// Filter state - empty means show all
+const statusFilters = ref([]);
+
+const toggleFilter = (status) => {
+  const index = statusFilters.value.indexOf(status);
+  if (index >= 0) {
+    statusFilters.value.splice(index, 1);
+  } else {
+    statusFilters.value.push(status);
+  }
+};
+
+const filteredSessions = computed(() => {
+  const sessions = sessionsStore.activeSessions;
+  if (statusFilters.value.length === 0) return sessions;
+  return sessions.filter(s => statusFilters.value.includes(s.status));
+});
 
 // Store summaries keyed by session ID
 const summaries = reactive({});
@@ -224,5 +258,40 @@ async function retryFetchSummary(sessionId) {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.status-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.filter-label {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+}
+
+.filter-btn {
+  background: none;
+  border: 1px solid var(--color-border);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  border-radius: var(--border-radius);
+  transition: all 0.15s;
+  text-transform: capitalize;
+}
+
+.filter-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-text);
+}
+
+.filter-btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
 }
 </style>

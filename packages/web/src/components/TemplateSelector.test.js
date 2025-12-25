@@ -35,13 +35,13 @@ describe('TemplateSelector', () => {
   describe('rendering', () => {
     it('renders the selector label', () => {
       const wrapper = mountComponent();
-      expect(wrapper.find('.selector-label').text()).toBe('When Claude Finishes');
+      expect(wrapper.find('.selector-label').text()).toBe('Next Template');
     });
 
     it('renders help text when no template is selected', () => {
       const wrapper = mountComponent();
       expect(wrapper.find('.selector-help').exists()).toBe(true);
-      expect(wrapper.find('.selector-help').text()).toContain('Optional');
+      expect(wrapper.find('.selector-help').text()).toContain('When Claude finishes responding');
     });
 
     it('renders the select dropdown', () => {

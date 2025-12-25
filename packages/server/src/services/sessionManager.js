@@ -4,6 +4,7 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
 import { updateTodos } from './todoStore.js';
 import * as summaryService from './summaryService.js';
+import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 
 /** @type {Map<string, string|null>} Track last message ID for end-of-turn work log association */
 const lastMessageIds = new Map();
@@ -66,6 +67,34 @@ function _getAccumulatedUsage(sessionId) {
 
 /** Check if mock mode is enabled (for E2E testing) */
 const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
+
+/**
+ * Handle template triggering if a session has a nextTemplateId configured
+ * Called after Claude finishes any turn (runSession or continueSession)
+ * @param {string} sessionId
+ */
+async function handleTemplateTriggerIfNeeded(sessionId) {
+  const session = sessions.getById(sessionId);
+  if (!session || !session.nextTemplateId) {
+    return;
+  }
+
+  // Wait for summary to be generated (templates use summary data)
+  await summaryService.generateSummaryNow(sessionId);
+
+  // Trigger the template to create a new session
+  await checkAndTriggerNextTemplate(sessionId);
+
+  // Clear the template from the session (it's been triggered)
+  sessions.update(sessionId, { nextTemplateId: null });
+
+  // Broadcast the update so UI reflects the cleared template
+  broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    projectId: session.projectId,
+    sessionId: sessionId,
+    session: { ...session, nextTemplateId: null }
+  });
+}
 
 /**
  * Build prompt with file attachment context for the current turn
@@ -546,6 +575,9 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
       broadcastSessionStatus(sessionId, 'waiting');
       // Trigger summary generation when session completes a turn
       summaryService.onSessionActivity(sessionId);
+
+      // Check if template should be triggered after turn completion
+      await handleTemplateTriggerIfNeeded(sessionId);
     }
   } catch (error) {
     console.error('Session error:', error);
@@ -656,6 +688,9 @@ export async function continueSession(sessionId, content, workingDirectory, syst
       broadcastSessionStatus(sessionId, 'waiting');
       // Trigger summary generation when session completes a turn
       summaryService.onSessionActivity(sessionId);
+
+      // Check if template should be triggered after turn completion
+      await handleTemplateTriggerIfNeeded(sessionId);
     }
   } catch (error) {
     console.error('Continue session error:', error);

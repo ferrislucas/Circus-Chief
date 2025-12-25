@@ -41,7 +41,7 @@ describe('Sessions Summary API', () => {
         fullSummary: 'Test full summary with more details',
         keyActions: ['Action 1', 'Action 2'],
         filesModified: ['file1.js'],
-        outcome: 'completed',
+        outcome: 'partial',
         messageCount: 3,
       });
 
@@ -52,7 +52,7 @@ describe('Sessions Summary API', () => {
       expect(summary.fullSummary).toBe('Test full summary with more details');
       expect(summary.keyActions).toEqual(['Action 1', 'Action 2']);
       expect(summary.filesModified).toEqual(['file1.js']);
-      expect(summary.outcome).toBe('completed');
+      expect(summary.outcome).toBe('partial');
     });
 
     it('generates summary when generateIfMissing is true', async () => {
@@ -152,12 +152,12 @@ describe('Sessions Summary API', () => {
   });
 
   describe('Summary content based on session state', () => {
-    it('reflects completed session status', async () => {
-      sessions.update(session.id, { status: 'completed' });
+    it('reflects stopped session status', async () => {
+      sessions.update(session.id, { status: 'stopped' });
 
       const summary = await summaryService.generateSummary(session.id);
 
-      expect(summary.outcome).toBe('completed');
+      expect(summary.outcome).toBe('partial');
     });
 
     it('reflects error session status', async () => {

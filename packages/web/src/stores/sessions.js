@@ -4,6 +4,7 @@ import { api } from '../composables/useApi.js';
 export const useSessionsStore = defineStore('sessions', {
   state: () => ({
     sessions: [],
+    archivedSessions: [],
     activeSessions: [],
     currentSession: null,
     messages: [],
@@ -78,7 +79,19 @@ export const useSessionsStore = defineStore('sessions', {
       this.loading = true;
       this.error = null;
       try {
-        this.sessions = await api.getProjectSessions(projectId);
+        this.sessions = await api.getProjectSessions(projectId, false);
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async fetchArchivedSessions(projectId) {
+      this.loading = true;
+      this.error = null;
+      try {
+        this.archivedSessions = await api.getProjectSessions(projectId, true);
       } catch (err) {
         this.error = err.message;
       } finally {
@@ -186,10 +199,49 @@ export const useSessionsStore = defineStore('sessions', {
         await api.deleteSession(id);
         // Remove session from list
         this.sessions = this.sessions.filter((s) => s.id !== id);
+        this.archivedSessions = this.archivedSessions.filter((s) => s.id !== id);
         // Clear current session if it's the deleted one
         if (this.currentSession?.id === id) {
           this.currentSession = null;
         }
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    async archiveSession(id) {
+      this.error = null;
+      try {
+        const updated = await api.archiveSession(id);
+        // Move from sessions to archivedSessions
+        this.sessions = this.sessions.filter((s) => s.id !== id);
+        this.archivedSessions.unshift(updated);
+        // Also remove from activeSessions if present
+        this.activeSessions = this.activeSessions.filter((s) => s.id !== id);
+        // Update current session if it matches
+        if (this.currentSession?.id === id) {
+          this.currentSession = { ...this.currentSession, archived: true };
+        }
+        return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    async unarchiveSession(id) {
+      this.error = null;
+      try {
+        const updated = await api.unarchiveSession(id);
+        // Move from archivedSessions to sessions
+        this.archivedSessions = this.archivedSessions.filter((s) => s.id !== id);
+        this.sessions.unshift(updated);
+        // Update current session if it matches
+        if (this.currentSession?.id === id) {
+          this.currentSession = { ...this.currentSession, archived: false };
+        }
+        return updated;
       } catch (err) {
         this.error = err.message;
         throw err;
@@ -413,10 +465,39 @@ export const useSessionsStore = defineStore('sessions', {
     updateSession(sessionData) {
       if (!sessionData?.id) return;
 
-      // Update in sessions list
-      const sessionIndex = this.sessions.findIndex((s) => s.id === sessionData.id);
-      if (sessionIndex !== -1) {
-        this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
+      // Handle archive status changes - route to correct list
+      if (sessionData.archived === true) {
+        // Remove from non-archived lists
+        this.sessions = this.sessions.filter((s) => s.id !== sessionData.id);
+        this.activeSessions = this.activeSessions.filter((s) => s.id !== sessionData.id);
+        // Update or add to archived list
+        const archivedIndex = this.archivedSessions.findIndex((s) => s.id === sessionData.id);
+        if (archivedIndex !== -1) {
+          this.archivedSessions[archivedIndex] = { ...this.archivedSessions[archivedIndex], ...sessionData };
+        } else {
+          this.archivedSessions.unshift(sessionData);
+        }
+      } else if (sessionData.archived === false) {
+        // Remove from archived list
+        this.archivedSessions = this.archivedSessions.filter((s) => s.id !== sessionData.id);
+        // Update or add to sessions list
+        const sessionIndex = this.sessions.findIndex((s) => s.id === sessionData.id);
+        if (sessionIndex !== -1) {
+          this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
+        } else {
+          this.sessions.unshift(sessionData);
+        }
+      } else {
+        // No archive change - update in existing lists
+        const sessionIndex = this.sessions.findIndex((s) => s.id === sessionData.id);
+        if (sessionIndex !== -1) {
+          this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
+        }
+
+        const archivedIndex = this.archivedSessions.findIndex((s) => s.id === sessionData.id);
+        if (archivedIndex !== -1) {
+          this.archivedSessions[archivedIndex] = { ...this.archivedSessions[archivedIndex], ...sessionData };
+        }
       }
 
       // Update current session if it matches
@@ -463,6 +544,9 @@ export const useSessionsStore = defineStore('sessions', {
 
       // Remove from sessions list
       this.sessions = this.sessions.filter((s) => s.id !== sessionId);
+
+      // Remove from archived sessions list
+      this.archivedSessions = this.archivedSessions.filter((s) => s.id !== sessionId);
 
       // Remove from active sessions list
       this.activeSessions = this.activeSessions.filter((s) => s.id !== sessionId);

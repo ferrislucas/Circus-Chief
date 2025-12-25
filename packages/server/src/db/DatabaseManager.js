@@ -164,6 +164,16 @@ export class DatabaseManager {
     if (!sessionsUsageColumns.includes('context_window')) {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN context_window INTEGER DEFAULT 200000');
     }
+
+    // Check if sessions table has the archived column, add it if not
+    // Re-fetch column info since table may have been recreated
+    const finalSessionsTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const finalSessionsColumns = finalSessionsTableInfo.map((col) => col.name);
+
+    if (!finalSessionsColumns.includes('archived')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
+      this.#db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived)');
+    }
   }
 
   /**

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
-import { projects, sessions } from '../database.js';
+import { projects, sessions, sessionTemplates } from '../database.js';
 
 // Mock the Claude SDK
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
@@ -20,6 +20,12 @@ vi.mock('../websocket.js', () => ({
 vi.mock('./summaryService.js', () => ({
   onSessionActivity: vi.fn(),
   onSessionComplete: vi.fn(),
+  generateSummaryNow: vi.fn().mockResolvedValue({ id: 'summary-1' }),
+}));
+
+// Mock templateTriggerService
+vi.mock('./templateTriggerService.js', () => ({
+  checkAndTriggerNextTemplate: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Import after mocks are set up
@@ -27,6 +33,8 @@ import { runSession } from './sessionManager.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { generateSummaryNow } from './summaryService.js';
+import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 
 describe('sessionManager broadcasts', () => {
   let tempDir;
@@ -432,6 +440,118 @@ describe('sessionManager broadcasts', () => {
       expect(usageUpdate[0]).toBe(projectId);
       expect(usageUpdate[2].session.inputTokens).toBe(600);
       expect(usageUpdate[2].session.outputTokens).toBe(300);
+    });
+  });
+
+  describe('template triggering (handleTemplateTriggerIfNeeded)', () => {
+    let templateId;
+
+    beforeEach(() => {
+      // Create a real template for foreign key constraint
+      const template = sessionTemplates.create({
+        name: 'Test Template',
+        prompt: 'Test prompt',
+        projectId: projectId,
+      });
+      templateId = template.id;
+    });
+
+    afterEach(() => {
+      // Clean up template
+      if (templateId) {
+        try {
+          sessionTemplates.delete(templateId);
+        } catch {
+          // Template may already be deleted
+        }
+      }
+    });
+
+    it('triggers template after successful turn when nextTemplateId is set', async () => {
+      // Set up session with nextTemplateId
+      sessions.update(sessionId, { nextTemplateId: templateId });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Verify summary was generated first
+      expect(generateSummaryNow).toHaveBeenCalledWith(sessionId);
+
+      // Verify template trigger was called
+      expect(checkAndTriggerNextTemplate).toHaveBeenCalledWith(sessionId);
+    });
+
+    it('does not trigger template when session has no nextTemplateId', async () => {
+      // Ensure no nextTemplateId is set
+      sessions.update(sessionId, { nextTemplateId: null });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Verify template trigger was NOT called
+      expect(checkAndTriggerNextTemplate).not.toHaveBeenCalled();
+    });
+
+    it('clears nextTemplateId after triggering template', async () => {
+      // Set up session with nextTemplateId
+      sessions.update(sessionId, { nextTemplateId: templateId });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Verify nextTemplateId was cleared
+      const session = sessions.getById(sessionId);
+      expect(session.nextTemplateId).toBeNull();
+    });
+
+    it('broadcasts SESSION_UPDATED after clearing nextTemplateId', async () => {
+      sessions.update(sessionId, { nextTemplateId: templateId });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Find the broadcast with nextTemplateId cleared
+      const projectUpdatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_UPDATED
+      );
+
+      const clearedTemplateCall = projectUpdatedCalls.find(
+        (call) => call[2]?.session?.nextTemplateId === null
+      );
+      expect(clearedTemplateCall).toBeDefined();
+    });
+
+    it('still triggers template after error result (session goes to waiting after loop)', async () => {
+      // Note: The current implementation triggers templates even after error results
+      // because the error is handled inside the event loop, but the template trigger
+      // happens after the loop completes (when status becomes 'waiting')
+      sessions.update(sessionId, { nextTemplateId: templateId });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'error', error: 'Something went wrong' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Template IS triggered even on error because session transitions to 'waiting'
+      expect(checkAndTriggerNextTemplate).toHaveBeenCalledWith(sessionId);
     });
   });
 });

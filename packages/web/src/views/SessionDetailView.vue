@@ -47,15 +47,6 @@
         </div>
       </div>
 
-      <!-- Template Selector -->
-      <TemplateSelector
-        :session-id="sessionId"
-        :project-id="sessionsStore.currentSession.projectId"
-        :current-template-id="sessionsStore.currentSession.nextTemplateId"
-        :disabled="sessionsStore.currentSession.status === 'running' || sessionsStore.currentSession.status === 'starting'"
-        @update:template-id="handleTemplateChange"
-      />
-
       <div class="tabs">
         <router-link
           :to="`/projects/${sessionsStore.currentSession.projectId}/sessions`"
@@ -118,7 +109,6 @@ import CanvasTab from '../components/CanvasTab.vue';
 import NotesTab from '../components/NotesTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
-import TemplateSelector from '../components/TemplateSelector.vue';
 import TokenUsagePanel from '../components/TokenUsagePanel.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
@@ -336,15 +326,6 @@ async function handleDelete() {
     } else {
       router.push('/');
     }
-  } catch (err) {
-    uiStore.error(err.message);
-  }
-}
-
-async function handleTemplateChange(templateId) {
-  try {
-    await sessionsStore.updateNextTemplate(sessionId, templateId);
-    uiStore.success(templateId ? 'Template assigned' : 'Template removed');
   } catch (err) {
     uiStore.error(err.message);
   }
