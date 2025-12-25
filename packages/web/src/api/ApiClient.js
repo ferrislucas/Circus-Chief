@@ -113,10 +113,15 @@ export class ApiClient {
   /**
    * Get all sessions for a project
    * @param {string} projectId - Project ID
+   * @param {boolean|null} archived - Filter by archived status (null = all, true = archived only, false = non-archived only)
    * @returns {Promise<Array>}
    */
-  async getProjectSessions(projectId) {
-    return this.#request('GET', `/projects/${projectId}/sessions`);
+  async getProjectSessions(projectId, archived = null) {
+    let path = `/projects/${projectId}/sessions`;
+    if (archived !== null) {
+      path += `?archived=${archived}`;
+    }
+    return this.#request('GET', path);
   }
 
   /**
@@ -265,6 +270,24 @@ export class ApiClient {
    */
   async deleteSession(id) {
     return this.#request('DELETE', `/sessions/${id}`);
+  }
+
+  /**
+   * Archive a session
+   * @param {string} id - Session ID
+   * @returns {Promise<Object>}
+   */
+  async archiveSession(id) {
+    return this.#request('POST', `/sessions/${id}/archive`);
+  }
+
+  /**
+   * Unarchive a session
+   * @param {string} id - Session ID
+   * @returns {Promise<Object>}
+   */
+  async unarchiveSession(id) {
+    return this.#request('POST', `/sessions/${id}/unarchive`);
   }
 
   // Canvas

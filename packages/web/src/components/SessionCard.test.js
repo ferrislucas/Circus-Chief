@@ -481,4 +481,127 @@ describe('SessionCard', () => {
       });
     });
   });
+
+  describe('archive/unarchive buttons', () => {
+    describe('archive button', () => {
+      it('shows archive button when showArchive is true and session can be archived', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showArchive: true,
+        });
+        const archiveBtn = wrapper.find('.archive-btn');
+        expect(archiveBtn.exists()).toBe(true);
+        expect(archiveBtn.attributes('title')).toBe('Archive session');
+      });
+
+      it('shows archive button for stopped sessions', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'stopped' },
+          showArchive: true,
+        });
+        expect(wrapper.find('.archive-btn').exists()).toBe(true);
+      });
+
+      it('shows archive button for error sessions', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'error' },
+          showArchive: true,
+        });
+        expect(wrapper.find('.archive-btn').exists()).toBe(true);
+      });
+
+      it('hides archive button for running sessions', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'running' },
+          showArchive: true,
+        });
+        expect(wrapper.find('.archive-btn').exists()).toBe(false);
+      });
+
+      it('hides archive button for waiting sessions', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'waiting' },
+          showArchive: true,
+        });
+        expect(wrapper.find('.archive-btn').exists()).toBe(false);
+      });
+
+      it('hides archive button when showArchive is false', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showArchive: false,
+        });
+        expect(wrapper.find('.archive-btn').exists()).toBe(false);
+      });
+
+      it('archive button is clickable', async () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showArchive: true,
+        });
+        const btn = wrapper.find('.archive-btn');
+        expect(btn.exists()).toBe(true);
+        // Verify button can be clicked without errors
+        await btn.trigger('click');
+      });
+    });
+
+    describe('unarchive button', () => {
+      it('shows unarchive button when showUnarchive is true', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed', archived: true },
+          showUnarchive: true,
+        });
+        const unarchiveBtn = wrapper.find('.archive-btn');
+        expect(unarchiveBtn.exists()).toBe(true);
+        expect(unarchiveBtn.attributes('title')).toBe('Unarchive session');
+      });
+
+      it('hides unarchive button when showUnarchive is false', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed', archived: true },
+          showUnarchive: false,
+        });
+        expect(wrapper.find('.archive-actions').exists()).toBe(false);
+      });
+
+      it('unarchive button is clickable', async () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed', archived: true },
+          showUnarchive: true,
+        });
+        const btn = wrapper.find('.archive-btn');
+        expect(btn.exists()).toBe(true);
+        // Verify button can be clicked without errors
+        await btn.trigger('click');
+      });
+    });
+
+    describe('archive actions container', () => {
+      it('shows archive-actions container when showArchive is true', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showArchive: true,
+        });
+        expect(wrapper.find('.archive-actions').exists()).toBe(true);
+      });
+
+      it('shows archive-actions container when showUnarchive is true', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showUnarchive: true,
+        });
+        expect(wrapper.find('.archive-actions').exists()).toBe(true);
+      });
+
+      it('hides archive-actions container when both showArchive and showUnarchive are false', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showArchive: false,
+          showUnarchive: false,
+        });
+        expect(wrapper.find('.archive-actions').exists()).toBe(false);
+      });
+    });
+  });
 });
