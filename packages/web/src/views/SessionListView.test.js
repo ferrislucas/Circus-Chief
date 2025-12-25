@@ -312,3 +312,181 @@ describe('SessionListView integration', () => {
     // The view should now have the updated summary
   });
 });
+
+describe('SessionListView Archived Tab', () => {
+  let mockSessionsStore;
+  let mockProjectsStore;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    mockRouteParams.id = 'test-project-id';
+
+    // Reset callbacks
+    onSessionSummaryUpdatedCallback = null;
+
+    mockProjectsStore = {
+      currentProject: { id: 'test-project-id', name: 'Test Project' },
+      fetchProject: vi.fn(),
+    };
+    useProjectsStore.mockReturnValue(mockProjectsStore);
+
+    mockSessionsStore = {
+      loading: false,
+      error: null,
+      sessions: [
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+        { id: 'session-2', name: 'Session 2', status: 'running' },
+      ],
+      archivedSessions: [],
+      fetchSessions: vi.fn().mockResolvedValue(),
+      fetchArchivedSessions: vi.fn().mockResolvedValue(),
+      archiveSession: vi.fn().mockResolvedValue(),
+      unarchiveSession: vi.fn().mockResolvedValue(),
+      addSessionToList: vi.fn(),
+      updateSession: vi.fn(),
+      removeSessionFromList: vi.fn(),
+    };
+    useSessionsStore.mockReturnValue(mockSessionsStore);
+
+    mockGetSessionSummary.mockResolvedValue(null);
+  });
+
+  it('renders Sessions tab as active by default', async () => {
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    const tabs = wrapper.findAll('.tab');
+    expect(tabs.length).toBe(3);
+    expect(tabs[0].text()).toBe('Sessions');
+    expect(tabs[1].text()).toBe('Archived');
+    expect(tabs[2].text()).toBe('Templates');
+
+    // Sessions tab should be active
+    expect(tabs[0].classes()).toContain('active');
+    expect(tabs[1].classes()).not.toContain('active');
+  });
+
+  it('switches to Archived tab when clicked', async () => {
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    const archivedTab = wrapper.findAll('.tab')[1];
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    expect(archivedTab.classes()).toContain('active');
+  });
+
+  it('fetches archived sessions on first Archived tab click', async () => {
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    // Initially, fetchArchivedSessions should not have been called
+    expect(mockSessionsStore.fetchArchivedSessions).not.toHaveBeenCalled();
+
+    // Click Archived tab
+    const archivedTab = wrapper.findAll('.tab')[1];
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    // Now it should have been called
+    expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id');
+  });
+
+  it('does not fetch archived sessions again on subsequent tab clicks', async () => {
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    const archivedTab = wrapper.findAll('.tab')[1];
+
+    // First click
+    await archivedTab.trigger('click');
+    await flushPromises();
+    expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledTimes(1);
+
+    // Switch away and back
+    const sessionsTab = wrapper.findAll('.tab')[0];
+    await sessionsTab.trigger('click');
+    await flushPromises();
+
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    // Should still only be called once (lazy loaded)
+    expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows empty state when no archived sessions', async () => {
+    mockSessionsStore.archivedSessions = [];
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    // Switch to Archived tab
+    const archivedTab = wrapper.findAll('.tab')[1];
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    const emptyState = wrapper.find('.empty-state');
+    expect(emptyState.exists()).toBe(true);
+    expect(emptyState.text()).toContain('No archived sessions');
+  });
+
+  it('displays archived sessions when available', async () => {
+    mockSessionsStore.archivedSessions = [
+      { id: 'archived-1', name: 'Archived Session 1', status: 'completed', archived: true },
+      { id: 'archived-2', name: 'Archived Session 2', status: 'stopped', archived: true },
+    ];
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    // Switch to Archived tab
+    const archivedTab = wrapper.findAll('.tab')[1];
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    const sessionCards = wrapper.findAll('.session-card');
+    expect(sessionCards.length).toBe(2);
+  });
+
+  it('passes showArchive=true to SessionCards in Sessions tab', async () => {
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    // Check that session cards in the sessions tab exist
+    const sessionCards = wrapper.findAll('.session-card');
+    expect(sessionCards.length).toBe(2);
+  });
+
+  it('passes showUnarchive=true to SessionCards in Archived tab', async () => {
+    mockSessionsStore.archivedSessions = [
+      { id: 'archived-1', name: 'Archived Session', status: 'completed', archived: true },
+    ];
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    // Switch to Archived tab
+    const archivedTab = wrapper.findAll('.tab')[1];
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    const sessionCards = wrapper.findAll('.session-card');
+    expect(sessionCards.length).toBe(1);
+  });
+
+  it('hides New Session button on Archived tab', async () => {
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    // Button should be visible on Sessions tab
+    expect(wrapper.find('.btn-primary').exists()).toBe(true);
+
+    // Switch to Archived tab
+    const archivedTab = wrapper.findAll('.tab')[1];
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    // Button should be hidden
+    expect(wrapper.find('.btn-primary').exists()).toBe(false);
+  });
+});
