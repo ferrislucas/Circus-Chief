@@ -131,6 +131,7 @@ describe('SessionDetailView', () => {
       fetchMessages: vi.fn(),
       fetchWorkLogs: vi.fn(),
       deleteSession: vi.fn(),
+      archiveSession: vi.fn(),
       updateSessionStatus: vi.fn(),
       addMessage: vi.fn(),
       updateSession: vi.fn(),
@@ -484,5 +485,400 @@ describe('SessionDetailView', () => {
       expect(mockGetSessionChanges).toHaveBeenCalledWith('test-session-id');
     });
 
+  });
+
+  describe('archive button', () => {
+    describe('visibility based on session status', () => {
+      it('hides archive button when session status is running', async () => {
+        mockSessionsStore.currentSession.status = 'running';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(false);
+      });
+
+      it('shows archive button when session status is stopped', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(true);
+      });
+
+      it('shows archive button when session status is completed', async () => {
+        mockSessionsStore.currentSession.status = 'completed';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(true);
+      });
+
+      it('shows archive button when session status is error', async () => {
+        mockSessionsStore.currentSession.status = 'error';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(true);
+      });
+
+      it('shows archive button when session status is waiting', async () => {
+        mockSessionsStore.currentSession.status = 'waiting';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(true);
+      });
+
+      it('shows archive button when session status is starting', async () => {
+        mockSessionsStore.currentSession.status = 'starting';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(true);
+      });
+
+      it('hides archive button when currentSession is null', async () => {
+        mockSessionsStore.currentSession = null;
+        mockSessionsStore.loading = false;
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(false);
+      });
+    });
+
+    describe('archive button content', () => {
+      it('displays Archive text on the button', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        const archiveBtn = wrapper.find('.btn-archive-session');
+        expect(archiveBtn.text()).toContain('Archive');
+      });
+
+      it('includes an archive icon (SVG)', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        const archiveBtn = wrapper.find('.btn-archive-session');
+        expect(archiveBtn.find('svg').exists()).toBe(true);
+      });
+
+      it('has the correct button classes', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        const archiveBtn = wrapper.find('.btn-archive-session');
+        expect(archiveBtn.classes()).toContain('btn');
+        expect(archiveBtn.classes()).toContain('btn-outline-secondary');
+      });
+    });
+
+    describe('archive action with confirmation', () => {
+      it('shows confirmation dialog when archive button is clicked', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+
+        expect(confirmSpy).toHaveBeenCalledWith('Are you sure you want to archive this session?');
+        confirmSpy.mockRestore();
+      });
+
+      it('does not call archiveSession when confirmation is cancelled', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockSessionsStore.archiveSession).not.toHaveBeenCalled();
+      });
+
+      it('calls archiveSession when confirmation is accepted', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockSessionsStore.archiveSession).toHaveBeenCalledWith('test-session-id');
+      });
+
+      it('calls archiveSession with correct session ID', async () => {
+        mockRouteParams.id = 'specific-session-123';
+        mockSessionsStore.currentSession.status = 'completed';
+        mockSessionsStore.currentSession.id = 'specific-session-123';
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockSessionsStore.archiveSession).toHaveBeenCalledWith('specific-session-123');
+      });
+    });
+
+    describe('navigation after archive', () => {
+      let mockRouter;
+
+      beforeEach(async () => {
+        const { useRouter } = await import('vue-router');
+        mockRouter = { push: vi.fn() };
+        useRouter.mockReturnValue(mockRouter);
+      });
+
+      it('navigates to project sessions list after successful archive', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        mockSessionsStore.currentSession.projectId = 'project-abc';
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockRouter.push).toHaveBeenCalledWith('/projects/project-abc/sessions');
+      });
+
+      it('navigates to home when projectId is not available', async () => {
+        mockSessionsStore.currentSession.status = 'error';
+        mockSessionsStore.currentSession.projectId = null;
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockRouter.push).toHaveBeenCalledWith('/');
+      });
+
+      it('navigates to home when projectId is undefined', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        delete mockSessionsStore.currentSession.projectId;
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockRouter.push).toHaveBeenCalledWith('/');
+      });
+
+      it('does not navigate when confirmation is cancelled', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockRouter.push).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('success and error messages', () => {
+      let mockUiStore;
+
+      beforeEach(async () => {
+        const { useUiStore } = await import('../stores/ui.js');
+        mockUiStore = { success: vi.fn(), error: vi.fn() };
+        useUiStore.mockReturnValue(mockUiStore);
+      });
+
+      it('shows success message after successful archive', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockUiStore.success).toHaveBeenCalledWith('Session archived');
+      });
+
+      it('shows error message when archive fails', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        mockSessionsStore.archiveSession.mockRejectedValue(new Error('Archive failed: server error'));
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockUiStore.error).toHaveBeenCalledWith('Archive failed: server error');
+      });
+
+      it('shows error message with correct message from API error', async () => {
+        mockSessionsStore.currentSession.status = 'waiting';
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        mockSessionsStore.archiveSession.mockRejectedValue(new Error('Can only archive stopped, completed, or error sessions'));
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockUiStore.error).toHaveBeenCalledWith('Can only archive stopped, completed, or error sessions');
+      });
+
+      it('does not show success message when archive fails', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        mockSessionsStore.archiveSession.mockRejectedValue(new Error('Archive failed'));
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockUiStore.success).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('archive button does not interfere with delete button', () => {
+      it('both archive and delete buttons are present when session is archivable', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(true);
+        expect(wrapper.find('.btn-delete-session').exists()).toBe(true);
+      });
+
+      it('only delete button is present when session is running', async () => {
+        mockSessionsStore.currentSession.status = 'running';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(false);
+        expect(wrapper.find('.btn-delete-session').exists()).toBe(true);
+      });
+
+      it('archive button click does not trigger delete', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockSessionsStore.archiveSession).toHaveBeenCalled();
+        expect(mockSessionsStore.deleteSession).not.toHaveBeenCalled();
+      });
+
+      it('delete button click does not trigger archive', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        mockSessionsStore.deleteSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-delete-session').trigger('click');
+        await flushPromises();
+
+        expect(mockSessionsStore.deleteSession).toHaveBeenCalled();
+        expect(mockSessionsStore.archiveSession).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('session-action-buttons container', () => {
+      it('renders session-action-buttons container', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.session-action-buttons').exists()).toBe(true);
+      });
+
+      it('contains both archive and delete buttons inside session-action-buttons', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        const container = wrapper.find('.session-action-buttons');
+        expect(container.find('.btn-archive-session').exists()).toBe(true);
+        expect(container.find('.btn-delete-session').exists()).toBe(true);
+      });
+    });
   });
 });
