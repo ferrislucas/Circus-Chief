@@ -295,8 +295,9 @@ describe('Status filtering', () => {
       sessions: [
         { id: 'session-1', name: 'Running Session', status: 'running' },
         { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
-        { id: 'session-3', name: 'Completed Session', status: 'completed' },
+        { id: 'session-3', name: 'Stopped Session', status: 'stopped' },
         { id: 'session-4', name: 'Error Session', status: 'error' },
+        { id: 'session-5', name: 'Starting Session', status: 'starting' },
       ],
       fetchSessions: vi.fn().mockResolvedValue(),
       addSessionToList: vi.fn(),
@@ -310,118 +311,397 @@ describe('Status filtering', () => {
     vi.clearAllMocks();
   });
 
-  it('renders filter buttons for running and waiting statuses', async () => {
-    const wrapper = mount(SessionListView);
-    await flushPromises();
+  describe('Filter button rendering', () => {
+    it('renders filter buttons for running and idle statuses', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
 
-    const filterButtons = wrapper.findAll('.filter-btn');
-    expect(filterButtons).toHaveLength(2);
-    expect(filterButtons[0].text()).toBe('running');
-    expect(filterButtons[1].text()).toBe('waiting');
+      const filterButtons = wrapper.findAll('.filter-btn');
+      expect(filterButtons).toHaveLength(2);
+      expect(filterButtons[0].text()).toBe('running');
+      expect(filterButtons[1].text()).toBe('idle');
+    });
+
+    it('only shows filter buttons on sessions tab', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      // Filters should be visible on sessions tab
+      expect(wrapper.find('.status-filters').exists()).toBe(true);
+
+      // Click on templates tab
+      const templatesTab = wrapper.findAll('.tab')[2];
+      await templatesTab.trigger('click');
+
+      // Filters should not be visible on templates tab
+      expect(wrapper.find('.status-filters').exists()).toBe(false);
+    });
+
+    it('adds active class to selected filter button', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      expect(runningButton.classes()).not.toContain('active');
+
+      await runningButton.trigger('click');
+      expect(runningButton.classes()).toContain('active');
+    });
+
+    it('adds active class to idle filter button when selected', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      expect(idleButton.classes()).not.toContain('active');
+
+      await idleButton.trigger('click');
+      expect(idleButton.classes()).toContain('active');
+    });
   });
 
-  it('shows all sessions when no filters are active', async () => {
-    const wrapper = mount(SessionListView);
-    await flushPromises();
+  describe('No filter selected', () => {
+    it('shows all sessions when no filters are active', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
 
-    const sessionCards = wrapper.findAll('.session-card');
-    expect(sessionCards).toHaveLength(4);
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(5);
+    });
   });
 
-  it('filters to show only running sessions when running filter is clicked', async () => {
-    const wrapper = mount(SessionListView);
-    await flushPromises();
+  describe('Running filter', () => {
+    it('filters to show running and starting sessions when running filter is clicked', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
 
-    const runningButton = wrapper.findAll('.filter-btn')[0];
-    await runningButton.trigger('click');
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      await runningButton.trigger('click');
 
-    const sessionCards = wrapper.findAll('.session-card');
-    expect(sessionCards).toHaveLength(1);
-    expect(sessionCards[0].attributes('data-session-id')).toBe('session-1');
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(2); // running + starting
+
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-1'); // running
+      expect(sessionIds).toContain('session-5'); // starting
+    });
+
+    it('includes starting sessions in running filter', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      await runningButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-5'); // starting session
+    });
+
+    it('does not include idle sessions in running filter', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      await runningButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).not.toContain('session-2'); // waiting
+      expect(sessionIds).not.toContain('session-3'); // stopped
+      expect(sessionIds).not.toContain('session-4'); // error
+    });
+
+    it('toggles running filter off when clicked again', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+
+      // Click to enable filter
+      await runningButton.trigger('click');
+      expect(wrapper.findAll('.session-card')).toHaveLength(2); // running + starting
+
+      // Click again to disable filter
+      await runningButton.trigger('click');
+      expect(wrapper.findAll('.session-card')).toHaveLength(5);
+    });
   });
 
-  it('filters to show only waiting sessions when waiting filter is clicked', async () => {
-    const wrapper = mount(SessionListView);
-    await flushPromises();
+  describe('Idle filter', () => {
+    it('shows waiting sessions when idle filter is clicked', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
 
-    const waitingButton = wrapper.findAll('.filter-btn')[1];
-    await waitingButton.trigger('click');
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
 
-    const sessionCards = wrapper.findAll('.session-card');
-    expect(sessionCards).toHaveLength(1);
-    expect(sessionCards[0].attributes('data-session-id')).toBe('session-2');
+      const sessionCards = wrapper.findAll('.session-card');
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-2'); // waiting
+    });
+
+    it('shows stopped sessions when idle filter is clicked', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-3'); // stopped
+    });
+
+    it('shows error sessions when idle filter is clicked', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-4'); // error
+    });
+
+    it('shows all idle statuses (waiting, stopped, error) when idle filter is clicked', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(3); // waiting, stopped, error
+
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-2'); // waiting
+      expect(sessionIds).toContain('session-3'); // stopped
+      expect(sessionIds).toContain('session-4'); // error
+    });
+
+    it('does not include running sessions in idle filter', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).not.toContain('session-1'); // running
+    });
+
+    it('does not include starting sessions in idle filter', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).not.toContain('session-5'); // starting
+    });
+
+    it('toggles idle filter off when clicked again', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+
+      // Click to enable filter
+      await idleButton.trigger('click');
+      expect(wrapper.findAll('.session-card')).toHaveLength(3);
+
+      // Click again to disable filter
+      await idleButton.trigger('click');
+      expect(wrapper.findAll('.session-card')).toHaveLength(5);
+    });
   });
 
-  it('shows both running and waiting sessions when both filters are active', async () => {
-    const wrapper = mount(SessionListView);
-    await flushPromises();
+  describe('Combined filters', () => {
+    it('shows both running and idle sessions when both filters are active', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
 
-    const filterButtons = wrapper.findAll('.filter-btn');
-    await filterButtons[0].trigger('click'); // running
-    await filterButtons[1].trigger('click'); // waiting
+      const filterButtons = wrapper.findAll('.filter-btn');
+      await filterButtons[0].trigger('click'); // running
+      await filterButtons[1].trigger('click'); // idle
 
-    const sessionCards = wrapper.findAll('.session-card');
-    expect(sessionCards).toHaveLength(2);
+      const sessionCards = wrapper.findAll('.session-card');
+      // running (running + starting = 2) + idle (waiting, stopped, error = 3) = 5
+      expect(sessionCards).toHaveLength(5);
+
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-1'); // running
+      expect(sessionIds).toContain('session-2'); // waiting
+      expect(sessionIds).toContain('session-3'); // stopped
+      expect(sessionIds).toContain('session-4'); // error
+      expect(sessionIds).toContain('session-5'); // starting - included in running filter
+    });
+
+    it('can disable one filter while keeping the other active', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const filterButtons = wrapper.findAll('.filter-btn');
+
+      // Enable both filters
+      await filterButtons[0].trigger('click'); // running
+      await filterButtons[1].trigger('click'); // idle
+
+      expect(wrapper.findAll('.session-card')).toHaveLength(5);
+
+      // Disable running filter
+      await filterButtons[0].trigger('click');
+
+      // Should only show idle sessions now (waiting, stopped, error)
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(3);
+
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).not.toContain('session-1'); // running - now excluded
+      expect(sessionIds).not.toContain('session-5'); // starting - now excluded
+      expect(sessionIds).toContain('session-2'); // waiting
+      expect(sessionIds).toContain('session-3'); // stopped
+      expect(sessionIds).toContain('session-4'); // error
+    });
   });
 
-  it('toggles filter off when clicked again', async () => {
-    const wrapper = mount(SessionListView);
-    await flushPromises();
+  describe('Empty states', () => {
+    it('shows empty state message when running filter returns no results', async () => {
+      // Set up store with no running sessions
+      mockSessionsStore.sessions = [
+        { id: 'session-1', name: 'Stopped Session', status: 'stopped' },
+      ];
+      useSessionsStore.mockReturnValue(mockSessionsStore);
 
-    const runningButton = wrapper.findAll('.filter-btn')[0];
+      const wrapper = mount(SessionListView);
+      await flushPromises();
 
-    // Click to enable filter
-    await runningButton.trigger('click');
-    expect(wrapper.findAll('.session-card')).toHaveLength(1);
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      await runningButton.trigger('click');
 
-    // Click again to disable filter
-    await runningButton.trigger('click');
-    expect(wrapper.findAll('.session-card')).toHaveLength(4);
+      const emptyState = wrapper.find('.empty-state');
+      expect(emptyState.exists()).toBe(true);
+      expect(emptyState.text()).toContain('No sessions match the current filter');
+    });
+
+    it('shows empty state message when idle filter returns no results', async () => {
+      // Set up store with only running sessions
+      mockSessionsStore.sessions = [
+        { id: 'session-1', name: 'Running Session', status: 'running' },
+      ];
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const emptyState = wrapper.find('.empty-state');
+      expect(emptyState.exists()).toBe(true);
+      expect(emptyState.text()).toContain('No sessions match the current filter');
+    });
+
+    it('shows idle sessions but not starting sessions when only starting and idle exist', async () => {
+      mockSessionsStore.sessions = [
+        { id: 'session-1', name: 'Starting Session', status: 'starting' },
+        { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
+      ];
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(1);
+      expect(sessionCards[0].attributes('data-session-id')).toBe('session-2');
+    });
   });
 
-  it('adds active class to selected filter button', async () => {
-    const wrapper = mount(SessionListView);
-    await flushPromises();
+  describe('Edge cases', () => {
+    it('handles empty session list', async () => {
+      mockSessionsStore.sessions = [];
+      useSessionsStore.mockReturnValue(mockSessionsStore);
 
-    const runningButton = wrapper.findAll('.filter-btn')[0];
-    expect(runningButton.classes()).not.toContain('active');
+      const wrapper = mount(SessionListView);
+      await flushPromises();
 
-    await runningButton.trigger('click');
-    expect(runningButton.classes()).toContain('active');
-  });
+      // Should show the "No sessions yet" empty state
+      const emptyState = wrapper.find('.empty-state');
+      expect(emptyState.exists()).toBe(true);
+      expect(emptyState.text()).toContain('No sessions yet');
+    });
 
-  it('shows empty state message when filters return no results', async () => {
-    // Set up store with only completed sessions
-    mockSessionsStore.sessions = [
-      { id: 'session-1', name: 'Completed Session', status: 'completed' },
-    ];
-    useSessionsStore.mockReturnValue(mockSessionsStore);
+    it('handles session list with only starting sessions', async () => {
+      mockSessionsStore.sessions = [
+        { id: 'session-1', name: 'Starting Session', status: 'starting' },
+      ];
+      useSessionsStore.mockReturnValue(mockSessionsStore);
 
-    const wrapper = mount(SessionListView);
-    await flushPromises();
+      const wrapper = mount(SessionListView);
+      await flushPromises();
 
-    // Click running filter - no running sessions exist
-    const runningButton = wrapper.findAll('.filter-btn')[0];
-    await runningButton.trigger('click');
+      // Running filter should show the starting session
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      await runningButton.trigger('click');
 
-    const emptyState = wrapper.find('.empty-state');
-    expect(emptyState.exists()).toBe(true);
-    expect(emptyState.text()).toContain('No sessions match the current filter');
-  });
+      let sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(1);
+      expect(sessionCards[0].attributes('data-session-id')).toBe('session-1');
 
-  it('only shows filter buttons on sessions tab', async () => {
-    const wrapper = mount(SessionListView);
-    await flushPromises();
+      // Reset to no filter
+      await runningButton.trigger('click');
 
-    // Filters should be visible on sessions tab
-    expect(wrapper.find('.status-filters').exists()).toBe(true);
+      // Idle filter should show empty (starting is not idle)
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
 
-    // Click on templates tab
-    const templatesTab = wrapper.findAll('.tab')[1];
-    await templatesTab.trigger('click');
+      const emptyState = wrapper.find('.empty-state');
+      expect(emptyState.exists()).toBe(true);
+    });
 
-    // Filters should not be visible on templates tab
-    expect(wrapper.find('.status-filters').exists()).toBe(false);
+    it('starting sessions show in running filter but not idle filter', async () => {
+      mockSessionsStore.sessions = [
+        { id: 'session-1', name: 'Starting Session', status: 'starting' },
+        { id: 'session-2', name: 'Running Session', status: 'running' },
+        { id: 'session-3', name: 'Waiting Session', status: 'waiting' },
+      ];
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      // Running filter should include starting
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      await runningButton.trigger('click');
+
+      let sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(2);
+      const runningIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(runningIds).toContain('session-1'); // starting
+      expect(runningIds).toContain('session-2'); // running
+
+      // Reset
+      await runningButton.trigger('click');
+
+      // Idle filter should NOT include starting
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(1);
+      const idleIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(idleIds).toContain('session-3'); // waiting
+      expect(idleIds).not.toContain('session-1'); // starting - NOT idle
+    });
   });
 });
 
