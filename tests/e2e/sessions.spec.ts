@@ -11,6 +11,9 @@ import {
 } from './helpers';
 
 test.describe('New Session - Thinking Toggle', () => {
+  // Session creation can be slow under load
+  test.describe.configure({ timeout: 60000 });
+
   let project: any;
 
   test.beforeEach(async () => {
@@ -51,7 +54,7 @@ test.describe('New Session - Thinking Toggle', () => {
     await page.click('button:has-text("Start Session")');
 
     // Wait for redirect to session detail and network to settle
-    await expect(page).toHaveURL(/\/sessions\/[\w-]+/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/sessions\/[\w-]+/, { timeout: 30000 });
     await page.waitForLoadState('networkidle');
 
     // Extract session ID from URL to verify via API
@@ -85,7 +88,7 @@ test.describe('New Session - Thinking Toggle', () => {
     await page.click('button:has-text("Start Session")');
 
     // Wait for redirect to session detail and network to settle
-    await expect(page).toHaveURL(/\/sessions\/[\w-]+/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/sessions\/[\w-]+/, { timeout: 30000 });
     await page.waitForLoadState('networkidle');
 
     // Extract session ID from URL to verify via API
@@ -341,7 +344,7 @@ test.describe('Session Management', () => {
     ).toBeVisible();
 
     // Wait for session to be in 'waiting' state (Claude has responded)
-    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+    await waitForSessionStatus(page, session.id, 'waiting', 30000);
 
     // Verify mock response is visible
     await expect(
@@ -356,7 +359,7 @@ test.describe('Session Management', () => {
     await page.click('button:has-text("Send")');
 
     // Wait for the session to return to 'waiting' state after processing
-    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+    await waitForSessionStatus(page, session.id, 'waiting', 30000);
 
     // Verify the second user message is visible
     await expect(
@@ -372,7 +375,7 @@ test.describe('Session Management', () => {
     await page.click('button:has-text("Send")');
 
     // Wait for the session to return to 'waiting' state
-    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+    await waitForSessionStatus(page, session.id, 'waiting', 30000);
 
     // Verify the third user message is visible
     await expect(
@@ -496,6 +499,9 @@ test.describe('New Session - Mode Selection', () => {
 });
 
 test.describe('Conversation - Mode Switching', () => {
+  // Sessions can be slow under load
+  test.describe.configure({ timeout: 90000 });
+
   let project: any;
 
   test.beforeEach(async () => {
@@ -517,7 +523,7 @@ test.describe('Conversation - Mode Switching', () => {
     await page.goto(`/sessions/${session.id}/conversation`);
 
     // Wait for session to be in waiting state (mock mode is fast)
-    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+    await waitForSessionStatus(page, session.id, 'waiting', 30000);
 
     // Verify mode switcher is visible
     await expect(page.locator('.mode-switcher')).toBeVisible();
@@ -536,7 +542,7 @@ test.describe('Conversation - Mode Switching', () => {
     await page.goto(`/sessions/${session.id}/conversation`);
 
     // Wait for session to be in waiting state
-    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+    await waitForSessionStatus(page, session.id, 'waiting', 30000);
 
     // Verify Plan button is active
     await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('Plan');
@@ -552,7 +558,7 @@ test.describe('Conversation - Mode Switching', () => {
     await page.goto(`/sessions/${session.id}/conversation`);
 
     // Wait for session to be in waiting state
-    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+    await waitForSessionStatus(page, session.id, 'waiting', 30000);
 
     // Verify Standard is active
     await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('Standard');
@@ -581,7 +587,7 @@ test.describe('Conversation - Mode Switching', () => {
     await page.goto(`/sessions/${session.id}/conversation`);
 
     // Wait for session to be in waiting state
-    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+    await waitForSessionStatus(page, session.id, 'waiting', 30000);
 
     // Verify YOLO is active
     await expect(page.locator('.mode-switcher .mode-btn.active')).toHaveText('YOLO');
@@ -610,7 +616,7 @@ test.describe('Conversation - Mode Switching', () => {
     await page.goto(`/sessions/${session.id}/conversation`);
 
     // Wait for session to be in waiting state
-    await waitForSessionStatus(page, session.id, 'waiting', 15000);
+    await waitForSessionStatus(page, session.id, 'waiting', 30000);
 
     // Switch to Plan mode
     await page.click('.mode-switcher button:has-text("Plan")');

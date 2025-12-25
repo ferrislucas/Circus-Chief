@@ -134,6 +134,9 @@ export class DatabaseManager {
     // Create default conversations for existing sessions that don't have one
     this.#migrateExistingSessionsToConversations();
 
+    // Migrate canvas_items table to add 'code' type
+    this.#migrateCanvasItemsTypeConstraint();
+
     // Add claude_session_id column to conversations table for per-conversation context isolation
     const conversationsTableInfo = this.#db.prepare('PRAGMA table_info(conversations)').all();
     const conversationsColumns = conversationsTableInfo.map((col) => col.name);
@@ -260,6 +263,53 @@ export class DatabaseManager {
       -- Recreate indexes
       CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
       CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+    `);
+  }
+
+  /**
+   * Migrate canvas_items table to include 'code' in type CHECK constraint
+   * SQLite doesn't support ALTER TABLE to modify constraints, so we recreate the table
+   * @private
+   */
+  #migrateCanvasItemsTypeConstraint() {
+    // Check if the current constraint includes 'code' by reading from sqlite_master
+    const tableSchema = this.#db
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='canvas_items'")
+      .get();
+
+    // If schema includes 'code', no migration needed
+    if (tableSchema?.sql?.includes("'code'")) {
+      return;
+    }
+
+    // Need to recreate table with updated constraint
+    this.#db.exec(`
+      -- Create new table with updated constraint
+      CREATE TABLE canvas_items_new (
+        id TEXT PRIMARY KEY,
+        session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+        type TEXT NOT NULL CHECK (type IN ('image', 'markdown', 'text', 'json', 'pdf', 'code')),
+        content TEXT,
+        data TEXT,
+        mime_type TEXT,
+        filename TEXT,
+        label TEXT,
+        width INTEGER,
+        height INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+
+      -- Copy data from old table
+      INSERT INTO canvas_items_new SELECT * FROM canvas_items;
+
+      -- Drop old table
+      DROP TABLE canvas_items;
+
+      -- Rename new table
+      ALTER TABLE canvas_items_new RENAME TO canvas_items;
+
+      -- Recreate index
+      CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
     `);
   }
 

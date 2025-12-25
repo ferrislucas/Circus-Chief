@@ -10,7 +10,7 @@
         >
           &#8249; Back
         </button>
-        <span class="viewer-filename">{{ item.filename || item.label || 'Untitled' }}</span>
+        <span class="viewer-filename">{{ item.label || item.filename || 'Untitled' }}</span>
       </div>
 
       <div class="viewer-header-right">
@@ -89,6 +89,8 @@
       <pre v-else-if="item.type === 'json'" class="viewer-json">{{ formatJson(item.data) }}</pre>
 
       <div v-else-if="item.type === 'text'" class="viewer-text">{{ item.content }}</div>
+
+      <pre v-else-if="item.type === 'code'" class="hljs viewer-code"><code v-html="highlightedCode"></code></pre>
     </div>
   </div>
 </template>
@@ -96,6 +98,50 @@
 <script setup>
 import { ref, computed } from 'vue';
 import MarkdownViewer from './MarkdownViewer.vue';
+import hljs from 'highlight.js';
+
+// Map file extensions to highlight.js language names
+const EXT_TO_LANG = {
+  js: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  ts: 'typescript',
+  mts: 'typescript',
+  cts: 'typescript',
+  jsx: 'javascript',
+  tsx: 'typescript',
+  py: 'python',
+  rb: 'ruby',
+  go: 'go',
+  rs: 'rust',
+  java: 'java',
+  c: 'c',
+  cpp: 'cpp',
+  h: 'c',
+  hpp: 'cpp',
+  cs: 'csharp',
+  php: 'php',
+  swift: 'swift',
+  kt: 'kotlin',
+  scala: 'scala',
+  sh: 'bash',
+  bash: 'bash',
+  zsh: 'bash',
+  sql: 'sql',
+  html: 'html',
+  htm: 'html',
+  css: 'css',
+  scss: 'scss',
+  sass: 'scss',
+  less: 'less',
+  vue: 'xml',
+  svelte: 'xml',
+  yaml: 'yaml',
+  yml: 'yaml',
+  toml: 'ini',
+  xml: 'xml',
+  json: 'json',
+};
 
 const props = defineProps({
   item: {
@@ -121,6 +167,24 @@ const deleteDropdown = ref(null);
 const currentVersionIndex = computed(() => {
   const idx = props.versions.findIndex((v) => v.id === props.item.id);
   return idx >= 0 ? idx : 0;
+});
+
+const highlightedCode = computed(() => {
+  const content = props.item.content || '';
+  const filename = props.item.filename || '';
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  const lang = EXT_TO_LANG[ext];
+
+  try {
+    if (lang && hljs.getLanguage(lang)) {
+      return hljs.highlight(content, { language: lang, ignoreIllegals: true }).value;
+    }
+    // Auto-detect language
+    return hljs.highlightAuto(content).value;
+  } catch {
+    // Fallback to escaped plain text
+    return content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
 });
 
 function formatRelativeTime(timestamp) {
@@ -426,6 +490,19 @@ function handleDeleteAll() {
 .viewer-text {
   white-space: pre-wrap;
   font-size: 0.9375rem;
+}
+
+.viewer-code {
+  font-size: 0.8125rem;
+  margin: 0;
+  font-family: var(--font-mono);
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.5;
+}
+
+.viewer-code code {
+  display: block;
 }
 
 /* Mobile styles */
