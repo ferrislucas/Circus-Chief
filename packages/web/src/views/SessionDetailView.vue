@@ -352,8 +352,6 @@ async function handleDelete() {
 }
 
 async function handleArchive() {
-  if (!confirm('Are you sure you want to archive this session?')) return;
-
   try {
     const projectId = sessionsStore.currentSession?.projectId;
     await sessionsStore.archiveSession(sessionId);
