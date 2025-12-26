@@ -25,7 +25,11 @@ router.get('/:id', (req, res) => {
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
   }
-  res.json(session);
+  // Add hasResponses flag to indicate if session has ever received assistant responses
+  // This is used by the frontend to determine if a session is a draft
+  const allMessages = messages.getBySessionId(req.params.id);
+  const hasResponses = allMessages.some(msg => msg.role === 'assistant');
+  res.json({ ...session, hasResponses });
 });
 
 // GET /api/sessions/:id/changes - Get git changes for session

@@ -34,8 +34,14 @@ export const useSessionsStore = defineStore('sessions', {
       return state.conversations.find((c) => c.id === id);
     },
     isDraftSession: (state) => (session) => {
-      // A session is a draft if it's in waiting status and has no assistant messages
+      // A session is a draft if it's in waiting status and has never received any assistant responses
+      // We use session.hasResponses (from server) as the authoritative source since it checks
+      // all messages across all conversations, not just the currently loaded conversation
       if (!session || session.status !== 'waiting') return false;
+      // If hasResponses is available (from server), use it; otherwise fall back to checking loaded messages
+      if (session.hasResponses !== undefined) {
+        return !session.hasResponses;
+      }
       return !state.messages.some((msg) => msg.role === 'assistant');
     },
     // Token usage getters - now conversation-level (Issue #175)
