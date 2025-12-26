@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { nextTick } from 'vue';
 import CommandButtonDetailView from './CommandButtonDetailView.vue';
+import { ROUTE_PARAMS } from '@claudetools/shared/routeParams';
 
 // Mock router
 vi.mock('vue-router', () => ({
@@ -12,8 +13,8 @@ vi.mock('vue-router', () => ({
   }),
   useRoute: () => ({
     params: {
-      projectId: 'test-project',
-      buttonId: null,
+      [ROUTE_PARAMS.PROJECT_ID]: 'test-project',
+      [ROUTE_PARAMS.BUTTON_ID]: null,
     },
   }),
 }));
@@ -201,8 +202,8 @@ describe('CommandButtonDetailView', () => {
       }),
       useRoute: () => ({
         params: {
-          projectId: 'test-project',
-          buttonId: 'btn-1',
+          [ROUTE_PARAMS.PROJECT_ID]: 'test-project',
+          [ROUTE_PARAMS.BUTTON_ID]: 'btn-1',
         },
       }),
     }));
