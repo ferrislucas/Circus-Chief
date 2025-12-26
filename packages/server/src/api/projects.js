@@ -109,6 +109,7 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   let gitBranch = req.body.gitBranch;
   let gitMode = req.body.gitMode;
   const templateId = req.body.templateId;
+  const parentSessionId = req.body.parentSessionId || null; // Optional: parent session ID for child sessions
   const files = req.files || [];
 
   if (!prompt) {
@@ -136,7 +137,7 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   }
 
   const sessionName = name || generateInitialName(prompt);
-  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, model);
+  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, model, parentSessionId);
 
   // Set nextTemplateId if template was selected
   if (nextTemplateId) {

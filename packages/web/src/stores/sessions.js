@@ -11,6 +11,7 @@ export const useSessionsStore = defineStore('sessions', {
     activeConversationId: null, // Currently selected conversation ID
     workLogs: {}, // Keyed by messageId: { [messageId]: WorkLog[] }
     partialThinking: null, // Current streaming thinking content
+    expandedSessions: new Set(), // Track which parent sessions are expanded
     loading: false,
     error: null,
   }),
@@ -30,6 +31,52 @@ export const useSessionsStore = defineStore('sessions', {
     },
     getConversationById: (state) => (id) => {
       return state.conversations.find((c) => c.id === id);
+    },
+
+    // Parent-child relationship getters
+    getChildSessions: (state) => (parentId) => {
+      return state.sessions.filter((s) => s.parentSessionId === parentId);
+    },
+
+    hasChildren: (state) => (sessionId) => {
+      return state.sessions.some((s) => s.parentSessionId === sessionId);
+    },
+
+    getChildCount: (state) => (sessionId) => {
+      return state.sessions.filter((s) => s.parentSessionId === sessionId).length;
+    },
+
+    isSessionExpanded: (state) => (sessionId) => {
+      return state.expandedSessions.has(sessionId);
+    },
+
+    // Group sessions by parent for hierarchical display
+    groupedSessions: (state) => {
+      const grouped = [];
+      const seen = new Set();
+
+      // First pass: add all parent sessions with their children
+      state.sessions.forEach((session) => {
+        if (!session.parentSessionId && !seen.has(session.id)) {
+          grouped.push({
+            parent: session,
+            children: state.sessions.filter((s) => s.parentSessionId === session.id),
+          });
+          seen.add(session.id);
+        }
+      });
+
+      // Second pass: add standalone sessions (no parent, no children)
+      state.sessions.forEach((session) => {
+        if (!session.parentSessionId && !grouped.find((g) => g.parent.id === session.id)) {
+          grouped.push({
+            parent: session,
+            children: [],
+          });
+        }
+      });
+
+      return grouped;
     },
   },
 
@@ -621,6 +668,44 @@ export const useSessionsStore = defineStore('sessions', {
     clearConversations() {
       this.conversations = [];
       this.activeConversationId = null;
+    },
+
+    /**
+     * Toggle expanded state for a parent session
+     */
+    toggleSessionExpanded(sessionId) {
+      if (this.expandedSessions.has(sessionId)) {
+        this.expandedSessions.delete(sessionId);
+      } else {
+        this.expandedSessions.add(sessionId);
+      }
+    },
+
+    /**
+     * Save expanded sessions state to localStorage
+     */
+    saveExpandedState() {
+      const expanded = Array.from(this.expandedSessions);
+      try {
+        localStorage.setItem('expandedSessions', JSON.stringify(expanded));
+      } catch (error) {
+        console.warn('Failed to save expanded sessions state:', error);
+      }
+    },
+
+    /**
+     * Restore expanded sessions state from localStorage
+     */
+    restoreExpandedState() {
+      try {
+        const expanded = localStorage.getItem('expandedSessions');
+        if (expanded) {
+          this.expandedSessions = new Set(JSON.parse(expanded));
+        }
+      } catch (error) {
+        console.warn('Failed to restore expanded sessions state:', error);
+        this.expandedSessions = new Set();
+      }
     },
   },
 });

@@ -724,5 +724,181 @@ describe('Sessions Store', () => {
         expect(store.conversations[0].id).toBe('conv-2');
       });
     });
+
+    describe('parent-child relationships', () => {
+      describe('getChildSessions getter', () => {
+        it('returns children of a parent session', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'parent-1', name: 'Parent', parentSessionId: null },
+            { id: 'child-1', name: 'Child 1', parentSessionId: 'parent-1' },
+            { id: 'child-2', name: 'Child 2', parentSessionId: 'parent-1' },
+            { id: 'other', name: 'Other', parentSessionId: null },
+          ];
+
+          const children = store.getChildSessions('parent-1');
+
+          expect(children).toHaveLength(2);
+          expect(children.map((c) => c.id)).toEqual(['child-1', 'child-2']);
+        });
+
+        it('returns empty array for parent with no children', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'parent-1', name: 'Parent', parentSessionId: null },
+          ];
+
+          const children = store.getChildSessions('parent-1');
+
+          expect(children).toEqual([]);
+        });
+      });
+
+      describe('hasChildren getter', () => {
+        it('returns true if session has children', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'parent-1', name: 'Parent', parentSessionId: null },
+            { id: 'child-1', name: 'Child', parentSessionId: 'parent-1' },
+          ];
+
+          expect(store.hasChildren('parent-1')).toBe(true);
+        });
+
+        it('returns false if session has no children', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'session-1', name: 'Session', parentSessionId: null },
+          ];
+
+          expect(store.hasChildren('session-1')).toBe(false);
+        });
+      });
+
+      describe('getChildCount getter', () => {
+        it('returns count of children', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'parent-1', name: 'Parent', parentSessionId: null },
+            { id: 'child-1', name: 'Child 1', parentSessionId: 'parent-1' },
+            { id: 'child-2', name: 'Child 2', parentSessionId: 'parent-1' },
+          ];
+
+          expect(store.getChildCount('parent-1')).toBe(2);
+        });
+
+        it('returns 0 for parent with no children', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'parent-1', name: 'Parent', parentSessionId: null },
+          ];
+
+          expect(store.getChildCount('parent-1')).toBe(0);
+        });
+      });
+
+      describe('isSessionExpanded getter', () => {
+        it('returns true if session is in expandedSessions set', () => {
+          const store = useSessionsStore();
+          store.expandedSessions.add('session-1');
+
+          expect(store.isSessionExpanded('session-1')).toBe(true);
+        });
+
+        it('returns false if session is not in expandedSessions set', () => {
+          const store = useSessionsStore();
+
+          expect(store.isSessionExpanded('session-1')).toBe(false);
+        });
+      });
+
+      describe('groupedSessions getter', () => {
+        it('groups sessions by parent', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'parent-1', name: 'Parent 1', parentSessionId: null },
+            { id: 'child-1', name: 'Child 1', parentSessionId: 'parent-1' },
+            { id: 'child-2', name: 'Child 2', parentSessionId: 'parent-1' },
+            { id: 'parent-2', name: 'Parent 2', parentSessionId: null },
+          ];
+
+          const grouped = store.groupedSessions;
+
+          expect(grouped).toHaveLength(2);
+          expect(grouped[0].parent.id).toBe('parent-1');
+          expect(grouped[0].children).toHaveLength(2);
+          expect(grouped[1].parent.id).toBe('parent-2');
+          expect(grouped[1].children).toHaveLength(0);
+        });
+
+        it('handles standalone sessions', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'session-1', name: 'Standalone', parentSessionId: null },
+          ];
+
+          const grouped = store.groupedSessions;
+
+          expect(grouped).toHaveLength(1);
+          expect(grouped[0].parent.id).toBe('session-1');
+          expect(grouped[0].children).toEqual([]);
+        });
+      });
+
+      describe('toggleSessionExpanded action', () => {
+        it('adds session to expandedSessions if not present', () => {
+          const store = useSessionsStore();
+
+          store.toggleSessionExpanded('session-1');
+
+          expect(store.expandedSessions.has('session-1')).toBe(true);
+        });
+
+        it('removes session from expandedSessions if present', () => {
+          const store = useSessionsStore();
+          store.expandedSessions.add('session-1');
+
+          store.toggleSessionExpanded('session-1');
+
+          expect(store.expandedSessions.has('session-1')).toBe(false);
+        });
+      });
+
+      describe('saveExpandedState and restoreExpandedState actions', () => {
+        beforeEach(() => {
+          localStorage.clear();
+        });
+
+        it('saves expanded sessions to localStorage', () => {
+          const store = useSessionsStore();
+          store.expandedSessions.add('session-1');
+          store.expandedSessions.add('session-2');
+
+          store.saveExpandedState();
+
+          const stored = JSON.parse(localStorage.getItem('expandedSessions'));
+          expect(stored).toContain('session-1');
+          expect(stored).toContain('session-2');
+        });
+
+        it('restores expanded sessions from localStorage', () => {
+          const store = useSessionsStore();
+          localStorage.setItem('expandedSessions', JSON.stringify(['session-1', 'session-2']));
+
+          store.restoreExpandedState();
+
+          expect(store.expandedSessions.has('session-1')).toBe(true);
+          expect(store.expandedSessions.has('session-2')).toBe(true);
+        });
+
+        it('handles localStorage errors gracefully', () => {
+          const store = useSessionsStore();
+          localStorage.setItem('expandedSessions', 'invalid-json');
+
+          expect(() => store.restoreExpandedState()).not.toThrow();
+          expect(store.expandedSessions.size).toBe(0);
+        });
+      });
+    });
   });
 });

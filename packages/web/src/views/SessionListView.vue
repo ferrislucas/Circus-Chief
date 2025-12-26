@@ -48,16 +48,18 @@
       </div>
 
       <div v-else class="session-list">
-        <SessionCard
-          v-for="session in sessionsStore.sessions"
-          :key="session.id"
-          :session="session"
-          :show-summary="true"
-          :summary="summaries[session.id]"
-          :summary-loading="loadingSummaries[session.id]"
-          :summary-error="summaryErrors[session.id]"
-          @retry-summary="retryFetchSummary"
-        />
+        <template v-for="group in sessionsStore.groupedSessions" :key="group.parent.id">
+          <SessionCard
+            :session="group.parent"
+            :show-summary="true"
+            :summary="summaries[group.parent.id]"
+            :summary-loading="loadingSummaries[group.parent.id]"
+            :summary-error="summaryErrors[group.parent.id]"
+            :children="group.children"
+            :summaries="summaries"
+            @retry-summary="retryFetchSummary"
+          />
+        </template>
       </div>
     </div>
 
@@ -205,8 +207,14 @@ async function retryFetchSummary(sessionId) {
   await fetchSummary(sessionId);
 }
 
-// Cleanup WebSocket listeners on unmount
+// Restore expanded sessions state from localStorage on mount
+onMounted(() => {
+  sessionsStore.restoreExpandedState();
+});
+
+// Save expanded state and cleanup WebSocket listeners on unmount
 onUnmounted(() => {
+  sessionsStore.saveExpandedState();
   cleanups.forEach((cleanup) => cleanup());
   if (currentUnsubscribe) {
     currentUnsubscribe();

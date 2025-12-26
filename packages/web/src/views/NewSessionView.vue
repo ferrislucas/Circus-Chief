@@ -76,6 +76,20 @@
         </p>
       </div>
 
+      <!-- Parent Session (optional) -->
+      <div v-if="availableSessions.length > 0" class="form-group">
+        <label class="form-label" for="parent-session">Parent Session (optional)</label>
+        <select id="parent-session" v-model="parentSessionId" class="form-input">
+          <option :value="null">None - create standalone session</option>
+          <option v-for="session in availableSessions" :key="session.id" :value="session.id">
+            {{ session.name }}
+          </option>
+        </select>
+        <p class="form-help">
+          Choose a parent session to link this as a child session. Child sessions help organize related work.
+        </p>
+      </div>
+
       <div v-if="error" class="error-message">{{ error }}</div>
 
       <div class="form-actions">
@@ -163,10 +177,18 @@ const gitStatus = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
 const selectedTemplateId = ref(null);
+const parentSessionId = ref(null);
 
 const projectTemplates = computed(() => templatesStore.projectTemplates);
 const globalTemplates = computed(() => templatesStore.globalTemplates);
 const allTemplates = computed(() => [...projectTemplates.value, ...globalTemplates.value]);
+
+// Get available sessions that can be parents (completed sessions only)
+const availableSessions = computed(() => {
+  return sessionsStore.sessions
+    .filter((s) => s.status === 'completed')
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+});
 
 const modes = [
   { value: 'plan', label: 'Plan', description: 'Agent plans before implementing - good for complex tasks' },
@@ -218,6 +240,11 @@ onMounted(async () => {
 
   // Fetch templates for this project
   templatesStore.fetchProjectTemplates(route.params.id);
+
+  // Pre-populate parent session ID if provided in route query
+  if (route.query.parentSessionId) {
+    parentSessionId.value = route.query.parentSessionId;
+  }
 });
 
 function handleBranchEdit() {
@@ -247,6 +274,7 @@ async function handleSubmit() {
       gitBranch: submitGitBranch,
       files: attachedFiles.value,
       templateId: selectedTemplateId.value,
+      parentSessionId: parentSessionId.value || null,
     });
     uiStore.success('Session started');
     fileAttachment.value?.clear();
