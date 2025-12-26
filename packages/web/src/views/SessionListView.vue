@@ -23,12 +23,42 @@
       </button>
       <button
         class="tab"
+        :class="{ active: activeTab === 'archived' }"
+        @click="handleArchivedTabClick"
+      >
+        Archived
+      </button>
+      <button
+        class="tab"
         :class="{ active: activeTab === 'templates' }"
         @click="activeTab = 'templates'"
       >
         Templates
       </button>
+      <button
+        class="tab"
+        :class="{ active: activeTab === 'commands' }"
+        @click="activeTab = 'commands'"
+      >
+        Commands
+      </button>
     </div>
+
+    <!-- Status Filters -->
+    <div v-if="activeTab === 'sessions'" class="status-filters">
+      <span class="filter-label">Filter:</span>
+      <button
+        v-for="status in ['running', 'idle']"
+        :key="status"
+        :class="['filter-btn', { active: statusFilters.includes(status) }]"
+        @click="toggleFilter(status)"
+      >
+        {{ status }}
+      </button>
+    </div>
+
+    <!-- Spacer for archived tab to match sessions tab structure -->
+    <div v-else-if="activeTab === 'archived'" class="tab-spacer"></div>
 
     <!-- Sessions Tab -->
     <div v-if="activeTab === 'sessions'">
@@ -47,6 +77,10 @@
         </router-link>
       </div>
 
+      <div v-else-if="filteredSessions.length === 0" class="empty-state">
+        <p>No sessions match the current filter.</p>
+      </div>
+
       <div v-else class="session-list">
         <template v-for="group in sessionsStore.groupedSessions" :key="group.parent.id">
           <SessionCard
@@ -57,15 +91,52 @@
             :summary-error="summaryErrors[group.parent.id]"
             :children="group.children"
             :summaries="summaries"
+            :show-archive="true"
             @retry-summary="retryFetchSummary"
+            @archive="handleArchive"
           />
         </template>
+      </div>
+    </div>
+
+    <!-- Archived Tab -->
+    <div v-if="activeTab === 'archived'">
+      <div v-if="sessionsStore.loading" class="skeleton-list">
+        <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
+      </div>
+
+      <div v-else-if="sessionsStore.error" class="error-message">
+        {{ sessionsStore.error }}
+      </div>
+
+      <div v-else-if="sessionsStore.archivedSessions.length === 0" class="empty-state">
+        <p>No archived sessions. Archive completed sessions to keep your session list tidy.</p>
+      </div>
+
+      <div v-else class="session-list">
+        <SessionCard
+          v-for="session in sessionsStore.archivedSessions"
+          :key="session.id"
+          :session="session"
+          :show-summary="true"
+          :summary="summaries[session.id]"
+          :summary-loading="loadingSummaries[session.id]"
+          :summary-error="summaryErrors[session.id]"
+          :show-unarchive="true"
+          @retry-summary="retryFetchSummary"
+          @unarchive="handleUnarchive"
+        />
       </div>
     </div>
 
     <!-- Templates Tab -->
     <div v-if="activeTab === 'templates'">
       <TemplatesPanel :project-id="route.params.id" />
+    </div>
+
+    <!-- Commands Tab -->
+    <div v-if="activeTab === 'commands'">
+      <CommandButtonsPanel :project-id="route.params.id" />
     </div>
   </div>
 </template>
@@ -79,11 +150,46 @@ import { useProjectSubscription } from '../composables/useWebSocket.js';
 import { api } from '../composables/useApi.js';
 import SessionCard from '../components/SessionCard.vue';
 import TemplatesPanel from '../components/TemplatesPanel.vue';
+import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
 
 const route = useRoute();
 const activeTab = ref('sessions');
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
+
+// Filter state - empty means show all
+const statusFilters = ref([]);
+
+const toggleFilter = (status) => {
+  const index = statusFilters.value.indexOf(status);
+  if (index >= 0) {
+    statusFilters.value.splice(index, 1);
+  } else {
+    statusFilters.value.push(status);
+  }
+};
+
+// Statuses that count as "idle" (not actively running)
+const IDLE_STATUSES = ['waiting', 'stopped', 'error'];
+// Statuses that count as "running" (actively processing or starting up)
+const RUNNING_STATUSES = ['running', 'starting'];
+
+const filteredSessions = computed(() => {
+  const sessions = sessionsStore.sessions;
+  if (statusFilters.value.length === 0) return sessions;
+
+  return sessions.filter(s => {
+    // "idle" filter matches waiting, stopped, or error statuses
+    if (statusFilters.value.includes('idle') && IDLE_STATUSES.includes(s.status)) {
+      return true;
+    }
+    // "running" filter matches running and starting statuses
+    if (statusFilters.value.includes('running') && RUNNING_STATUSES.includes(s.status)) {
+      return true;
+    }
+    return false;
+  });
+});
 
 // Get projectId as computed to handle route changes
 const projectId = computed(() => route.params.id);
@@ -92,6 +198,9 @@ const projectId = computed(() => route.params.id);
 const summaries = reactive({});
 const loadingSummaries = reactive({});
 const summaryErrors = reactive({});
+
+// Track if archived sessions have been loaded
+const archivedLoaded = ref(false);
 
 // Store cleanup functions for WebSocket listeners
 const cleanups = [];
@@ -207,6 +316,42 @@ async function retryFetchSummary(sessionId) {
   await fetchSummary(sessionId);
 }
 
+async function handleArchivedTabClick() {
+  activeTab.value = 'archived';
+  if (!archivedLoaded.value) {
+    await sessionsStore.fetchArchivedSessions(projectId.value);
+    archivedLoaded.value = true;
+    fetchArchivedSummaries();
+  }
+}
+
+function fetchArchivedSummaries() {
+  const archived = sessionsStore.archivedSessions;
+  for (const session of archived) {
+    if (!summaries[session.id] && !loadingSummaries[session.id]) {
+      fetchSummary(session.id);
+    }
+  }
+}
+
+async function handleArchive(sessionId) {
+  try {
+    await sessionsStore.archiveSession(sessionId);
+    // If archived tab has been loaded, the session will already be in archivedSessions
+    // via the store action
+  } catch (error) {
+    console.error('Failed to archive session:', error);
+  }
+}
+
+async function handleUnarchive(sessionId) {
+  try {
+    await sessionsStore.unarchiveSession(sessionId);
+  } catch (error) {
+    console.error('Failed to unarchive session:', error);
+  }
+}
+
 // Restore expanded sessions state from localStorage on mount
 onMounted(() => {
   sessionsStore.restoreExpandedState();
@@ -297,6 +442,45 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.status-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.tab-spacer {
+  height: 1rem;
+}
+
+.filter-label {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+}
+
+.filter-btn {
+  background: none;
+  border: 1px solid var(--color-border);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  border-radius: var(--border-radius);
+  transition: all 0.15s;
+  text-transform: capitalize;
+}
+
+.filter-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-text);
+}
+
+.filter-btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
 }
 
 @media (max-width: 480px) {

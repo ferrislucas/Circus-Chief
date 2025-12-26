@@ -34,6 +34,8 @@ function getTypeIcon(type) {
     markdown: '📄',
     json: '📋',
     text: '📝',
+    pdf: '📕',
+    code: '💻',
   };
   return icons[type] || '📁';
 }

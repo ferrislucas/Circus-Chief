@@ -35,6 +35,17 @@
             <span class="toggle-label">Enable Thinking</span>
           </div>
 
+          <div class="thinking-toggle">
+            <label class="toggle-switch">
+              <input
+                type="checkbox"
+                v-model="startImmediately"
+              />
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Start Immediately</span>
+          </div>
+
           <div class="mode-selector">
             <span class="mode-label">Mode:</span>
             <div class="mode-buttons">
@@ -95,7 +106,7 @@
       <div class="form-actions">
         <button type="submit" class="btn btn-primary btn-full-width" :disabled="loading">
           <span v-if="loading" class="loading-spinner"></span>
-          Start Session
+          {{ startImmediately ? 'Start Session' : 'Create Draft' }}
         </button>
       </div>
 
@@ -178,6 +189,7 @@ const attachedFiles = ref([]);
 const fileAttachment = ref(null);
 const selectedTemplateId = ref(null);
 const parentSessionId = ref(null);
+const startImmediately = ref(true);
 
 const projectTemplates = computed(() => templatesStore.projectTemplates);
 const globalTemplates = computed(() => templatesStore.globalTemplates);
@@ -270,13 +282,15 @@ async function handleSubmit() {
       mode: mode.value,
       model: model.value,
       thinkingEnabled: thinkingEnabled.value,
+      startImmediately: startImmediately.value,
       gitMode: submitGitMode,
       gitBranch: submitGitBranch,
       files: attachedFiles.value,
       templateId: selectedTemplateId.value,
       parentSessionId: parentSessionId.value || null,
     });
-    uiStore.success('Session started');
+    const message = startImmediately.value ? 'Session started' : 'Draft session created';
+    uiStore.success(message);
     fileAttachment.value?.clear();
     router.push(`/sessions/${session.id}`);
   } catch (err) {
@@ -458,6 +472,8 @@ h1 {
   color: var(--color-text-soft);
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .mode-btn:last-child {
@@ -468,9 +484,11 @@ h1 {
   background: var(--color-bg-hover);
 }
 
-.mode-btn.active {
+.mode-btn.active,
+.mode-btn.active:focus {
   background: var(--color-primary);
   color: white;
+  outline: none;
 }
 
 .toggle-switch {

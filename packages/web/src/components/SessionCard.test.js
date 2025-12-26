@@ -296,6 +296,60 @@ describe('SessionCard', () => {
     });
   });
 
+  describe('model display', () => {
+    it('displays Opus 4.5 for claude-opus-4-5-20251101 model', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, model: 'claude-opus-4-5-20251101' },
+      });
+      expect(wrapper.find('.session-model').text()).toBe('Opus 4.5');
+    });
+
+    it('displays Sonnet 4.5 for claude-sonnet-4-5-20250929 model', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, model: 'claude-sonnet-4-5-20250929' },
+      });
+      expect(wrapper.find('.session-model').text()).toBe('Sonnet 4.5');
+    });
+
+    it('displays Haiku 4.5 for claude-haiku-4-5-20251001 model', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, model: 'claude-haiku-4-5-20251001' },
+      });
+      expect(wrapper.find('.session-model').text()).toBe('Haiku 4.5');
+    });
+
+    it('displays Default when model is null', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, model: null },
+      });
+      expect(wrapper.find('.session-model').text()).toBe('Default');
+    });
+
+    it('displays Default when model is undefined', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession },
+      });
+      expect(wrapper.find('.session-model').text()).toBe('Default');
+    });
+
+    it('displays Unknown for unrecognized model ID', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, model: 'unknown-model-id' },
+      });
+      expect(wrapper.find('.session-model').text()).toBe('Unknown');
+    });
+
+    it('renders model in session-meta alongside status and mode', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, model: 'claude-opus-4-5-20251101' },
+      });
+      const sessionMeta = wrapper.find('.session-meta');
+      expect(sessionMeta.find('.status-badge').exists()).toBe(true);
+      expect(sessionMeta.find('.session-mode').exists()).toBe(true);
+      expect(sessionMeta.find('.session-model').exists()).toBe(true);
+    });
+  });
+
   describe('PR status indicators', () => {
     describe('PR state badge', () => {
       it('shows merged badge when prState is merged', () => {
@@ -478,6 +532,129 @@ describe('SessionCard', () => {
         expect(wrapper.find('.pr-state-badge').exists()).toBe(true);
         expect(wrapper.find('.conflict-indicator').exists()).toBe(false);
         expect(wrapper.find('.ci-indicator').exists()).toBe(false);
+      });
+    });
+  });
+
+  describe('archive/unarchive buttons', () => {
+    describe('archive button', () => {
+      it('shows archive button when showArchive is true and session can be archived', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showArchive: true,
+        });
+        const archiveBtn = wrapper.find('.archive-btn');
+        expect(archiveBtn.exists()).toBe(true);
+        expect(archiveBtn.attributes('title')).toBe('Archive session');
+      });
+
+      it('shows archive button for stopped sessions', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'stopped' },
+          showArchive: true,
+        });
+        expect(wrapper.find('.archive-btn').exists()).toBe(true);
+      });
+
+      it('shows archive button for error sessions', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'error' },
+          showArchive: true,
+        });
+        expect(wrapper.find('.archive-btn').exists()).toBe(true);
+      });
+
+      it('hides archive button for running sessions', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'running' },
+          showArchive: true,
+        });
+        expect(wrapper.find('.archive-btn').exists()).toBe(false);
+      });
+
+      it('hides archive button for waiting sessions', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'waiting' },
+          showArchive: true,
+        });
+        expect(wrapper.find('.archive-btn').exists()).toBe(false);
+      });
+
+      it('hides archive button when showArchive is false', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showArchive: false,
+        });
+        expect(wrapper.find('.archive-btn').exists()).toBe(false);
+      });
+
+      it('archive button is clickable', async () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showArchive: true,
+        });
+        const btn = wrapper.find('.archive-btn');
+        expect(btn.exists()).toBe(true);
+        // Verify button can be clicked without errors
+        await btn.trigger('click');
+      });
+    });
+
+    describe('unarchive button', () => {
+      it('shows unarchive button when showUnarchive is true', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed', archived: true },
+          showUnarchive: true,
+        });
+        const unarchiveBtn = wrapper.find('.archive-btn');
+        expect(unarchiveBtn.exists()).toBe(true);
+        expect(unarchiveBtn.attributes('title')).toBe('Unarchive session');
+      });
+
+      it('hides unarchive button when showUnarchive is false', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed', archived: true },
+          showUnarchive: false,
+        });
+        expect(wrapper.find('.archive-actions').exists()).toBe(false);
+      });
+
+      it('unarchive button is clickable', async () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed', archived: true },
+          showUnarchive: true,
+        });
+        const btn = wrapper.find('.archive-btn');
+        expect(btn.exists()).toBe(true);
+        // Verify button can be clicked without errors
+        await btn.trigger('click');
+      });
+    });
+
+    describe('archive actions container', () => {
+      it('shows archive-actions container when showArchive is true', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showArchive: true,
+        });
+        expect(wrapper.find('.archive-actions').exists()).toBe(true);
+      });
+
+      it('shows archive-actions container when showUnarchive is true', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showUnarchive: true,
+        });
+        expect(wrapper.find('.archive-actions').exists()).toBe(true);
+      });
+
+      it('hides archive-actions container when both showArchive and showUnarchive are false', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showArchive: false,
+          showUnarchive: false,
+        });
+        expect(wrapper.find('.archive-actions').exists()).toBe(false);
       });
     });
   });

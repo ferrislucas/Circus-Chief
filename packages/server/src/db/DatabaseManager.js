@@ -134,12 +134,75 @@ export class DatabaseManager {
     // Create default conversations for existing sessions that don't have one
     this.#migrateExistingSessionsToConversations();
 
+    // Migrate canvas_items table to add 'code' type
+    this.#migrateCanvasItemsTypeConstraint();
+
     // Add claude_session_id column to conversations table for per-conversation context isolation
     const conversationsTableInfo = this.#db.prepare('PRAGMA table_info(conversations)').all();
     const conversationsColumns = conversationsTableInfo.map((col) => col.name);
 
     if (!conversationsColumns.includes('claude_session_id')) {
       this.#db.exec('ALTER TABLE conversations ADD COLUMN claude_session_id TEXT');
+    }
+
+    // Add token usage columns to conversations table (Issue #175)
+    // Re-fetch column info after potential claude_session_id migration
+    const conversationsUsageTableInfo = this.#db.prepare('PRAGMA table_info(conversations)').all();
+    const conversationsUsageColumns = conversationsUsageTableInfo.map((col) => col.name);
+
+    if (!conversationsUsageColumns.includes('input_tokens')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN input_tokens INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('output_tokens')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN output_tokens INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('cache_read_input_tokens')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN cache_read_input_tokens INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('cache_creation_input_tokens')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN cache_creation_input_tokens INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('web_search_requests')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN web_search_requests INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('context_window')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN context_window INTEGER DEFAULT 200000');
+    }
+    if (!conversationsUsageColumns.includes('model')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN model TEXT');
+    }
+
+    // Token usage columns for sessions table (re-fetch column info)
+    const sessionsUsageTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const sessionsUsageColumns = sessionsUsageTableInfo.map((col) => col.name);
+
+    if (!sessionsUsageColumns.includes('input_tokens')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN input_tokens INTEGER DEFAULT 0');
+    }
+    if (!sessionsUsageColumns.includes('output_tokens')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN output_tokens INTEGER DEFAULT 0');
+    }
+    if (!sessionsUsageColumns.includes('cache_read_input_tokens')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN cache_read_input_tokens INTEGER DEFAULT 0');
+    }
+    if (!sessionsUsageColumns.includes('cache_creation_input_tokens')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN cache_creation_input_tokens INTEGER DEFAULT 0');
+    }
+    if (!sessionsUsageColumns.includes('web_search_requests')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN web_search_requests INTEGER DEFAULT 0');
+    }
+    if (!sessionsUsageColumns.includes('context_window')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN context_window INTEGER DEFAULT 200000');
+    }
+
+    // Check if sessions table has the archived column, add it if not
+    // Re-fetch column info since table may have been recreated
+    const finalSessionsTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const finalSessionsColumns = finalSessionsTableInfo.map((col) => col.name);
+
+    if (!finalSessionsColumns.includes('archived')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
+      this.#db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived)');
     }
   }
 
@@ -227,6 +290,53 @@ export class DatabaseManager {
       -- Recreate indexes
       CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
       CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+    `);
+  }
+
+  /**
+   * Migrate canvas_items table to include 'code' in type CHECK constraint
+   * SQLite doesn't support ALTER TABLE to modify constraints, so we recreate the table
+   * @private
+   */
+  #migrateCanvasItemsTypeConstraint() {
+    // Check if the current constraint includes 'code' by reading from sqlite_master
+    const tableSchema = this.#db
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='canvas_items'")
+      .get();
+
+    // If schema includes 'code', no migration needed
+    if (tableSchema?.sql?.includes("'code'")) {
+      return;
+    }
+
+    // Need to recreate table with updated constraint
+    this.#db.exec(`
+      -- Create new table with updated constraint
+      CREATE TABLE canvas_items_new (
+        id TEXT PRIMARY KEY,
+        session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+        type TEXT NOT NULL CHECK (type IN ('image', 'markdown', 'text', 'json', 'pdf', 'code')),
+        content TEXT,
+        data TEXT,
+        mime_type TEXT,
+        filename TEXT,
+        label TEXT,
+        width INTEGER,
+        height INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+
+      -- Copy data from old table
+      INSERT INTO canvas_items_new SELECT * FROM canvas_items;
+
+      -- Drop old table
+      DROP TABLE canvas_items;
+
+      -- Rename new table
+      ALTER TABLE canvas_items_new RENAME TO canvas_items;
+
+      -- Recreate index
+      CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
     `);
   }
 

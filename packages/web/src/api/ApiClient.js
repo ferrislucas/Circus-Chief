@@ -113,16 +113,21 @@ export class ApiClient {
   /**
    * Get all sessions for a project
    * @param {string} projectId - Project ID
+   * @param {boolean|null} archived - Filter by archived status (null = all, true = archived only, false = non-archived only)
    * @returns {Promise<Array>}
    */
-  async getProjectSessions(projectId) {
-    return this.#request('GET', `/projects/${projectId}/sessions`);
+  async getProjectSessions(projectId, archived = null) {
+    let path = `/projects/${projectId}/sessions`;
+    if (archived !== null) {
+      path += `?archived=${archived}`;
+    }
+    return this.#request('GET', path);
   }
 
   /**
    * Create a new session
    * @param {string} projectId - Project ID
-   * @param {Object} data - Session data (may include files array)
+   * @param {Object} data - Session data (may include files array and startImmediately flag)
    * @returns {Promise<Object>}
    */
   async createSession(projectId, data) {
@@ -137,6 +142,9 @@ export class ApiClient {
       if (jsonData.model) formData.append('model', jsonData.model);
       if (jsonData.thinkingEnabled !== undefined) {
         formData.append('thinkingEnabled', String(jsonData.thinkingEnabled));
+      }
+      if (jsonData.startImmediately !== undefined) {
+        formData.append('startImmediately', String(jsonData.startImmediately));
       }
       if (jsonData.gitBranch) formData.append('gitBranch', jsonData.gitBranch);
       if (jsonData.gitMode) formData.append('gitMode', jsonData.gitMode);
@@ -250,6 +258,15 @@ export class ApiClient {
   }
 
   /**
+   * Start a draft session (waiting status with no assistant messages)
+   * @param {string} id - Session ID
+   * @returns {Promise<Object>}
+   */
+  async startSession(id) {
+    return this.#request('POST', `/sessions/${id}/start`);
+  }
+
+  /**
    * Update session settings
    * @param {string} id - Session ID
    * @param {Object} data - Update data (e.g., { thinkingEnabled: true })
@@ -266,6 +283,24 @@ export class ApiClient {
    */
   async deleteSession(id) {
     return this.#request('DELETE', `/sessions/${id}`);
+  }
+
+  /**
+   * Archive a session
+   * @param {string} id - Session ID
+   * @returns {Promise<Object>}
+   */
+  async archiveSession(id) {
+    return this.#request('POST', `/sessions/${id}/archive`);
+  }
+
+  /**
+   * Unarchive a session
+   * @param {string} id - Session ID
+   * @returns {Promise<Object>}
+   */
+  async unarchiveSession(id) {
+    return this.#request('POST', `/sessions/${id}/unarchive`);
   }
 
   // Canvas
@@ -567,6 +602,78 @@ export class ApiClient {
    */
   async getConversationMessages(sessionId, conversationId) {
     return this.#request('GET', `/sessions/${sessionId}/messages?conversation_id=${conversationId}`);
+  }
+
+  // Command Buttons
+
+  /**
+   * Get all command buttons for a project
+   * @param {string} projectId - Project ID
+   * @returns {Promise<Array>}
+   */
+  async getCommandButtons(projectId) {
+    return this.#request('GET', `/projects/${projectId}/command-buttons`);
+  }
+
+  /**
+   * Create a new command button
+   * @param {string} projectId - Project ID
+   * @param {Object} data - Button data
+   * @returns {Promise<Object>}
+   */
+  async createCommandButton(projectId, data) {
+    return this.#request('POST', `/projects/${projectId}/command-buttons`, data);
+  }
+
+  /**
+   * Get a specific command button
+   * @param {string} projectId - Project ID
+   * @param {string} buttonId - Button ID
+   * @returns {Promise<Object>}
+   */
+  async getCommandButton(projectId, buttonId) {
+    return this.#request('GET', `/projects/${projectId}/command-buttons/${buttonId}`);
+  }
+
+  /**
+   * Update a command button
+   * @param {string} projectId - Project ID
+   * @param {string} buttonId - Button ID
+   * @param {Object} data - Update data
+   * @returns {Promise<Object>}
+   */
+  async updateCommandButton(projectId, buttonId, data) {
+    return this.#request('PATCH', `/projects/${projectId}/command-buttons/${buttonId}`, data);
+  }
+
+  /**
+   * Delete a command button
+   * @param {string} projectId - Project ID
+   * @param {string} buttonId - Button ID
+   * @returns {Promise<void>}
+   */
+  async deleteCommandButton(projectId, buttonId) {
+    return this.#request('DELETE', `/projects/${projectId}/command-buttons/${buttonId}`);
+  }
+
+  /**
+   * Run a command button
+   * @param {string} sessionId - Session ID
+   * @param {string} buttonId - Button ID
+   * @returns {Promise<Object>}
+   */
+  async runCommandButton(sessionId, buttonId) {
+    return this.#request('POST', `/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+  }
+
+  /**
+   * Kill a running command
+   * @param {string} sessionId - Session ID
+   * @param {string} runId - Run ID
+   * @returns {Promise<Object>}
+   */
+  async killCommandRun(sessionId, runId) {
+    return this.#request('POST', `/sessions/${sessionId}/command-buttons/runs/${runId}/kill`);
   }
 }
 

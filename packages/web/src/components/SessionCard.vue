@@ -89,6 +89,7 @@
         <p class="session-meta">
           <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
           <span class="session-mode">{{ formattedMode }}</span>
+          <span class="session-model">{{ formattedModel }}</span>
         </p>
         <div v-if="session.gitBranch || session.prUrl" class="branch-row">
           <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
@@ -102,8 +103,37 @@
           <span class="project-name">{{ session.projectName }}</span>
         </p>
       </div>
-      <div class="session-date">
-        {{ formatDate(dateToShow) }}
+      <div class="session-header-actions">
+        <div class="session-date">
+          {{ formatDate(dateToShow) }}
+        </div>
+        <div v-if="showArchive || showUnarchive" class="archive-actions">
+          <button
+            v-if="showArchive && canArchive"
+            class="archive-btn"
+            title="Archive session"
+            @click.stop.prevent="$emit('archive', session.id)"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="4" width="20" height="5" rx="1" ry="1"></rect>
+              <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path>
+              <path d="M10 13h4"></path>
+            </svg>
+          </button>
+          <button
+            v-if="showUnarchive"
+            class="archive-btn"
+            title="Unarchive session"
+            @click.stop.prevent="$emit('unarchive', session.id)"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="4" width="20" height="5" rx="1" ry="1"></rect>
+              <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path>
+              <path d="M12 11v6"></path>
+              <path d="M9 14l3-3 3 3"></path>
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
     <div v-if="showSummary">
@@ -133,6 +163,7 @@ import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { formatDate } from '../utils/formatters.js';
+import { useModelInfo } from '../composables/useModelInfo.js';
 import PrIndicators from './PrIndicators.vue';
 
 const router = useRouter();
@@ -175,9 +206,24 @@ const props = defineProps({
     type: Object,
     default: () => ({}),
   },
+  showArchive: {
+    type: Boolean,
+    default: false,
+  },
+  showUnarchive: {
+    type: Boolean,
+    default: false,
+  },
 });
 
-defineEmits(['retrySummary']);
+defineEmits(['retrySummary', 'archive', 'unarchive']);
+
+const { getModelDisplayName } = useModelInfo();
+
+// Show archive for any status except running
+const canArchive = computed(() => {
+  return props.session.status !== 'running';
+});
 
 const dateToShow = computed(() => {
   // For active sessions view, prefer updatedAt; for project view, prefer createdAt
@@ -189,6 +235,10 @@ const formattedMode = computed(() => {
   if (mode === 'yolo') return 'YOLO';
   // Capitalize first letter for other modes
   return mode ? mode.charAt(0).toUpperCase() + mode.slice(1) : '';
+});
+
+const formattedModel = computed(() => {
+  return getModelDisplayName(props.session.model);
 });
 
 const hasChildren = computed(() => props.children && props.children.length > 0);
@@ -318,6 +368,11 @@ const getChildrenForSession = (sessionId) => {
   color: var(--color-text-soft);
 }
 
+.session-model {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
 .branch-row {
   display: flex;
   flex-wrap: wrap;
@@ -341,10 +396,40 @@ const getChildrenForSession = (sessionId) => {
   color: var(--color-text-soft);
 }
 
+.session-header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
 .session-date {
   font-size: 0.875rem;
   color: var(--color-text-soft);
-  flex-shrink: 0;
+}
+
+.archive-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.archive-btn {
+  background: none;
+  border: none;
+  padding: 0.25rem;
+  cursor: pointer;
+  color: var(--color-text-soft);
+  border-radius: var(--border-radius);
+  transition: color 0.15s, background-color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.archive-btn:hover {
+  color: var(--color-primary);
+  background-color: var(--color-bg-soft);
 }
 
 .session-summary {

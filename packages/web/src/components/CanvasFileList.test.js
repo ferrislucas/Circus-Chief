@@ -87,6 +87,20 @@ describe('CanvasFileList', () => {
       });
       expect(wrapper.find('.file-icon').text()).toBe('📁');
     });
+
+    it('shows pdf icon for pdf type', () => {
+      const wrapper = mountComponent({
+        items: [{ ...baseItems[0], type: 'pdf' }],
+      });
+      expect(wrapper.find('.file-icon').text()).toBe('📕');
+    });
+
+    it('shows code icon for code type', () => {
+      const wrapper = mountComponent({
+        items: [{ ...baseItems[0], type: 'code', filename: 'app.js' }],
+      });
+      expect(wrapper.find('.file-icon').text()).toBe('💻');
+    });
   });
 
   describe('version badge', () => {

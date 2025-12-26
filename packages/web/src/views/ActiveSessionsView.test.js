@@ -278,6 +278,140 @@ describe('ActiveSessionsView', () => {
   });
 });
 
+describe('Status filtering', () => {
+  let mockSessionsStore;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    setActivePinia(createPinia());
+
+    onSessionCreatedCallback = null;
+    onSessionUpdatedCallback = null;
+    onSessionDeletedCallback = null;
+    onSessionSummaryUpdatedCallback = null;
+
+    mockGetSessionSummary.mockReset();
+    mockGetSessionSummary.mockResolvedValue(null);
+
+    mockSessionsStore = {
+      loading: false,
+      error: null,
+      activeSessions: [
+        { id: 'session-1', name: 'Running Session', status: 'running', projectId: 'project-1' },
+        { id: 'session-2', name: 'Waiting Session', status: 'waiting', projectId: 'project-2' },
+        { id: 'session-3', name: 'Starting Session', status: 'starting', projectId: 'project-1' },
+      ],
+      fetchActiveSessions: vi.fn().mockResolvedValue(),
+    };
+    useSessionsStore.mockReturnValue(mockSessionsStore);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('renders filter buttons for running and waiting statuses', async () => {
+    const wrapper = mount(ActiveSessionsView);
+    await flushPromises();
+
+    const filterButtons = wrapper.findAll('.filter-btn');
+    expect(filterButtons).toHaveLength(2);
+    expect(filterButtons[0].text()).toBe('running');
+    expect(filterButtons[1].text()).toBe('waiting');
+  });
+
+  it('shows all sessions when no filters are active', async () => {
+    const wrapper = mount(ActiveSessionsView);
+    await flushPromises();
+
+    const sessionCards = wrapper.findAll('.session-card');
+    expect(sessionCards).toHaveLength(3);
+  });
+
+  it('filters to show only running sessions when running filter is clicked', async () => {
+    const wrapper = mount(ActiveSessionsView);
+    await flushPromises();
+
+    const runningButton = wrapper.findAll('.filter-btn')[0];
+    await runningButton.trigger('click');
+
+    const sessionCards = wrapper.findAll('.session-card');
+    expect(sessionCards).toHaveLength(1);
+    expect(sessionCards[0].attributes('data-session-id')).toBe('session-1');
+  });
+
+  it('filters to show only waiting sessions when waiting filter is clicked', async () => {
+    const wrapper = mount(ActiveSessionsView);
+    await flushPromises();
+
+    const waitingButton = wrapper.findAll('.filter-btn')[1];
+    await waitingButton.trigger('click');
+
+    const sessionCards = wrapper.findAll('.session-card');
+    expect(sessionCards).toHaveLength(1);
+    expect(sessionCards[0].attributes('data-session-id')).toBe('session-2');
+  });
+
+  it('shows both running and waiting sessions when both filters are active', async () => {
+    const wrapper = mount(ActiveSessionsView);
+    await flushPromises();
+
+    const filterButtons = wrapper.findAll('.filter-btn');
+    await filterButtons[0].trigger('click'); // running
+    await filterButtons[1].trigger('click'); // waiting
+
+    const sessionCards = wrapper.findAll('.session-card');
+    expect(sessionCards).toHaveLength(2);
+  });
+
+  it('toggles filter off when clicked again', async () => {
+    const wrapper = mount(ActiveSessionsView);
+    await flushPromises();
+
+    const runningButton = wrapper.findAll('.filter-btn')[0];
+
+    // Click to enable filter
+    await runningButton.trigger('click');
+    expect(wrapper.findAll('.session-card')).toHaveLength(1);
+
+    // Click again to disable filter
+    await runningButton.trigger('click');
+    expect(wrapper.findAll('.session-card')).toHaveLength(3);
+  });
+
+  it('adds active class to selected filter button', async () => {
+    const wrapper = mount(ActiveSessionsView);
+    await flushPromises();
+
+    const runningButton = wrapper.findAll('.filter-btn')[0];
+    expect(runningButton.classes()).not.toContain('active');
+
+    await runningButton.trigger('click');
+    expect(runningButton.classes()).toContain('active');
+  });
+
+  it('shows empty state message when filters return no results', async () => {
+    // Set up store with only starting sessions (no running or waiting)
+    mockSessionsStore.activeSessions = [
+      { id: 'session-1', name: 'Starting Session', status: 'starting', projectId: 'project-1' },
+    ];
+    useSessionsStore.mockReturnValue(mockSessionsStore);
+
+    const wrapper = mount(ActiveSessionsView);
+    await flushPromises();
+
+    // Click running filter - no running sessions exist
+    const runningButton = wrapper.findAll('.filter-btn')[0];
+    await runningButton.trigger('click');
+
+    const emptyState = wrapper.find('.empty-state');
+    expect(emptyState.exists()).toBe(true);
+    expect(emptyState.text()).toContain('No sessions match the current filter');
+  });
+});
+
 describe('ActiveSessionsView polling fallback', () => {
   beforeEach(() => {
     vi.clearAllMocks();

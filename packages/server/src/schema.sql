@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   status TEXT NOT NULL DEFAULT 'starting' CHECK (status IN ('starting', 'running', 'waiting', 'stopped', 'error')),
   mode TEXT NOT NULL DEFAULT 'standard' CHECK (mode IN ('plan', 'standard', 'yolo')),
   thinking_enabled INTEGER NOT NULL DEFAULT 0,
+  archived INTEGER NOT NULL DEFAULT 0,
   git_branch TEXT,
   git_worktree TEXT,
   pr_url TEXT,
@@ -58,6 +59,14 @@ CREATE TABLE IF NOT EXISTS conversations (
   summary_generated_at INTEGER,        -- When summary was last generated
   is_active INTEGER NOT NULL DEFAULT 0, -- Currently selected conversation (1 = active)
   claude_session_id TEXT,              -- Claude SDK session ID for this conversation's context
+  -- Token usage fields (per-conversation tracking)
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  cache_read_input_tokens INTEGER DEFAULT 0,
+  cache_creation_input_tokens INTEGER DEFAULT 0,
+  web_search_requests INTEGER DEFAULT 0,
+  context_window INTEGER DEFAULT 200000,
+  model TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -77,7 +86,7 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 CREATE TABLE IF NOT EXISTS canvas_items (
   id TEXT PRIMARY KEY,
   session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
-  type TEXT NOT NULL CHECK (type IN ('image', 'markdown', 'text', 'json', 'pdf')),
+  type TEXT NOT NULL CHECK (type IN ('image', 'markdown', 'text', 'json', 'pdf', 'code')),
   content TEXT,           -- For markdown/text
   data TEXT,              -- For json (stored as JSON string) or image (base64)
   mime_type TEXT,         -- For images
@@ -174,9 +183,21 @@ CREATE TABLE IF NOT EXISTS message_attachments (
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
+-- Command buttons (configurable buttons per project)
+CREATE TABLE IF NOT EXISTS command_buttons (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  command TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+-- Note: idx_sessions_archived is created in migrations to handle existing databases
 CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON conversation_messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversation_id);
@@ -192,3 +213,4 @@ CREATE INDEX IF NOT EXISTS idx_work_logs_message ON work_logs(message_id);
 CREATE INDEX IF NOT EXISTS idx_summaries_session ON session_summaries(session_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_message ON message_attachments(message_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_session ON message_attachments(session_id);
+CREATE INDEX IF NOT EXISTS idx_command_buttons_project ON command_buttons(project_id);

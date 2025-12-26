@@ -1,12 +1,15 @@
 import { Router } from 'express';
-import { projects, sessions, sessionTemplates, attachments } from '../database.js';
+import { projects, sessions, sessionTemplates, attachments, commandButtons } from '../database.js';
 import { CreateProjectRequest, UpdateProjectRequest } from '@claudetools/shared/contracts/projects';
 import { CreateSessionTemplateRequest } from '@claudetools/shared/contracts/templates';
+import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@claudetools/shared/contracts/commandButtons';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { executeHookAsync } from '../services/hookService.js';
-import { broadcastToProject } from '../websocket.js';
+import { broadcastToProject, broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { upload, handleUploadError } from '../middleware/upload.js';
+import { commandRunner } from '../services/commandRunner.js';
+import { databaseManager } from '../db/DatabaseManager.js';
 
 const router = Router();
 
@@ -82,13 +85,20 @@ router.delete('/:id', (req, res) => {
 });
 
 // GET /api/projects/:id/sessions - List project sessions
+// Supports ?archived=true|false to filter by archive status
 router.get('/:id/sessions', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
   }
 
-  const projectSessions = sessions.getByProjectId(req.params.id);
+  // Parse archived query param: undefined = all, 'true' = archived only, 'false' = non-archived only
+  const { archived } = req.query;
+  let archivedFilter = null;
+  if (archived === 'true') archivedFilter = true;
+  else if (archived === 'false') archivedFilter = false;
+
+  const projectSessions = sessions.getByProjectId(req.params.id, { archived: archivedFilter });
   res.json(projectSessions);
 });
 
@@ -110,6 +120,7 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   let gitMode = req.body.gitMode;
   const templateId = req.body.templateId;
   const parentSessionId = req.body.parentSessionId || null; // Optional: parent session ID for child sessions
+  let startImmediately = req.body.startImmediately !== false && req.body.startImmediately !== 'false';
   const files = req.files || [];
 
   if (!prompt) {
@@ -137,7 +148,9 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   }
 
   const sessionName = name || generateInitialName(prompt);
-  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, model, parentSessionId);
+  // Create session with 'waiting' status if not starting immediately, otherwise 'starting'
+  const initialStatus = startImmediately ? undefined : 'waiting';
+  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, model, parentSessionId, initialStatus);
 
   // Set nextTemplateId if template was selected
   if (nextTemplateId) {
@@ -161,12 +174,15 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
     // Store file attachments if any - saves to disk in workingDirectory/.attachments
     const sessionAttachments = attachments.createBatch(session.id, null, files, workingDirectory);
 
-    // Start session manager (non-blocking) - pass attachments for context
-    const { runSession } = await import('../services/sessionManager.js');
-    runSession(session.id, prompt, workingDirectory, project.systemPrompt, sessionAttachments, model).catch((error) => {
-      console.error('Session error:', error);
-      sessions.update(session.id, { status: 'error', error: error.message });
-    });
+    // Only start session manager if startImmediately is true
+    if (startImmediately) {
+      // Start session manager (non-blocking) - pass attachments for context
+      const { runSession } = await import('../services/sessionManager.js');
+      runSession(session.id, prompt, workingDirectory, project.systemPrompt, sessionAttachments, model).catch((error) => {
+        console.error('Session error:', error);
+        sessions.update(session.id, { status: 'error', error: error.message });
+      });
+    }
 
     // Return updated session with gitWorktree if set
     const updatedSession = sessions.getById(session.id);
@@ -230,6 +246,90 @@ router.post('/:id/templates', (req, res) => {
     ...result.data,
   });
   res.status(201).json(template);
+});
+
+// GET /api/projects/:id/command-buttons - List all command buttons for project
+router.get('/:id/command-buttons', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const buttons = commandButtons.getByProjectId(req.params.id);
+  res.json(buttons);
+});
+
+// POST /api/projects/:id/command-buttons - Create new command button
+router.post('/:id/command-buttons', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const result = CreateCommandButtonRequest.safeParse(req.body);
+  if (!result.success) {
+    return res.status(400).json({ error: result.error.errors[0].message });
+  }
+
+  const button = commandButtons.create({
+    projectId: req.params.id,
+    label: result.data.label,
+    command: result.data.command,
+    sortOrder: result.data.sortOrder,
+  });
+
+  res.status(201).json(button);
+});
+
+// GET /api/projects/:id/command-buttons/:buttonId - Get single button
+router.get('/:id/command-buttons/:buttonId', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const button = commandButtons.getById(req.params.buttonId);
+  if (!button) {
+    return res.status(404).json({ error: 'Command button not found' });
+  }
+  res.json(button);
+});
+
+// PATCH /api/projects/:id/command-buttons/:buttonId - Update button
+router.patch('/:id/command-buttons/:buttonId', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const button = commandButtons.getById(req.params.buttonId);
+  if (!button) {
+    return res.status(404).json({ error: 'Command button not found' });
+  }
+
+  const result = UpdateCommandButtonRequest.safeParse(req.body);
+  if (!result.success) {
+    return res.status(400).json({ error: result.error.errors[0].message });
+  }
+
+  const updated = commandButtons.update(req.params.buttonId, result.data);
+  res.json(updated);
+});
+
+// DELETE /api/projects/:id/command-buttons/:buttonId - Delete button
+router.delete('/:id/command-buttons/:buttonId', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const button = commandButtons.getById(req.params.buttonId);
+  if (!button) {
+    return res.status(404).json({ error: 'Command button not found' });
+  }
+
+  commandButtons.delete(req.params.buttonId);
+  res.status(204).send();
 });
 
 export default router;

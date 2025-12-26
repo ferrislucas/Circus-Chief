@@ -228,6 +228,385 @@ describe('sessionManager broadcasts', () => {
     });
   });
 
+  describe('usage tracking', () => {
+    it('broadcasts partial usage update during assistant message', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'assistant',
+          message: {
+            content: [{ type: 'text', text: 'Test response' }],
+            usage: {
+              input_tokens: 100,
+              output_tokens: 50,
+              cache_read_input_tokens: 20,
+              cache_creation_input_tokens: 10,
+            },
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Find SESSION_USAGE_UPDATE broadcasts
+      const usageUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE
+      );
+
+      expect(usageUpdateCalls.length).toBeGreaterThan(0);
+
+      // Find the partial update (isFinal = false)
+      const partialUpdate = usageUpdateCalls.find((call) => call[2]?.isFinal === false);
+      expect(partialUpdate).toBeDefined();
+      expect(partialUpdate[2].usage.inputTokens).toBe(100);
+      expect(partialUpdate[2].usage.outputTokens).toBe(50);
+    });
+
+    it('broadcasts final usage update on result', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: {
+            input_tokens: 200,
+            output_tokens: 100,
+            cache_read_input_tokens: 50,
+            cache_creation_input_tokens: 25,
+          },
+        };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Find SESSION_USAGE_UPDATE broadcasts
+      const usageUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE
+      );
+
+      // Find the final update (isFinal = true)
+      const finalUpdate = usageUpdateCalls.find((call) => call[2]?.isFinal === true);
+      expect(finalUpdate).toBeDefined();
+      expect(finalUpdate[2].usage.inputTokens).toBe(200);
+      expect(finalUpdate[2].usage.outputTokens).toBe(100);
+    });
+
+    it('stores cumulative usage in database on result', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: {
+            input_tokens: 300,
+            output_tokens: 150,
+            cache_read_input_tokens: 75,
+            cache_creation_input_tokens: 30,
+          },
+        };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      const session = sessions.getById(sessionId);
+      expect(session.inputTokens).toBe(300);
+      expect(session.outputTokens).toBe(150);
+      expect(session.cacheReadInputTokens).toBe(75);
+      expect(session.cacheCreationInputTokens).toBe(30);
+    });
+
+    it('accumulates usage across multiple assistant messages', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'assistant',
+          message: {
+            content: [{ type: 'text', text: 'First response' }],
+            usage: { input_tokens: 100, output_tokens: 50 },
+          },
+        };
+        yield {
+          type: 'assistant',
+          message: {
+            content: [{ type: 'text', text: 'Second response' }],
+            usage: { input_tokens: 100, output_tokens: 50 },
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Find all partial usage updates
+      const usageUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE && call[2]?.isFinal === false
+      );
+
+      // Should have 2 partial updates
+      expect(usageUpdateCalls.length).toBe(2);
+
+      // First update should have first message's usage
+      expect(usageUpdateCalls[0][2].usage.inputTokens).toBe(100);
+
+      // Second update should have accumulated usage
+      expect(usageUpdateCalls[1][2].usage.inputTokens).toBe(200);
+      expect(usageUpdateCalls[1][2].usage.outputTokens).toBe(100);
+    });
+
+    it('uses modelUsage when available in result', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-sonnet-4-5-20250929' };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          modelUsage: {
+            'claude-sonnet-4-5-20250929': {
+              inputTokens: 500,
+              outputTokens: 250,
+              cacheReadInputTokens: 100,
+              cacheCreationInputTokens: 50,
+              webSearchRequests: 2,
+              contextWindow: 200000,
+            },
+          },
+        };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      const session = sessions.getById(sessionId);
+      expect(session.inputTokens).toBe(500);
+      expect(session.outputTokens).toBe(250);
+      expect(session.cacheReadInputTokens).toBe(100);
+      expect(session.cacheCreationInputTokens).toBe(50);
+      expect(session.webSearchRequests).toBe(2);
+      expect(session.contextWindow).toBe(200000);
+    });
+
+    it('broadcasts turnUsage in final update', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: {
+            input_tokens: 400,
+            output_tokens: 200,
+          },
+        };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Find the final update
+      const usageUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE
+      );
+
+      const finalUpdate = usageUpdateCalls.find((call) => call[2]?.isFinal === true);
+      expect(finalUpdate).toBeDefined();
+      expect(finalUpdate[2].turnUsage).toBeDefined();
+      expect(finalUpdate[2].turnUsage.inputTokens).toBe(400);
+      expect(finalUpdate[2].turnUsage.outputTokens).toBe(200);
+    });
+
+    it('broadcasts session update with usage to project', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: {
+            input_tokens: 600,
+            output_tokens: 300,
+          },
+        };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Find SESSION_UPDATED broadcasts to project
+      const projectUpdatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_UPDATED
+      );
+
+      // Find the one with usage info
+      const usageUpdate = projectUpdatedCalls.find(
+        (call) => call[2]?.session?.inputTokens === 600
+      );
+
+      expect(usageUpdate).toBeDefined();
+      expect(usageUpdate[0]).toBe(projectId);
+      expect(usageUpdate[2].session.inputTokens).toBe(600);
+      expect(usageUpdate[2].session.outputTokens).toBe(300);
+    });
+  });
+
+  // Issue #175 - Conversation-level token tracking
+  describe('conversation-level usage tracking', () => {
+    it('includes conversationId in usage updates', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'assistant',
+          message: {
+            content: [{ type: 'text', text: 'Test response' }],
+            usage: { input_tokens: 100, output_tokens: 50 },
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Find SESSION_USAGE_UPDATE broadcasts
+      const usageUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE
+      );
+
+      expect(usageUpdateCalls.length).toBeGreaterThan(0);
+
+      // All usage updates should include conversationId
+      usageUpdateCalls.forEach((call) => {
+        expect(call[2]).toHaveProperty('conversationId');
+      });
+    });
+
+    it('stores usage in conversation on final result', async () => {
+      // Import conversations repo to verify
+      const { conversations } = await import('../database.js');
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: {
+            input_tokens: 500,
+            output_tokens: 250,
+            cache_read_input_tokens: 100,
+            cache_creation_input_tokens: 50,
+          },
+        };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Get the active conversation for this session
+      const activeConversation = conversations.getActiveBySessionId(sessionId);
+      expect(activeConversation).not.toBeNull();
+      expect(activeConversation.inputTokens).toBe(500);
+      expect(activeConversation.outputTokens).toBe(250);
+      expect(activeConversation.cacheReadInputTokens).toBe(100);
+      expect(activeConversation.cacheCreationInputTokens).toBe(50);
+    });
+
+    it('stores model in conversation when modelUsage is available', async () => {
+      const { conversations } = await import('../database.js');
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-sonnet-4-20250514' };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          modelUsage: {
+            'claude-sonnet-4-20250514': {
+              inputTokens: 600,
+              outputTokens: 300,
+              cacheReadInputTokens: 120,
+              cacheCreationInputTokens: 60,
+              webSearchRequests: 1,
+              contextWindow: 200000,
+            },
+          },
+        };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      const activeConversation = conversations.getActiveBySessionId(sessionId);
+      expect(activeConversation).not.toBeNull();
+      expect(activeConversation.model).toBe('claude-sonnet-4-20250514');
+      expect(activeConversation.contextWindow).toBe(200000);
+      expect(activeConversation.webSearchRequests).toBe(1);
+    });
+
+    it('broadcasts CONVERSATION_UPDATED with usage after final result', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: { input_tokens: 400, output_tokens: 200 },
+        };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Find CONVERSATION_UPDATED broadcasts
+      const convUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.CONVERSATION_UPDATED
+      );
+
+      expect(convUpdateCalls.length).toBeGreaterThan(0);
+
+      // Should include conversation with usage data
+      const lastUpdate = convUpdateCalls[convUpdateCalls.length - 1];
+      expect(lastUpdate[2].conversation).toBeDefined();
+      expect(lastUpdate[2].conversation.inputTokens).toBe(400);
+      expect(lastUpdate[2].conversation.outputTokens).toBe(200);
+    });
+
+    it('usage is tracked per-conversation, not per-session', async () => {
+      const { conversations, messages } = await import('../database.js');
+
+      // Create first conversation and run session
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: { input_tokens: 100, output_tokens: 50 },
+        };
+      });
+
+      await runSession(sessionId, 'First prompt', tempDir);
+
+      const firstConv = conversations.getActiveBySessionId(sessionId);
+      expect(firstConv.inputTokens).toBe(100);
+      expect(firstConv.outputTokens).toBe(50);
+
+      // Create a new conversation
+      const newConv = conversations.create(sessionId, 'Second Conversation');
+
+      // Update session with new claude session ID for continueSession
+      sessions.update(sessionId, { claudeSessionId: 'claude-session-456' });
+
+      // Run second turn in new conversation
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-456', model: 'claude-3' };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: { input_tokens: 200, output_tokens: 100 },
+        };
+      });
+
+      const { continueSession } = await import('./sessionManager.js');
+      await continueSession(sessionId, 'Second prompt', tempDir);
+
+      // Verify each conversation has its own usage
+      const conv1 = conversations.getById(firstConv.id);
+      const conv2 = conversations.getById(newConv.id);
+
+      expect(conv1.inputTokens).toBe(100);
+      expect(conv1.outputTokens).toBe(50);
+      expect(conv2.inputTokens).toBe(200);
+      expect(conv2.outputTokens).toBe(100);
+    });
+  });
+
   describe('template triggering (handleTemplateTriggerIfNeeded)', () => {
     let templateId;
 

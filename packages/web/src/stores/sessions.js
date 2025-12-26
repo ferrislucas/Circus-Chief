@@ -4,6 +4,7 @@ import { api } from '../composables/useApi.js';
 export const useSessionsStore = defineStore('sessions', {
   state: () => ({
     sessions: [],
+    archivedSessions: [],
     activeSessions: [],
     currentSession: null,
     messages: [],
@@ -12,6 +13,7 @@ export const useSessionsStore = defineStore('sessions', {
     workLogs: {}, // Keyed by messageId: { [messageId]: WorkLog[] }
     partialThinking: null, // Current streaming thinking content
     expandedSessions: new Set(), // Track which parent sessions are expanded
+    runningUsage: null, // Partial usage during a turn
     loading: false,
     error: null,
   }),
@@ -78,6 +80,77 @@ export const useSessionsStore = defineStore('sessions', {
 
       return grouped;
     },
+
+    isDraftSession: (state) => (session) => {
+      // A session is a draft if it's in waiting status and has never received any assistant responses
+      // We use session.hasResponses (from server) as the authoritative source since it checks
+      // all messages across all conversations, not just the currently loaded conversation
+      if (!session || session.status !== 'waiting') return false;
+      // If hasResponses is available (from server), use it; otherwise fall back to checking loaded messages
+      if (session.hasResponses !== undefined) {
+        return !session.hasResponses;
+      }
+      return !state.messages.some((msg) => msg.role === 'assistant');
+    },
+    // Token usage getters - now conversation-level (Issue #175)
+    conversationTokens: (state) => {
+      const conv = state.conversations.find((c) => c.id === state.activeConversationId);
+      return conv
+        ? {
+            inputTokens: conv.inputTokens || 0,
+            outputTokens: conv.outputTokens || 0,
+            cacheReadInputTokens: conv.cacheReadInputTokens || 0,
+            cacheCreationInputTokens: conv.cacheCreationInputTokens || 0,
+            webSearchRequests: conv.webSearchRequests || 0,
+            contextWindow: conv.contextWindow || 200000,
+            model: conv.model,
+          }
+        : null;
+    },
+    totalTokens: (state) => {
+      // Use active conversation tokens if available, fallback to session
+      const conv = state.conversations.find((c) => c.id === state.activeConversationId);
+      if (conv) {
+        return (conv.inputTokens || 0) + (conv.outputTokens || 0);
+      }
+      const session = state.currentSession;
+      if (!session) return 0;
+      return (session.inputTokens || 0) + (session.outputTokens || 0);
+    },
+    formattedTokens: (state) => {
+      const format = (n) => {
+        if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+        if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+        return String(n);
+      };
+
+      // Use active conversation tokens if available, fallback to session
+      const conv = state.conversations.find((c) => c.id === state.activeConversationId);
+      const source = conv || state.currentSession;
+
+      if (!source) return { input: '0', output: '0', total: '0', cacheRead: '0', cacheCreation: '0' };
+
+      return {
+        input: format(source.inputTokens || 0),
+        output: format(source.outputTokens || 0),
+        total: format((source.inputTokens || 0) + (source.outputTokens || 0)),
+        cacheRead: format(source.cacheReadInputTokens || 0),
+        cacheCreation: format(source.cacheCreationInputTokens || 0),
+      };
+    },
+    contextPercentage: (state) => {
+      // Calculate context usage percentage for the active conversation
+      const conv = state.conversations.find((c) => c.id === state.activeConversationId);
+      const source = conv || state.currentSession;
+      if (!source) return 0;
+
+      const totalTokens = (source.inputTokens || 0) + (source.outputTokens || 0);
+      const contextWindow = source.contextWindow || 200000;
+      return Math.min(100, Math.round((totalTokens / contextWindow) * 100));
+    },
+    isUsageUpdating: (state) => {
+      return state.runningUsage !== null;
+    },
   },
 
   actions: {
@@ -97,7 +170,19 @@ export const useSessionsStore = defineStore('sessions', {
       this.loading = true;
       this.error = null;
       try {
-        this.sessions = await api.getProjectSessions(projectId);
+        this.sessions = await api.getProjectSessions(projectId, false);
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async fetchArchivedSessions(projectId) {
+      this.loading = true;
+      this.error = null;
+      try {
+        this.archivedSessions = await api.getProjectSessions(projectId, true);
       } catch (err) {
         this.error = err.message;
       } finally {
@@ -199,16 +284,74 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
+    async startSession(id) {
+      this.error = null;
+      try {
+        const result = await api.startSession(id);
+        // Update session status to starting
+        if (this.currentSession?.id === id) {
+          this.currentSession.status = 'starting';
+        }
+        const session = this.sessions.find((s) => s.id === id);
+        if (session) {
+          session.status = 'starting';
+        }
+        return result;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
     async deleteSession(id) {
       this.error = null;
       try {
         await api.deleteSession(id);
         // Remove session from list
         this.sessions = this.sessions.filter((s) => s.id !== id);
+        this.archivedSessions = this.archivedSessions.filter((s) => s.id !== id);
         // Clear current session if it's the deleted one
         if (this.currentSession?.id === id) {
           this.currentSession = null;
         }
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    async archiveSession(id) {
+      this.error = null;
+      try {
+        const updated = await api.archiveSession(id);
+        // Move from sessions to archivedSessions
+        this.sessions = this.sessions.filter((s) => s.id !== id);
+        this.archivedSessions.unshift(updated);
+        // Also remove from activeSessions if present
+        this.activeSessions = this.activeSessions.filter((s) => s.id !== id);
+        // Update current session if it matches
+        if (this.currentSession?.id === id) {
+          this.currentSession = { ...this.currentSession, archived: true };
+        }
+        return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    async unarchiveSession(id) {
+      this.error = null;
+      try {
+        const updated = await api.unarchiveSession(id);
+        // Move from archivedSessions to sessions
+        this.archivedSessions = this.archivedSessions.filter((s) => s.id !== id);
+        this.sessions.unshift(updated);
+        // Update current session if it matches
+        if (this.currentSession?.id === id) {
+          this.currentSession = { ...this.currentSession, archived: false };
+        }
+        return updated;
       } catch (err) {
         this.error = err.message;
         throw err;
@@ -295,6 +438,83 @@ export const useSessionsStore = defineStore('sessions', {
     // Clear partial thinking when complete
     clearPartialThinking() {
       this.partialThinking = null;
+    },
+
+    // ==================== USAGE ACTIONS ====================
+
+    /**
+     * Update running usage during a turn (partial update)
+     * @param {Object} usage - Usage data
+     * @param {string} [conversationId] - Conversation ID (Issue #175)
+     */
+    updateRunningUsage(usage, conversationId = null) {
+      this.runningUsage = { ...usage, conversationId };
+    },
+
+    /**
+     * Finalize usage at end of turn (update conversation and session with final values)
+     * @param {Object} usage - Final cumulative usage
+     * @param {string} [conversationId] - Conversation ID (Issue #175)
+     */
+    finalizeUsage(usage, conversationId = null) {
+      // Update conversation usage if conversationId provided (Issue #175)
+      if (conversationId) {
+        const index = this.conversations.findIndex((c) => c.id === conversationId);
+        if (index !== -1) {
+          this.conversations[index] = {
+            ...this.conversations[index],
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cacheReadInputTokens: usage.cacheReadInputTokens,
+            cacheCreationInputTokens: usage.cacheCreationInputTokens,
+            webSearchRequests: usage.webSearchRequests,
+            contextWindow: usage.contextWindow,
+            model: usage.model,
+          };
+        }
+      }
+
+      // Also update session for backward compatibility
+      if (this.currentSession) {
+        this.currentSession = {
+          ...this.currentSession,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadInputTokens: usage.cacheReadInputTokens,
+          cacheCreationInputTokens: usage.cacheCreationInputTokens,
+          webSearchRequests: usage.webSearchRequests,
+          contextWindow: usage.contextWindow,
+        };
+      }
+      this.runningUsage = null;
+    },
+
+    /**
+     * Update conversation usage from WebSocket event (Issue #175)
+     * @param {string} conversationId - Conversation ID
+     * @param {Object} usage - Usage data
+     */
+    updateConversationUsage(conversationId, usage) {
+      const index = this.conversations.findIndex((c) => c.id === conversationId);
+      if (index !== -1) {
+        this.conversations[index] = {
+          ...this.conversations[index],
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadInputTokens: usage.cacheReadInputTokens,
+          cacheCreationInputTokens: usage.cacheCreationInputTokens,
+          webSearchRequests: usage.webSearchRequests,
+          contextWindow: usage.contextWindow,
+          model: usage.model,
+        };
+      }
+    },
+
+    /**
+     * Clear running usage (on session unmount)
+     */
+    clearRunningUsage() {
+      this.runningUsage = null;
     },
 
     updateSessionStatus(sessionId, status) {
@@ -396,10 +616,39 @@ export const useSessionsStore = defineStore('sessions', {
     updateSession(sessionData) {
       if (!sessionData?.id) return;
 
-      // Update in sessions list
-      const sessionIndex = this.sessions.findIndex((s) => s.id === sessionData.id);
-      if (sessionIndex !== -1) {
-        this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
+      // Handle archive status changes - route to correct list
+      if (sessionData.archived === true) {
+        // Remove from non-archived lists
+        this.sessions = this.sessions.filter((s) => s.id !== sessionData.id);
+        this.activeSessions = this.activeSessions.filter((s) => s.id !== sessionData.id);
+        // Update or add to archived list
+        const archivedIndex = this.archivedSessions.findIndex((s) => s.id === sessionData.id);
+        if (archivedIndex !== -1) {
+          this.archivedSessions[archivedIndex] = { ...this.archivedSessions[archivedIndex], ...sessionData };
+        } else {
+          this.archivedSessions.unshift(sessionData);
+        }
+      } else if (sessionData.archived === false) {
+        // Remove from archived list
+        this.archivedSessions = this.archivedSessions.filter((s) => s.id !== sessionData.id);
+        // Update or add to sessions list
+        const sessionIndex = this.sessions.findIndex((s) => s.id === sessionData.id);
+        if (sessionIndex !== -1) {
+          this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
+        } else {
+          this.sessions.unshift(sessionData);
+        }
+      } else {
+        // No archive change - update in existing lists
+        const sessionIndex = this.sessions.findIndex((s) => s.id === sessionData.id);
+        if (sessionIndex !== -1) {
+          this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
+        }
+
+        const archivedIndex = this.archivedSessions.findIndex((s) => s.id === sessionData.id);
+        if (archivedIndex !== -1) {
+          this.archivedSessions[archivedIndex] = { ...this.archivedSessions[archivedIndex], ...sessionData };
+        }
       }
 
       // Update current session if it matches
@@ -446,6 +695,9 @@ export const useSessionsStore = defineStore('sessions', {
 
       // Remove from sessions list
       this.sessions = this.sessions.filter((s) => s.id !== sessionId);
+
+      // Remove from archived sessions list
+      this.archivedSessions = this.archivedSessions.filter((s) => s.id !== sessionId);
 
       // Remove from active sessions list
       this.activeSessions = this.activeSessions.filter((s) => s.id !== sessionId);

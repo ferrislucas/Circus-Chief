@@ -9,7 +9,8 @@
     "./protocol": "./src/protocol.js",
     "./constants": "./src/constants.js",
     "./contracts/*": "./src/contracts/*.js",
-    "./utils": "./src/utils.js"
+    "./utils": "./src/utils.js",
+    "./routeParams": "./src/routeParams.js"
   },
   "scripts": {
     "test": "vitest run",

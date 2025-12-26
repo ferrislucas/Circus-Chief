@@ -3,7 +3,12 @@
     <!-- Conversation Selector -->
     <ConversationSelector :session-id="sessionId" />
 
+    <!-- Token Usage Panel - shows conversation-level usage (Issue #175) -->
+    <TokenUsagePanel class="conversation-usage" />
+
     <div class="messages" ref="messagesContainer">
+      <!-- Hide messages for draft sessions (only show in input field) -->
+      <template v-if="!isDraft">
       <div
         v-for="message in sessionsStore.messages"
         :key="message.id"
@@ -37,9 +42,10 @@
           :work-logs="sessionsStore.getWorkLogsForMessage(message.id)"
         />
       </div>
+      </template>
 
       <!-- Streaming partial message -->
-      <div v-if="partialText" class="message message-assistant message-streaming">
+      <div v-if="!isDraft && partialText" class="message message-assistant message-streaming">
         <div class="message-header">
           <span class="message-role">assistant</span>
           <span class="streaming-indicator">
@@ -66,21 +72,26 @@
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
 
-    <div v-if="isStopped" class="status-message status-stopped">
+    <div v-if="isDraft" class="status-message status-draft">
+      <span class="draft-icon">📝</span>
+      This session is a draft. Edit your prompt and click "Start Session" to begin.
+    </div>
+
+    <div v-if="isStopped && !isDraft" class="status-message status-stopped">
       <span class="stopped-icon">⏸</span>
       Session stopped - send a message to resume
     </div>
 
-    <form v-if="canSendMessage" @submit.prevent="handleSend" class="input-form">
+    <form v-if="canSendMessage" @submit.prevent="isDraft ? handleStart() : handleSend()" class="input-form">
       <textarea
         v-model="input"
         class="form-input form-textarea"
-        :placeholder="isStopped ? 'Send a message to resume session...' : 'Send a follow-up message...'"
+        :placeholder="isDraft ? 'Edit your prompt...' : (isStopped ? 'Send a message to resume session...' : 'Send a follow-up message...')"
         rows="3"
-        @keydown.enter.ctrl="handleSend"
+        @keydown.enter.ctrl="isDraft ? handleStart() : handleSend()"
       ></textarea>
       <div class="input-controls">
-        <div class="session-options">
+        <div class="session-options" v-if="!isDraft">
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
           <div class="thinking-toggle">
             <label class="toggle-switch">
@@ -113,22 +124,18 @@
           </div>
         </div>
         <div class="input-actions">
-          <button type="submit" class="btn btn-primary btn-send" :disabled="!input.trim() || sending">
-            <span v-if="sending" class="loading-spinner"></span>
-            Send
+          <button type="submit" class="btn btn-primary btn-send" :disabled="isDraft ? restarting : (!input.trim() || sending)">
+            <span v-if="isDraft ? restarting : sending" class="loading-spinner"></span>
+            {{ isDraft ? 'Start Session' : 'Send' }}
           </button>
         </div>
       </div>
-      <div class="model-row">
-        <ModelSelector
-          :modelValue="sessionsStore.currentSession?.model || DEFAULT_MODEL"
-          @update:modelValue="handleModelChange"
-          :disabled="togglingModel"
-        />
+      <div v-if="!isDraft" class="model-row">
+        <ModelSelector :sessionId="sessionId" />
       </div>
 
       <!-- Template selector for chaining sessions -->
-      <div class="template-row">
+      <div v-if="!isDraft" class="template-row">
         <TemplateSelector
           :session-id="sessionId"
           :project-id="sessionsStore.currentSession?.projectId"
@@ -173,12 +180,12 @@ import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
-import { DEFAULT_MODEL } from '@claudetools/shared';
 import TodoDrawer from './TodoDrawer.vue';
 import WorkLogPanel from './WorkLogPanel.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
 import ConversationSelector from './ConversationSelector.vue';
+import TokenUsagePanel from './TokenUsagePanel.vue';
 import FileAttachment from './FileAttachment.vue';
 import ModelSelector from './ModelSelector.vue';
 import TemplateSelector from './TemplateSelector.vue';
@@ -196,7 +203,6 @@ const stopping = ref(false);
 const restarting = ref(false);
 const togglingThinking = ref(false);
 const togglingMode = ref(false);
-const togglingModel = ref(false);
 const messagesContainer = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
@@ -222,6 +228,11 @@ const canSendMessage = computed(() => {
 
 const isStopped = computed(() => {
   return sessionsStore.currentSession?.status === 'stopped';
+});
+
+const isDraft = computed(() => {
+  if (!sessionsStore.currentSession) return false;
+  return sessionsStore.isDraftSession(sessionsStore.currentSession);
 });
 
 const unassociatedWorkLogs = computed(() => {
@@ -261,10 +272,20 @@ function handleScroll() {
 }
 
 onMounted(async () => {
-  // Load draft from localStorage
-  const savedDraft = localStorage.getItem(STORAGE_KEY);
-  if (savedDraft) {
-    input.value = savedDraft;
+  // If this is a draft session, load the initial prompt into the input field
+  if (isDraft.value && sessionsStore.messages.length > 0) {
+    const userMessage = sessionsStore.messages.find(msg => msg.role === 'user');
+    if (userMessage) {
+      input.value = userMessage.content;
+    }
+  }
+
+  // Load draft from localStorage (if not a draft session)
+  if (!isDraft.value) {
+    const savedDraft = localStorage.getItem(STORAGE_KEY);
+    if (savedDraft) {
+      input.value = savedDraft;
+    }
   }
 
   // Add scroll event listener
@@ -465,6 +486,20 @@ async function handleRestart() {
   }
 }
 
+async function handleStart() {
+  if (restarting.value) return;
+
+  restarting.value = true;
+  try {
+    await sessionsStore.startSession(props.sessionId);
+    uiStore.success('Session started');
+  } catch (err) {
+    uiStore.error(err.message);
+  } finally {
+    restarting.value = false;
+  }
+}
+
 async function handleThinkingToggle(event) {
   if (togglingThinking.value) return;
 
@@ -495,20 +530,6 @@ async function handleModeChange(newMode) {
   }
 }
 
-async function handleModelChange(newModel) {
-  if (togglingModel.value) return;
-  if (sessionsStore.currentSession?.model === newModel) return;
-
-  togglingModel.value = true;
-  try {
-    await sessionsStore.updateSessionModel(props.sessionId, newModel);
-  } catch (err) {
-    uiStore.error(err.message);
-  } finally {
-    togglingModel.value = false;
-  }
-}
-
 async function handleTemplateChange(templateId) {
   try {
     await sessionsStore.updateNextTemplate(props.sessionId, templateId);
@@ -523,6 +544,10 @@ async function handleTemplateChange(templateId) {
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+
+.conversation-usage {
+  margin-bottom: 1rem;
 }
 
 .messages {
@@ -704,6 +729,8 @@ async function handleTemplateChange(templateId) {
   color: var(--color-text-soft);
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .mode-btn:last-child {
@@ -714,9 +741,11 @@ async function handleTemplateChange(templateId) {
   background: var(--color-bg-hover);
 }
 
-.mode-btn.active {
+.mode-btn.active,
+.mode-btn.active:focus {
   background: var(--color-primary);
   color: white;
+  outline: none;
 }
 
 .mode-btn:disabled {
@@ -861,6 +890,17 @@ async function handleTemplateChange(templateId) {
 }
 
 .stopped-icon {
+  font-size: 1rem;
+}
+
+.status-draft {
+  color: var(--color-info, #3b82f6);
+  background-color: rgba(59, 130, 246, 0.1);
+  border-radius: var(--border-radius);
+  margin-bottom: 0.5rem;
+}
+
+.draft-icon {
   font-size: 1rem;
 }
 

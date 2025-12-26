@@ -14,6 +14,7 @@
               {{ sessionsStore.currentSession.status }}
             </span>
             <span class="session-mode">{{ formatMode(sessionsStore.currentSession.mode) }}</span>
+            <span class="session-model">{{ formatModel(sessionsStore.currentSession.model) }}</span>
             <span v-if="sessionsStore.currentSession.nextTemplateId" class="template-badge">
               🔗 Next: {{ getTemplateName(sessionsStore.currentSession.nextTemplateId) }}
             </span>
@@ -36,12 +37,26 @@
                 :summary="summary"
               />
             </div>
-            <button
-              class="btn btn-outline-danger btn-delete-session"
-              @click="handleDelete"
-            >
-              Delete Session
-            </button>
+            <div class="session-action-buttons">
+              <button
+                v-if="canArchive"
+                class="btn btn-outline-secondary btn-archive-session"
+                @click="handleArchive"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="4" width="20" height="5" rx="1" ry="1"></rect>
+                  <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path>
+                  <path d="M10 13h4"></path>
+                </svg>
+                Archive
+              </button>
+              <button
+                class="btn btn-outline-danger btn-delete-session"
+                @click="handleDelete"
+              >
+                Delete Session
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -88,6 +103,7 @@
         <ChangesTab v-else-if="activeTab === 'changes'" :session-id="route.params.id" @update:file-count="changesFileCount = $event" />
         <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
         <NotesTab v-else-if="activeTab === 'notes'" :session-id="route.params.id" />
+        <CommandsTab v-else-if="activeTab === 'commands'" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
       </div>
     </template>
   </div>
@@ -101,12 +117,14 @@ import { useCanvasStore } from '../stores/canvas.js';
 import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
+import { useModelInfo } from '../composables/useModelInfo.js';
 import { api } from '../composables/useApi.js';
 import ConversationTab from '../components/ConversationTab.vue';
 import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
 import NotesTab from '../components/NotesTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
+import CommandsTab from '../components/CommandsTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
@@ -117,6 +135,7 @@ const canvasStore = useCanvasStore();
 const todosStore = useTodosStore();
 const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
+const { getModelDisplayName } = useModelInfo();
 
 // Capture session ID at component creation to avoid race conditions during navigation.
 // When navigating away, Vue Router updates route.params BEFORE unmounting the component.
@@ -126,19 +145,26 @@ const sessionId = route.params.id;
 const activeTab = computed(() => route.params.tab || 'conversation');
 const changesFileCount = ref(0);
 
+// Allow archiving any session that isn't running
+const canArchive = computed(() => {
+  const status = sessionsStore.currentSession?.status;
+  return status && status !== 'running';
+});
+
 const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
   { id: 'conversation', label: 'Conversation' },
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
   { id: 'canvas', label: 'Canvas' },
-  { id: 'notes', label: 'Notes' }
+  { id: 'notes', label: 'Notes' },
+  { id: 'commands', label: 'Commands' }
 ]);
 
 function navigateToTab(tabId) {
   router.push(`/sessions/${route.params.id}/${tabId}`);
 }
 
-const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate } =
+const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onUsageUpdate, onConversationUpdated } =
   useSessionSubscription(sessionId);
 
 let cleanups = [];
@@ -287,17 +313,40 @@ onMounted(async () => {
       summary.value = newSummary;
     })
   );
+
+  cleanups.push(
+    onUsageUpdate((msg) => {
+      if (msg.isFinal) {
+        // Pass conversationId for conversation-level usage tracking (Issue #175)
+        sessionsStore.finalizeUsage(msg.usage, msg.conversationId);
+      } else {
+        sessionsStore.updateRunningUsage(msg.usage, msg.conversationId);
+      }
+    })
+  );
+
+  // Handle conversation updates for usage tracking (Issue #175)
+  cleanups.push(
+    onConversationUpdated((conversation) => {
+      sessionsStore.updateConversation(conversation);
+    })
+  );
 });
 
 onUnmounted(() => {
   stopPolling();
   unsubscribe();
   cleanups.forEach((cleanup) => cleanup());
+  sessionsStore.clearRunningUsage();
 });
 
 function formatMode(mode) {
   if (mode === 'yolo') return 'YOLO';
   return mode.charAt(0).toUpperCase() + mode.slice(1);
+}
+
+function formatModel(modelId) {
+  return getModelDisplayName(modelId);
 }
 
 async function handleDelete() {
@@ -307,6 +356,22 @@ async function handleDelete() {
     const projectId = sessionsStore.currentSession?.projectId;
     await sessionsStore.deleteSession(sessionId);
     uiStore.success('Session deleted');
+    // Navigate to project sessions list
+    if (projectId) {
+      router.push(`/projects/${projectId}/sessions`);
+    } else {
+      router.push('/');
+    }
+  } catch (err) {
+    uiStore.error(err.message);
+  }
+}
+
+async function handleArchive() {
+  try {
+    const projectId = sessionsStore.currentSession?.projectId;
+    await sessionsStore.archiveSession(sessionId);
+    uiStore.success('Session archived');
     // Navigate to project sessions list
     if (projectId) {
       router.push(`/projects/${projectId}/sessions`);
@@ -368,20 +433,47 @@ function getTemplateName(templateId) {
   flex-wrap: wrap;
 }
 
-.btn-delete-session {
+.session-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin-left: auto;
   flex-shrink: 0;
 }
 
+.btn-archive-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.btn-archive-session svg {
+  flex-shrink: 0;
+}
+
+.btn-delete-session {
+  flex-shrink: 0;
+}
+
 @media (max-width: 768px) {
-  .btn-delete-session {
+  .session-action-buttons {
     margin-left: 0;
+    flex-wrap: wrap;
   }
 }
 
 .session-mode {
   font-size: 0.75rem;
   color: var(--color-text-soft);
+}
+
+.session-model {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.session-usage {
+  margin-top: 0.75rem;
 }
 
 .template-badge {

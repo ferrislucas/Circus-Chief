@@ -29,8 +29,16 @@ vi.mock('../composables/useWebSocket.js', () => ({
     onTodosUpdate: vi.fn(() => vi.fn()),
     onSessionUpdate: vi.fn(() => vi.fn()),
     onSummaryUpdate: vi.fn(() => vi.fn()),
+    onUsageUpdate: vi.fn(() => vi.fn()),
+    onConversationUpdated: vi.fn(() => vi.fn()),
   })),
 }));
+
+// Mock useModelInfo composable - use real implementation to test model display
+vi.mock('../composables/useModelInfo.js', async () => {
+  const actual = await vi.importActual('../composables/useModelInfo.js');
+  return actual;
+});
 
 // Mock the stores
 vi.mock('../stores/sessions.js', () => ({
@@ -83,6 +91,21 @@ vi.mock('../components/NotesTab.vue', () => ({
 vi.mock('../components/SummaryTab.vue', () => ({
   default: defineComponent({ name: 'SummaryTab', template: '<div />' }),
 }));
+vi.mock('../components/CommandsTab.vue', () => ({
+  default: defineComponent({ name: 'CommandsTab', template: '<div />' }),
+}));
+vi.mock('../components/PrIndicators.vue', () => ({
+  default: defineComponent({ name: 'PrIndicators', template: '<div />' }),
+}));
+vi.mock('../components/TokenUsagePanel.vue', () => ({
+  default: defineComponent({ name: 'TokenUsagePanel', template: '<div />' }),
+}));
+vi.mock('../stores/templates.js', () => ({
+  useTemplatesStore: vi.fn(() => ({
+    fetchProjectTemplates: vi.fn(),
+    getTemplateById: vi.fn(() => null),
+  })),
+}));
 
 import SessionDetailView from './SessionDetailView.vue';
 import { useSessionsStore } from '../stores/sessions.js';
@@ -114,6 +137,8 @@ describe('SessionDetailView', () => {
       onTodosUpdate: vi.fn(() => vi.fn()),
       onSessionUpdate: vi.fn(() => vi.fn()),
       onSummaryUpdate: vi.fn(() => vi.fn()),
+      onUsageUpdate: vi.fn(() => vi.fn()),
+      onConversationUpdated: vi.fn(() => vi.fn()),
     }));
 
     mockSessionsStore = {
@@ -131,9 +156,14 @@ describe('SessionDetailView', () => {
       fetchMessages: vi.fn(),
       fetchWorkLogs: vi.fn(),
       deleteSession: vi.fn(),
+      archiveSession: vi.fn(),
       updateSessionStatus: vi.fn(),
       addMessage: vi.fn(),
       updateSession: vi.fn(),
+      // Issue #175 - Conversation-level token tracking methods
+      finalizeUsage: vi.fn(),
+      updateRunningUsage: vi.fn(),
+      updateConversation: vi.fn(),
     };
 
     useSessionsStore.mockReturnValue(mockSessionsStore);
@@ -265,6 +295,82 @@ describe('SessionDetailView', () => {
     });
   });
 
+  describe('model display', () => {
+    it('displays Opus 4.5 for claude-opus-4-5-20251101 model', async () => {
+      mockSessionsStore.currentSession.model = 'claude-opus-4-5-20251101';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Opus 4.5');
+    });
+
+    it('displays Sonnet 4.5 for claude-sonnet-4-5-20250929 model', async () => {
+      mockSessionsStore.currentSession.model = 'claude-sonnet-4-5-20250929';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Sonnet 4.5');
+    });
+
+    it('displays Haiku 4.5 for claude-haiku-4-5-20251001 model', async () => {
+      mockSessionsStore.currentSession.model = 'claude-haiku-4-5-20251001';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Haiku 4.5');
+    });
+
+    it('displays Default when model is null', async () => {
+      mockSessionsStore.currentSession.model = null;
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Default');
+    });
+
+    it('displays Default when model is undefined', async () => {
+      // model is not set (undefined)
+      delete mockSessionsStore.currentSession.model;
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Default');
+    });
+
+    it('displays Unknown for unrecognized model ID', async () => {
+      mockSessionsStore.currentSession.model = 'unknown-model-id';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Unknown');
+    });
+
+    it('renders model in session-meta alongside status and mode', async () => {
+      mockSessionsStore.currentSession.model = 'claude-opus-4-5-20251101';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const sessionMeta = wrapper.find('.session-meta');
+      expect(sessionMeta.find('.status-badge').exists()).toBe(true);
+      expect(sessionMeta.find('.session-mode').exists()).toBe(true);
+      expect(sessionMeta.find('.session-model').exists()).toBe(true);
+    });
+  });
+
   describe('loading state', () => {
     it('shows loading spinner when loading', async () => {
       mockSessionsStore.loading = true;
@@ -376,6 +482,7 @@ describe('SessionDetailView', () => {
         onTodosUpdate: vi.fn(() => vi.fn()),
         onSessionUpdate: vi.fn(() => vi.fn()),
         onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -432,6 +539,7 @@ describe('SessionDetailView', () => {
         onTodosUpdate: vi.fn(() => vi.fn()),
         onSessionUpdate: vi.fn(() => vi.fn()),
         onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -466,6 +574,7 @@ describe('SessionDetailView', () => {
         onTodosUpdate: vi.fn(() => vi.fn()),
         onSessionUpdate: vi.fn(() => vi.fn()),
         onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -484,5 +593,550 @@ describe('SessionDetailView', () => {
       expect(mockGetSessionChanges).toHaveBeenCalledWith('test-session-id');
     });
 
+  });
+
+  describe('archive button', () => {
+    describe('visibility based on session status', () => {
+      it('hides archive button when session status is running', async () => {
+        mockSessionsStore.currentSession.status = 'running';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(false);
+      });
+
+      it('shows archive button when session status is stopped', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(true);
+      });
+
+      it('shows archive button when session status is completed', async () => {
+        mockSessionsStore.currentSession.status = 'completed';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(true);
+      });
+
+      it('shows archive button when session status is error', async () => {
+        mockSessionsStore.currentSession.status = 'error';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(true);
+      });
+
+      it('shows archive button when session status is waiting', async () => {
+        mockSessionsStore.currentSession.status = 'waiting';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(true);
+      });
+
+      it('shows archive button when session status is starting', async () => {
+        mockSessionsStore.currentSession.status = 'starting';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(true);
+      });
+
+      it('hides archive button when currentSession is null', async () => {
+        mockSessionsStore.currentSession = null;
+        mockSessionsStore.loading = false;
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(false);
+      });
+    });
+
+    describe('archive button content', () => {
+      it('displays Archive text on the button', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        const archiveBtn = wrapper.find('.btn-archive-session');
+        expect(archiveBtn.text()).toContain('Archive');
+      });
+
+      it('includes an archive icon (SVG)', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        const archiveBtn = wrapper.find('.btn-archive-session');
+        expect(archiveBtn.find('svg').exists()).toBe(true);
+      });
+
+      it('has the correct button classes', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        const archiveBtn = wrapper.find('.btn-archive-session');
+        expect(archiveBtn.classes()).toContain('btn');
+        expect(archiveBtn.classes()).toContain('btn-outline-secondary');
+      });
+    });
+
+    describe('archive action', () => {
+      it('calls archiveSession when archive button is clicked', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockSessionsStore.archiveSession).toHaveBeenCalledWith('test-session-id');
+      });
+
+      it('calls archiveSession with correct session ID', async () => {
+        mockRouteParams.id = 'specific-session-123';
+        mockSessionsStore.currentSession.status = 'completed';
+        mockSessionsStore.currentSession.id = 'specific-session-123';
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockSessionsStore.archiveSession).toHaveBeenCalledWith('specific-session-123');
+      });
+    });
+
+    describe('navigation after archive', () => {
+      let mockRouter;
+
+      beforeEach(async () => {
+        const { useRouter } = await import('vue-router');
+        mockRouter = { push: vi.fn() };
+        useRouter.mockReturnValue(mockRouter);
+      });
+
+      it('navigates to project sessions list after successful archive', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        mockSessionsStore.currentSession.projectId = 'project-abc';
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockRouter.push).toHaveBeenCalledWith('/projects/project-abc/sessions');
+      });
+
+      it('navigates to home when projectId is not available', async () => {
+        mockSessionsStore.currentSession.status = 'error';
+        mockSessionsStore.currentSession.projectId = null;
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockRouter.push).toHaveBeenCalledWith('/');
+      });
+
+      it('navigates to home when projectId is undefined', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        delete mockSessionsStore.currentSession.projectId;
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockRouter.push).toHaveBeenCalledWith('/');
+      });
+    });
+
+    describe('success and error messages', () => {
+      let mockUiStore;
+
+      beforeEach(async () => {
+        const { useUiStore } = await import('../stores/ui.js');
+        mockUiStore = { success: vi.fn(), error: vi.fn() };
+        useUiStore.mockReturnValue(mockUiStore);
+      });
+
+      it('shows success message after successful archive', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockUiStore.success).toHaveBeenCalledWith('Session archived');
+      });
+
+      it('shows error message when archive fails', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        mockSessionsStore.archiveSession.mockRejectedValue(new Error('Archive failed: server error'));
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockUiStore.error).toHaveBeenCalledWith('Archive failed: server error');
+      });
+
+      it('shows error message with correct message from API error', async () => {
+        mockSessionsStore.currentSession.status = 'waiting';
+        mockSessionsStore.archiveSession.mockRejectedValue(new Error('Can only archive stopped, completed, or error sessions'));
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockUiStore.error).toHaveBeenCalledWith('Can only archive stopped, completed, or error sessions');
+      });
+
+      it('does not show success message when archive fails', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        mockSessionsStore.archiveSession.mockRejectedValue(new Error('Archive failed'));
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockUiStore.success).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('archive button does not interfere with delete button', () => {
+      it('both archive and delete buttons are present when session is archivable', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(true);
+        expect(wrapper.find('.btn-delete-session').exists()).toBe(true);
+      });
+
+      it('only delete button is present when session is running', async () => {
+        mockSessionsStore.currentSession.status = 'running';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.btn-archive-session').exists()).toBe(false);
+        expect(wrapper.find('.btn-delete-session').exists()).toBe(true);
+      });
+
+      it('archive button click does not trigger delete', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockSessionsStore.archiveSession).toHaveBeenCalled();
+        expect(mockSessionsStore.deleteSession).not.toHaveBeenCalled();
+      });
+
+      it('delete button click does not trigger archive', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        mockSessionsStore.deleteSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-delete-session').trigger('click');
+        await flushPromises();
+
+        expect(mockSessionsStore.deleteSession).toHaveBeenCalled();
+        expect(mockSessionsStore.archiveSession).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('session-action-buttons container', () => {
+      it('renders session-action-buttons container', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        expect(wrapper.find('.session-action-buttons').exists()).toBe(true);
+      });
+
+      it('contains both archive and delete buttons inside session-action-buttons', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        const container = wrapper.find('.session-action-buttons');
+        expect(container.find('.btn-archive-session').exists()).toBe(true);
+        expect(container.find('.btn-delete-session').exists()).toBe(true);
+      });
+    });
+  });
+
+  // Issue #175 - Conversation-level token usage tracking
+  describe('WebSocket usage update handlers', () => {
+    it('registers onUsageUpdate callback on mount', async () => {
+      let mockOnUsageUpdate = vi.fn(() => vi.fn());
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: mockOnUsageUpdate,
+        onConversationUpdated: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(mockOnUsageUpdate).toHaveBeenCalled();
+    });
+
+    it('calls finalizeUsage with conversationId when isFinal is true', async () => {
+      let capturedUsageCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn((callback) => {
+          capturedUsageCallback = callback;
+          return vi.fn();
+        }),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Simulate final usage update with conversationId
+      const usageData = {
+        isFinal: true,
+        usage: { inputTokens: 1000, outputTokens: 500 },
+        conversationId: 'conv-123',
+      };
+      capturedUsageCallback(usageData);
+
+      expect(mockSessionsStore.finalizeUsage).toHaveBeenCalledWith(
+        usageData.usage,
+        'conv-123'
+      );
+    });
+
+    it('calls updateRunningUsage with conversationId when isFinal is false', async () => {
+      let capturedUsageCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn((callback) => {
+          capturedUsageCallback = callback;
+          return vi.fn();
+        }),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Simulate partial usage update with conversationId
+      const usageData = {
+        isFinal: false,
+        usage: { inputTokens: 500, outputTokens: 250 },
+        conversationId: 'conv-456',
+      };
+      capturedUsageCallback(usageData);
+
+      expect(mockSessionsStore.updateRunningUsage).toHaveBeenCalledWith(
+        usageData.usage,
+        'conv-456'
+      );
+    });
+
+    it('handles usage update without conversationId for backward compatibility', async () => {
+      let capturedUsageCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn((callback) => {
+          capturedUsageCallback = callback;
+          return vi.fn();
+        }),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Simulate usage update without conversationId
+      const usageData = {
+        isFinal: true,
+        usage: { inputTokens: 1000, outputTokens: 500 },
+        // no conversationId
+      };
+      capturedUsageCallback(usageData);
+
+      expect(mockSessionsStore.finalizeUsage).toHaveBeenCalledWith(
+        usageData.usage,
+        undefined
+      );
+    });
+  });
+
+  describe('WebSocket conversation update handlers', () => {
+    it('registers onConversationUpdated callback on mount', async () => {
+      let mockOnConversationUpdated = vi.fn(() => vi.fn());
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: mockOnConversationUpdated,
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(mockOnConversationUpdated).toHaveBeenCalled();
+    });
+
+    it('calls updateConversation when conversation update is received', async () => {
+      let capturedConversationCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: vi.fn((callback) => {
+          capturedConversationCallback = callback;
+          return vi.fn();
+        }),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Simulate conversation update
+      const conversationData = {
+        id: 'conv-789',
+        name: 'Test Conversation',
+        inputTokens: 1500,
+        outputTokens: 750,
+      };
+      capturedConversationCallback(conversationData);
+
+      expect(mockSessionsStore.updateConversation).toHaveBeenCalledWith(conversationData);
+    });
   });
 });

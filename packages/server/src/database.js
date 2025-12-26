@@ -14,6 +14,7 @@ export {
   WorkLogRepository,
   SessionSummaryRepository,
   AttachmentRepository,
+  CommandButtonRepository,
   // Singleton instances
   databaseManager,
   projects,
@@ -27,6 +28,7 @@ export {
   workLogs,
   sessionSummaries,
   attachments,
+  commandButtons,
   // Legacy functions
   initDatabase,
   getDatabase,

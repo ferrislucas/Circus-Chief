@@ -280,6 +280,46 @@ export function useSessionSubscription(sessionId) {
     return () => off(WS_MESSAGE_TYPES.CONVERSATION_DELETED, handler);
   };
 
+  const onUsageUpdate = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg);
+      }
+    };
+    on(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, handler);
+    return () => off(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, handler);
+  };
+
+  const onCommandOutput = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.runId, msg.text);
+      }
+    };
+    on(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, handler);
+    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, handler);
+  };
+
+  const onCommandComplete = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.runId, msg.exitCode, msg.output);
+      }
+    };
+    on(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, handler);
+    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, handler);
+  };
+
+  const onCommandError = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.runId, msg.error || msg.message);
+      }
+    };
+    on(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);
+    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -304,6 +344,10 @@ export function useSessionSubscription(sessionId) {
     onConversationCreated,
     onConversationUpdated,
     onConversationDeleted,
+    onUsageUpdate,
+    onCommandOutput,
+    onCommandComplete,
+    onCommandError,
   };
 }
 

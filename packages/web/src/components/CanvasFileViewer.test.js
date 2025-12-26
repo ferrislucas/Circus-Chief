@@ -11,6 +11,19 @@ vi.mock('./MarkdownViewer.vue', () => ({
   },
 }));
 
+// Mock highlight.js
+vi.mock('highlight.js', () => ({
+  default: {
+    highlight: vi.fn((code, opts) => ({
+      value: `<span class="hljs-keyword">${code}</span>`,
+    })),
+    highlightAuto: vi.fn((code) => ({
+      value: `<span class="hljs-auto">${code}</span>`,
+    })),
+    getLanguage: vi.fn((lang) => ['javascript', 'python', 'typescript'].includes(lang)),
+  },
+}));
+
 describe('CanvasFileViewer', () => {
   const baseItem = {
     id: 'item-1',
@@ -249,6 +262,60 @@ describe('CanvasFileViewer', () => {
     it('renders text content', () => {
       const wrapper = mountComponent({ item: textItem });
       expect(wrapper.find('.viewer-text').text()).toBe('Plain text content');
+    });
+  });
+
+  describe('code content', () => {
+    const codeItem = {
+      id: 'code-1',
+      type: 'code',
+      content: 'function hello() { return "world"; }',
+      filename: 'hello.js',
+      createdAt: Date.now(),
+    };
+
+    it('renders code content with syntax highlighting', () => {
+      const wrapper = mountComponent({ item: codeItem });
+      expect(wrapper.find('.viewer-code').exists()).toBe(true);
+    });
+
+    it('renders code element inside pre', () => {
+      const wrapper = mountComponent({ item: codeItem });
+      expect(wrapper.find('.viewer-code code').exists()).toBe(true);
+    });
+
+    it('renders Python code correctly', () => {
+      const wrapper = mountComponent({
+        item: { ...codeItem, filename: 'script.py', content: 'def hello():\n    pass' },
+      });
+      expect(wrapper.find('.viewer-code').exists()).toBe(true);
+    });
+
+    it('renders TypeScript code correctly', () => {
+      const wrapper = mountComponent({
+        item: { ...codeItem, filename: 'app.ts', content: 'const x: number = 42;' },
+      });
+      expect(wrapper.find('.viewer-code').exists()).toBe(true);
+    });
+
+    it('handles unknown file extensions', () => {
+      const wrapper = mountComponent({
+        item: { ...codeItem, filename: 'unknown.xyz', content: 'some code' },
+      });
+      expect(wrapper.find('.viewer-code').exists()).toBe(true);
+    });
+
+    it('does not show preview toggle for code type', () => {
+      const wrapper = mountComponent({ item: codeItem });
+      expect(wrapper.find('.preview-toggle').exists()).toBe(false);
+    });
+
+    it('handles code item without filename', () => {
+      const wrapper = mountComponent({
+        item: { ...codeItem, filename: null, label: 'Code snippet' },
+      });
+      expect(wrapper.find('.viewer-code').exists()).toBe(true);
+      expect(wrapper.find('.viewer-filename').text()).toBe('Code snippet');
     });
   });
 });

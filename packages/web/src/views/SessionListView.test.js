@@ -265,6 +265,446 @@ describe('SessionListView', () => {
   });
 });
 
+describe('Status filtering', () => {
+  let mockProjectsStore;
+  let mockSessionsStore;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+
+    mockRouteParams.id = 'test-project-id';
+
+    onSessionCreatedCallback = null;
+    onSessionUpdatedCallback = null;
+    onSessionDeletedCallback = null;
+    onSessionSummaryUpdatedCallback = null;
+
+    mockGetSessionSummary.mockReset();
+    mockGetSessionSummary.mockResolvedValue(null);
+
+    mockProjectsStore = {
+      currentProject: { id: 'test-project-id', name: 'Test Project', workingDirectory: '/test/path' },
+      fetchProject: vi.fn(),
+    };
+    useProjectsStore.mockReturnValue(mockProjectsStore);
+
+    mockSessionsStore = {
+      loading: false,
+      error: null,
+      sessions: [
+        { id: 'session-1', name: 'Running Session', status: 'running' },
+        { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
+        { id: 'session-3', name: 'Stopped Session', status: 'stopped' },
+        { id: 'session-4', name: 'Error Session', status: 'error' },
+        { id: 'session-5', name: 'Starting Session', status: 'starting' },
+      ],
+      fetchSessions: vi.fn().mockResolvedValue(),
+      addSessionToList: vi.fn(),
+      updateSession: vi.fn(),
+      removeSessionFromList: vi.fn(),
+    };
+    useSessionsStore.mockReturnValue(mockSessionsStore);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('Filter button rendering', () => {
+    it('renders filter buttons for running and idle statuses', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const filterButtons = wrapper.findAll('.filter-btn');
+      expect(filterButtons).toHaveLength(2);
+      expect(filterButtons[0].text()).toBe('running');
+      expect(filterButtons[1].text()).toBe('idle');
+    });
+
+    it('only shows filter buttons on sessions tab', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      // Filters should be visible on sessions tab
+      expect(wrapper.find('.status-filters').exists()).toBe(true);
+
+      // Click on templates tab
+      const templatesTab = wrapper.findAll('.tab')[2];
+      await templatesTab.trigger('click');
+
+      // Filters should not be visible on templates tab
+      expect(wrapper.find('.status-filters').exists()).toBe(false);
+    });
+
+    it('adds active class to selected filter button', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      expect(runningButton.classes()).not.toContain('active');
+
+      await runningButton.trigger('click');
+      expect(runningButton.classes()).toContain('active');
+    });
+
+    it('adds active class to idle filter button when selected', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      expect(idleButton.classes()).not.toContain('active');
+
+      await idleButton.trigger('click');
+      expect(idleButton.classes()).toContain('active');
+    });
+  });
+
+  describe('No filter selected', () => {
+    it('shows all sessions when no filters are active', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(5);
+    });
+  });
+
+  describe('Running filter', () => {
+    it('filters to show running and starting sessions when running filter is clicked', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      await runningButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(2); // running + starting
+
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-1'); // running
+      expect(sessionIds).toContain('session-5'); // starting
+    });
+
+    it('includes starting sessions in running filter', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      await runningButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-5'); // starting session
+    });
+
+    it('does not include idle sessions in running filter', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      await runningButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).not.toContain('session-2'); // waiting
+      expect(sessionIds).not.toContain('session-3'); // stopped
+      expect(sessionIds).not.toContain('session-4'); // error
+    });
+
+    it('toggles running filter off when clicked again', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+
+      // Click to enable filter
+      await runningButton.trigger('click');
+      expect(wrapper.findAll('.session-card')).toHaveLength(2); // running + starting
+
+      // Click again to disable filter
+      await runningButton.trigger('click');
+      expect(wrapper.findAll('.session-card')).toHaveLength(5);
+    });
+  });
+
+  describe('Idle filter', () => {
+    it('shows waiting sessions when idle filter is clicked', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-2'); // waiting
+    });
+
+    it('shows stopped sessions when idle filter is clicked', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-3'); // stopped
+    });
+
+    it('shows error sessions when idle filter is clicked', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-4'); // error
+    });
+
+    it('shows all idle statuses (waiting, stopped, error) when idle filter is clicked', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(3); // waiting, stopped, error
+
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-2'); // waiting
+      expect(sessionIds).toContain('session-3'); // stopped
+      expect(sessionIds).toContain('session-4'); // error
+    });
+
+    it('does not include running sessions in idle filter', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).not.toContain('session-1'); // running
+    });
+
+    it('does not include starting sessions in idle filter', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).not.toContain('session-5'); // starting
+    });
+
+    it('toggles idle filter off when clicked again', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+
+      // Click to enable filter
+      await idleButton.trigger('click');
+      expect(wrapper.findAll('.session-card')).toHaveLength(3);
+
+      // Click again to disable filter
+      await idleButton.trigger('click');
+      expect(wrapper.findAll('.session-card')).toHaveLength(5);
+    });
+  });
+
+  describe('Combined filters', () => {
+    it('shows both running and idle sessions when both filters are active', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const filterButtons = wrapper.findAll('.filter-btn');
+      await filterButtons[0].trigger('click'); // running
+      await filterButtons[1].trigger('click'); // idle
+
+      const sessionCards = wrapper.findAll('.session-card');
+      // running (running + starting = 2) + idle (waiting, stopped, error = 3) = 5
+      expect(sessionCards).toHaveLength(5);
+
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-1'); // running
+      expect(sessionIds).toContain('session-2'); // waiting
+      expect(sessionIds).toContain('session-3'); // stopped
+      expect(sessionIds).toContain('session-4'); // error
+      expect(sessionIds).toContain('session-5'); // starting - included in running filter
+    });
+
+    it('can disable one filter while keeping the other active', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const filterButtons = wrapper.findAll('.filter-btn');
+
+      // Enable both filters
+      await filterButtons[0].trigger('click'); // running
+      await filterButtons[1].trigger('click'); // idle
+
+      expect(wrapper.findAll('.session-card')).toHaveLength(5);
+
+      // Disable running filter
+      await filterButtons[0].trigger('click');
+
+      // Should only show idle sessions now (waiting, stopped, error)
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(3);
+
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).not.toContain('session-1'); // running - now excluded
+      expect(sessionIds).not.toContain('session-5'); // starting - now excluded
+      expect(sessionIds).toContain('session-2'); // waiting
+      expect(sessionIds).toContain('session-3'); // stopped
+      expect(sessionIds).toContain('session-4'); // error
+    });
+  });
+
+  describe('Empty states', () => {
+    it('shows empty state message when running filter returns no results', async () => {
+      // Set up store with no running sessions
+      mockSessionsStore.sessions = [
+        { id: 'session-1', name: 'Stopped Session', status: 'stopped' },
+      ];
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      await runningButton.trigger('click');
+
+      const emptyState = wrapper.find('.empty-state');
+      expect(emptyState.exists()).toBe(true);
+      expect(emptyState.text()).toContain('No sessions match the current filter');
+    });
+
+    it('shows empty state message when idle filter returns no results', async () => {
+      // Set up store with only running sessions
+      mockSessionsStore.sessions = [
+        { id: 'session-1', name: 'Running Session', status: 'running' },
+      ];
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const emptyState = wrapper.find('.empty-state');
+      expect(emptyState.exists()).toBe(true);
+      expect(emptyState.text()).toContain('No sessions match the current filter');
+    });
+
+    it('shows idle sessions but not starting sessions when only starting and idle exist', async () => {
+      mockSessionsStore.sessions = [
+        { id: 'session-1', name: 'Starting Session', status: 'starting' },
+        { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
+      ];
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(1);
+      expect(sessionCards[0].attributes('data-session-id')).toBe('session-2');
+    });
+  });
+
+  describe('Edge cases', () => {
+    it('handles empty session list', async () => {
+      mockSessionsStore.sessions = [];
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      // Should show the "No sessions yet" empty state
+      const emptyState = wrapper.find('.empty-state');
+      expect(emptyState.exists()).toBe(true);
+      expect(emptyState.text()).toContain('No sessions yet');
+    });
+
+    it('handles session list with only starting sessions', async () => {
+      mockSessionsStore.sessions = [
+        { id: 'session-1', name: 'Starting Session', status: 'starting' },
+      ];
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      // Running filter should show the starting session
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      await runningButton.trigger('click');
+
+      let sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(1);
+      expect(sessionCards[0].attributes('data-session-id')).toBe('session-1');
+
+      // Reset to no filter
+      await runningButton.trigger('click');
+
+      // Idle filter should show empty (starting is not idle)
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      const emptyState = wrapper.find('.empty-state');
+      expect(emptyState.exists()).toBe(true);
+    });
+
+    it('starting sessions show in running filter but not idle filter', async () => {
+      mockSessionsStore.sessions = [
+        { id: 'session-1', name: 'Starting Session', status: 'starting' },
+        { id: 'session-2', name: 'Running Session', status: 'running' },
+        { id: 'session-3', name: 'Waiting Session', status: 'waiting' },
+      ];
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      // Running filter should include starting
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      await runningButton.trigger('click');
+
+      let sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(2);
+      const runningIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(runningIds).toContain('session-1'); // starting
+      expect(runningIds).toContain('session-2'); // running
+
+      // Reset
+      await runningButton.trigger('click');
+
+      // Idle filter should NOT include starting
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(1);
+      const idleIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(idleIds).toContain('session-3'); // waiting
+      expect(idleIds).not.toContain('session-1'); // starting - NOT idle
+    });
+  });
+});
+
 describe('SessionListView integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -310,5 +750,183 @@ describe('SessionListView integration', () => {
     await nextTick();
 
     // The view should now have the updated summary
+  });
+});
+
+describe('SessionListView Archived Tab', () => {
+  let mockSessionsStore;
+  let mockProjectsStore;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    mockRouteParams.id = 'test-project-id';
+
+    // Reset callbacks
+    onSessionSummaryUpdatedCallback = null;
+
+    mockProjectsStore = {
+      currentProject: { id: 'test-project-id', name: 'Test Project' },
+      fetchProject: vi.fn(),
+    };
+    useProjectsStore.mockReturnValue(mockProjectsStore);
+
+    mockSessionsStore = {
+      loading: false,
+      error: null,
+      sessions: [
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+        { id: 'session-2', name: 'Session 2', status: 'running' },
+      ],
+      archivedSessions: [],
+      fetchSessions: vi.fn().mockResolvedValue(),
+      fetchArchivedSessions: vi.fn().mockResolvedValue(),
+      archiveSession: vi.fn().mockResolvedValue(),
+      unarchiveSession: vi.fn().mockResolvedValue(),
+      addSessionToList: vi.fn(),
+      updateSession: vi.fn(),
+      removeSessionFromList: vi.fn(),
+    };
+    useSessionsStore.mockReturnValue(mockSessionsStore);
+
+    mockGetSessionSummary.mockResolvedValue(null);
+  });
+
+  it('renders Sessions tab as active by default', async () => {
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    const tabs = wrapper.findAll('.tab');
+    expect(tabs.length).toBe(3);
+    expect(tabs[0].text()).toBe('Sessions');
+    expect(tabs[1].text()).toBe('Archived');
+    expect(tabs[2].text()).toBe('Templates');
+
+    // Sessions tab should be active
+    expect(tabs[0].classes()).toContain('active');
+    expect(tabs[1].classes()).not.toContain('active');
+  });
+
+  it('switches to Archived tab when clicked', async () => {
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    const archivedTab = wrapper.findAll('.tab')[1];
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    expect(archivedTab.classes()).toContain('active');
+  });
+
+  it('fetches archived sessions on first Archived tab click', async () => {
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    // Initially, fetchArchivedSessions should not have been called
+    expect(mockSessionsStore.fetchArchivedSessions).not.toHaveBeenCalled();
+
+    // Click Archived tab
+    const archivedTab = wrapper.findAll('.tab')[1];
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    // Now it should have been called
+    expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id');
+  });
+
+  it('does not fetch archived sessions again on subsequent tab clicks', async () => {
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    const archivedTab = wrapper.findAll('.tab')[1];
+
+    // First click
+    await archivedTab.trigger('click');
+    await flushPromises();
+    expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledTimes(1);
+
+    // Switch away and back
+    const sessionsTab = wrapper.findAll('.tab')[0];
+    await sessionsTab.trigger('click');
+    await flushPromises();
+
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    // Should still only be called once (lazy loaded)
+    expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows empty state when no archived sessions', async () => {
+    mockSessionsStore.archivedSessions = [];
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    // Switch to Archived tab
+    const archivedTab = wrapper.findAll('.tab')[1];
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    const emptyState = wrapper.find('.empty-state');
+    expect(emptyState.exists()).toBe(true);
+    expect(emptyState.text()).toContain('No archived sessions');
+  });
+
+  it('displays archived sessions when available', async () => {
+    mockSessionsStore.archivedSessions = [
+      { id: 'archived-1', name: 'Archived Session 1', status: 'completed', archived: true },
+      { id: 'archived-2', name: 'Archived Session 2', status: 'stopped', archived: true },
+    ];
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    // Switch to Archived tab
+    const archivedTab = wrapper.findAll('.tab')[1];
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    const sessionCards = wrapper.findAll('.session-card');
+    expect(sessionCards.length).toBe(2);
+  });
+
+  it('passes showArchive=true to SessionCards in Sessions tab', async () => {
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    // Check that session cards in the sessions tab exist
+    const sessionCards = wrapper.findAll('.session-card');
+    expect(sessionCards.length).toBe(2);
+  });
+
+  it('passes showUnarchive=true to SessionCards in Archived tab', async () => {
+    mockSessionsStore.archivedSessions = [
+      { id: 'archived-1', name: 'Archived Session', status: 'completed', archived: true },
+    ];
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    // Switch to Archived tab
+    const archivedTab = wrapper.findAll('.tab')[1];
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    const sessionCards = wrapper.findAll('.session-card');
+    expect(sessionCards.length).toBe(1);
+  });
+
+  it('hides New Session button on Archived tab', async () => {
+    const wrapper = mount(SessionListView);
+    await flushPromises();
+
+    // Button should be visible on Sessions tab
+    expect(wrapper.find('.btn-primary').exists()).toBe(true);
+
+    // Switch to Archived tab
+    const archivedTab = wrapper.findAll('.tab')[1];
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    // Button should be hidden
+    expect(wrapper.find('.btn-primary').exists()).toBe(false);
   });
 });
