@@ -7,6 +7,8 @@
     <TokenUsagePanel class="conversation-usage" />
 
     <div class="messages" ref="messagesContainer">
+      <!-- Hide messages for draft sessions (only show in input field) -->
+      <template v-if="!isDraft">
       <div
         v-for="message in sessionsStore.messages"
         :key="message.id"
@@ -40,9 +42,10 @@
           :work-logs="sessionsStore.getWorkLogsForMessage(message.id)"
         />
       </div>
+      </template>
 
       <!-- Streaming partial message -->
-      <div v-if="partialText" class="message message-assistant message-streaming">
+      <div v-if="!isDraft && partialText" class="message message-assistant message-streaming">
         <div class="message-header">
           <span class="message-role">assistant</span>
           <span class="streaming-indicator">
@@ -69,21 +72,26 @@
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
 
-    <div v-if="isStopped" class="status-message status-stopped">
+    <div v-if="isDraft" class="status-message status-draft">
+      <span class="draft-icon">📝</span>
+      This session is a draft. Edit your prompt and click "Start Session" to begin.
+    </div>
+
+    <div v-if="isStopped && !isDraft" class="status-message status-stopped">
       <span class="stopped-icon">⏸</span>
       Session stopped - send a message to resume
     </div>
 
-    <form v-if="canSendMessage" @submit.prevent="handleSend" class="input-form">
+    <form v-if="canSendMessage" @submit.prevent="isDraft ? handleStart() : handleSend()" class="input-form">
       <textarea
         v-model="input"
         class="form-input form-textarea"
-        :placeholder="isStopped ? 'Send a message to resume session...' : 'Send a follow-up message...'"
+        :placeholder="isDraft ? 'Edit your prompt...' : (isStopped ? 'Send a message to resume session...' : 'Send a follow-up message...')"
         rows="3"
-        @keydown.enter.ctrl="handleSend"
+        @keydown.enter.ctrl="isDraft ? handleStart() : handleSend()"
       ></textarea>
       <div class="input-controls">
-        <div class="session-options">
+        <div class="session-options" v-if="!isDraft">
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
           <div class="thinking-toggle">
             <label class="toggle-switch">
@@ -116,18 +124,18 @@
           </div>
         </div>
         <div class="input-actions">
-          <button type="submit" class="btn btn-primary btn-send" :disabled="!input.trim() || sending">
-            <span v-if="sending" class="loading-spinner"></span>
-            Send
+          <button type="submit" class="btn btn-primary btn-send" :disabled="isDraft ? restarting : (!input.trim() || sending)">
+            <span v-if="isDraft ? restarting : sending" class="loading-spinner"></span>
+            {{ isDraft ? 'Start Session' : 'Send' }}
           </button>
         </div>
       </div>
-      <div class="model-row">
+      <div v-if="!isDraft" class="model-row">
         <ModelSelector :sessionId="sessionId" />
       </div>
 
       <!-- Template selector for chaining sessions -->
-      <div class="template-row">
+      <div v-if="!isDraft" class="template-row">
         <TemplateSelector
           :session-id="sessionId"
           :project-id="sessionsStore.currentSession?.projectId"
@@ -222,6 +230,11 @@ const isStopped = computed(() => {
   return sessionsStore.currentSession?.status === 'stopped';
 });
 
+const isDraft = computed(() => {
+  if (!sessionsStore.currentSession) return false;
+  return sessionsStore.isDraftSession(sessionsStore.currentSession);
+});
+
 const unassociatedWorkLogs = computed(() => {
   return sessionsStore.getUnassociatedWorkLogs;
 });
@@ -259,10 +272,20 @@ function handleScroll() {
 }
 
 onMounted(async () => {
-  // Load draft from localStorage
-  const savedDraft = localStorage.getItem(STORAGE_KEY);
-  if (savedDraft) {
-    input.value = savedDraft;
+  // If this is a draft session, load the initial prompt into the input field
+  if (isDraft.value && sessionsStore.messages.length > 0) {
+    const userMessage = sessionsStore.messages.find(msg => msg.role === 'user');
+    if (userMessage) {
+      input.value = userMessage.content;
+    }
+  }
+
+  // Load draft from localStorage (if not a draft session)
+  if (!isDraft.value) {
+    const savedDraft = localStorage.getItem(STORAGE_KEY);
+    if (savedDraft) {
+      input.value = savedDraft;
+    }
   }
 
   // Add scroll event listener
@@ -456,6 +479,20 @@ async function handleRestart() {
   try {
     await sessionsStore.restartSession(props.sessionId);
     uiStore.success('Session restarted');
+  } catch (err) {
+    uiStore.error(err.message);
+  } finally {
+    restarting.value = false;
+  }
+}
+
+async function handleStart() {
+  if (restarting.value) return;
+
+  restarting.value = true;
+  try {
+    await sessionsStore.startSession(props.sessionId);
+    uiStore.success('Session started');
   } catch (err) {
     uiStore.error(err.message);
   } finally {
@@ -853,6 +890,17 @@ async function handleTemplateChange(templateId) {
 }
 
 .stopped-icon {
+  font-size: 1rem;
+}
+
+.status-draft {
+  color: var(--color-info, #3b82f6);
+  background-color: rgba(59, 130, 246, 0.1);
+  border-radius: var(--border-radius);
+  margin-bottom: 0.5rem;
+}
+
+.draft-icon {
   font-size: 1rem;
 }
 
