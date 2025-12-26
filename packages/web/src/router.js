@@ -17,6 +17,16 @@ const routes = [
     component: () => import('./views/ProjectEditView.vue'),
   },
   {
+    path: '/projects/:projectId/command-buttons/new',
+    name: 'CommandButtonNew',
+    component: () => import('./views/CommandButtonDetailView.vue'),
+  },
+  {
+    path: '/projects/:projectId/command-buttons/:buttonId',
+    name: 'CommandButtonEdit',
+    component: () => import('./views/CommandButtonDetailView.vue'),
+  },
+  {
     path: '/projects/:id/sessions',
     name: 'SessionList',
     component: () => import('./views/SessionListView.vue'),
