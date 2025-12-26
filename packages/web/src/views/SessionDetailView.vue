@@ -103,6 +103,7 @@
         <ChangesTab v-else-if="activeTab === 'changes'" :session-id="route.params.id" @update:file-count="changesFileCount = $event" />
         <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
         <NotesTab v-else-if="activeTab === 'notes'" :session-id="route.params.id" />
+        <CommandsTab v-else-if="activeTab === 'commands'" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
       </div>
     </template>
   </div>
@@ -122,6 +123,7 @@ import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
 import NotesTab from '../components/NotesTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
+import CommandsTab from '../components/CommandsTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
 import TokenUsagePanel from '../components/TokenUsagePanel.vue';
 import { useTemplatesStore } from '../stores/templates.js';
@@ -153,7 +155,8 @@ const tabs = computed(() => [
   { id: 'conversation', label: 'Conversation' },
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
   { id: 'canvas', label: 'Canvas' },
-  { id: 'notes', label: 'Notes' }
+  { id: 'notes', label: 'Notes' },
+  { id: 'commands', label: 'Commands' }
 ]);
 
 function navigateToTab(tabId) {

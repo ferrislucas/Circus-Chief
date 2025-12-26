@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments } from '../database.js';
+import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -8,6 +8,8 @@ import * as gitService from '../services/gitService.js';
 import * as summaryService from '../services/summaryService.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { upload, handleUploadError } from '../middleware/upload.js';
+import { commandRunner } from '../services/commandRunner.js';
+import { databaseManager } from '../db/DatabaseManager.js';
 
 const router = Router();
 
@@ -634,6 +636,103 @@ router.delete('/:id', async (req, res) => {
   }
 
   res.status(204).send();
+});
+
+// POST /api/sessions/:id/command-buttons/:buttonId/run - Execute button command
+router.post('/:id/command-buttons/:buttonId/run', (req, res) => {
+  const sessionId = req.params.id;
+  const buttonId = req.params.buttonId;
+
+  // Get session and button
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const button = commandButtons.getById(buttonId);
+  if (!button) {
+    return res.status(404).json({ error: 'Command button not found' });
+  }
+
+  const project = projects.getById(session.projectId);
+  // Determine working directory: use session's git_worktree if set, otherwise project's working_directory
+  const workingDirectory = session.gitWorktree || (project?.workingDirectory) || process.cwd();
+
+  // Generate run ID
+  const runId = databaseManager.generateId();
+
+  // Return immediately with runId
+  res.json({ runId, buttonId, status: 'running', output: '' });
+
+  // Execute command asynchronously
+  (async () => {
+    try {
+      let output = '';
+
+      await commandRunner.run(
+        runId,
+        button.command,
+        workingDirectory,
+        (text) => {
+          output += text;
+          // Broadcast output via WebSocket
+          broadcastToSession(sessionId, {
+            type: WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT,
+            runId,
+            buttonId,
+            output: text,
+          });
+        },
+        (exitCode) => {
+          // Broadcast completion via WebSocket
+          const status = exitCode === 0 ? 'success' : 'error';
+          broadcastToSession(sessionId, {
+            type: WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE,
+            runId,
+            buttonId,
+            status,
+            exitCode,
+            output,
+          });
+        },
+        (message) => {
+          // Broadcast error via WebSocket
+          broadcastToSession(sessionId, {
+            type: WS_MESSAGE_TYPES.COMMAND_RUN_ERROR,
+            runId,
+            buttonId,
+            message,
+          });
+        }
+      );
+    } catch (error) {
+      console.error(`Error running command button ${buttonId}:`, error);
+      broadcastToSession(sessionId, {
+        type: WS_MESSAGE_TYPES.COMMAND_RUN_ERROR,
+        runId,
+        buttonId,
+        message: error.message,
+      });
+    }
+  })();
+});
+
+// POST /api/sessions/:id/command-buttons/runs/:runId/kill - Kill running command
+router.post('/:id/command-buttons/runs/:runId/kill', (req, res) => {
+  const sessionId = req.params.id;
+  const runId = req.params.runId;
+
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const killed = commandRunner.kill(runId);
+  if (!killed) {
+    return res.status(404).json({ error: 'Run not found or already completed' });
+  }
+
+  res.json({ success: true, runId });
 });
 
 export default router;

@@ -1,12 +1,15 @@
 import { Router } from 'express';
-import { projects, sessions, sessionTemplates, attachments } from '../database.js';
+import { projects, sessions, sessionTemplates, attachments, commandButtons } from '../database.js';
 import { CreateProjectRequest, UpdateProjectRequest } from '@claudetools/shared/contracts/projects';
 import { CreateSessionTemplateRequest } from '@claudetools/shared/contracts/templates';
+import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@claudetools/shared/contracts/commandButtons';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { executeHookAsync } from '../services/hookService.js';
-import { broadcastToProject } from '../websocket.js';
+import { broadcastToProject, broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { upload, handleUploadError } from '../middleware/upload.js';
+import { commandRunner } from '../services/commandRunner.js';
+import { databaseManager } from '../db/DatabaseManager.js';
 
 const router = Router();
 
@@ -236,6 +239,90 @@ router.post('/:id/templates', (req, res) => {
     ...result.data,
   });
   res.status(201).json(template);
+});
+
+// GET /api/projects/:id/command-buttons - List all command buttons for project
+router.get('/:id/command-buttons', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const buttons = commandButtons.getByProjectId(req.params.id);
+  res.json(buttons);
+});
+
+// POST /api/projects/:id/command-buttons - Create new command button
+router.post('/:id/command-buttons', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const result = CreateCommandButtonRequest.safeParse(req.body);
+  if (!result.success) {
+    return res.status(400).json({ error: result.error.errors[0].message });
+  }
+
+  const button = commandButtons.create({
+    projectId: req.params.id,
+    label: result.data.label,
+    command: result.data.command,
+    sortOrder: result.data.sortOrder,
+  });
+
+  res.status(201).json(button);
+});
+
+// GET /api/projects/:id/command-buttons/:buttonId - Get single button
+router.get('/:id/command-buttons/:buttonId', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const button = commandButtons.getById(req.params.buttonId);
+  if (!button) {
+    return res.status(404).json({ error: 'Command button not found' });
+  }
+  res.json(button);
+});
+
+// PATCH /api/projects/:id/command-buttons/:buttonId - Update button
+router.patch('/:id/command-buttons/:buttonId', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const button = commandButtons.getById(req.params.buttonId);
+  if (!button) {
+    return res.status(404).json({ error: 'Command button not found' });
+  }
+
+  const result = UpdateCommandButtonRequest.safeParse(req.body);
+  if (!result.success) {
+    return res.status(400).json({ error: result.error.errors[0].message });
+  }
+
+  const updated = commandButtons.update(req.params.buttonId, result.data);
+  res.json(updated);
+});
+
+// DELETE /api/projects/:id/command-buttons/:buttonId - Delete button
+router.delete('/:id/command-buttons/:buttonId', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const button = commandButtons.getById(req.params.buttonId);
+  if (!button) {
+    return res.status(404).json({ error: 'Command button not found' });
+  }
+
+  commandButtons.delete(req.params.buttonId);
+  res.status(204).send();
 });
 
 export default router;
