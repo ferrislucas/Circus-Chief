@@ -14,6 +14,7 @@
               {{ sessionsStore.currentSession.status }}
             </span>
             <span class="session-mode">{{ formatMode(sessionsStore.currentSession.mode) }}</span>
+            <span class="session-model">{{ formatModel(sessionsStore.currentSession.model) }}</span>
             <span v-if="sessionsStore.currentSession.nextTemplateId" class="template-badge">
               🔗 Next: {{ getTemplateName(sessionsStore.currentSession.nextTemplateId) }}
             </span>
@@ -117,6 +118,7 @@ import { useCanvasStore } from '../stores/canvas.js';
 import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
+import { useModelInfo } from '../composables/useModelInfo.js';
 import { api } from '../composables/useApi.js';
 import ConversationTab from '../components/ConversationTab.vue';
 import ChangesTab from '../components/ChangesTab.vue';
@@ -135,6 +137,7 @@ const canvasStore = useCanvasStore();
 const todosStore = useTodosStore();
 const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
+const { getModelDisplayName } = useModelInfo();
 
 // Capture session ID at component creation to avoid race conditions during navigation.
 // When navigating away, Vue Router updates route.params BEFORE unmounting the component.
@@ -336,6 +339,10 @@ function formatMode(mode) {
   return mode.charAt(0).toUpperCase() + mode.slice(1);
 }
 
+function formatModel(modelId) {
+  return getModelDisplayName(modelId);
+}
+
 async function handleDelete() {
   if (!confirm('Are you sure you want to delete this session?')) return;
 
@@ -450,6 +457,11 @@ function getTemplateName(templateId) {
 }
 
 .session-mode {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.session-model {
   font-size: 0.75rem;
   color: var(--color-text-soft);
 }

@@ -33,6 +33,12 @@ vi.mock('../composables/useWebSocket.js', () => ({
   })),
 }));
 
+// Mock useModelInfo composable - use real implementation to test model display
+vi.mock('../composables/useModelInfo.js', async () => {
+  const actual = await vi.importActual('../composables/useModelInfo.js');
+  return actual;
+});
+
 // Mock the stores
 vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: vi.fn(),
@@ -83,6 +89,21 @@ vi.mock('../components/NotesTab.vue', () => ({
 }));
 vi.mock('../components/SummaryTab.vue', () => ({
   default: defineComponent({ name: 'SummaryTab', template: '<div />' }),
+}));
+vi.mock('../components/CommandsTab.vue', () => ({
+  default: defineComponent({ name: 'CommandsTab', template: '<div />' }),
+}));
+vi.mock('../components/PrIndicators.vue', () => ({
+  default: defineComponent({ name: 'PrIndicators', template: '<div />' }),
+}));
+vi.mock('../components/TokenUsagePanel.vue', () => ({
+  default: defineComponent({ name: 'TokenUsagePanel', template: '<div />' }),
+}));
+vi.mock('../stores/templates.js', () => ({
+  useTemplatesStore: vi.fn(() => ({
+    fetchProjectTemplates: vi.fn(),
+    getTemplateById: vi.fn(() => null),
+  })),
 }));
 
 import SessionDetailView from './SessionDetailView.vue';
@@ -265,6 +286,82 @@ describe('SessionDetailView', () => {
       await nextTick();
 
       expect(wrapper.find('.pr-link').exists()).toBe(false);
+    });
+  });
+
+  describe('model display', () => {
+    it('displays Opus 4.5 for claude-opus-4-5-20251101 model', async () => {
+      mockSessionsStore.currentSession.model = 'claude-opus-4-5-20251101';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Opus 4.5');
+    });
+
+    it('displays Sonnet 4.5 for claude-sonnet-4-5-20250929 model', async () => {
+      mockSessionsStore.currentSession.model = 'claude-sonnet-4-5-20250929';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Sonnet 4.5');
+    });
+
+    it('displays Haiku 4.5 for claude-haiku-4-5-20251001 model', async () => {
+      mockSessionsStore.currentSession.model = 'claude-haiku-4-5-20251001';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Haiku 4.5');
+    });
+
+    it('displays Default when model is null', async () => {
+      mockSessionsStore.currentSession.model = null;
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Default');
+    });
+
+    it('displays Default when model is undefined', async () => {
+      // model is not set (undefined)
+      delete mockSessionsStore.currentSession.model;
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Default');
+    });
+
+    it('displays Unknown for unrecognized model ID', async () => {
+      mockSessionsStore.currentSession.model = 'unknown-model-id';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Unknown');
+    });
+
+    it('renders model in session-meta alongside status and mode', async () => {
+      mockSessionsStore.currentSession.model = 'claude-opus-4-5-20251101';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const sessionMeta = wrapper.find('.session-meta');
+      expect(sessionMeta.find('.status-badge').exists()).toBe(true);
+      expect(sessionMeta.find('.session-mode').exists()).toBe(true);
+      expect(sessionMeta.find('.session-model').exists()).toBe(true);
     });
   });
 
