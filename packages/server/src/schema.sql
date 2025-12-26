@@ -59,6 +59,14 @@ CREATE TABLE IF NOT EXISTS conversations (
   summary_generated_at INTEGER,        -- When summary was last generated
   is_active INTEGER NOT NULL DEFAULT 0, -- Currently selected conversation (1 = active)
   claude_session_id TEXT,              -- Claude SDK session ID for this conversation's context
+  -- Token usage fields (per-conversation tracking)
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  cache_read_input_tokens INTEGER DEFAULT 0,
+  cache_creation_input_tokens INTEGER DEFAULT 0,
+  web_search_requests INTEGER DEFAULT 0,
+  context_window INTEGER DEFAULT 200000,
+  model TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

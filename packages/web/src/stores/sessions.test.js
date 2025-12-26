@@ -864,7 +864,8 @@ describe('Sessions Store', () => {
 
         store.updateRunningUsage(usage);
 
-        expect(store.runningUsage).toEqual(usage);
+        // runningUsage includes conversationId tracking (Issue #175)
+        expect(store.runningUsage).toEqual({ ...usage, conversationId: null });
       });
 
       it('can update runningUsage multiple times', () => {
@@ -958,6 +959,281 @@ describe('Sessions Store', () => {
         store.clearRunningUsage();
 
         expect(store.runningUsage).toBeNull();
+      });
+    });
+
+    // Issue #175 - Conversation-level token tracking tests
+    describe('conversationTokens getter', () => {
+      it('returns null when no active conversation', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = null;
+        store.conversations = [];
+
+        expect(store.conversationTokens).toBeNull();
+      });
+
+      it('returns null when active conversation not found', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'non-existent';
+        store.conversations = [{ id: 'other-conv', inputTokens: 100 }];
+
+        expect(store.conversationTokens).toBeNull();
+      });
+
+      it('returns token data for active conversation', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 1000,
+            outputTokens: 500,
+            cacheReadInputTokens: 200,
+            cacheCreationInputTokens: 100,
+            webSearchRequests: 2,
+          },
+        ];
+
+        const tokens = store.conversationTokens;
+
+        expect(tokens.inputTokens).toBe(1000);
+        expect(tokens.outputTokens).toBe(500);
+        expect(tokens.cacheReadInputTokens).toBe(200);
+        expect(tokens.cacheCreationInputTokens).toBe(100);
+        expect(tokens.webSearchRequests).toBe(2);
+      });
+
+      it('returns 0 for missing token fields', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [{ id: 'conv-1' }]; // no token fields
+
+        const tokens = store.conversationTokens;
+
+        expect(tokens.inputTokens).toBe(0);
+        expect(tokens.outputTokens).toBe(0);
+        expect(tokens.cacheReadInputTokens).toBe(0);
+        expect(tokens.cacheCreationInputTokens).toBe(0);
+        expect(tokens.webSearchRequests).toBe(0);
+      });
+    });
+
+    describe('contextPercentage getter', () => {
+      it('returns 0 when no session or conversation', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+        store.activeConversationId = null;
+        store.conversations = [];
+
+        expect(store.contextPercentage).toBe(0);
+      });
+
+      it('calculates percentage from active conversation', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 40000,
+            outputTokens: 10000,
+            contextWindow: 200000,
+          },
+        ];
+
+        // (40000 + 10000) / 200000 = 25%
+        expect(store.contextPercentage).toBe(25);
+      });
+
+      it('falls back to session data when no conversation', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = null;
+        store.conversations = [];
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 20000,
+          outputTokens: 10000,
+          contextWindow: 200000,
+        };
+
+        // (20000 + 10000) / 200000 = 15%
+        expect(store.contextPercentage).toBe(15);
+      });
+
+      it('uses default context window when not specified', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 20000,
+            outputTokens: 0,
+            // no contextWindow specified
+          },
+        ];
+
+        // (20000 + 0) / 200000 (default) = 10%
+        expect(store.contextPercentage).toBe(10);
+      });
+
+      it('caps at 100%', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 250000,
+            outputTokens: 50000,
+            contextWindow: 200000,
+          },
+        ];
+
+        expect(store.contextPercentage).toBe(100);
+      });
+
+      it('rounds to nearest integer', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 33333,
+            outputTokens: 0,
+            contextWindow: 200000,
+          },
+        ];
+
+        // 33333 / 200000 = 16.67%
+        expect(store.contextPercentage).toBe(17);
+      });
+    });
+
+    describe('updateRunningUsage with conversationId', () => {
+      it('tracks conversationId with usage', () => {
+        const store = useSessionsStore();
+        const usage = { inputTokens: 100, outputTokens: 50 };
+
+        store.updateRunningUsage(usage, 'conv-123');
+
+        expect(store.runningUsage.conversationId).toBe('conv-123');
+        expect(store.runningUsage.inputTokens).toBe(100);
+        expect(store.runningUsage.outputTokens).toBe(50);
+      });
+
+      it('defaults conversationId to null when not provided', () => {
+        const store = useSessionsStore();
+        store.updateRunningUsage({ inputTokens: 100, outputTokens: 50 });
+
+        expect(store.runningUsage.conversationId).toBeNull();
+      });
+
+      it('updates conversationId on subsequent calls', () => {
+        const store = useSessionsStore();
+
+        store.updateRunningUsage({ inputTokens: 50, outputTokens: 25 }, 'conv-1');
+        expect(store.runningUsage.conversationId).toBe('conv-1');
+
+        store.updateRunningUsage({ inputTokens: 100, outputTokens: 50 }, 'conv-2');
+        expect(store.runningUsage.conversationId).toBe('conv-2');
+      });
+    });
+
+    describe('finalizeUsage with conversationId', () => {
+      it('updates conversation with usage when conversationId provided', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+        store.conversations = [
+          { id: 'conv-1', inputTokens: 0, outputTokens: 0 },
+          { id: 'conv-2', inputTokens: 0, outputTokens: 0 },
+        ];
+
+        const usage = {
+          inputTokens: 1000,
+          outputTokens: 500,
+          cacheReadInputTokens: 200,
+          cacheCreationInputTokens: 100,
+          contextWindow: 200000,
+          model: 'claude-sonnet-4-20250514',
+        };
+
+        store.finalizeUsage(usage, 'conv-1');
+
+        const updatedConv = store.conversations.find((c) => c.id === 'conv-1');
+        expect(updatedConv.inputTokens).toBe(1000);
+        expect(updatedConv.outputTokens).toBe(500);
+        expect(updatedConv.cacheReadInputTokens).toBe(200);
+        expect(updatedConv.cacheCreationInputTokens).toBe(100);
+        expect(updatedConv.contextWindow).toBe(200000);
+        expect(updatedConv.model).toBe('claude-sonnet-4-20250514');
+
+        // Other conversation should be unchanged
+        const otherConv = store.conversations.find((c) => c.id === 'conv-2');
+        expect(otherConv.inputTokens).toBe(0);
+      });
+
+      it('still updates session when conversationId provided', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1', inputTokens: 0, outputTokens: 0 };
+        store.conversations = [{ id: 'conv-1', inputTokens: 0, outputTokens: 0 }];
+
+        store.finalizeUsage({ inputTokens: 1000, outputTokens: 500 }, 'conv-1');
+
+        // Session should still be updated for backward compatibility
+        expect(store.currentSession.inputTokens).toBe(1000);
+        expect(store.currentSession.outputTokens).toBe(500);
+      });
+
+      it('handles missing conversation gracefully', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1', inputTokens: 0 };
+        store.conversations = [];
+
+        // Should not throw
+        store.finalizeUsage({ inputTokens: 1000, outputTokens: 500 }, 'non-existent');
+
+        // Session should still be updated
+        expect(store.currentSession.inputTokens).toBe(1000);
+      });
+    });
+
+    describe('updateConversationUsage action', () => {
+      it('updates conversation in list', () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1', name: 'First', inputTokens: 0, outputTokens: 0 },
+          { id: 'conv-2', name: 'Second', inputTokens: 0, outputTokens: 0 },
+        ];
+
+        store.updateConversationUsage('conv-1', { inputTokens: 1000, outputTokens: 500 });
+
+        const conv = store.conversations.find((c) => c.id === 'conv-1');
+        expect(conv.inputTokens).toBe(1000);
+        expect(conv.outputTokens).toBe(500);
+      });
+
+      it('does nothing if conversation not found', () => {
+        const store = useSessionsStore();
+        store.conversations = [{ id: 'conv-1', inputTokens: 0 }];
+
+        // Should not throw
+        store.updateConversationUsage('non-existent', { inputTokens: 1000 });
+
+        expect(store.conversations).toHaveLength(1);
+        expect(store.conversations[0].inputTokens).toBe(0);
+      });
+
+      it('preserves other conversation properties', () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1', name: 'Test Conv', summary: 'A summary', isActive: true, inputTokens: 0 },
+        ];
+
+        store.updateConversationUsage('conv-1', { inputTokens: 500, outputTokens: 250 });
+
+        const conv = store.conversations[0];
+        expect(conv.name).toBe('Test Conv');
+        expect(conv.summary).toBe('A summary');
+        expect(conv.isActive).toBe(true);
+        expect(conv.inputTokens).toBe(500);
       });
     });
   });

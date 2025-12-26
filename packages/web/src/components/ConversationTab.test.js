@@ -59,6 +59,14 @@ vi.mock('./ModelSelector.vue', () => ({
   },
 }));
 
+// Issue #175 - TokenUsagePanel is now rendered in ConversationTab
+vi.mock('./TokenUsagePanel.vue', () => ({
+  default: {
+    name: 'TokenUsagePanel',
+    template: '<div class="token-usage-panel-stub"></div>',
+  },
+}));
+
 vi.mock('@claudetools/shared', async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -138,6 +146,8 @@ describe.skip('ConversationTab', () => {
           LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           FileAttachment: { template: '<div class="file-attachment-stub"></div>' },
+          // Issue #175 - TokenUsagePanel is now rendered in ConversationTab
+          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
         },
       },
     });

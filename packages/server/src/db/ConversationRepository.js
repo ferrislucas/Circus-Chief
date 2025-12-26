@@ -18,6 +18,14 @@ export class ConversationRepository extends BaseRepository {
       summaryGeneratedAt: row.summary_generated_at,
       isActive: row.is_active === 1,
       claudeSessionId: row.claude_session_id,
+      // Token usage fields
+      inputTokens: row.input_tokens || 0,
+      outputTokens: row.output_tokens || 0,
+      cacheReadInputTokens: row.cache_read_input_tokens || 0,
+      cacheCreationInputTokens: row.cache_creation_input_tokens || 0,
+      webSearchRequests: row.web_search_requests || 0,
+      contextWindow: row.context_window || 200000,
+      model: row.model,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -231,5 +239,52 @@ export class ConversationRepository extends BaseRepository {
     }
 
     return this.update(id, { name });
+  }
+
+  /**
+   * Update token usage statistics for a conversation
+   * @param {string} id - Conversation ID
+   * @param {Object} usage - Usage data
+   * @param {number} usage.inputTokens
+   * @param {number} usage.outputTokens
+   * @param {number} usage.cacheReadInputTokens
+   * @param {number} usage.cacheCreationInputTokens
+   * @param {number} usage.webSearchRequests
+   * @param {number} usage.contextWindow
+   * @param {string} [usage.model]
+   * @returns {Object|null} Updated conversation or null if not found
+   */
+  updateUsage(id, usage) {
+    const conversation = this.getById(id);
+    if (!conversation) {
+      return null;
+    }
+
+    const now = Date.now();
+    this.db
+      .prepare(
+        `UPDATE conversations SET
+          input_tokens = ?,
+          output_tokens = ?,
+          cache_read_input_tokens = ?,
+          cache_creation_input_tokens = ?,
+          web_search_requests = ?,
+          context_window = ?,
+          model = COALESCE(?, model),
+          updated_at = ?
+        WHERE id = ?`
+      )
+      .run(
+        usage.inputTokens,
+        usage.outputTokens,
+        usage.cacheReadInputTokens,
+        usage.cacheCreationInputTokens,
+        usage.webSearchRequests,
+        usage.contextWindow,
+        usage.model || null,
+        now,
+        id
+      );
+    return this.getById(id);
   }
 }

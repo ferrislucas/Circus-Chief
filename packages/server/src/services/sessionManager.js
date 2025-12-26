@@ -15,15 +15,20 @@ const thinkingAccumulators = new Map();
 /** @type {Map<string, { controller: AbortController }>} */
 const activeSessions = new Map();
 
-/** @type {Map<string, {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, cacheCreationInputTokens: number}>} */
+/** @type {Map<string, {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, cacheCreationInputTokens: number}>}
+ * Usage accumulators keyed by conversationId (Issue #175)
+ */
 const usageAccumulators = new Map();
 
+/** @type {Map<string, string>} Map sessionId -> conversationId for current turn */
+const activeConversationIds = new Map();
+
 /**
- * Initialize or reset usage accumulator for a session turn
- * @param {string} sessionId
+ * Initialize or reset usage accumulator for a conversation turn
+ * @param {string} conversationId
  */
-function resetUsageAccumulator(sessionId) {
-  usageAccumulators.set(sessionId, {
+function resetUsageAccumulator(conversationId) {
+  usageAccumulators.set(conversationId, {
     inputTokens: 0,
     outputTokens: 0,
     cacheReadInputTokens: 0,
@@ -33,12 +38,12 @@ function resetUsageAccumulator(sessionId) {
 
 /**
  * Accumulate usage from an assistant message
- * @param {string} sessionId
+ * @param {string} conversationId
  * @param {Object} usage - Usage data from SDK (snake_case)
  * @returns {Object} Accumulated usage
  */
-function accumulateUsage(sessionId, usage) {
-  const current = usageAccumulators.get(sessionId) || {
+function accumulateUsage(conversationId, usage) {
+  const current = usageAccumulators.get(conversationId) || {
     inputTokens: 0,
     outputTokens: 0,
     cacheReadInputTokens: 0,
@@ -52,17 +57,17 @@ function accumulateUsage(sessionId, usage) {
     cacheCreationInputTokens: current.cacheCreationInputTokens + (usage.cache_creation_input_tokens || 0),
   };
 
-  usageAccumulators.set(sessionId, accumulated);
+  usageAccumulators.set(conversationId, accumulated);
   return accumulated;
 }
 
 /**
- * Get current accumulated usage for a session
- * @param {string} sessionId
+ * Get current accumulated usage for a conversation
+ * @param {string} conversationId
  * @returns {Object|undefined}
  */
-function _getAccumulatedUsage(sessionId) {
-  return usageAccumulators.get(sessionId);
+function _getAccumulatedUsage(conversationId) {
+  return usageAccumulators.get(conversationId);
 }
 
 /** Check if mock mode is enabled (for E2E testing) */
@@ -509,12 +514,16 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
-  // Reset usage accumulator for this turn
-  resetUsageAccumulator(sessionId);
-
   try {
     // Get session for settings
     const session = sessions.getById(sessionId);
+
+    // Get the active conversation for this session (created in SessionRepository.create)
+    const activeConversation = conversations.ensureActiveConversation(sessionId);
+    activeConversationIds.set(sessionId, activeConversation.id);
+
+    // Reset usage accumulator for this conversation turn
+    resetUsageAccumulator(activeConversation.id);
 
     // Update status to running
     sessions.update(sessionId, { status: 'running' });
@@ -618,12 +627,13 @@ export async function continueSession(sessionId, content, workingDirectory, syst
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
-  // Reset usage accumulator for this turn
-  resetUsageAccumulator(sessionId);
-
   try {
     // Ensure there's an active conversation for this session
     const activeConversation = conversations.ensureActiveConversation(sessionId);
+    activeConversationIds.set(sessionId, activeConversation.id);
+
+    // Reset usage accumulator for this conversation turn
+    resetUsageAccumulator(activeConversation.id);
 
     // Each conversation has its own Claude session context
     // If null, Claude will start a fresh session (no resume)
@@ -828,11 +838,13 @@ async function handleStreamEvent(sessionId, event) {
       // Extract and broadcast usage from assistant message
       const messageUsage = event.message?.usage;
       if (messageUsage) {
-        const accumulated = accumulateUsage(sessionId, messageUsage);
+        const conversationId = activeConversationIds.get(sessionId);
+        const accumulated = accumulateUsage(conversationId, messageUsage);
 
-        // Broadcast partial usage update
+        // Broadcast partial usage update with conversationId
         broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
           sessionId,
+          conversationId,
           usage: accumulated,
           isFinal: false,
         });
@@ -958,40 +970,69 @@ async function handleStreamEvent(sessionId, event) {
           sessions.update(sessionId, { costUsd: event.total_cost_usd });
         }
 
-        // Store final usage stats
+        // Store final usage stats to conversation (Issue #175)
         if (event.usage || event.modelUsage) {
           // Extract from modelUsage if available (has more detail)
           const modelUsageEntry = event.modelUsage
             ? Object.values(event.modelUsage)[0]
             : null;
 
-          const finalUsage = {
+          const turnUsage = {
             inputTokens: modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
             outputTokens: modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
             cacheReadInputTokens: modelUsageEntry?.cacheReadInputTokens || event.usage?.cache_read_input_tokens || 0,
             cacheCreationInputTokens: modelUsageEntry?.cacheCreationInputTokens || event.usage?.cache_creation_input_tokens || 0,
             webSearchRequests: modelUsageEntry?.webSearchRequests || 0,
             contextWindow: modelUsageEntry?.contextWindow || 200000,
+            model: Object.keys(event.modelUsage || {})[0] || null,
           };
 
-          // Get existing session usage and add to it (cumulative across turns)
+          // Get the conversation ID for this session's current turn
+          const conversationId = activeConversationIds.get(sessionId);
+          const currentConversation = conversationId ? conversations.getById(conversationId) : null;
+
+          // Update conversation with cumulative usage (add to existing)
+          let updatedConversation = null;
+          if (currentConversation) {
+            const cumulativeConversationUsage = {
+              inputTokens: (currentConversation.inputTokens || 0) + turnUsage.inputTokens,
+              outputTokens: (currentConversation.outputTokens || 0) + turnUsage.outputTokens,
+              cacheReadInputTokens: (currentConversation.cacheReadInputTokens || 0) + turnUsage.cacheReadInputTokens,
+              cacheCreationInputTokens: (currentConversation.cacheCreationInputTokens || 0) + turnUsage.cacheCreationInputTokens,
+              webSearchRequests: (currentConversation.webSearchRequests || 0) + turnUsage.webSearchRequests,
+              contextWindow: turnUsage.contextWindow,
+              model: turnUsage.model,
+            };
+
+            updatedConversation = conversations.updateUsage(conversationId, cumulativeConversationUsage);
+          }
+
+          // Also update session-level usage (aggregate of all conversations) for backward compatibility
           const currentSession = sessions.getById(sessionId);
-          const cumulativeUsage = {
-            inputTokens: (currentSession.inputTokens || 0) + finalUsage.inputTokens,
-            outputTokens: (currentSession.outputTokens || 0) + finalUsage.outputTokens,
-            cacheReadInputTokens: (currentSession.cacheReadInputTokens || 0) + finalUsage.cacheReadInputTokens,
-            cacheCreationInputTokens: (currentSession.cacheCreationInputTokens || 0) + finalUsage.cacheCreationInputTokens,
-            webSearchRequests: (currentSession.webSearchRequests || 0) + finalUsage.webSearchRequests,
-            contextWindow: finalUsage.contextWindow,
+          const cumulativeSessionUsage = {
+            inputTokens: (currentSession.inputTokens || 0) + turnUsage.inputTokens,
+            outputTokens: (currentSession.outputTokens || 0) + turnUsage.outputTokens,
+            cacheReadInputTokens: (currentSession.cacheReadInputTokens || 0) + turnUsage.cacheReadInputTokens,
+            cacheCreationInputTokens: (currentSession.cacheCreationInputTokens || 0) + turnUsage.cacheCreationInputTokens,
+            webSearchRequests: (currentSession.webSearchRequests || 0) + turnUsage.webSearchRequests,
+            contextWindow: turnUsage.contextWindow,
           };
 
-          const updatedSession = sessions.updateUsage(sessionId, cumulativeUsage);
+          const updatedSession = sessions.updateUsage(sessionId, cumulativeSessionUsage);
 
-          // Broadcast final usage update
+          // Broadcast final usage update with conversationId
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
             sessionId,
-            usage: cumulativeUsage,
-            turnUsage: finalUsage,
+            conversationId,
+            usage: updatedConversation ? {
+              inputTokens: updatedConversation.inputTokens,
+              outputTokens: updatedConversation.outputTokens,
+              cacheReadInputTokens: updatedConversation.cacheReadInputTokens,
+              cacheCreationInputTokens: updatedConversation.cacheCreationInputTokens,
+              webSearchRequests: updatedConversation.webSearchRequests,
+              contextWindow: updatedConversation.contextWindow,
+            } : cumulativeSessionUsage,
+            turnUsage,
             isFinal: true,
           });
 
@@ -1002,8 +1043,17 @@ async function handleStreamEvent(sessionId, event) {
             session: updatedSession,
           });
 
-          // Clean up accumulator
-          usageAccumulators.delete(sessionId);
+          // Broadcast conversation update for real-time UI updates
+          if (updatedConversation) {
+            broadcastToSession(sessionId, WS_MESSAGE_TYPES.CONVERSATION_UPDATED, {
+              sessionId,
+              conversation: updatedConversation,
+            });
+          }
+
+          // Clean up accumulators
+          usageAccumulators.delete(conversationId);
+          activeConversationIds.delete(sessionId);
         }
       }
       // Note: Don't clear lastMessageIds here - let the post-loop association code handle it.

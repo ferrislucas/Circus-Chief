@@ -3,6 +3,9 @@
     <!-- Conversation Selector -->
     <ConversationSelector :session-id="sessionId" />
 
+    <!-- Token Usage Panel - shows conversation-level usage (Issue #175) -->
+    <TokenUsagePanel class="conversation-usage" />
+
     <div class="messages" ref="messagesContainer">
       <!-- Hide messages for draft sessions (only show in input field) -->
       <template v-if="!isDraft">
@@ -182,6 +185,7 @@ import WorkLogPanel from './WorkLogPanel.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
 import ConversationSelector from './ConversationSelector.vue';
+import TokenUsagePanel from './TokenUsagePanel.vue';
 import FileAttachment from './FileAttachment.vue';
 import ModelSelector from './ModelSelector.vue';
 import TemplateSelector from './TemplateSelector.vue';
@@ -540,6 +544,10 @@ async function handleTemplateChange(templateId) {
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+
+.conversation-usage {
+  margin-bottom: 1rem;
 }
 
 .messages {

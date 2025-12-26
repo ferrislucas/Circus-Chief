@@ -30,6 +30,7 @@ vi.mock('../composables/useWebSocket.js', () => ({
     onSessionUpdate: vi.fn(() => vi.fn()),
     onSummaryUpdate: vi.fn(() => vi.fn()),
     onUsageUpdate: vi.fn(() => vi.fn()),
+    onConversationUpdated: vi.fn(() => vi.fn()),
   })),
 }));
 
@@ -137,6 +138,7 @@ describe('SessionDetailView', () => {
       onSessionUpdate: vi.fn(() => vi.fn()),
       onSummaryUpdate: vi.fn(() => vi.fn()),
       onUsageUpdate: vi.fn(() => vi.fn()),
+      onConversationUpdated: vi.fn(() => vi.fn()),
     }));
 
     mockSessionsStore = {
@@ -158,6 +160,10 @@ describe('SessionDetailView', () => {
       updateSessionStatus: vi.fn(),
       addMessage: vi.fn(),
       updateSession: vi.fn(),
+      // Issue #175 - Conversation-level token tracking methods
+      finalizeUsage: vi.fn(),
+      updateRunningUsage: vi.fn(),
+      updateConversation: vi.fn(),
     };
 
     useSessionsStore.mockReturnValue(mockSessionsStore);
@@ -928,6 +934,209 @@ describe('SessionDetailView', () => {
         expect(container.find('.btn-archive-session').exists()).toBe(true);
         expect(container.find('.btn-delete-session').exists()).toBe(true);
       });
+    });
+  });
+
+  // Issue #175 - Conversation-level token usage tracking
+  describe('WebSocket usage update handlers', () => {
+    it('registers onUsageUpdate callback on mount', async () => {
+      let mockOnUsageUpdate = vi.fn(() => vi.fn());
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: mockOnUsageUpdate,
+        onConversationUpdated: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(mockOnUsageUpdate).toHaveBeenCalled();
+    });
+
+    it('calls finalizeUsage with conversationId when isFinal is true', async () => {
+      let capturedUsageCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn((callback) => {
+          capturedUsageCallback = callback;
+          return vi.fn();
+        }),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Simulate final usage update with conversationId
+      const usageData = {
+        isFinal: true,
+        usage: { inputTokens: 1000, outputTokens: 500 },
+        conversationId: 'conv-123',
+      };
+      capturedUsageCallback(usageData);
+
+      expect(mockSessionsStore.finalizeUsage).toHaveBeenCalledWith(
+        usageData.usage,
+        'conv-123'
+      );
+    });
+
+    it('calls updateRunningUsage with conversationId when isFinal is false', async () => {
+      let capturedUsageCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn((callback) => {
+          capturedUsageCallback = callback;
+          return vi.fn();
+        }),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Simulate partial usage update with conversationId
+      const usageData = {
+        isFinal: false,
+        usage: { inputTokens: 500, outputTokens: 250 },
+        conversationId: 'conv-456',
+      };
+      capturedUsageCallback(usageData);
+
+      expect(mockSessionsStore.updateRunningUsage).toHaveBeenCalledWith(
+        usageData.usage,
+        'conv-456'
+      );
+    });
+
+    it('handles usage update without conversationId for backward compatibility', async () => {
+      let capturedUsageCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn((callback) => {
+          capturedUsageCallback = callback;
+          return vi.fn();
+        }),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Simulate usage update without conversationId
+      const usageData = {
+        isFinal: true,
+        usage: { inputTokens: 1000, outputTokens: 500 },
+        // no conversationId
+      };
+      capturedUsageCallback(usageData);
+
+      expect(mockSessionsStore.finalizeUsage).toHaveBeenCalledWith(
+        usageData.usage,
+        undefined
+      );
+    });
+  });
+
+  describe('WebSocket conversation update handlers', () => {
+    it('registers onConversationUpdated callback on mount', async () => {
+      let mockOnConversationUpdated = vi.fn(() => vi.fn());
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: mockOnConversationUpdated,
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(mockOnConversationUpdated).toHaveBeenCalled();
+    });
+
+    it('calls updateConversation when conversation update is received', async () => {
+      let capturedConversationCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: vi.fn((callback) => {
+          capturedConversationCallback = callback;
+          return vi.fn();
+        }),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Simulate conversation update
+      const conversationData = {
+        id: 'conv-789',
+        name: 'Test Conversation',
+        inputTokens: 1500,
+        outputTokens: 750,
+      };
+      capturedConversationCallback(conversationData);
+
+      expect(mockSessionsStore.updateConversation).toHaveBeenCalledWith(conversationData);
     });
   });
 });

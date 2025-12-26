@@ -302,4 +302,84 @@ describe('ConversationSelector', () => {
       expect(wrapper.find('.delete-btn').exists()).toBe(false);
     });
   });
+
+  // Issue #175 - Conversation-level token tracking
+  describe('token count display', () => {
+    it('shows token count for each conversation in dropdown', async () => {
+      mockSessionsStore.conversations = [
+        { id: 'conv-1', name: 'First', isActive: false, messageCount: 5, inputTokens: 1000, outputTokens: 500 },
+        { id: 'conv-2', name: 'Second', isActive: true, messageCount: 10, inputTokens: 5000, outputTokens: 2500 },
+      ];
+
+      const wrapper = mountComponent();
+      await wrapper.find('.dropdown-trigger').trigger('click');
+
+      const items = wrapper.findAll('.dropdown-item');
+      // Check that token counts are displayed
+      expect(items[0].text()).toContain('1.5K');
+      expect(items[1].text()).toContain('7.5K');
+    });
+
+    it('shows 0 tokens for conversations with no usage', async () => {
+      mockSessionsStore.conversations = [
+        { id: 'conv-1', name: 'Empty', isActive: true, messageCount: 0 },
+      ];
+
+      const wrapper = mountComponent();
+      await wrapper.find('.dropdown-trigger').trigger('click');
+
+      const item = wrapper.find('.dropdown-item');
+      expect(item.text()).toContain('0');
+    });
+
+    it('formats large token counts with K suffix', async () => {
+      mockSessionsStore.conversations = [
+        { id: 'conv-1', name: 'Large', isActive: true, messageCount: 20, inputTokens: 50000, outputTokens: 25000 },
+      ];
+
+      const wrapper = mountComponent();
+      await wrapper.find('.dropdown-trigger').trigger('click');
+
+      const item = wrapper.find('.dropdown-item');
+      expect(item.text()).toContain('75.0K');
+    });
+
+    it('formats very large token counts with M suffix', async () => {
+      mockSessionsStore.conversations = [
+        { id: 'conv-1', name: 'Huge', isActive: true, messageCount: 100, inputTokens: 1500000, outputTokens: 500000 },
+      ];
+
+      const wrapper = mountComponent();
+      await wrapper.find('.dropdown-trigger').trigger('click');
+
+      const item = wrapper.find('.dropdown-item');
+      expect(item.text()).toContain('2.0M');
+    });
+
+    it('handles missing token fields gracefully', async () => {
+      mockSessionsStore.conversations = [
+        { id: 'conv-1', name: 'Missing', isActive: true, messageCount: 5 },
+      ];
+
+      const wrapper = mountComponent();
+      await wrapper.find('.dropdown-trigger').trigger('click');
+
+      // Should not throw and should show some value
+      const item = wrapper.find('.dropdown-item');
+      expect(item.exists()).toBe(true);
+    });
+
+    it('shows token count in meta section', async () => {
+      mockSessionsStore.conversations = [
+        { id: 'conv-1', name: 'Test', isActive: true, messageCount: 5, inputTokens: 2000, outputTokens: 1000 },
+      ];
+
+      const wrapper = mountComponent();
+      await wrapper.find('.dropdown-trigger').trigger('click');
+
+      const meta = wrapper.find('.conv-meta');
+      expect(meta.exists()).toBe(true);
+      expect(meta.text()).toContain('3.0K'); // 2000 + 1000 = 3000 = 3.0K
+    });
+  });
 });

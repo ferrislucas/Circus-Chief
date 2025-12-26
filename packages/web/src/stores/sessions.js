@@ -36,31 +36,63 @@ export const useSessionsStore = defineStore('sessions', {
     isDraftSession: (state) => (session) => {
       // A session is a draft if it's in waiting status and has no assistant messages
       if (!session || session.status !== 'waiting') return false;
-      return !state.messages.some(msg => msg.role === 'assistant');
+      return !state.messages.some((msg) => msg.role === 'assistant');
     },
-    // Token usage getters
+    // Token usage getters - now conversation-level (Issue #175)
+    conversationTokens: (state) => {
+      const conv = state.conversations.find((c) => c.id === state.activeConversationId);
+      return conv
+        ? {
+            inputTokens: conv.inputTokens || 0,
+            outputTokens: conv.outputTokens || 0,
+            cacheReadInputTokens: conv.cacheReadInputTokens || 0,
+            cacheCreationInputTokens: conv.cacheCreationInputTokens || 0,
+            webSearchRequests: conv.webSearchRequests || 0,
+            contextWindow: conv.contextWindow || 200000,
+            model: conv.model,
+          }
+        : null;
+    },
     totalTokens: (state) => {
+      // Use active conversation tokens if available, fallback to session
+      const conv = state.conversations.find((c) => c.id === state.activeConversationId);
+      if (conv) {
+        return (conv.inputTokens || 0) + (conv.outputTokens || 0);
+      }
       const session = state.currentSession;
       if (!session) return 0;
       return (session.inputTokens || 0) + (session.outputTokens || 0);
     },
     formattedTokens: (state) => {
-      const session = state.currentSession;
-      if (!session) return { input: '0', output: '0', total: '0' };
-
       const format = (n) => {
         if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
         if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
         return String(n);
       };
 
+      // Use active conversation tokens if available, fallback to session
+      const conv = state.conversations.find((c) => c.id === state.activeConversationId);
+      const source = conv || state.currentSession;
+
+      if (!source) return { input: '0', output: '0', total: '0', cacheRead: '0', cacheCreation: '0' };
+
       return {
-        input: format(session.inputTokens || 0),
-        output: format(session.outputTokens || 0),
-        total: format((session.inputTokens || 0) + (session.outputTokens || 0)),
-        cacheRead: format(session.cacheReadInputTokens || 0),
-        cacheCreation: format(session.cacheCreationInputTokens || 0),
+        input: format(source.inputTokens || 0),
+        output: format(source.outputTokens || 0),
+        total: format((source.inputTokens || 0) + (source.outputTokens || 0)),
+        cacheRead: format(source.cacheReadInputTokens || 0),
+        cacheCreation: format(source.cacheCreationInputTokens || 0),
       };
+    },
+    contextPercentage: (state) => {
+      // Calculate context usage percentage for the active conversation
+      const conv = state.conversations.find((c) => c.id === state.activeConversationId);
+      const source = conv || state.currentSession;
+      if (!source) return 0;
+
+      const totalTokens = (source.inputTokens || 0) + (source.outputTokens || 0);
+      const contextWindow = source.contextWindow || 200000;
+      return Math.min(100, Math.round((totalTokens / contextWindow) * 100));
     },
     isUsageUpdating: (state) => {
       return state.runningUsage !== null;
@@ -359,16 +391,36 @@ export const useSessionsStore = defineStore('sessions', {
     /**
      * Update running usage during a turn (partial update)
      * @param {Object} usage - Usage data
+     * @param {string} [conversationId] - Conversation ID (Issue #175)
      */
-    updateRunningUsage(usage) {
-      this.runningUsage = usage;
+    updateRunningUsage(usage, conversationId = null) {
+      this.runningUsage = { ...usage, conversationId };
     },
 
     /**
-     * Finalize usage at end of turn (update session with final values)
+     * Finalize usage at end of turn (update conversation and session with final values)
      * @param {Object} usage - Final cumulative usage
+     * @param {string} [conversationId] - Conversation ID (Issue #175)
      */
-    finalizeUsage(usage) {
+    finalizeUsage(usage, conversationId = null) {
+      // Update conversation usage if conversationId provided (Issue #175)
+      if (conversationId) {
+        const index = this.conversations.findIndex((c) => c.id === conversationId);
+        if (index !== -1) {
+          this.conversations[index] = {
+            ...this.conversations[index],
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cacheReadInputTokens: usage.cacheReadInputTokens,
+            cacheCreationInputTokens: usage.cacheCreationInputTokens,
+            webSearchRequests: usage.webSearchRequests,
+            contextWindow: usage.contextWindow,
+            model: usage.model,
+          };
+        }
+      }
+
+      // Also update session for backward compatibility
       if (this.currentSession) {
         this.currentSession = {
           ...this.currentSession,
@@ -381,6 +433,27 @@ export const useSessionsStore = defineStore('sessions', {
         };
       }
       this.runningUsage = null;
+    },
+
+    /**
+     * Update conversation usage from WebSocket event (Issue #175)
+     * @param {string} conversationId - Conversation ID
+     * @param {Object} usage - Usage data
+     */
+    updateConversationUsage(conversationId, usage) {
+      const index = this.conversations.findIndex((c) => c.id === conversationId);
+      if (index !== -1) {
+        this.conversations[index] = {
+          ...this.conversations[index],
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadInputTokens: usage.cacheReadInputTokens,
+          cacheCreationInputTokens: usage.cacheCreationInputTokens,
+          webSearchRequests: usage.webSearchRequests,
+          contextWindow: usage.contextWindow,
+          model: usage.model,
+        };
+      }
     },
 
     /**
