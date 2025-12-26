@@ -1425,4 +1425,58 @@ describe('Sessions Store', () => {
       });
     });
   });
+
+  describe('isDraftSession getter', () => {
+    it('returns false for null session', () => {
+      const store = useSessionsStore();
+      expect(store.isDraftSession(null)).toBe(false);
+    });
+
+    it('returns false for session not in waiting status', () => {
+      const store = useSessionsStore();
+      expect(store.isDraftSession({ id: 'session-1', status: 'running' })).toBe(false);
+      expect(store.isDraftSession({ id: 'session-1', status: 'completed' })).toBe(false);
+      expect(store.isDraftSession({ id: 'session-1', status: 'error' })).toBe(false);
+    });
+
+    it('returns true for waiting session with hasResponses=false from server', () => {
+      const store = useSessionsStore();
+      const session = { id: 'session-1', status: 'waiting', hasResponses: false };
+      expect(store.isDraftSession(session)).toBe(true);
+    });
+
+    it('returns false for waiting session with hasResponses=true from server', () => {
+      const store = useSessionsStore();
+      const session = { id: 'session-1', status: 'waiting', hasResponses: true };
+      expect(store.isDraftSession(session)).toBe(false);
+    });
+
+    it('falls back to checking messages if hasResponses is undefined', () => {
+      const store = useSessionsStore();
+      const session = { id: 'session-1', status: 'waiting' }; // no hasResponses
+
+      // No messages loaded - should be a draft
+      store.messages = [];
+      expect(store.isDraftSession(session)).toBe(true);
+
+      // Has assistant message - not a draft
+      store.messages = [{ role: 'assistant', content: 'Hello' }];
+      expect(store.isDraftSession(session)).toBe(false);
+    });
+
+    it('prioritizes hasResponses over local messages state', () => {
+      const store = useSessionsStore();
+
+      // Even with empty messages array, if server says hasResponses=true, it's not a draft
+      store.messages = [];
+      const sessionWithResponses = { id: 'session-1', status: 'waiting', hasResponses: true };
+      expect(store.isDraftSession(sessionWithResponses)).toBe(false);
+
+      // Even with assistant messages in store, if server says hasResponses=false, it's a draft
+      // (this case shouldn't happen in practice, but tests the priority)
+      store.messages = [{ role: 'assistant', content: 'Hello' }];
+      const sessionNoDraft = { id: 'session-1', status: 'waiting', hasResponses: false };
+      expect(store.isDraftSession(sessionNoDraft)).toBe(true);
+    });
+  });
 });
