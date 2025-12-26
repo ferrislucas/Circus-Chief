@@ -676,8 +676,8 @@ router.post('/:id/command-buttons/:buttonId/run', (req, res) => {
         (text) => {
           output += text;
           // Broadcast output via WebSocket
-          broadcastToSession(sessionId, {
-            type: WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT,
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
+            sessionId,
             runId,
             buttonId,
             output: text,
@@ -686,8 +686,8 @@ router.post('/:id/command-buttons/:buttonId/run', (req, res) => {
         (exitCode) => {
           // Broadcast completion via WebSocket
           const status = exitCode === 0 ? 'success' : 'error';
-          broadcastToSession(sessionId, {
-            type: WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE,
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, {
+            sessionId,
             runId,
             buttonId,
             status,
@@ -697,21 +697,21 @@ router.post('/:id/command-buttons/:buttonId/run', (req, res) => {
         },
         (message) => {
           // Broadcast error via WebSocket
-          broadcastToSession(sessionId, {
-            type: WS_MESSAGE_TYPES.COMMAND_RUN_ERROR,
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
+            sessionId,
             runId,
             buttonId,
-            message,
+            error: message,
           });
         }
       );
     } catch (error) {
       console.error(`Error running command button ${buttonId}:`, error);
-      broadcastToSession(sessionId, {
-        type: WS_MESSAGE_TYPES.COMMAND_RUN_ERROR,
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
+        sessionId,
         runId,
         buttonId,
-        message: error.message,
+        error: error.message,
       });
     }
   })();
