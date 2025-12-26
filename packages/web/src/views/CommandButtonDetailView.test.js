@@ -12,7 +12,7 @@ vi.mock('vue-router', () => ({
   }),
   useRoute: () => ({
     params: {
-      id: 'test-project',
+      projectId: 'test-project',
       buttonId: null,
     },
   }),
@@ -201,7 +201,7 @@ describe('CommandButtonDetailView', () => {
       }),
       useRoute: () => ({
         params: {
-          id: 'test-project',
+          projectId: 'test-project',
           buttonId: 'btn-1',
         },
       }),
@@ -248,8 +248,8 @@ describe('CommandButtonDetailView', () => {
     expect(wrapper.find('.modal-overlay').exists()).toBe(false);
 
     // Set form data to enable delete button in edit mode (simulate edit mode)
-    await wrapper.vm.formData.label = 'Test Button';
-    await wrapper.vm.formData.command = 'npm test';
+    wrapper.vm.formData.label = 'Test Button';
+    wrapper.vm.formData.command = 'npm test';
   });
 
   it('handles API errors', async () => {

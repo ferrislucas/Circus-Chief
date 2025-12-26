@@ -8,7 +8,7 @@
     <div v-else class="form-container">
       <!-- Header -->
       <div class="form-header">
-        <router-link :to="`/projects/${route.params.id}/sessions`" class="btn btn-outline-secondary">
+        <router-link :to="`/projects/${route.params.projectId}/sessions`" class="btn btn-outline-secondary">
           ← Back
         </router-link>
         <h2>{{ isEditMode ? 'Edit Command Button' : 'New Command Button' }}</h2>
@@ -173,7 +173,7 @@ const onSubmit = async () => {
 
   isSaving.value = true;
   try {
-    const projectId = route.params.id;
+    const projectId = route.params.projectId;
     const buttonData = {
       label: formData.value.label,
       command: formData.value.command,
@@ -208,7 +208,7 @@ const onDelete = () => {
 const confirmDelete = async () => {
   isDeleting.value = true;
   try {
-    const projectId = route.params.id;
+    const projectId = route.params.projectId;
     const buttonId = route.params.buttonId;
 
     await commandButtonsStore.deleteButton(projectId, buttonId);
