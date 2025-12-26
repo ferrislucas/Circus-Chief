@@ -6,6 +6,7 @@
         <p class="session-meta">
           <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
           <span class="session-mode">{{ formattedMode }}</span>
+          <span class="session-model">{{ formattedModel }}</span>
         </p>
         <div v-if="session.gitBranch || session.prUrl" class="branch-row">
           <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
@@ -77,6 +78,7 @@
 <script setup>
 import { computed } from 'vue';
 import { formatDate } from '../utils/formatters.js';
+import { useModelInfo } from '../composables/useModelInfo.js';
 import PrIndicators from './PrIndicators.vue';
 
 const props = defineProps({
@@ -116,6 +118,8 @@ const props = defineProps({
 
 defineEmits(['retrySummary', 'archive', 'unarchive']);
 
+const { getModelDisplayName } = useModelInfo();
+
 // Show archive for any status except running
 const canArchive = computed(() => {
   return props.session.status !== 'running';
@@ -131,6 +135,10 @@ const formattedMode = computed(() => {
   if (mode === 'yolo') return 'YOLO';
   // Capitalize first letter for other modes
   return mode ? mode.charAt(0).toUpperCase() + mode.slice(1) : '';
+});
+
+const formattedModel = computed(() => {
+  return getModelDisplayName(props.session.model);
 });
 </script>
 
@@ -168,6 +176,11 @@ const formattedMode = computed(() => {
 }
 
 .session-mode {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.session-model {
   font-size: 0.75rem;
   color: var(--color-text-soft);
 }
