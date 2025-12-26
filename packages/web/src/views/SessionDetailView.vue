@@ -18,7 +18,6 @@
               🔗 Next: {{ getTemplateName(sessionsStore.currentSession.nextTemplateId) }}
             </span>
           </div>
-          <TokenUsagePanel class="session-usage" />
           <div class="branch-line">
             <div class="branch-pr-indicators">
               <span
@@ -123,7 +122,6 @@ import CanvasTab from '../components/CanvasTab.vue';
 import NotesTab from '../components/NotesTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
-import TokenUsagePanel from '../components/TokenUsagePanel.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
 const route = useRoute();
@@ -160,7 +158,7 @@ function navigateToTab(tabId) {
   router.push(`/sessions/${route.params.id}/${tabId}`);
 }
 
-const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onUsageUpdate } =
+const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onUsageUpdate, onConversationUpdated } =
   useSessionSubscription(sessionId);
 
 let cleanups = [];
@@ -313,10 +311,18 @@ onMounted(async () => {
   cleanups.push(
     onUsageUpdate((msg) => {
       if (msg.isFinal) {
-        sessionsStore.finalizeUsage(msg.usage);
+        // Pass conversationId for conversation-level usage tracking (Issue #175)
+        sessionsStore.finalizeUsage(msg.usage, msg.conversationId);
       } else {
-        sessionsStore.updateRunningUsage(msg.usage);
+        sessionsStore.updateRunningUsage(msg.usage, msg.conversationId);
       }
+    })
+  );
+
+  // Handle conversation updates for usage tracking (Issue #175)
+  cleanups.push(
+    onConversationUpdated((conversation) => {
+      sessionsStore.updateConversation(conversation);
     })
   );
 });

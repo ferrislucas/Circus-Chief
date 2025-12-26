@@ -21,6 +21,9 @@ describe('TokenUsagePanel', () => {
       currentSession: null,
       formattedTokens: { input: '0', output: '0', total: '0', cacheRead: '0', cacheCreation: '0' },
       isUsageUpdating: false,
+      // Issue #175 - Conversation-level token tracking
+      contextPercentage: 0,
+      conversationTokens: null,
     };
 
     vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
@@ -41,13 +44,24 @@ describe('TokenUsagePanel', () => {
       expect(wrapper.find('.token-usage-panel').exists()).toBe(true);
     });
 
-    it('displays token usage title', () => {
+    it('renders compact view with token count and context bar', () => {
+      mockSessionsStore.formattedTokens = {
+        input: '1K',
+        output: '500',
+        total: '1.5K',
+        cacheRead: '0',
+        cacheCreation: '0',
+      };
+      mockSessionsStore.contextPercentage = 10;
+
       const wrapper = mountComponent();
 
-      expect(wrapper.find('.usage-title').text()).toBe('Token Usage');
+      expect(wrapper.find('.usage-compact').exists()).toBe(true);
+      expect(wrapper.find('.compact-tokens').exists()).toBe(true);
+      expect(wrapper.find('.context-bar-compact').exists()).toBe(true);
     });
 
-    it('displays input, output, and total stats', () => {
+    it('displays total token count', () => {
       mockSessionsStore.formattedTokens = {
         input: '1.5K',
         output: '500',
@@ -58,15 +72,61 @@ describe('TokenUsagePanel', () => {
 
       const wrapper = mountComponent();
 
-      const stats = wrapper.findAll('.stat');
-      expect(stats).toHaveLength(3);
+      expect(wrapper.find('.total-label').text()).toBe('2K');
+      expect(wrapper.find('.total-suffix').text()).toBe('tokens');
+    });
+  });
 
-      expect(wrapper.text()).toContain('Input');
-      expect(wrapper.text()).toContain('Output');
-      expect(wrapper.text()).toContain('Total');
-      expect(wrapper.text()).toContain('1.5K');
-      expect(wrapper.text()).toContain('500');
-      expect(wrapper.text()).toContain('2K');
+  describe('context bar', () => {
+    it('always shows context bar in compact view', () => {
+      mockSessionsStore.contextPercentage = 25;
+
+      const wrapper = mountComponent();
+
+      expect(wrapper.find('.context-bar-compact').exists()).toBe(true);
+      expect(wrapper.find('.context-bar-track-compact').exists()).toBe(true);
+      expect(wrapper.find('.context-bar-fill').exists()).toBe(true);
+    });
+
+    it('shows context percentage', () => {
+      mockSessionsStore.contextPercentage = 25;
+
+      const wrapper = mountComponent();
+
+      expect(wrapper.find('.context-pct').text()).toBe('25%');
+    });
+
+    it('sets context bar width from percentage', () => {
+      mockSessionsStore.contextPercentage = 50;
+
+      const wrapper = mountComponent();
+
+      const fill = wrapper.find('.context-bar-fill');
+      expect(fill.attributes('style')).toContain('width: 50%');
+    });
+
+    it('shows normal style for low usage (under 70%)', () => {
+      mockSessionsStore.contextPercentage = 30;
+
+      const wrapper = mountComponent();
+
+      expect(wrapper.find('.context-bar-fill.normal').exists()).toBe(true);
+    });
+
+    it('shows warning style for 70-89% usage', () => {
+      mockSessionsStore.contextPercentage = 75;
+
+      const wrapper = mountComponent();
+
+      expect(wrapper.find('.context-bar-fill.warning').exists()).toBe(true);
+    });
+
+    it('shows critical style for 90%+ usage', () => {
+      mockSessionsStore.contextPercentage = 95;
+
+      const wrapper = mountComponent();
+
+      expect(wrapper.find('.context-bar-fill.critical').exists()).toBe(true);
     });
   });
 
@@ -89,12 +149,12 @@ describe('TokenUsagePanel', () => {
     });
   });
 
-  describe('show details button', () => {
-    it('does not show toggle button when no details to show', () => {
+  describe('details toggle button', () => {
+    it('does not show toggle button when no cache tokens', () => {
       mockSessionsStore.currentSession = {
         id: 'session-1',
-        inputTokens: 0,
-        outputTokens: 0,
+        inputTokens: 1000,
+        outputTokens: 500,
         cacheReadInputTokens: 0,
         cacheCreationInputTokens: 0,
       };
@@ -116,7 +176,6 @@ describe('TokenUsagePanel', () => {
       const wrapper = mountComponent();
 
       expect(wrapper.find('.toggle-details').exists()).toBe(true);
-      expect(wrapper.find('.toggle-details').text()).toBe('Show details');
     });
 
     it('toggles details on button click', async () => {
@@ -126,7 +185,6 @@ describe('TokenUsagePanel', () => {
         outputTokens: 500,
         cacheReadInputTokens: 100,
         cacheCreationInputTokens: 50,
-        contextWindow: 200000,
       };
       mockSessionsStore.formattedTokens = {
         input: '1K',
@@ -145,7 +203,6 @@ describe('TokenUsagePanel', () => {
       await wrapper.find('.toggle-details').trigger('click');
 
       expect(wrapper.find('.usage-details').exists()).toBe(true);
-      expect(wrapper.find('.toggle-details').text()).toBe('Hide details');
 
       // Click to hide details
       await wrapper.find('.toggle-details').trigger('click');
@@ -155,14 +212,13 @@ describe('TokenUsagePanel', () => {
   });
 
   describe('details section', () => {
-    it('shows cache read and creation values', async () => {
+    it('shows input, output, cache read and cache creation values', async () => {
       mockSessionsStore.currentSession = {
         id: 'session-1',
         inputTokens: 1000,
         outputTokens: 500,
         cacheReadInputTokens: 200,
         cacheCreationInputTokens: 100,
-        contextWindow: 200000,
       };
       mockSessionsStore.formattedTokens = {
         input: '1K',
@@ -175,92 +231,53 @@ describe('TokenUsagePanel', () => {
       const wrapper = mountComponent();
       await wrapper.find('.toggle-details').trigger('click');
 
+      expect(wrapper.text()).toContain('Input');
+      expect(wrapper.text()).toContain('Output');
       expect(wrapper.text()).toContain('Cache Read');
-      expect(wrapper.text()).toContain('200');
       expect(wrapper.text()).toContain('Cache Creation');
+      expect(wrapper.text()).toContain('1K');
+      expect(wrapper.text()).toContain('500');
+      expect(wrapper.text()).toContain('200');
       expect(wrapper.text()).toContain('100');
     });
-
-    it('shows context bar when tokens exist', async () => {
-      mockSessionsStore.currentSession = {
-        id: 'session-1',
-        inputTokens: 10000,
-        outputTokens: 5000,
-        cacheReadInputTokens: 100,
-        cacheCreationInputTokens: 0,
-        contextWindow: 200000,
-      };
-
-      const wrapper = mountComponent();
-      await wrapper.find('.toggle-details').trigger('click');
-
-      expect(wrapper.find('.context-bar').exists()).toBe(true);
-      expect(wrapper.text()).toContain('Context Usage');
-    });
   });
 
-  describe('context bar styling', () => {
-    it('shows normal style for low usage', async () => {
-      mockSessionsStore.currentSession = {
-        id: 'session-1',
-        inputTokens: 50000,
-        outputTokens: 10000,
-        cacheReadInputTokens: 100,
-        contextWindow: 200000,
+  // Issue #175 - Conversation-level token tracking
+  describe('conversation-level data', () => {
+    it('uses conversation tokens when available for hasDetailsToShow', () => {
+      mockSessionsStore.conversationTokens = {
+        inputTokens: 500,
+        outputTokens: 250,
+        cacheReadInputTokens: 50,
+        cacheCreationInputTokens: 25,
       };
 
       const wrapper = mountComponent();
-      await wrapper.find('.toggle-details').trigger('click');
 
-      expect(wrapper.find('.context-bar-fill.normal').exists()).toBe(true);
+      // Should show toggle button because conversationTokens has cache data
+      expect(wrapper.find('.toggle-details').exists()).toBe(true);
     });
 
-    it('shows warning style for 70-89% usage', async () => {
-      mockSessionsStore.currentSession = {
-        id: 'session-1',
-        inputTokens: 140000,
-        outputTokens: 10000,
-        cacheReadInputTokens: 100,
-        contextWindow: 200000,
-      };
+    it('uses store contextPercentage getter', () => {
+      mockSessionsStore.contextPercentage = 42;
 
       const wrapper = mountComponent();
-      await wrapper.find('.toggle-details').trigger('click');
 
-      expect(wrapper.find('.context-bar-fill.warning').exists()).toBe(true);
+      expect(wrapper.find('.context-pct').text()).toBe('42%');
     });
 
-    it('shows critical style for 90%+ usage', async () => {
-      mockSessionsStore.currentSession = {
-        id: 'session-1',
-        inputTokens: 180000,
-        outputTokens: 10000,
-        cacheReadInputTokens: 100,
-        contextWindow: 200000,
-      };
-
-      const wrapper = mountComponent();
-      await wrapper.find('.toggle-details').trigger('click');
-
-      expect(wrapper.find('.context-bar-fill.critical').exists()).toBe(true);
-    });
-  });
-
-  describe('formatted values', () => {
-    it('displays formatted token values from store', () => {
+    it('displays formatted total from store', () => {
       mockSessionsStore.formattedTokens = {
-        input: '5.5K',
-        output: '2.5K',
-        total: '8K',
-        cacheRead: '1K',
-        cacheCreation: '500',
+        input: '2K',
+        output: '1K',
+        total: '3K',
+        cacheRead: '0',
+        cacheCreation: '0',
       };
 
       const wrapper = mountComponent();
 
-      expect(wrapper.text()).toContain('5.5K');
-      expect(wrapper.text()).toContain('2.5K');
-      expect(wrapper.text()).toContain('8K');
+      expect(wrapper.find('.total-label').text()).toBe('3K');
     });
   });
 });

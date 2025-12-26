@@ -25,7 +25,12 @@
             @click="selectConversation(conv.id)"
           >
             <span class="conv-name">{{ getConversationDisplayName(conv, index) }}</span>
-            <span class="conv-meta">{{ conv.messageCount || 0 }} msgs</span>
+            <span class="conv-meta">
+              {{ conv.messageCount || 0 }} msgs
+              <span v-if="getConversationTokens(conv)" class="conv-tokens">
+                · {{ getConversationTokens(conv) }}
+              </span>
+            </span>
             <button
               v-if="conversations.length > 1 && conv.id !== activeConversationId"
               type="button"
@@ -83,6 +88,19 @@ const activeConversation = computed(() => sessionsStore.activeConversation);
 // Generate display names for conversations (fallback to "Conversation N" if no name)
 function getConversationDisplayName(conv, index) {
   return conv.name || `Conversation ${index + 1}`;
+}
+
+// Format token count for display (Issue #175)
+function formatTokens(n) {
+  if (!n || n === 0) return null;
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(n);
+}
+
+function getConversationTokens(conv) {
+  const total = (conv.inputTokens || 0) + (conv.outputTokens || 0);
+  return formatTokens(total);
 }
 
 // Get display name for the active conversation
@@ -270,6 +288,10 @@ onUnmounted(() => {
   font-size: 0.75rem;
   color: var(--color-text-soft);
   white-space: nowrap;
+}
+
+.conv-tokens {
+  font-family: var(--font-mono);
 }
 
 .delete-btn {

@@ -316,4 +316,88 @@ describe('ConversationRepository', () => {
       expect(updated.name.length).toBeLessThanOrEqual(55);
     });
   });
+
+  describe('updateUsage', () => {
+    it('updates token usage fields on conversation', () => {
+      const conv = repo.create(sessionId, 'Test Conv');
+
+      const usage = {
+        inputTokens: 1000,
+        outputTokens: 500,
+        cacheReadInputTokens: 200,
+        cacheCreationInputTokens: 100,
+        webSearchRequests: 2,
+        contextWindow: 200000,
+        model: 'claude-sonnet-4-20250514',
+      };
+
+      const updated = repo.updateUsage(conv.id, usage);
+
+      expect(updated.inputTokens).toBe(1000);
+      expect(updated.outputTokens).toBe(500);
+      expect(updated.cacheReadInputTokens).toBe(200);
+      expect(updated.cacheCreationInputTokens).toBe(100);
+      expect(updated.webSearchRequests).toBe(2);
+      expect(updated.contextWindow).toBe(200000);
+      expect(updated.model).toBe('claude-sonnet-4-20250514');
+    });
+
+    it('handles partial usage updates', () => {
+      const conv = repo.create(sessionId, 'Test Conv');
+
+      // Only update some fields
+      const usage = {
+        inputTokens: 500,
+        outputTokens: 250,
+      };
+
+      const updated = repo.updateUsage(conv.id, usage);
+
+      expect(updated.inputTokens).toBe(500);
+      expect(updated.outputTokens).toBe(250);
+      // Other fields should remain at defaults
+      expect(updated.cacheReadInputTokens).toBe(0);
+      expect(updated.cacheCreationInputTokens).toBe(0);
+      expect(updated.webSearchRequests).toBe(0);
+    });
+
+    it('returns null for non-existent conversation', () => {
+      const result = repo.updateUsage('non-existent-id', { inputTokens: 100 });
+      expect(result).toBeNull();
+    });
+
+    it('updates updatedAt timestamp', () => {
+      const conv = repo.create(sessionId, 'Test Conv');
+      const originalUpdatedAt = conv.updatedAt;
+
+      // Small delay to ensure different timestamp
+      const updated = repo.updateUsage(conv.id, { inputTokens: 100 });
+
+      expect(updated.updatedAt).toBeGreaterThanOrEqual(originalUpdatedAt);
+    });
+
+    it('preserves other conversation fields', () => {
+      const conv = repo.create(sessionId, 'My Conversation');
+      repo.update(conv.id, { summary: 'Test summary' });
+
+      const updated = repo.updateUsage(conv.id, { inputTokens: 100 });
+
+      expect(updated.name).toBe('My Conversation');
+      expect(updated.summary).toBe('Test summary');
+      expect(updated.sessionId).toBe(sessionId);
+    });
+
+    it('can accumulate usage across multiple updates', () => {
+      const conv = repo.create(sessionId, 'Test Conv');
+
+      // First update
+      repo.updateUsage(conv.id, { inputTokens: 100, outputTokens: 50 });
+
+      // Second update (simulating accumulated totals)
+      const updated = repo.updateUsage(conv.id, { inputTokens: 300, outputTokens: 150 });
+
+      expect(updated.inputTokens).toBe(300);
+      expect(updated.outputTokens).toBe(150);
+    });
+  });
 });

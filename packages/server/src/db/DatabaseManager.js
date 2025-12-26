@@ -145,6 +145,33 @@ export class DatabaseManager {
       this.#db.exec('ALTER TABLE conversations ADD COLUMN claude_session_id TEXT');
     }
 
+    // Add token usage columns to conversations table (Issue #175)
+    // Re-fetch column info after potential claude_session_id migration
+    const conversationsUsageTableInfo = this.#db.prepare('PRAGMA table_info(conversations)').all();
+    const conversationsUsageColumns = conversationsUsageTableInfo.map((col) => col.name);
+
+    if (!conversationsUsageColumns.includes('input_tokens')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN input_tokens INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('output_tokens')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN output_tokens INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('cache_read_input_tokens')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN cache_read_input_tokens INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('cache_creation_input_tokens')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN cache_creation_input_tokens INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('web_search_requests')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN web_search_requests INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('context_window')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN context_window INTEGER DEFAULT 200000');
+    }
+    if (!conversationsUsageColumns.includes('model')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN model TEXT');
+    }
+
     // Token usage columns for sessions table (re-fetch column info)
     const sessionsUsageTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
     const sessionsUsageColumns = sessionsUsageTableInfo.map((col) => col.name);
