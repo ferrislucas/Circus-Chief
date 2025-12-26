@@ -50,6 +50,9 @@
       </button>
     </div>
 
+    <!-- Spacer for archived tab to match sessions tab structure -->
+    <div v-else-if="activeTab === 'archived'" class="tab-spacer"></div>
+
     <!-- Sessions Tab -->
     <div v-if="activeTab === 'sessions'">
       <div v-if="sessionsStore.loading" class="skeleton-list">
@@ -425,6 +428,10 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 1rem;
+}
+
+.tab-spacer {
+  height: 1rem;
 }
 
 .filter-label {
