@@ -5,17 +5,20 @@ import { nextTick } from 'vue';
 import CommandButtonDetailView from './CommandButtonDetailView.vue';
 import { ROUTE_PARAMS } from '@claudetools/shared/routeParams';
 
-// Mock router
+// Shared mock state
+let currentMockRouteParams = {
+  [ROUTE_PARAMS.PROJECT_ID]: 'test-project',
+  [ROUTE_PARAMS.BUTTON_ID]: null,
+};
+
+// Mock router - use function so params can be changed between tests
 vi.mock('vue-router', () => ({
   useRouter: () => ({
     push: vi.fn(),
     back: vi.fn(),
   }),
   useRoute: () => ({
-    params: {
-      [ROUTE_PARAMS.PROJECT_ID]: 'test-project',
-      [ROUTE_PARAMS.BUTTON_ID]: null,
-    },
+    params: currentMockRouteParams,
   }),
 }));
 
@@ -35,6 +38,11 @@ describe('CommandButtonDetailView', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
+    // Reset to default params for each test
+    currentMockRouteParams = {
+      [ROUTE_PARAMS.PROJECT_ID]: 'test-project',
+      [ROUTE_PARAMS.BUTTON_ID]: null,
+    };
   });
 
   it('renders create form in create mode', async () => {
@@ -193,20 +201,11 @@ describe('CommandButtonDetailView', () => {
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandStore);
     vi.mocked(useUiStore).mockReturnValue(mockUiStore);
 
-    // Mock route with buttonId
-    vi.resetModules();
-    vi.doMock('vue-router', () => ({
-      useRouter: () => ({
-        push: vi.fn(),
-        back: vi.fn(),
-      }),
-      useRoute: () => ({
-        params: {
-          [ROUTE_PARAMS.PROJECT_ID]: 'test-project',
-          [ROUTE_PARAMS.BUTTON_ID]: 'btn-1',
-        },
-      }),
-    }));
+    // Set route params for edit mode (buttonId present)
+    currentMockRouteParams = {
+      [ROUTE_PARAMS.PROJECT_ID]: 'test-project',
+      [ROUTE_PARAMS.BUTTON_ID]: 'btn-1',
+    };
 
     const wrapper = mount(CommandButtonDetailView, {
       global: {
@@ -216,16 +215,23 @@ describe('CommandButtonDetailView', () => {
       },
     });
 
-    // Find delete button
-    const deleteBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Delete'));
+    await nextTick();
+
+    // Find delete button - should exist in edit mode
+    const deleteBtn = wrapper.findAll('button').find((btn) => btn.text().includes('Delete'));
     expect(deleteBtn).toBeDefined();
   });
 
-  it('shows delete confirmation dialog', async () => {
+  it('shows delete confirmation dialog on delete button click', async () => {
     const mockCommandStore = {
       loading: false,
       error: null,
-      getButtonById: vi.fn().mockReturnValue(null),
+      getButtonById: vi.fn().mockReturnValue({
+        id: 'btn-1',
+        label: 'Existing Button',
+        command: 'npm run',
+        sortOrder: 0,
+      }),
       createButton: vi.fn(),
       updateButton: vi.fn(),
       deleteButton: vi.fn(),
@@ -237,6 +243,12 @@ describe('CommandButtonDetailView', () => {
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandStore);
     vi.mocked(useUiStore).mockReturnValue(mockUiStore);
 
+    // Set route params for edit mode to show delete button
+    currentMockRouteParams = {
+      [ROUTE_PARAMS.PROJECT_ID]: 'test-project',
+      [ROUTE_PARAMS.BUTTON_ID]: 'btn-1',
+    };
+
     const wrapper = mount(CommandButtonDetailView, {
       global: {
         stubs: {
@@ -245,12 +257,20 @@ describe('CommandButtonDetailView', () => {
       },
     });
 
+    await nextTick();
+
     // No dialog initially
     expect(wrapper.find('.modal-overlay').exists()).toBe(false);
 
-    // Set form data to enable delete button in edit mode (simulate edit mode)
-    wrapper.vm.formData.label = 'Test Button';
-    wrapper.vm.formData.command = 'npm test';
+    // Click delete button to show confirmation dialog
+    const deleteBtn = wrapper.findAll('button').find((btn) => btn.text().includes('Delete'));
+    expect(deleteBtn).toBeDefined();
+
+    await deleteBtn.trigger('click');
+    await nextTick();
+
+    // Dialog should now be visible
+    expect(wrapper.find('.modal-overlay').exists()).toBe(true);
   });
 
   it('handles API errors', async () => {
