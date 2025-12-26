@@ -33,6 +33,11 @@ export const useSessionsStore = defineStore('sessions', {
     getConversationById: (state) => (id) => {
       return state.conversations.find((c) => c.id === id);
     },
+    isDraftSession: (state) => (session) => {
+      // A session is a draft if it's in waiting status and has no assistant messages
+      if (!session || session.status !== 'waiting') return false;
+      return !state.messages.some(msg => msg.role === 'assistant');
+    },
     // Token usage getters
     totalTokens: (state) => {
       const session = state.currentSession;
@@ -187,6 +192,25 @@ export const useSessionsStore = defineStore('sessions', {
           session.status = 'stopped';
           session.error = null;
         }
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    async startSession(id) {
+      this.error = null;
+      try {
+        const result = await api.startSession(id);
+        // Update session status to starting
+        if (this.currentSession?.id === id) {
+          this.currentSession.status = 'starting';
+        }
+        const session = this.sessions.find((s) => s.id === id);
+        if (session) {
+          session.status = 'starting';
+        }
+        return result;
       } catch (err) {
         this.error = err.message;
         throw err;

@@ -127,7 +127,7 @@ export class ApiClient {
   /**
    * Create a new session
    * @param {string} projectId - Project ID
-   * @param {Object} data - Session data (may include files array)
+   * @param {Object} data - Session data (may include files array and startImmediately flag)
    * @returns {Promise<Object>}
    */
   async createSession(projectId, data) {
@@ -142,6 +142,9 @@ export class ApiClient {
       if (jsonData.model) formData.append('model', jsonData.model);
       if (jsonData.thinkingEnabled !== undefined) {
         formData.append('thinkingEnabled', String(jsonData.thinkingEnabled));
+      }
+      if (jsonData.startImmediately !== undefined) {
+        formData.append('startImmediately', String(jsonData.startImmediately));
       }
       if (jsonData.gitBranch) formData.append('gitBranch', jsonData.gitBranch);
       if (jsonData.gitMode) formData.append('gitMode', jsonData.gitMode);
@@ -252,6 +255,15 @@ export class ApiClient {
    */
   async restartSession(id) {
     return this.#request('POST', `/sessions/${id}/restart`);
+  }
+
+  /**
+   * Start a draft session (waiting status with no assistant messages)
+   * @param {string} id - Session ID
+   * @returns {Promise<Object>}
+   */
+  async startSession(id) {
+    return this.#request('POST', `/sessions/${id}/start`);
   }
 
   /**
