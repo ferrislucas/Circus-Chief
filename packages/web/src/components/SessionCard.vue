@@ -116,9 +116,9 @@ const props = defineProps({
 
 defineEmits(['retrySummary', 'archive', 'unarchive']);
 
-// Only show archive for stopped/completed/error sessions
+// Show archive for any status except running
 const canArchive = computed(() => {
-  return ['stopped', 'completed', 'error'].includes(props.session.status);
+  return props.session.status !== 'running';
 });
 
 const dateToShow = computed(() => {

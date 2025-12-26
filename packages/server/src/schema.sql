@@ -183,6 +183,17 @@ CREATE TABLE IF NOT EXISTS message_attachments (
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
+-- Command buttons (configurable buttons per project)
+CREATE TABLE IF NOT EXISTS command_buttons (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  command TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
@@ -202,3 +213,4 @@ CREATE INDEX IF NOT EXISTS idx_work_logs_message ON work_logs(message_id);
 CREATE INDEX IF NOT EXISTS idx_summaries_session ON session_summaries(session_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_message ON message_attachments(message_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_session ON message_attachments(session_id);
+CREATE INDEX IF NOT EXISTS idx_command_buttons_project ON command_buttons(project_id);

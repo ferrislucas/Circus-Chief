@@ -35,6 +35,13 @@
       >
         Templates
       </button>
+      <button
+        class="tab"
+        :class="{ active: activeTab === 'commands' }"
+        @click="activeTab = 'commands'"
+      >
+        Commands
+      </button>
     </div>
 
     <!-- Status Filters -->
@@ -49,6 +56,9 @@
         {{ status }}
       </button>
     </div>
+
+    <!-- Spacer for archived tab to match sessions tab structure -->
+    <div v-else-if="activeTab === 'archived'" class="tab-spacer"></div>
 
     <!-- Sessions Tab -->
     <div v-if="activeTab === 'sessions'">
@@ -121,6 +131,11 @@
     <div v-if="activeTab === 'templates'">
       <TemplatesPanel :project-id="route.params.id" />
     </div>
+
+    <!-- Commands Tab -->
+    <div v-if="activeTab === 'commands'">
+      <CommandButtonsPanel :project-id="route.params.id" />
+    </div>
   </div>
 </template>
 
@@ -133,6 +148,7 @@ import { useProjectSubscription } from '../composables/useWebSocket.js';
 import { api } from '../composables/useApi.js';
 import SessionCard from '../components/SessionCard.vue';
 import TemplatesPanel from '../components/TemplatesPanel.vue';
+import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
 
 const route = useRoute();
 const activeTab = ref('sessions');
@@ -425,6 +441,10 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 1rem;
+}
+
+.tab-spacer {
+  height: 1rem;
 }
 
 .filter-label {

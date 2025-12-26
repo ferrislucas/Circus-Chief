@@ -29,6 +29,7 @@ vi.mock('../composables/useWebSocket.js', () => ({
     onTodosUpdate: vi.fn(() => vi.fn()),
     onSessionUpdate: vi.fn(() => vi.fn()),
     onSummaryUpdate: vi.fn(() => vi.fn()),
+    onUsageUpdate: vi.fn(() => vi.fn()),
   })),
 }));
 
@@ -114,6 +115,7 @@ describe('SessionDetailView', () => {
       onTodosUpdate: vi.fn(() => vi.fn()),
       onSessionUpdate: vi.fn(() => vi.fn()),
       onSummaryUpdate: vi.fn(() => vi.fn()),
+      onUsageUpdate: vi.fn(() => vi.fn()),
     }));
 
     mockSessionsStore = {
@@ -377,6 +379,7 @@ describe('SessionDetailView', () => {
         onTodosUpdate: vi.fn(() => vi.fn()),
         onSessionUpdate: vi.fn(() => vi.fn()),
         onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -433,6 +436,7 @@ describe('SessionDetailView', () => {
         onTodosUpdate: vi.fn(() => vi.fn()),
         onSessionUpdate: vi.fn(() => vi.fn()),
         onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -467,6 +471,7 @@ describe('SessionDetailView', () => {
         onTodosUpdate: vi.fn(() => vi.fn()),
         onSessionUpdate: vi.fn(() => vi.fn()),
         onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -597,38 +602,9 @@ describe('SessionDetailView', () => {
       });
     });
 
-    describe('archive action with confirmation', () => {
-      it('shows confirmation dialog when archive button is clicked', async () => {
+    describe('archive action', () => {
+      it('calls archiveSession when archive button is clicked', async () => {
         mockSessionsStore.currentSession.status = 'stopped';
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
-
-        const wrapper = mountComponent();
-        await flushPromises();
-        await nextTick();
-
-        await wrapper.find('.btn-archive-session').trigger('click');
-
-        expect(confirmSpy).toHaveBeenCalledWith('Are you sure you want to archive this session?');
-        confirmSpy.mockRestore();
-      });
-
-      it('does not call archiveSession when confirmation is cancelled', async () => {
-        mockSessionsStore.currentSession.status = 'stopped';
-        vi.spyOn(window, 'confirm').mockReturnValue(false);
-
-        const wrapper = mountComponent();
-        await flushPromises();
-        await nextTick();
-
-        await wrapper.find('.btn-archive-session').trigger('click');
-        await flushPromises();
-
-        expect(mockSessionsStore.archiveSession).not.toHaveBeenCalled();
-      });
-
-      it('calls archiveSession when confirmation is accepted', async () => {
-        mockSessionsStore.currentSession.status = 'stopped';
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
         mockSessionsStore.archiveSession.mockResolvedValue({});
 
         const wrapper = mountComponent();
@@ -645,7 +621,6 @@ describe('SessionDetailView', () => {
         mockRouteParams.id = 'specific-session-123';
         mockSessionsStore.currentSession.status = 'completed';
         mockSessionsStore.currentSession.id = 'specific-session-123';
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
         mockSessionsStore.archiveSession.mockResolvedValue({});
 
         const wrapper = mountComponent();
@@ -671,7 +646,6 @@ describe('SessionDetailView', () => {
       it('navigates to project sessions list after successful archive', async () => {
         mockSessionsStore.currentSession.status = 'stopped';
         mockSessionsStore.currentSession.projectId = 'project-abc';
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
         mockSessionsStore.archiveSession.mockResolvedValue({});
 
         const wrapper = mountComponent();
@@ -687,7 +661,6 @@ describe('SessionDetailView', () => {
       it('navigates to home when projectId is not available', async () => {
         mockSessionsStore.currentSession.status = 'error';
         mockSessionsStore.currentSession.projectId = null;
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
         mockSessionsStore.archiveSession.mockResolvedValue({});
 
         const wrapper = mountComponent();
@@ -703,7 +676,6 @@ describe('SessionDetailView', () => {
       it('navigates to home when projectId is undefined', async () => {
         mockSessionsStore.currentSession.status = 'stopped';
         delete mockSessionsStore.currentSession.projectId;
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
         mockSessionsStore.archiveSession.mockResolvedValue({});
 
         const wrapper = mountComponent();
@@ -714,20 +686,6 @@ describe('SessionDetailView', () => {
         await flushPromises();
 
         expect(mockRouter.push).toHaveBeenCalledWith('/');
-      });
-
-      it('does not navigate when confirmation is cancelled', async () => {
-        mockSessionsStore.currentSession.status = 'stopped';
-        vi.spyOn(window, 'confirm').mockReturnValue(false);
-
-        const wrapper = mountComponent();
-        await flushPromises();
-        await nextTick();
-
-        await wrapper.find('.btn-archive-session').trigger('click');
-        await flushPromises();
-
-        expect(mockRouter.push).not.toHaveBeenCalled();
       });
     });
 
@@ -742,7 +700,6 @@ describe('SessionDetailView', () => {
 
       it('shows success message after successful archive', async () => {
         mockSessionsStore.currentSession.status = 'stopped';
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
         mockSessionsStore.archiveSession.mockResolvedValue({});
 
         const wrapper = mountComponent();
@@ -757,7 +714,6 @@ describe('SessionDetailView', () => {
 
       it('shows error message when archive fails', async () => {
         mockSessionsStore.currentSession.status = 'stopped';
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
         mockSessionsStore.archiveSession.mockRejectedValue(new Error('Archive failed: server error'));
 
         const wrapper = mountComponent();
@@ -772,7 +728,6 @@ describe('SessionDetailView', () => {
 
       it('shows error message with correct message from API error', async () => {
         mockSessionsStore.currentSession.status = 'waiting';
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
         mockSessionsStore.archiveSession.mockRejectedValue(new Error('Can only archive stopped, completed, or error sessions'));
 
         const wrapper = mountComponent();
@@ -787,7 +742,6 @@ describe('SessionDetailView', () => {
 
       it('does not show success message when archive fails', async () => {
         mockSessionsStore.currentSession.status = 'stopped';
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
         mockSessionsStore.archiveSession.mockRejectedValue(new Error('Archive failed'));
 
         const wrapper = mountComponent();
@@ -826,7 +780,6 @@ describe('SessionDetailView', () => {
 
       it('archive button click does not trigger delete', async () => {
         mockSessionsStore.currentSession.status = 'stopped';
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
         mockSessionsStore.archiveSession.mockResolvedValue({});
 
         const wrapper = mountComponent();
@@ -842,7 +795,6 @@ describe('SessionDetailView', () => {
 
       it('delete button click does not trigger archive', async () => {
         mockSessionsStore.currentSession.status = 'stopped';
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
         mockSessionsStore.deleteSession.mockResolvedValue({});
 
         const wrapper = mountComponent();

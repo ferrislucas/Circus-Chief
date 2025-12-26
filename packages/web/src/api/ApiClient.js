@@ -591,6 +591,78 @@ export class ApiClient {
   async getConversationMessages(sessionId, conversationId) {
     return this.#request('GET', `/sessions/${sessionId}/messages?conversation_id=${conversationId}`);
   }
+
+  // Command Buttons
+
+  /**
+   * Get all command buttons for a project
+   * @param {string} projectId - Project ID
+   * @returns {Promise<Array>}
+   */
+  async getCommandButtons(projectId) {
+    return this.#request('GET', `/projects/${projectId}/command-buttons`);
+  }
+
+  /**
+   * Create a new command button
+   * @param {string} projectId - Project ID
+   * @param {Object} data - Button data
+   * @returns {Promise<Object>}
+   */
+  async createCommandButton(projectId, data) {
+    return this.#request('POST', `/projects/${projectId}/command-buttons`, data);
+  }
+
+  /**
+   * Get a specific command button
+   * @param {string} projectId - Project ID
+   * @param {string} buttonId - Button ID
+   * @returns {Promise<Object>}
+   */
+  async getCommandButton(projectId, buttonId) {
+    return this.#request('GET', `/projects/${projectId}/command-buttons/${buttonId}`);
+  }
+
+  /**
+   * Update a command button
+   * @param {string} projectId - Project ID
+   * @param {string} buttonId - Button ID
+   * @param {Object} data - Update data
+   * @returns {Promise<Object>}
+   */
+  async updateCommandButton(projectId, buttonId, data) {
+    return this.#request('PATCH', `/projects/${projectId}/command-buttons/${buttonId}`, data);
+  }
+
+  /**
+   * Delete a command button
+   * @param {string} projectId - Project ID
+   * @param {string} buttonId - Button ID
+   * @returns {Promise<void>}
+   */
+  async deleteCommandButton(projectId, buttonId) {
+    return this.#request('DELETE', `/projects/${projectId}/command-buttons/${buttonId}`);
+  }
+
+  /**
+   * Run a command button
+   * @param {string} sessionId - Session ID
+   * @param {string} buttonId - Button ID
+   * @returns {Promise<Object>}
+   */
+  async runCommandButton(sessionId, buttonId) {
+    return this.#request('POST', `/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+  }
+
+  /**
+   * Kill a running command
+   * @param {string} sessionId - Session ID
+   * @param {string} runId - Run ID
+   * @returns {Promise<Object>}
+   */
+  async killCommandRun(sessionId, runId) {
+    return this.#request('POST', `/sessions/${sessionId}/command-buttons/runs/${runId}/kill`);
+  }
 }
 
 // Singleton instance
