@@ -293,6 +293,9 @@ export class DatabaseManager {
       -- Recreate indexes
       CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
       CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+      CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived);
+      CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id);
+      CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
     `);
   }
 
