@@ -9,7 +9,7 @@
     <div class="status-filters">
       <span class="filter-label">Filter:</span>
       <button
-        v-for="status in ['running', 'waiting']"
+        v-for="status in ['running', 'idle']"
         :key="status"
         :class="['filter-btn', { active: statusFilters.includes(status) }]"
         @click="toggleFilter(status)"
@@ -72,10 +72,26 @@ const toggleFilter = (status) => {
   }
 };
 
+// Statuses that count as "idle" (not actively running)
+const IDLE_STATUSES = ['waiting', 'stopped', 'error'];
+// Statuses that count as "running" (actively processing or starting up)
+const RUNNING_STATUSES = ['running', 'starting'];
+
 const filteredSessions = computed(() => {
   const sessions = sessionsStore.activeSessions;
   if (statusFilters.value.length === 0) return sessions;
-  return sessions.filter(s => statusFilters.value.includes(s.status));
+
+  return sessions.filter(s => {
+    // "idle" filter matches waiting, stopped, or error statuses
+    if (statusFilters.value.includes('idle') && IDLE_STATUSES.includes(s.status)) {
+      return true;
+    }
+    // "running" filter matches running and starting statuses
+    if (statusFilters.value.includes('running') && RUNNING_STATUSES.includes(s.status)) {
+      return true;
+    }
+    return false;
+  });
 });
 
 // Store summaries keyed by session ID
