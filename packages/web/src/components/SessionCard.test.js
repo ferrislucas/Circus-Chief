@@ -1,7 +1,106 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { h, defineComponent } from 'vue';
+import { createPinia, setActivePinia } from 'pinia';
 import SessionCard from './SessionCard.vue';
+
+// Mock vue-router
+vi.mock('vue-router', () => ({
+  useRouter: vi.fn(() => ({
+    push: vi.fn(),
+  })),
+  useRoute: vi.fn(() => ({
+    params: {},
+  })),
+}));
+
+// Mock PrIndicators component with actual rendering logic
+vi.mock('./PrIndicators.vue', () => ({
+  default: defineComponent({
+    name: 'PrIndicators',
+    props: ['prUrl', 'summary'],
+    setup(props) {
+      const extractPrNumber = (url) => {
+        if (!url) return 'PR';
+        const match = url.match(/\/pull\/(\d+)/);
+        return match ? `PR ${match[1]}` : 'PR';
+      };
+
+      const formatPrState = (state) => {
+        const labels = {
+          merged: 'Merged',
+          open: 'Open',
+          closed: 'Closed',
+          draft: 'Draft',
+        };
+        return labels[state] || state;
+      };
+
+      const ciStatusIcon = () => {
+        const icons = {
+          success: '✓',
+          failure: '✗',
+          pending: '○',
+        };
+        return icons[props.summary?.ciStatus] || '';
+      };
+
+      const ciStatusTitle = () => {
+        const titles = {
+          success: 'CI passing',
+          failure: 'CI failing',
+          pending: 'CI pending',
+        };
+        return titles[props.summary?.ciStatus] || '';
+      };
+
+      return () => {
+        if (!props.prUrl) return null;
+        const children = [];
+
+        // PR link
+        children.push(
+          h('a', {
+            href: props.prUrl,
+            target: '_blank',
+            class: 'pr-link',
+          }, extractPrNumber(props.prUrl))
+        );
+
+        // PR state badge
+        if (props.summary?.prState) {
+          children.push(
+            h('span', {
+              class: ['pr-state-badge', `pr-state-${props.summary.prState}`],
+            }, formatPrState(props.summary.prState))
+          );
+        }
+
+        // Conflict indicator
+        if (props.summary?.hasMergeConflicts) {
+          children.push(
+            h('span', {
+              class: 'conflict-indicator',
+              title: 'Merge conflicts detected',
+            })
+          );
+        }
+
+        // CI indicator
+        if (props.summary?.ciStatus) {
+          children.push(
+            h('span', {
+              class: ['ci-indicator', `ci-${props.summary.ciStatus}`],
+              title: ciStatusTitle(),
+            }, ciStatusIcon())
+          );
+        }
+
+        return h('span', { class: 'pr-indicators' }, children);
+      };
+    },
+  }),
+}));
 
 // Custom RouterLink stub that renders slot content
 const RouterLinkStub = defineComponent({
@@ -13,6 +112,10 @@ const RouterLinkStub = defineComponent({
 });
 
 describe('SessionCard', () => {
+  beforeEach(() => {
+    // Set up Pinia for each test
+    setActivePinia(createPinia());
+  });
   const baseSession = {
     id: 'session-123',
     name: 'Test Session',
@@ -23,14 +126,16 @@ describe('SessionCard', () => {
   };
 
   function mountComponent(props = {}) {
+    const pinia = createPinia();
     return mount(SessionCard, {
       props: {
         session: baseSession,
         ...props,
       },
       global: {
+        plugins: [pinia],
         components: {
-          RouterLink: RouterLinkStub,
+          'router-link': RouterLinkStub,  // Stub for router-link component
         },
       },
     });
@@ -63,7 +168,8 @@ describe('SessionCard', () => {
 
     it('links to session detail page', () => {
       const wrapper = mountComponent();
-      expect(wrapper.find('.router-link-stub').attributes('href')).toBe('/sessions/session-123');
+      // Check that the router-link has the correct `to` attribute
+      expect(wrapper.attributes('to')).toBe('/sessions/session-123');
     });
 
     it('renders formatted date', () => {
