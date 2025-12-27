@@ -84,6 +84,11 @@
               class="changes-indicator"
               title="Uncommitted changes"
             ></span>
+            <span
+              v-if="tab.id === 'canvas' && canvasItemCount > 0"
+              class="canvas-indicator"
+              title="Canvas contains files"
+            ></span>
           </router-link>
         </div>
 
@@ -91,7 +96,7 @@
         <div class="tabs-mobile">
           <select :value="activeTab" @change="navigateToTab($event.target.value)" class="tab-select">
             <option v-for="tab in tabs" :key="tab.id" :value="tab.id">
-              {{ tab.label }}{{ tab.id === 'changes' && hasChanges ? ' •' : '' }}
+              {{ tab.label }}{{ tab.id === 'changes' && hasChanges ? ' •' : '' }}{{ tab.id === 'canvas' && canvasItemCount > 0 ? ' •' : '' }}
             </option>
           </select>
         </div>
@@ -144,6 +149,7 @@ const sessionId = route.params.id;
 
 const activeTab = computed(() => route.params.tab || 'conversation');
 const changesFileCount = ref(0);
+const canvasItemCount = ref(0);
 
 // Allow archiving any session that isn't running
 const canArchive = computed(() => {
@@ -155,7 +161,7 @@ const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
   { id: 'conversation', label: 'Conversation' },
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
-  { id: 'canvas', label: 'Canvas' },
+  { id: 'canvas', label: canvasItemCount.value > 0 ? `Canvas (${canvasItemCount.value})` : 'Canvas' },
   { id: 'notes', label: 'Notes' },
   { id: 'commands', label: 'Commands' }
 ]);
@@ -221,6 +227,15 @@ watch(
       stopPolling();
     }
   }
+);
+
+// Watch canvas items and update count
+watch(
+  () => canvasStore.groupedItems.length,
+  (count) => {
+    canvasItemCount.value = count;
+  },
+  { immediate: true }
 );
 
 onMounted(async () => {
@@ -515,6 +530,16 @@ function getTemplateName(templateId) {
 }
 
 .changes-indicator {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background-color: var(--color-warning, #d29922);
+  border-radius: 50%;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.canvas-indicator {
   display: inline-block;
   width: 6px;
   height: 6px;

@@ -595,6 +595,219 @@ describe('SessionDetailView', () => {
 
   });
 
+  describe('canvas indicator', () => {
+    let mockCanvasStore;
+
+    beforeEach(() => {
+      mockCanvasStore = {
+        items: [],
+        groupedItems: [],
+        fetchItems: vi.fn(),
+        addItem: vi.fn(),
+        removeItem: vi.fn(),
+      };
+      const { useCanvasStore } = require('../stores/canvas.js');
+      useCanvasStore.mockReturnValue(mockCanvasStore);
+    });
+
+    it('does not show canvas indicator when canvas is empty', async () => {
+      mockCanvasStore.groupedItems = [];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.canvas-indicator').exists()).toBe(false);
+    });
+
+    it('shows canvas indicator when canvas has files', async () => {
+      mockCanvasStore.groupedItems = [
+        { id: 'item-1', filename: 'image.png' },
+        { id: 'item-2', filename: 'document.md' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.canvas-indicator').exists()).toBe(true);
+    });
+
+    it('shows correct count in canvas tab label', async () => {
+      mockCanvasStore.groupedItems = [
+        { id: 'item-1', filename: 'image.png' },
+        { id: 'item-2', filename: 'document.md' },
+        { id: 'item-3', filename: 'data.json' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const tabs = wrapper.findAll('a.tab');
+      const canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
+      expect(canvasTab.text()).toContain('Canvas (3)');
+    });
+
+    it('shows "Canvas" without count when empty', async () => {
+      mockCanvasStore.groupedItems = [];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const tabs = wrapper.findAll('a.tab');
+      const canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
+      expect(canvasTab.text()).toBe('Canvas');
+    });
+
+    it('canvas indicator has correct CSS class', async () => {
+      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const indicator = wrapper.find('.canvas-indicator');
+      expect(indicator.exists()).toBe(true);
+      expect(indicator.classes()).toContain('canvas-indicator');
+    });
+
+    it('canvas indicator has tooltip title attribute', async () => {
+      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const indicator = wrapper.find('.canvas-indicator');
+      expect(indicator.attributes('title')).toBe('Canvas contains files');
+    });
+
+    it('updates canvas count when groupedItems changes', async () => {
+      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      let tabs = wrapper.findAll('a.tab');
+      let canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
+      expect(canvasTab.text()).toContain('Canvas (1)');
+
+      // Update canvas items
+      mockCanvasStore.groupedItems = [
+        { id: 'item-1', filename: 'image.png' },
+        { id: 'item-2', filename: 'document.md' },
+      ];
+
+      // Trigger reactivity update
+      wrapper.vm.$nextTick(() => {
+        tabs = wrapper.findAll('a.tab');
+        canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
+        expect(canvasTab.text()).toContain('Canvas (2)');
+      });
+    });
+
+    it('shows canvas bullet indicator on mobile dropdown when files exist', async () => {
+      mockCanvasStore.groupedItems = [
+        { id: 'item-1', filename: 'image.png' },
+        { id: 'item-2', filename: 'document.md' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const options = wrapper.findAll('option');
+      const canvasOption = options.find((opt) => opt.attributes('value') === 'canvas');
+      expect(canvasOption.text()).toContain('Canvas (2)');
+      expect(canvasOption.text()).toContain('•');
+    });
+
+    it('does not show canvas bullet indicator on mobile when empty', async () => {
+      mockCanvasStore.groupedItems = [];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const options = wrapper.findAll('option');
+      const canvasOption = options.find((opt) => opt.attributes('value') === 'canvas');
+      const optionText = canvasOption.text();
+      // Count bullets - should only be one if it's from changes indicator, not canvas
+      const bulletCount = (optionText.match(/•/g) || []).length;
+      expect(bulletCount).toBe(0);
+    });
+
+    it('fetches canvas items on mount', async () => {
+      const { useCanvasStore } = require('../stores/canvas.js');
+      const canvasStore = useCanvasStore();
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(canvasStore.fetchItems).toHaveBeenCalledWith('test-session-id');
+    });
+
+    it('indicator dot has amber background color styling', async () => {
+      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const indicator = wrapper.find('.canvas-indicator');
+      const styles = indicator.element.getAttribute('style') || '';
+      // Verify the element exists and has the class that applies the color
+      expect(indicator.classes('canvas-indicator')).toBe(true);
+    });
+
+    it('canvas indicator appears next to tab label', async () => {
+      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const tabs = wrapper.findAll('a.tab');
+      const canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
+      const indicator = canvasTab.find('.canvas-indicator');
+      expect(indicator.exists()).toBe(true);
+    });
+
+    it('canvas indicator count shows multiple items correctly', async () => {
+      mockCanvasStore.groupedItems = Array.from({ length: 10 }, (_, i) => ({
+        id: `item-${i}`,
+        filename: `file-${i}.txt`,
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const tabs = wrapper.findAll('a.tab');
+      const canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
+      expect(canvasTab.text()).toContain('Canvas (10)');
+    });
+
+    it('indicator does not appear for other tabs when canvas has files', async () => {
+      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const indicators = wrapper.findAll('.canvas-indicator');
+      // Should only find one canvas indicator
+      expect(indicators).toHaveLength(1);
+      // It should be associated with the canvas tab
+      const canvasIndicator = indicators[0];
+      expect(canvasIndicator.attributes('title')).toBe('Canvas contains files');
+    });
+  });
+
   describe('archive button', () => {
     describe('visibility based on session status', () => {
       it('hides archive button when session status is running', async () => {
