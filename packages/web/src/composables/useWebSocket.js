@@ -293,7 +293,7 @@ export function useSessionSubscription(sessionId) {
   const onCommandOutput = (callback) => {
     const handler = (msg) => {
       if (msg.sessionId === sessionId) {
-        callback(msg.runId, msg.text);
+        callback(msg.runId, msg.output);
       }
     };
     on(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, handler);
