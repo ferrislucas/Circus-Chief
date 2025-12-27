@@ -598,4 +598,58 @@ describe.skip('ConversationTab', () => {
       expect(mockSessionsStore.fetchWorkLogs).not.toHaveBeenCalled();
     });
   });
+
+  describe('Keyboard shortcuts', () => {
+    it('calls handleSend on Command+Enter when not a draft', async () => {
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await wrapper.find('textarea').trigger('keydown', { key: 'Enter', metaKey: true });
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', []);
+    });
+
+    it('calls handleSend on Ctrl+Enter when not a draft', async () => {
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await wrapper.find('textarea').trigger('keydown', { key: 'Enter', ctrlKey: true });
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', []);
+    });
+
+    it('does NOT submit on plain Enter', async () => {
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await wrapper.find('textarea').trigger('keydown', { key: 'Enter' });
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('does NOT submit on Shift+Enter', async () => {
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await wrapper.find('textarea').trigger('keydown', { key: 'Enter', shiftKey: true });
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.sendMessage).not.toHaveBeenCalled();
+    });
+  });
 });
