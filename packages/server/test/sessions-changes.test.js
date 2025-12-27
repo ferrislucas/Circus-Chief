@@ -76,10 +76,11 @@ describe('Session Changes API Logic', () => {
   });
 
   describe('diffService integration', () => {
-    it('returns staged and unstaged diffs', async () => {
+    it('returns staged, unstaged, and untracked diffs', async () => {
       diffService.getChanges.mockResolvedValue({
         staged: 'staged diff content',
         unstaged: 'unstaged diff content',
+        untracked: 'untracked file content',
       });
 
       const result = await diffService.getChanges('/test/project/path');
@@ -87,6 +88,7 @@ describe('Session Changes API Logic', () => {
       expect(result).toEqual({
         staged: 'staged diff content',
         unstaged: 'unstaged diff content',
+        untracked: 'untracked file content',
       });
     });
 
@@ -97,11 +99,38 @@ describe('Session Changes API Logic', () => {
     });
 
     it('returns empty strings when no changes', async () => {
-      diffService.getChanges.mockResolvedValue({ staged: '', unstaged: '' });
+      diffService.getChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
 
       const result = await diffService.getChanges('/test');
 
-      expect(result).toEqual({ staged: '', unstaged: '' });
+      expect(result).toEqual({ staged: '', unstaged: '', untracked: '' });
+    });
+  });
+
+  describe('branch comparison removal', () => {
+    it('getChangesBranchComparison function should not exist', () => {
+      // Verify that the branch comparison function has been removed
+      expect(diffService.getChangesBranchComparison).toBeUndefined();
+    });
+
+    it('always uses local changes (no branch comparison)', async () => {
+      diffService.getChanges.mockResolvedValue({
+        staged: 'local staged',
+        unstaged: 'local unstaged',
+        untracked: 'local untracked',
+      });
+
+      // Session changes should only return local changes
+      const result = await diffService.getChanges('/test/project/path');
+
+      // Verify we get all three types of changes
+      expect(result).toHaveProperty('staged');
+      expect(result).toHaveProperty('unstaged');
+      expect(result).toHaveProperty('untracked');
+
+      // Verify getChanges was called (not any branch comparison method)
+      expect(diffService.getChanges).toHaveBeenCalledTimes(1);
+      expect(diffService.getChanges).toHaveBeenCalledWith('/test/project/path');
     });
   });
 });

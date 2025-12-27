@@ -290,6 +290,114 @@ describe('ChangesTab', () => {
     expect(wrapper.text()).toContain('No git changes to show');
   });
 
+  describe('branch comparison removal', () => {
+    it('does not render mode toggle buttons', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // The old mode toggle should not exist
+      expect(wrapper.find('.mode-toggle').exists()).toBe(false);
+    });
+
+    it('does not have compareMode state', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // Verify no compareMode ref
+      expect(wrapper.vm.compareMode).toBeUndefined();
+    });
+
+    it('does not have defaultBranch state', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // Verify no defaultBranch ref
+      expect(wrapper.vm.defaultBranch).toBeUndefined();
+    });
+
+    it('does not have branchLabel computed property', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // Verify no branchLabel computed
+      expect(wrapper.vm.branchLabel).toBeUndefined();
+    });
+
+    it('always calls getSessionChanges with only sessionId', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+
+      mountComponent({ sessionId: 'test-session' });
+
+      await flushPromises();
+
+      // Should call with only sessionId, no additional parameters
+      expect(api.getSessionChanges).toHaveBeenCalledWith('test-session');
+      expect(api.getSessionChanges).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not pass compareMode or branch to API', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // Verify the API was called once, with no branch comparison parameters
+      expect(api.getSessionChanges).toHaveBeenCalledWith('test-session');
+      // Check the call signature - should only have sessionId
+      const calls = api.getSessionChanges.mock.calls;
+      expect(calls[0]).toHaveLength(1); // Only one argument (sessionId)
+    });
+
+    it('does not refetch on compareMode changes', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // Clear the mock to verify no additional calls are made
+      api.getSessionChanges.mockClear();
+
+      // Try to change a compareMode (which shouldn't exist)
+      // This test verifies the component doesn't have watch on compareMode
+      // by checking that no additional API calls are made
+      await nextTick();
+      await wrapper.vm.$forceUpdate();
+
+      // No additional API calls should be made
+      expect(api.getSessionChanges).not.toHaveBeenCalled();
+    });
+
+    it('toolbar has only Expand/Collapse button', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      const toolbar = wrapper.find('.changes-toolbar');
+      expect(toolbar.exists()).toBe(true);
+
+      // Should have one button (Expand/Collapse All)
+      const buttons = toolbar.findAll('button');
+      expect(buttons).toHaveLength(1);
+      expect(buttons[0].text()).toMatch(/Expand All|Collapse All/);
+    });
+  });
+
   describe('fileCount', () => {
     it('computes fileCount as sum of all file types', async () => {
       const stagedDiff = [

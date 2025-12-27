@@ -48,7 +48,7 @@
                   <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path>
                   <path d="M10 13h4"></path>
                 </svg>
-                Archive
+                {{ sessionsStore.currentSession?.archived ? 'Unarchive' : 'Archive' }}
               </button>
               <button
                 class="btn btn-outline-danger btn-delete-session"
@@ -385,8 +385,15 @@ async function handleDelete() {
 async function handleArchive() {
   try {
     const projectId = sessionsStore.currentSession?.projectId;
-    await sessionsStore.archiveSession(sessionId);
-    uiStore.success('Session archived');
+    const isArchived = sessionsStore.currentSession?.archived;
+
+    if (isArchived) {
+      await sessionsStore.unarchiveSession(sessionId);
+      uiStore.success('Session unarchived');
+    } else {
+      await sessionsStore.archiveSession(sessionId);
+      uiStore.success('Session archived');
+    }
     // Navigate to project sessions list
     if (projectId) {
       router.push(`/projects/${projectId}/sessions`);
