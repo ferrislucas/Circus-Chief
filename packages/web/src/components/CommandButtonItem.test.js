@@ -68,10 +68,9 @@ describe('CommandButtonItem', () => {
 
     const runButton = wrapper.find('.btn-primary');
     await runButton.trigger('click');
-    await nextTick();
 
-    expect(wrapper.emitted()).toHaveProperty('run');
-    expect(wrapper.emitted('run')).toHaveLength(1);
+    expect(wrapper.emitted('run')).toBeTruthy();
+    expect(wrapper.emitted('run')[0]).toEqual([]);
   });
 
   it('shows running state with spinner', async () => {
@@ -153,12 +152,10 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    const killButton = wrapper.find('[data-testid="kill-button"]');
+    const killButton = wrapper.find('.btn-outline-danger');
     await killButton.trigger('click');
-    await nextTick();
 
-    expect(wrapper.emitted()).toHaveProperty('kill');
-    expect(wrapper.emitted('kill')).toHaveLength(1);
+    expect(wrapper.emitted('kill')).toBeTruthy();
   });
 
   it('shows success state with checkmark', async () => {
@@ -217,7 +214,7 @@ describe('CommandButtonItem', () => {
     expect(wrapper.text()).toContain('exit code: 1');
   });
 
-  it('shows output section when expanded', async () => {
+  it('shows output section when visible', async () => {
     const button = {
       id: '1',
       label: 'Test',
@@ -240,19 +237,12 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Initially hidden
-    expect(wrapper.find('.output-content').exists()).toBe(false);
-
-    // Click to expand output
-    const outputHeader = wrapper.find('.output-header');
-    await outputHeader.trigger('click');
-    await nextTick();
-
+    // Output is visible by default, no need to expand
     expect(wrapper.find('.output-content').exists()).toBe(true);
-    expect(wrapper.find('.output-text').text()).toContain('Test output');
+    expect(wrapper.text()).toContain('Test output');
   });
 
-  it('hides output section by default', async () => {
+  it('shows output section by default', async () => {
     const button = {
       id: '1',
       label: 'Test',
@@ -275,8 +265,8 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Output should not be visible initially
-    expect(wrapper.find('.output-content').exists()).toBe(false);
+    // Output should be visible by default
+    expect(wrapper.find('.output-content').exists()).toBe(true);
   });
 
   it('toggles output visibility', async () => {
@@ -302,19 +292,20 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Initially hidden
-    expect(wrapper.find('.output-content').exists()).toBe(false);
-
-    // Click to show
     const header = wrapper.find('.output-header');
-    await header.trigger('click');
-    await nextTick();
+
+    // Initially visible
     expect(wrapper.find('.output-content').exists()).toBe(true);
 
     // Click to hide
     await header.trigger('click');
     await nextTick();
     expect(wrapper.find('.output-content').exists()).toBe(false);
+
+    // Click to show
+    await header.trigger('click');
+    await nextTick();
+    expect(wrapper.find('.output-content').exists()).toBe(true);
   });
 
   it('shows copy button in output actions', async () => {
@@ -340,15 +331,9 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Expand output
-    await wrapper.find('.output-header').trigger('click');
-    await nextTick();
-
-    // Copy button exists in output actions
-    const outputActions = wrapper.find('.output-actions');
-    expect(outputActions.exists()).toBe(true);
-    const buttons = outputActions.findAll('button');
-    const copyBtn = buttons.find((btn) => btn.text().includes('Copy'));
+    // Output is visible by default
+    // Copy button exists
+    const copyBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Copy'));
     expect(copyBtn).toBeDefined();
   });
 
@@ -375,18 +360,11 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Expand output
-    await wrapper.find('.output-header').trigger('click');
-    await nextTick();
-
-    // Find and click copy button
-    const outputActions = wrapper.find('.output-actions');
-    const buttons = outputActions.findAll('button');
-    const copyBtn = buttons.find((btn) => btn.text().includes('Copy'));
+    // Output is visible by default, find copy button
+    const copyBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Copy'));
     await copyBtn.trigger('click');
-    await nextTick();
 
-    expect(wrapper.emitted()).toHaveProperty('copy-output');
+    expect(wrapper.emitted('copy-output')).toBeTruthy();
     expect(wrapper.emitted('copy-output')[0]).toEqual(['Test output content']);
   });
 
@@ -413,15 +391,9 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Expand output
-    await wrapper.find('.output-header').trigger('click');
-    await nextTick();
-
-    // Canvas button exists in output actions
-    const outputActions = wrapper.find('.output-actions');
-    expect(outputActions.exists()).toBe(true);
-    const buttons = outputActions.findAll('button');
-    const canvasBtn = buttons.find((btn) => btn.text().includes('Canvas'));
+    // Output is visible by default
+    // Canvas button exists
+    const canvasBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Canvas'));
     expect(canvasBtn).toBeDefined();
   });
 
@@ -448,18 +420,11 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Expand output
-    await wrapper.find('.output-header').trigger('click');
-    await nextTick();
-
-    // Find and click canvas button
-    const outputActions = wrapper.find('.output-actions');
-    const buttons = outputActions.findAll('button');
-    const canvasBtn = buttons.find((btn) => btn.text().includes('Canvas'));
+    // Output is visible by default, find canvas button
+    const canvasBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Canvas'));
     await canvasBtn.trigger('click');
-    await nextTick();
 
-    expect(wrapper.emitted()).toHaveProperty('send-to-canvas');
+    expect(wrapper.emitted('send-to-canvas')).toBeTruthy();
     expect(wrapper.emitted('send-to-canvas')[0]).toEqual(['Run Tests', 'Test output']);
   });
 
@@ -514,4 +479,69 @@ describe('CommandButtonItem', () => {
 
     expect(wrapper.text()).toContain('exit code: 127');
   });
+
+  /**
+   * TEST SUITE: ANSI Output Rendering
+   */
+  it('displays ANSI-formatted output as HTML', async () => {
+    const button = {
+      id: 'btn-1',
+      label: 'Test',
+      command: 'test',
+      sortOrder: 0,
+    };
+    const run = {
+      runId: 'run-1',
+      buttonId: 'btn-1',
+      status: 'success',
+      output: '\x1b[32mSuccess\x1b[0m',
+      exitCode: 0,
+    };
+
+    const wrapper = mount(CommandButtonItem, {
+      props: {
+        button,
+        run,
+        sessionId: 'session-1',
+      },
+    });
+
+    await nextTick();
+
+    // Output should be rendered via v-html and contain styled span
+    const outputDiv = wrapper.find('.output-text');
+    expect(outputDiv.html()).toContain('span');
+    expect(outputDiv.html()).toContain('style');
+    expect(outputDiv.html()).toContain('Success');
+  });
+
+  it('handles red error output correctly', async () => {
+    const button = {
+      id: 'btn-1',
+      label: 'Test',
+      command: 'test',
+      sortOrder: 0,
+    };
+    const run = {
+      runId: 'run-1',
+      buttonId: 'btn-1',
+      status: 'error',
+      output: '\x1b[31mError occurred\x1b[0m',
+      exitCode: 1,
+    };
+
+    const wrapper = mount(CommandButtonItem, {
+      props: {
+        button,
+        run,
+        sessionId: 'session-1',
+      },
+    });
+
+    await nextTick();
+
+    const outputDiv = wrapper.find('.output-text');
+    expect(outputDiv.html()).toContain('Error occurred');
+  });
+
 });

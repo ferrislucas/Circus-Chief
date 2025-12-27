@@ -49,7 +49,10 @@
 
       <!-- Output Content (when expanded) -->
       <div v-if="showOutput" class="output-content">
-        <div class="output-text">{{ run.output || '(no output)' }}</div>
+        <div
+          class="output-text"
+          v-html="formattedOutput || '(no output)'"
+        ></div>
 
         <!-- Output Actions (success/error states) -->
         <div v-if="run.status !== 'running'" class="output-actions">
@@ -72,7 +75,8 @@
 </template>
 
 <script setup>
-import { defineProps, defineEmits, ref, computed } from 'vue';
+import { defineProps, defineEmits, ref, computed, watch, nextTick } from 'vue';
+import { ansiToHtml } from '../utils/ansi.js';
 
 const props = defineProps({
   button: {
@@ -91,7 +95,14 @@ const props = defineProps({
 
 const emit = defineEmits(['run', 'kill', 'copy-output', 'send-to-canvas']);
 
-const showOutput = ref(false);
+// CHANGED: Default to true (output visible by default)
+const showOutput = ref(true);
+
+// NEW: Ref to the output container div for scrolling
+const outputRef = ref(null);
+
+// NEW: Track if user has manually scrolled up from the bottom
+const userHasScrolledUp = ref(false);
 
 const truncateCommand = (command) => {
   const maxLength = 80;
@@ -100,6 +111,81 @@ const truncateCommand = (command) => {
   }
   return command;
 };
+
+/**
+ * Computed property: Format output with ANSI codes converted to HTML
+ *
+ * This converts raw terminal output containing ANSI escape codes
+ * (colors, bold, dim, etc.) into styled HTML that renders correctly.
+ * Falls back to plain text if run.output is not available.
+ */
+const formattedOutput = computed(() => {
+  if (!props.run?.output) {
+    return '';
+  }
+  return ansiToHtml(props.run.output);
+});
+
+/**
+ * Detect scroll position: has user scrolled up from the bottom?
+ *
+ * If scrollTop is more than 50px from bottom, user has scrolled up.
+ * This allows auto-scroll to pause while user reads earlier output.
+ * Threshold of 50px is forgiving for trackpad/mouse wheel jumps.
+ */
+const onScroll = () => {
+  if (!outputRef.value) return;
+
+  const { scrollTop, scrollHeight, clientHeight } = outputRef.value;
+
+  // Calculate how far from bottom (pixels)
+  const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+
+  // Consider "at bottom" if within 50px threshold
+  const isAtBottom = distanceFromBottom < 50;
+
+  // Update state: true = user scrolled up, false = at/near bottom
+  userHasScrolledUp.value = !isAtBottom;
+};
+
+/**
+ * Watch for output changes and auto-scroll to bottom
+ *
+ * Triggers when run.output property changes (when new text arrives).
+ * Only auto-scrolls if user hasn't manually scrolled up.
+ * Uses nextTick to ensure DOM has updated before scrolling.
+ */
+watch(
+  () => props.run?.output,
+  () => {
+    // Skip auto-scroll if user has scrolled up to read earlier output
+    if (userHasScrolledUp.value || !outputRef.value) {
+      return;
+    }
+
+    // Wait for DOM to update with new content, then scroll to bottom
+    nextTick(() => {
+      if (outputRef.value) {
+        outputRef.value.scrollTop = outputRef.value.scrollHeight;
+      }
+    });
+  },
+  { immediate: false } // Don't fire on component mount, only on prop changes
+);
+
+/**
+ * Watch for new run ID and reset scroll tracking
+ *
+ * When a new command starts, reset the "user scrolled up" flag
+ * so auto-scroll works for the fresh output.
+ */
+watch(
+  () => props.run?.runId,
+  () => {
+    userHasScrolledUp.value = false;
+  },
+  { immediate: false } // Don't fire on component mount
+);
 
 const statusIcon = computed(() => {
   if (!props.run) return '';
