@@ -107,6 +107,32 @@ describe('ProjectRepository', () => {
       expect(project.disableSessionSummaries).toBe(true);
       expect(project.disableConversationSummaries).toBe(true);
     });
+
+    it('creates project with repoUrl null by default', () => {
+      const project = repo.create('Test Project', '/tmp/test');
+
+      expect(project.repoUrl).toBeNull();
+    });
+
+    it('creates project with repoUrl in options', () => {
+      const project = repo.create('Test Project', '/tmp/test', null, {
+        repoUrl: 'https://github.com/example/project',
+      });
+
+      expect(project.repoUrl).toBe('https://github.com/example/project');
+    });
+
+    it('creates project with repoUrl and other options together', () => {
+      const project = repo.create('Test Project', '/tmp/test', null, {
+        repoUrl: 'https://github.com/user/repo',
+        prPollInterval: 30000,
+        disableSessionSummaries: true,
+      });
+
+      expect(project.repoUrl).toBe('https://github.com/user/repo');
+      expect(project.prPollInterval).toBe(30000);
+      expect(project.disableSessionSummaries).toBe(true);
+    });
   });
 
   describe('getById', () => {
@@ -292,6 +318,43 @@ describe('ProjectRepository', () => {
       });
 
       expect(updated.disableConversationSummaries).toBe(false);
+    });
+
+    it('updates repoUrl', () => {
+      const project = repo.create('Test', '/tmp/test');
+      expect(project.repoUrl).toBeNull();
+
+      const updated = repo.update(project.id, {
+        repoUrl: 'https://github.com/example/repo',
+      });
+
+      expect(updated.repoUrl).toBe('https://github.com/example/repo');
+    });
+
+    it('sets repoUrl to null', () => {
+      const project = repo.create('Test', '/tmp/test');
+      repo.update(project.id, {
+        repoUrl: 'https://github.com/example/repo',
+      });
+
+      const updated = repo.update(project.id, {
+        repoUrl: null,
+      });
+
+      expect(updated.repoUrl).toBeNull();
+    });
+
+    it('clears repoUrl when set to null', () => {
+      const project = repo.create('Test', '/tmp/test', null, {});
+      const withUrl = repo.update(project.id, {
+        repoUrl: 'https://github.com/user/project',
+      });
+      expect(withUrl.repoUrl).toBe('https://github.com/user/project');
+
+      const cleared = repo.update(project.id, {
+        repoUrl: null,
+      });
+      expect(cleared.repoUrl).toBeNull();
     });
   });
 

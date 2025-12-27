@@ -73,6 +73,9 @@ export class DatabaseManager {
     if (!projectsColumns.includes('disable_conversation_summaries')) {
       this.#db.exec('ALTER TABLE projects ADD COLUMN disable_conversation_summaries INTEGER NOT NULL DEFAULT 0');
     }
+    if (!projectsColumns.includes('repo_url')) {
+      this.#db.exec('ALTER TABLE projects ADD COLUMN repo_url TEXT');
+    }
 
     // Migrate sessions table to add 'stopped' status to CHECK constraint
     // SQLite doesn't allow modifying CHECK constraints, so we need to recreate the table
@@ -143,6 +146,33 @@ export class DatabaseManager {
 
     if (!conversationsColumns.includes('claude_session_id')) {
       this.#db.exec('ALTER TABLE conversations ADD COLUMN claude_session_id TEXT');
+    }
+
+    // Add token usage columns to conversations table (Issue #175)
+    // Re-fetch column info after potential claude_session_id migration
+    const conversationsUsageTableInfo = this.#db.prepare('PRAGMA table_info(conversations)').all();
+    const conversationsUsageColumns = conversationsUsageTableInfo.map((col) => col.name);
+
+    if (!conversationsUsageColumns.includes('input_tokens')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN input_tokens INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('output_tokens')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN output_tokens INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('cache_read_input_tokens')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN cache_read_input_tokens INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('cache_creation_input_tokens')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN cache_creation_input_tokens INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('web_search_requests')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN web_search_requests INTEGER DEFAULT 0');
+    }
+    if (!conversationsUsageColumns.includes('context_window')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN context_window INTEGER DEFAULT 200000');
+    }
+    if (!conversationsUsageColumns.includes('model')) {
+      this.#db.exec('ALTER TABLE conversations ADD COLUMN model TEXT');
     }
 
     // Token usage columns for sessions table (re-fetch column info)

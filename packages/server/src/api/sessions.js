@@ -25,7 +25,11 @@ router.get('/:id', (req, res) => {
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
   }
-  res.json(session);
+  // Add hasResponses flag to indicate if session has ever received assistant responses
+  // This is used by the frontend to determine if a session is a draft
+  const allMessages = messages.getBySessionId(req.params.id);
+  const hasResponses = allMessages.some(msg => msg.role === 'assistant');
+  res.json({ ...session, hasResponses });
 });
 
 // GET /api/sessions/:id/changes - Get git changes for session
@@ -202,6 +206,75 @@ router.post('/:id/restart', (req, res) => {
     restartSession(session.id);
     res.json({ success: true });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/sessions/:id/start - Start a draft session (waiting status with no assistant messages)
+router.post('/:id/start', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Validate session is in waiting status (draft state)
+  if (session.status !== 'waiting') {
+    return res.status(400).json({ error: 'Session must be in waiting status to start' });
+  }
+
+  // Check if session has any assistant messages (should not have any for a draft)
+  const allMessages = messages.getBySessionId(session.id);
+  const hasAssistantMessages = allMessages.some(msg => msg.role === 'assistant');
+  if (hasAssistantMessages) {
+    return res.status(400).json({ error: 'Session is not a draft - it already has responses' });
+  }
+
+  try {
+    // Get the project and initial prompt
+    const project = projects.getById(session.projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Use gitWorktree if set, otherwise use project's working directory
+    const workingDirectory = session.gitWorktree || project.workingDirectory;
+
+    // Get the initial user message (prompt)
+    const userMessages = allMessages.filter(msg => msg.role === 'user');
+    if (userMessages.length === 0) {
+      return res.status(400).json({ error: 'No initial prompt found' });
+    }
+    const initialPrompt = userMessages[0].content;
+
+    // Get session attachments for context
+    const sessionAttachments = attachments.getBySessionId(session.id);
+
+    // Update session status to starting and begin processing
+    sessions.update(session.id, { status: 'starting' });
+
+    // Start session manager (non-blocking)
+    const { runSession } = await import('../services/sessionManager.js');
+    runSession(session.id, initialPrompt, workingDirectory, project.systemPrompt, sessionAttachments, session.model).catch((error) => {
+      console.error('Session error:', error);
+      sessions.update(session.id, { status: 'error', error: error.message });
+    });
+
+    // Broadcast status update
+    broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, {
+      sessionId: session.id,
+      status: 'starting',
+    });
+
+    // Broadcast to project subscribers
+    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: session.projectId,
+      sessionId: session.id,
+      session: sessions.getById(session.id),
+    });
+
+    res.json({ success: true, session: sessions.getById(session.id) });
+  } catch (error) {
+    console.error('Start session error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -667,27 +740,24 @@ router.post('/:id/command-buttons/:buttonId/run', (req, res) => {
   // Execute command asynchronously
   (async () => {
     try {
-      let output = '';
-
       await commandRunner.run(
         runId,
         button.command,
         workingDirectory,
         (text) => {
-          output += text;
           // Broadcast output via WebSocket
-          broadcastToSession(sessionId, {
-            type: WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT,
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
+            sessionId,
             runId,
             buttonId,
             output: text,
           });
         },
-        (exitCode) => {
+        (exitCode, output) => {
           // Broadcast completion via WebSocket
           const status = exitCode === 0 ? 'success' : 'error';
-          broadcastToSession(sessionId, {
-            type: WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE,
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, {
+            sessionId,
             runId,
             buttonId,
             status,
@@ -697,24 +767,38 @@ router.post('/:id/command-buttons/:buttonId/run', (req, res) => {
         },
         (message) => {
           // Broadcast error via WebSocket
-          broadcastToSession(sessionId, {
-            type: WS_MESSAGE_TYPES.COMMAND_RUN_ERROR,
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
+            sessionId,
             runId,
             buttonId,
-            message,
+            error: message,
           });
-        }
+        },
+        { sessionId, buttonId }
       );
     } catch (error) {
       console.error(`Error running command button ${buttonId}:`, error);
-      broadcastToSession(sessionId, {
-        type: WS_MESSAGE_TYPES.COMMAND_RUN_ERROR,
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
+        sessionId,
         runId,
         buttonId,
-        message: error.message,
+        error: error.message,
       });
     }
   })();
+});
+
+// GET /api/sessions/:id/command-buttons/runs - Get active runs for session
+router.get('/:id/command-buttons/runs', (req, res) => {
+  const sessionId = req.params.id;
+
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const activeRuns = commandRunner.getRunsBySession(sessionId);
+  res.json(activeRuns);
 });
 
 // POST /api/sessions/:id/command-buttons/runs/:runId/kill - Kill running command

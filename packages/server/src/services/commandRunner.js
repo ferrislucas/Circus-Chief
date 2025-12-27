@@ -17,30 +17,38 @@ export class CommandRunner {
    * @param {Function} onOutput - Callback for output: (text) => void
    * @param {Function} onComplete - Callback for completion: (exitCode) => void
    * @param {Function} onError - Callback for errors: (message) => void
+   * @param {Object} metadata - Optional metadata (sessionId, buttonId)
    * @returns {Promise<number>} Exit code
    */
-  async run(runId, command, workingDirectory, onOutput, onComplete, onError) {
+  async run(runId, command, workingDirectory, onOutput, onComplete, onError, metadata = {}) {
+    const { sessionId, buttonId } = metadata;
+
     return new Promise((resolve) => {
       try {
         const child = spawn('sh', ['-c', command], {
           cwd: workingDirectory,
           stdio: ['pipe', 'pipe', 'pipe'],
-          shell: true,
         });
 
-        this.processes.set(runId, { process: child, startTime: Date.now() });
-
-        let output = '';
+        // Store process with metadata and output buffer
+        const entry = {
+          process: child,
+          startTime: Date.now(),
+          sessionId,
+          buttonId,
+          output: '',
+        };
+        this.processes.set(runId, entry);
 
         child.stdout.on('data', (data) => {
           const text = data.toString();
-          output += text;
+          entry.output += text;
           if (onOutput) onOutput(text);
         });
 
         child.stderr.on('data', (data) => {
           const text = data.toString();
-          output += text;
+          entry.output += text;
           if (onOutput) onOutput(text);
         });
 
@@ -53,7 +61,7 @@ export class CommandRunner {
 
         child.on('close', (exitCode) => {
           this.processes.delete(runId);
-          if (onComplete) onComplete(exitCode);
+          if (onComplete) onComplete(exitCode, entry.output);
           resolve(exitCode || 0);
         });
       } catch (err) {
@@ -104,6 +112,27 @@ export class CommandRunner {
    */
   isRunning(runId) {
     return this.processes.has(runId);
+  }
+
+  /**
+   * Get all active runs for a specific session
+   * @param {string} sessionId
+   * @returns {Array} Array of run info objects
+   */
+  getRunsBySession(sessionId) {
+    const runs = [];
+    for (const [runId, entry] of this.processes) {
+      if (entry.sessionId === sessionId) {
+        runs.push({
+          runId,
+          buttonId: entry.buttonId,
+          status: 'running',
+          output: entry.output,
+          startTime: entry.startTime,
+        });
+      }
+    }
+    return runs;
   }
 }
 

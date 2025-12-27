@@ -1,11 +1,95 @@
 <template>
-  <router-link :to="`/sessions/${session.id}`" class="session-card card">
+  <!-- Parent session with children -->
+  <div v-if="hasChildren" class="parent-session-group">
+    <router-link :to="`/sessions/${session.id}`" class="session-card card parent-card">
+      <div class="session-header-row">
+        <div class="expand-toggle">
+          <button
+            class="expand-btn"
+            @click.prevent="toggleExpand"
+            :aria-label="isExpanded ? 'Collapse children' : 'Expand children'"
+            :title="isExpanded ? 'Collapse' : 'Expand'"
+          >
+            {{ isExpanded ? '▼' : '▶' }}
+          </button>
+          <span v-if="childCount > 0" class="child-count">{{ childCount }}</span>
+        </div>
+        <div class="session-info">
+          <h3 class="session-name">{{ session.name }}</h3>
+          <p class="session-meta">
+            <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
+            <span class="session-mode">{{ formattedMode }}</span>
+          </p>
+          <div v-if="session.gitBranch || session.prUrl" class="branch-row">
+            <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
+            <PrIndicators
+              v-if="session.prUrl"
+              :pr-url="session.prUrl"
+              :summary="summary"
+            />
+          </div>
+          <p v-if="showProject && session.projectName" class="session-project">
+            <span class="project-name">{{ session.projectName }}</span>
+          </p>
+        </div>
+        <div class="session-date">
+          {{ formatDate(dateToShow) }}
+        </div>
+      </div>
+      <div v-if="showSummary">
+        <div v-if="summary" class="session-summary">
+          <p class="summary-text">{{ summary.shortSummary }}</p>
+          <div class="summary-meta">
+            <span v-if="summary.filesModified?.length" class="summary-files">
+              {{ summary.filesModified.length }} files modified
+            </span>
+          </div>
+        </div>
+        <div v-else-if="summaryLoading" class="session-summary session-summary-loading">
+          <span class="loading-spinner-small"></span>
+          <span>Loading summary...</span>
+        </div>
+        <div v-else-if="summaryError" class="session-summary session-summary-error">
+          <span class="error-icon">!</span>
+          <span>Summary unavailable</span>
+          <button class="retry-btn" @click.prevent="$emit('retrySummary', session.id)">Retry</button>
+        </div>
+      </div>
+    </router-link>
+
+    <!-- Children container -->
+    <div v-if="isExpanded" class="children-container">
+      <div v-for="child in children" :key="child.id" class="child-session">
+        <SessionCard
+          :session="child"
+          :show-summary="true"
+          :summary="summaries[child.id]"
+          :is-child="true"
+          :children="getChildrenForSession(child.id)"
+          :summaries="summaries"
+          @retry-summary="$emit('retrySummary', child.id)"
+        />
+      </div>
+      <button class="add-child-btn" @click="addChildSession">
+        + Add child session
+      </button>
+    </div>
+  </div>
+
+  <!-- Regular card (standalone or child) -->
+  <router-link
+    v-else
+    :to="`/sessions/${session.id}`"
+    class="session-card card"
+    :class="{ 'is-child': isChild }"
+  >
     <div class="session-header-row">
       <div class="session-info">
         <h3 class="session-name">{{ session.name }}</h3>
         <p class="session-meta">
           <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
           <span class="session-mode">{{ formattedMode }}</span>
+          <span class="session-model">{{ formattedModel }}</span>
         </p>
         <div v-if="session.gitBranch || session.prUrl" class="branch-row">
           <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
@@ -76,8 +160,14 @@
 
 <script setup>
 import { computed } from 'vue';
+import { useRouter } from 'vue-router';
+import { useSessionsStore } from '../stores/sessions.js';
 import { formatDate } from '../utils/formatters.js';
+import { useModelInfo } from '../composables/useModelInfo.js';
 import PrIndicators from './PrIndicators.vue';
+
+const router = useRouter();
+const sessionsStore = useSessionsStore();
 
 const props = defineProps({
   session: {
@@ -104,6 +194,18 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  children: {
+    type: Array,
+    default: () => [],
+  },
+  isChild: {
+    type: Boolean,
+    default: false,
+  },
+  summaries: {
+    type: Object,
+    default: () => ({}),
+  },
   showArchive: {
     type: Boolean,
     default: false,
@@ -115,6 +217,8 @@ const props = defineProps({
 });
 
 defineEmits(['retrySummary', 'archive', 'unarchive']);
+
+const { getModelDisplayName } = useModelInfo();
 
 // Show archive for any status except running
 const canArchive = computed(() => {
@@ -132,9 +236,49 @@ const formattedMode = computed(() => {
   // Capitalize first letter for other modes
   return mode ? mode.charAt(0).toUpperCase() + mode.slice(1) : '';
 });
+
+const formattedModel = computed(() => {
+  return getModelDisplayName(props.session.model);
+});
+
+const hasChildren = computed(() => props.children && props.children.length > 0);
+
+const childCount = computed(() => props.children?.length || 0);
+
+const isExpanded = computed(() => sessionsStore.isSessionExpanded(props.session.id));
+
+const toggleExpand = () => {
+  sessionsStore.toggleSessionExpanded(props.session.id);
+  sessionsStore.saveExpandedState();
+};
+
+const addChildSession = () => {
+  // Navigate to create new session with parent ID pre-filled
+  router.push({
+    name: 'new-session',
+    params: { projectId: props.session.projectId || '' },
+    query: { parentSessionId: props.session.id },
+  });
+};
+
+const getChildrenForSession = (sessionId) => {
+  return sessionsStore.getChildSessions(sessionId);
+};
 </script>
 
 <style scoped>
+.parent-session-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.parent-card {
+  border-bottom: none;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
 .session-card {
   display: flex;
   flex-direction: column;
@@ -149,10 +293,62 @@ const formattedMode = computed(() => {
   text-decoration: none;
 }
 
+.session-card.is-child {
+  margin-left: 1rem;
+  opacity: 0.9;
+  background: var(--color-background-secondary, rgba(0, 0, 0, 0.2));
+}
+
 .session-header-row {
   display: flex;
+  gap: 0.75rem;
   justify-content: space-between;
   align-items: flex-start;
+}
+
+.expand-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.expand-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  padding: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+
+.expand-btn:hover {
+  color: var(--color-text);
+}
+
+.child-count {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+  background: var(--color-border);
+  border-radius: 50%;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+.session-info {
+  flex: 1;
 }
 
 .session-name {
@@ -168,6 +364,11 @@ const formattedMode = computed(() => {
 }
 
 .session-mode {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.session-model {
   font-size: 0.75rem;
   color: var(--color-text-soft);
 }
@@ -317,6 +518,51 @@ const formattedMode = computed(() => {
   }
 }
 
+.children-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-left: 0;
+  margin-top: 0;
+  padding: 0.75rem 1rem;
+  background: var(--color-background-secondary, rgba(0, 0, 0, 0.1));
+  border-left: 2px solid var(--color-primary);
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+.child-session {
+  animation: slideIn 0.2s ease-out;
+}
+
+.add-child-btn {
+  margin-top: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--color-border);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius, 6px);
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background-color 0.15s;
+}
+
+.add-child-btn:hover {
+  background: var(--color-primary);
+  color: white;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (max-width: 480px) {
   .session-header-row {
     flex-direction: column;
@@ -326,6 +572,18 @@ const formattedMode = computed(() => {
   .session-date {
     flex-shrink: 1;
     align-self: flex-start;
+  }
+
+  .session-card.is-child {
+    margin-left: 0.5rem;
+  }
+
+  .children-container {
+    margin-left: -1rem;
+    margin-right: -1rem;
+    border-left: none;
+    border-radius: 0;
+    padding: 0.5rem;
   }
 }
 </style>

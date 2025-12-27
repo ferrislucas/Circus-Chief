@@ -15,6 +15,7 @@
           placeholder="What would you like Claude to help you with?"
           rows="5"
           required
+          @keydown="handleKeydown"
         ></textarea>
         <div class="attachment-row">
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
@@ -33,6 +34,17 @@
               <span class="toggle-slider"></span>
             </label>
             <span class="toggle-label">Enable Thinking</span>
+          </div>
+
+          <div class="thinking-toggle">
+            <label class="toggle-switch">
+              <input
+                type="checkbox"
+                v-model="startImmediately"
+              />
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Start Immediately</span>
           </div>
 
           <div class="mode-selector">
@@ -76,12 +88,26 @@
         </p>
       </div>
 
+      <!-- Parent Session (optional) -->
+      <div v-if="availableSessions.length > 0" class="form-group">
+        <label class="form-label" for="parent-session">Parent Session (optional)</label>
+        <select id="parent-session" v-model="parentSessionId" class="form-input">
+          <option :value="null">None - create standalone session</option>
+          <option v-for="session in availableSessions" :key="session.id" :value="session.id">
+            {{ session.name }}
+          </option>
+        </select>
+        <p class="form-help">
+          Choose a parent session to link this as a child session. Child sessions help organize related work.
+        </p>
+      </div>
+
       <div v-if="error" class="error-message">{{ error }}</div>
 
       <div class="form-actions">
         <button type="submit" class="btn btn-primary btn-full-width" :disabled="loading">
           <span v-if="loading" class="loading-spinner"></span>
-          Start Session
+          {{ startImmediately ? 'Start Session' : 'Create Draft' }}
         </button>
       </div>
 
@@ -146,6 +172,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { api } from '../composables/useApi.js';
+import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import { generateWorktreeBranch, DEFAULT_MODEL } from '@claudetools/shared';
 import FileAttachment from '../components/FileAttachment.vue';
 import ModelSelector from '../components/ModelSelector.vue';
@@ -159,21 +186,37 @@ const templatesStore = useTemplatesStore();
 const prompt = ref('');
 const mode = ref('yolo');
 const model = ref(DEFAULT_MODEL);
+const loading = ref(false);
+
+// Create keyboard shortcut handler for form submission
+const handleKeydown = useSubmitShortcut(() => {
+  if (!loading.value && prompt.value.trim()) {
+    handleSubmit();
+  }
+});
 const gitStatus = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
 const selectedTemplateId = ref(null);
+const parentSessionId = ref(null);
+const startImmediately = ref(true);
 
 const projectTemplates = computed(() => templatesStore.projectTemplates);
 const globalTemplates = computed(() => templatesStore.globalTemplates);
 const allTemplates = computed(() => [...projectTemplates.value, ...globalTemplates.value]);
+
+// Get available sessions that can be parents (completed sessions only)
+const availableSessions = computed(() => {
+  return sessionsStore.sessions
+    .filter((s) => s.status === 'completed')
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+});
 
 const modes = [
   { value: 'plan', label: 'Plan', description: 'Agent plans before implementing - good for complex tasks' },
   { value: 'standard', label: 'Standard', description: 'Balanced approach - asks for approval when needed' },
   { value: 'yolo', label: 'YOLO', description: 'Auto-approve mode - agent acts autonomously' },
 ];
-const loading = ref(false);
 const loadingGit = ref(false);
 const error = ref(null);
 const thinkingEnabled = ref(true);
@@ -218,6 +261,11 @@ onMounted(async () => {
 
   // Fetch templates for this project
   templatesStore.fetchProjectTemplates(route.params.id);
+
+  // Pre-populate parent session ID if provided in route query
+  if (route.query.parentSessionId) {
+    parentSessionId.value = route.query.parentSessionId;
+  }
 });
 
 function handleBranchEdit() {
@@ -243,12 +291,15 @@ async function handleSubmit() {
       mode: mode.value,
       model: model.value,
       thinkingEnabled: thinkingEnabled.value,
+      startImmediately: startImmediately.value,
       gitMode: submitGitMode,
       gitBranch: submitGitBranch,
       files: attachedFiles.value,
       templateId: selectedTemplateId.value,
+      parentSessionId: parentSessionId.value || null,
     });
-    uiStore.success('Session started');
+    const message = startImmediately.value ? 'Session started' : 'Draft session created';
+    uiStore.success(message);
     fileAttachment.value?.clear();
     router.push(`/sessions/${session.id}`);
   } catch (err) {

@@ -8,7 +8,7 @@
     <div v-else class="form-container">
       <!-- Header -->
       <div class="form-header">
-        <router-link :to="`/projects/${route.params.id}/sessions`" class="btn btn-outline-secondary">
+        <router-link :to="`/projects/${route.params[ROUTE_PARAMS.PROJECT_ID]}/sessions`" class="btn btn-outline-secondary">
           ← Back
         </router-link>
         <h2>{{ isEditMode ? 'Edit Command Button' : 'New Command Button' }}</h2>
@@ -107,6 +107,7 @@ import { defineProps, ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useUiStore } from '../stores/ui.js';
+import { ROUTE_PARAMS } from '@claudetools/shared/routeParams';
 
 const route = useRoute();
 const router = useRouter();
@@ -173,7 +174,7 @@ const onSubmit = async () => {
 
   isSaving.value = true;
   try {
-    const projectId = route.params.id;
+    const projectId = route.params[ROUTE_PARAMS.PROJECT_ID];
     const buttonData = {
       label: formData.value.label,
       command: formData.value.command,
@@ -181,7 +182,7 @@ const onSubmit = async () => {
     };
 
     if (isEditMode.value) {
-      await commandButtonsStore.updateButton(projectId, route.params.buttonId, buttonData);
+      await commandButtonsStore.updateButton(projectId, route.params[ROUTE_PARAMS.BUTTON_ID], buttonData);
       uiStore.success('Command button updated');
     } else {
       await commandButtonsStore.createButton(projectId, buttonData);
@@ -208,8 +209,8 @@ const onDelete = () => {
 const confirmDelete = async () => {
   isDeleting.value = true;
   try {
-    const projectId = route.params.id;
-    const buttonId = route.params.buttonId;
+    const projectId = route.params[ROUTE_PARAMS.PROJECT_ID];
+    const buttonId = route.params[ROUTE_PARAMS.BUTTON_ID];
 
     await commandButtonsStore.deleteButton(projectId, buttonId);
     uiStore.success('Command button deleted');

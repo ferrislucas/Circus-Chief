@@ -59,6 +59,14 @@ vi.mock('./ModelSelector.vue', () => ({
   },
 }));
 
+// Issue #175 - TokenUsagePanel is now rendered in ConversationTab
+vi.mock('./TokenUsagePanel.vue', () => ({
+  default: {
+    name: 'TokenUsagePanel',
+    template: '<div class="token-usage-panel-stub"></div>',
+  },
+}));
+
 vi.mock('@claudetools/shared', async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -138,6 +146,8 @@ describe.skip('ConversationTab', () => {
           LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           FileAttachment: { template: '<div class="file-attachment-stub"></div>' },
+          // Issue #175 - TokenUsagePanel is now rendered in ConversationTab
+          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
         },
       },
     });
@@ -586,6 +596,60 @@ describe.skip('ConversationTab', () => {
       await flushAll(wrapper);
 
       expect(mockSessionsStore.fetchWorkLogs).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Keyboard shortcuts', () => {
+    it('calls handleSend on Command+Enter when not a draft', async () => {
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await wrapper.find('textarea').trigger('keydown', { key: 'Enter', metaKey: true });
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', []);
+    });
+
+    it('calls handleSend on Ctrl+Enter when not a draft', async () => {
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await wrapper.find('textarea').trigger('keydown', { key: 'Enter', ctrlKey: true });
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', []);
+    });
+
+    it('does NOT submit on plain Enter', async () => {
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await wrapper.find('textarea').trigger('keydown', { key: 'Enter' });
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('does NOT submit on Shift+Enter', async () => {
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await wrapper.find('textarea').trigger('keydown', { key: 'Enter', shiftKey: true });
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.sendMessage).not.toHaveBeenCalled();
     });
   });
 });

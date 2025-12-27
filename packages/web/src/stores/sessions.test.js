@@ -726,6 +726,182 @@ describe('Sessions Store', () => {
         expect(store.conversations[0].id).toBe('conv-2');
       });
     });
+
+    describe('parent-child relationships', () => {
+      describe('getChildSessions getter', () => {
+        it('returns children of a parent session', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'parent-1', name: 'Parent', parentSessionId: null },
+            { id: 'child-1', name: 'Child 1', parentSessionId: 'parent-1' },
+            { id: 'child-2', name: 'Child 2', parentSessionId: 'parent-1' },
+            { id: 'other', name: 'Other', parentSessionId: null },
+          ];
+
+          const children = store.getChildSessions('parent-1');
+
+          expect(children).toHaveLength(2);
+          expect(children.map((c) => c.id)).toEqual(['child-1', 'child-2']);
+        });
+
+        it('returns empty array for parent with no children', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'parent-1', name: 'Parent', parentSessionId: null },
+          ];
+
+          const children = store.getChildSessions('parent-1');
+
+          expect(children).toEqual([]);
+        });
+      });
+
+      describe('hasChildren getter', () => {
+        it('returns true if session has children', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'parent-1', name: 'Parent', parentSessionId: null },
+            { id: 'child-1', name: 'Child', parentSessionId: 'parent-1' },
+          ];
+
+          expect(store.hasChildren('parent-1')).toBe(true);
+        });
+
+        it('returns false if session has no children', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'session-1', name: 'Session', parentSessionId: null },
+          ];
+
+          expect(store.hasChildren('session-1')).toBe(false);
+        });
+      });
+
+      describe('getChildCount getter', () => {
+        it('returns count of children', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'parent-1', name: 'Parent', parentSessionId: null },
+            { id: 'child-1', name: 'Child 1', parentSessionId: 'parent-1' },
+            { id: 'child-2', name: 'Child 2', parentSessionId: 'parent-1' },
+          ];
+
+          expect(store.getChildCount('parent-1')).toBe(2);
+        });
+
+        it('returns 0 for parent with no children', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'parent-1', name: 'Parent', parentSessionId: null },
+          ];
+
+          expect(store.getChildCount('parent-1')).toBe(0);
+        });
+      });
+
+      describe('isSessionExpanded getter', () => {
+        it('returns true if session is in expandedSessions set', () => {
+          const store = useSessionsStore();
+          store.expandedSessions.add('session-1');
+
+          expect(store.isSessionExpanded('session-1')).toBe(true);
+        });
+
+        it('returns false if session is not in expandedSessions set', () => {
+          const store = useSessionsStore();
+
+          expect(store.isSessionExpanded('session-1')).toBe(false);
+        });
+      });
+
+      describe('groupedSessions getter', () => {
+        it('groups sessions by parent', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'parent-1', name: 'Parent 1', parentSessionId: null },
+            { id: 'child-1', name: 'Child 1', parentSessionId: 'parent-1' },
+            { id: 'child-2', name: 'Child 2', parentSessionId: 'parent-1' },
+            { id: 'parent-2', name: 'Parent 2', parentSessionId: null },
+          ];
+
+          const grouped = store.groupedSessions;
+
+          expect(grouped).toHaveLength(2);
+          expect(grouped[0].parent.id).toBe('parent-1');
+          expect(grouped[0].children).toHaveLength(2);
+          expect(grouped[1].parent.id).toBe('parent-2');
+          expect(grouped[1].children).toHaveLength(0);
+        });
+
+        it('handles standalone sessions', () => {
+          const store = useSessionsStore();
+          store.sessions = [
+            { id: 'session-1', name: 'Standalone', parentSessionId: null },
+          ];
+
+          const grouped = store.groupedSessions;
+
+          expect(grouped).toHaveLength(1);
+          expect(grouped[0].parent.id).toBe('session-1');
+          expect(grouped[0].children).toEqual([]);
+        });
+      });
+
+      describe('toggleSessionExpanded action', () => {
+        it('adds session to expandedSessions if not present', () => {
+          const store = useSessionsStore();
+
+          store.toggleSessionExpanded('session-1');
+
+          expect(store.expandedSessions.has('session-1')).toBe(true);
+        });
+
+        it('removes session from expandedSessions if present', () => {
+          const store = useSessionsStore();
+          store.expandedSessions.add('session-1');
+
+          store.toggleSessionExpanded('session-1');
+
+          expect(store.expandedSessions.has('session-1')).toBe(false);
+        });
+      });
+
+      describe('saveExpandedState and restoreExpandedState actions', () => {
+        beforeEach(() => {
+          localStorage.clear();
+        });
+
+        it('saves expanded sessions to localStorage', () => {
+          const store = useSessionsStore();
+          store.expandedSessions.add('session-1');
+          store.expandedSessions.add('session-2');
+
+          store.saveExpandedState();
+
+          const stored = JSON.parse(localStorage.getItem('expandedSessions'));
+          expect(stored).toContain('session-1');
+          expect(stored).toContain('session-2');
+        });
+
+        it('restores expanded sessions from localStorage', () => {
+          const store = useSessionsStore();
+          localStorage.setItem('expandedSessions', JSON.stringify(['session-1', 'session-2']));
+
+          store.restoreExpandedState();
+
+          expect(store.expandedSessions.has('session-1')).toBe(true);
+          expect(store.expandedSessions.has('session-2')).toBe(true);
+        });
+
+        it('handles localStorage errors gracefully', () => {
+          const store = useSessionsStore();
+          localStorage.setItem('expandedSessions', 'invalid-json');
+
+          expect(() => store.restoreExpandedState()).not.toThrow();
+          expect(store.expandedSessions.size).toBe(0);
+        });
+      });
+    });
   });
 
   describe('token usage', () => {
@@ -864,7 +1040,8 @@ describe('Sessions Store', () => {
 
         store.updateRunningUsage(usage);
 
-        expect(store.runningUsage).toEqual(usage);
+        // runningUsage includes conversationId tracking (Issue #175)
+        expect(store.runningUsage).toEqual({ ...usage, conversationId: null });
       });
 
       it('can update runningUsage multiple times', () => {
@@ -958,6 +1135,281 @@ describe('Sessions Store', () => {
         store.clearRunningUsage();
 
         expect(store.runningUsage).toBeNull();
+      });
+    });
+
+    // Issue #175 - Conversation-level token tracking tests
+    describe('conversationTokens getter', () => {
+      it('returns null when no active conversation', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = null;
+        store.conversations = [];
+
+        expect(store.conversationTokens).toBeNull();
+      });
+
+      it('returns null when active conversation not found', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'non-existent';
+        store.conversations = [{ id: 'other-conv', inputTokens: 100 }];
+
+        expect(store.conversationTokens).toBeNull();
+      });
+
+      it('returns token data for active conversation', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 1000,
+            outputTokens: 500,
+            cacheReadInputTokens: 200,
+            cacheCreationInputTokens: 100,
+            webSearchRequests: 2,
+          },
+        ];
+
+        const tokens = store.conversationTokens;
+
+        expect(tokens.inputTokens).toBe(1000);
+        expect(tokens.outputTokens).toBe(500);
+        expect(tokens.cacheReadInputTokens).toBe(200);
+        expect(tokens.cacheCreationInputTokens).toBe(100);
+        expect(tokens.webSearchRequests).toBe(2);
+      });
+
+      it('returns 0 for missing token fields', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [{ id: 'conv-1' }]; // no token fields
+
+        const tokens = store.conversationTokens;
+
+        expect(tokens.inputTokens).toBe(0);
+        expect(tokens.outputTokens).toBe(0);
+        expect(tokens.cacheReadInputTokens).toBe(0);
+        expect(tokens.cacheCreationInputTokens).toBe(0);
+        expect(tokens.webSearchRequests).toBe(0);
+      });
+    });
+
+    describe('contextPercentage getter', () => {
+      it('returns 0 when no session or conversation', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+        store.activeConversationId = null;
+        store.conversations = [];
+
+        expect(store.contextPercentage).toBe(0);
+      });
+
+      it('calculates percentage from active conversation', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 40000,
+            outputTokens: 10000,
+            contextWindow: 200000,
+          },
+        ];
+
+        // (40000 + 10000) / 200000 = 25%
+        expect(store.contextPercentage).toBe(25);
+      });
+
+      it('falls back to session data when no conversation', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = null;
+        store.conversations = [];
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 20000,
+          outputTokens: 10000,
+          contextWindow: 200000,
+        };
+
+        // (20000 + 10000) / 200000 = 15%
+        expect(store.contextPercentage).toBe(15);
+      });
+
+      it('uses default context window when not specified', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 20000,
+            outputTokens: 0,
+            // no contextWindow specified
+          },
+        ];
+
+        // (20000 + 0) / 200000 (default) = 10%
+        expect(store.contextPercentage).toBe(10);
+      });
+
+      it('caps at 100%', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 250000,
+            outputTokens: 50000,
+            contextWindow: 200000,
+          },
+        ];
+
+        expect(store.contextPercentage).toBe(100);
+      });
+
+      it('rounds to nearest integer', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 33333,
+            outputTokens: 0,
+            contextWindow: 200000,
+          },
+        ];
+
+        // 33333 / 200000 = 16.67%
+        expect(store.contextPercentage).toBe(17);
+      });
+    });
+
+    describe('updateRunningUsage with conversationId', () => {
+      it('tracks conversationId with usage', () => {
+        const store = useSessionsStore();
+        const usage = { inputTokens: 100, outputTokens: 50 };
+
+        store.updateRunningUsage(usage, 'conv-123');
+
+        expect(store.runningUsage.conversationId).toBe('conv-123');
+        expect(store.runningUsage.inputTokens).toBe(100);
+        expect(store.runningUsage.outputTokens).toBe(50);
+      });
+
+      it('defaults conversationId to null when not provided', () => {
+        const store = useSessionsStore();
+        store.updateRunningUsage({ inputTokens: 100, outputTokens: 50 });
+
+        expect(store.runningUsage.conversationId).toBeNull();
+      });
+
+      it('updates conversationId on subsequent calls', () => {
+        const store = useSessionsStore();
+
+        store.updateRunningUsage({ inputTokens: 50, outputTokens: 25 }, 'conv-1');
+        expect(store.runningUsage.conversationId).toBe('conv-1');
+
+        store.updateRunningUsage({ inputTokens: 100, outputTokens: 50 }, 'conv-2');
+        expect(store.runningUsage.conversationId).toBe('conv-2');
+      });
+    });
+
+    describe('finalizeUsage with conversationId', () => {
+      it('updates conversation with usage when conversationId provided', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+        store.conversations = [
+          { id: 'conv-1', inputTokens: 0, outputTokens: 0 },
+          { id: 'conv-2', inputTokens: 0, outputTokens: 0 },
+        ];
+
+        const usage = {
+          inputTokens: 1000,
+          outputTokens: 500,
+          cacheReadInputTokens: 200,
+          cacheCreationInputTokens: 100,
+          contextWindow: 200000,
+          model: 'claude-sonnet-4-20250514',
+        };
+
+        store.finalizeUsage(usage, 'conv-1');
+
+        const updatedConv = store.conversations.find((c) => c.id === 'conv-1');
+        expect(updatedConv.inputTokens).toBe(1000);
+        expect(updatedConv.outputTokens).toBe(500);
+        expect(updatedConv.cacheReadInputTokens).toBe(200);
+        expect(updatedConv.cacheCreationInputTokens).toBe(100);
+        expect(updatedConv.contextWindow).toBe(200000);
+        expect(updatedConv.model).toBe('claude-sonnet-4-20250514');
+
+        // Other conversation should be unchanged
+        const otherConv = store.conversations.find((c) => c.id === 'conv-2');
+        expect(otherConv.inputTokens).toBe(0);
+      });
+
+      it('still updates session when conversationId provided', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1', inputTokens: 0, outputTokens: 0 };
+        store.conversations = [{ id: 'conv-1', inputTokens: 0, outputTokens: 0 }];
+
+        store.finalizeUsage({ inputTokens: 1000, outputTokens: 500 }, 'conv-1');
+
+        // Session should still be updated for backward compatibility
+        expect(store.currentSession.inputTokens).toBe(1000);
+        expect(store.currentSession.outputTokens).toBe(500);
+      });
+
+      it('handles missing conversation gracefully', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1', inputTokens: 0 };
+        store.conversations = [];
+
+        // Should not throw
+        store.finalizeUsage({ inputTokens: 1000, outputTokens: 500 }, 'non-existent');
+
+        // Session should still be updated
+        expect(store.currentSession.inputTokens).toBe(1000);
+      });
+    });
+
+    describe('updateConversationUsage action', () => {
+      it('updates conversation in list', () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1', name: 'First', inputTokens: 0, outputTokens: 0 },
+          { id: 'conv-2', name: 'Second', inputTokens: 0, outputTokens: 0 },
+        ];
+
+        store.updateConversationUsage('conv-1', { inputTokens: 1000, outputTokens: 500 });
+
+        const conv = store.conversations.find((c) => c.id === 'conv-1');
+        expect(conv.inputTokens).toBe(1000);
+        expect(conv.outputTokens).toBe(500);
+      });
+
+      it('does nothing if conversation not found', () => {
+        const store = useSessionsStore();
+        store.conversations = [{ id: 'conv-1', inputTokens: 0 }];
+
+        // Should not throw
+        store.updateConversationUsage('non-existent', { inputTokens: 1000 });
+
+        expect(store.conversations).toHaveLength(1);
+        expect(store.conversations[0].inputTokens).toBe(0);
+      });
+
+      it('preserves other conversation properties', () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1', name: 'Test Conv', summary: 'A summary', isActive: true, inputTokens: 0 },
+        ];
+
+        store.updateConversationUsage('conv-1', { inputTokens: 500, outputTokens: 250 });
+
+        const conv = store.conversations[0];
+        expect(conv.name).toBe('Test Conv');
+        expect(conv.summary).toBe('A summary');
+        expect(conv.isActive).toBe(true);
+        expect(conv.inputTokens).toBe(500);
       });
     });
   });
@@ -1133,6 +1585,171 @@ describe('Sessions Store', () => {
 
         expect(store.activeSessions).toHaveLength(0);
       });
+
+      it('preserves gitBranch when archiving a new session', () => {
+        const store = useSessionsStore();
+
+        // Create a session with gitBranch in the active list
+        const sessionWithBranch = {
+          id: 'session-1',
+          name: 'Feature Branch',
+          gitBranch: 'feature/user-auth',
+          gitWorktree: null,
+          archived: false,
+        };
+
+        store.sessions = [sessionWithBranch];
+        store.archivedSessions = [];
+
+        // Archive the session
+        store.updateSession({ id: 'session-1', archived: true });
+
+        // Verify gitBranch is preserved
+        expect(store.archivedSessions).toHaveLength(1);
+        expect(store.archivedSessions[0].gitBranch).toBe('feature/user-auth');
+        expect(store.archivedSessions[0].name).toBe('Feature Branch');
+        expect(store.archivedSessions[0].gitWorktree).toBeNull();
+      });
+
+      it('preserves gitBranch when unarchiving a session', () => {
+        const store = useSessionsStore();
+
+        // Create a session with gitBranch in the archived list
+        const archivedSessionWithBranch = {
+          id: 'session-1',
+          name: 'Feature Branch',
+          gitBranch: 'feature/user-auth',
+          gitWorktree: null,
+          archived: true,
+        };
+
+        store.sessions = [];
+        store.archivedSessions = [archivedSessionWithBranch];
+
+        // Unarchive the session
+        store.updateSession({ id: 'session-1', archived: false });
+
+        // Verify gitBranch is preserved
+        expect(store.sessions).toHaveLength(1);
+        expect(store.sessions[0].gitBranch).toBe('feature/user-auth');
+        expect(store.sessions[0].name).toBe('Feature Branch');
+        expect(store.sessions[0].gitWorktree).toBeNull();
+      });
+
+      it('preserves multiple properties when archiving a session', () => {
+        const store = useSessionsStore();
+
+        // Session with multiple git and custom properties
+        const sessionWithMultipleProps = {
+          id: 'session-1',
+          name: 'Complex Session',
+          gitBranch: 'develop',
+          gitWorktree: '.worktrees/session-1',
+          prUrl: 'https://github.com/repo/pull/123',
+          error: null,
+          status: 'completed',
+          archived: false,
+        };
+
+        store.sessions = [sessionWithMultipleProps];
+        store.archivedSessions = [];
+
+        // Archive the session (only archived flag changes)
+        store.updateSession({ id: 'session-1', archived: true });
+
+        // Verify all properties are preserved
+        const archivedSession = store.archivedSessions[0];
+        expect(archivedSession.gitBranch).toBe('develop');
+        expect(archivedSession.gitWorktree).toBe('.worktrees/session-1');
+        expect(archivedSession.prUrl).toBe('https://github.com/repo/pull/123');
+        expect(archivedSession.status).toBe('completed');
+        expect(archivedSession.name).toBe('Complex Session');
+      });
+
+      it('preserves multiple properties when unarchiving a session', () => {
+        const store = useSessionsStore();
+
+        // Session with multiple git and custom properties
+        const archivedSessionWithMultipleProps = {
+          id: 'session-1',
+          name: 'Complex Session',
+          gitBranch: 'develop',
+          gitWorktree: '.worktrees/session-1',
+          prUrl: 'https://github.com/repo/pull/123',
+          error: null,
+          status: 'completed',
+          archived: true,
+        };
+
+        store.sessions = [];
+        store.archivedSessions = [archivedSessionWithMultipleProps];
+
+        // Unarchive the session
+        store.updateSession({ id: 'session-1', archived: false });
+
+        // Verify all properties are preserved
+        const unarchivedSession = store.sessions[0];
+        expect(unarchivedSession.gitBranch).toBe('develop');
+        expect(unarchivedSession.gitWorktree).toBe('.worktrees/session-1');
+        expect(unarchivedSession.prUrl).toBe('https://github.com/repo/pull/123');
+        expect(unarchivedSession.status).toBe('completed');
+        expect(unarchivedSession.name).toBe('Complex Session');
+      });
+
+      it('handles archiving when session does not exist in source list', () => {
+        const store = useSessionsStore();
+
+        // Session data without existing source session
+        store.sessions = [];
+        store.archivedSessions = [];
+
+        // Archive a session that doesn't exist in sessions list
+        store.updateSession({ id: 'new-session', archived: true, gitBranch: 'main' });
+
+        // Should still be added to archivedSessions
+        expect(store.archivedSessions).toHaveLength(1);
+        expect(store.archivedSessions[0].id).toBe('new-session');
+        expect(store.archivedSessions[0].gitBranch).toBe('main');
+      });
+
+      it('handles unarchiving when session does not exist in source list', () => {
+        const store = useSessionsStore();
+
+        // Session data without existing source session
+        store.sessions = [];
+        store.archivedSessions = [];
+
+        // Unarchive a session that doesn't exist in archivedSessions list
+        store.updateSession({ id: 'new-session', archived: false, gitBranch: 'feature' });
+
+        // Should still be added to sessions
+        expect(store.sessions).toHaveLength(1);
+        expect(store.sessions[0].id).toBe('new-session');
+        expect(store.sessions[0].gitBranch).toBe('feature');
+      });
+
+      it('updates session properties while preserving gitBranch when archiving', () => {
+        const store = useSessionsStore();
+
+        const originalSession = {
+          id: 'session-1',
+          name: 'Original Name',
+          gitBranch: 'feature/fix',
+          status: 'running',
+          archived: false,
+        };
+
+        store.sessions = [originalSession];
+        store.archivedSessions = [];
+
+        // Archive and update status in same call
+        store.updateSession({ id: 'session-1', archived: true, status: 'completed' });
+
+        // Verify gitBranch and new status are both present
+        expect(store.archivedSessions[0].gitBranch).toBe('feature/fix');
+        expect(store.archivedSessions[0].status).toBe('completed');
+        expect(store.archivedSessions[0].name).toBe('Original Name');
+      });
     });
 
     describe('deleteSession with archived sessions', () => {
@@ -1147,6 +1764,60 @@ describe('Sessions Store', () => {
 
         expect(store.archivedSessions).toHaveLength(0);
       });
+    });
+  });
+
+  describe('isDraftSession getter', () => {
+    it('returns false for null session', () => {
+      const store = useSessionsStore();
+      expect(store.isDraftSession(null)).toBe(false);
+    });
+
+    it('returns false for session not in waiting status', () => {
+      const store = useSessionsStore();
+      expect(store.isDraftSession({ id: 'session-1', status: 'running' })).toBe(false);
+      expect(store.isDraftSession({ id: 'session-1', status: 'completed' })).toBe(false);
+      expect(store.isDraftSession({ id: 'session-1', status: 'error' })).toBe(false);
+    });
+
+    it('returns true for waiting session with hasResponses=false from server', () => {
+      const store = useSessionsStore();
+      const session = { id: 'session-1', status: 'waiting', hasResponses: false };
+      expect(store.isDraftSession(session)).toBe(true);
+    });
+
+    it('returns false for waiting session with hasResponses=true from server', () => {
+      const store = useSessionsStore();
+      const session = { id: 'session-1', status: 'waiting', hasResponses: true };
+      expect(store.isDraftSession(session)).toBe(false);
+    });
+
+    it('falls back to checking messages if hasResponses is undefined', () => {
+      const store = useSessionsStore();
+      const session = { id: 'session-1', status: 'waiting' }; // no hasResponses
+
+      // No messages loaded - should be a draft
+      store.messages = [];
+      expect(store.isDraftSession(session)).toBe(true);
+
+      // Has assistant message - not a draft
+      store.messages = [{ role: 'assistant', content: 'Hello' }];
+      expect(store.isDraftSession(session)).toBe(false);
+    });
+
+    it('prioritizes hasResponses over local messages state', () => {
+      const store = useSessionsStore();
+
+      // Even with empty messages array, if server says hasResponses=true, it's not a draft
+      store.messages = [];
+      const sessionWithResponses = { id: 'session-1', status: 'waiting', hasResponses: true };
+      expect(store.isDraftSession(sessionWithResponses)).toBe(false);
+
+      // Even with assistant messages in store, if server says hasResponses=false, it's a draft
+      // (this case shouldn't happen in practice, but tests the priority)
+      store.messages = [{ role: 'assistant', content: 'Hello' }];
+      const sessionNoDraft = { id: 'session-1', status: 'waiting', hasResponses: false };
+      expect(store.isDraftSession(sessionNoDraft)).toBe(true);
     });
   });
 });

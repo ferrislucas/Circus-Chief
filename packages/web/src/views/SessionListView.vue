@@ -2,7 +2,14 @@
   <div class="container">
     <div class="page-header">
       <div>
-        <h1>{{ projectsStore.currentProject?.name || 'Sessions' }}</h1>
+        <div class="project-title">
+          <h1>{{ projectsStore.currentProject?.name || 'Sessions' }}</h1>
+          <a v-if="projectsStore.currentProject?.repoUrl" :href="projectsStore.currentProject.repoUrl" target="_blank" rel="noopener noreferrer" class="repo-link" title="Open repository">
+            <svg class="repo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.375 3.375 0 0 0-.975-2.438A3.375 3.375 0 0 1 19.5 9V6.75a6 6 0 0 0-6-6 5.997 5.997 0 0 0-6 6v2.25a3.375 3.375 0 0 1 4.5 3.188V21m0 0a3.375 3.375 0 0 1-3.375-3.375m3.375 3.375h7.5a3.375 3.375 0 0 0 3.375-3.375v-6a3.375 3.375 0 0 0-3.375-3.375h-.75"></path>
+            </svg>
+          </a>
+        </div>
         <p v-if="projectsStore.currentProject" class="project-path">
           {{ projectsStore.currentProject.workingDirectory }}
         </p>
@@ -82,18 +89,20 @@
       </div>
 
       <div v-else class="session-list">
-        <SessionCard
-          v-for="session in filteredSessions"
-          :key="session.id"
-          :session="session"
-          :show-summary="true"
-          :summary="summaries[session.id]"
-          :summary-loading="loadingSummaries[session.id]"
-          :summary-error="summaryErrors[session.id]"
-          :show-archive="true"
-          @retry-summary="retryFetchSummary"
-          @archive="handleArchive"
-        />
+        <template v-for="group in sessionsStore.groupedSessions" :key="group.parent.id">
+          <SessionCard
+            :session="group.parent"
+            :show-summary="true"
+            :summary="summaries[group.parent.id]"
+            :summary-loading="loadingSummaries[group.parent.id]"
+            :summary-error="summaryErrors[group.parent.id]"
+            :children="group.children"
+            :summaries="summaries"
+            :show-archive="true"
+            @retry-summary="retryFetchSummary"
+            @archive="handleArchive"
+          />
+        </template>
       </div>
     </div>
 
@@ -350,8 +359,14 @@ async function handleUnarchive(sessionId) {
   }
 }
 
-// Cleanup WebSocket listeners on unmount
+// Restore expanded sessions state from localStorage on mount
+onMounted(() => {
+  sessionsStore.restoreExpandedState();
+});
+
+// Save expanded state and cleanup WebSocket listeners on unmount
 onUnmounted(() => {
+  sessionsStore.saveExpandedState();
   cleanups.forEach((cleanup) => cleanup());
   if (currentUnsubscribe) {
     currentUnsubscribe();
@@ -369,6 +384,35 @@ onUnmounted(() => {
 
 .page-header h1 {
   margin: 0;
+}
+
+.project-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  color: var(--color-primary);
+  transition: color 0.15s, transform 0.15s;
+  padding: 0.25rem;
+}
+
+.repo-link:hover {
+  color: var(--color-primary-bright, #06ffff);
+  transform: scale(1.1);
+}
+
+.repo-icon {
+  width: 100%;
+  height: 100%;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .project-path {

@@ -30,8 +30,15 @@ vi.mock('../composables/useWebSocket.js', () => ({
     onSessionUpdate: vi.fn(() => vi.fn()),
     onSummaryUpdate: vi.fn(() => vi.fn()),
     onUsageUpdate: vi.fn(() => vi.fn()),
+    onConversationUpdated: vi.fn(() => vi.fn()),
   })),
 }));
+
+// Mock useModelInfo composable - use real implementation to test model display
+vi.mock('../composables/useModelInfo.js', async () => {
+  const actual = await vi.importActual('../composables/useModelInfo.js');
+  return actual;
+});
 
 // Mock the stores
 vi.mock('../stores/sessions.js', () => ({
@@ -84,6 +91,21 @@ vi.mock('../components/NotesTab.vue', () => ({
 vi.mock('../components/SummaryTab.vue', () => ({
   default: defineComponent({ name: 'SummaryTab', template: '<div />' }),
 }));
+vi.mock('../components/CommandsTab.vue', () => ({
+  default: defineComponent({ name: 'CommandsTab', template: '<div />' }),
+}));
+vi.mock('../components/PrIndicators.vue', () => ({
+  default: defineComponent({ name: 'PrIndicators', template: '<div />' }),
+}));
+vi.mock('../components/TokenUsagePanel.vue', () => ({
+  default: defineComponent({ name: 'TokenUsagePanel', template: '<div />' }),
+}));
+vi.mock('../stores/templates.js', () => ({
+  useTemplatesStore: vi.fn(() => ({
+    fetchProjectTemplates: vi.fn(),
+    getTemplateById: vi.fn(() => null),
+  })),
+}));
 
 import SessionDetailView from './SessionDetailView.vue';
 import { useSessionsStore } from '../stores/sessions.js';
@@ -116,6 +138,7 @@ describe('SessionDetailView', () => {
       onSessionUpdate: vi.fn(() => vi.fn()),
       onSummaryUpdate: vi.fn(() => vi.fn()),
       onUsageUpdate: vi.fn(() => vi.fn()),
+      onConversationUpdated: vi.fn(() => vi.fn()),
     }));
 
     mockSessionsStore = {
@@ -137,6 +160,10 @@ describe('SessionDetailView', () => {
       updateSessionStatus: vi.fn(),
       addMessage: vi.fn(),
       updateSession: vi.fn(),
+      // Issue #175 - Conversation-level token tracking methods
+      finalizeUsage: vi.fn(),
+      updateRunningUsage: vi.fn(),
+      updateConversation: vi.fn(),
     };
 
     useSessionsStore.mockReturnValue(mockSessionsStore);
@@ -265,6 +292,82 @@ describe('SessionDetailView', () => {
       await nextTick();
 
       expect(wrapper.find('.pr-link').exists()).toBe(false);
+    });
+  });
+
+  describe('model display', () => {
+    it('displays Opus 4.5 for claude-opus-4-5-20251101 model', async () => {
+      mockSessionsStore.currentSession.model = 'claude-opus-4-5-20251101';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Opus 4.5');
+    });
+
+    it('displays Sonnet 4.5 for claude-sonnet-4-5-20250929 model', async () => {
+      mockSessionsStore.currentSession.model = 'claude-sonnet-4-5-20250929';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Sonnet 4.5');
+    });
+
+    it('displays Haiku 4.5 for claude-haiku-4-5-20251001 model', async () => {
+      mockSessionsStore.currentSession.model = 'claude-haiku-4-5-20251001';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Haiku 4.5');
+    });
+
+    it('displays Default when model is null', async () => {
+      mockSessionsStore.currentSession.model = null;
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Default');
+    });
+
+    it('displays Default when model is undefined', async () => {
+      // model is not set (undefined)
+      delete mockSessionsStore.currentSession.model;
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Default');
+    });
+
+    it('displays Unknown for unrecognized model ID', async () => {
+      mockSessionsStore.currentSession.model = 'unknown-model-id';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.session-model').text()).toBe('Unknown');
+    });
+
+    it('renders model in session-meta alongside status and mode', async () => {
+      mockSessionsStore.currentSession.model = 'claude-opus-4-5-20251101';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const sessionMeta = wrapper.find('.session-meta');
+      expect(sessionMeta.find('.status-badge').exists()).toBe(true);
+      expect(sessionMeta.find('.session-mode').exists()).toBe(true);
+      expect(sessionMeta.find('.session-model').exists()).toBe(true);
     });
   });
 
@@ -490,6 +593,219 @@ describe('SessionDetailView', () => {
       expect(mockGetSessionChanges).toHaveBeenCalledWith('test-session-id');
     });
 
+  });
+
+  describe('canvas indicator', () => {
+    let mockCanvasStore;
+
+    beforeEach(() => {
+      mockCanvasStore = {
+        items: [],
+        groupedItems: [],
+        fetchItems: vi.fn(),
+        addItem: vi.fn(),
+        removeItem: vi.fn(),
+      };
+      const { useCanvasStore } = require('../stores/canvas.js');
+      useCanvasStore.mockReturnValue(mockCanvasStore);
+    });
+
+    it('does not show canvas indicator when canvas is empty', async () => {
+      mockCanvasStore.groupedItems = [];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.canvas-indicator').exists()).toBe(false);
+    });
+
+    it('shows canvas indicator when canvas has files', async () => {
+      mockCanvasStore.groupedItems = [
+        { id: 'item-1', filename: 'image.png' },
+        { id: 'item-2', filename: 'document.md' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.find('.canvas-indicator').exists()).toBe(true);
+    });
+
+    it('shows correct count in canvas tab label', async () => {
+      mockCanvasStore.groupedItems = [
+        { id: 'item-1', filename: 'image.png' },
+        { id: 'item-2', filename: 'document.md' },
+        { id: 'item-3', filename: 'data.json' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const tabs = wrapper.findAll('a.tab');
+      const canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
+      expect(canvasTab.text()).toContain('Canvas (3)');
+    });
+
+    it('shows "Canvas" without count when empty', async () => {
+      mockCanvasStore.groupedItems = [];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const tabs = wrapper.findAll('a.tab');
+      const canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
+      expect(canvasTab.text()).toBe('Canvas');
+    });
+
+    it('canvas indicator has correct CSS class', async () => {
+      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const indicator = wrapper.find('.canvas-indicator');
+      expect(indicator.exists()).toBe(true);
+      expect(indicator.classes()).toContain('canvas-indicator');
+    });
+
+    it('canvas indicator has tooltip title attribute', async () => {
+      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const indicator = wrapper.find('.canvas-indicator');
+      expect(indicator.attributes('title')).toBe('Canvas contains files');
+    });
+
+    it('updates canvas count when groupedItems changes', async () => {
+      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      let tabs = wrapper.findAll('a.tab');
+      let canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
+      expect(canvasTab.text()).toContain('Canvas (1)');
+
+      // Update canvas items
+      mockCanvasStore.groupedItems = [
+        { id: 'item-1', filename: 'image.png' },
+        { id: 'item-2', filename: 'document.md' },
+      ];
+
+      // Trigger reactivity update
+      wrapper.vm.$nextTick(() => {
+        tabs = wrapper.findAll('a.tab');
+        canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
+        expect(canvasTab.text()).toContain('Canvas (2)');
+      });
+    });
+
+    it('shows canvas bullet indicator on mobile dropdown when files exist', async () => {
+      mockCanvasStore.groupedItems = [
+        { id: 'item-1', filename: 'image.png' },
+        { id: 'item-2', filename: 'document.md' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const options = wrapper.findAll('option');
+      const canvasOption = options.find((opt) => opt.attributes('value') === 'canvas');
+      expect(canvasOption.text()).toContain('Canvas (2)');
+      expect(canvasOption.text()).toContain('•');
+    });
+
+    it('does not show canvas bullet indicator on mobile when empty', async () => {
+      mockCanvasStore.groupedItems = [];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const options = wrapper.findAll('option');
+      const canvasOption = options.find((opt) => opt.attributes('value') === 'canvas');
+      const optionText = canvasOption.text();
+      // Count bullets - should only be one if it's from changes indicator, not canvas
+      const bulletCount = (optionText.match(/•/g) || []).length;
+      expect(bulletCount).toBe(0);
+    });
+
+    it('fetches canvas items on mount', async () => {
+      const { useCanvasStore } = require('../stores/canvas.js');
+      const canvasStore = useCanvasStore();
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(canvasStore.fetchItems).toHaveBeenCalledWith('test-session-id');
+    });
+
+    it('indicator dot has amber background color styling', async () => {
+      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const indicator = wrapper.find('.canvas-indicator');
+      const styles = indicator.element.getAttribute('style') || '';
+      // Verify the element exists and has the class that applies the color
+      expect(indicator.classes('canvas-indicator')).toBe(true);
+    });
+
+    it('canvas indicator appears next to tab label', async () => {
+      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const tabs = wrapper.findAll('a.tab');
+      const canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
+      const indicator = canvasTab.find('.canvas-indicator');
+      expect(indicator.exists()).toBe(true);
+    });
+
+    it('canvas indicator count shows multiple items correctly', async () => {
+      mockCanvasStore.groupedItems = Array.from({ length: 10 }, (_, i) => ({
+        id: `item-${i}`,
+        filename: `file-${i}.txt`,
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const tabs = wrapper.findAll('a.tab');
+      const canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
+      expect(canvasTab.text()).toContain('Canvas (10)');
+    });
+
+    it('indicator does not appear for other tabs when canvas has files', async () => {
+      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      const indicators = wrapper.findAll('.canvas-indicator');
+      // Should only find one canvas indicator
+      expect(indicators).toHaveLength(1);
+      // It should be associated with the canvas tab
+      const canvasIndicator = indicators[0];
+      expect(canvasIndicator.attributes('title')).toBe('Canvas contains files');
+    });
   });
 
   describe('archive button', () => {
@@ -831,6 +1147,209 @@ describe('SessionDetailView', () => {
         expect(container.find('.btn-archive-session').exists()).toBe(true);
         expect(container.find('.btn-delete-session').exists()).toBe(true);
       });
+    });
+  });
+
+  // Issue #175 - Conversation-level token usage tracking
+  describe('WebSocket usage update handlers', () => {
+    it('registers onUsageUpdate callback on mount', async () => {
+      let mockOnUsageUpdate = vi.fn(() => vi.fn());
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: mockOnUsageUpdate,
+        onConversationUpdated: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(mockOnUsageUpdate).toHaveBeenCalled();
+    });
+
+    it('calls finalizeUsage with conversationId when isFinal is true', async () => {
+      let capturedUsageCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn((callback) => {
+          capturedUsageCallback = callback;
+          return vi.fn();
+        }),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Simulate final usage update with conversationId
+      const usageData = {
+        isFinal: true,
+        usage: { inputTokens: 1000, outputTokens: 500 },
+        conversationId: 'conv-123',
+      };
+      capturedUsageCallback(usageData);
+
+      expect(mockSessionsStore.finalizeUsage).toHaveBeenCalledWith(
+        usageData.usage,
+        'conv-123'
+      );
+    });
+
+    it('calls updateRunningUsage with conversationId when isFinal is false', async () => {
+      let capturedUsageCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn((callback) => {
+          capturedUsageCallback = callback;
+          return vi.fn();
+        }),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Simulate partial usage update with conversationId
+      const usageData = {
+        isFinal: false,
+        usage: { inputTokens: 500, outputTokens: 250 },
+        conversationId: 'conv-456',
+      };
+      capturedUsageCallback(usageData);
+
+      expect(mockSessionsStore.updateRunningUsage).toHaveBeenCalledWith(
+        usageData.usage,
+        'conv-456'
+      );
+    });
+
+    it('handles usage update without conversationId for backward compatibility', async () => {
+      let capturedUsageCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn((callback) => {
+          capturedUsageCallback = callback;
+          return vi.fn();
+        }),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Simulate usage update without conversationId
+      const usageData = {
+        isFinal: true,
+        usage: { inputTokens: 1000, outputTokens: 500 },
+        // no conversationId
+      };
+      capturedUsageCallback(usageData);
+
+      expect(mockSessionsStore.finalizeUsage).toHaveBeenCalledWith(
+        usageData.usage,
+        undefined
+      );
+    });
+  });
+
+  describe('WebSocket conversation update handlers', () => {
+    it('registers onConversationUpdated callback on mount', async () => {
+      let mockOnConversationUpdated = vi.fn(() => vi.fn());
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: mockOnConversationUpdated,
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(mockOnConversationUpdated).toHaveBeenCalled();
+    });
+
+    it('calls updateConversation when conversation update is received', async () => {
+      let capturedConversationCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: vi.fn((callback) => {
+          capturedConversationCallback = callback;
+          return vi.fn();
+        }),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Simulate conversation update
+      const conversationData = {
+        id: 'conv-789',
+        name: 'Test Conversation',
+        inputTokens: 1500,
+        outputTokens: 750,
+      };
+      capturedConversationCallback(conversationData);
+
+      expect(mockSessionsStore.updateConversation).toHaveBeenCalledWith(conversationData);
     });
   });
 });

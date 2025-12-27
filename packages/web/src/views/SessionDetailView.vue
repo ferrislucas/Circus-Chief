@@ -14,11 +14,11 @@
               {{ sessionsStore.currentSession.status }}
             </span>
             <span class="session-mode">{{ formatMode(sessionsStore.currentSession.mode) }}</span>
+            <span class="session-model">{{ formatModel(sessionsStore.currentSession.model) }}</span>
             <span v-if="sessionsStore.currentSession.nextTemplateId" class="template-badge">
               🔗 Next: {{ getTemplateName(sessionsStore.currentSession.nextTemplateId) }}
             </span>
           </div>
-          <TokenUsagePanel class="session-usage" />
           <div class="branch-line">
             <div class="branch-pr-indicators">
               <span
@@ -84,6 +84,11 @@
               class="changes-indicator"
               title="Uncommitted changes"
             ></span>
+            <span
+              v-if="tab.id === 'canvas' && canvasItemCount > 0"
+              class="canvas-indicator"
+              title="Canvas contains files"
+            ></span>
           </router-link>
         </div>
 
@@ -91,7 +96,7 @@
         <div class="tabs-mobile">
           <select :value="activeTab" @change="navigateToTab($event.target.value)" class="tab-select">
             <option v-for="tab in tabs" :key="tab.id" :value="tab.id">
-              {{ tab.label }}{{ tab.id === 'changes' && hasChanges ? ' •' : '' }}
+              {{ tab.label }}{{ tab.id === 'changes' && hasChanges ? ' •' : '' }}{{ tab.id === 'canvas' && canvasItemCount > 0 ? ' •' : '' }}
             </option>
           </select>
         </div>
@@ -117,6 +122,7 @@ import { useCanvasStore } from '../stores/canvas.js';
 import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
+import { useModelInfo } from '../composables/useModelInfo.js';
 import { api } from '../composables/useApi.js';
 import ConversationTab from '../components/ConversationTab.vue';
 import ChangesTab from '../components/ChangesTab.vue';
@@ -125,7 +131,6 @@ import NotesTab from '../components/NotesTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
 import CommandsTab from '../components/CommandsTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
-import TokenUsagePanel from '../components/TokenUsagePanel.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
 const route = useRoute();
@@ -135,6 +140,7 @@ const canvasStore = useCanvasStore();
 const todosStore = useTodosStore();
 const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
+const { getModelDisplayName } = useModelInfo();
 
 // Capture session ID at component creation to avoid race conditions during navigation.
 // When navigating away, Vue Router updates route.params BEFORE unmounting the component.
@@ -143,6 +149,7 @@ const sessionId = route.params.id;
 
 const activeTab = computed(() => route.params.tab || 'conversation');
 const changesFileCount = ref(0);
+const canvasItemCount = ref(0);
 
 // Allow archiving any session that isn't running
 const canArchive = computed(() => {
@@ -154,7 +161,7 @@ const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
   { id: 'conversation', label: 'Conversation' },
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
-  { id: 'canvas', label: 'Canvas' },
+  { id: 'canvas', label: canvasItemCount.value > 0 ? `Canvas (${canvasItemCount.value})` : 'Canvas' },
   { id: 'notes', label: 'Notes' },
   { id: 'commands', label: 'Commands' }
 ]);
@@ -163,7 +170,7 @@ function navigateToTab(tabId) {
   router.push(`/sessions/${route.params.id}/${tabId}`);
 }
 
-const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onUsageUpdate } =
+const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onUsageUpdate, onConversationUpdated } =
   useSessionSubscription(sessionId);
 
 let cleanups = [];
@@ -220,6 +227,15 @@ watch(
       stopPolling();
     }
   }
+);
+
+// Watch canvas items and update count
+watch(
+  () => canvasStore.groupedItems.length,
+  (count) => {
+    canvasItemCount.value = count;
+  },
+  { immediate: true }
 );
 
 onMounted(async () => {
@@ -316,10 +332,18 @@ onMounted(async () => {
   cleanups.push(
     onUsageUpdate((msg) => {
       if (msg.isFinal) {
-        sessionsStore.finalizeUsage(msg.usage);
+        // Pass conversationId for conversation-level usage tracking (Issue #175)
+        sessionsStore.finalizeUsage(msg.usage, msg.conversationId);
       } else {
-        sessionsStore.updateRunningUsage(msg.usage);
+        sessionsStore.updateRunningUsage(msg.usage, msg.conversationId);
       }
+    })
+  );
+
+  // Handle conversation updates for usage tracking (Issue #175)
+  cleanups.push(
+    onConversationUpdated((conversation) => {
+      sessionsStore.updateConversation(conversation);
     })
   );
 });
@@ -334,6 +358,10 @@ onUnmounted(() => {
 function formatMode(mode) {
   if (mode === 'yolo') return 'YOLO';
   return mode.charAt(0).toUpperCase() + mode.slice(1);
+}
+
+function formatModel(modelId) {
+  return getModelDisplayName(modelId);
 }
 
 async function handleDelete() {
@@ -461,6 +489,11 @@ function getTemplateName(templateId) {
   color: var(--color-text-soft);
 }
 
+.session-model {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
 .session-usage {
   margin-top: 0.75rem;
 }
@@ -504,6 +537,16 @@ function getTemplateName(templateId) {
 }
 
 .changes-indicator {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background-color: var(--color-warning, #d29922);
+  border-radius: 50%;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.canvas-indicator {
   display: inline-block;
   width: 6px;
   height: 6px;

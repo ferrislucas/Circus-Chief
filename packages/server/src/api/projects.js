@@ -119,6 +119,8 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   let gitBranch = req.body.gitBranch;
   let gitMode = req.body.gitMode;
   const templateId = req.body.templateId;
+  const parentSessionId = req.body.parentSessionId || null; // Optional: parent session ID for child sessions
+  let startImmediately = req.body.startImmediately !== false && req.body.startImmediately !== 'false';
   const files = req.files || [];
 
   if (!prompt) {
@@ -146,7 +148,9 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   }
 
   const sessionName = name || generateInitialName(prompt);
-  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, model);
+  // Create session with 'waiting' status if not starting immediately, otherwise 'starting'
+  const initialStatus = startImmediately ? undefined : 'waiting';
+  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, model, parentSessionId, initialStatus);
 
   // Set nextTemplateId if template was selected
   if (nextTemplateId) {
@@ -170,12 +174,15 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
     // Store file attachments if any - saves to disk in workingDirectory/.attachments
     const sessionAttachments = attachments.createBatch(session.id, null, files, workingDirectory);
 
-    // Start session manager (non-blocking) - pass attachments for context
-    const { runSession } = await import('../services/sessionManager.js');
-    runSession(session.id, prompt, workingDirectory, project.systemPrompt, sessionAttachments, model).catch((error) => {
-      console.error('Session error:', error);
-      sessions.update(session.id, { status: 'error', error: error.message });
-    });
+    // Only start session manager if startImmediately is true
+    if (startImmediately) {
+      // Start session manager (non-blocking) - pass attachments for context
+      const { runSession } = await import('../services/sessionManager.js');
+      runSession(session.id, prompt, workingDirectory, project.systemPrompt, sessionAttachments, model).catch((error) => {
+        console.error('Session error:', error);
+        sessions.update(session.id, { status: 'error', error: error.message });
+      });
+    }
 
     // Return updated session with gitWorktree if set
     const updatedSession = sessions.getById(session.id);

@@ -110,11 +110,35 @@ const onButtonKill = async (buttonId) => {
  * Handle copy output event
  */
 const onCopyOutput = async (output) => {
+  // Validate output
+  if (!output) {
+    uiStore.error('No output to copy');
+    return;
+  }
+
+  if (typeof output !== 'string') {
+    uiStore.error('Output is not text');
+    return;
+  }
+
+  // Check for clipboard API availability
+  if (!navigator.clipboard) {
+    uiStore.error('Clipboard API not available in this browser');
+    return;
+  }
+
   try {
     await navigator.clipboard.writeText(output);
     uiStore.success('Output copied to clipboard');
   } catch (err) {
-    uiStore.error('Failed to copy output');
+    // Provide more specific error messages
+    if (err.name === 'NotAllowedError') {
+      uiStore.error('Clipboard access denied - check browser permissions');
+    } else if (err.name === 'NotFoundError') {
+      uiStore.error('Clipboard API not available');
+    } else {
+      uiStore.error(`Failed to copy output: ${err.message}`);
+    }
   }
 };
 
@@ -122,6 +146,17 @@ const onCopyOutput = async (output) => {
  * Handle send to canvas event
  */
 const onSendToCanvas = async (buttonLabel, output) => {
+  // Validate output
+  if (!output) {
+    uiStore.error('No output to send to canvas');
+    return;
+  }
+
+  if (typeof output !== 'string') {
+    uiStore.error('Output must be text');
+    return;
+  }
+
   try {
     // Sanitize filename from button label
     const sanitizedLabel = buttonLabel
@@ -180,6 +215,12 @@ const setupWebSocketHandlers = () => {
 onMounted(async () => {
   // Fetch buttons for this project
   await commandButtonsStore.fetchButtons(props.projectId);
+
+  // Fetch and restore any active runs for this session
+  const activeRuns = await commandButtonsStore.fetchActiveRuns(props.sessionId);
+  for (const run of activeRuns) {
+    currentRunIds[run.buttonId] = run.runId;
+  }
 
   // Setup WebSocket handlers
   setupWebSocketHandlers();
