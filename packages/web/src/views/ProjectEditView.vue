@@ -25,6 +25,20 @@
       </div>
 
       <div class="form-group">
+        <label class="form-label" for="repoUrl">Repository URL</label>
+        <input
+          id="repoUrl"
+          v-model="repoUrl"
+          type="url"
+          class="form-input"
+          placeholder="https://github.com/username/repo"
+        />
+        <p class="form-help">
+          Link to the project's repository (e.g., GitHub, GitLab). This can be automatically populated from session summaries.
+        </p>
+      </div>
+
+      <div class="form-group">
         <label class="form-label" for="systemPrompt">System Prompt</label>
         <textarea
           id="systemPrompt"
@@ -129,6 +143,7 @@ const uiStore = useUiStore();
 
 const name = ref('');
 const workingDirectory = ref('');
+const repoUrl = ref('');
 const systemPrompt = ref('');
 const onSessionCreated = ref('');
 const onSessionDeleted = ref('');
@@ -145,6 +160,7 @@ watch(() => projectsStore.currentProject, (project) => {
   if (project) {
     name.value = project.name;
     workingDirectory.value = project.workingDirectory;
+    repoUrl.value = project.repoUrl || '';
     systemPrompt.value = project.systemPrompt || '';
     onSessionCreated.value = project.onSessionCreated || '';
     onSessionDeleted.value = project.onSessionDeleted || '';
@@ -161,6 +177,7 @@ async function handleSubmit() {
     await projectsStore.updateProject(route.params.id, {
       name: name.value,
       workingDirectory: workingDirectory.value,
+      repoUrl: repoUrl.value || null,
       systemPrompt: systemPrompt.value || null,
       onSessionCreated: onSessionCreated.value || null,
       onSessionDeleted: onSessionDeleted.value || null,
