@@ -124,7 +124,19 @@ export const useSessionsStore = defineStore('sessions', {
         return String(n);
       };
 
-      // Use active conversation tokens if available, fallback to session
+      // STREAMING: Use running usage if available (shows live updates during response)
+      if (state.runningUsage) {
+        const usage = state.runningUsage;
+        return {
+          input: format(usage.inputTokens || 0),
+          output: format(usage.outputTokens || 0),
+          total: format((usage.inputTokens || 0) + (usage.outputTokens || 0)),
+          cacheRead: format(usage.cacheReadInputTokens || 0),
+          cacheCreation: format(usage.cacheCreationInputTokens || 0),
+        };
+      }
+
+      // FINALIZED: Use active conversation tokens if available, fallback to session
       const conv = state.conversations.find((c) => c.id === state.activeConversationId);
       const source = conv || state.currentSession;
 
@@ -139,7 +151,14 @@ export const useSessionsStore = defineStore('sessions', {
       };
     },
     contextPercentage: (state) => {
-      // Calculate context usage percentage for the active conversation
+      // STREAMING: Use running usage context if available (animates context bar)
+      if (state.runningUsage) {
+        const total = (state.runningUsage.inputTokens || 0) + (state.runningUsage.outputTokens || 0);
+        const contextWindow = state.runningUsage.contextWindow || 200000;
+        return Math.min(100, Math.round((total / contextWindow) * 100));
+      }
+
+      // FINALIZED: Use conversation/session context
       const conv = state.conversations.find((c) => c.id === state.activeConversationId);
       const source = conv || state.currentSession;
       if (!source) return 0;

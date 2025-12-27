@@ -419,6 +419,150 @@ describe('SessionDetailView', () => {
     });
   });
 
+  describe('proactive conversation loading (real-time token display)', () => {
+    it('fetches conversations on mount (Issue #175)', async () => {
+      mockSessionsStore.fetchConversations = vi.fn();
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(mockSessionsStore.fetchConversations).toHaveBeenCalledWith('test-session-id');
+    });
+
+    it('fetches conversations after messages to ensure proper ordering', async () => {
+      const callOrder = [];
+      mockSessionsStore.fetchMessages.mockImplementation(() => {
+        callOrder.push('fetchMessages');
+        return Promise.resolve();
+      });
+      mockSessionsStore.fetchConversations = vi.fn(() => {
+        callOrder.push('fetchConversations');
+        return Promise.resolve();
+      });
+      mockSessionsStore.fetchWorkLogs.mockImplementation(() => {
+        callOrder.push('fetchWorkLogs');
+        return Promise.resolve();
+      });
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Conversations should be loaded between messages and work logs
+      expect(callOrder).toEqual(['fetchMessages', 'fetchConversations', 'fetchWorkLogs']);
+    });
+
+    it('ensures conversation-level token updates are available immediately', async () => {
+      mockSessionsStore.fetchConversations = vi.fn();
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Verify fetchConversations was called
+      expect(mockSessionsStore.fetchConversations).toHaveBeenCalled();
+    });
+
+    it('loads conversations with the correct session ID', async () => {
+      mockSessionsStore.fetchConversations = vi.fn();
+      mockRouteParams.id = 'special-session-id-123';
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(mockSessionsStore.fetchConversations).toHaveBeenCalledWith('special-session-id-123');
+    });
+
+    it('does not wait for tab visibility to fetch conversations', async () => {
+      mockSessionsStore.fetchConversations = vi.fn();
+
+      // Mount the component (ConversationTab is not visible initially in real usage)
+      const wrapper = mountComponent();
+
+      // Before any nextTick/flushPromises, conversations should already be fetching
+      // (since it's in onMounted, not in a tab's onMounted)
+      expect(mockSessionsStore.fetchConversations).toHaveBeenCalled();
+    });
+
+    it('handles conversation fetch errors gracefully', async () => {
+      mockSessionsStore.fetchConversations = vi.fn().mockRejectedValue(new Error('Network error'));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Component should still render despite fetch error
+      expect(wrapper.find('.session-header').exists()).toBe(true);
+    });
+
+    it('enables real-time token updates to display during streaming', async () => {
+      // Setup: Mock all the necessary calls
+      mockSessionsStore.fetchConversations = vi.fn(() => Promise.resolve());
+      mockSessionsStore.updateRunningUsage = vi.fn();
+      mockSessionsStore.finalizeUsage = vi.fn();
+
+      // Setup the WebSocket callback capture
+      let capturedUsageCallback;
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn((callback) => {
+          capturedUsageCallback = callback;
+          return vi.fn();
+        }),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Verify conversations were fetched
+      expect(mockSessionsStore.fetchConversations).toHaveBeenCalledWith('test-session-id');
+
+      // Simulate a streaming token update from WebSocket
+      const streamingUpdate = {
+        isFinal: false,
+        usage: { inputTokens: 500, outputTokens: 250 },
+        conversationId: 'conv-123',
+      };
+      capturedUsageCallback(streamingUpdate);
+
+      // Verify the streaming usage is processed (making tokens available for display)
+      expect(mockSessionsStore.updateRunningUsage).toHaveBeenCalledWith(
+        streamingUpdate.usage,
+        'conv-123'
+      );
+    });
+
+    it('conversations are fetched alongside other critical data', async () => {
+      mockSessionsStore.fetchConversations = vi.fn();
+      const { useCanvasStore } = require('../stores/canvas.js');
+      const canvasStore = useCanvasStore();
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // All critical data should be fetched in parallel
+      expect(mockSessionsStore.fetchSession).toHaveBeenCalled();
+      expect(mockSessionsStore.fetchMessages).toHaveBeenCalled();
+      expect(mockSessionsStore.fetchConversations).toHaveBeenCalled();
+      expect(mockSessionsStore.fetchWorkLogs).toHaveBeenCalled();
+      expect(canvasStore.fetchItems).toHaveBeenCalled();
+    });
+  });
+
   describe('session ID capturing (race condition prevention)', () => {
     it('captures session ID at component creation time', async () => {
       // Mount component with initial session ID
