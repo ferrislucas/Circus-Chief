@@ -245,6 +245,9 @@ onMounted(async () => {
   // Then fetch data - this ensures we don't miss updates
   await sessionsStore.fetchSession(sessionId);
   await sessionsStore.fetchMessages(sessionId);
+  // Load conversations proactively so token updates are available immediately
+  // (Issue: conversations were only loaded when ConversationTab became visible)
+  await sessionsStore.fetchConversations(sessionId);
   await sessionsStore.fetchWorkLogs(sessionId);
   canvasStore.fetchItems(sessionId);
   todosStore.fetchTodos(sessionId);

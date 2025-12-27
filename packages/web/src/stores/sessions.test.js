@@ -1015,6 +1015,174 @@ describe('Sessions Store', () => {
         const formatted = store.formattedTokens;
         expect(formatted.input).toBe('1.0M');
       });
+
+      // Real-time streaming tests for formattedTokens
+      it('uses runningUsage for formatted tokens during streaming', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 500,
+          outputTokens: 250,
+          cacheReadInputTokens: 100,
+          cacheCreationInputTokens: 50,
+        };
+        // Without streaming: input=500, output=250, total=750
+
+        // During streaming with partial tokens
+        store.runningUsage = {
+          inputTokens: 500,
+          outputTokens: 2500,
+          cacheReadInputTokens: 200,
+          cacheCreationInputTokens: 100,
+        };
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('500');
+        expect(formatted.output).toBe('2.5K');
+        expect(formatted.total).toBe('3.0K');
+        expect(formatted.cacheRead).toBe('200');
+        expect(formatted.cacheCreation).toBe('100');
+      });
+
+      it('falls back to session tokens when runningUsage is null', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 5500,
+          outputTokens: 2500,
+          cacheReadInputTokens: 100,
+          cacheCreationInputTokens: 50,
+        };
+        store.runningUsage = null;
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('5.5K');
+        expect(formatted.output).toBe('2.5K');
+        expect(formatted.total).toBe('8.0K');
+        expect(formatted.cacheRead).toBe('100');
+        expect(formatted.cacheCreation).toBe('50');
+      });
+
+      it('prioritizes runningUsage over conversation and session tokens', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 1000,
+            outputTokens: 500,
+            cacheReadInputTokens: 100,
+            cacheCreationInputTokens: 50,
+          },
+        ];
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 500,
+          outputTokens: 250,
+          cacheReadInputTokens: 50,
+          cacheCreationInputTokens: 25,
+        };
+
+        // During streaming, use running usage
+        store.runningUsage = {
+          inputTokens: 2000,
+          outputTokens: 1000,
+          cacheReadInputTokens: 200,
+          cacheCreationInputTokens: 100,
+        };
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('2.0K');
+        expect(formatted.output).toBe('1.0K');
+        expect(formatted.total).toBe('3.0K');
+        expect(formatted.cacheRead).toBe('200');
+        expect(formatted.cacheCreation).toBe('100');
+      });
+
+      it('handles runningUsage with missing fields', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 500,
+          outputTokens: 250,
+        };
+
+        // Partial running usage (some fields missing)
+        store.runningUsage = {
+          inputTokens: 1000,
+          outputTokens: 500,
+          // Missing cache fields
+        };
+
+        const formatted = store.formattedTokens;
+        expect(formatted.input).toBe('1.0K');
+        expect(formatted.output).toBe('500');
+        expect(formatted.total).toBe('1.5K');
+        expect(formatted.cacheRead).toBe('0');
+        expect(formatted.cacheCreation).toBe('0');
+      });
+
+      it('updates in real-time when runningUsage changes', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 0,
+          outputTokens: 0,
+        };
+
+        // Start of streaming
+        store.runningUsage = {
+          inputTokens: 0,
+          outputTokens: 250,
+        };
+
+        let formatted = store.formattedTokens;
+        expect(formatted.output).toBe('250');
+
+        // Streaming continues
+        store.runningUsage = {
+          inputTokens: 0,
+          outputTokens: 1500,
+        };
+
+        formatted = store.formattedTokens;
+        expect(formatted.output).toBe('1.5K');
+
+        // Streaming continues
+        store.runningUsage = {
+          inputTokens: 0,
+          outputTokens: 3500,
+        };
+
+        formatted = store.formattedTokens;
+        expect(formatted.output).toBe('3.5K');
+
+        // Streaming ends
+        store.runningUsage = null;
+        formatted = store.formattedTokens;
+        expect(formatted.output).toBe('0'); // Falls back to session (0)
+      });
+
+      it('displays cache tokens during streaming', () => {
+        const store = useSessionsStore();
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 0,
+          outputTokens: 0,
+        };
+
+        // Streaming with cache tokens
+        store.runningUsage = {
+          inputTokens: 1000,
+          outputTokens: 500,
+          cacheReadInputTokens: 5000,
+          cacheCreationInputTokens: 2500,
+        };
+
+        const formatted = store.formattedTokens;
+        expect(formatted.cacheRead).toBe('5.0K');
+        expect(formatted.cacheCreation).toBe('2.5K');
+      });
     });
 
     describe('isUsageUpdating getter', () => {
@@ -1280,6 +1448,77 @@ describe('Sessions Store', () => {
 
         // 33333 / 200000 = 16.67%
         expect(store.contextPercentage).toBe(17);
+      });
+
+      // Real-time streaming tests
+      it('uses runningUsage for context percentage during streaming', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 10000,
+            outputTokens: 5000,
+            contextWindow: 200000,
+          },
+        ];
+        // Without streaming: (10000 + 5000) / 200000 = 7.5% ≈ 8%
+
+        // During streaming with partial tokens
+        store.runningUsage = {
+          inputTokens: 10000,
+          outputTokens: 50000, // Much higher
+          contextWindow: 200000,
+        };
+
+        // Should use running usage: (10000 + 50000) / 200000 = 30%
+        expect(store.contextPercentage).toBe(30);
+      });
+
+      it('falls back to conversation context when runningUsage is null', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 40000,
+            outputTokens: 10000,
+            contextWindow: 200000,
+          },
+        ];
+        store.runningUsage = null;
+
+        // Should use conversation: (40000 + 10000) / 200000 = 25%
+        expect(store.contextPercentage).toBe(25);
+      });
+
+      it('prioritizes runningUsage over conversation and session', () => {
+        const store = useSessionsStore();
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 5000,
+            outputTokens: 2500,
+            contextWindow: 200000,
+          },
+        ];
+        store.currentSession = {
+          id: 'session-1',
+          inputTokens: 1000,
+          outputTokens: 500,
+          contextWindow: 200000,
+        };
+
+        // All three have data, but runningUsage should be used
+        store.runningUsage = {
+          inputTokens: 100000,
+          outputTokens: 50000,
+          contextWindow: 200000,
+        };
+
+        // (100000 + 50000) / 200000 = 75%
+        expect(store.contextPercentage).toBe(75);
       });
     });
 
