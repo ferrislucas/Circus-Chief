@@ -99,7 +99,8 @@ describe('ChangesTab', () => {
 
     mountComponent();
 
-    expect(api.getSessionChanges).toHaveBeenCalledWith('test-session');
+    // Called with sessionId, compareMode ('local'), and branch (null)
+    expect(api.getSessionChanges).toHaveBeenCalledWith('test-session', 'local', null);
   });
 
   it('displays staged changes when present', async () => {
