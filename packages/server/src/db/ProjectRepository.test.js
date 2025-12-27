@@ -133,6 +133,20 @@ describe('ProjectRepository', () => {
       expect(project.prPollInterval).toBe(30000);
       expect(project.disableSessionSummaries).toBe(true);
     });
+
+    it('creates project with summaryDebounceMs default of 5000', () => {
+      const project = repo.create('Test Project', '/tmp/test');
+
+      expect(project.summaryDebounceMs).toBe(5000);
+    });
+
+    it('creates project with custom summaryDebounceMs', () => {
+      const project = repo.create('Test Project', '/tmp/test', null, {
+        summaryDebounceMs: 10000,
+      });
+
+      expect(project.summaryDebounceMs).toBe(10000);
+    });
   });
 
   describe('getById', () => {
@@ -355,6 +369,29 @@ describe('ProjectRepository', () => {
         repoUrl: null,
       });
       expect(cleared.repoUrl).toBeNull();
+    });
+
+    it('updates summaryDebounceMs', () => {
+      const project = repo.create('Test', '/tmp/test');
+      expect(project.summaryDebounceMs).toBe(5000);
+
+      const updated = repo.update(project.id, {
+        summaryDebounceMs: 3000,
+      });
+
+      expect(updated.summaryDebounceMs).toBe(3000);
+    });
+
+    it('updates summaryDebounceMs to a larger value', () => {
+      const project = repo.create('Test', '/tmp/test', null, {
+        summaryDebounceMs: 5000,
+      });
+
+      const updated = repo.update(project.id, {
+        summaryDebounceMs: 15000,
+      });
+
+      expect(updated.summaryDebounceMs).toBe(15000);
     });
   });
 

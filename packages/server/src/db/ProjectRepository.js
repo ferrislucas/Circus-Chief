@@ -21,6 +21,7 @@ export class ProjectRepository extends BaseRepository {
       disableSessionSummaries: row.disable_session_summaries === 1,
       disableConversationSummaries: row.disable_conversation_summaries === 1,
       repoUrl: row.repo_url,
+      summaryDebounceMs: row.summary_debounce_ms || 5000,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -36,11 +37,12 @@ export class ProjectRepository extends BaseRepository {
       disableSessionSummaries = false,
       disableConversationSummaries = false,
       repoUrl = null,
+      summaryDebounceMs = 5000,
     } = options;
     this.db
       .prepare(
-        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, pr_poll_interval, disable_session_summaries, disable_conversation_summaries, repo_url, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, pr_poll_interval, disable_session_summaries, disable_conversation_summaries, repo_url, summary_debounce_ms, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -53,6 +55,7 @@ export class ProjectRepository extends BaseRepository {
         disableSessionSummaries ? 1 : 0,
         disableConversationSummaries ? 1 : 0,
         repoUrl,
+        summaryDebounceMs,
         now,
         now
       );
@@ -103,6 +106,10 @@ export class ProjectRepository extends BaseRepository {
     if (data.repoUrl !== undefined) {
       updates.push('repo_url = ?');
       values.push(data.repoUrl);
+    }
+    if (data.summaryDebounceMs !== undefined) {
+      updates.push('summary_debounce_ms = ?');
+      values.push(data.summaryDebounceMs);
     }
 
     if (updates.length === 0) return this.getById(id);

@@ -781,6 +781,206 @@ describe('summaryService', () => {
       const projectAfter = projects.getById(projectId);
       expect(projectAfter.repoUrl).toBe(initialUrl);
     });
+
+    // Tests for prMerged check (Task 1)
+    it('skips regeneration when PR is already merged', async () => {
+      // Create initial messages
+      messages.create(sessionId, 'user', 'Task to do');
+      messages.create(sessionId, 'assistant', 'Task completed');
+
+      // Create summary with merged PR
+      const existingSummary = sessionSummaries.create(sessionId, {
+        shortSummary: 'Task done',
+        fullSummary: 'Task was completed successfully',
+        keyActions: ['Task completed'],
+        filesModified: ['file.js'],
+        outcome: 'completed',
+        prMerged: true,
+        messageCount: 2,
+      });
+
+      vi.clearAllMocks();
+
+      // Call generateSummary - should return existing without generating
+      const result = await summaryService.generateSummary(sessionId);
+
+      // Should return existing summary
+      expect(result.prMerged).toBe(true);
+      expect(result.shortSummary).toBe('Task done');
+
+      // Should NOT have called broadcastToSession for generation
+      const generatingCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === 'session:summary_generating'
+      );
+      expect(generatingCalls.length).toBe(0);
+    });
+
+    it('allows regeneration when PR is not merged', async () => {
+      // Create initial messages
+      messages.create(sessionId, 'user', 'Task');
+      messages.create(sessionId, 'assistant', 'Working...');
+
+      // Create summary with open PR
+      sessionSummaries.create(sessionId, {
+        shortSummary: 'Working',
+        fullSummary: 'Still in progress',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'ongoing',
+        prMerged: false, // Not merged
+        messageCount: 2,
+      });
+
+      vi.clearAllMocks();
+
+      // Call generateSummary - should generate new summary
+      const result = await summaryService.generateSummary(sessionId);
+
+      // Should generate a new summary
+      expect(result).not.toBeNull();
+
+      // Should have broadcast generating status
+      const generatingCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === 'session:summary_generating'
+      );
+      expect(generatingCalls.length).toBeGreaterThan(0);
+    });
+
+    it('generates summary when none exists (null prMerged)', async () => {
+      messages.create(sessionId, 'user', 'New task');
+      messages.create(sessionId, 'assistant', 'Response');
+
+      // No existing summary
+      const result = await summaryService.generateSummary(sessionId);
+
+      expect(result).not.toBeNull();
+      expect(result.shortSummary).toBeDefined();
+      expect(result.outcome).toBe('ongoing');
+    });
+
+    // Tests for isSummaryStale check and force parameter (Task 2)
+    it('skips generation when summary is current and not forced', async () => {
+      // Create messages first
+      messages.create(sessionId, 'user', 'Message 0');
+      messages.create(sessionId, 'assistant', 'Message 1');
+      messages.create(sessionId, 'user', 'Message 2');
+
+      // Generate initial summary to get proper structure
+      const initialSummary = await summaryService.generateSummary(sessionId);
+
+      // Record the actual message count (may be 3 or 4 depending on session creation)
+      const messageCount = initialSummary.messageCount;
+
+      // Clear mocks to track new calls
+      vi.clearAllMocks();
+
+      // Call again without force (no new messages) - should skip
+      const result = await summaryService.generateSummary(sessionId);
+
+      // Should return the same summary (no new generation) with same message count
+      expect(result.messageCount).toBe(messageCount);
+
+      // Should NOT have broadcast generating status (indicating no generation happened)
+      const generatingCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === 'session:summary_generating'
+      );
+      expect(generatingCalls.length).toBe(0);
+    });
+
+    it('generates if message count changed (summary is stale)', async () => {
+      // Create initial summary
+      sessionSummaries.create(sessionId, {
+        shortSummary: 'Old',
+        fullSummary: 'Outdated',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'ongoing',
+        messageCount: 2,
+      });
+
+      // Add more messages after summary
+      messages.create(sessionId, 'user', 'First msg');
+      messages.create(sessionId, 'assistant', 'First response');
+      messages.create(sessionId, 'user', 'Second msg');
+      messages.create(sessionId, 'assistant', 'Second response');
+      messages.create(sessionId, 'user', 'Third msg');
+
+      vi.clearAllMocks();
+
+      // Now messageCount = 5, summary.messageCount = 2 (stale)
+      const result = await summaryService.generateSummary(sessionId);
+
+      expect(result).not.toBeNull();
+
+      // Should have broadcast generating status (indicating generation happened)
+      const generatingCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === 'session:summary_generating'
+      );
+      expect(generatingCalls.length).toBeGreaterThan(0);
+    });
+
+    it('forces regeneration even if current when force=true', async () => {
+      const messageCount = 3;
+
+      // Create current summary
+      sessionSummaries.create(sessionId, {
+        shortSummary: 'Current',
+        fullSummary: 'Up to date',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'ongoing',
+        messageCount: messageCount,
+      });
+
+      // Create matching messages
+      for (let i = 0; i < messageCount; i++) {
+        messages.create(sessionId, i % 2 === 0 ? 'user' : 'assistant', `Msg ${i}`);
+      }
+
+      vi.clearAllMocks();
+
+      // Call with force = true
+      const result = await summaryService.generateSummary(sessionId, 0, true);
+
+      // Should regenerate despite being current
+      expect(result).not.toBeNull();
+
+      // Should have broadcast generating status
+      const generatingCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === 'session:summary_generating'
+      );
+      expect(generatingCalls.length).toBeGreaterThan(0);
+    });
+
+    it('onSessionComplete forces regeneration regardless of staleness', async () => {
+      // Create current summary
+      sessionSummaries.create(sessionId, {
+        shortSummary: 'Current',
+        fullSummary: 'Status: ongoing',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'ongoing',
+        messageCount: 2,
+      });
+
+      // Create matching messages
+      messages.create(sessionId, 'user', 'Msg');
+      messages.create(sessionId, 'assistant', 'Response');
+
+      vi.clearAllMocks();
+
+      // Call onSessionComplete
+      summaryService.onSessionComplete(sessionId);
+
+      // Wait for async generation
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Should have broadcast generating status (indicating force was used)
+      const generatingCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === 'session:summary_generating'
+      );
+      expect(generatingCalls.length).toBeGreaterThan(0);
+    });
   });
 
   describe('getSummary', () => {
