@@ -300,11 +300,15 @@ function buildCanvasWriteSystemPrompt(sessionId) {
   const apiUrl = process.env.CLAUDETOOLS_API_URL || `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`;
   return `When you generate artifacts that should be displayed on the canvas (images, markdown documents, code snippets, data visualizations, PDFs), POST them to:
 POST ${apiUrl}/api/sessions/${sessionId}/canvas
-Body: {"type": "image|markdown|text|json|pdf", "content": "...", "filename": "example.md", "label": "Description"}
+Body: {"filePath": "/path/to/file", "label": "Description"}
 
-For images and PDFs, use filePath to reference a file on disk:
-Body: {"type": "image", "filePath": "/path/to/image.png", "filename": "image.png", "label": "Description"}
-Body: {"type": "pdf", "filePath": "/path/to/document.pdf", "filename": "document.pdf", "label": "Description"}`;
+The type is auto-detected from file extension. Supported formats:
+- Images: .png, .jpg, .jpeg, .gif, .webp, .svg, .bmp
+- PDFs: .pdf
+- Markdown: .md, .mdx
+- Code: .js, .ts, .py, .go, .rs, .java, etc.
+- JSON: .json
+- Text: .txt, .log, .csv`;
 }
 
 /**
