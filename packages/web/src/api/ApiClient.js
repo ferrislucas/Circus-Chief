@@ -342,6 +342,20 @@ export class ApiClient {
   }
 
   /**
+   * Create a canvas item with text/markdown/json content
+   * @param {string} sessionId - Session ID
+   * @param {Object} data - Canvas item data
+   * @param {string} data.type - Type: 'text', 'markdown', 'json', 'code'
+   * @param {string} data.content - Text content
+   * @param {string|null} data.label - Optional label
+   * @param {string|null} data.filename - Optional filename
+   * @returns {Promise<Object>}
+   */
+  async createCanvasItem(sessionId, data) {
+    return this.#request('POST', `/sessions/${sessionId}/canvas`, data);
+  }
+
+  /**
    * Delete a canvas item
    * @param {string} sessionId - Session ID
    * @param {string} itemId - Canvas item ID

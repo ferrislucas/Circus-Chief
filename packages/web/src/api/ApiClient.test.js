@@ -467,6 +467,90 @@ describe('ApiClient', () => {
       });
     });
 
+    describe('createCanvasItem', () => {
+      it('creates text canvas item with content', async () => {
+        const itemData = {
+          type: 'text',
+          content: 'Command output here',
+          label: 'Test output',
+          filename: 'test-output.txt',
+        };
+        const mockItem = { id: 'item-1', ...itemData };
+        mockFetch.mockReturnValue(mockResponse(mockItem));
+
+        const result = await client.createCanvasItem('sess-123', itemData);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/canvas', expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify(itemData),
+        }));
+        expect(result).toEqual(mockItem);
+      });
+
+      it('creates markdown canvas item', async () => {
+        const itemData = {
+          type: 'markdown',
+          content: '# Title\n\nSome content',
+          label: 'Markdown doc',
+        };
+        const mockItem = { id: 'item-2', ...itemData };
+        mockFetch.mockReturnValue(mockResponse(mockItem));
+
+        const result = await client.createCanvasItem('sess-123', itemData);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/canvas', expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify(itemData),
+        }));
+        expect(result).toEqual(mockItem);
+      });
+
+      it('creates json canvas item', async () => {
+        const itemData = {
+          type: 'json',
+          data: '{"key": "value"}',
+          label: 'JSON data',
+        };
+        const mockItem = { id: 'item-3', ...itemData };
+        mockFetch.mockReturnValue(mockResponse(mockItem));
+
+        const result = await client.createCanvasItem('sess-123', itemData);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/canvas', expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify(itemData),
+        }));
+        expect(result).toEqual(mockItem);
+      });
+
+      it('creates canvas item with minimal data', async () => {
+        const itemData = {
+          type: 'text',
+          content: 'Simple text',
+        };
+        const mockItem = { id: 'item-4', ...itemData };
+        mockFetch.mockReturnValue(mockResponse(mockItem));
+
+        const result = await client.createCanvasItem('sess-123', itemData);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/canvas', expect.objectContaining({
+          method: 'POST',
+        }));
+        expect(result).toEqual(mockItem);
+      });
+
+      it('throws error on creation failure', async () => {
+        mockFetch.mockReturnValue(Promise.resolve({
+          ok: false,
+          status: 400,
+          json: () => Promise.resolve({ error: 'Invalid type' }),
+        }));
+
+        const itemData = { type: 'invalid', content: 'test' };
+        await expect(client.createCanvasItem('sess-123', itemData)).rejects.toThrow('Invalid type');
+      });
+    });
+
     describe('deleteCanvasItem', () => {
       it('deletes canvas item', async () => {
         mockFetch.mockReturnValue(mockResponse(null, { status: 204 }));
