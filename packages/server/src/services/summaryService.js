@@ -360,6 +360,29 @@ export async function generateSummary(sessionId, retryCount = 0) {
     // Upsert summary
     const summary = sessionSummaries.upsert(sessionId, summaryData);
 
+    // Auto-populate project repo URL if not already set
+    if (!project.repoUrl && (summaryData.prUrl || summaryData.repositoryUrl)) {
+      let extractedRepoUrl = summaryData.repositoryUrl;
+
+      // If we have a PR URL, extract the repository base URL
+      if (!extractedRepoUrl && summaryData.prUrl) {
+        const prMatch = summaryData.prUrl.match(/^(https:\/\/github\.com\/[^\/]+\/[^\/]+)(?:\/|$)/);
+        if (prMatch) {
+          extractedRepoUrl = prMatch[1];
+        }
+      }
+
+      // Update project with the extracted repo URL if valid
+      if (extractedRepoUrl) {
+        try {
+          projects.update(session.projectId, { repoUrl: extractedRepoUrl });
+          console.log(`[SummaryService] Auto-populated repo URL for project ${session.projectId}: ${extractedRepoUrl}`);
+        } catch (error) {
+          console.warn(`[SummaryService] Failed to auto-populate repo URL for project ${session.projectId}:`, error.message);
+        }
+      }
+    }
+
     // Update session name and prUrl if we have new data
     if (summaryData.sessionTitle || summaryData.prUrl) {
       const updateData = {};
