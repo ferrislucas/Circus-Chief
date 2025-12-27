@@ -34,10 +34,11 @@ vi.mock('../services/commandRunner.js', () => ({
 }));
 
 // Import after mocks are set up
-import commandButtonsRouter from './commandButtons.js';
+import projectsRouter from './projects.js';
 import sessionsRouter from './sessions.js';
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { commandRunner } from '../services/commandRunner.js';
+import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
 describe('Command Buttons API', () => {
@@ -78,12 +79,11 @@ describe('Command Buttons API', () => {
     });
     buttonId = button.id;
 
+    // Mock setupGitForSession to return the test project's working directory
+    setupGitForSession.mockResolvedValue({ workingDirectory: tempDir, gitWorktree: null });
+
     // Mount the routers AFTER creating test data
-    app.use('/api/projects/:projectId/command-buttons', (req, res, next) => {
-      // Merge the projectId from the URL params
-      req.params.projectId = req.params.projectId;
-      commandButtonsRouter(req, res, next);
-    });
+    app.use('/api/projects', projectsRouter);
     app.use('/api/sessions', sessionsRouter);
   });
 
