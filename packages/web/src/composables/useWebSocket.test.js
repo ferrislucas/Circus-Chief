@@ -382,7 +382,7 @@ describe('useSessionSubscription command handlers', () => {
       mockWs.receiveMessage(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
         sessionId: 'session-123',
         runId: 'run-456',
-        text: 'output line 1',
+        output: 'output line 1',
       });
 
       // Note: actual callback invocation depends on WebSocket implementation
@@ -402,7 +402,7 @@ describe('useSessionSubscription command handlers', () => {
       mockWs.receiveMessage(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
         sessionId: 'session-999',
         runId: 'run-456',
-        text: 'output line 1',
+        output: 'output line 1',
       });
 
       // Callback should not be called for non-matching session
