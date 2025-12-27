@@ -825,6 +825,11 @@ function associateAndBroadcastWorkLogs(sessionId, messageId) {
  * @param {Object} event
  */
 async function handleStreamEvent(sessionId, event) {
+  // Check if session has been cleaned up (aborted/deleted) - don't process events for deleted sessions
+  if (!activeSessions.has(sessionId)) {
+    return;
+  }
+
   switch (event.type) {
     case 'system': {
       // Store Claude's session info
