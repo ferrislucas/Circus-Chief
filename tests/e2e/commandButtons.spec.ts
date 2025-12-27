@@ -202,6 +202,57 @@ test.describe('Command Buttons', () => {
     expect(output).not.toContain('SHOULD_NOT_SEE_THIS');
   });
 
+  // ============================================================
+  // Test Case 5: WebSocket Streaming (Advanced)
+  // ============================================================
+  test('should stream output in real-time', async ({ page }) => {
+    // Setup: Create command button with a command that outputs multiple lines with delays
+    // This simulates real-time streaming from the server
+    await seedCommandButton(project.id, {
+      label: 'Streaming Test',
+      command: 'for i in 1 2 3; do echo "STREAM_$i"; sleep 0.5; done',
+    });
+
+    // Navigate to session commands tab
+    await page.goto(`/sessions/${session.id}/commands`);
+
+    // Verify button is visible
+    await expect(page.getByText('Streaming Test')).toBeVisible();
+
+    // Click run button
+    await page.click('button:has-text("▶ Run")');
+
+    // Wait for running state to appear
+    await expect(page.getByText('Running...')).toBeVisible({ timeout: 5000 });
+
+    // Expand output section to see streaming output
+    const outputHeader = page.locator('.output-header').first();
+    await outputHeader.click();
+
+    // CRITICAL: Verify that first streaming output appears within a reasonable time
+    // This tests that WebSocket streaming is working (output appears during execution)
+    const outputText = page.locator('.output-text').first();
+    await expect(outputText).toContainText('STREAM_1', { timeout: 3000 });
+
+    // Wait for completion (NOT running state)
+    // The entire command should complete within 10 seconds (3 iterations * 0.5 sec sleep + overhead)
+    await expect(page.locator('.status-success, .status-error')).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Wait a moment for final output to be rendered
+    await page.waitForTimeout(500);
+
+    // CRITICAL: Verify that all streamed lines are captured
+    // This confirms the output section contains everything that was output
+    await expect(outputText).toContainText('STREAM_1', { timeout: 5000 });
+    await expect(outputText).toContainText('STREAM_2', { timeout: 5000 });
+    await expect(outputText).toContainText('STREAM_3', { timeout: 5000 });
+
+    // Also verify success status indicator
+    await expect(page.locator('.status-success')).toBeVisible();
+  });
+
   test('create a new command button', async ({ page }) => {
     // Navigate to project sessions page
     await page.goto(`/projects/${project.id}/sessions`);
