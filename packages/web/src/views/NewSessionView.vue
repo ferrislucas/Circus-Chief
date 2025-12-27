@@ -15,6 +15,7 @@
           placeholder="What would you like Claude to help you with?"
           rows="5"
           required
+          @keydown="handleKeydown"
         ></textarea>
         <div class="attachment-row">
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
@@ -171,6 +172,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { api } from '../composables/useApi.js';
+import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import { generateWorktreeBranch, DEFAULT_MODEL } from '@claudetools/shared';
 import FileAttachment from '../components/FileAttachment.vue';
 import ModelSelector from '../components/ModelSelector.vue';
@@ -184,6 +186,14 @@ const templatesStore = useTemplatesStore();
 const prompt = ref('');
 const mode = ref('yolo');
 const model = ref(DEFAULT_MODEL);
+const loading = ref(false);
+
+// Create keyboard shortcut handler for form submission
+const handleKeydown = useSubmitShortcut(() => {
+  if (!loading.value && prompt.value.trim()) {
+    handleSubmit();
+  }
+});
 const gitStatus = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
@@ -207,7 +217,6 @@ const modes = [
   { value: 'standard', label: 'Standard', description: 'Balanced approach - asks for approval when needed' },
   { value: 'yolo', label: 'YOLO', description: 'Auto-approve mode - agent acts autonomously' },
 ];
-const loading = ref(false);
 const loadingGit = ref(false);
 const error = ref(null);
 const thinkingEnabled = ref(true);

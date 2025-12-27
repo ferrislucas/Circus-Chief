@@ -88,7 +88,7 @@
         class="form-input form-textarea"
         :placeholder="isDraft ? 'Edit your prompt...' : (isStopped ? 'Send a message to resume session...' : 'Send a follow-up message...')"
         rows="3"
-        @keydown.enter.ctrl="isDraft ? handleStart() : handleSend()"
+        @keydown="handleKeydown"
       ></textarea>
       <div class="input-controls">
         <div class="session-options" v-if="!isDraft">
@@ -180,6 +180,7 @@ import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
+import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import TodoDrawer from './TodoDrawer.vue';
 import WorkLogPanel from './WorkLogPanel.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
@@ -198,6 +199,15 @@ const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 
 const input = ref('');
+
+// Create keyboard shortcut handler
+const handleKeydown = useSubmitShortcut(() => {
+  if (isDraft.value) {
+    handleStart();
+  } else {
+    handleSend();
+  }
+});
 const sending = ref(false);
 const stopping = ref(false);
 const restarting = ref(false);
