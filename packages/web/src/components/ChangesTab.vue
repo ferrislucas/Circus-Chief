@@ -15,7 +15,29 @@
 
     <template v-else>
       <div class="changes-toolbar">
-        <button class="btn-link" @click="toggleAllFiles">
+        <div class="mode-toggle">
+          <button
+            class="toggle-button"
+            :class="{ active: compareMode === 'local' }"
+            @click="compareMode = 'local'"
+            :disabled="loading"
+            title="Show local changes (staged, unstaged, untracked)"
+          >
+            Local Changes
+          </button>
+          <button
+            v-if="defaultBranch"
+            class="toggle-button"
+            :class="{ active: compareMode === 'branch' }"
+            @click="compareMode = 'branch'"
+            :disabled="loading"
+            :title="`Compare against ${defaultBranch}`"
+          >
+            {{ compareMode === 'branch' && loading ? '⟳' : '' }}
+            Compare to {{ branchLabel }}
+          </button>
+        </div>
+        <button class="btn-link" @click="toggleAllFiles" :disabled="loading">
           {{ allExpanded ? 'Collapse All' : 'Expand All' }}
         </button>
       </div>
@@ -56,6 +78,8 @@ const untracked = ref('');
 const loading = ref(false);
 const error = ref(null);
 const allExpanded = ref(true);
+const compareMode = ref('local');
+const defaultBranch = ref(null);
 
 const stagedDiffViewer = ref(null);
 const unstagedDiffViewer = ref(null);
@@ -68,6 +92,12 @@ const hasChanges = computed(() => staged.value || unstaged.value || untracked.va
 const fileCount = computed(
   () => stagedFiles.value.length + unstagedFiles.value.length + untrackedFiles.value.length
 );
+const branchLabel = computed(() => {
+  if (!defaultBranch.value) return 'branch';
+  // Extract branch name from 'origin/main' or 'origin/master'
+  const parts = defaultBranch.value.split('/');
+  return parts[parts.length - 1];
+});
 
 // Emit file count whenever it changes
 watch(fileCount, (count) => emit('update:fileCount', count), { immediate: true });
@@ -89,7 +119,11 @@ async function fetchChanges() {
   loading.value = true;
   error.value = null;
   try {
-    const changes = await api.getSessionChanges(props.sessionId);
+    const changes = await api.getSessionChanges(
+      props.sessionId,
+      compareMode.value,
+      compareMode.value === 'branch' ? defaultBranch.value : null
+    );
     staged.value = changes.staged || '';
     unstaged.value = changes.unstaged || '';
     untracked.value = changes.untracked || '';
@@ -99,6 +133,11 @@ async function fetchChanges() {
     loading.value = false;
   }
 }
+
+// Watch for compareMode changes and refetch
+watch(compareMode, () => {
+  fetchChanges();
+});
 
 onMounted(() => {
   fetchChanges();
@@ -148,8 +187,58 @@ defineExpose({
 
 .changes-toolbar {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
   margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.mode-toggle {
+  display: flex;
+  gap: 0.25rem;
+  background-color: var(--color-background-soft);
+  border-radius: 4px;
+  padding: 0.25rem;
+}
+
+.toggle-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid transparent;
+  background-color: transparent;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  font-size: 0.875rem;
+  border-radius: 3px;
+  transition: all 0.2s ease-out;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.toggle-button:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--color-text);
+}
+
+.toggle-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.toggle-button.active {
+  background-color: var(--color-primary);
+  color: var(--color-background);
+  border-color: var(--color-primary);
+  font-weight: 600;
+}
+
+.toggle-button.active:hover:not(:disabled) {
+  background-color: var(--color-primary);
+  filter: brightness(1.1);
 }
 
 .btn-link {
@@ -159,10 +248,18 @@ defineExpose({
   cursor: pointer;
   font-size: 0.875rem;
   padding: 0.25rem 0.5rem;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
 }
 
-.btn-link:hover {
+.btn-link:hover:not(:disabled) {
   text-decoration: underline;
+}
+
+.btn-link:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .diff-section {

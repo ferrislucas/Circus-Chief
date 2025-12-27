@@ -657,7 +657,7 @@ describe('SessionRepository', () => {
       const child2 = repo.create(projectId, 'Child 2', 'Prompt 2', 'standard', false, null, null, parent.id);
 
       // Update child1 to be more recent
-      repo.update(child1.id, { status: 'completed' });
+      repo.update(child1.id, { status: 'stopped' });
 
       const children = repo.getChildSessions(parent.id);
 

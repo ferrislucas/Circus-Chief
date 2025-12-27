@@ -242,10 +242,27 @@ export class ApiClient {
   /**
    * Get git changes for a session
    * @param {string} sessionId - Session ID
-   * @returns {Promise<{staged: string, unstaged: string}>}
+   * @param {string} compareMode - 'local' (default) or 'branch'
+   * @param {string|null} branch - Branch to compare against (only used if compareMode is 'branch')
+   * @returns {Promise<{staged: string, unstaged: string, untracked: string}>}
    */
-  async getSessionChanges(sessionId) {
-    return this.#request('GET', `/sessions/${sessionId}/changes`);
+  async getSessionChanges(sessionId, compareMode = 'local', branch = null) {
+    let path = `/sessions/${sessionId}/changes`;
+    const params = new URLSearchParams();
+
+    if (compareMode === 'branch') {
+      params.append('compareMode', 'branch');
+      if (branch) {
+        params.append('branch', branch);
+      }
+    }
+
+    const query = params.toString();
+    if (query) {
+      path += `?${query}`;
+    }
+
+    return this.#request('GET', path);
   }
 
   /**
