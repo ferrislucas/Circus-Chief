@@ -654,7 +654,21 @@ describe('SessionRepository', () => {
     it('children are ordered by updatedAt DESC when fetched', () => {
       const parent = repo.create(projectId, 'Parent', 'Parent prompt');
       const child1 = repo.create(projectId, 'Child 1', 'Prompt 1', 'standard', false, null, null, parent.id);
+
+      // Small delay to ensure different timestamps
+      const delayMs = 10;
+      const startTime = Date.now();
+      while (Date.now() - startTime < delayMs) {
+        // Busy wait for consistent timing across different systems
+      }
+
       const child2 = repo.create(projectId, 'Child 2', 'Prompt 2', 'standard', false, null, null, parent.id);
+
+      // Another delay before update to ensure update has newer timestamp
+      const startTime2 = Date.now();
+      while (Date.now() - startTime2 < delayMs) {
+        // Busy wait for consistent timing
+      }
 
       // Update child1 to be more recent
       repo.update(child1.id, { status: 'stopped' });
