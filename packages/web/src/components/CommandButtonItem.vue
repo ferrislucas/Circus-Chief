@@ -26,11 +26,12 @@
         <!-- Kill Button (running state) -->
         <button
           v-if="run?.status === 'running'"
-          class="btn btn-outline-danger btn-sm"
-          @click="$emit('kill')"
+          class="btn btn-outline-danger btn-sm kill-button"
+          @click="onKillClick"
           title="Kill running command"
+          data-testid="kill-button"
         >
-          ✕
+          ✕ Kill
         </button>
       </div>
     </div>
@@ -119,6 +120,10 @@ const onCopyClick = async () => {
 
 const onSendCanvasClick = () => {
   emit('send-to-canvas', props.button.label, props.run.output);
+};
+
+const onKillClick = () => {
+  emit('kill');
 };
 </script>
 

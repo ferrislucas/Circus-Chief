@@ -5,6 +5,7 @@ import {
   cleanupAll,
   getProject,
   getProjectSessions,
+  seedCommandButton,
 } from './helpers';
 
 test.describe('Command Buttons', () => {
@@ -16,11 +17,240 @@ test.describe('Command Buttons', () => {
   test.beforeEach(async () => {
     await cleanupAll();
     project = await seedProject('[TEST] Command Buttons', '/tmp/test');
-    session = await seedSession(project.id, 'Test Session');
+    session = await seedSession(project.id, { prompt: 'Test prompt', name: 'Test Session' });
   });
 
   test.afterEach(async () => {
     await cleanupAll();
+  });
+
+  // ============================================================
+  // Test Case 1: Basic Command Execution with Output Verification
+  // ============================================================
+  test('should execute pwd and display correct output', async ({ page }) => {
+    // Setup: Create command button with "pwd"
+    await seedCommandButton(project.id, {
+      label: 'Print Working Dir',
+      command: 'pwd',
+    });
+
+    // Navigate to session commands tab
+    await page.goto(`/sessions/${session.id}/commands`);
+
+    // Verify button is visible
+    await expect(page.getByText('Print Working Dir')).toBeVisible();
+
+    // Click run button
+    await page.click('button:has-text("▶ Run")');
+
+    // Wait for completion (NOT running state)
+    // The command should complete within 10 seconds
+    await expect(page.locator('.status-success, .status-error')).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Wait a moment for output to be rendered
+    await page.waitForTimeout(500);
+
+    // Expand output section
+    const outputHeader = page.locator('.output-header').first();
+    await outputHeader.click();
+
+    // CRITICAL: Assert actual output content contains the working directory
+    const outputText = page.locator('.output-text').first();
+    await expect(outputText).toContainText('/tmp/test', { timeout: 5000 });
+
+    // Also verify success status indicator
+    await expect(page.locator('.status-success')).toBeVisible();
+  });
+
+  // ============================================================
+  // Test Case 2: Command with Known Output
+  // ============================================================
+  test('should execute echo and capture exact output', async ({ page }) => {
+    // Setup: Create unique marker for this test run
+    const marker = `TEST_MARKER_${Date.now()}`;
+
+    // Create command button with echo command
+    await seedCommandButton(project.id, {
+      label: 'Echo Marker',
+      command: `echo "${marker}"`,
+    });
+
+    // Navigate to session commands tab
+    await page.goto(`/sessions/${session.id}/commands`);
+
+    // Verify button is visible
+    await expect(page.getByText('Echo Marker')).toBeVisible();
+
+    // Click run button
+    await page.click('button:has-text("▶ Run")');
+
+    // Wait for completion (NOT running state)
+    await expect(page.locator('.status-success, .status-error')).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Wait a moment for output to be rendered
+    await page.waitForTimeout(500);
+
+    // Expand output section
+    const outputHeader = page.locator('.output-header').first();
+    await outputHeader.click();
+
+    // CRITICAL: Assert actual output content contains the exact marker
+    const outputText = page.locator('.output-text').first();
+    await expect(outputText).toContainText(marker, { timeout: 5000 });
+
+    // Also verify success status indicator
+    await expect(page.locator('.status-success')).toBeVisible();
+  });
+
+  // ============================================================
+  // Test Case 3: Multi-line Output
+  // ============================================================
+  test('should capture multi-line output correctly', async ({ page }) => {
+    // Setup: Create command button with multi-line output
+    await seedCommandButton(project.id, {
+      label: 'Multi-line',
+      command: 'echo "LINE1" && echo "LINE2" && echo "LINE3"',
+    });
+
+    // Navigate to session commands tab
+    await page.goto(`/sessions/${session.id}/commands`);
+
+    // Verify button is visible
+    await expect(page.getByText('Multi-line')).toBeVisible();
+
+    // Click run button
+    await page.click('button:has-text("▶ Run")');
+
+    // Wait for completion (NOT running state)
+    await expect(page.locator('.status-success, .status-error')).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Wait a moment for output to be rendered
+    await page.waitForTimeout(500);
+
+    // Expand output section
+    const outputHeader = page.locator('.output-header').first();
+    await outputHeader.click();
+
+    // CRITICAL: Assert actual output content contains all three lines
+    const outputText = page.locator('.output-text').first();
+    await expect(outputText).toContainText('LINE1', { timeout: 5000 });
+    await expect(outputText).toContainText('LINE2', { timeout: 5000 });
+    await expect(outputText).toContainText('LINE3', { timeout: 5000 });
+
+    // Also verify success status indicator
+    await expect(page.locator('.status-success')).toBeVisible();
+  });
+
+  // ============================================================
+  // Test Case 4: Kill Long-Running Command
+  // ============================================================
+  test('should kill running command when clicking stop button', async ({ page }) => {
+    // Setup: Create command button with a long-running command
+    // Using sleep 30 which takes 30 seconds, preventing it from completing naturally
+    await seedCommandButton(project.id, {
+      label: 'Long Sleep',
+      command: 'sleep 30 && echo "SHOULD_NOT_SEE_THIS"',
+    });
+
+    // Navigate to session commands tab
+    await page.goto(`/sessions/${session.id}/commands`);
+
+    // Verify button is visible
+    await expect(page.getByText('Long Sleep')).toBeVisible();
+
+    // Click run button
+    await page.click('button:has-text("▶ Run")');
+
+    // Wait for running state to appear
+    await expect(page.getByText('Running...')).toBeVisible({ timeout: 5000 });
+
+    // Give it a moment to confirm it's running
+    await page.waitForTimeout(500);
+
+    // Click the kill/stop button using data-testid for reliability
+    const killButton = page.locator('[data-testid="kill-button"]').first();
+    await killButton.waitFor({ state: 'visible', timeout: 5000 });
+    await killButton.click({ force: true });
+
+    // Running state should disappear (command killed)
+    await expect(page.getByText('Running...')).not.toBeVisible({
+      timeout: 5000,
+    });
+
+    // Status should show error or killed state
+    await expect(
+      page.locator('.status-error, [class*="status"][class*="killed"]')
+    ).toBeVisible({ timeout: 3000 });
+
+    // Wait a moment for output to be rendered
+    await page.waitForTimeout(500);
+
+    // Expand output section
+    const outputHeader = page.locator('.output-header').first();
+    await outputHeader.click();
+
+    // CRITICAL: Verify the output does NOT contain "SHOULD_NOT_SEE_THIS"
+    // (because the command was killed before it could complete)
+    const outputText = page.locator('.output-text').first();
+    const output = await outputText.textContent();
+    expect(output).not.toContain('SHOULD_NOT_SEE_THIS');
+  });
+
+  // ============================================================
+  // Test Case 5: WebSocket Streaming (Advanced)
+  // ============================================================
+  test('should stream output in real-time', async ({ page }) => {
+    // Setup: Create command button with a command that outputs multiple lines with delays
+    // This simulates real-time streaming from the server
+    await seedCommandButton(project.id, {
+      label: 'Streaming Test',
+      command: 'for i in 1 2 3; do echo "STREAM_$i"; sleep 0.5; done',
+    });
+
+    // Navigate to session commands tab
+    await page.goto(`/sessions/${session.id}/commands`);
+
+    // Verify button is visible
+    await expect(page.getByText('Streaming Test')).toBeVisible();
+
+    // Click run button
+    await page.click('button:has-text("▶ Run")');
+
+    // Wait for running state to appear
+    await expect(page.getByText('Running...')).toBeVisible({ timeout: 5000 });
+
+    // Expand output section to see streaming output
+    const outputHeader = page.locator('.output-header').first();
+    await outputHeader.click();
+
+    // CRITICAL: Verify that first streaming output appears within a reasonable time
+    // This tests that WebSocket streaming is working (output appears during execution)
+    const outputText = page.locator('.output-text').first();
+    await expect(outputText).toContainText('STREAM_1', { timeout: 3000 });
+
+    // Wait for completion (NOT running state)
+    // The entire command should complete within 10 seconds (3 iterations * 0.5 sec sleep + overhead)
+    await expect(page.locator('.status-success, .status-error')).toBeVisible({
+      timeout: 10000,
+    });
+
+    // Wait a moment for final output to be rendered
+    await page.waitForTimeout(500);
+
+    // CRITICAL: Verify that all streamed lines are captured
+    // This confirms the output section contains everything that was output
+    await expect(outputText).toContainText('STREAM_1', { timeout: 5000 });
+    await expect(outputText).toContainText('STREAM_2', { timeout: 5000 });
+    await expect(outputText).toContainText('STREAM_3', { timeout: 5000 });
+
+    // Also verify success status indicator
+    await expect(page.locator('.status-success')).toBeVisible();
   });
 
   test('create a new command button', async ({ page }) => {

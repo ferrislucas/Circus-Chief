@@ -78,6 +78,15 @@ cmd_build() {
 cmd_test() {
     ensure_directories
     print_info "Running Playwright tests..."
+
+    # Read the server port if .server-port file exists
+    if [ -f "$PROJECT_ROOT/.server-port" ]; then
+        TEST_SERVER_PORT=$(cat "$PROJECT_ROOT/.server-port")
+        export API_URL="http://localhost:$TEST_SERVER_PORT"
+        export BASE_URL="http://localhost:$TEST_SERVER_PORT"
+        print_info "Using test server port: $TEST_SERVER_PORT"
+    fi
+
     docker compose -f "$COMPOSE_FILE" run --rm playwright test "$@"
 }
 
@@ -131,6 +140,15 @@ cmd_debug() {
     fi
 
     print_info "Running tests in debug mode (headed browser)..."
+
+    # Read the server port if .server-port file exists
+    if [ -f "$PROJECT_ROOT/.server-port" ]; then
+        TEST_SERVER_PORT=$(cat "$PROJECT_ROOT/.server-port")
+        export API_URL="http://localhost:$TEST_SERVER_PORT"
+        export BASE_URL="http://localhost:$TEST_SERVER_PORT"
+        print_info "Using test server port: $TEST_SERVER_PORT"
+    fi
+
     docker compose -f "$COMPOSE_FILE" --profile headed run --rm playwright-headed test "$@"
 }
 

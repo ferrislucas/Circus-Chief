@@ -28,6 +28,7 @@ export class CommandRunner {
         const child = spawn('sh', ['-c', command], {
           cwd: workingDirectory,
           stdio: ['pipe', 'pipe', 'pipe'],
+          detached: true, // Create a new process group for proper signal handling
         });
 
         // Store process with metadata and output buffer
@@ -59,8 +60,10 @@ export class CommandRunner {
           resolve(1);
         });
 
-        child.on('close', (exitCode) => {
+        child.on('close', (exitCode, signal) => {
+          console.log(`[commandRunner.run] Process closed for runId: ${runId}, exitCode: ${exitCode}, signal: ${signal}`);
           this.processes.delete(runId);
+          // If killed by signal, exitCode is null. Call onComplete with null to trigger error status
           if (onComplete) onComplete(exitCode, entry.output);
           resolve(exitCode || 0);
         });
@@ -80,14 +83,42 @@ export class CommandRunner {
    */
   kill(runId) {
     const entry = this.processes.get(runId);
-    if (!entry) return false;
+    if (!entry) {
+      console.log(`[commandRunner.kill] Process not found for runId: ${runId}`);
+      return false;
+    }
 
     try {
-      entry.process.kill('SIGTERM');
+      const pid = entry.process.pid;
+      console.log(`[commandRunner.kill] Sending SIGTERM to process group for runId: ${runId}, pid: ${pid}`);
+
+      // Kill the entire process group (negative PID) to ensure child processes are also killed
+      try {
+        process.kill(-pid, 'SIGTERM');
+      } catch (e) {
+        // Fallback to killing just the process if process group kill fails
+        console.log(`[commandRunner.kill] Process group kill failed, killing single process: ${e.message}`);
+        entry.process.kill('SIGTERM');
+      }
+
       // Give it a moment to terminate gracefully, then force kill
       setTimeout(() => {
-        if (!entry.process.killed) {
-          entry.process.kill('SIGKILL');
+        // Check if process is still in our map (not yet closed)
+        if (this.processes.has(runId)) {
+          console.log(`[commandRunner.kill] Process still running, sending SIGKILL to runId: ${runId}`);
+          try {
+            process.kill(-pid, 'SIGKILL');
+          } catch (e) {
+            // Fallback to killing just the process if process group kill fails
+            try {
+              entry.process.kill('SIGKILL');
+            } catch (err) {
+              // Process may have already exited
+              console.log(`[commandRunner.kill] SIGKILL failed, process may have exited: ${err.message}`);
+            }
+          }
+        } else {
+          console.log(`[commandRunner.kill] Process already exited for runId: ${runId}`);
         }
       }, 1000);
       return true;
