@@ -82,18 +82,20 @@
       </div>
 
       <div v-else class="session-list">
-        <SessionCard
-          v-for="session in filteredSessions"
-          :key="session.id"
-          :session="session"
-          :show-summary="true"
-          :summary="summaries[session.id]"
-          :summary-loading="loadingSummaries[session.id]"
-          :summary-error="summaryErrors[session.id]"
-          :show-archive="true"
-          @retry-summary="retryFetchSummary"
-          @archive="handleArchive"
-        />
+        <template v-for="group in sessionsStore.groupedSessions" :key="group.parent.id">
+          <SessionCard
+            :session="group.parent"
+            :show-summary="true"
+            :summary="summaries[group.parent.id]"
+            :summary-loading="loadingSummaries[group.parent.id]"
+            :summary-error="summaryErrors[group.parent.id]"
+            :children="group.children"
+            :summaries="summaries"
+            :show-archive="true"
+            @retry-summary="retryFetchSummary"
+            @archive="handleArchive"
+          />
+        </template>
       </div>
     </div>
 
@@ -350,8 +352,14 @@ async function handleUnarchive(sessionId) {
   }
 }
 
-// Cleanup WebSocket listeners on unmount
+// Restore expanded sessions state from localStorage on mount
+onMounted(() => {
+  sessionsStore.restoreExpandedState();
+});
+
+// Save expanded state and cleanup WebSocket listeners on unmount
 onUnmounted(() => {
+  sessionsStore.saveExpandedState();
   cleanups.forEach((cleanup) => cleanup());
   if (currentUnsubscribe) {
     currentUnsubscribe();

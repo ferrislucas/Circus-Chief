@@ -40,15 +40,15 @@ export class SessionRepository extends BaseRepository {
     };
   }
 
-  create(projectId, name, prompt, mode = 'standard', thinkingEnabled = false, gitBranch = null, model = null, status = 'starting') {
+  create(projectId, name, prompt, mode = 'standard', thinkingEnabled = false, gitBranch = null, model = null, parentSessionId = null, status = 'starting') {
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, model, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, model, parent_session_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, projectId, name, status, mode, thinkingEnabled ? 1 : 0, gitBranch, model, now, now);
+      .run(id, projectId, name, status, mode, thinkingEnabled ? 1 : 0, gitBranch, model, parentSessionId, now, now);
 
     // Create initial conversation and user message
     const conversation = conversations.create(id, 'Initial', true);
@@ -91,6 +91,22 @@ export class SessionRepository extends BaseRepository {
       projectName: row.project_name,
       projectWorkingDirectory: row.project_working_directory,
     }));
+  }
+
+  /**
+   * Get all child sessions of a parent session
+   * @param {string} parentSessionId - The parent session ID
+   * @returns {Array<Object>} Child sessions
+   */
+  getChildSessions(parentSessionId) {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM sessions
+         WHERE parent_session_id = ?
+         ORDER BY updated_at DESC, created_at DESC, rowid DESC`
+      )
+      .all(parentSessionId);
+    return this.mapAll(rows);
   }
 
   update(id, data) {

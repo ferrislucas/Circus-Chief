@@ -607,6 +607,65 @@ describe('SessionRepository', () => {
     });
   });
 
+  describe('parent-child relationships', () => {
+    it('creates a session with a parent', () => {
+      const parentSession = repo.create(projectId, 'Parent', 'Parent prompt');
+      const childSession = repo.create(projectId, 'Child', 'Child prompt', 'standard', false, null, null, parentSession.id);
+
+      expect(childSession.parentSessionId).toBe(parentSession.id);
+    });
+
+    it('allows creating parent session without parentSessionId', () => {
+      const session = repo.create(projectId, 'Parent', 'Parent prompt');
+      expect(session.parentSessionId).toBeNull();
+    });
+
+    it('getChildSessions returns all children of a parent', () => {
+      const parent = repo.create(projectId, 'Parent', 'Parent prompt');
+      const child1 = repo.create(projectId, 'Child 1', 'Prompt 1', 'standard', false, null, null, parent.id);
+      const child2 = repo.create(projectId, 'Child 2', 'Prompt 2', 'standard', false, null, null, parent.id);
+      const orphan = repo.create(projectId, 'Orphan', 'Orphan prompt');
+
+      const children = repo.getChildSessions(parent.id);
+
+      expect(children).toHaveLength(2);
+      expect(children.map(c => c.id)).toContain(child1.id);
+      expect(children.map(c => c.id)).toContain(child2.id);
+      expect(children.map(c => c.id)).not.toContain(orphan.id);
+      expect(children.map(c => c.id)).not.toContain(parent.id);
+    });
+
+    it('getChildSessions returns empty array for parent with no children', () => {
+      const parent = repo.create(projectId, 'Parent', 'Parent prompt');
+      const children = repo.getChildSessions(parent.id);
+      expect(children).toEqual([]);
+    });
+
+    it('update can set parentSessionId', () => {
+      const parent = repo.create(projectId, 'Parent', 'Parent prompt');
+      const child = repo.create(projectId, 'Child', 'Child prompt');
+
+      repo.update(child.id, { parentSessionId: parent.id });
+      const updated = repo.getById(child.id);
+
+      expect(updated.parentSessionId).toBe(parent.id);
+    });
+
+    it('children are ordered by updatedAt DESC when fetched', () => {
+      const parent = repo.create(projectId, 'Parent', 'Parent prompt');
+      const child1 = repo.create(projectId, 'Child 1', 'Prompt 1', 'standard', false, null, null, parent.id);
+      const child2 = repo.create(projectId, 'Child 2', 'Prompt 2', 'standard', false, null, null, parent.id);
+
+      // Update child1 to be more recent
+      repo.update(child1.id, { status: 'completed' });
+
+      const children = repo.getChildSessions(parent.id);
+
+      expect(children[0].id).toBe(child1.id);
+      expect(children[1].id).toBe(child2.id);
+    });
+  });
+
   describe('updateUsage', () => {
     it('updates all token usage fields', () => {
       const session = repo.create(projectId, 'Test', 'Prompt');

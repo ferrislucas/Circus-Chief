@@ -119,6 +119,7 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   let gitBranch = req.body.gitBranch;
   let gitMode = req.body.gitMode;
   const templateId = req.body.templateId;
+  const parentSessionId = req.body.parentSessionId || null; // Optional: parent session ID for child sessions
   let startImmediately = req.body.startImmediately !== false && req.body.startImmediately !== 'false';
   const files = req.files || [];
 
@@ -149,7 +150,7 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   const sessionName = name || generateInitialName(prompt);
   // Create session with 'waiting' status if not starting immediately, otherwise 'starting'
   const initialStatus = startImmediately ? undefined : 'waiting';
-  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, model, initialStatus);
+  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, model, parentSessionId, initialStatus);
 
   // Set nextTemplateId if template was selected
   if (nextTemplateId) {
