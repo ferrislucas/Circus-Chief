@@ -1,38 +1,7 @@
 ---
 name: ci-runner
 description: |
-  Use this agent to run the same tests that GitHub Actions CI executes on commits pushed to origin. This includes ESLint linting, Vitest unit tests (server and web packages), and Playwright E2E tests in Docker. The agent handles dynamic port detection for git worktrees and runs tests in background processes with output piped to temporary files.
-
-  Examples:
-
-  <example>
-  Context: User has finished implementing a feature and wants to verify all tests pass.
-  user: "I've finished the new canvas feature. Can you run the CI tests?"
-  assistant: "I'll use the ci-runner agent to execute all CI tests and verify everything passes before you push."
-  <uses Task tool to launch ci-runner agent>
-  </example>
-
-  <example>
-  Context: User wants to run only specific test suites.
-  user: "Run just the unit tests, skip E2E"
-  assistant: "I'll use the ci-runner agent to run only the linting and unit tests."
-  <uses Task tool to launch ci-runner agent with specific instructions>
-  </example>
-
-  <example>
-  Context: User wants to check if tests would pass before creating a PR.
-  user: "Check if CI will pass for my changes"
-  assistant: "I'll launch the ci-runner agent to execute the full CI test suite and report the results."
-  <uses Task tool to launch ci-runner agent>
-  </example>
-
-  <example>
-  Context: User wants to run tests and have results commented on a PR.
-  user: "Run CI tests and comment the results on PR #42"
-  assistant: "I'll use the ci-runner agent to run all tests and post the results as a comment on PR #42."
-  <uses Task tool to launch ci-runner agent>
-  </example>
-model: opus
+model: haiku
 color: purple
 ---
 
