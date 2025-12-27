@@ -84,12 +84,12 @@
         </router-link>
       </div>
 
-      <div v-else-if="filteredSessions.length === 0" class="empty-state">
+      <div v-else-if="filteredGroupedSessions.length === 0" class="empty-state">
         <p>No sessions match the current filter.</p>
       </div>
 
       <div v-else class="session-list">
-        <template v-for="group in sessionsStore.groupedSessions" :key="group.parent.id">
+        <template v-for="group in filteredGroupedSessions" :key="group.parent.id">
           <SessionCard
             :session="group.parent"
             :show-summary="true"
@@ -168,11 +168,12 @@ const sessionsStore = useSessionsStore();
 const statusFilters = ref([]);
 
 const toggleFilter = (status) => {
-  const index = statusFilters.value.indexOf(status);
-  if (index >= 0) {
-    statusFilters.value.splice(index, 1);
+  // If the clicked filter is already active, clear all filters (show all)
+  if (statusFilters.value.includes(status)) {
+    statusFilters.value = [];
   } else {
-    statusFilters.value.push(status);
+    // Otherwise, set this filter as the only active one (exclusive)
+    statusFilters.value = [status];
   }
 };
 
@@ -181,17 +182,19 @@ const IDLE_STATUSES = ['waiting', 'stopped', 'error'];
 // Statuses that count as "running" (actively processing or starting up)
 const RUNNING_STATUSES = ['running', 'starting'];
 
-const filteredSessions = computed(() => {
-  const sessions = sessionsStore.sessions;
-  if (statusFilters.value.length === 0) return sessions;
+const filteredGroupedSessions = computed(() => {
+  const groups = sessionsStore.groupedSessions;
+  if (statusFilters.value.length === 0) return groups;
 
-  return sessions.filter(s => {
+  // Filter groups based on parent session status
+  return groups.filter(group => {
+    const parentStatus = group.parent.status;
     // "idle" filter matches waiting, stopped, or error statuses
-    if (statusFilters.value.includes('idle') && IDLE_STATUSES.includes(s.status)) {
+    if (statusFilters.value.includes('idle') && IDLE_STATUSES.includes(parentStatus)) {
       return true;
     }
     // "running" filter matches running and starting statuses
-    if (statusFilters.value.includes('running') && RUNNING_STATUSES.includes(s.status)) {
+    if (statusFilters.value.includes('running') && RUNNING_STATUSES.includes(parentStatus)) {
       return true;
     }
     return false;
