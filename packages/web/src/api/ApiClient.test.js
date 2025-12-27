@@ -345,7 +345,7 @@ describe('ApiClient', () => {
 
     describe('getSessionChanges', () => {
       it('fetches changes for session', async () => {
-        const mockData = { staged: 'staged diff', unstaged: 'unstaged diff' };
+        const mockData = { staged: 'staged diff', unstaged: 'unstaged diff', untracked: '' };
         mockFetch.mockReturnValue(mockResponse(mockData));
 
         const result = await client.getSessionChanges('sess-123');
@@ -354,12 +354,72 @@ describe('ApiClient', () => {
         expect(result).toEqual(mockData);
       });
 
-      it('returns empty strings when no changes', async () => {
-        mockFetch.mockReturnValue(mockResponse({ staged: '', unstaged: '' }));
+      it('returns all three change types', async () => {
+        const mockData = {
+          staged: 'staged diff content',
+          unstaged: 'unstaged diff content',
+          untracked: 'untracked files content',
+        };
+        mockFetch.mockReturnValue(mockResponse(mockData));
 
         const result = await client.getSessionChanges('sess-123');
 
-        expect(result).toEqual({ staged: '', unstaged: '' });
+        expect(result).toEqual(mockData);
+        expect(result).toHaveProperty('staged');
+        expect(result).toHaveProperty('unstaged');
+        expect(result).toHaveProperty('untracked');
+      });
+
+      it('returns empty strings when no changes', async () => {
+        mockFetch.mockReturnValue(mockResponse({ staged: '', unstaged: '', untracked: '' }));
+
+        const result = await client.getSessionChanges('sess-123');
+
+        expect(result).toEqual({ staged: '', unstaged: '', untracked: '' });
+      });
+
+      it('does not accept compareMode parameter', () => {
+        // Verify the method only accepts sessionId
+        const methodString = client.getSessionChanges.toString();
+        expect(methodString).not.toContain('compareMode');
+      });
+
+      it('does not accept branch parameter', () => {
+        // Verify the method only accepts sessionId
+        const methodString = client.getSessionChanges.toString();
+        expect(methodString).not.toContain('branch');
+      });
+
+      it('constructs simple endpoint without query parameters', async () => {
+        mockFetch.mockReturnValue(mockResponse({
+          staged: '',
+          unstaged: '',
+          untracked: '',
+        }));
+
+        await client.getSessionChanges('sess-123');
+
+        // Verify the URL is simple without query parameters
+        const callUrl = mockFetch.mock.calls[0][0];
+        expect(callUrl).toBe('/api/sessions/sess-123/changes');
+        expect(callUrl).not.toContain('?');
+        expect(callUrl).not.toContain('compareMode');
+        expect(callUrl).not.toContain('branch');
+      });
+
+      it('only passes sessionId to the endpoint', async () => {
+        mockFetch.mockReturnValue(mockResponse({
+          staged: 'local changes',
+          unstaged: '',
+          untracked: '',
+        }));
+
+        // Call with only sessionId
+        await client.getSessionChanges('test-session-id');
+
+        // Verify only sessionId is used in the URL
+        const callUrl = mockFetch.mock.calls[0][0];
+        expect(callUrl).toBe('/api/sessions/test-session-id/changes');
       });
     });
 
