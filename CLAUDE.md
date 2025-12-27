@@ -98,3 +98,36 @@ Dark mode only using Tailwind CSS. Key colors:
 | `PORT` | `5000` | Server port |
 | `DB_PATH` | `claudetools.db` | SQLite database path |
 | `VITE_API_URL` | `http://localhost:5000` | Backend API URL (frontend) |
+
+## Working Directory Guidelines
+
+**CRITICAL: Never use `cd` to change to a hardcoded project path before running commands.**
+
+When running in a claudetools.io session, your working directory is already set correctly. This may be:
+- The main project directory
+- A git worktree for branch isolation
+
+### Do NOT do this:
+```bash
+# BAD - bypasses worktree isolation
+cd /home/ubuntu/workspace/claudetools.io && git status
+cd /home/ubuntu/workspace/claudetools.io && yarn test
+```
+
+### Do this instead:
+```bash
+# GOOD - respects the session's working directory
+git status
+yarn test
+```
+
+### Why this matters:
+- Sessions may run in git worktrees for branch isolation
+- Using `cd` to hardcoded paths escapes the worktree context
+- This causes git operations to affect the wrong repository
+- Commands should use relative paths or run without `cd`
+
+### If you need to reference files:
+- Use relative paths: `packages/server/src/...`
+- Use `pwd` to check your current directory if unsure
+- Never assume the working directory is the main repo
