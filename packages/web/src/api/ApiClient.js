@@ -681,6 +681,15 @@ export class ApiClient {
   }
 
   /**
+   * Get active command runs for a session
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<Array>}
+   */
+  async getActiveRuns(sessionId) {
+    return this.#request('GET', `/sessions/${sessionId}/command-buttons/runs`);
+  }
+
+  /**
    * Kill a running command
    * @param {string} sessionId - Session ID
    * @param {string} runId - Run ID
