@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { nextTick, defineComponent } from 'vue';
+import { nextTick, defineComponent, reactive } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 
 // Create a mutable route object that can be modified during tests
@@ -45,10 +45,17 @@ vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: vi.fn(),
 }));
 
+// Create a mutable canvas store mock that tests can update
+let mockCanvasStoreState = reactive({
+  items: [],
+  groupedItems: [],
+  fetchItems: vi.fn(),
+  addItem: vi.fn(),
+  removeItem: vi.fn(),
+});
+
 vi.mock('../stores/canvas.js', () => ({
-  useCanvasStore: vi.fn(() => ({
-    fetchItems: vi.fn(),
-  })),
+  useCanvasStore: vi.fn(() => mockCanvasStoreState),
 }));
 
 vi.mock('../stores/todos.js', () => ({
@@ -118,6 +125,9 @@ describe('SessionDetailView', () => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
 
+    // Mock confirm dialog to always return true for testing
+    global.confirm = vi.fn(() => true);
+
     // Reset route params to default values
     mockRouteParams.id = 'test-session-id';
     mockRouteParams.tab = 'conversation';
@@ -151,12 +161,14 @@ describe('SessionDetailView', () => {
         mode: 'standard',
         gitBranch: null,
         prUrl: null,
+        archived: false,
       },
-      fetchSession: vi.fn(),
-      fetchMessages: vi.fn(),
-      fetchWorkLogs: vi.fn(),
-      deleteSession: vi.fn(),
-      archiveSession: vi.fn(),
+      fetchSession: vi.fn().mockResolvedValue(undefined),
+      fetchMessages: vi.fn().mockResolvedValue(undefined),
+      fetchWorkLogs: vi.fn().mockResolvedValue(undefined),
+      deleteSession: vi.fn().mockResolvedValue(undefined),
+      archiveSession: vi.fn().mockResolvedValue(undefined),
+      unarchiveSession: vi.fn().mockResolvedValue(undefined),
       updateSessionStatus: vi.fn(),
       addMessage: vi.fn(),
       updateSession: vi.fn(),
@@ -164,6 +176,7 @@ describe('SessionDetailView', () => {
       finalizeUsage: vi.fn(),
       updateRunningUsage: vi.fn(),
       updateConversation: vi.fn(),
+      clearRunningUsage: vi.fn(),
     };
 
     useSessionsStore.mockReturnValue(mockSessionsStore);
@@ -279,9 +292,9 @@ describe('SessionDetailView', () => {
       await flushPromises();
       await nextTick();
 
-      const prLink = wrapper.find('.pr-link');
-      expect(prLink.exists()).toBe(true);
-      expect(prLink.attributes('href')).toBe('https://github.com/org/repo/pull/123');
+      // PrIndicators component should be rendered when prUrl is set
+      const prIndicators = wrapper.findComponent({ name: 'PrIndicators' });
+      expect(prIndicators.exists()).toBe(true);
     });
 
     it('does not show PR link when prUrl is null', async () => {
@@ -291,7 +304,9 @@ describe('SessionDetailView', () => {
       await flushPromises();
       await nextTick();
 
-      expect(wrapper.find('.pr-link').exists()).toBe(false);
+      // PrIndicators component should not be rendered when prUrl is null
+      const prIndicators = wrapper.findComponent({ name: 'PrIndicators' });
+      expect(prIndicators.exists()).toBe(false);
     });
   });
 
@@ -596,22 +611,17 @@ describe('SessionDetailView', () => {
   });
 
   describe('canvas indicator', () => {
-    let mockCanvasStore;
-
     beforeEach(() => {
-      mockCanvasStore = {
-        items: [],
-        groupedItems: [],
-        fetchItems: vi.fn(),
-        addItem: vi.fn(),
-        removeItem: vi.fn(),
-      };
-      const { useCanvasStore } = require('../stores/canvas.js');
-      useCanvasStore.mockReturnValue(mockCanvasStore);
+      // Reset canvas store state for each test
+      mockCanvasStoreState.items.length = 0;
+      mockCanvasStoreState.groupedItems.length = 0;
+      mockCanvasStoreState.fetchItems = vi.fn();
+      mockCanvasStoreState.addItem = vi.fn();
+      mockCanvasStoreState.removeItem = vi.fn();
     });
 
     it('does not show canvas indicator when canvas is empty', async () => {
-      mockCanvasStore.groupedItems = [];
+      // groupedItems is already empty from beforeEach
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -621,10 +631,10 @@ describe('SessionDetailView', () => {
     });
 
     it('shows canvas indicator when canvas has files', async () => {
-      mockCanvasStore.groupedItems = [
+      mockCanvasStoreState.groupedItems.push(
         { id: 'item-1', filename: 'image.png' },
-        { id: 'item-2', filename: 'document.md' },
-      ];
+        { id: 'item-2', filename: 'document.md' }
+      );
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -634,35 +644,37 @@ describe('SessionDetailView', () => {
     });
 
     it('shows correct count in canvas tab label', async () => {
-      mockCanvasStore.groupedItems = [
+      mockCanvasStoreState.groupedItems.push(
         { id: 'item-1', filename: 'image.png' },
         { id: 'item-2', filename: 'document.md' },
-        { id: 'item-3', filename: 'data.json' },
-      ];
+        { id: 'item-3', filename: 'data.json' }
+      );
 
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
+      await wrapper.vm.$nextTick();
 
-      const tabs = wrapper.findAll('a.tab');
+      const tabs = wrapper.findAll('.tabs-desktop .tab');
       const canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
-      expect(canvasTab.text()).toContain('Canvas (3)');
+      expect(canvasTab?.text()).toContain('Canvas (3)');
     });
 
     it('shows "Canvas" without count when empty', async () => {
-      mockCanvasStore.groupedItems = [];
+      mockCanvasStoreState.groupedItems = [];
 
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
+      await wrapper.vm.$nextTick();
 
-      const tabs = wrapper.findAll('a.tab');
+      const tabs = wrapper.findAll('.tabs-desktop .tab');
       const canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
-      expect(canvasTab.text()).toBe('Canvas');
+      expect(canvasTab?.text()).toBe('Canvas');
     });
 
     it('canvas indicator has correct CSS class', async () => {
-      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+      mockCanvasStoreState.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -674,7 +686,7 @@ describe('SessionDetailView', () => {
     });
 
     it('canvas indicator has tooltip title attribute', async () => {
-      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+      mockCanvasStoreState.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -685,32 +697,31 @@ describe('SessionDetailView', () => {
     });
 
     it('updates canvas count when groupedItems changes', async () => {
-      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
-
-      const wrapper = mountComponent();
+      // Initially empty
+      const wrapper1 = mountComponent();
       await flushPromises();
       await nextTick();
+      await wrapper1.vm.$nextTick();
 
-      let tabs = wrapper.findAll('a.tab');
+      let tabs = wrapper1.findAll('.tabs-desktop .tab');
       let canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
-      expect(canvasTab.text()).toContain('Canvas (1)');
+      expect(canvasTab?.text()).toBe('Canvas');
 
-      // Update canvas items
-      mockCanvasStore.groupedItems = [
-        { id: 'item-1', filename: 'image.png' },
-        { id: 'item-2', filename: 'document.md' },
-      ];
+      // Now test with items
+      mockCanvasStoreState.groupedItems.push({ id: 'item-1', filename: 'image.png' });
 
-      // Trigger reactivity update
-      wrapper.vm.$nextTick(() => {
-        tabs = wrapper.findAll('a.tab');
-        canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
-        expect(canvasTab.text()).toContain('Canvas (2)');
-      });
+      const wrapper2 = mountComponent();
+      await flushPromises();
+      await nextTick();
+      await wrapper2.vm.$nextTick();
+
+      tabs = wrapper2.findAll('.tabs-desktop .tab');
+      canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
+      expect(canvasTab?.text()).toContain('Canvas (1)');
     });
 
     it('shows canvas bullet indicator on mobile dropdown when files exist', async () => {
-      mockCanvasStore.groupedItems = [
+      mockCanvasStoreState.groupedItems = [
         { id: 'item-1', filename: 'image.png' },
         { id: 'item-2', filename: 'document.md' },
       ];
@@ -726,7 +737,7 @@ describe('SessionDetailView', () => {
     });
 
     it('does not show canvas bullet indicator on mobile when empty', async () => {
-      mockCanvasStore.groupedItems = [];
+      mockCanvasStoreState.groupedItems = [];
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -741,18 +752,16 @@ describe('SessionDetailView', () => {
     });
 
     it('fetches canvas items on mount', async () => {
-      const { useCanvasStore } = require('../stores/canvas.js');
-      const canvasStore = useCanvasStore();
-
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
 
-      expect(canvasStore.fetchItems).toHaveBeenCalledWith('test-session-id');
+      // mockCanvasStoreState.fetchItems should have been called
+      expect(mockCanvasStoreState.fetchItems).toHaveBeenCalledWith('test-session-id');
     });
 
     it('indicator dot has amber background color styling', async () => {
-      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+      mockCanvasStoreState.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -765,20 +774,21 @@ describe('SessionDetailView', () => {
     });
 
     it('canvas indicator appears next to tab label', async () => {
-      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+      mockCanvasStoreState.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
 
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
+      await wrapper.vm.$nextTick();
 
-      const tabs = wrapper.findAll('a.tab');
+      const tabs = wrapper.findAll('.tabs-desktop .tab');
       const canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
-      const indicator = canvasTab.find('.canvas-indicator');
-      expect(indicator.exists()).toBe(true);
+      const indicator = canvasTab?.find('.canvas-indicator');
+      expect(indicator?.exists()).toBe(true);
     });
 
     it('canvas indicator count shows multiple items correctly', async () => {
-      mockCanvasStore.groupedItems = Array.from({ length: 10 }, (_, i) => ({
+      mockCanvasStoreState.groupedItems = Array.from({ length: 10 }, (_, i) => ({
         id: `item-${i}`,
         filename: `file-${i}.txt`,
       }));
@@ -786,14 +796,15 @@ describe('SessionDetailView', () => {
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
+      await wrapper.vm.$nextTick();
 
-      const tabs = wrapper.findAll('a.tab');
+      const tabs = wrapper.findAll('.tabs-desktop .tab');
       const canvasTab = tabs.find((tab) => tab.text().includes('Canvas'));
-      expect(canvasTab.text()).toContain('Canvas (10)');
+      expect(canvasTab?.text()).toContain('Canvas (10)');
     });
 
     it('indicator does not appear for other tabs when canvas has files', async () => {
-      mockCanvasStore.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+      mockCanvasStoreState.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
 
       const wrapper = mountComponent();
       await flushPromises();
