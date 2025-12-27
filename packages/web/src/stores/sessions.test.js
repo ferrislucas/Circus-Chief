@@ -1133,6 +1133,171 @@ describe('Sessions Store', () => {
 
         expect(store.activeSessions).toHaveLength(0);
       });
+
+      it('preserves gitBranch when archiving a new session', () => {
+        const store = useSessionsStore();
+
+        // Create a session with gitBranch in the active list
+        const sessionWithBranch = {
+          id: 'session-1',
+          name: 'Feature Branch',
+          gitBranch: 'feature/user-auth',
+          gitWorktree: null,
+          archived: false,
+        };
+
+        store.sessions = [sessionWithBranch];
+        store.archivedSessions = [];
+
+        // Archive the session
+        store.updateSession({ id: 'session-1', archived: true });
+
+        // Verify gitBranch is preserved
+        expect(store.archivedSessions).toHaveLength(1);
+        expect(store.archivedSessions[0].gitBranch).toBe('feature/user-auth');
+        expect(store.archivedSessions[0].name).toBe('Feature Branch');
+        expect(store.archivedSessions[0].gitWorktree).toBeNull();
+      });
+
+      it('preserves gitBranch when unarchiving a session', () => {
+        const store = useSessionsStore();
+
+        // Create a session with gitBranch in the archived list
+        const archivedSessionWithBranch = {
+          id: 'session-1',
+          name: 'Feature Branch',
+          gitBranch: 'feature/user-auth',
+          gitWorktree: null,
+          archived: true,
+        };
+
+        store.sessions = [];
+        store.archivedSessions = [archivedSessionWithBranch];
+
+        // Unarchive the session
+        store.updateSession({ id: 'session-1', archived: false });
+
+        // Verify gitBranch is preserved
+        expect(store.sessions).toHaveLength(1);
+        expect(store.sessions[0].gitBranch).toBe('feature/user-auth');
+        expect(store.sessions[0].name).toBe('Feature Branch');
+        expect(store.sessions[0].gitWorktree).toBeNull();
+      });
+
+      it('preserves multiple properties when archiving a session', () => {
+        const store = useSessionsStore();
+
+        // Session with multiple git and custom properties
+        const sessionWithMultipleProps = {
+          id: 'session-1',
+          name: 'Complex Session',
+          gitBranch: 'develop',
+          gitWorktree: '.worktrees/session-1',
+          prUrl: 'https://github.com/repo/pull/123',
+          error: null,
+          status: 'completed',
+          archived: false,
+        };
+
+        store.sessions = [sessionWithMultipleProps];
+        store.archivedSessions = [];
+
+        // Archive the session (only archived flag changes)
+        store.updateSession({ id: 'session-1', archived: true });
+
+        // Verify all properties are preserved
+        const archivedSession = store.archivedSessions[0];
+        expect(archivedSession.gitBranch).toBe('develop');
+        expect(archivedSession.gitWorktree).toBe('.worktrees/session-1');
+        expect(archivedSession.prUrl).toBe('https://github.com/repo/pull/123');
+        expect(archivedSession.status).toBe('completed');
+        expect(archivedSession.name).toBe('Complex Session');
+      });
+
+      it('preserves multiple properties when unarchiving a session', () => {
+        const store = useSessionsStore();
+
+        // Session with multiple git and custom properties
+        const archivedSessionWithMultipleProps = {
+          id: 'session-1',
+          name: 'Complex Session',
+          gitBranch: 'develop',
+          gitWorktree: '.worktrees/session-1',
+          prUrl: 'https://github.com/repo/pull/123',
+          error: null,
+          status: 'completed',
+          archived: true,
+        };
+
+        store.sessions = [];
+        store.archivedSessions = [archivedSessionWithMultipleProps];
+
+        // Unarchive the session
+        store.updateSession({ id: 'session-1', archived: false });
+
+        // Verify all properties are preserved
+        const unarchivedSession = store.sessions[0];
+        expect(unarchivedSession.gitBranch).toBe('develop');
+        expect(unarchivedSession.gitWorktree).toBe('.worktrees/session-1');
+        expect(unarchivedSession.prUrl).toBe('https://github.com/repo/pull/123');
+        expect(unarchivedSession.status).toBe('completed');
+        expect(unarchivedSession.name).toBe('Complex Session');
+      });
+
+      it('handles archiving when session does not exist in source list', () => {
+        const store = useSessionsStore();
+
+        // Session data without existing source session
+        store.sessions = [];
+        store.archivedSessions = [];
+
+        // Archive a session that doesn't exist in sessions list
+        store.updateSession({ id: 'new-session', archived: true, gitBranch: 'main' });
+
+        // Should still be added to archivedSessions
+        expect(store.archivedSessions).toHaveLength(1);
+        expect(store.archivedSessions[0].id).toBe('new-session');
+        expect(store.archivedSessions[0].gitBranch).toBe('main');
+      });
+
+      it('handles unarchiving when session does not exist in source list', () => {
+        const store = useSessionsStore();
+
+        // Session data without existing source session
+        store.sessions = [];
+        store.archivedSessions = [];
+
+        // Unarchive a session that doesn't exist in archivedSessions list
+        store.updateSession({ id: 'new-session', archived: false, gitBranch: 'feature' });
+
+        // Should still be added to sessions
+        expect(store.sessions).toHaveLength(1);
+        expect(store.sessions[0].id).toBe('new-session');
+        expect(store.sessions[0].gitBranch).toBe('feature');
+      });
+
+      it('updates session properties while preserving gitBranch when archiving', () => {
+        const store = useSessionsStore();
+
+        const originalSession = {
+          id: 'session-1',
+          name: 'Original Name',
+          gitBranch: 'feature/fix',
+          status: 'running',
+          archived: false,
+        };
+
+        store.sessions = [originalSession];
+        store.archivedSessions = [];
+
+        // Archive and update status in same call
+        store.updateSession({ id: 'session-1', archived: true, status: 'completed' });
+
+        // Verify gitBranch and new status are both present
+        expect(store.archivedSessions[0].gitBranch).toBe('feature/fix');
+        expect(store.archivedSessions[0].status).toBe('completed');
+        expect(store.archivedSessions[0].name).toBe('Original Name');
+      });
     });
 
     describe('deleteSession with archived sessions', () => {

@@ -475,7 +475,11 @@ export const useSessionsStore = defineStore('sessions', {
         if (archivedIndex !== -1) {
           this.archivedSessions[archivedIndex] = { ...this.archivedSessions[archivedIndex], ...sessionData };
         } else {
-          this.archivedSessions.unshift(sessionData);
+          // Preserve existing session properties when moving to archived
+          const existingSession = this.sessions.find(s => s.id === sessionData.id);
+          this.archivedSessions.unshift(
+            existingSession ? { ...existingSession, ...sessionData } : sessionData
+          );
         }
       } else if (sessionData.archived === false) {
         // Remove from archived list
@@ -485,7 +489,11 @@ export const useSessionsStore = defineStore('sessions', {
         if (sessionIndex !== -1) {
           this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
         } else {
-          this.sessions.unshift(sessionData);
+          // Preserve existing session properties when moving from archived
+          const existingSession = this.archivedSessions.find(s => s.id === sessionData.id);
+          this.sessions.unshift(
+            existingSession ? { ...existingSession, ...sessionData } : sessionData
+          );
         }
       } else {
         // No archive change - update in existing lists
