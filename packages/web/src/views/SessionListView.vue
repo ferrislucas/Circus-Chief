@@ -6,7 +6,7 @@
           <h1>{{ projectsStore.currentProject?.name || 'Sessions' }}</h1>
           <a v-if="projectsStore.currentProject?.repoUrl" :href="projectsStore.currentProject.repoUrl" target="_blank" rel="noopener noreferrer" class="repo-link" title="Open repository">
             <svg class="repo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.375 3.375 0 0 0-.975-2.438A3.375 3.375 0 0 1 19.5 9V6.75a6 6 0 0 0-6-6 5.997 5.997 0 0 0-6 6v2.25a3.375 3.375 0 0 1 4.5 3.188V21m0 0a3.375 3.375 0 0 1-3.375-3.375m3.375 3.375h7.5a3.375 3.375 0 0 0 3.375-3.375v-6a3.375 3.375 0 0 0-3.375-3.375h-.75"></path>
+              <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6m4-3l6 6m0 0l-6 6m6-6H9"></path>
             </svg>
           </a>
         </div>
