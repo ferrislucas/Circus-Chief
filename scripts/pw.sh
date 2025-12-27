@@ -22,6 +22,20 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Compose file location
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.playwright.yml"
 
+# Auto-detect server port
+detect_server_port() {
+    local port_file="$PROJECT_ROOT/.server-port"
+    if [ -f "$port_file" ]; then
+        cat "$port_file"
+    else
+        echo "5000"  # Default fallback
+    fi
+}
+
+# Get the server port (auto-detect or use default)
+SERVER_PORT=$(detect_server_port)
+SERVER_URL="http://localhost:$SERVER_PORT"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -74,7 +88,7 @@ cmd_screenshot() {
     if [ -z "$1" ]; then
         print_error "URL is required"
         echo "Usage: $0 screenshot <url> [filename]"
-        echo "Example: $0 screenshot http://localhost:5000 homepage.png"
+        echo "Example: $0 screenshot $SERVER_URL homepage.png"
         exit 1
     fi
 
@@ -88,7 +102,7 @@ cmd_screenshot() {
 
 # Run codegen
 cmd_codegen() {
-    local url="${1:-http://localhost:5000}"
+    local url="${1:-$SERVER_URL}"
 
     # Check if X11 is available
     if [ -z "$DISPLAY" ]; then
@@ -134,11 +148,11 @@ Commands:
                            Example: $(basename "$0") test tests/home.spec.ts
 
   screenshot <url> [file]  Capture screenshot of URL
-                           Example: $(basename "$0") screenshot http://localhost:5000
-                           Example: $(basename "$0") screenshot http://localhost:5000 home.png
+                           Example: $(basename "$0") screenshot $SERVER_URL
+                           Example: $(basename "$0") screenshot $SERVER_URL home.png
 
   codegen [url]            Launch Playwright test generator (requires X11)
-                           Example: $(basename "$0") codegen http://localhost:5000
+                           Example: $(basename "$0") codegen
 
   debug [args]             Run tests with headed browser (requires X11)
                            Example: $(basename "$0") debug tests/login.spec.ts
@@ -149,8 +163,13 @@ Commands:
 
   help                     Show this help message
 
+Auto-Detection:
+  Server port is automatically detected from .server-port file.
+  Current detected URL: $SERVER_URL
+  (Falls back to http://localhost:5000 if .server-port not found)
+
 Environment Variables:
-  BASE_URL          Base URL for tests (default: http://localhost:5000)
+  BASE_URL          Base URL for tests (auto-detected, can be overridden)
   BROWSER           Browser: chromium, firefox, webkit (default: chromium)
   HEADLESS          Run headless: true/false (default: true)
   FULL_PAGE         Full page screenshots: true/false (default: false)
@@ -167,16 +186,19 @@ Examples:
   $(basename "$0") test tests/auth.spec.ts
 
   # Screenshot with custom viewport
-  VIEWPORT_WIDTH=1920 VIEWPORT_HEIGHT=1080 $(basename "$0") screenshot http://localhost:5000 wide.png
+  VIEWPORT_WIDTH=1920 VIEWPORT_HEIGHT=1080 $(basename "$0") screenshot $SERVER_URL wide.png
 
   # Mobile screenshot
-  DEVICE="iPhone 14" $(basename "$0") screenshot http://localhost:5000 mobile.png
+  DEVICE="iPhone 14" $(basename "$0") screenshot $SERVER_URL mobile.png
 
   # Full page screenshot
-  FULL_PAGE=true $(basename "$0") screenshot http://localhost:5000 full.png
+  FULL_PAGE=true $(basename "$0") screenshot $SERVER_URL full.png
 
   # Use Firefox
   BROWSER=firefox $(basename "$0") test
+
+  # Override auto-detected URL
+  BASE_URL=http://localhost:3000 $(basename "$0") test
 EOF
 }
 
