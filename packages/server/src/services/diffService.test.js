@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
-import { getChanges, generateUntrackedDiffs } from './diffService.js';
+import { getChanges, generateUntrackedDiffs, getChangesBranchComparison } from './diffService.js';
 import * as gitService from './gitService.js';
 import { mkdir, writeFile, rm } from 'fs/promises';
 import { join } from 'path';
@@ -297,6 +297,139 @@ index 9876543..fedcba9 100644
       const result = await generateUntrackedDiffs(testDir, ['special.txt']);
 
       expect(result).toContain('+Special chars: <>&"\'');
+    });
+  });
+
+  describe('getChangesBranchComparison', () => {
+    it('returns staged, unstaged diffs, and untracked when comparing against branch', async () => {
+      gitService.getStagedDiffAgainstBranch.mockResolvedValue('staged diff content');
+      gitService.getDiffAgainstBranch.mockResolvedValue('unstaged diff content');
+      gitService.getUntrackedFiles.mockResolvedValue([]);
+
+      const result = await getChangesBranchComparison('/test/dir', 'origin/main');
+
+      expect(result).toEqual({
+        staged: 'staged diff content',
+        unstaged: 'unstaged diff content',
+        untracked: '',
+      });
+    });
+
+    it('calls git service with correct directory and branch', async () => {
+      gitService.getStagedDiffAgainstBranch.mockResolvedValue('');
+      gitService.getDiffAgainstBranch.mockResolvedValue('');
+      gitService.getUntrackedFiles.mockResolvedValue([]);
+
+      await getChangesBranchComparison('/my/project/path', 'origin/main');
+
+      expect(gitService.getStagedDiffAgainstBranch).toHaveBeenCalledWith('/my/project/path', 'origin/main');
+      expect(gitService.getDiffAgainstBranch).toHaveBeenCalledWith('/my/project/path', 'origin/main');
+      expect(gitService.getUntrackedFiles).toHaveBeenCalledWith('/my/project/path');
+    });
+
+    it('returns empty values when no changes', async () => {
+      gitService.getStagedDiffAgainstBranch.mockResolvedValue('');
+      gitService.getDiffAgainstBranch.mockResolvedValue('');
+      gitService.getUntrackedFiles.mockResolvedValue([]);
+
+      const result = await getChangesBranchComparison('/test/dir', 'origin/main');
+
+      expect(result).toEqual({ staged: '', unstaged: '', untracked: '' });
+    });
+
+    it('fetches all git info in parallel', async () => {
+      let stagedResolve;
+      let unstagedResolve;
+      let untrackedResolve;
+
+      gitService.getStagedDiffAgainstBranch.mockReturnValue(
+        new Promise((resolve) => {
+          stagedResolve = resolve;
+        })
+      );
+      gitService.getDiffAgainstBranch.mockReturnValue(
+        new Promise((resolve) => {
+          unstagedResolve = resolve;
+        })
+      );
+      gitService.getUntrackedFiles.mockReturnValue(
+        new Promise((resolve) => {
+          untrackedResolve = resolve;
+        })
+      );
+
+      const promise = getChangesBranchComparison('/test/dir', 'origin/main');
+
+      // All should be called immediately (in parallel)
+      expect(gitService.getStagedDiffAgainstBranch).toHaveBeenCalled();
+      expect(gitService.getDiffAgainstBranch).toHaveBeenCalled();
+      expect(gitService.getUntrackedFiles).toHaveBeenCalled();
+
+      // Resolve them
+      stagedResolve('staged');
+      unstagedResolve('unstaged');
+      untrackedResolve([]);
+
+      const result = await promise;
+      expect(result).toEqual({ staged: 'staged', unstaged: 'unstaged', untracked: '' });
+    });
+
+    it('propagates errors from getStagedDiffAgainstBranch', async () => {
+      gitService.getStagedDiffAgainstBranch.mockRejectedValue(new Error('Git error'));
+      gitService.getDiffAgainstBranch.mockResolvedValue('');
+      gitService.getUntrackedFiles.mockResolvedValue([]);
+
+      await expect(getChangesBranchComparison('/test/dir', 'origin/main')).rejects.toThrow('Git error');
+    });
+
+    it('propagates errors from getDiffAgainstBranch', async () => {
+      gitService.getStagedDiffAgainstBranch.mockResolvedValue('');
+      gitService.getDiffAgainstBranch.mockRejectedValue(new Error('Diff error'));
+      gitService.getUntrackedFiles.mockResolvedValue([]);
+
+      await expect(getChangesBranchComparison('/test/dir', 'origin/main')).rejects.toThrow('Diff error');
+    });
+
+    it('handles multi-line diff output against branch', async () => {
+      const stagedDiff = `diff --git a/file.js b/file.js
+index 1234567..abcdefg 100644
+--- a/file.js
++++ b/file.js
+@@ -1,3 +1,4 @@
+ line 1
++new line
+ line 2
+ line 3`;
+
+      const unstagedDiff = `diff --git a/other.js b/other.js
+index 9876543..fedcba9 100644
+--- a/other.js
++++ b/other.js
+@@ -10,5 +10,6 @@
+ existing
+-removed
++modified
+ end`;
+
+      gitService.getStagedDiffAgainstBranch.mockResolvedValue(stagedDiff);
+      gitService.getDiffAgainstBranch.mockResolvedValue(unstagedDiff);
+      gitService.getUntrackedFiles.mockResolvedValue([]);
+
+      const result = await getChangesBranchComparison('/test/dir', 'origin/main');
+
+      expect(result.staged).toBe(stagedDiff);
+      expect(result.unstaged).toBe(unstagedDiff);
+    });
+
+    it('uses different branch names correctly', async () => {
+      gitService.getStagedDiffAgainstBranch.mockResolvedValue('');
+      gitService.getDiffAgainstBranch.mockResolvedValue('');
+      gitService.getUntrackedFiles.mockResolvedValue([]);
+
+      await getChangesBranchComparison('/test/dir', 'origin/develop');
+
+      expect(gitService.getStagedDiffAgainstBranch).toHaveBeenCalledWith('/test/dir', 'origin/develop');
+      expect(gitService.getDiffAgainstBranch).toHaveBeenCalledWith('/test/dir', 'origin/develop');
     });
   });
 });

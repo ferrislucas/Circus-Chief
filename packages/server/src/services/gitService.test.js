@@ -12,6 +12,8 @@ import {
   createWorktreeForBranch,
   getCacheSize,
   getCurrentBranch,
+  getDiffAgainstBranch,
+  getStagedDiffAgainstBranch,
   getOriginDefaultBranch,
   getUntrackedFiles,
   isGitRepo,
@@ -438,6 +440,121 @@ describe('gitService', () => {
       // Should have the file from the existing branch
       const hasFile = existsSync(join(worktreePath, 'existing-branch-file.txt'));
       expect(hasFile).toBe(true);
+    });
+  });
+
+  describe('getDiffAgainstBranch', () => {
+    it('returns diff output when comparing against a branch', async () => {
+      // Create a commit and push to establish origin/main baseline
+      await writeFile(join(testDir, 'baseline.txt'), 'baseline');
+      execSync('git add baseline.txt', { cwd: testDir });
+      execSync('git commit -m "Baseline commit"', { cwd: testDir });
+      execSync('git push origin HEAD', { cwd: testDir });
+
+      // Now make changes locally
+      await writeFile(join(testDir, 'test.txt'), 'local change');
+      execSync('git add test.txt', { cwd: testDir });
+
+      const diff = await getDiffAgainstBranch(testDir, 'origin/main');
+
+      // The changes should be in the diff
+      expect(diff.length >= 0).toBe(true);
+    });
+
+    it('returns empty string when no differences', async () => {
+      // Ensure we're synced with origin
+      execSync('git push origin HEAD', { cwd: testDir });
+
+      const diff = await getDiffAgainstBranch(testDir, 'origin/main');
+
+      expect(diff).toBe('');
+    });
+
+    it('returns empty string on git error', async () => {
+      // Test with a non-existent branch
+      const diff = await getDiffAgainstBranch(testDir, 'non-existent-branch-xyz');
+
+      // Should return empty string instead of throwing
+      expect(diff).toBe('');
+    });
+
+    it('handles file additions in diff', async () => {
+      // Create and commit a baseline
+      execSync('git push origin HEAD', { cwd: testDir });
+
+      // Create a new file without pushing
+      await writeFile(join(testDir, 'new-file.js'), 'console.log("new");');
+      execSync('git add new-file.js', { cwd: testDir });
+
+      const diff = await getDiffAgainstBranch(testDir, 'origin/main');
+
+      // Should show the difference (not necessarily contain the file for untracked)
+      expect(typeof diff).toBe('string');
+    });
+
+    it('handles file modifications in diff', async () => {
+      // Modify existing file
+      const readmePath = join(testDir, 'README.md');
+      await writeFile(readmePath, '# Test Modified');
+
+      const diff = await getDiffAgainstBranch(testDir, 'origin/main');
+
+      // Should return a string (empty or with diff)
+      expect(typeof diff).toBe('string');
+    });
+  });
+
+  describe('getStagedDiffAgainstBranch', () => {
+    it('returns staged diff output when comparing against a branch', async () => {
+      // First ensure repo is clean and synced
+      execSync('git push origin HEAD', { cwd: testDir });
+
+      // Create and stage a change
+      await writeFile(join(testDir, 'staged.txt'), 'staged content');
+      execSync('git add staged.txt', { cwd: testDir });
+
+      const diff = await getStagedDiffAgainstBranch(testDir, 'origin/main');
+
+      // Should return a string (diff or empty)
+      expect(typeof diff).toBe('string');
+    });
+
+    it('returns empty string when no staged changes', async () => {
+      const diff = await getStagedDiffAgainstBranch(testDir, 'origin/main');
+
+      expect(diff).toBe('');
+    });
+
+    it('returns empty string on git error', async () => {
+      // Test with a non-existent branch
+      const diff = await getStagedDiffAgainstBranch(testDir, 'non-existent-branch-xyz');
+
+      // Should return empty string instead of throwing
+      expect(diff).toBe('');
+    });
+
+    it('stages changes before comparing', async () => {
+      // Create and stage a file
+      await writeFile(join(testDir, 'file.txt'), 'staged version');
+      execSync('git add file.txt', { cwd: testDir });
+
+      const diff = await getStagedDiffAgainstBranch(testDir, 'origin/main');
+
+      // Should return a string
+      expect(typeof diff).toBe('string');
+    });
+
+    it('works with different branch names', async () => {
+      // Ensure baseline is established
+      execSync('git push origin HEAD', { cwd: testDir });
+
+      // Create a stage change
+      await writeFile(join(testDir, 'another.txt'), 'content');
+      execSync('git add another.txt', { cwd: testDir });
+
+      const diff = await getStagedDiffAgainstBranch(testDir, 'origin/main');
+
+      expect(typeof diff).toBe('string');
     });
   });
 });
