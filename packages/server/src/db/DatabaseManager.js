@@ -76,6 +76,9 @@ export class DatabaseManager {
     if (!projectsColumns.includes('repo_url')) {
       this.#db.exec('ALTER TABLE projects ADD COLUMN repo_url TEXT');
     }
+    if (!projectsColumns.includes('summary_debounce_ms')) {
+      this.#db.exec('ALTER TABLE projects ADD COLUMN summary_debounce_ms INTEGER NOT NULL DEFAULT 5000');
+    }
 
     // Migrate sessions table to add 'stopped' status to CHECK constraint
     // SQLite doesn't allow modifying CHECK constraints, so we need to recreate the table

@@ -279,9 +279,10 @@ function parseSummaryResponse(responseText) {
  * Generate summary for a session using Claude Code SDK
  * @param {string} sessionId
  * @param {number} retryCount - Internal retry counter (do not set manually)
+ * @param {boolean} force - Force generation even if summary is current (default: false)
  * @returns {Promise<Object|null>}
  */
-export async function generateSummary(sessionId, retryCount = 0) {
+export async function generateSummary(sessionId, retryCount = 0, force = false) {
   try {
     // Get session info
     const session = sessions.getById(sessionId);
@@ -300,8 +301,20 @@ export async function generateSummary(sessionId, retryCount = 0) {
     // Get existing summary for incremental generation
     const existingSummary = sessionSummaries.getBySessionId(sessionId);
 
+    // Skip regeneration for merged PRs (work is complete)
+    if (existingSummary?.prMerged) {
+      console.log(`[SummaryService] Session ${sessionId} has merged PR, skipping regeneration`);
+      return existingSummary;
+    }
+
     // Get recent messages
     const allMessages = messages.getBySessionId(sessionId);
+
+    // Skip if summary is current and not forced to regenerate
+    if (!force && !isSummaryStale(sessionId)) {
+      console.log(`[SummaryService] Summary for ${sessionId} is current, skipping regeneration`);
+      return existingSummary;
+    }
     const recentMessages = allMessages.slice(-MAX_MESSAGES);
 
     if (recentMessages.length === 0) {
@@ -331,7 +344,7 @@ export async function generateSummary(sessionId, retryCount = 0) {
       );
       const backoffMs = 1000 * (retryCount + 1); // 1s, 2s
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
-      return generateSummary(sessionId, retryCount + 1);
+      return generateSummary(sessionId, retryCount + 1, force);
     }
 
     // Clean up internal flag before saving
@@ -454,11 +467,18 @@ export function onSessionActivity(sessionId) {
     clearTimeout(debounceTimers.get(sessionId));
   }
 
-  // Set new debounce timer
+  // Get project-specific debounce delay
+  const session = sessions.getById(sessionId);
+  if (!session) return;
+
+  const project = projects.getById(session.projectId);
+  const debounceDelay = project?.summaryDebounceMs || DEBOUNCE_DELAY;
+
+  // Set new debounce timer with project-specific delay
   const timer = setTimeout(() => {
     generateSummary(sessionId);
     debounceTimers.delete(sessionId);
-  }, DEBOUNCE_DELAY);
+  }, debounceDelay);
 
   debounceTimers.set(sessionId, timer);
 }
@@ -491,8 +511,8 @@ export function onSessionComplete(sessionId) {
     debounceTimers.delete(sessionId);
   }
 
-  // Generate summary immediately
-  generateSummary(sessionId);
+  // Generate summary immediately with force=true to update final state
+  generateSummary(sessionId, 0, true);
 
   // Schedule follow-up CI checks for sessions with PRs
   // CI might still be running after the session completes
@@ -534,7 +554,7 @@ export async function getSummary(sessionId, generateIfMissing = false) {
  * @returns {Promise<Object|null>}
  */
 export async function regenerateSummary(sessionId) {
-  return generateSummary(sessionId);
+  return generateSummary(sessionId, 0, true);
 }
 
 /**
