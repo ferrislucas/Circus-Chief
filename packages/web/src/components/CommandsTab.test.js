@@ -260,7 +260,7 @@ describe('CommandsTab', () => {
     expect(runButton).toHaveBeenCalledWith('session-1', 'btn-1');
   });
 
-  it('handles copy output event', async () => {
+  it('handles copy output event successfully', async () => {
     const mockStore = {
       buttons: [{ id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 }],
       runs: {},
@@ -308,7 +308,210 @@ describe('CommandsTab', () => {
     expect(mockUiStore.success).toHaveBeenCalledWith('Output copied to clipboard');
   });
 
-  it('handles send to canvas event', async () => {
+  it('handles copy output when output is null', async () => {
+    const mockStore = {
+      buttons: [{ id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 }],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn(),
+      getRun: vi.fn(),
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    // Mock clipboard
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    const wrapper = mount(CommandsTab, {
+      props: {
+        sessionId: 'session-1',
+        projectId: 'project-1',
+      },
+      global: {
+        stubs: {
+          CommandButtonItem: {
+            template: '<button @click="$emit(\'copy-output\', null)">Copy</button>',
+            props: ['button'],
+          },
+          RouterLink: true,
+        },
+      },
+    });
+
+    // Emit copy event with null
+    const button = wrapper.find('button');
+    await button.trigger('click');
+    await flushPromises();
+
+    // Should show error instead of success
+    expect(mockUiStore.error).toHaveBeenCalledWith('No output to copy');
+    expect(mockUiStore.success).not.toHaveBeenCalled();
+  });
+
+  it('handles copy output when output is not a string', async () => {
+    const mockStore = {
+      buttons: [{ id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 }],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn(),
+      getRun: vi.fn(),
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    // Mock clipboard
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    const wrapper = mount(CommandsTab, {
+      props: {
+        sessionId: 'session-1',
+        projectId: 'project-1',
+      },
+      global: {
+        stubs: {
+          CommandButtonItem: {
+            template: '<button @click="$emit(\'copy-output\', { data: \'object\' })">Copy</button>',
+            props: ['button'],
+          },
+          RouterLink: true,
+        },
+      },
+    });
+
+    // Emit copy event with object
+    const button = wrapper.find('button');
+    await button.trigger('click');
+    await flushPromises();
+
+    // Should show error for non-string type
+    expect(mockUiStore.error).toHaveBeenCalledWith('Output is not text');
+    expect(mockUiStore.success).not.toHaveBeenCalled();
+  });
+
+  it('handles copy output when clipboard is unavailable', async () => {
+    const mockStore = {
+      buttons: [{ id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 }],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn(),
+      getRun: vi.fn(),
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    // Mock navigator without clipboard
+    const originalClipboard = navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: undefined,
+      writable: true,
+    });
+
+    const wrapper = mount(CommandsTab, {
+      props: {
+        sessionId: 'session-1',
+        projectId: 'project-1',
+      },
+      global: {
+        stubs: {
+          CommandButtonItem: {
+            template: '<button @click="$emit(\'copy-output\', \'output\')">Copy</button>',
+            props: ['button'],
+          },
+          RouterLink: true,
+        },
+      },
+    });
+
+    // Emit copy event
+    const button = wrapper.find('button');
+    await button.trigger('click');
+    await flushPromises();
+
+    // Should show error when clipboard unavailable
+    expect(mockUiStore.error).toHaveBeenCalledWith('Clipboard API not available in this browser');
+
+    // Restore clipboard
+    Object.defineProperty(navigator, 'clipboard', {
+      value: originalClipboard,
+      writable: true,
+    });
+  });
+
+  it('handles copy output when clipboard writeText is denied', async () => {
+    const mockStore = {
+      buttons: [{ id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 }],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn(),
+      getRun: vi.fn(),
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    // Mock clipboard that throws NotAllowedError
+    const notAllowedError = new Error('User denied clipboard access');
+    notAllowedError.name = 'NotAllowedError';
+
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn().mockRejectedValue(notAllowedError),
+      },
+    });
+
+    const wrapper = mount(CommandsTab, {
+      props: {
+        sessionId: 'session-1',
+        projectId: 'project-1',
+      },
+      global: {
+        stubs: {
+          CommandButtonItem: {
+            template: '<button @click="$emit(\'copy-output\', \'output\')">Copy</button>',
+            props: ['button'],
+          },
+          RouterLink: true,
+        },
+      },
+    });
+
+    // Emit copy event
+    const button = wrapper.find('button');
+    await button.trigger('click');
+    await flushPromises();
+
+    // Should show permission denied error
+    expect(mockUiStore.error).toHaveBeenCalledWith('Clipboard access denied - check browser permissions');
+  });
+
+  it('handles send to canvas event successfully', async () => {
     const { api } = await import('../composables/useApi.js');
     const mockStore = {
       buttons: [{ id: 'btn-1', label: 'Test Command', command: 'npm test', sortOrder: 0 }],
@@ -353,6 +556,137 @@ describe('CommandsTab', () => {
       filename: 'test-button-output.txt',
       content: 'output',
       label: 'Test Button output',
+    });
+  });
+
+  it('handles send to canvas when output is null', async () => {
+    const mockStore = {
+      buttons: [{ id: 'btn-1', label: 'Test Command', command: 'npm test', sortOrder: 0 }],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn(),
+      getRun: vi.fn(),
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    const wrapper = mount(CommandsTab, {
+      props: {
+        sessionId: 'session-1',
+        projectId: 'project-1',
+      },
+      global: {
+        stubs: {
+          CommandButtonItem: {
+            template: '<button @click="$emit(\'send-to-canvas\', \'Test Button\', null)">Send</button>',
+            props: ['button'],
+          },
+          RouterLink: true,
+        },
+      },
+    });
+
+    // Emit send to canvas event with null output
+    const button = wrapper.find('button');
+    await button.trigger('click');
+    await flushPromises();
+
+    // Should show error instead of trying to send
+    expect(mockUiStore.error).toHaveBeenCalledWith('No output to send to canvas');
+    expect(mockUiStore.success).not.toHaveBeenCalled();
+  });
+
+  it('handles send to canvas when output is not a string', async () => {
+    const mockStore = {
+      buttons: [{ id: 'btn-1', label: 'Test Command', command: 'npm test', sortOrder: 0 }],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn(),
+      getRun: vi.fn(),
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    const wrapper = mount(CommandsTab, {
+      props: {
+        sessionId: 'session-1',
+        projectId: 'project-1',
+      },
+      global: {
+        stubs: {
+          CommandButtonItem: {
+            template: '<button @click="$emit(\'send-to-canvas\', \'Test Button\', 123)">Send</button>',
+            props: ['button'],
+          },
+          RouterLink: true,
+        },
+      },
+    });
+
+    // Emit send to canvas event with number
+    const button = wrapper.find('button');
+    await button.trigger('click');
+    await flushPromises();
+
+    // Should show error for non-string type
+    expect(mockUiStore.error).toHaveBeenCalledWith('Output must be text');
+    expect(mockUiStore.success).not.toHaveBeenCalled();
+  });
+
+  it('handles send to canvas with special characters in label', async () => {
+    const { api } = await import('../composables/useApi.js');
+    const mockStore = {
+      buttons: [{ id: 'btn-1', label: 'Test@#$%^&*()', command: 'npm test', sortOrder: 0 }],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn(),
+      getRun: vi.fn(),
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    const wrapper = mount(CommandsTab, {
+      props: {
+        sessionId: 'session-1',
+        projectId: 'project-1',
+      },
+      global: {
+        stubs: {
+          CommandButtonItem: {
+            template: '<button @click="$emit(\'send-to-canvas\', \'Test@#$%^&*()\', \'output\')">Send</button>',
+            props: ['button'],
+          },
+          RouterLink: true,
+        },
+      },
+    });
+
+    // Emit send to canvas event
+    const button = wrapper.find('button');
+    await button.trigger('click');
+    await flushPromises();
+
+    // Verify filename is sanitized
+    expect(vi.mocked(api.createCanvasItem)).toHaveBeenCalledWith('session-1', {
+      type: 'text',
+      filename: 'test-output.txt',
+      content: 'output',
+      label: 'Test@#$%^&*() output',
     });
   });
 
