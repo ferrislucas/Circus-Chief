@@ -18,6 +18,18 @@
           <span v-if="file.additions" class="stat-additions">+{{ file.additions }}</span>
           <span v-if="file.deletions" class="stat-deletions">-{{ file.deletions }}</span>
         </span>
+        <!-- Copy filename button -->
+        <button
+          class="copy-button"
+          :class="{ copied: copiedFileIndex === fileIndex }"
+          @click.stop="copyFilePath(file.displayPath, fileIndex)"
+          :title="copiedFileIndex === fileIndex ? 'Copied!' : 'Copy filename'"
+          :aria-label="`Copy ${file.displayPath} to clipboard`"
+        >
+          <span class="copy-button-icon">
+            {{ copiedFileIndex === fileIndex ? '✓' : '📋' }}
+          </span>
+        </button>
         <!-- Markdown preview toggle -->
         <button
           v-if="isMarkdownFile(file.displayPath)"
@@ -103,6 +115,7 @@ const props = defineProps({
 
 const expandedFiles = ref({});
 const previewMode = ref({});
+const copiedFileIndex = ref(null);
 
 // Initialize expanded state
 watch(
@@ -127,6 +140,36 @@ function toggleFile(index) {
 
 function togglePreview(index) {
   previewMode.value[index] = !previewMode.value[index];
+}
+
+async function copyFilePath(filePath, fileIndex) {
+  try {
+    await navigator.clipboard.writeText(filePath);
+    // Show success feedback
+    copiedFileIndex.value = fileIndex;
+    // Reset after 1.5 seconds
+    setTimeout(() => {
+      copiedFileIndex.value = null;
+    }, 1500);
+  } catch (err) {
+    console.error('Failed to copy file path:', err);
+    // Fallback: try using execCommand
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = filePath;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      // Show success feedback
+      copiedFileIndex.value = fileIndex;
+      setTimeout(() => {
+        copiedFileIndex.value = null;
+      }, 1500);
+    } catch (fallbackErr) {
+      console.error('Fallback copy failed:', fallbackErr);
+    }
+  }
 }
 
 function collapseAllFiles() {
@@ -337,6 +380,57 @@ function getLinePrefix(type) {
   padding: 0 0.5rem;
   white-space: pre;
   vertical-align: top;
+}
+
+/* Copy button - always visible, mobile-friendly */
+.copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0.25rem;
+  margin: 0 0.25rem;
+  border: none;
+  background-color: transparent;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease-out;
+  flex-shrink: 0;
+}
+
+.copy-button:hover {
+  color: var(--color-text);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.copy-button:active {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.copy-button.copied {
+  color: var(--color-success);
+  animation: copySuccess 0.3s ease-out;
+}
+
+.copy-button-icon {
+  font-size: 1rem;
+  display: inline-block;
+}
+
+@keyframes copySuccess {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 /* Markdown preview toggle button - layout only (base styles in main.css) */
