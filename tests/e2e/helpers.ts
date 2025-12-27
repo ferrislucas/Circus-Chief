@@ -351,3 +351,20 @@ export async function getSessionAttachments(sessionId: string) {
   }
   return allAttachments;
 }
+
+// ============================================================
+// Command Button Helpers
+// ============================================================
+
+export async function seedCommandButton(
+  projectId: string,
+  data: { label: string; command: string; sortOrder?: number }
+) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/command-buttons`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to seed command button');
+  return response.json();
+}

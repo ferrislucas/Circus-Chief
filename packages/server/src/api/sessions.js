@@ -716,6 +716,8 @@ router.post('/:id/command-buttons/:buttonId/run', (req, res) => {
   const sessionId = req.params.id;
   const buttonId = req.params.buttonId;
 
+  console.log(`[RUN] Starting command for buttonId: ${buttonId}, sessionId: ${sessionId}`);
+
   // Get session and button
   const session = sessions.getById(sessionId);
   if (!session) {
@@ -734,18 +736,22 @@ router.post('/:id/command-buttons/:buttonId/run', (req, res) => {
   // Generate run ID
   const runId = databaseManager.generateId();
 
+  console.log(`[RUN] Generated runId: ${runId} for command: ${button.command}`);
+
   // Return immediately with runId
   res.json({ runId, buttonId, status: 'running', output: '' });
 
   // Execute command asynchronously
   (async () => {
     try {
+      console.log(`[RUN] Starting async execution for runId: ${runId}`);
       await commandRunner.run(
         runId,
         button.command,
         workingDirectory,
         (text) => {
           // Broadcast output via WebSocket
+          console.log(`[RUN] Output received for runId: ${runId}`);
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
             sessionId,
             runId,
@@ -756,6 +762,7 @@ router.post('/:id/command-buttons/:buttonId/run', (req, res) => {
         (exitCode, output) => {
           // Broadcast completion via WebSocket
           const status = exitCode === 0 ? 'success' : 'error';
+          console.log(`[RUN] Command completed for runId: ${runId}, exitCode: ${exitCode}, status: ${status}`);
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, {
             sessionId,
             runId,
@@ -767,6 +774,7 @@ router.post('/:id/command-buttons/:buttonId/run', (req, res) => {
         },
         (message) => {
           // Broadcast error via WebSocket
+          console.log(`[RUN] Error for runId: ${runId}: ${message}`);
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
             sessionId,
             runId,
@@ -806,12 +814,15 @@ router.post('/:id/command-buttons/runs/:runId/kill', (req, res) => {
   const sessionId = req.params.id;
   const runId = req.params.runId;
 
+  console.log(`[KILL] Kill request for runId: ${runId}, sessionId: ${sessionId}`);
+
   const session = sessions.getById(sessionId);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
   }
 
   const killed = commandRunner.kill(runId);
+  console.log(`[KILL] Kill result: ${killed} for runId: ${runId}`);
   if (!killed) {
     return res.status(404).json({ error: 'Run not found or already completed' });
   }

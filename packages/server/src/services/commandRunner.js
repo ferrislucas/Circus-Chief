@@ -59,8 +59,10 @@ export class CommandRunner {
           resolve(1);
         });
 
-        child.on('close', (exitCode) => {
+        child.on('close', (exitCode, signal) => {
+          console.log(`[commandRunner.run] Process closed for runId: ${runId}, exitCode: ${exitCode}, signal: ${signal}`);
           this.processes.delete(runId);
+          // If killed by signal, exitCode is null. Call onComplete with null to trigger error status
           if (onComplete) onComplete(exitCode, entry.output);
           resolve(exitCode || 0);
         });
@@ -80,13 +82,19 @@ export class CommandRunner {
    */
   kill(runId) {
     const entry = this.processes.get(runId);
-    if (!entry) return false;
+    if (!entry) {
+      console.log(`[commandRunner.kill] Process not found for runId: ${runId}`);
+      return false;
+    }
 
     try {
+      console.log(`[commandRunner.kill] Sending SIGTERM to runId: ${runId}, pid: ${entry.process.pid}`);
       entry.process.kill('SIGTERM');
       // Give it a moment to terminate gracefully, then force kill
       setTimeout(() => {
+        console.log(`[commandRunner.kill] Checking if process still exists for runId: ${runId}, pid: ${entry.process.pid}, killed: ${entry.process.killed}`);
         if (!entry.process.killed) {
+          console.log(`[commandRunner.kill] Process still alive, sending SIGKILL to runId: ${runId}`);
           entry.process.kill('SIGKILL');
         }
       }, 1000);
