@@ -332,7 +332,7 @@ describe('Status filtering', () => {
     expect(sessionCards).toHaveLength(5);
   });
 
-  it('filters to show only running sessions when running filter is clicked', async () => {
+  it('filters to show only running sessions (running + starting) when running filter is clicked', async () => {
     const wrapper = mount(ActiveSessionsView);
     await flushPromises();
 
@@ -340,14 +340,13 @@ describe('Status filtering', () => {
     await runningButton.trigger('click');
 
     const sessionCards = wrapper.findAll('.session-card');
-    // running and starting statuses = 2 sessions
     expect(sessionCards).toHaveLength(2);
-    const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+    const sessionIds = sessionCards.map(card => card.attributes('data-session-id'));
     expect(sessionIds).toContain('session-1'); // running
     expect(sessionIds).toContain('session-3'); // starting
   });
 
-  it('filters to show only idle sessions when idle filter is clicked', async () => {
+  it('filters to show only idle sessions (waiting + error + stopped) when idle filter is clicked', async () => {
     const wrapper = mount(ActiveSessionsView);
     await flushPromises();
 
@@ -355,75 +354,52 @@ describe('Status filtering', () => {
     await idleButton.trigger('click');
 
     const sessionCards = wrapper.findAll('.session-card');
-    // waiting, error, and stopped statuses = 3 sessions
     expect(sessionCards).toHaveLength(3);
-    const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+    const sessionIds = sessionCards.map(card => card.attributes('data-session-id'));
     expect(sessionIds).toContain('session-2'); // waiting
     expect(sessionIds).toContain('session-4'); // error
     expect(sessionIds).toContain('session-5'); // stopped
   });
 
-  it('shows both running and idle sessions when both filters are active', async () => {
+  it('makes filters mutually exclusive - running filter disables idle filter', async () => {
     const wrapper = mount(ActiveSessionsView);
     await flushPromises();
 
     const filterButtons = wrapper.findAll('.filter-btn');
-    await filterButtons[0].trigger('click'); // running
-    await filterButtons[1].trigger('click'); // idle
+    const runningButton = filterButtons[0];
+    const idleButton = filterButtons[1];
 
-    const sessionCards = wrapper.findAll('.session-card');
-    expect(sessionCards).toHaveLength(5);
-  });
-
-  it('groups "starting" status under running filter', async () => {
-    const wrapper = mount(ActiveSessionsView);
-    await flushPromises();
-
-    const runningButton = wrapper.findAll('.filter-btn')[0];
+    // Click running filter
     await runningButton.trigger('click');
+    expect(runningButton.classes()).toContain('active');
+    expect(idleButton.classes()).not.toContain('active');
 
-    const sessionCards = wrapper.findAll('.session-card');
-    const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
-    expect(sessionIds).toContain('session-3'); // starting status
+    // Click idle filter - should disable running and enable idle
+    await idleButton.trigger('click');
+    expect(runningButton.classes()).not.toContain('active');
+    expect(idleButton.classes()).toContain('active');
   });
 
-  it('groups "waiting" status under idle filter', async () => {
+  it('makes filters mutually exclusive - idle filter disables running filter', async () => {
     const wrapper = mount(ActiveSessionsView);
     await flushPromises();
 
-    const idleButton = wrapper.findAll('.filter-btn')[1];
-    await idleButton.trigger('click');
+    const filterButtons = wrapper.findAll('.filter-btn');
+    const runningButton = filterButtons[0];
+    const idleButton = filterButtons[1];
 
-    const sessionCards = wrapper.findAll('.session-card');
-    const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
-    expect(sessionIds).toContain('session-2'); // waiting status
+    // Click idle filter first
+    await idleButton.trigger('click');
+    expect(idleButton.classes()).toContain('active');
+    expect(runningButton.classes()).not.toContain('active');
+
+    // Click running filter - should disable idle and enable running
+    await runningButton.trigger('click');
+    expect(idleButton.classes()).not.toContain('active');
+    expect(runningButton.classes()).toContain('active');
   });
 
-  it('groups "error" status under idle filter', async () => {
-    const wrapper = mount(ActiveSessionsView);
-    await flushPromises();
-
-    const idleButton = wrapper.findAll('.filter-btn')[1];
-    await idleButton.trigger('click');
-
-    const sessionCards = wrapper.findAll('.session-card');
-    const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
-    expect(sessionIds).toContain('session-4'); // error status
-  });
-
-  it('groups "stopped" status under idle filter', async () => {
-    const wrapper = mount(ActiveSessionsView);
-    await flushPromises();
-
-    const idleButton = wrapper.findAll('.filter-btn')[1];
-    await idleButton.trigger('click');
-
-    const sessionCards = wrapper.findAll('.session-card');
-    const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
-    expect(sessionIds).toContain('session-5'); // stopped status
-  });
-
-  it('toggles filter off when clicked again', async () => {
+  it('toggles filter off when clicked again (shows all sessions)', async () => {
     const wrapper = mount(ActiveSessionsView);
     await flushPromises();
 
@@ -432,10 +408,12 @@ describe('Status filtering', () => {
     // Click to enable filter
     await runningButton.trigger('click');
     expect(wrapper.findAll('.session-card')).toHaveLength(2);
+    expect(runningButton.classes()).toContain('active');
 
-    // Click again to disable filter
+    // Click again to disable filter (show all)
     await runningButton.trigger('click');
     expect(wrapper.findAll('.session-card')).toHaveLength(5);
+    expect(runningButton.classes()).not.toContain('active');
   });
 
   it('adds active class to selected filter button', async () => {
@@ -447,6 +425,35 @@ describe('Status filtering', () => {
 
     await runningButton.trigger('click');
     expect(runningButton.classes()).toContain('active');
+  });
+
+  it('includes starting status in running filter', async () => {
+    const wrapper = mount(ActiveSessionsView);
+    await flushPromises();
+
+    const runningButton = wrapper.findAll('.filter-btn')[0];
+    await runningButton.trigger('click');
+
+    const sessionCards = wrapper.findAll('.session-card');
+    const sessionIds = sessionCards.map(card => card.attributes('data-session-id'));
+
+    // Should include session-3 which has status 'starting'
+    expect(sessionIds).toContain('session-3');
+  });
+
+  it('includes waiting and error statuses in idle filter', async () => {
+    const wrapper = mount(ActiveSessionsView);
+    await flushPromises();
+
+    const idleButton = wrapper.findAll('.filter-btn')[1];
+    await idleButton.trigger('click');
+
+    const sessionCards = wrapper.findAll('.session-card');
+    const sessionIds = sessionCards.map(card => card.attributes('data-session-id'));
+
+    // Should include session-2 (waiting) and session-4 (error)
+    expect(sessionIds).toContain('session-2');
+    expect(sessionIds).toContain('session-4');
   });
 
   it('shows empty state message when filters return no results', async () => {

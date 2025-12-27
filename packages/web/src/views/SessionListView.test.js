@@ -521,45 +521,24 @@ describe('Status filtering', () => {
     });
   });
 
-  describe('Combined filters', () => {
-    it('shows both running and idle sessions when both filters are active', async () => {
-      const wrapper = mount(SessionListView);
-      await flushPromises();
-
-      const filterButtons = wrapper.findAll('.filter-btn');
-      await filterButtons[0].trigger('click'); // running
-      await filterButtons[1].trigger('click'); // idle
-
-      const sessionCards = wrapper.findAll('.session-card');
-      // running (running + starting = 2) + idle (waiting, stopped, error = 3) = 5
-      expect(sessionCards).toHaveLength(5);
-
-      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
-      expect(sessionIds).toContain('session-1'); // running
-      expect(sessionIds).toContain('session-2'); // waiting
-      expect(sessionIds).toContain('session-3'); // stopped
-      expect(sessionIds).toContain('session-4'); // error
-      expect(sessionIds).toContain('session-5'); // starting - included in running filter
-    });
-
-    it('can disable one filter while keeping the other active', async () => {
+  describe('Exclusive filter behavior', () => {
+    it('disables running filter when idle filter is clicked', async () => {
       const wrapper = mount(SessionListView);
       await flushPromises();
 
       const filterButtons = wrapper.findAll('.filter-btn');
 
-      // Enable both filters
-      await filterButtons[0].trigger('click'); // running
-      await filterButtons[1].trigger('click'); // idle
-
-      expect(wrapper.findAll('.session-card')).toHaveLength(5);
-
-      // Disable running filter
+      // Click running filter
       await filterButtons[0].trigger('click');
+      let sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(2); // running + starting
 
-      // Should only show idle sessions now (waiting, stopped, error)
-      const sessionCards = wrapper.findAll('.session-card');
-      expect(sessionCards).toHaveLength(3);
+      // Click idle filter (should disable running and enable idle)
+      await filterButtons[1].trigger('click');
+
+      // Should now show only idle sessions
+      sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(3); // waiting, stopped, error
 
       const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
       expect(sessionIds).not.toContain('session-1'); // running - now excluded
@@ -567,6 +546,169 @@ describe('Status filtering', () => {
       expect(sessionIds).toContain('session-2'); // waiting
       expect(sessionIds).toContain('session-3'); // stopped
       expect(sessionIds).toContain('session-4'); // error
+    });
+
+    it('disables idle filter when running filter is clicked', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const filterButtons = wrapper.findAll('.filter-btn');
+
+      // Click idle filter
+      await filterButtons[1].trigger('click');
+      let sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(3); // waiting, stopped, error
+
+      // Click running filter (should disable idle and enable running)
+      await filterButtons[0].trigger('click');
+
+      // Should now show only running sessions
+      sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(2); // running + starting
+
+      const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+      expect(sessionIds).toContain('session-1'); // running
+      expect(sessionIds).toContain('session-5'); // starting
+      expect(sessionIds).not.toContain('session-2'); // waiting - now excluded
+      expect(sessionIds).not.toContain('session-3'); // stopped - now excluded
+      expect(sessionIds).not.toContain('session-4'); // error - now excluded
+    });
+
+    it('only allows one filter active at a time', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const filterButtons = wrapper.findAll('.filter-btn');
+
+      // Click running filter
+      await filterButtons[0].trigger('click');
+      expect(filterButtons[0].classes()).toContain('active');
+      expect(filterButtons[1].classes()).not.toContain('active');
+
+      // Click idle filter
+      await filterButtons[1].trigger('click');
+      expect(filterButtons[0].classes()).not.toContain('active');
+      expect(filterButtons[1].classes()).toContain('active');
+
+      // Click running again
+      await filterButtons[0].trigger('click');
+      expect(filterButtons[0].classes()).toContain('active');
+      expect(filterButtons[1].classes()).not.toContain('active');
+    });
+  });
+
+  describe('Grouped sessions filtering', () => {
+    it('filters grouped sessions by parent status (running filter)', async () => {
+      // Set up store with grouped sessions
+      mockSessionsStore = {
+        loading: false,
+        error: null,
+        sessions: [
+          { id: 'session-1', name: 'Running Session', status: 'running' },
+          { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
+        ],
+        groupedSessions: [
+          {
+            parent: { id: 'session-1', name: 'Running Session', status: 'running' },
+            children: [{ id: 'child-1', name: 'Child', status: 'completed' }],
+          },
+          {
+            parent: { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
+            children: [{ id: 'child-2', name: 'Child', status: 'completed' }],
+          },
+        ],
+        fetchSessions: vi.fn().mockResolvedValue(),
+        addSessionToList: vi.fn(),
+        updateSession: vi.fn(),
+        removeSessionFromList: vi.fn(),
+      };
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      await runningButton.trigger('click');
+
+      // Should show only the running parent group
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(1);
+      expect(sessionCards[0].attributes('data-session-id')).toBe('session-1');
+    });
+
+    it('filters grouped sessions by parent status (idle filter)', async () => {
+      // Set up store with grouped sessions
+      mockSessionsStore = {
+        loading: false,
+        error: null,
+        sessions: [
+          { id: 'session-1', name: 'Running Session', status: 'running' },
+          { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
+        ],
+        groupedSessions: [
+          {
+            parent: { id: 'session-1', name: 'Running Session', status: 'running' },
+            children: [{ id: 'child-1', name: 'Child', status: 'completed' }],
+          },
+          {
+            parent: { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
+            children: [{ id: 'child-2', name: 'Child', status: 'completed' }],
+          },
+        ],
+        fetchSessions: vi.fn().mockResolvedValue(),
+        addSessionToList: vi.fn(),
+        updateSession: vi.fn(),
+        removeSessionFromList: vi.fn(),
+      };
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      const idleButton = wrapper.findAll('.filter-btn')[1];
+      await idleButton.trigger('click');
+
+      // Should show only the waiting parent group
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(1);
+      expect(sessionCards[0].attributes('data-session-id')).toBe('session-2');
+    });
+
+    it('includes entire group (parent + children) when parent matches filter', async () => {
+      // Set up store with grouped sessions
+      mockSessionsStore = {
+        loading: false,
+        error: null,
+        sessions: [
+          { id: 'session-1', name: 'Running Session', status: 'running' },
+        ],
+        groupedSessions: [
+          {
+            parent: { id: 'session-1', name: 'Running Session', status: 'running' },
+            children: [
+              { id: 'child-1', name: 'Child 1', status: 'completed' },
+              { id: 'child-2', name: 'Child 2', status: 'completed' },
+            ],
+          },
+        ],
+        fetchSessions: vi.fn().mockResolvedValue(),
+        addSessionToList: vi.fn(),
+        updateSession: vi.fn(),
+        removeSessionFromList: vi.fn(),
+      };
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      // Click running filter
+      const runningButton = wrapper.findAll('.filter-btn')[0];
+      await runningButton.trigger('click');
+
+      // Should show the session card (which includes its children)
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(1);
+      expect(sessionCards[0].attributes('data-session-id')).toBe('session-1');
     });
   });
 

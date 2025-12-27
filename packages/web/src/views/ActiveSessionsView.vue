@@ -2,7 +2,7 @@
   <div class="container">
     <div class="page-header">
       <div>
-        <p class="page-description">Sessions that are running or waiting for input</p>
+        <p class="page-description">All active sessions across your projects</p>
       </div>
     </div>
 
@@ -63,31 +63,33 @@ const sessionsStore = useSessionsStore();
 // Filter state - empty means show all
 const statusFilters = ref([]);
 
-const toggleFilter = (status) => {
-  const index = statusFilters.value.indexOf(status);
-  if (index >= 0) {
-    statusFilters.value.splice(index, 1);
-  } else {
-    statusFilters.value.push(status);
-  }
-};
-
 // Statuses that count as "idle" (not actively running)
 const IDLE_STATUSES = ['waiting', 'stopped', 'error'];
 // Statuses that count as "running" (actively processing or starting up)
 const RUNNING_STATUSES = ['running', 'starting'];
 
+const toggleFilter = (status) => {
+  // If the clicked filter is already active, clear all filters (show all)
+  if (statusFilters.value.includes(status)) {
+    statusFilters.value = [];
+  } else {
+    // Otherwise, set this filter as the only active one (exclusive)
+    statusFilters.value = [status];
+  }
+};
+
 const filteredSessions = computed(() => {
   const sessions = sessionsStore.activeSessions;
   if (statusFilters.value.length === 0) return sessions;
 
-  return sessions.filter(s => {
+  return sessions.filter(session => {
+    const status = session.status;
     // "idle" filter matches waiting, stopped, or error statuses
-    if (statusFilters.value.includes('idle') && IDLE_STATUSES.includes(s.status)) {
+    if (statusFilters.value.includes('idle') && IDLE_STATUSES.includes(status)) {
       return true;
     }
     // "running" filter matches running and starting statuses
-    if (statusFilters.value.includes('running') && RUNNING_STATUSES.includes(s.status)) {
+    if (statusFilters.value.includes('running') && RUNNING_STATUSES.includes(status)) {
       return true;
     }
     return false;
