@@ -83,10 +83,56 @@ vi.mock('../components/TemplatesPanel.vue', () => ({
   }),
 }));
 
+vi.mock('../components/CommandButtonsPanel.vue', () => ({
+  default: defineComponent({
+    name: 'CommandButtonsPanel',
+    props: ['projectId'],
+    template: '<div class="command-buttons-panel" />',
+  }),
+}));
+
 import SessionListView from './SessionListView.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useProjectSubscription } from '../composables/useWebSocket.js';
+
+// Helper to create a sessions store mock with proper groupedSessions getter
+function createSessionsStoreMock(sessions = [], overrides = {}) {
+  const baseStore = {
+    loading: false,
+    error: null,
+    sessions,
+    archivedSessions: [],
+    get groupedSessions() {
+      // Derive groupedSessions from sessions like the real store does
+      const grouped = [];
+      const seen = new Set();
+
+      this.sessions.forEach((session) => {
+        if (!session.parentSessionId && !seen.has(session.id)) {
+          grouped.push({
+            parent: session,
+            children: this.sessions.filter((s) => s.parentSessionId === session.id),
+          });
+          seen.add(session.id);
+        }
+      });
+
+      return grouped;
+    },
+    fetchSessions: vi.fn().mockResolvedValue(),
+    fetchArchivedSessions: vi.fn().mockResolvedValue(),
+    archiveSession: vi.fn().mockResolvedValue(),
+    unarchiveSession: vi.fn().mockResolvedValue(),
+    addSessionToList: vi.fn(),
+    updateSession: vi.fn(),
+    removeSessionFromList: vi.fn(),
+    restoreExpandedState: vi.fn(),
+    saveExpandedState: vi.fn(),
+    ...overrides,
+  };
+  return baseStore;
+}
 
 describe('SessionListView', () => {
   let mockProjectsStore;
@@ -117,18 +163,10 @@ describe('SessionListView', () => {
     useProjectsStore.mockReturnValue(mockProjectsStore);
 
     // Setup sessions store mock
-    mockSessionsStore = {
-      loading: false,
-      error: null,
-      sessions: [
-        { id: 'session-1', name: 'Session 1', status: 'completed' },
-        { id: 'session-2', name: 'Session 2', status: 'running' },
-      ],
-      fetchSessions: vi.fn().mockResolvedValue(),
-      addSessionToList: vi.fn(),
-      updateSession: vi.fn(),
-      removeSessionFromList: vi.fn(),
-    };
+    mockSessionsStore = createSessionsStoreMock([
+      { id: 'session-1', name: 'Session 1', status: 'completed' },
+      { id: 'session-2', name: 'Session 2', status: 'running' },
+    ]);
     useSessionsStore.mockReturnValue(mockSessionsStore);
   });
 
@@ -289,21 +327,13 @@ describe('Status filtering', () => {
     };
     useProjectsStore.mockReturnValue(mockProjectsStore);
 
-    mockSessionsStore = {
-      loading: false,
-      error: null,
-      sessions: [
-        { id: 'session-1', name: 'Running Session', status: 'running' },
-        { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
-        { id: 'session-3', name: 'Stopped Session', status: 'stopped' },
-        { id: 'session-4', name: 'Error Session', status: 'error' },
-        { id: 'session-5', name: 'Starting Session', status: 'starting' },
-      ],
-      fetchSessions: vi.fn().mockResolvedValue(),
-      addSessionToList: vi.fn(),
-      updateSession: vi.fn(),
-      removeSessionFromList: vi.fn(),
-    };
+    mockSessionsStore = createSessionsStoreMock([
+      { id: 'session-1', name: 'Running Session', status: 'running' },
+      { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
+      { id: 'session-3', name: 'Stopped Session', status: 'stopped' },
+      { id: 'session-4', name: 'Error Session', status: 'error' },
+      { id: 'session-5', name: 'Starting Session', status: 'starting' },
+    ]);
     useSessionsStore.mockReturnValue(mockSessionsStore);
   });
 
@@ -600,28 +630,10 @@ describe('Status filtering', () => {
   describe('Grouped sessions filtering', () => {
     it('filters grouped sessions by parent status (running filter)', async () => {
       // Set up store with grouped sessions
-      mockSessionsStore = {
-        loading: false,
-        error: null,
-        sessions: [
-          { id: 'session-1', name: 'Running Session', status: 'running' },
-          { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
-        ],
-        groupedSessions: [
-          {
-            parent: { id: 'session-1', name: 'Running Session', status: 'running' },
-            children: [{ id: 'child-1', name: 'Child', status: 'completed' }],
-          },
-          {
-            parent: { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
-            children: [{ id: 'child-2', name: 'Child', status: 'completed' }],
-          },
-        ],
-        fetchSessions: vi.fn().mockResolvedValue(),
-        addSessionToList: vi.fn(),
-        updateSession: vi.fn(),
-        removeSessionFromList: vi.fn(),
-      };
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Running Session', status: 'running' },
+        { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
+      ]);
       useSessionsStore.mockReturnValue(mockSessionsStore);
 
       const wrapper = mount(SessionListView);
@@ -638,28 +650,10 @@ describe('Status filtering', () => {
 
     it('filters grouped sessions by parent status (idle filter)', async () => {
       // Set up store with grouped sessions
-      mockSessionsStore = {
-        loading: false,
-        error: null,
-        sessions: [
-          { id: 'session-1', name: 'Running Session', status: 'running' },
-          { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
-        ],
-        groupedSessions: [
-          {
-            parent: { id: 'session-1', name: 'Running Session', status: 'running' },
-            children: [{ id: 'child-1', name: 'Child', status: 'completed' }],
-          },
-          {
-            parent: { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
-            children: [{ id: 'child-2', name: 'Child', status: 'completed' }],
-          },
-        ],
-        fetchSessions: vi.fn().mockResolvedValue(),
-        addSessionToList: vi.fn(),
-        updateSession: vi.fn(),
-        removeSessionFromList: vi.fn(),
-      };
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Running Session', status: 'running' },
+        { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
+      ]);
       useSessionsStore.mockReturnValue(mockSessionsStore);
 
       const wrapper = mount(SessionListView);
@@ -676,26 +670,11 @@ describe('Status filtering', () => {
 
     it('includes entire group (parent + children) when parent matches filter', async () => {
       // Set up store with grouped sessions
-      mockSessionsStore = {
-        loading: false,
-        error: null,
-        sessions: [
-          { id: 'session-1', name: 'Running Session', status: 'running' },
-        ],
-        groupedSessions: [
-          {
-            parent: { id: 'session-1', name: 'Running Session', status: 'running' },
-            children: [
-              { id: 'child-1', name: 'Child 1', status: 'completed' },
-              { id: 'child-2', name: 'Child 2', status: 'completed' },
-            ],
-          },
-        ],
-        fetchSessions: vi.fn().mockResolvedValue(),
-        addSessionToList: vi.fn(),
-        updateSession: vi.fn(),
-        removeSessionFromList: vi.fn(),
-      };
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Running Session', status: 'running' },
+        { id: 'child-1', name: 'Child 1', status: 'completed', parentSessionId: 'session-1' },
+        { id: 'child-2', name: 'Child 2', status: 'completed', parentSessionId: 'session-1' },
+      ]);
       useSessionsStore.mockReturnValue(mockSessionsStore);
 
       const wrapper = mount(SessionListView);
@@ -861,15 +840,9 @@ describe('SessionListView integration', () => {
       fetchProject: vi.fn(),
     });
 
-    useSessionsStore.mockReturnValue({
-      loading: false,
-      error: null,
-      sessions: [{ id: 'session-1', name: 'Session 1', status: 'running' }],
-      fetchSessions: vi.fn().mockResolvedValue(),
-      addSessionToList: vi.fn(),
-      updateSession: vi.fn(),
-      removeSessionFromList: vi.fn(),
-    });
+    useSessionsStore.mockReturnValue(createSessionsStoreMock([
+      { id: 'session-1', name: 'Session 1', status: 'running' },
+    ]));
 
     mockGetSessionSummary.mockResolvedValue(null);
   });
@@ -913,22 +886,10 @@ describe('SessionListView Archived Tab', () => {
     };
     useProjectsStore.mockReturnValue(mockProjectsStore);
 
-    mockSessionsStore = {
-      loading: false,
-      error: null,
-      sessions: [
-        { id: 'session-1', name: 'Session 1', status: 'completed' },
-        { id: 'session-2', name: 'Session 2', status: 'running' },
-      ],
-      archivedSessions: [],
-      fetchSessions: vi.fn().mockResolvedValue(),
-      fetchArchivedSessions: vi.fn().mockResolvedValue(),
-      archiveSession: vi.fn().mockResolvedValue(),
-      unarchiveSession: vi.fn().mockResolvedValue(),
-      addSessionToList: vi.fn(),
-      updateSession: vi.fn(),
-      removeSessionFromList: vi.fn(),
-    };
+    mockSessionsStore = createSessionsStoreMock([
+      { id: 'session-1', name: 'Session 1', status: 'completed' },
+      { id: 'session-2', name: 'Session 2', status: 'running' },
+    ]);
     useSessionsStore.mockReturnValue(mockSessionsStore);
 
     mockGetSessionSummary.mockResolvedValue(null);
@@ -939,10 +900,11 @@ describe('SessionListView Archived Tab', () => {
     await flushPromises();
 
     const tabs = wrapper.findAll('.tab');
-    expect(tabs.length).toBe(3);
+    expect(tabs.length).toBe(4);
     expect(tabs[0].text()).toBe('Sessions');
     expect(tabs[1].text()).toBe('Archived');
     expect(tabs[2].text()).toBe('Templates');
+    expect(tabs[3].text()).toBe('Commands');
 
     // Sessions tab should be active
     expect(tabs[0].classes()).toContain('active');

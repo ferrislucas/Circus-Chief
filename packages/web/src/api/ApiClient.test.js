@@ -378,48 +378,66 @@ describe('ApiClient', () => {
         expect(result).toEqual({ staged: '', unstaged: '', untracked: '' });
       });
 
-      it('does not accept compareMode parameter', () => {
-        // Verify the method only accepts sessionId
-        const methodString = client.getSessionChanges.toString();
-        expect(methodString).not.toContain('compareMode');
-      });
-
-      it('does not accept branch parameter', () => {
-        // Verify the method only accepts sessionId
-        const methodString = client.getSessionChanges.toString();
-        expect(methodString).not.toContain('branch');
-      });
-
-      it('constructs simple endpoint without query parameters', async () => {
+      it('accepts compareMode parameter with default value', async () => {
         mockFetch.mockReturnValue(mockResponse({
           staged: '',
           unstaged: '',
           untracked: '',
         }));
 
+        // Call without compareMode (should default to 'local')
         await client.getSessionChanges('sess-123');
 
-        // Verify the URL is simple without query parameters
+        // Verify the URL is simple without query parameters (local mode doesn't add params)
         const callUrl = mockFetch.mock.calls[0][0];
         expect(callUrl).toBe('/api/sessions/sess-123/changes');
         expect(callUrl).not.toContain('?');
-        expect(callUrl).not.toContain('compareMode');
-        expect(callUrl).not.toContain('branch');
       });
 
-      it('only passes sessionId to the endpoint', async () => {
+      it('accepts branch parameter when compareMode is branch', async () => {
+        mockFetch.mockReturnValue(mockResponse({
+          staged: 'branch changes',
+          unstaged: '',
+          untracked: '',
+        }));
+
+        // Call with branch compareMode and branch name
+        await client.getSessionChanges('sess-123', 'branch', 'main');
+
+        // Verify the URL includes query parameters
+        const callUrl = mockFetch.mock.calls[0][0];
+        expect(callUrl).toBe('/api/sessions/sess-123/changes?compareMode=branch&branch=main');
+      });
+
+      it('includes compareMode parameter without branch when branch is null', async () => {
+        mockFetch.mockReturnValue(mockResponse({
+          staged: '',
+          unstaged: '',
+          untracked: '',
+        }));
+
+        // Call with branch compareMode but no branch name
+        await client.getSessionChanges('sess-123', 'branch', null);
+
+        // Verify the URL includes only compareMode parameter
+        const callUrl = mockFetch.mock.calls[0][0];
+        expect(callUrl).toBe('/api/sessions/sess-123/changes?compareMode=branch');
+      });
+
+      it('does not include query parameters when compareMode is local', async () => {
         mockFetch.mockReturnValue(mockResponse({
           staged: 'local changes',
           unstaged: '',
           untracked: '',
         }));
 
-        // Call with only sessionId
-        await client.getSessionChanges('test-session-id');
+        // Call with explicit local compareMode
+        await client.getSessionChanges('test-session-id', 'local');
 
-        // Verify only sessionId is used in the URL
+        // Verify only sessionId is used in the URL (no query params for local mode)
         const callUrl = mockFetch.mock.calls[0][0];
         expect(callUrl).toBe('/api/sessions/test-session-id/changes');
+        expect(callUrl).not.toContain('?');
       });
     });
 

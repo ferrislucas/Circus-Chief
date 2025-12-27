@@ -1,5 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { setActivePinia, createPinia } from 'pinia';
+import { describe, it, expect, vi } from 'vitest';
 import { useTemplatesStore } from './templates.js';
 
 // Mock the API module
@@ -16,10 +15,6 @@ vi.mock('../composables/useApi.js', () => ({
 import { api } from '../composables/useApi.js';
 
 describe('Templates Store', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
-    vi.clearAllMocks();
-  });
 
   describe('initial state', () => {
     it('has empty arrays for templates', () => {

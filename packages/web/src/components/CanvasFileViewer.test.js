@@ -1,14 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { setActivePinia, createPinia } from 'pinia';
 import CanvasFileViewer from './CanvasFileViewer.vue';
 
-// Mock MarkdownViewer component
-vi.mock('./MarkdownViewer.vue', () => ({
-  default: {
-    name: 'MarkdownViewer',
-    props: ['content'],
-    template: '<div class="markdown-viewer-mock">{{ content }}</div>',
-  },
+// Mock markdown utility
+vi.mock('../utils/markdown.js', () => ({
+  renderMarkdown: vi.fn((content) => `<p>${content}</p>`),
 }));
 
 // Mock highlight.js
@@ -25,6 +22,10 @@ vi.mock('highlight.js', () => ({
 }));
 
 describe('CanvasFileViewer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+  });
   const baseItem = {
     id: 'item-1',
     filename: 'test-image.png',
@@ -197,7 +198,7 @@ describe('CanvasFileViewer', () => {
 
     it('shows MarkdownViewer by default (preview mode)', () => {
       const wrapper = mountComponent({ item: markdownItem });
-      expect(wrapper.find('.markdown-viewer-mock').exists()).toBe(true);
+      expect(wrapper.find('.markdown-viewer').exists()).toBe(true);
       expect(wrapper.find('.viewer-markdown-raw').exists()).toBe(false);
     });
 
@@ -215,16 +216,16 @@ describe('CanvasFileViewer', () => {
       const wrapper = mountComponent({ item: markdownItem });
 
       // Initially in preview mode
-      expect(wrapper.find('.markdown-viewer-mock').exists()).toBe(true);
+      expect(wrapper.find('.markdown-viewer').exists()).toBe(true);
 
       // Click toggle to switch to raw
       await wrapper.find('.preview-toggle').trigger('click');
       expect(wrapper.find('.viewer-markdown-raw').exists()).toBe(true);
-      expect(wrapper.find('.markdown-viewer-mock').exists()).toBe(false);
+      expect(wrapper.find('.markdown-viewer').exists()).toBe(false);
 
       // Click toggle to switch back to preview
       await wrapper.find('.preview-toggle').trigger('click');
-      expect(wrapper.find('.markdown-viewer-mock').exists()).toBe(true);
+      expect(wrapper.find('.markdown-viewer').exists()).toBe(true);
       expect(wrapper.find('.viewer-markdown-raw').exists()).toBe(false);
     });
   });

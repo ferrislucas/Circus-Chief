@@ -17,8 +17,9 @@
         <button
           v-if="!run || run.status !== 'running'"
           class="btn btn-primary btn-sm"
-          @click="$emit('run')"
+          @click="onRunClick"
           :disabled="run?.status === 'running'"
+          data-testid="run-button"
         >
           ▶ Run
         </button>
@@ -113,6 +114,10 @@ const statusIcon = computed(() => {
       return '';
   }
 });
+
+const onRunClick = () => {
+  emit('run');
+};
 
 const onCopyClick = async () => {
   emit('copy-output', props.run.output);

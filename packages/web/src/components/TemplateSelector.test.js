@@ -15,8 +15,11 @@ describe('TemplateSelector', () => {
     { id: 'global-2', name: 'Global Template 2', prompt: 'Do global task 2 with a very long prompt that should be truncated when displayed in the preview area', projectId: null, nextTemplateId: null },
   ];
 
+  let store;
+
   beforeEach(() => {
     setActivePinia(createPinia());
+    store = useTemplatesStore();
   });
 
   const mountComponent = (props = {}, attrs = {}) => {
@@ -62,9 +65,10 @@ describe('TemplateSelector', () => {
     });
 
     it('renders project templates optgroup when templates exist', async () => {
-      const wrapper = mountComponent();
-      const store = useTemplatesStore();
       store.projectTemplates = mockProjectTemplates;
+      await flushPromises();
+
+      const wrapper = mountComponent();
       await flushPromises();
 
       const optgroup = wrapper.find('optgroup[label="Project Templates"]');
@@ -73,9 +77,10 @@ describe('TemplateSelector', () => {
     });
 
     it('renders global templates optgroup when templates exist', async () => {
-      const wrapper = mountComponent();
-      const store = useTemplatesStore();
       store.globalTemplates = mockGlobalTemplates;
+      await flushPromises();
+
+      const wrapper = mountComponent();
       await flushPromises();
 
       const optgroup = wrapper.find('optgroup[label="Global Templates"]');
@@ -84,9 +89,10 @@ describe('TemplateSelector', () => {
     });
 
     it('renders template options with correct names', async () => {
-      const wrapper = mountComponent();
-      const store = useTemplatesStore();
       store.projectTemplates = mockProjectTemplates;
+      await flushPromises();
+
+      const wrapper = mountComponent();
       await flushPromises();
 
       const options = wrapper.findAll('optgroup[label="Project Templates"] option');
@@ -97,18 +103,20 @@ describe('TemplateSelector', () => {
 
   describe('template selection', () => {
     it('shows clear button when template is selected', async () => {
-      const wrapper = mountComponent({ currentTemplateId: 'template-1' });
-      const store = useTemplatesStore();
       store.projectTemplates = mockProjectTemplates;
+      await flushPromises();
+
+      const wrapper = mountComponent({ currentTemplateId: 'template-1' });
       await flushPromises();
 
       expect(wrapper.find('.btn-clear').exists()).toBe(true);
     });
 
     it('shows template preview when template is selected', async () => {
-      const wrapper = mountComponent({ currentTemplateId: 'template-1' });
-      const store = useTemplatesStore();
       store.projectTemplates = mockProjectTemplates;
+      await flushPromises();
+
+      const wrapper = mountComponent({ currentTemplateId: 'template-1' });
       await flushPromises();
 
       expect(wrapper.find('.template-preview').exists()).toBe(true);
@@ -127,9 +135,10 @@ describe('TemplateSelector', () => {
         },
       ];
 
-      const wrapper = mountComponent({ currentTemplateId: 'long-prompt' });
-      const store = useTemplatesStore();
       store.globalTemplates = longPromptTemplates;
+      await flushPromises();
+
+      const wrapper = mountComponent({ currentTemplateId: 'long-prompt' });
       await flushPromises();
 
       const preview = wrapper.find('.template-prompt-preview').text();
@@ -138,19 +147,21 @@ describe('TemplateSelector', () => {
     });
 
     it('hides help text when template is selected', async () => {
-      const wrapper = mountComponent({ currentTemplateId: 'template-1' });
-      const store = useTemplatesStore();
       store.projectTemplates = mockProjectTemplates;
+      await flushPromises();
+
+      const wrapper = mountComponent({ currentTemplateId: 'template-1' });
       await flushPromises();
 
       expect(wrapper.find('.selector-help').exists()).toBe(false);
     });
 
     it('emits update:templateId when selection changes', async () => {
+      store.projectTemplates = mockProjectTemplates;
+      await flushPromises();
+
       const onUpdateTemplateId = vi.fn();
       const wrapper = mountComponent({}, { 'onUpdate:templateId': onUpdateTemplateId });
-      const store = useTemplatesStore();
-      store.projectTemplates = mockProjectTemplates;
       await flushPromises();
 
       const select = wrapper.find('select');
@@ -160,13 +171,14 @@ describe('TemplateSelector', () => {
     });
 
     it('emits null when clear button is clicked', async () => {
+      store.projectTemplates = mockProjectTemplates;
+      await flushPromises();
+
       const onUpdateTemplateId = vi.fn();
       const wrapper = mountComponent(
         { currentTemplateId: 'template-1' },
         { 'onUpdate:templateId': onUpdateTemplateId }
       );
-      const store = useTemplatesStore();
-      store.projectTemplates = mockProjectTemplates;
       await flushPromises();
 
       await wrapper.find('.btn-clear').trigger('click');
@@ -177,9 +189,10 @@ describe('TemplateSelector', () => {
 
   describe('chain indicator', () => {
     it('shows chain indicator when selected template has nextTemplateId', async () => {
-      const wrapper = mountComponent({ currentTemplateId: 'template-2' });
-      const store = useTemplatesStore();
       store.projectTemplates = mockProjectTemplates;
+      await flushPromises();
+
+      const wrapper = mountComponent({ currentTemplateId: 'template-2' });
       await flushPromises();
 
       expect(wrapper.find('.chain-indicator').exists()).toBe(true);
@@ -187,9 +200,10 @@ describe('TemplateSelector', () => {
     });
 
     it('does not show chain indicator when template has no nextTemplateId', async () => {
-      const wrapper = mountComponent({ currentTemplateId: 'template-1' });
-      const store = useTemplatesStore();
       store.projectTemplates = mockProjectTemplates;
+      await flushPromises();
+
+      const wrapper = mountComponent({ currentTemplateId: 'template-1' });
       await flushPromises();
 
       expect(wrapper.find('.chain-indicator').exists()).toBe(false);
@@ -202,9 +216,10 @@ describe('TemplateSelector', () => {
         { id: 'c', name: 'Template C', prompt: 'C', nextTemplateId: null },
       ];
 
-      const wrapper = mountComponent({ currentTemplateId: 'a' });
-      const store = useTemplatesStore();
       store.projectTemplates = chainedTemplates;
+      await flushPromises();
+
+      const wrapper = mountComponent({ currentTemplateId: 'a' });
       await flushPromises();
 
       expect(wrapper.find('.chain-indicator').text()).toBe('Chains to: Template B → Template C');
@@ -219,9 +234,10 @@ describe('TemplateSelector', () => {
         { id: 'e', name: 'Template E', prompt: 'E', nextTemplateId: null },
       ];
 
-      const wrapper = mountComponent({ currentTemplateId: 'a' });
-      const store = useTemplatesStore();
       store.projectTemplates = chainedTemplates;
+      await flushPromises();
+
+      const wrapper = mountComponent({ currentTemplateId: 'a' });
       await flushPromises();
 
       const chainText = wrapper.find('.chain-indicator').text();
@@ -233,9 +249,10 @@ describe('TemplateSelector', () => {
         { id: 'a', name: 'Template A', prompt: 'A', nextTemplateId: 'missing-id' },
       ];
 
-      const wrapper = mountComponent({ currentTemplateId: 'a' });
-      const store = useTemplatesStore();
       store.projectTemplates = templateWithMissingChain;
+      await flushPromises();
+
+      const wrapper = mountComponent({ currentTemplateId: 'a' });
       await flushPromises();
 
       expect(wrapper.find('.chain-indicator').text()).toBe('Chains to: Unknown');
@@ -265,9 +282,10 @@ describe('TemplateSelector', () => {
     });
 
     it('disables clear button when disabled', async () => {
-      const wrapper = mountComponent({ currentTemplateId: 'template-1', disabled: true });
-      const store = useTemplatesStore();
       store.projectTemplates = mockProjectTemplates;
+      await flushPromises();
+
+      const wrapper = mountComponent({ currentTemplateId: 'template-1', disabled: true });
       await flushPromises();
 
       expect(wrapper.find('.btn-clear').attributes('disabled')).toBeDefined();
@@ -278,9 +296,10 @@ describe('TemplateSelector', () => {
     it('shows saving indicator after selection change', async () => {
       vi.useFakeTimers();
 
-      const wrapper = mountComponent();
-      const store = useTemplatesStore();
       store.projectTemplates = mockProjectTemplates;
+      await flushPromises();
+
+      const wrapper = mountComponent();
       await flushPromises();
 
       const select = wrapper.find('select');
@@ -301,9 +320,10 @@ describe('TemplateSelector', () => {
 
   describe('prop watching', () => {
     it('updates selection when currentTemplateId prop changes', async () => {
-      const wrapper = mountComponent({ currentTemplateId: 'template-1' });
-      const store = useTemplatesStore();
       store.projectTemplates = mockProjectTemplates;
+      await flushPromises();
+
+      const wrapper = mountComponent({ currentTemplateId: 'template-1' });
       await flushPromises();
 
       expect(wrapper.find('select').element.value).toBe('template-1');

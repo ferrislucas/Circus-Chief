@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
-import CommandsTab from './CommandsTab.vue';
+import { defineComponent } from 'vue';
 
 // Mock router
 vi.mock('vue-router', () => ({
@@ -16,12 +16,21 @@ vi.mock('../stores/commandButtons.js', () => ({
 }));
 
 vi.mock('../stores/ui.js', () => ({
-  useUiStore: vi.fn(),
+  useUiStore: vi.fn(() => ({
+    success: vi.fn(),
+    error: vi.fn(),
+  })),
 }));
 
 // Mock WebSocket composable
 vi.mock('../composables/useWebSocket.js', () => ({
-  useSessionSubscription: vi.fn(),
+  useSessionSubscription: vi.fn(() => ({
+    subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
+    onCommandOutput: vi.fn(() => () => {}),
+    onCommandComplete: vi.fn(() => () => {}),
+    onCommandError: vi.fn(() => () => {}),
+  })),
 }));
 
 // Mock API
@@ -31,156 +40,99 @@ vi.mock('../composables/useApi.js', () => ({
   },
 }));
 
-const { useCommandButtonsStore } = await import('../stores/commandButtons.js');
-const { useUiStore } = await import('../stores/ui.js');
-const { useSessionSubscription } = await import('../composables/useWebSocket.js');
+// Import AFTER mocks are set up
+import CommandsTab from './CommandsTab.vue';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { useUiStore } from '../stores/ui.js';
+import { useSessionSubscription } from '../composables/useWebSocket.js';
+import { api } from '../composables/useApi.js';
 
 describe('CommandsTab', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
-    vi.clearAllMocks();
+  let mockCommandButtonsStore;
+  let mockUiStore;
 
-    // Default WebSocket subscription mock
-    vi.mocked(useSessionSubscription).mockReturnValue({
-      subscribe: vi.fn(),
-      unsubscribe: vi.fn(),
-      onCommandOutput: vi.fn((cb) => () => {}),
-      onCommandComplete: vi.fn((cb) => () => {}),
-      onCommandError: vi.fn((cb) => () => {}),
-    });
+  // Stub child component
+  const CommandButtonItemStub = defineComponent({
+    name: 'CommandButtonItem',
+    props: ['button', 'run', 'sessionId'],
+    emits: ['run', 'kill', 'copy-output', 'send-to-canvas'],
+    template: '<div class="command-button-item">{{ button.label }}</div>',
   });
 
-  it('renders loading state', async () => {
-    const mockStore = {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+
+    // Default store mocks
+    mockCommandButtonsStore = {
       buttons: [],
       runs: {},
-      loading: true,
+      loading: false,
       error: null,
-      fetchButtons: vi.fn(),
+      fetchButtons: vi.fn().mockResolvedValue(undefined),
       fetchActiveRuns: vi.fn().mockResolvedValue([]),
       getRun: vi.fn(),
+      runButton: vi.fn().mockResolvedValue('run-1'),
+      killRun: vi.fn().mockResolvedValue(undefined),
+      appendOutput: vi.fn(),
+      completeRun: vi.fn(),
+      errorRun: vi.fn(),
     };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
+
+    mockUiStore = {
       success: vi.fn(),
       error: vi.fn(),
     };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
 
-    const wrapper = mount(CommandsTab, {
-      props: {
-        sessionId: 'session-1',
-        projectId: 'project-1',
-      },
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandButtonsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    vi.mocked(api.createCanvasItem).mockClear();
+  });
+
+  function mountComponent(props = { sessionId: 'session-1', projectId: 'project-1' }) {
+    return mount(CommandsTab, {
+      props,
       global: {
         stubs: {
-          CommandButtonItem: true,
-          RouterLink: true,
+          CommandButtonItem: CommandButtonItemStub,
+          'router-link': true,
         },
       },
     });
+  }
+
+  it('renders loading state', async () => {
+    mockCommandButtonsStore.loading = true;
+
+    const wrapper = mountComponent();
 
     expect(wrapper.text()).toContain('Loading command buttons');
   });
 
   it('renders empty state when no buttons', async () => {
-    const mockStore = {
-      buttons: [],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      fetchActiveRuns: vi.fn().mockResolvedValue([]),
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    mockCommandButtonsStore.buttons = [];
+    mockCommandButtonsStore.loading = false;
 
-    const wrapper = mount(CommandsTab, {
-      props: {
-        sessionId: 'session-1',
-        projectId: 'project-1',
-      },
-      global: {
-        stubs: {
-          CommandButtonItem: true,
-          RouterLink: true,
-        },
-      },
-    });
+    const wrapper = mountComponent();
 
     expect(wrapper.text()).toContain('No command buttons configured');
   });
 
   it('renders error state', async () => {
-    const mockStore = {
-      buttons: [],
-      runs: {},
-      loading: false,
-      error: 'Failed to fetch buttons',
-      fetchButtons: vi.fn(),
-      fetchActiveRuns: vi.fn().mockResolvedValue([]),
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    mockCommandButtonsStore.error = 'Failed to fetch buttons';
+    mockCommandButtonsStore.loading = false;
 
-    const wrapper = mount(CommandsTab, {
-      props: {
-        sessionId: 'session-1',
-        projectId: 'project-1',
-      },
-      global: {
-        stubs: {
-          CommandButtonItem: true,
-          RouterLink: true,
-        },
-      },
-    });
+    const wrapper = mountComponent();
 
     expect(wrapper.text()).toContain('Failed to fetch buttons');
   });
 
   it('renders command button items', async () => {
-    const mockStore = {
-      buttons: [
-        { id: '1', label: 'Test', command: 'npm test', sortOrder: 0 },
-        { id: '2', label: 'Build', command: 'npm run build', sortOrder: 1 },
-      ],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      fetchActiveRuns: vi.fn().mockResolvedValue([]),
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    mockCommandButtonsStore.buttons = [
+      { id: '1', label: 'Test', command: 'npm test', sortOrder: 0 },
+      { id: '2', label: 'Build', command: 'npm run build', sortOrder: 1 },
+    ];
 
-    const wrapper = mount(CommandsTab, {
-      props: {
-        sessionId: 'session-1',
-        projectId: 'project-1',
-      },
-      global: {
-        stubs: {
-          CommandButtonItem: { template: '<div class="command-button-item">{{ button.label }}</div>' },
-          RouterLink: true,
-        },
-      },
-    });
+    const wrapper = mountComponent();
 
     // Items should be rendered
     const items = wrapper.findAll('.command-button-item');
@@ -188,75 +140,17 @@ describe('CommandsTab', () => {
   });
 
   it('fetches buttons on mount', async () => {
-    const fetchButtons = vi.fn().mockResolvedValue(undefined);
-    const fetchActiveRuns = vi.fn().mockResolvedValue([]);
-    const mockStore = {
-      buttons: [],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons,
-      fetchActiveRuns,
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
-
-    mount(CommandsTab, {
-      props: {
-        sessionId: 'session-1',
-        projectId: 'project-1',
-      },
-      global: {
-        stubs: {
-          CommandButtonItem: true,
-          RouterLink: true,
-        },
-      },
-    });
+    mountComponent();
 
     await flushPromises();
-    expect(fetchButtons).toHaveBeenCalledWith('project-1');
+    expect(mockCommandButtonsStore.fetchButtons).toHaveBeenCalledWith('project-1');
   });
 
   it('fetches active runs on mount', async () => {
-    const fetchButtons = vi.fn().mockResolvedValue(undefined);
-    const fetchActiveRuns = vi.fn().mockResolvedValue([]);
-    const mockStore = {
-      buttons: [],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons,
-      fetchActiveRuns,
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
-
-    mount(CommandsTab, {
-      props: {
-        sessionId: 'session-1',
-        projectId: 'project-1',
-      },
-      global: {
-        stubs: {
-          CommandButtonItem: true,
-          RouterLink: true,
-        },
-      },
-    });
+    mountComponent();
 
     await flushPromises();
-    expect(fetchActiveRuns).toHaveBeenCalledWith('session-1');
+    expect(mockCommandButtonsStore.fetchActiveRuns).toHaveBeenCalledWith('session-1');
   });
 
   it('restores active runs from fetch result', async () => {
@@ -264,42 +158,14 @@ describe('CommandsTab', () => {
       { runId: 'run-1', buttonId: 'btn-1', status: 'running', output: 'Hello\n' },
       { runId: 'run-2', buttonId: 'btn-2', status: 'running', output: 'World\n' },
     ];
-    const fetchButtons = vi.fn().mockResolvedValue(undefined);
-    const fetchActiveRuns = vi.fn().mockResolvedValue(activeRunsData);
-    const getRun = vi.fn();
-    const mockStore = {
-      buttons: [],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons,
-      fetchActiveRuns,
-      getRun,
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    mockCommandButtonsStore.fetchActiveRuns.mockResolvedValue(activeRunsData);
 
-    mount(CommandsTab, {
-      props: {
-        sessionId: 'session-1',
-        projectId: 'project-1',
-      },
-      global: {
-        stubs: {
-          CommandButtonItem: true,
-          RouterLink: true,
-        },
-      },
-    });
+    mountComponent();
 
     await flushPromises();
 
     // Verify fetchActiveRuns was called and returned the correct data
-    expect(fetchActiveRuns).toHaveBeenCalledWith('session-1');
+    expect(mockCommandButtonsStore.fetchActiveRuns).toHaveBeenCalledWith('session-1');
 
     // The component should map button IDs to run IDs internally
     // This is verified by checking that getRun is called with the restored run IDs
@@ -307,24 +173,11 @@ describe('CommandsTab', () => {
   });
 
   it('handles button run event', async () => {
-    const runButton = vi.fn().mockResolvedValue('run-1');
-    const mockStore = {
-      buttons: [{ id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 }],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      fetchActiveRuns: vi.fn().mockResolvedValue([]),
-      getRun: vi.fn(),
-      runButton,
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    mockCommandButtonsStore.buttons = [
+      { id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 },
+    ];
 
+    // Use a custom stub that emits the run event
     const wrapper = mount(CommandsTab, {
       props: {
         sessionId: 'session-1',
@@ -334,9 +187,9 @@ describe('CommandsTab', () => {
         stubs: {
           CommandButtonItem: {
             template: '<button @click="$emit(\'run\')">Run</button>',
-            props: ['button'],
+            props: ['button', 'run', 'sessionId'],
           },
-          RouterLink: true,
+          'router-link': true,
         },
       },
     });
@@ -347,24 +200,19 @@ describe('CommandsTab', () => {
     await flushPromises();
 
     // Verify runButton was called
-    expect(runButton).toHaveBeenCalledWith('session-1', 'btn-1');
+    expect(mockCommandButtonsStore.runButton).toHaveBeenCalledWith('session-1', 'btn-1');
   });
 
   it('handles copy output event successfully', async () => {
-    const mockStore = {
-      buttons: [{ id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 }],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      fetchActiveRuns: vi.fn().mockResolvedValue([]),
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
+    mockCommandButtonsStore.buttons = [
+      { id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 },
+    ];
+
+    // Ensure mock is set up correctly
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandButtonsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+ // Ensure mock is set up correctly
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandButtonsStore);
     vi.mocked(useUiStore).mockReturnValue(mockUiStore);
 
     // Mock clipboard
@@ -383,12 +231,15 @@ describe('CommandsTab', () => {
         stubs: {
           CommandButtonItem: {
             template: '<button @click="$emit(\'copy-output\', \'test output\')">Copy</button>',
-            props: ['button'],
+            props: ['button', 'run', 'sessionId'],
+            emits: ['run', 'kill', 'copy-output', 'send-to-canvas'],
           },
-          RouterLink: true,
+          'router-link': true,
         },
       },
     });
+
+    await flushPromises(); // Wait for mount to complete
 
     // Emit copy event
     const button = wrapper.find('button');
@@ -400,19 +251,15 @@ describe('CommandsTab', () => {
   });
 
   it('handles copy output when output is null', async () => {
-    const mockStore = {
-      buttons: [{ id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 }],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
+    mockCommandButtonsStore.buttons = [
+      { id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 },
+    ];
+
+    // Ensure mock is set up correctly
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandButtonsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+ // Ensure mock is set up correctly
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandButtonsStore);
     vi.mocked(useUiStore).mockReturnValue(mockUiStore);
 
     // Mock clipboard
@@ -431,12 +278,15 @@ describe('CommandsTab', () => {
         stubs: {
           CommandButtonItem: {
             template: '<button @click="$emit(\'copy-output\', null)">Copy</button>',
-            props: ['button'],
+            props: ['button', 'run', 'sessionId'],
+            emits: ['run', 'kill', 'copy-output', 'send-to-canvas'],
           },
-          RouterLink: true,
+          'router-link': true,
         },
       },
     });
+
+    await flushPromises(); // Wait for mount to complete
 
     // Emit copy event with null
     const button = wrapper.find('button');
@@ -449,22 +299,14 @@ describe('CommandsTab', () => {
   });
 
   it('handles copy output when output is not a string', async () => {
-    const mockStore = {
-      buttons: [{ id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 }],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    mockCommandButtonsStore.buttons = [
+      { id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 },
+    ];
 
-    // Mock clipboard
+    // Ensure mock is set up correctly
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandButtonsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+// Mock clipboard
     Object.assign(navigator, {
       clipboard: {
         writeText: vi.fn().mockResolvedValue(undefined),
@@ -480,12 +322,14 @@ describe('CommandsTab', () => {
         stubs: {
           CommandButtonItem: {
             template: '<button @click="$emit(\'copy-output\', { data: \'object\' })">Copy</button>',
-            props: ['button'],
+            props: ['button', 'run', 'sessionId'],
           },
-          RouterLink: true,
+          'router-link': true,
         },
       },
     });
+
+    await flushPromises(); // Wait for mount to complete
 
     // Emit copy event with object
     const button = wrapper.find('button');
@@ -498,22 +342,14 @@ describe('CommandsTab', () => {
   });
 
   it('handles copy output when clipboard is unavailable', async () => {
-    const mockStore = {
-      buttons: [{ id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 }],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    mockCommandButtonsStore.buttons = [
+      { id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 },
+    ];
 
-    // Mock navigator without clipboard
+    // Ensure mock is set up correctly
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandButtonsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+// Mock navigator without clipboard
     const originalClipboard = navigator.clipboard;
     Object.defineProperty(navigator, 'clipboard', {
       value: undefined,
@@ -529,12 +365,14 @@ describe('CommandsTab', () => {
         stubs: {
           CommandButtonItem: {
             template: '<button @click="$emit(\'copy-output\', \'output\')">Copy</button>',
-            props: ['button'],
+            props: ['button', 'run', 'sessionId'],
           },
-          RouterLink: true,
+          'router-link': true,
         },
       },
     });
+
+    await flushPromises(); // Wait for mount to complete
 
     // Emit copy event
     const button = wrapper.find('button');
@@ -552,22 +390,14 @@ describe('CommandsTab', () => {
   });
 
   it('handles copy output when clipboard writeText is denied', async () => {
-    const mockStore = {
-      buttons: [{ id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 }],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    mockCommandButtonsStore.buttons = [
+      { id: 'btn-1', label: 'Test', command: 'npm test', sortOrder: 0 },
+    ];
 
-    // Mock clipboard that throws NotAllowedError
+    // Ensure mock is set up correctly
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandButtonsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+// Mock clipboard that throws NotAllowedError
     const notAllowedError = new Error('User denied clipboard access');
     notAllowedError.name = 'NotAllowedError';
 
@@ -586,12 +416,14 @@ describe('CommandsTab', () => {
         stubs: {
           CommandButtonItem: {
             template: '<button @click="$emit(\'copy-output\', \'output\')">Copy</button>',
-            props: ['button'],
+            props: ['button', 'run', 'sessionId'],
           },
-          RouterLink: true,
+          'router-link': true,
         },
       },
     });
+
+    await flushPromises(); // Wait for mount to complete
 
     // Emit copy event
     const button = wrapper.find('button');
@@ -599,28 +431,20 @@ describe('CommandsTab', () => {
     await flushPromises();
 
     // Should show permission denied error
-    expect(mockUiStore.error).toHaveBeenCalledWith('Clipboard access denied - check browser permissions');
+    expect(mockUiStore.error).toHaveBeenCalledWith(
+      'Clipboard access denied - check browser permissions'
+    );
   });
 
   it('handles send to canvas event successfully', async () => {
-    const { api } = await import('../composables/useApi.js');
-    const mockStore = {
-      buttons: [{ id: 'btn-1', label: 'Test Command', command: 'npm test', sortOrder: 0 }],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      fetchActiveRuns: vi.fn().mockResolvedValue([]),
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    mockCommandButtonsStore.buttons = [
+      { id: 'btn-1', label: 'Test Command', command: 'npm test', sortOrder: 0 },
+    ];
 
-    const wrapper = mount(CommandsTab, {
+    // Ensure mock is set up correctly
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandButtonsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+const wrapper = mount(CommandsTab, {
       props: {
         sessionId: 'session-1',
         projectId: 'project-1',
@@ -628,13 +452,16 @@ describe('CommandsTab', () => {
       global: {
         stubs: {
           CommandButtonItem: {
-            template: '<button @click="$emit(\'send-to-canvas\', \'Test Button\', \'output\')">Send</button>',
-            props: ['button'],
+            template:
+              '<button @click="$emit(\'send-to-canvas\', \'Test Button\', \'output\')">Send</button>',
+            props: ['button', 'run', 'sessionId'],
           },
-          RouterLink: true,
+          'router-link': true,
         },
       },
     });
+
+    await flushPromises(); // Wait for mount to complete
 
     // Emit send to canvas event
     const button = wrapper.find('button');
@@ -652,22 +479,14 @@ describe('CommandsTab', () => {
   });
 
   it('handles send to canvas when output is null', async () => {
-    const mockStore = {
-      buttons: [{ id: 'btn-1', label: 'Test Command', command: 'npm test', sortOrder: 0 }],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    mockCommandButtonsStore.buttons = [
+      { id: 'btn-1', label: 'Test Command', command: 'npm test', sortOrder: 0 },
+    ];
 
-    const wrapper = mount(CommandsTab, {
+    // Ensure mock is set up correctly
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandButtonsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+const wrapper = mount(CommandsTab, {
       props: {
         sessionId: 'session-1',
         projectId: 'project-1',
@@ -675,13 +494,16 @@ describe('CommandsTab', () => {
       global: {
         stubs: {
           CommandButtonItem: {
-            template: '<button @click="$emit(\'send-to-canvas\', \'Test Button\', null)">Send</button>',
-            props: ['button'],
+            template:
+              '<button @click="$emit(\'send-to-canvas\', \'Test Button\', null)">Send</button>',
+            props: ['button', 'run', 'sessionId'],
           },
-          RouterLink: true,
+          'router-link': true,
         },
       },
     });
+
+    await flushPromises(); // Wait for mount to complete
 
     // Emit send to canvas event with null output
     const button = wrapper.find('button');
@@ -694,22 +516,14 @@ describe('CommandsTab', () => {
   });
 
   it('handles send to canvas when output is not a string', async () => {
-    const mockStore = {
-      buttons: [{ id: 'btn-1', label: 'Test Command', command: 'npm test', sortOrder: 0 }],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    mockCommandButtonsStore.buttons = [
+      { id: 'btn-1', label: 'Test Command', command: 'npm test', sortOrder: 0 },
+    ];
 
-    const wrapper = mount(CommandsTab, {
+    // Ensure mock is set up correctly
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandButtonsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+const wrapper = mount(CommandsTab, {
       props: {
         sessionId: 'session-1',
         projectId: 'project-1',
@@ -717,13 +531,16 @@ describe('CommandsTab', () => {
       global: {
         stubs: {
           CommandButtonItem: {
-            template: '<button @click="$emit(\'send-to-canvas\', \'Test Button\', 123)">Send</button>',
-            props: ['button'],
+            template:
+              '<button @click="$emit(\'send-to-canvas\', \'Test Button\', 123)">Send</button>',
+            props: ['button', 'run', 'sessionId'],
           },
-          RouterLink: true,
+          'router-link': true,
         },
       },
     });
+
+    await flushPromises(); // Wait for mount to complete
 
     // Emit send to canvas event with number
     const button = wrapper.find('button');
@@ -736,23 +553,14 @@ describe('CommandsTab', () => {
   });
 
   it('handles send to canvas with special characters in label', async () => {
-    const { api } = await import('../composables/useApi.js');
-    const mockStore = {
-      buttons: [{ id: 'btn-1', label: 'Test@#$%^&*()', command: 'npm test', sortOrder: 0 }],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    mockCommandButtonsStore.buttons = [
+      { id: 'btn-1', label: 'Test@#$%^&*()', command: 'npm test', sortOrder: 0 },
+    ];
 
-    const wrapper = mount(CommandsTab, {
+    // Ensure mock is set up correctly
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandButtonsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+const wrapper = mount(CommandsTab, {
       props: {
         sessionId: 'session-1',
         projectId: 'project-1',
@@ -760,13 +568,16 @@ describe('CommandsTab', () => {
       global: {
         stubs: {
           CommandButtonItem: {
-            template: '<button @click="$emit(\'send-to-canvas\', \'Test@#$%^&*()\', \'output\')">Send</button>',
-            props: ['button'],
+            template:
+              '<button @click="$emit(\'send-to-canvas\', \'Test@#$%^&*()\', \'output\')">Send</button>',
+            props: ['button', 'run', 'sessionId'],
           },
-          RouterLink: true,
+          'router-link': true,
         },
       },
     });
+
+    await flushPromises(); // Wait for mount to complete
 
     // Emit send to canvas event
     const button = wrapper.find('button');
@@ -796,34 +607,7 @@ describe('CommandsTab', () => {
       onCommandError,
     });
 
-    const mockStore = {
-      buttons: [],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      fetchActiveRuns: vi.fn().mockResolvedValue([]),
-      getRun: vi.fn(),
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
-
-    mount(CommandsTab, {
-      props: {
-        sessionId: 'session-1',
-        projectId: 'project-1',
-      },
-      global: {
-        stubs: {
-          CommandButtonItem: true,
-          RouterLink: true,
-        },
-      },
-    });
+    mountComponent();
 
     await flushPromises();
     expect(subscribe).toHaveBeenCalled();

@@ -68,9 +68,10 @@ describe('CommandButtonItem', () => {
 
     const runButton = wrapper.find('.btn-primary');
     await runButton.trigger('click');
+    await nextTick();
 
-    expect(wrapper.emitted('run')).toBeTruthy();
-    expect(wrapper.emitted('run')[0]).toEqual([]);
+    expect(wrapper.emitted()).toHaveProperty('run');
+    expect(wrapper.emitted('run')).toHaveLength(1);
   });
 
   it('shows running state with spinner', async () => {
@@ -152,10 +153,12 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    const killButton = wrapper.find('.btn-outline-danger');
+    const killButton = wrapper.find('[data-testid="kill-button"]');
     await killButton.trigger('click');
+    await nextTick();
 
-    expect(wrapper.emitted('kill')).toBeTruthy();
+    expect(wrapper.emitted()).toHaveProperty('kill');
+    expect(wrapper.emitted('kill')).toHaveLength(1);
   });
 
   it('shows success state with checkmark', async () => {
@@ -237,12 +240,16 @@ describe('CommandButtonItem', () => {
       },
     });
 
+    // Initially hidden
+    expect(wrapper.find('.output-content').exists()).toBe(false);
+
     // Click to expand output
-    await wrapper.find('.output-header').trigger('click');
+    const outputHeader = wrapper.find('.output-header');
+    await outputHeader.trigger('click');
     await nextTick();
 
     expect(wrapper.find('.output-content').exists()).toBe(true);
-    expect(wrapper.text()).toContain('Test output');
+    expect(wrapper.find('.output-text').text()).toContain('Test output');
   });
 
   it('hides output section by default', async () => {
@@ -295,12 +302,11 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    const header = wrapper.find('.output-header');
-
     // Initially hidden
     expect(wrapper.find('.output-content').exists()).toBe(false);
 
     // Click to show
+    const header = wrapper.find('.output-header');
     await header.trigger('click');
     await nextTick();
     expect(wrapper.find('.output-content').exists()).toBe(true);
@@ -338,8 +344,11 @@ describe('CommandButtonItem', () => {
     await wrapper.find('.output-header').trigger('click');
     await nextTick();
 
-    // Copy button exists
-    const copyBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Copy'));
+    // Copy button exists in output actions
+    const outputActions = wrapper.find('.output-actions');
+    expect(outputActions.exists()).toBe(true);
+    const buttons = outputActions.findAll('button');
+    const copyBtn = buttons.find((btn) => btn.text().includes('Copy'));
     expect(copyBtn).toBeDefined();
   });
 
@@ -366,13 +375,18 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Expand and find copy button
+    // Expand output
     await wrapper.find('.output-header').trigger('click');
     await nextTick();
-    const copyBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Copy'));
-    await copyBtn.trigger('click');
 
-    expect(wrapper.emitted('copy-output')).toBeTruthy();
+    // Find and click copy button
+    const outputActions = wrapper.find('.output-actions');
+    const buttons = outputActions.findAll('button');
+    const copyBtn = buttons.find((btn) => btn.text().includes('Copy'));
+    await copyBtn.trigger('click');
+    await nextTick();
+
+    expect(wrapper.emitted()).toHaveProperty('copy-output');
     expect(wrapper.emitted('copy-output')[0]).toEqual(['Test output content']);
   });
 
@@ -403,8 +417,11 @@ describe('CommandButtonItem', () => {
     await wrapper.find('.output-header').trigger('click');
     await nextTick();
 
-    // Canvas button exists
-    const canvasBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Canvas'));
+    // Canvas button exists in output actions
+    const outputActions = wrapper.find('.output-actions');
+    expect(outputActions.exists()).toBe(true);
+    const buttons = outputActions.findAll('button');
+    const canvasBtn = buttons.find((btn) => btn.text().includes('Canvas'));
     expect(canvasBtn).toBeDefined();
   });
 
@@ -431,13 +448,18 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Expand and find canvas button
+    // Expand output
     await wrapper.find('.output-header').trigger('click');
     await nextTick();
-    const canvasBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Canvas'));
-    await canvasBtn.trigger('click');
 
-    expect(wrapper.emitted('send-to-canvas')).toBeTruthy();
+    // Find and click canvas button
+    const outputActions = wrapper.find('.output-actions');
+    const buttons = outputActions.findAll('button');
+    const canvasBtn = buttons.find((btn) => btn.text().includes('Canvas'));
+    await canvasBtn.trigger('click');
+    await nextTick();
+
+    expect(wrapper.emitted()).toHaveProperty('send-to-canvas');
     expect(wrapper.emitted('send-to-canvas')[0]).toEqual(['Run Tests', 'Test output']);
   });
 

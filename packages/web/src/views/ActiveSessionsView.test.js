@@ -74,9 +74,7 @@ describe('ActiveSessionsView', () => {
   let mockSessionsStore;
 
   beforeEach(() => {
-    vi.clearAllMocks();
     vi.useFakeTimers();
-    setActivePinia(createPinia());
 
     // Reset callbacks
     onSessionCreatedCallback = null;
@@ -103,7 +101,6 @@ describe('ActiveSessionsView', () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    vi.clearAllMocks();
   });
 
   describe('WebSocket subscription', () => {
@@ -282,9 +279,7 @@ describe('Status filtering', () => {
   let mockSessionsStore;
 
   beforeEach(() => {
-    vi.clearAllMocks();
     vi.useFakeTimers();
-    setActivePinia(createPinia());
 
     onSessionCreatedCallback = null;
     onSessionUpdatedCallback = null;
@@ -311,7 +306,6 @@ describe('Status filtering', () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    vi.clearAllMocks();
   });
 
   it('renders filter buttons for running and idle statuses', async () => {
@@ -521,9 +515,7 @@ describe('Status filtering', () => {
 
 describe('ActiveSessionsView polling fallback', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
     vi.useFakeTimers();
-    setActivePinia(createPinia());
 
     onSessionSummaryUpdatedCallback = null;
 
