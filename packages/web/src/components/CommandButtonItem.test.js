@@ -214,7 +214,7 @@ describe('CommandButtonItem', () => {
     expect(wrapper.text()).toContain('exit code: 1');
   });
 
-  it('shows output section when expanded', async () => {
+  it('shows output section when visible', async () => {
     const button = {
       id: '1',
       label: 'Test',
@@ -237,15 +237,12 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Click to expand output
-    await wrapper.find('.output-header').trigger('click');
-    await nextTick();
-
+    // Output is visible by default, no need to expand
     expect(wrapper.find('.output-content').exists()).toBe(true);
     expect(wrapper.text()).toContain('Test output');
   });
 
-  it('hides output section by default', async () => {
+  it('shows output section by default', async () => {
     const button = {
       id: '1',
       label: 'Test',
@@ -268,8 +265,8 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Output should not be visible initially
-    expect(wrapper.find('.output-content').exists()).toBe(false);
+    // Output should be visible by default
+    expect(wrapper.find('.output-content').exists()).toBe(true);
   });
 
   it('toggles output visibility', async () => {
@@ -297,18 +294,18 @@ describe('CommandButtonItem', () => {
 
     const header = wrapper.find('.output-header');
 
-    // Initially hidden
-    expect(wrapper.find('.output-content').exists()).toBe(false);
-
-    // Click to show
-    await header.trigger('click');
-    await nextTick();
+    // Initially visible
     expect(wrapper.find('.output-content').exists()).toBe(true);
 
     // Click to hide
     await header.trigger('click');
     await nextTick();
     expect(wrapper.find('.output-content').exists()).toBe(false);
+
+    // Click to show
+    await header.trigger('click');
+    await nextTick();
+    expect(wrapper.find('.output-content').exists()).toBe(true);
   });
 
   it('shows copy button in output actions', async () => {
@@ -334,10 +331,7 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Expand output
-    await wrapper.find('.output-header').trigger('click');
-    await nextTick();
-
+    // Output is visible by default
     // Copy button exists
     const copyBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Copy'));
     expect(copyBtn).toBeDefined();
@@ -366,9 +360,7 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Expand and find copy button
-    await wrapper.find('.output-header').trigger('click');
-    await nextTick();
+    // Output is visible by default, find copy button
     const copyBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Copy'));
     await copyBtn.trigger('click');
 
@@ -399,10 +391,7 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Expand output
-    await wrapper.find('.output-header').trigger('click');
-    await nextTick();
-
+    // Output is visible by default
     // Canvas button exists
     const canvasBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Canvas'));
     expect(canvasBtn).toBeDefined();
@@ -431,9 +420,7 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Expand and find canvas button
-    await wrapper.find('.output-header').trigger('click');
-    await nextTick();
+    // Output is visible by default, find canvas button
     const canvasBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Canvas'));
     await canvasBtn.trigger('click');
 
@@ -492,4 +479,69 @@ describe('CommandButtonItem', () => {
 
     expect(wrapper.text()).toContain('exit code: 127');
   });
+
+  /**
+   * TEST SUITE: ANSI Output Rendering
+   */
+  it('displays ANSI-formatted output as HTML', async () => {
+    const button = {
+      id: 'btn-1',
+      label: 'Test',
+      command: 'test',
+      sortOrder: 0,
+    };
+    const run = {
+      runId: 'run-1',
+      buttonId: 'btn-1',
+      status: 'success',
+      output: '\x1b[32mSuccess\x1b[0m',
+      exitCode: 0,
+    };
+
+    const wrapper = mount(CommandButtonItem, {
+      props: {
+        button,
+        run,
+        sessionId: 'session-1',
+      },
+    });
+
+    await nextTick();
+
+    // Output should be rendered via v-html and contain styled span
+    const outputDiv = wrapper.find('.output-text');
+    expect(outputDiv.html()).toContain('span');
+    expect(outputDiv.html()).toContain('style');
+    expect(outputDiv.html()).toContain('Success');
+  });
+
+  it('handles red error output correctly', async () => {
+    const button = {
+      id: 'btn-1',
+      label: 'Test',
+      command: 'test',
+      sortOrder: 0,
+    };
+    const run = {
+      runId: 'run-1',
+      buttonId: 'btn-1',
+      status: 'error',
+      output: '\x1b[31mError occurred\x1b[0m',
+      exitCode: 1,
+    };
+
+    const wrapper = mount(CommandButtonItem, {
+      props: {
+        button,
+        run,
+        sessionId: 'session-1',
+      },
+    });
+
+    await nextTick();
+
+    const outputDiv = wrapper.find('.output-text');
+    expect(outputDiv.html()).toContain('Error occurred');
+  });
+
 });
