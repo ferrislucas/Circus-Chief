@@ -220,13 +220,13 @@ defineEmits(['retrySummary', 'archive', 'unarchive']);
 
 const { getModelDisplayName } = useModelInfo();
 
-// Show archive for any status except running
+// Show archive for statuses that are no longer active (not running or waiting)
 const canArchive = computed(() => {
-  return props.session.status !== 'running';
+  return props.session.status !== 'running' && props.session.status !== 'waiting';
 });
 
 const dateToShow = computed(() => {
-  // For active sessions view, prefer updatedAt; for project view, prefer createdAt
+  // For project view (showProject=false), show createdAt; for active sessions view (showProject=true), show updatedAt
   return props.showProject ? props.session.updatedAt : props.session.createdAt;
 });
 
