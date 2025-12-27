@@ -476,6 +476,25 @@ function buildSessionEnv(session) {
 }
 
 /**
+ * Build worktree context for system prompt if session uses git worktree
+ * @param {Object} session - Session object
+ * @returns {string} Worktree context or empty string
+ */
+function buildWorktreeContext(session) {
+  if (!session || !session.gitWorktree) {
+    return '';
+  }
+
+  return `## Git Worktree Session
+
+This session is running in an isolated git worktree:
+- Worktree path: ${session.gitWorktree}
+- Branch: ${session.gitBranch || 'unknown'}
+
+CRITICAL: Do NOT use \`cd\` to navigate to the main repository. Your working directory is already set to the worktree. Running \`cd /home/ubuntu/workspace/claudetools.io && ...\` will escape the worktree isolation and affect the main repository instead.`;
+}
+
+/**
  * Build the full system prompt configuration
  * @param {string} sessionId
  * @param {string} projectId
@@ -484,17 +503,19 @@ function buildSessionEnv(session) {
  * @returns {string} System prompt string
  */
 export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt, mode) {
+  const session = sessions.getById(sessionId);
   const canvasWriteInstructions = buildCanvasWriteSystemPrompt(sessionId);
   const canvasReadInstructions = buildCanvasReadSystemPrompt(sessionId);
   const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
   const attachmentsContext = getSessionAttachmentsContext(sessionId);
+  const worktreeContext = buildWorktreeContext(session);
   const basePrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
 
   // Prepend plan mode instructions if in plan mode
   const modePrompt = mode === 'plan' ? PLAN_MODE_PROMPT : '';
 
   // Build prompt parts, filtering out empty sections
-  const parts = [modePrompt, basePrompt, attachmentsContext, canvasWriteInstructions, canvasReadInstructions, sessionApiInstructions].filter(
+  const parts = [modePrompt, basePrompt, worktreeContext, attachmentsContext, canvasWriteInstructions, canvasReadInstructions, sessionApiInstructions].filter(
     Boolean
   );
 

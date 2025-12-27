@@ -301,7 +301,8 @@ describe('Status filtering', () => {
         { id: 'session-1', name: 'Running Session', status: 'running', projectId: 'project-1' },
         { id: 'session-2', name: 'Waiting Session', status: 'waiting', projectId: 'project-2' },
         { id: 'session-3', name: 'Starting Session', status: 'starting', projectId: 'project-1' },
-        { id: 'session-4', name: 'Error Session', status: 'error', projectId: 'project-1' },
+        { id: 'session-4', name: 'Error Session', status: 'error', projectId: 'project-3' },
+        { id: 'session-5', name: 'Stopped Session', status: 'stopped', projectId: 'project-4' },
       ],
       fetchActiveSessions: vi.fn().mockResolvedValue(),
     };
@@ -328,7 +329,7 @@ describe('Status filtering', () => {
     await flushPromises();
 
     const sessionCards = wrapper.findAll('.session-card');
-    expect(sessionCards).toHaveLength(4);
+    expect(sessionCards).toHaveLength(5);
   });
 
   it('filters to show only running sessions (running + starting) when running filter is clicked', async () => {
@@ -345,7 +346,7 @@ describe('Status filtering', () => {
     expect(sessionIds).toContain('session-3'); // starting
   });
 
-  it('filters to show only idle sessions (waiting + error) when idle filter is clicked', async () => {
+  it('filters to show only idle sessions (waiting + error + stopped) when idle filter is clicked', async () => {
     const wrapper = mount(ActiveSessionsView);
     await flushPromises();
 
@@ -353,10 +354,11 @@ describe('Status filtering', () => {
     await idleButton.trigger('click');
 
     const sessionCards = wrapper.findAll('.session-card');
-    expect(sessionCards).toHaveLength(2);
+    expect(sessionCards).toHaveLength(3);
     const sessionIds = sessionCards.map(card => card.attributes('data-session-id'));
     expect(sessionIds).toContain('session-2'); // waiting
     expect(sessionIds).toContain('session-4'); // error
+    expect(sessionIds).toContain('session-5'); // stopped
   });
 
   it('makes filters mutually exclusive - running filter disables idle filter', async () => {
@@ -410,7 +412,7 @@ describe('Status filtering', () => {
 
     // Click again to disable filter (show all)
     await runningButton.trigger('click');
-    expect(wrapper.findAll('.session-card')).toHaveLength(4);
+    expect(wrapper.findAll('.session-card')).toHaveLength(5);
     expect(runningButton.classes()).not.toContain('active');
   });
 
@@ -455,7 +457,7 @@ describe('Status filtering', () => {
   });
 
   it('shows empty state message when filters return no results', async () => {
-    // Set up store with only running sessions
+    // Set up store with only running session (no idle sessions)
     mockSessionsStore.activeSessions = [
       { id: 'session-1', name: 'Running Session', status: 'running', projectId: 'project-1' },
     ];
@@ -471,6 +473,49 @@ describe('Status filtering', () => {
     const emptyState = wrapper.find('.empty-state');
     expect(emptyState.exists()).toBe(true);
     expect(emptyState.text()).toContain('No sessions match the current filter');
+  });
+
+  it('handles multiple status groupings in running filter correctly', async () => {
+    // Verify that both "running" and "starting" are included in running filter
+    mockSessionsStore.activeSessions = [
+      { id: 'session-1', name: 'Running', status: 'running', projectId: 'project-1' },
+      { id: 'session-2', name: 'Starting', status: 'starting', projectId: 'project-2' },
+      { id: 'session-3', name: 'Waiting', status: 'waiting', projectId: 'project-3' },
+    ];
+    useSessionsStore.mockReturnValue(mockSessionsStore);
+
+    const wrapper = mount(ActiveSessionsView);
+    await flushPromises();
+
+    const runningButton = wrapper.findAll('.filter-btn')[0];
+    await runningButton.trigger('click');
+
+    const sessionCards = wrapper.findAll('.session-card');
+    expect(sessionCards).toHaveLength(2);
+    const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+    expect(sessionIds).toEqual(['session-1', 'session-2']);
+  });
+
+  it('handles multiple status groupings in idle filter correctly', async () => {
+    // Verify that "waiting", "stopped", and "error" are all included in idle filter
+    mockSessionsStore.activeSessions = [
+      { id: 'session-1', name: 'Waiting', status: 'waiting', projectId: 'project-1' },
+      { id: 'session-2', name: 'Stopped', status: 'stopped', projectId: 'project-2' },
+      { id: 'session-3', name: 'Error', status: 'error', projectId: 'project-3' },
+      { id: 'session-4', name: 'Running', status: 'running', projectId: 'project-4' },
+    ];
+    useSessionsStore.mockReturnValue(mockSessionsStore);
+
+    const wrapper = mount(ActiveSessionsView);
+    await flushPromises();
+
+    const idleButton = wrapper.findAll('.filter-btn')[1];
+    await idleButton.trigger('click');
+
+    const sessionCards = wrapper.findAll('.session-card');
+    expect(sessionCards).toHaveLength(3);
+    const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
+    expect(sessionIds).toEqual(['session-1', 'session-2', 'session-3']);
   });
 });
 

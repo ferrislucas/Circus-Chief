@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
-import { getChanges } from '../services/diffService.js';
+import { getChanges, getChangesBranchComparison } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
@@ -33,6 +33,9 @@ router.get('/:id', (req, res) => {
 });
 
 // GET /api/sessions/:id/changes - Get git changes for session
+// Query params:
+//   compareMode: 'local' (default) or 'branch'
+//   branch: branch name (e.g., 'origin/main') - if not provided, auto-detect default branch
 router.get('/:id/changes', async (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
@@ -48,8 +51,24 @@ router.get('/:id/changes', async (req, res) => {
   const directory = session.gitWorktree || project.workingDirectory;
 
   try {
-    const changes = await getChanges(directory);
-    res.json(changes);
+    const { compareMode = 'local', branch } = req.query;
+
+    if (compareMode === 'branch') {
+      // Get changes compared to a branch
+      let branchName = branch;
+
+      // Auto-detect default branch if not provided
+      if (!branchName) {
+        branchName = await gitService.getOriginDefaultBranch(directory);
+      }
+
+      const changes = await getChangesBranchComparison(directory, branchName);
+      res.json(changes);
+    } else {
+      // Default: get local changes (staged, unstaged, untracked)
+      const changes = await getChanges(directory);
+      res.json(changes);
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
