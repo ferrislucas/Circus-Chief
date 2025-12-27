@@ -67,41 +67,6 @@
         </div>
       </div>
 
-      <!-- Session Template (optional) -->
-      <div v-if="allTemplates.length > 0" class="form-group">
-        <label class="form-label" for="template">Session Template (optional)</label>
-        <select id="template" v-model="selectedTemplateId" class="form-input">
-          <option :value="null">None - single session</option>
-          <optgroup v-if="projectTemplates.length" label="Project Templates">
-            <option v-for="template in projectTemplates" :key="template.id" :value="template.id">
-              {{ template.name }}
-            </option>
-          </optgroup>
-          <optgroup v-if="globalTemplates.length" label="Global Templates">
-            <option v-for="template in globalTemplates" :key="template.id" :value="template.id">
-              {{ template.name }}
-            </option>
-          </optgroup>
-        </select>
-        <p class="form-help">
-          When selected, the template's settings are applied and a new session will automatically start when Claude finishes.
-        </p>
-      </div>
-
-      <!-- Parent Session (optional) -->
-      <div v-if="availableSessions.length > 0" class="form-group">
-        <label class="form-label" for="parent-session">Parent Session (optional)</label>
-        <select id="parent-session" v-model="parentSessionId" class="form-input">
-          <option :value="null">None - create standalone session</option>
-          <option v-for="session in availableSessions" :key="session.id" :value="session.id">
-            {{ session.name }}
-          </option>
-        </select>
-        <p class="form-help">
-          Choose a parent session to link this as a child session. Child sessions help organize related work.
-        </p>
-      </div>
-
       <div v-if="error" class="error-message">{{ error }}</div>
 
       <div class="form-actions">
@@ -160,6 +125,41 @@
       <div v-if="loadingGit" class="git-loading">
         <span class="loading-spinner"></span>
         Loading git info...
+      </div>
+
+      <!-- Session Template (optional) -->
+      <div v-if="allTemplates.length > 0" class="form-group">
+        <label class="form-label" for="template">Session Template (optional)</label>
+        <select id="template" v-model="selectedTemplateId" class="form-input">
+          <option :value="null">None - single session</option>
+          <optgroup v-if="projectTemplates.length" label="Project Templates">
+            <option v-for="template in projectTemplates" :key="template.id" :value="template.id">
+              {{ template.name }}
+            </option>
+          </optgroup>
+          <optgroup v-if="globalTemplates.length" label="Global Templates">
+            <option v-for="template in globalTemplates" :key="template.id" :value="template.id">
+              {{ template.name }}
+            </option>
+          </optgroup>
+        </select>
+        <p class="form-help">
+          When selected, the template's settings are applied and a new session will automatically start when Claude finishes.
+        </p>
+      </div>
+
+      <!-- Parent Session (optional) -->
+      <div v-if="availableSessions.length > 0" class="form-group">
+        <label class="form-label" for="parent-session">Parent Session (optional)</label>
+        <select id="parent-session" v-model="parentSessionId" class="form-input">
+          <option :value="null">None - create standalone session</option>
+          <option v-for="session in availableSessions" :key="session.id" :value="session.id">
+            {{ session.name }}
+          </option>
+        </select>
+        <p class="form-help">
+          Choose a parent session to link this as a child session. Child sessions help organize related work.
+        </p>
       </div>
     </form>
   </div>
