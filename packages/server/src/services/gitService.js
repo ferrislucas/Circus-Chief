@@ -352,3 +352,31 @@ export async function getUntrackedFiles(directory) {
     return [];
   }
 }
+
+/**
+ * Get diff for a directory compared to a specific branch
+ * @param {string} directory
+ * @param {string} branch - Branch to compare against (e.g., 'origin/main')
+ * @returns {Promise<string>}
+ */
+export async function getDiffAgainstBranch(directory, branch) {
+  try {
+    return await git(directory, `diff ${branch}`);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Get staged diff for a directory compared to a specific branch
+ * @param {string} directory
+ * @param {string} branch - Branch to compare against (e.g., 'origin/main')
+ * @returns {Promise<string>}
+ */
+export async function getStagedDiffAgainstBranch(directory, branch) {
+  try {
+    return await git(directory, `diff --cached ${branch}`);
+  } catch {
+    return '';
+  }
+}
