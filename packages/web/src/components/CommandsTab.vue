@@ -96,8 +96,24 @@ const onButtonRun = async (buttonId) => {
  * Handle button kill event
  */
 const onButtonKill = async (buttonId) => {
-  const runId = currentRunIds[buttonId];
-  if (!runId) return;
+  // Try to find runId from local map first
+  let runId = currentRunIds[buttonId];
+
+  // Fallback: search through store's runs for matching buttonId
+  if (!runId) {
+    const storeRuns = Object.values(commandButtonsStore.runs);
+    const matchingRun = storeRuns.find(
+      (r) => r.buttonId === buttonId && r.status === 'running'
+    );
+    if (matchingRun) {
+      runId = matchingRun.runId;
+    }
+  }
+
+  if (!runId) {
+    uiStore.error('Cannot kill command: run not found');
+    return;
+  }
 
   try {
     await commandButtonsStore.killRun(props.sessionId, runId);

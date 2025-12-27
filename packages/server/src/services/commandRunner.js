@@ -28,6 +28,7 @@ export class CommandRunner {
         const child = spawn('sh', ['-c', command], {
           cwd: workingDirectory,
           stdio: ['pipe', 'pipe', 'pipe'],
+          detached: true, // Create a new process group for proper signal handling
         });
 
         // Store process with metadata and output buffer
@@ -88,14 +89,36 @@ export class CommandRunner {
     }
 
     try {
-      console.log(`[commandRunner.kill] Sending SIGTERM to runId: ${runId}, pid: ${entry.process.pid}`);
-      entry.process.kill('SIGTERM');
+      const pid = entry.process.pid;
+      console.log(`[commandRunner.kill] Sending SIGTERM to process group for runId: ${runId}, pid: ${pid}`);
+
+      // Kill the entire process group (negative PID) to ensure child processes are also killed
+      try {
+        process.kill(-pid, 'SIGTERM');
+      } catch (e) {
+        // Fallback to killing just the process if process group kill fails
+        console.log(`[commandRunner.kill] Process group kill failed, killing single process: ${e.message}`);
+        entry.process.kill('SIGTERM');
+      }
+
       // Give it a moment to terminate gracefully, then force kill
       setTimeout(() => {
-        console.log(`[commandRunner.kill] Checking if process still exists for runId: ${runId}, pid: ${entry.process.pid}, killed: ${entry.process.killed}`);
-        if (!entry.process.killed) {
-          console.log(`[commandRunner.kill] Process still alive, sending SIGKILL to runId: ${runId}`);
-          entry.process.kill('SIGKILL');
+        // Check if process is still in our map (not yet closed)
+        if (this.processes.has(runId)) {
+          console.log(`[commandRunner.kill] Process still running, sending SIGKILL to runId: ${runId}`);
+          try {
+            process.kill(-pid, 'SIGKILL');
+          } catch (e) {
+            // Fallback to killing just the process if process group kill fails
+            try {
+              entry.process.kill('SIGKILL');
+            } catch (err) {
+              // Process may have already exited
+              console.log(`[commandRunner.kill] SIGKILL failed, process may have exited: ${err.message}`);
+            }
+          }
+        } else {
+          console.log(`[commandRunner.kill] Process already exited for runId: ${runId}`);
         }
       }, 1000);
       return true;

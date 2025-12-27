@@ -88,11 +88,8 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
     async killRun(sessionId, runId) {
       this.error = null;
       try {
-        console.log(`[store.killRun] Killing runId: ${runId}`);
-        const response = await api.killCommandRun(sessionId, runId);
-        console.log(`[store.killRun] Kill response:`, response);
+        await api.killCommandRun(sessionId, runId);
       } catch (err) {
-        console.error(`[store.killRun] Kill error:`, err);
         this.error = err.message;
         throw err;
       }
