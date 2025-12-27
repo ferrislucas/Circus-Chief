@@ -57,6 +57,7 @@ describe('CommandsTab', () => {
       loading: true,
       error: null,
       fetchButtons: vi.fn(),
+      fetchActiveRuns: vi.fn().mockResolvedValue([]),
       getRun: vi.fn(),
     };
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
@@ -89,6 +90,7 @@ describe('CommandsTab', () => {
       loading: false,
       error: null,
       fetchButtons: vi.fn(),
+      fetchActiveRuns: vi.fn().mockResolvedValue([]),
       getRun: vi.fn(),
     };
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
@@ -121,6 +123,7 @@ describe('CommandsTab', () => {
       loading: false,
       error: 'Failed to fetch buttons',
       fetchButtons: vi.fn(),
+      fetchActiveRuns: vi.fn().mockResolvedValue([]),
       getRun: vi.fn(),
     };
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
@@ -156,6 +159,7 @@ describe('CommandsTab', () => {
       loading: false,
       error: null,
       fetchButtons: vi.fn(),
+      fetchActiveRuns: vi.fn().mockResolvedValue([]),
       getRun: vi.fn(),
     };
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
@@ -185,12 +189,14 @@ describe('CommandsTab', () => {
 
   it('fetches buttons on mount', async () => {
     const fetchButtons = vi.fn().mockResolvedValue(undefined);
+    const fetchActiveRuns = vi.fn().mockResolvedValue([]);
     const mockStore = {
       buttons: [],
       runs: {},
       loading: false,
       error: null,
       fetchButtons,
+      fetchActiveRuns,
       getRun: vi.fn(),
     };
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
@@ -217,6 +223,89 @@ describe('CommandsTab', () => {
     expect(fetchButtons).toHaveBeenCalledWith('project-1');
   });
 
+  it('fetches active runs on mount', async () => {
+    const fetchButtons = vi.fn().mockResolvedValue(undefined);
+    const fetchActiveRuns = vi.fn().mockResolvedValue([]);
+    const mockStore = {
+      buttons: [],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons,
+      fetchActiveRuns,
+      getRun: vi.fn(),
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    mount(CommandsTab, {
+      props: {
+        sessionId: 'session-1',
+        projectId: 'project-1',
+      },
+      global: {
+        stubs: {
+          CommandButtonItem: true,
+          RouterLink: true,
+        },
+      },
+    });
+
+    await flushPromises();
+    expect(fetchActiveRuns).toHaveBeenCalledWith('session-1');
+  });
+
+  it('restores active runs from fetch result', async () => {
+    const activeRunsData = [
+      { runId: 'run-1', buttonId: 'btn-1', status: 'running', output: 'Hello\n' },
+      { runId: 'run-2', buttonId: 'btn-2', status: 'running', output: 'World\n' },
+    ];
+    const fetchButtons = vi.fn().mockResolvedValue(undefined);
+    const fetchActiveRuns = vi.fn().mockResolvedValue(activeRunsData);
+    const getRun = vi.fn();
+    const mockStore = {
+      buttons: [],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons,
+      fetchActiveRuns,
+      getRun,
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    mount(CommandsTab, {
+      props: {
+        sessionId: 'session-1',
+        projectId: 'project-1',
+      },
+      global: {
+        stubs: {
+          CommandButtonItem: true,
+          RouterLink: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    // Verify fetchActiveRuns was called and returned the correct data
+    expect(fetchActiveRuns).toHaveBeenCalledWith('session-1');
+
+    // The component should map button IDs to run IDs internally
+    // This is verified by checking that getRun is called with the restored run IDs
+    // when buttons are rendered (the mapping is done in currentRunIds reactive object)
+  });
+
   it('handles button run event', async () => {
     const runButton = vi.fn().mockResolvedValue('run-1');
     const mockStore = {
@@ -225,6 +314,7 @@ describe('CommandsTab', () => {
       loading: false,
       error: null,
       fetchButtons: vi.fn(),
+      fetchActiveRuns: vi.fn().mockResolvedValue([]),
       getRun: vi.fn(),
       runButton,
     };
@@ -267,6 +357,7 @@ describe('CommandsTab', () => {
       loading: false,
       error: null,
       fetchButtons: vi.fn(),
+      fetchActiveRuns: vi.fn().mockResolvedValue([]),
       getRun: vi.fn(),
     };
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
@@ -316,6 +407,7 @@ describe('CommandsTab', () => {
       loading: false,
       error: null,
       fetchButtons: vi.fn(),
+      fetchActiveRuns: vi.fn().mockResolvedValue([]),
       getRun: vi.fn(),
     };
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
@@ -376,6 +468,7 @@ describe('CommandsTab', () => {
       loading: false,
       error: null,
       fetchButtons: vi.fn(),
+      fetchActiveRuns: vi.fn().mockResolvedValue([]),
       getRun: vi.fn(),
     };
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);

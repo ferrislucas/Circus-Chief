@@ -181,6 +181,12 @@ onMounted(async () => {
   // Fetch buttons for this project
   await commandButtonsStore.fetchButtons(props.projectId);
 
+  // Fetch and restore any active runs for this session
+  const activeRuns = await commandButtonsStore.fetchActiveRuns(props.sessionId);
+  for (const run of activeRuns) {
+    currentRunIds[run.buttonId] = run.runId;
+  }
+
   // Setup WebSocket handlers
   setupWebSocketHandlers();
 });

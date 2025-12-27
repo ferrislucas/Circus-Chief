@@ -736,14 +736,11 @@ router.post('/:id/command-buttons/:buttonId/run', (req, res) => {
   // Execute command asynchronously
   (async () => {
     try {
-      let output = '';
-
       await commandRunner.run(
         runId,
         button.command,
         workingDirectory,
         (text) => {
-          output += text;
           // Broadcast output via WebSocket
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
             sessionId,
@@ -752,7 +749,7 @@ router.post('/:id/command-buttons/:buttonId/run', (req, res) => {
             output: text,
           });
         },
-        (exitCode) => {
+        (exitCode, output) => {
           // Broadcast completion via WebSocket
           const status = exitCode === 0 ? 'success' : 'error';
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, {
@@ -772,7 +769,8 @@ router.post('/:id/command-buttons/:buttonId/run', (req, res) => {
             buttonId,
             error: message,
           });
-        }
+        },
+        { sessionId, buttonId }
       );
     } catch (error) {
       console.error(`Error running command button ${buttonId}:`, error);
@@ -784,6 +782,19 @@ router.post('/:id/command-buttons/:buttonId/run', (req, res) => {
       });
     }
   })();
+});
+
+// GET /api/sessions/:id/command-buttons/runs - Get active runs for session
+router.get('/:id/command-buttons/runs', (req, res) => {
+  const sessionId = req.params.id;
+
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const activeRuns = commandRunner.getRunsBySession(sessionId);
+  res.json(activeRuns);
 });
 
 // POST /api/sessions/:id/command-buttons/runs/:runId/kill - Kill running command
