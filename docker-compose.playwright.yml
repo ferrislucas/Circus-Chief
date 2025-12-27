@@ -29,8 +29,12 @@ services:
       - ./playwright-report:/reports
       # Playwright configuration (optional, read-only)
       - ./playwright.config.docker.ts:/app/playwright.config.ts:ro
+      # Server port file for test server detection
+      - ./.server-port:/app/.server-port:ro
     # Environment configuration
     environment:
+      # Read from .server-port file and default to 5000
+      - API_URL=${API_URL:-http://localhost:5000}
       # Base URL for tests (frontend dev server)
       - BASE_URL=${BASE_URL:-http://localhost:5000}
       # Browser selection: chromium, firefox, webkit
@@ -78,6 +82,8 @@ services:
       - ./screenshots:/screenshots
       - ./playwright-report:/reports
       - ./playwright.config.docker.ts:/app/playwright.config.ts:ro
+      # Server port file for test server detection
+      - ./.server-port:/app/.server-port:ro
       # X11 socket for headed mode
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
     profiles:

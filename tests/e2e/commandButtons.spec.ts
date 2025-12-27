@@ -173,9 +173,33 @@ test.describe('Command Buttons', () => {
     // Give it a moment to confirm it's running
     await page.waitForTimeout(500);
 
+    // Listen to network requests and console logs
+    page.on('request', (req) => {
+      if (req.url().includes('/kill')) {
+        console.log(`[TEST] Kill request detected: ${req.method} ${req.url()}`);
+      }
+    });
+
+    page.on('response', (res) => {
+      if (res.url().includes('/kill')) {
+        console.log(`[TEST] Kill response: ${res.status()} ${res.url()}`);
+      }
+    });
+
+    page.on('console', (msg) => {
+      if (msg.text().includes('kill')) {
+        console.log(`[TEST] Console log: ${msg.text()}`);
+      }
+    });
+
     // Click the kill/stop button (looks for danger button in first command row)
     const killButton = page.locator('.btn-outline-danger').first();
+    console.log('[TEST] Kill button element:', await killButton.count());
     await killButton.click();
+    console.log('[TEST] Kill button clicked');
+
+    // Give it a moment for the request to go through
+    await page.waitForTimeout(1000);
 
     // Running state should disappear (command killed)
     await expect(page.getByText('Running...')).not.toBeVisible({
