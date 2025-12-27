@@ -637,6 +637,10 @@ export const useSessionsStore = defineStore('sessions', {
 
       // Handle archive status changes - route to correct list
       if (sessionData.archived === true) {
+        // Capture existing session BEFORE removing it  - create a plain copy to avoid reactivity issues
+        const existingSession = this.sessions.find(s => s.id === sessionData.id);
+        const existingSessionCopy = existingSession ? { ...existingSession } : null;
+
         // Remove from non-archived lists
         this.sessions = this.sessions.filter((s) => s.id !== sessionData.id);
         this.activeSessions = this.activeSessions.filter((s) => s.id !== sessionData.id);
@@ -646,12 +650,15 @@ export const useSessionsStore = defineStore('sessions', {
           this.archivedSessions[archivedIndex] = { ...this.archivedSessions[archivedIndex], ...sessionData };
         } else {
           // Preserve existing session properties when moving to archived
-          const existingSession = this.sessions.find(s => s.id === sessionData.id);
           this.archivedSessions.unshift(
-            existingSession ? { ...existingSession, ...sessionData } : sessionData
+            existingSessionCopy ? { ...existingSessionCopy, ...sessionData } : sessionData
           );
         }
       } else if (sessionData.archived === false) {
+        // Capture existing session BEFORE removing it - create a plain copy to avoid reactivity issues
+        const existingSession = this.archivedSessions.find(s => s.id === sessionData.id);
+        const existingSessionCopy = existingSession ? { ...existingSession } : null;
+
         // Remove from archived list
         this.archivedSessions = this.archivedSessions.filter((s) => s.id !== sessionData.id);
         // Update or add to sessions list
@@ -660,9 +667,8 @@ export const useSessionsStore = defineStore('sessions', {
           this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
         } else {
           // Preserve existing session properties when moving from archived
-          const existingSession = this.archivedSessions.find(s => s.id === sessionData.id);
           this.sessions.unshift(
-            existingSession ? { ...existingSession, ...sessionData } : sessionData
+            existingSessionCopy ? { ...existingSessionCopy, ...sessionData } : sessionData
           );
         }
       } else {

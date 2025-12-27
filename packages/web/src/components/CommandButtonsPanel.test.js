@@ -150,7 +150,10 @@ describe('CommandButtonsPanel', () => {
       },
     });
 
-    const commandCell = wrapper.find('.col-command');
+    // Find the data row (not the header)
+    const tableRows = wrapper.findAll('.table-row');
+    expect(tableRows.length).toBeGreaterThan(0);
+    const commandCell = tableRows[0].find('.col-command');
     expect(commandCell.text()).toContain('...');
   });
 
@@ -183,13 +186,16 @@ describe('CommandButtonsPanel', () => {
     // No dialog initially
     expect(wrapper.find('.modal-overlay').exists()).toBe(false);
 
-    // Click delete button
-    await wrapper.find('.btn-outline-danger').trigger('click');
+    // Find and click delete button in the table row
+    const deleteButton = wrapper.find('.table-row .btn-outline-danger');
+    expect(deleteButton.exists()).toBe(true);
+    await deleteButton.trigger('click');
     await nextTick();
 
     // Dialog appears
     expect(wrapper.find('.modal-overlay').exists()).toBe(true);
     expect(wrapper.text()).toContain('Delete Command Button');
+    expect(wrapper.text()).toContain('Run Tests');
   });
 
   it('cancels delete when clicking cancel', async () => {
@@ -218,12 +224,18 @@ describe('CommandButtonsPanel', () => {
       },
     });
 
-    // Show dialog
-    await wrapper.find('.btn-outline-danger').trigger('click');
+    // Show dialog by clicking delete button in table row
+    const deleteButton = wrapper.find('.table-row .btn-outline-danger');
+    await deleteButton.trigger('click');
     await nextTick();
 
-    // Click cancel
-    const cancelButton = wrapper.findAll('.btn').find((btn) => btn.text() === 'Cancel');
+    // Modal should be visible
+    expect(wrapper.find('.modal-overlay').exists()).toBe(true);
+
+    // Find and click cancel button in the modal
+    const modalFooter = wrapper.find('.modal-footer');
+    const cancelButton = modalFooter.findAll('button').find((btn) => btn.text() === 'Cancel');
+    expect(cancelButton).toBeDefined();
     await cancelButton.trigger('click');
     await nextTick();
 
@@ -232,7 +244,7 @@ describe('CommandButtonsPanel', () => {
   });
 
   it('deletes button when confirmed', async () => {
-    const deleteButton = vi.fn().mockResolvedValue(undefined);
+    const deleteButtonFn = vi.fn().mockResolvedValue(undefined);
     const mockStore = {
       buttons: [
         {
@@ -245,7 +257,7 @@ describe('CommandButtonsPanel', () => {
       loading: false,
       error: null,
       fetchButtons: vi.fn(),
-      deleteButton,
+      deleteButton: deleteButtonFn,
     };
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
 
@@ -258,15 +270,23 @@ describe('CommandButtonsPanel', () => {
       },
     });
 
-    // Show dialog and confirm
-    await wrapper.find('.btn-outline-danger').trigger('click');
+    // Show dialog by clicking delete button in table row
+    const deleteBtn = wrapper.find('.table-row .btn-outline-danger');
+    await deleteBtn.trigger('click');
     await nextTick();
-    const confirmButton = wrapper.findAll('.btn').find((btn) => btn.text() === 'Delete');
+
+    // Modal should be visible
+    expect(wrapper.find('.modal-overlay').exists()).toBe(true);
+
+    // Find and click confirm button in the modal
+    const modalFooter = wrapper.find('.modal-footer');
+    const confirmButton = modalFooter.findAll('button').find((btn) => btn.text() === 'Delete');
+    expect(confirmButton).toBeDefined();
     await confirmButton.trigger('click');
     await flushPromises();
 
     // Verify delete was called
-    expect(deleteButton).toHaveBeenCalledWith('test-project', '1');
+    expect(deleteButtonFn).toHaveBeenCalledWith('test-project', '1');
   });
 
   it('fetches buttons on mount', async () => {

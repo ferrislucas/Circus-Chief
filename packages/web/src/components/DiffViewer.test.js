@@ -1,6 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import DiffViewer from './DiffViewer.vue';
+import { parseDiff } from '../utils/diffParser.js';
+
+// Mock MarkdownViewer component
+vi.mock('./MarkdownViewer.vue', () => ({
+  default: {
+    name: 'MarkdownViewer',
+    props: ['content'],
+    template: '<div class="markdown-viewer">{{ content }}</div>',
+  },
+}));
 
 describe('DiffViewer.vue', () => {
   let wrapper;
@@ -18,60 +28,44 @@ index 1234567..abcdefg 100644
 +module.exports = hello;`;
 
   beforeEach(() => {
+    const files = parseDiff(mockDiffContent);
     wrapper = mount(DiffViewer, {
       props: {
-        diffContent: mockDiffContent,
-        title: 'Test Diff',
+        files,
       },
     });
   });
 
-  describe('copy filename button removal', () => {
-    it('should not render copy filename button', () => {
-      // The old copy button should not exist
+  describe('copy filename button', () => {
+    it('renders copy filename button for each file', () => {
       const copyButtons = wrapper.findAll('.copy-button');
-      expect(copyButtons).toHaveLength(0);
+      expect(copyButtons.length).toBeGreaterThan(0);
     });
 
-    it('should not have copyFilePath method', () => {
-      // Verify the component doesn't have the copyFilePath method
-      expect(wrapper.vm.copyFilePath).toBeUndefined();
+    it('copy button has proper icon', () => {
+      const copyButton = wrapper.find('.copy-button');
+      expect(copyButton.exists()).toBe(true);
+      const copyIcon = copyButton.find('.copy-button-icon');
+      expect(copyIcon.exists()).toBe(true);
     });
 
-    it('should not have copiedFileIndex state', () => {
-      // Verify the component doesn't track which file was copied
-      expect(wrapper.vm.copiedFileIndex).toBeUndefined();
-    });
-
-    it('should not have copy button with copy icon', () => {
-      // Old button had emoji icon for copy
-      const copyIcon = wrapper.find('.copy-button-icon');
-      expect(copyIcon.exists()).toBe(false);
-    });
-
-    it('file headers should not have copy functionality', () => {
-      // Verify files can't be copied by checking the file structure
+    it('file headers have copy functionality', () => {
       const fileHeaders = wrapper.findAll('.diff-file-header');
       if (fileHeaders.length > 0) {
-        // Each header should not have a copy button
+        // Each header should have a copy button
         fileHeaders.forEach((header) => {
-          expect(header.find('.copy-button').exists()).toBe(false);
+          expect(header.find('.copy-button').exists()).toBe(true);
         });
       }
     });
 
-    it('component code should not reference clipboard operations', () => {
-      // Verify the component code doesn't use clipboard API
-      const componentCode = DiffViewer.toString();
-      expect(componentCode).not.toContain('navigator.clipboard');
-      expect(componentCode).not.toContain('execCommand');
-    });
-
-    it('component code should not have copy-related event handlers', () => {
-      // Verify there's no @click handler for copying
-      const componentCode = DiffViewer.toString();
-      expect(componentCode).not.toContain('copyFilePath');
-      expect(componentCode).not.toContain('copiedFileIndex');
+    it('copy button has correct aria-label', () => {
+      const copyButton = wrapper.find('.copy-button');
+      if (copyButton.exists()) {
+        const ariaLabel = copyButton.attributes('aria-label');
+        expect(ariaLabel).toBeTruthy();
+        expect(ariaLabel).toContain('Copy');
+      }
     });
   });
 
@@ -90,10 +84,10 @@ index 1234567..abcdefg 100644
 +New line
  Content`;
 
+      const files = parseDiff(markdownDiff);
       const markdownWrapper = mount(DiffViewer, {
         props: {
-          diffContent: markdownDiff,
-          title: 'Markdown Diff',
+          files,
         },
       });
 
@@ -103,10 +97,10 @@ index 1234567..abcdefg 100644
     });
 
     it('handles expandAll prop', () => {
+      const files = parseDiff(mockDiffContent);
       const expandableWrapper = mount(DiffViewer, {
         props: {
-          diffContent: mockDiffContent,
-          title: 'Test',
+          files,
           expandAll: true,
         },
       });
@@ -132,52 +126,46 @@ index 1234567..abcdefg 100644
  const a = 1;
 +const b = 2;`;
 
+      const files = parseDiff(multiFileDiff);
       const multiWrapper = mount(DiffViewer, {
         props: {
-          diffContent: multiFileDiff,
-          title: 'Multiple Files',
+          files,
         },
       });
 
       // Should parse both files
-      expect(multiWrapper.vm.files).toBeDefined();
-      // Files should be detected
-      if (multiWrapper.vm.files.length > 0) {
-        expect(multiWrapper.vm.files[0].displayPath).toBe('file1.js');
-        if (multiWrapper.vm.files.length > 1) {
-          expect(multiWrapper.vm.files[1].displayPath).toBe('file2.js');
-        }
-      }
+      const filesProps = multiWrapper.props('files');
+      expect(filesProps).toBeDefined();
+      expect(filesProps.length).toBe(2);
+      expect(filesProps[0].displayPath).toBe('file1.js');
+      expect(filesProps[1].displayPath).toBe('file2.js');
     });
   });
 
   describe('expanded state management', () => {
-    it('has expandedFiles state', () => {
-      expect(wrapper.vm.expandedFiles).toBeDefined();
-      expect(typeof wrapper.vm.expandedFiles).toBe('object');
+    it('has file expansion functionality', () => {
+      // Component should render file headers which can be clicked to expand/collapse
+      const fileHeaders = wrapper.findAll('.diff-file-header');
+      expect(fileHeaders.length).toBeGreaterThan(0);
     });
 
     it('toggles file expansion state', async () => {
-      if (wrapper.vm.files && wrapper.vm.files.length > 0) {
-        const initialState = wrapper.vm.expandedFiles[0];
+      const fileHeaders = wrapper.findAll('.diff-file-header');
+      if (fileHeaders.length > 0) {
+        const initialContent = wrapper.find('.diff-file-content').exists();
 
-        wrapper.vm.toggleFile(0);
-        await wrapper.vm.$nextTick();
+        // Click the file header to toggle
+        await fileHeaders[0].trigger('click');
 
+        const newContent = wrapper.find('.diff-file-content').exists();
         // State should have toggled
-        const newState = wrapper.vm.expandedFiles[0];
-        expect(newState).not.toBe(initialState);
+        expect(newContent).not.toBe(initialContent);
       }
     });
   });
 
   describe('preview mode', () => {
-    it('has previewMode state for markdown', () => {
-      expect(wrapper.vm.previewMode).toBeDefined();
-      expect(typeof wrapper.vm.previewMode).toBe('object');
-    });
-
-    it('toggles preview mode without copy button', async () => {
+    it('has preview toggle for markdown files', () => {
       const markdownDiff = `diff --git a/test.md b/test.md
 index 1234567..abcdefg 100644
 --- a/test.md
@@ -187,30 +175,56 @@ index 1234567..abcdefg 100644
 +New content
  More text`;
 
+      const files = parseDiff(markdownDiff);
       const mdWrapper = mount(DiffViewer, {
         props: {
-          diffContent: markdownDiff,
-          title: 'Markdown',
+          files,
         },
       });
 
-      if (mdWrapper.vm.files && mdWrapper.vm.files.length > 0) {
-        const initialPreviewState = mdWrapper.vm.previewMode[0];
+      // Should have preview toggle button for markdown files
+      const previewToggle = mdWrapper.find('.preview-toggle');
+      expect(previewToggle.exists()).toBe(true);
+    });
 
-        mdWrapper.vm.togglePreview(0);
+    it('toggles preview mode and copy button remains', async () => {
+      const markdownDiff = `diff --git a/test.md b/test.md
+index 1234567..abcdefg 100644
+--- a/test.md
++++ b/test.md
+@@ -1,2 +1,3 @@
+ # Header
++New content
+ More text`;
+
+      const files = parseDiff(markdownDiff);
+      const mdWrapper = mount(DiffViewer, {
+        props: {
+          files,
+        },
+      });
+
+      const previewToggle = mdWrapper.find('.preview-toggle');
+      if (previewToggle.exists()) {
+        // Initially should show preview (markdown files default to preview mode)
+        const initialText = previewToggle.text();
+        const initialCopyButtons = mdWrapper.findAll('.copy-button').length;
+
+        await previewToggle.trigger('click');
         await mdWrapper.vm.$nextTick();
 
-        const newPreviewState = mdWrapper.vm.previewMode[0];
-        expect(newPreviewState).not.toBe(initialPreviewState);
+        const newText = previewToggle.text();
+        // Button text should have changed
+        expect(newText).not.toBe(initialText);
 
-        // Verify no copy buttons exist even with preview
-        expect(mdWrapper.findAll('.copy-button')).toHaveLength(0);
+        // Verify copy button still exists after toggling preview
+        expect(mdWrapper.findAll('.copy-button').length).toBe(initialCopyButtons);
       }
     });
   });
 
-  describe('no copy functionality', () => {
-    it('file action buttons should only include preview toggle', () => {
+  describe('copy and preview functionality together', () => {
+    it('markdown files have both copy button and preview toggle', () => {
       // Find a markdown file to test buttons
       const markdownDiff = `diff --git a/doc.md b/doc.md
 index 1234567..abcdefg 100644
@@ -220,34 +234,35 @@ index 1234567..abcdefg 100644
  # Title
 +Content`;
 
+      const files = parseDiff(markdownDiff);
       const mdWrapper = mount(DiffViewer, {
         props: {
-          diffContent: markdownDiff,
-          title: 'Markdown Doc',
+          files,
         },
       });
 
-      // Should have preview toggle but not copy button
+      // Should have both preview toggle and copy button
       const previewToggles = mdWrapper.findAll('.preview-toggle');
       const copyButtons = mdWrapper.findAll('.copy-button');
 
-      // Copy buttons should not exist
-      expect(copyButtons).toHaveLength(0);
+      expect(previewToggles.length).toBeGreaterThan(0);
+      expect(copyButtons.length).toBeGreaterThan(0);
     });
 
-    it('does not expose copyFilePath method in component API', () => {
-      // Verify the method is not part of the component's public API
-      const vm = wrapper.vm;
-      expect(Object.getOwnPropertyNames(vm)).not.toContain('copyFilePath');
-    });
+    it('non-markdown files have copy button but no preview toggle', () => {
+      const jsFiles = parseDiff(mockDiffContent);
+      const jsWrapper = mount(DiffViewer, {
+        props: {
+          files: jsFiles,
+        },
+      });
 
-    it('does not track copied file state', async () => {
-      // Try to look for any clipboard-related state
-      const vm = wrapper.vm;
-      const stateKeys = Object.keys(vm.$data || {});
+      // Should have copy button but not preview toggle
+      const copyButtons = jsWrapper.findAll('.copy-button');
+      const previewToggles = jsWrapper.findAll('.preview-toggle');
 
-      // Should not have copiedFileIndex tracking
-      expect(stateKeys).not.toContain('copiedFileIndex');
+      expect(copyButtons.length).toBeGreaterThan(0);
+      expect(previewToggles.length).toBe(0);
     });
   });
 });

@@ -3,11 +3,12 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { nextTick } from 'vue';
 
-// Mock the API
-vi.mock('../api/ApiClient.js', () => ({
+// Mock the API - MUST be before imports that use it
+vi.mock('../composables/useApi.js', () => ({
   api: {
     getSessionSummary: vi.fn().mockResolvedValue(null),
     regenerateSessionSummary: vi.fn().mockResolvedValue({ shortSummary: 'Test summary' }),
+    generateSessionSummary: vi.fn().mockResolvedValue({ shortSummary: 'Test summary' }),
     getConversations: vi.fn().mockResolvedValue([]),
   },
 }));
@@ -15,6 +16,22 @@ vi.mock('../api/ApiClient.js', () => ({
 // Mock the sessions store
 vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: vi.fn(),
+}));
+
+// Mock the UI store
+vi.mock('../stores/ui.js', () => ({
+  useUiStore: vi.fn(() => ({
+    error: vi.fn(),
+    success: vi.fn(),
+  })),
+}));
+
+// Mock WebSocket composable
+vi.mock('../composables/useWebSocket.js', () => ({
+  useSessionSubscription: vi.fn(() => ({
+    onSummaryUpdate: vi.fn(() => vi.fn()),
+    onSummaryGenerating: vi.fn(() => vi.fn()),
+  })),
 }));
 
 // Mock router
@@ -25,7 +42,7 @@ vi.mock('vue-router', () => ({
 }));
 
 import SummaryTab from './SummaryTab.vue';
-import { api } from '../api/ApiClient.js';
+import { api } from '../composables/useApi.js';
 import { useSessionsStore } from '../stores/sessions.js';
 
 describe('SummaryTab', () => {

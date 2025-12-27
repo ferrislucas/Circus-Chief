@@ -1,5 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { setActivePinia, createPinia } from 'pinia';
+import { describe, it, expect, vi } from 'vitest';
 import { useCommandButtonsStore } from './commandButtons.js';
 
 // Mock the API module
@@ -18,10 +17,6 @@ vi.mock('../composables/useApi.js', () => ({
 import { api } from '../composables/useApi.js';
 
 describe('CommandButtons Store', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
-    vi.clearAllMocks();
-  });
 
   describe('state', () => {
     it('has correct initial state', () => {

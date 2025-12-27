@@ -2,8 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick, defineComponent } from 'vue';
 import { setActivePinia, createPinia } from 'pinia';
-import { useCanvasStore } from '../stores/canvas.js';
-import { useUiStore } from '../stores/ui.js';
 
 // Mock the API - MUST be before imports that use it
 vi.mock('../composables/useApi.js', () => ({
@@ -17,6 +15,8 @@ vi.mock('../composables/useApi.js', () => ({
 // Import AFTER mocks are set up
 import CanvasTab from './CanvasTab.vue';
 import { api } from '../composables/useApi.js';
+import { useCanvasStore } from '../stores/canvas.js';
+import { useUiStore } from '../stores/ui.js';
 
 describe('CanvasTab', () => {
   let canvasStore;
@@ -49,6 +49,8 @@ describe('CanvasTab', () => {
       props,
       global: {
         stubs: {
+          'canvas-file-list': CanvasFileListStub,
+          'canvas-file-viewer': CanvasFileViewerStub,
           CanvasFileList: CanvasFileListStub,
           CanvasFileViewer: CanvasFileViewerStub,
         },
@@ -85,6 +87,10 @@ describe('CanvasTab', () => {
 
       wrapper1.unmount();
 
+      // Need a fresh pinia for the second mount to simulate actual remount behavior
+      setActivePinia(createPinia());
+      canvasStore = useCanvasStore();
+
       const wrapper2 = mountComponent();
       await flushPromises();
 
@@ -100,11 +106,9 @@ describe('CanvasTab', () => {
       });
       api.getCanvasItems.mockReturnValue(pendingPromise);
 
-      // Set loading to true manually since we're controlling the promise
-      canvasStore.loading = true;
-
       const wrapper = mountComponent();
 
+      // Wait for next tick to allow component to render with loading state
       await nextTick();
 
       expect(wrapper.find('.loading-state').exists()).toBe(true);
@@ -253,6 +257,10 @@ describe('CanvasTab', () => {
       wrapper1.unmount();
 
       // Second mount - simulates navigating back to canvas tab
+      // Need fresh pinia to simulate real remount
+      setActivePinia(createPinia());
+      canvasStore = useCanvasStore();
+
       api.getCanvasItems.mockResolvedValue([
         { id: '1', filename: 'initial.png', createdAt: 1000 },
         { id: '2', filename: 'new-item.png', createdAt: 2000 },

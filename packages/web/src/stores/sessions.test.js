@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { useSessionsStore } from './sessions.js';
 
@@ -32,8 +32,14 @@ vi.mock('../composables/useApi.js', () => ({
 import { api } from '../composables/useApi.js';
 
 describe('Sessions Store', () => {
+  // Create Pinia instance once for all tests
+  setActivePinia(createPinia());
+
   beforeEach(() => {
-    setActivePinia(createPinia());
+    // Reset the store state before each test
+    const store = useSessionsStore();
+    store.$reset();
+    // Reset all API mocks before each test
     vi.clearAllMocks();
   });
 

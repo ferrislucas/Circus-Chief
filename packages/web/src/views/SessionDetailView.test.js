@@ -165,6 +165,7 @@ describe('SessionDetailView', () => {
       },
       fetchSession: vi.fn().mockResolvedValue(undefined),
       fetchMessages: vi.fn().mockResolvedValue(undefined),
+      fetchConversations: vi.fn().mockResolvedValue(undefined),
       fetchWorkLogs: vi.fn().mockResolvedValue(undefined),
       deleteSession: vi.fn().mockResolvedValue(undefined),
       archiveSession: vi.fn().mockResolvedValue(undefined),
@@ -421,6 +422,10 @@ describe('SessionDetailView', () => {
         callOrder.push('fetchMessages');
         return Promise.resolve();
       });
+      mockSessionsStore.fetchConversations.mockImplementation(() => {
+        callOrder.push('fetchConversations');
+        return Promise.resolve();
+      });
       mockSessionsStore.fetchWorkLogs.mockImplementation(() => {
         callOrder.push('fetchWorkLogs');
         return Promise.resolve();
@@ -430,7 +435,7 @@ describe('SessionDetailView', () => {
       await flushPromises();
       await nextTick();
 
-      expect(callOrder).toEqual(['fetchSession', 'fetchMessages', 'fetchWorkLogs']);
+      expect(callOrder).toEqual(['fetchSession', 'fetchMessages', 'fetchConversations', 'fetchWorkLogs']);
     });
   });
 
@@ -495,9 +500,10 @@ describe('SessionDetailView', () => {
 
       // Mount the component (ConversationTab is not visible initially in real usage)
       const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
 
-      // Before any nextTick/flushPromises, conversations should already be fetching
-      // (since it's in onMounted, not in a tab's onMounted)
+      // Conversations should be fetched in onMounted (not waiting for tab visibility)
       expect(mockSessionsStore.fetchConversations).toHaveBeenCalled();
     });
 
@@ -562,8 +568,6 @@ describe('SessionDetailView', () => {
 
     it('conversations are fetched alongside other critical data', async () => {
       mockSessionsStore.fetchConversations = vi.fn();
-      const { useCanvasStore } = require('../stores/canvas.js');
-      const canvasStore = useCanvasStore();
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -574,7 +578,7 @@ describe('SessionDetailView', () => {
       expect(mockSessionsStore.fetchMessages).toHaveBeenCalled();
       expect(mockSessionsStore.fetchConversations).toHaveBeenCalled();
       expect(mockSessionsStore.fetchWorkLogs).toHaveBeenCalled();
-      expect(canvasStore.fetchItems).toHaveBeenCalled();
+      expect(mockCanvasStoreState.fetchItems).toHaveBeenCalled();
     });
   });
 
@@ -642,11 +646,13 @@ describe('SessionDetailView', () => {
         onSessionUpdate: vi.fn(() => vi.fn()),
         onSummaryUpdate: vi.fn(() => vi.fn()),
         onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
+      await flushPromises(); // Wait for async onMounted callbacks to complete
 
       // Simulate route change (as happens during navigation)
       mockRouteParams.id = 'some-other-id';
@@ -678,6 +684,7 @@ describe('SessionDetailView', () => {
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
+      await flushPromises(); // Wait for async onMounted operations including checkForChanges
 
       expect(mockGetSessionChanges).toHaveBeenCalledWith('test-session-id');
     });
@@ -699,11 +706,13 @@ describe('SessionDetailView', () => {
         onSessionUpdate: vi.fn(() => vi.fn()),
         onSummaryUpdate: vi.fn(() => vi.fn()),
         onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
+      await flushPromises(); // Wait for async onMounted callbacks to complete
 
       // Clear initial call
       mockGetSessionChanges.mockClear();
@@ -734,11 +743,13 @@ describe('SessionDetailView', () => {
         onSessionUpdate: vi.fn(() => vi.fn()),
         onSummaryUpdate: vi.fn(() => vi.fn()),
         onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
+      await flushPromises(); // Wait for async onMounted callbacks to complete
 
       // Clear initial call
       mockGetSessionChanges.mockClear();
@@ -1327,6 +1338,7 @@ describe('SessionDetailView', () => {
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
+      await flushPromises(); // Wait for async onMounted callbacks to complete
 
       expect(mockOnUsageUpdate).toHaveBeenCalled();
     });
@@ -1354,6 +1366,7 @@ describe('SessionDetailView', () => {
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
+      await flushPromises(); // Wait for async onMounted callbacks to complete
 
       // Simulate final usage update with conversationId
       const usageData = {
@@ -1392,6 +1405,7 @@ describe('SessionDetailView', () => {
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
+      await flushPromises(); // Wait for async onMounted callbacks to complete
 
       // Simulate partial usage update with conversationId
       const usageData = {
@@ -1430,6 +1444,7 @@ describe('SessionDetailView', () => {
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
+      await flushPromises(); // Wait for async onMounted callbacks to complete
 
       // Simulate usage update without conversationId
       const usageData = {
@@ -1467,6 +1482,7 @@ describe('SessionDetailView', () => {
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
+      await flushPromises(); // Wait for async onMounted callbacks to complete
 
       expect(mockOnConversationUpdated).toHaveBeenCalled();
     });
@@ -1494,6 +1510,7 @@ describe('SessionDetailView', () => {
       const wrapper = mountComponent();
       await flushPromises();
       await nextTick();
+      await flushPromises(); // Wait for async onMounted callbacks to complete
 
       // Simulate conversation update
       const conversationData = {

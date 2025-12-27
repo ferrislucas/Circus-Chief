@@ -1,26 +1,33 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { defineComponent } from 'vue';
 import WorkLogPanel from './WorkLogPanel.vue';
 
-// Stub child components
-const ThinkingBlockStub = {
+// Stub child components - use defineComponent for better compatibility
+const ThinkingBlockStub = defineComponent({
   name: 'ThinkingBlock',
   template: '<div class="thinking-block-stub">{{ content }}</div>',
   props: ['content', 'timestamp', 'streaming'],
-};
+});
 
-const CommandBlockStub = {
+const CommandBlockStub = defineComponent({
   name: 'CommandBlock',
   template: '<div class="command-block-stub">{{ log.content }}</div>',
   props: ['log'],
-};
+});
 
 describe('WorkLogPanel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   function mountComponent(props = {}) {
     return mount(WorkLogPanel, {
       props,
       global: {
         stubs: {
+          'thinking-block': ThinkingBlockStub,
+          'command-block': CommandBlockStub,
           ThinkingBlock: ThinkingBlockStub,
           CommandBlock: CommandBlockStub,
         },

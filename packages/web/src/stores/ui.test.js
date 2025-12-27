@@ -1,11 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { setActivePinia, createPinia } from 'pinia';
+import { describe, it, expect } from 'vitest';
 import { useUiStore } from './ui.js';
 
 describe('UI Store', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
-  });
 
   it('adds a toast', () => {
     const store = useUiStore();

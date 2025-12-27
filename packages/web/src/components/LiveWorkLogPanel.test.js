@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import { setActivePinia, createPinia } from 'pinia';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
 
 // Stub child components
@@ -17,6 +18,10 @@ const CommandBlockStub = {
 };
 
 describe('LiveWorkLogPanel', () => {
+  // Set up Pinia before each test
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
   function mountComponent(props = {}) {
     return mount(LiveWorkLogPanel, {
       props,

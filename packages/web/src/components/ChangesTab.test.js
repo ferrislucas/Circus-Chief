@@ -99,7 +99,8 @@ describe('ChangesTab', () => {
 
     mountComponent();
 
-    expect(api.getSessionChanges).toHaveBeenCalledWith('test-session');
+    // Called with sessionId, compareMode ('local'), and branch (null)
+    expect(api.getSessionChanges).toHaveBeenCalledWith('test-session', 'local', null);
   });
 
   it('displays staged changes when present', async () => {
@@ -277,7 +278,8 @@ describe('ChangesTab', () => {
 
     await flushPromises();
 
-    expect(api.getSessionChanges).toHaveBeenCalledWith('custom-session-id');
+    // Called with sessionId, compareMode ('local'), and branch (null)
+    expect(api.getSessionChanges).toHaveBeenCalledWith('custom-session-id', 'local', null);
   });
 
   it('handles null staged/unstaged values', async () => {
@@ -290,99 +292,130 @@ describe('ChangesTab', () => {
     expect(wrapper.text()).toContain('No git changes to show');
   });
 
-  describe('branch comparison removal', () => {
-    it('does not render mode toggle buttons', async () => {
+  describe('branch comparison feature', () => {
+    it('renders mode toggle buttons when changes are present', async () => {
+      const stagedDiff = [
+        'diff --git a/file.js b/file.js',
+        'index 1234567..abcdefg 100644',
+        '--- a/file.js',
+        '+++ b/file.js',
+        '@@ -1,2 +1,3 @@',
+        ' const x = 1;',
+        '+const y = 2;',
+      ].join('\n');
+
+      api.getSessionChanges.mockResolvedValue({ staged: stagedDiff, unstaged: '', untracked: '' });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // The mode toggle should exist when there are changes
+      expect(wrapper.find('.mode-toggle').exists()).toBe(true);
+      expect(wrapper.text()).toContain('Local Changes');
+    });
+
+    it('has compareMode state defaulting to local', async () => {
       api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
 
       const wrapper = mountComponent();
 
       await flushAll(wrapper);
 
-      // The old mode toggle should not exist
-      expect(wrapper.find('.mode-toggle').exists()).toBe(false);
+      // Verify compareMode ref exists and defaults to 'local'
+      expect(wrapper.vm.compareMode).toBe('local');
     });
 
-    it('does not have compareMode state', async () => {
+    it('has defaultBranch state', async () => {
       api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
 
       const wrapper = mountComponent();
 
       await flushAll(wrapper);
 
-      // Verify no compareMode ref
-      expect(wrapper.vm.compareMode).toBeUndefined();
+      // Verify defaultBranch ref exists (defaults to null)
+      expect(wrapper.vm.defaultBranch).toBe(null);
     });
 
-    it('does not have defaultBranch state', async () => {
+    it('has branchLabel computed property', async () => {
       api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
 
       const wrapper = mountComponent();
 
       await flushAll(wrapper);
 
-      // Verify no defaultBranch ref
-      expect(wrapper.vm.defaultBranch).toBeUndefined();
+      // Verify branchLabel computed exists (returns 'branch' when defaultBranch is null)
+      expect(wrapper.vm.branchLabel).toBe('branch');
     });
 
-    it('does not have branchLabel computed property', async () => {
-      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
-
-      const wrapper = mountComponent();
-
-      await flushAll(wrapper);
-
-      // Verify no branchLabel computed
-      expect(wrapper.vm.branchLabel).toBeUndefined();
-    });
-
-    it('always calls getSessionChanges with only sessionId', async () => {
+    it('calls getSessionChanges with sessionId, compareMode, and branch', async () => {
       api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
 
       mountComponent({ sessionId: 'test-session' });
 
       await flushPromises();
 
-      // Should call with only sessionId, no additional parameters
-      expect(api.getSessionChanges).toHaveBeenCalledWith('test-session');
+      // Should call with sessionId, compareMode ('local'), and branch (null)
+      expect(api.getSessionChanges).toHaveBeenCalledWith('test-session', 'local', null);
       expect(api.getSessionChanges).toHaveBeenCalledTimes(1);
     });
 
-    it('does not pass compareMode or branch to API', async () => {
+    it('passes compareMode and branch to API', async () => {
       api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
 
       const wrapper = mountComponent();
 
       await flushAll(wrapper);
 
-      // Verify the API was called once, with no branch comparison parameters
-      expect(api.getSessionChanges).toHaveBeenCalledWith('test-session');
-      // Check the call signature - should only have sessionId
+      // Verify the API was called with all three parameters
+      expect(api.getSessionChanges).toHaveBeenCalledWith('test-session', 'local', null);
+      // Check the call signature - should have 3 arguments
       const calls = api.getSessionChanges.mock.calls;
-      expect(calls[0]).toHaveLength(1); // Only one argument (sessionId)
+      expect(calls[0]).toHaveLength(3); // sessionId, compareMode, branch
     });
 
-    it('does not refetch on compareMode changes', async () => {
-      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+    it('refetches on compareMode changes', async () => {
+      const stagedDiff = [
+        'diff --git a/file.js b/file.js',
+        'index 1234567..abcdefg 100644',
+        '--- a/file.js',
+        '+++ b/file.js',
+        '@@ -1,2 +1,3 @@',
+        ' const x = 1;',
+        '+const y = 2;',
+      ].join('\n');
+
+      api.getSessionChanges.mockResolvedValue({ staged: stagedDiff, unstaged: '', untracked: '' });
 
       const wrapper = mountComponent();
 
       await flushAll(wrapper);
 
-      // Clear the mock to verify no additional calls are made
+      // Clear the mock to verify additional calls are made
       api.getSessionChanges.mockClear();
+      api.getSessionChanges.mockResolvedValue({ staged: stagedDiff, unstaged: '', untracked: '' });
 
-      // Try to change a compareMode (which shouldn't exist)
-      // This test verifies the component doesn't have watch on compareMode
-      // by checking that no additional API calls are made
-      await nextTick();
-      await wrapper.vm.$forceUpdate();
+      // Change the compareMode
+      wrapper.vm.compareMode = 'branch';
+      await flushAll(wrapper);
 
-      // No additional API calls should be made
-      expect(api.getSessionChanges).not.toHaveBeenCalled();
+      // Additional API call should be made with new compareMode
+      expect(api.getSessionChanges).toHaveBeenCalledWith('test-session', 'branch', null);
+      expect(api.getSessionChanges).toHaveBeenCalledTimes(1);
     });
 
-    it('toolbar has only Expand/Collapse button', async () => {
-      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+    it('toolbar shows mode toggle when there are changes', async () => {
+      const stagedDiff = [
+        'diff --git a/file.js b/file.js',
+        'index 1234567..abcdefg 100644',
+        '--- a/file.js',
+        '+++ b/file.js',
+        '@@ -1,2 +1,3 @@',
+        ' const x = 1;',
+        '+const y = 2;',
+      ].join('\n');
+
+      api.getSessionChanges.mockResolvedValue({ staged: stagedDiff, unstaged: '', untracked: '' });
 
       const wrapper = mountComponent();
 
@@ -391,10 +424,32 @@ describe('ChangesTab', () => {
       const toolbar = wrapper.find('.changes-toolbar');
       expect(toolbar.exists()).toBe(true);
 
-      // Should have one button (Expand/Collapse All)
+      // Should have mode toggle buttons + Expand/Collapse button
       const buttons = toolbar.findAll('button');
-      expect(buttons).toHaveLength(1);
-      expect(buttons[0].text()).toMatch(/Expand All|Collapse All/);
+      // At least 2 buttons: Local Changes + Expand/Collapse All
+      // (Compare to branch button only shows if defaultBranch is set)
+      expect(buttons.length).toBeGreaterThanOrEqual(2);
+      expect(toolbar.text()).toContain('Local Changes');
+      expect(toolbar.text()).toMatch(/Expand All|Collapse All/);
+    });
+
+    it('computes branchLabel from defaultBranch', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Set defaultBranch to 'origin/main'
+      wrapper.vm.defaultBranch = 'origin/main';
+      await nextTick();
+
+      expect(wrapper.vm.branchLabel).toBe('main');
+
+      // Set defaultBranch to 'origin/master'
+      wrapper.vm.defaultBranch = 'origin/master';
+      await nextTick();
+
+      expect(wrapper.vm.branchLabel).toBe('master');
     });
   });
 
