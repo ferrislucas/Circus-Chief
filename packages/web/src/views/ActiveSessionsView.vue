@@ -11,7 +11,7 @@
       <button
         v-for="status in ['running', 'idle']"
         :key="status"
-        :class="['filter-btn', { active: statusFilters.includes(status) }]"
+        :class="['filter-btn', { active: sessionsStore.statusFilter === status }]"
         @click="toggleFilter(status)"
       >
         {{ status }}
@@ -60,9 +60,6 @@ import SessionCard from '../components/SessionCard.vue';
 
 const sessionsStore = useSessionsStore();
 
-// Filter state - empty means show all
-const statusFilters = ref([]);
-
 // Statuses that count as "idle" (not actively running)
 const IDLE_STATUSES = ['waiting', 'stopped', 'error'];
 // Statuses that count as "running" (actively processing or starting up)
@@ -70,26 +67,26 @@ const RUNNING_STATUSES = ['running', 'starting'];
 
 const toggleFilter = (status) => {
   // If the clicked filter is already active, clear all filters (show all)
-  if (statusFilters.value.includes(status)) {
-    statusFilters.value = [];
+  if (sessionsStore.statusFilter === status) {
+    sessionsStore.setStatusFilter(null);
   } else {
     // Otherwise, set this filter as the only active one (exclusive)
-    statusFilters.value = [status];
+    sessionsStore.setStatusFilter(status);
   }
 };
 
 const filteredSessions = computed(() => {
   const sessions = sessionsStore.activeSessions;
-  if (statusFilters.value.length === 0) return sessions;
+  if (!sessionsStore.statusFilter) return sessions;
 
   return sessions.filter(session => {
     const status = session.status;
     // "idle" filter matches waiting, stopped, or error statuses
-    if (statusFilters.value.includes('idle') && IDLE_STATUSES.includes(status)) {
+    if (sessionsStore.statusFilter === 'idle' && IDLE_STATUSES.includes(status)) {
       return true;
     }
     // "running" filter matches running and starting statuses
-    if (statusFilters.value.includes('running') && RUNNING_STATUSES.includes(status)) {
+    if (sessionsStore.statusFilter === 'running' && RUNNING_STATUSES.includes(status)) {
       return true;
     }
     return false;
@@ -110,6 +107,7 @@ const cleanups = [];
 const { onSessionCreated, onSessionUpdated, onSessionDeleted, onSessionSummaryUpdated } = useGlobalSessionSubscription();
 
 onMounted(() => {
+  sessionsStore.restoreStatusFilter();
   sessionsStore.fetchActiveSessions();
 
   // Set up WebSocket listeners for real-time updates

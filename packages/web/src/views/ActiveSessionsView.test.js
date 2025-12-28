@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { nextTick, defineComponent } from 'vue';
+import { nextTick, defineComponent, reactive } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 
 // Mock vue-router
@@ -90,11 +90,14 @@ describe('ActiveSessionsView', () => {
     mockSessionsStore = {
       loading: false,
       error: null,
+      statusFilter: null,
       activeSessions: [
         { id: 'session-1', name: 'Active Session 1', status: 'running', projectId: 'project-1' },
         { id: 'session-2', name: 'Active Session 2', status: 'waiting', projectId: 'project-2' },
       ],
       fetchActiveSessions: vi.fn().mockResolvedValue(),
+      restoreStatusFilter: vi.fn(),
+      setStatusFilter: vi.fn(),
     };
     useSessionsStore.mockReturnValue(mockSessionsStore);
   });
@@ -289,9 +292,10 @@ describe('Status filtering', () => {
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);
 
-    mockSessionsStore = {
+    mockSessionsStore = reactive({
       loading: false,
       error: null,
+      statusFilter: null,
       activeSessions: [
         { id: 'session-1', name: 'Running Session', status: 'running', projectId: 'project-1' },
         { id: 'session-2', name: 'Waiting Session', status: 'waiting', projectId: 'project-2' },
@@ -300,7 +304,11 @@ describe('Status filtering', () => {
         { id: 'session-5', name: 'Stopped Session', status: 'stopped', projectId: 'project-4' },
       ],
       fetchActiveSessions: vi.fn().mockResolvedValue(),
-    };
+      restoreStatusFilter: vi.fn(),
+      setStatusFilter(filter) {
+        this.statusFilter = filter;
+      },
+    });
     useSessionsStore.mockReturnValue(mockSessionsStore);
   });
 
@@ -522,8 +530,11 @@ describe('ActiveSessionsView polling fallback', () => {
     useSessionsStore.mockReturnValue({
       loading: false,
       error: null,
+      statusFilter: null,
       activeSessions: [{ id: 'session-1', status: 'running' }],
       fetchActiveSessions: vi.fn().mockResolvedValue(),
+      restoreStatusFilter: vi.fn(),
+      setStatusFilter: vi.fn(),
     });
 
     mockGetSessionSummary.mockResolvedValue(null);

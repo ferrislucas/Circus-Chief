@@ -13,6 +13,7 @@ export const useSessionsStore = defineStore('sessions', {
     workLogs: {}, // Keyed by messageId: { [messageId]: WorkLog[] }
     partialThinking: null, // Current streaming thinking content
     expandedSessions: new Set(), // Track which parent sessions are expanded
+    statusFilter: null, // 'running' | 'idle' | null (null = show all)
     runningUsage: null, // Partial usage during a turn
     loading: false,
     error: null,
@@ -990,6 +991,44 @@ export const useSessionsStore = defineStore('sessions', {
       } catch (error) {
         console.warn('Failed to restore expanded sessions state:', error);
         this.expandedSessions = new Set();
+      }
+    },
+
+    /**
+     * Set status filter and persist to localStorage
+     * @param {string|null} filter - 'running' | 'idle' | null (null = show all)
+     */
+    setStatusFilter(filter) {
+      this.statusFilter = filter;
+      this.saveStatusFilter();
+    },
+
+    /**
+     * Save status filter to localStorage
+     */
+    saveStatusFilter() {
+      try {
+        if (this.statusFilter) {
+          localStorage.setItem('sessionStatusFilter', this.statusFilter);
+        } else {
+          localStorage.removeItem('sessionStatusFilter');
+        }
+      } catch (error) {
+        console.warn('Failed to save status filter:', error);
+      }
+    },
+
+    /**
+     * Restore status filter from localStorage
+     */
+    restoreStatusFilter() {
+      try {
+        const filter = localStorage.getItem('sessionStatusFilter');
+        if (filter === 'running' || filter === 'idle') {
+          this.statusFilter = filter;
+        }
+      } catch (error) {
+        console.warn('Failed to restore status filter:', error);
       }
     },
   },
