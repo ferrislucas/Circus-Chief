@@ -186,6 +186,150 @@ describe('CommandButtons Store', () => {
       expect(store.runs['run-1'].exitCode).toBe(1);
     });
 
+    describe('completeRun Race Condition Prevention', () => {
+      it('replaces output when server output is larger (more complete)', () => {
+        const store = useCommandButtonsStore();
+        store.runs = {
+          'run-1': { runId: 'run-1', status: 'running', output: 'partial', exitCode: null },
+        };
+
+        // Server has more complete output
+        store.completeRun('run-1', 0, 'partial\nMore content here');
+
+        expect(store.runs['run-1'].output).toBe('partial\nMore content here');
+        expect(store.runs['run-1'].status).toBe('success');
+      });
+
+      it('preserves accumulated output when server output is smaller', () => {
+        const store = useCommandButtonsStore();
+        // Simulate streaming: client accumulated more output than what server sends
+        const accumulatedOutput = 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5\n';
+        store.runs = {
+          'run-1': {
+            runId: 'run-1',
+            status: 'running',
+            output: accumulatedOutput,
+            exitCode: null
+          },
+        };
+
+        // Server completion arrives with less output (incomplete)
+        const serverOutput = 'Line 1\nLine 2\nLine';
+        store.completeRun('run-1', 0, serverOutput);
+
+        // Should keep the accumulated output, not replace with incomplete server output
+        expect(store.runs['run-1'].output).toBe(accumulatedOutput);
+        expect(store.runs['run-1'].status).toBe('success');
+        expect(store.runs['run-1'].exitCode).toBe(0);
+      });
+
+      it('preserves accumulated output when server output equals accumulated', () => {
+        const store = useCommandButtonsStore();
+        const output = 'Full output\nAll content';
+        store.runs = {
+          'run-1': {
+            runId: 'run-1',
+            status: 'running',
+            output: output,
+            exitCode: null
+          },
+        };
+
+        // Server completion with same length output
+        store.completeRun('run-1', 0, output);
+
+        // Should keep the existing accumulated output
+        expect(store.runs['run-1'].output).toBe(output);
+        expect(store.runs['run-1'].status).toBe('success');
+      });
+
+      it('does not replace output when server output is empty string', () => {
+        const store = useCommandButtonsStore();
+        const accumulatedOutput = 'Accumulated output from streaming';
+        store.runs = {
+          'run-1': {
+            runId: 'run-1',
+            status: 'running',
+            output: accumulatedOutput,
+            exitCode: null
+          },
+        };
+
+        // Server sends empty output (shouldn't happen but guard against it)
+        store.completeRun('run-1', 0, '');
+
+        // Should keep the accumulated output
+        expect(store.runs['run-1'].output).toBe(accumulatedOutput);
+        expect(store.runs['run-1'].status).toBe('success');
+      });
+
+      it('handles null server output gracefully', () => {
+        const store = useCommandButtonsStore();
+        const accumulatedOutput = 'Accumulated output';
+        store.runs = {
+          'run-1': {
+            runId: 'run-1',
+            status: 'running',
+            output: accumulatedOutput,
+            exitCode: null
+          },
+        };
+
+        // Server sends null output
+        store.completeRun('run-1', 0, null);
+
+        // Should keep the accumulated output
+        expect(store.runs['run-1'].output).toBe(accumulatedOutput);
+        expect(store.runs['run-1'].status).toBe('success');
+      });
+
+      it('handles race condition: completion arrives before all streaming chunks', () => {
+        const store = useCommandButtonsStore();
+
+        // Simulate: run starts, first chunk arrives
+        store.runs = {
+          'run-1': {
+            runId: 'run-1',
+            status: 'running',
+            output: 'Chunk 1\n',
+            exitCode: null
+          },
+        };
+
+        // More chunks arrive
+        store.appendOutput('run-1', 'Chunk 2\n');
+        store.appendOutput('run-1', 'Chunk 3\n');
+
+        // But completion arrives with server's view (might be incomplete if buffering)
+        const serverOutput = 'Chunk 1\nChunk 2\n'; // Missing chunk 3
+        store.completeRun('run-1', 0, serverOutput);
+
+        // Should keep accumulated output with all chunks
+        expect(store.runs['run-1'].output).toBe('Chunk 1\nChunk 2\nChunk 3\n');
+      });
+
+      it('replaces with server output when server has everything', () => {
+        const store = useCommandButtonsStore();
+
+        // Simulate: streaming output
+        store.runs = {
+          'run-1': {
+            runId: 'run-1',
+            status: 'running',
+            output: 'Chunk 1\nChunk 2\n',
+            exitCode: null
+          },
+        };
+
+        // Server completion with full output
+        const fullOutput = 'Chunk 1\nChunk 2\nChunk 3\nChunk 4\nComplete\n';
+        store.completeRun('run-1', 0, fullOutput);
+
+        // Should replace with complete server output
+        expect(store.runs['run-1'].output).toBe(fullOutput);
+      });
+    });
+
     it('errorRun updates status and appends error message', () => {
       const store = useCommandButtonsStore();
       store.runs = {
