@@ -20,14 +20,6 @@ export function createApp(options = {}) {
   // CORS (allow all in dev)
   app.use(cors());
 
-  // Request logging (dev only)
-  if (!options.production) {
-    app.use((req, _res, next) => {
-      console.log(`${req.method} ${req.path}`);
-      next();
-    });
-  }
-
   // Body parsing
   app.use(express.json({ limit: MAX_JSON_SIZE }));
   app.use(express.urlencoded({ extended: true, limit: MAX_JSON_SIZE }));
