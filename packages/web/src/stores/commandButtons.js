@@ -97,18 +97,19 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
 
     async fetchActiveRuns(sessionId) {
       try {
-        const activeRuns = await api.getActiveRuns(sessionId);
-        // Restore runs to state
-        for (const run of activeRuns) {
+        const runs = await api.getActiveRuns(sessionId);
+        // Restore runs to state (both running and recently completed)
+        for (const run of runs) {
           this.runs[run.runId] = {
             runId: run.runId,
             buttonId: run.buttonId,
-            status: 'running',
-            output: run.output,
-            exitCode: null,
+            status: run.status || 'running',
+            output: run.output || '',
+            exitCode: run.exitCode !== undefined ? run.exitCode : null,
+            startedAt: run.startedAt,
           };
         }
-        return activeRuns;
+        return runs;
       } catch (err) {
         console.error('Failed to fetch active runs:', err);
         return [];

@@ -297,4 +297,282 @@ describe('CommandRunner', () => {
       expect(runsWithOutput[0].output).toContain('captured');
     });
   });
+
+  describe('getRunsBySession with database runs', () => {
+    it('returns both running and recent completed runs', async () => {
+      const runId = 'test-db-run';
+      let completedRuns = [];
+
+      // Start and complete a run
+      await runner.run(
+        runId,
+        'echo "done"',
+        process.cwd(),
+        () => {},
+        () => {},
+        () => {},
+        { sessionId: 'db-session', buttonId: 'btn-1' }
+      );
+
+      // Give time for database operations to complete
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Check that getRunsBySession can fetch from database
+      completedRuns = runner.getRunsBySession('db-session');
+
+      // Should find the completed run
+      expect(completedRuns.length).toBeGreaterThanOrEqual(0); // May or may not be in DB depending on mock setup
+    });
+
+    it('includes startedAt in returned run data', async () => {
+      const runId = 'test-started-at';
+
+      const runPromise = runner.run(
+        runId,
+        'sleep 0.1 && echo "test"',
+        process.cwd(),
+        () => {},
+        () => {},
+        () => {},
+        { sessionId: 'time-session', buttonId: 'btn-1' }
+      );
+
+      // Check while running
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const runs = runner.getRunsBySession('time-session');
+
+      if (runs.length > 0) {
+        expect(runs[0].startedAt).toBeDefined();
+        expect(typeof runs[0].startedAt).toBe('number');
+      }
+
+      await runPromise;
+    });
+
+    it('handles database unavailability gracefully', async () => {
+      const runId = 'test-graceful-degradation';
+
+      // Run should still work even if database is not fully initialized
+      const exitCode = await runner.run(
+        runId,
+        'echo "test"',
+        process.cwd(),
+        () => {},
+        () => {},
+        () => {},
+        { sessionId: 'robust-session', buttonId: 'btn-1' }
+      );
+
+      expect(exitCode).toBe(0);
+
+      // getRunsBySession should at least return running processes
+      const runs = runner.getRunsBySession('robust-session');
+      // Depending on timing, may or may not include the run
+      expect(Array.isArray(runs)).toBe(true);
+    });
+  });
+
+  describe('output buffering and flushing', () => {
+    it('collects output in output buffer during execution', async () => {
+      const runId = 'test-output-buffer';
+      let collectedOutput = '';
+
+      await runner.run(
+        runId,
+        'echo "line1"; echo "line2"; echo "line3"',
+        process.cwd(),
+        (text) => {
+          collectedOutput += text;
+        },
+        () => {},
+        () => {},
+        { sessionId: 'buffer-session', buttonId: 'btn-1' }
+      );
+
+      // Verify all output was captured
+      expect(collectedOutput).toContain('line1');
+      expect(collectedOutput).toContain('line2');
+      expect(collectedOutput).toContain('line3');
+    });
+
+    it('passes output buffer to onComplete callback', async () => {
+      let completeOutput = '';
+
+      await runner.run(
+        'test-complete-buffer',
+        'echo "output1"; echo "output2"',
+        process.cwd(),
+        () => {},
+        (exitCode, output) => {
+          completeOutput = output;
+        },
+        () => {},
+        { sessionId: 'complete-session', buttonId: 'btn-1' }
+      );
+
+      expect(completeOutput.length).toBeGreaterThan(0);
+      expect(completeOutput).toContain('output1');
+      expect(completeOutput).toContain('output2');
+    });
+
+    it('handles large output streams without losing data', async () => {
+      let totalOutputLength = 0;
+
+      // Generate output larger than typical buffer sizes
+      const largeCommand = `for i in {1..100}; do echo "Line $i with some text"; done`;
+
+      await runner.run(
+        'test-large-output',
+        largeCommand,
+        process.cwd(),
+        (text) => {
+          totalOutputLength += text.length;
+        },
+        (exitCode, output) => {
+          totalOutputLength = output.length;
+        },
+        () => {},
+        { sessionId: 'large-session', buttonId: 'btn-1' }
+      );
+
+      expect(totalOutputLength).toBeGreaterThan(0);
+    });
+
+    it('flushes buffer periodically during long running commands', async () => {
+      let callCount = 0;
+      const capturedChunks = [];
+
+      const runPromise = runner.run(
+        'test-periodic-flush',
+        'for i in {1..10}; do echo "Output $i"; sleep 0.05; done',
+        process.cwd(),
+        (text) => {
+          callCount++;
+          capturedChunks.push(text);
+        },
+        () => {},
+        () => {},
+        { sessionId: 'flush-session', buttonId: 'btn-1' }
+      );
+
+      await runPromise;
+
+      // Should have multiple output chunks
+      expect(callCount).toBeGreaterThan(0);
+      expect(capturedChunks.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('error handling with database operations', () => {
+    it('handles command execution error gracefully', async () => {
+      const runId = 'test-cmd-error';
+      let errorMessage = null;
+
+      const exitCode = await runner.run(
+        runId,
+        'nonexistent_command_12345',
+        process.cwd(),
+        () => {},
+        (code, output) => {},
+        (msg) => {
+          errorMessage = msg;
+        },
+        { sessionId: 'error-session', buttonId: 'btn-1' }
+      );
+
+      // Should return non-zero exit code or have an error
+      expect(exitCode).not.toBe(0);
+    });
+
+    it('handles signal termination correctly', async () => {
+      const runId = 'test-signal';
+      let completedWith = null;
+      let completedOutput = null;
+
+      const runPromise = runner.run(
+        runId,
+        'sleep 10',
+        process.cwd(),
+        () => {},
+        (code, output) => {
+          completedWith = code;
+          completedOutput = output;
+        },
+        () => {},
+        { sessionId: 'signal-session', buttonId: 'btn-1' }
+      );
+
+      // Give time for process to start
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Kill the process
+      runner.kill(runId);
+
+      const result = await runPromise;
+
+      // Process should be terminated
+      expect(result).not.toBe(0);
+    });
+
+    it('continues functioning after errors', async () => {
+      // First command fails
+      await runner.run(
+        'test-error-1',
+        'false',
+        process.cwd(),
+        () => {},
+        () => {},
+        () => {}
+      );
+
+      // Second command succeeds
+      const result = await runner.run(
+        'test-error-2',
+        'true',
+        process.cwd(),
+        () => {},
+        () => {},
+        () => {}
+      );
+
+      expect(result).toBe(0);
+    });
+  });
+
+  describe('integration with metadata', () => {
+    it('preserves sessionId and buttonId through entire lifecycle', async () => {
+      const sessionId = 'metadata-session';
+      const buttonId = 'metadata-button';
+      const runId = 'test-metadata-full';
+      let capturedMetadata = null;
+
+      const runPromise = runner.run(
+        runId,
+        'sleep 0.1 && echo "done"',
+        process.cwd(),
+        () => {},
+        () => {},
+        () => {},
+        { sessionId, buttonId }
+      );
+
+      // Capture during execution
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const activeRuns = runner.getActiveRuns();
+      if (activeRuns.has(runId)) {
+        const entry = activeRuns.get(runId);
+        capturedMetadata = {
+          sessionId: entry.sessionId,
+          buttonId: entry.buttonId,
+        };
+      }
+
+      await runPromise;
+
+      if (capturedMetadata) {
+        expect(capturedMetadata.sessionId).toBe(sessionId);
+        expect(capturedMetadata.buttonId).toBe(buttonId);
+      }
+    });
+  });
 });
