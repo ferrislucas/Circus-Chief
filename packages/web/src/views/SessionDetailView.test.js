@@ -1270,6 +1270,109 @@ describe('SessionDetailView', () => {
       });
     });
 
+    describe('archive confirmation dialog', () => {
+      let confirmSpy;
+
+      beforeEach(() => {
+        confirmSpy = vi.spyOn(window, 'confirm');
+      });
+
+      afterEach(() => {
+        confirmSpy.mockRestore();
+      });
+
+      it('shows confirmation dialog when archive button is clicked', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        confirmSpy.mockReturnValue(true);
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(confirmSpy).toHaveBeenCalledWith('Archive this session?');
+      });
+
+      it('shows confirmation dialog for unarchive when session is archived', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        mockSessionsStore.currentSession.archived = true;
+        confirmSpy.mockReturnValue(true);
+        mockSessionsStore.unarchiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(confirmSpy).toHaveBeenCalledWith('Restore this session to active?');
+      });
+
+      it('does not call archiveSession when user cancels confirmation', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        confirmSpy.mockReturnValue(false);
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockSessionsStore.archiveSession).not.toHaveBeenCalled();
+      });
+
+      it('calls archiveSession when user confirms archive', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        confirmSpy.mockReturnValue(true);
+        mockSessionsStore.archiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockSessionsStore.archiveSession).toHaveBeenCalledWith('test-session-id');
+      });
+
+      it('does not call unarchiveSession when user cancels unarchive confirmation', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        mockSessionsStore.currentSession.archived = true;
+        confirmSpy.mockReturnValue(false);
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockSessionsStore.unarchiveSession).not.toHaveBeenCalled();
+      });
+
+      it('calls unarchiveSession when user confirms unarchive', async () => {
+        mockSessionsStore.currentSession.status = 'stopped';
+        mockSessionsStore.currentSession.archived = true;
+        confirmSpy.mockReturnValue(true);
+        mockSessionsStore.unarchiveSession.mockResolvedValue({});
+
+        const wrapper = mountComponent();
+        await flushPromises();
+        await nextTick();
+
+        await wrapper.find('.btn-archive-session').trigger('click');
+        await flushPromises();
+
+        expect(mockSessionsStore.unarchiveSession).toHaveBeenCalledWith('test-session-id');
+      });
+    });
+
     describe('archive button does not interfere with delete button', () => {
       it('both archive and delete buttons are present when session is archivable', async () => {
         mockSessionsStore.currentSession.status = 'stopped';

@@ -397,6 +397,11 @@ async function handleArchive() {
     const projectId = sessionsStore.currentSession?.projectId;
     const isArchived = sessionsStore.currentSession?.archived;
 
+    const confirmMessage = isArchived ? 'Restore this session to active?' : 'Archive this session?';
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
     if (isArchived) {
       await sessionsStore.unarchiveSession(sessionId);
       uiStore.success('Session unarchived');
