@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
-import { nextTick, reactive } from 'vue';
+import { nextTick } from 'vue';
 
 // Mock the API - MUST be before imports that use it
 vi.mock('../composables/useApi.js', () => ({
@@ -13,18 +13,7 @@ vi.mock('../composables/useApi.js', () => ({
   },
 }));
 
-// Mock the sessions store
-vi.mock('../stores/sessions.js', () => ({
-  useSessionsStore: vi.fn(),
-}));
-
-// Mock the UI store
-vi.mock('../stores/ui.js', () => ({
-  useUiStore: vi.fn(() => ({
-    error: vi.fn(),
-    success: vi.fn(),
-  })),
-}));
+// Note: Not mocking sessions and UI stores - will use actual Pinia instances
 
 // Mock WebSocket composable
 vi.mock('../composables/useWebSocket.js', () => ({
@@ -44,24 +33,31 @@ vi.mock('vue-router', () => ({
 import SummaryTab from './SummaryTab.vue';
 import { api } from '../composables/useApi.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useUiStore } from '../stores/ui.js';
 
 describe('SummaryTab', () => {
-  let mockSessionsStore;
+  let sessionsStore;
+  let uiStore;
   let consoleError;
 
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
 
-    mockSessionsStore = reactive({
-      sessions: [{ id: 'sess-123', status: 'waiting' }],
-      currentSession: { id: 'sess-123', status: 'waiting' },
-      conversations: [],
-      fetchConversations: vi.fn().mockResolvedValue([]),
-      switchConversation: vi.fn().mockResolvedValue(),
-    });
+    // Get actual store instances
+    sessionsStore = useSessionsStore();
+    uiStore = useUiStore();
 
-    vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+    // Initialize store with test data
+    sessionsStore.sessions = [{ id: 'sess-123', status: 'waiting' }];
+    sessionsStore.currentSession = { id: 'sess-123', status: 'waiting' };
+    sessionsStore.conversations = [];
+
+    // Mock store methods
+    vi.spyOn(sessionsStore, 'fetchConversations').mockResolvedValue([]);
+    vi.spyOn(sessionsStore, 'switchConversation').mockResolvedValue();
+    vi.spyOn(uiStore, 'error').mockImplementation(() => {});
+    vi.spyOn(uiStore, 'success').mockImplementation(() => {});
 
     // Reset API mock
     vi.mocked(api.getConversations).mockReset();
@@ -114,7 +110,7 @@ describe('SummaryTab', () => {
     });
 
     it('displays session status', async () => {
-      mockSessionsStore.sessions = [{ id: 'sess-123', status: 'completed' }];
+      sessionsStore.sessions = [{ id: 'sess-123', status: 'completed' }];
 
       const wrapper = mountComponent();
       await flushAll(wrapper);
