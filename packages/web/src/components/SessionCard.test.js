@@ -678,12 +678,20 @@ describe('SessionCard', () => {
         expect(wrapper.find('.archive-btn').exists()).toBe(false);
       });
 
-      it('hides archive button for waiting sessions', () => {
+      it('hides archive button for starting sessions', () => {
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'starting' },
+          showArchive: true,
+        });
+        expect(wrapper.find('.archive-btn').exists()).toBe(false);
+      });
+
+      it('shows archive button for waiting sessions', () => {
         const wrapper = mountComponent({
           session: { ...baseSession, status: 'waiting' },
           showArchive: true,
         });
-        expect(wrapper.find('.archive-btn').exists()).toBe(false);
+        expect(wrapper.find('.archive-btn').exists()).toBe(true);
       });
 
       it('hides archive button when showArchive is false', () => {
