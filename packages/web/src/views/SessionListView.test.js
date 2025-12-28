@@ -217,11 +217,13 @@ describe('SessionListView', () => {
       };
 
       onSessionSummaryUpdatedCallback('session-1', newSummary);
+      await flushPromises();
       await nextTick();
 
       // Find the SessionCard for session-1 and check the summary prop
-      const sessionCard = wrapper.find('[data-session-id="session-1"]');
+      let sessionCard = wrapper.find('[data-session-id="session-1"]');
       expect(sessionCard.exists()).toBe(true);
+      sessionCard = wrapper.find('[data-session-id="session-1"]'); // Re-query after state update
       expect(sessionCard.attributes('data-summary')).toBe(JSON.stringify(newSummary));
     });
 
@@ -260,11 +262,15 @@ describe('SessionListView', () => {
 
       onSessionSummaryUpdatedCallback('session-1', summary1);
       onSessionSummaryUpdatedCallback('session-2', summary2);
+      await flushPromises();
       await nextTick();
 
-      // Verify both summaries are updated
-      const card1 = wrapper.find('[data-session-id="session-1"]');
-      const card2 = wrapper.find('[data-session-id="session-2"]');
+      // Verify both summaries are updated - re-query after state update
+      let card1 = wrapper.find('[data-session-id="session-1"]');
+      let card2 = wrapper.find('[data-session-id="session-2"]');
+
+      card1 = wrapper.find('[data-session-id="session-1"]');
+      card2 = wrapper.find('[data-session-id="session-2"]');
 
       expect(card1.attributes('data-summary')).toBe(JSON.stringify(summary1));
       expect(card2.attributes('data-summary')).toBe(JSON.stringify(summary2));
@@ -277,14 +283,17 @@ describe('SessionListView', () => {
       // Initial summary
       const initialSummary = { shortSummary: 'Initial' };
       onSessionSummaryUpdatedCallback('session-1', initialSummary);
+      await flushPromises();
       await nextTick();
 
       // Updated summary
       const updatedSummary = { shortSummary: 'Updated' };
       onSessionSummaryUpdatedCallback('session-1', updatedSummary);
+      await flushPromises();
       await nextTick();
 
-      const card = wrapper.find('[data-session-id="session-1"]');
+      let card = wrapper.find('[data-session-id="session-1"]');
+      card = wrapper.find('[data-session-id="session-1"]'); // Re-query
       expect(card.attributes('data-summary')).toBe(JSON.stringify(updatedSummary));
     });
   });
