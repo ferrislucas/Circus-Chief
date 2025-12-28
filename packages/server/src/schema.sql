@@ -194,6 +194,18 @@ CREATE TABLE IF NOT EXISTS command_buttons (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
+-- Command runs (execution history for command buttons)
+CREATE TABLE IF NOT EXISTS command_runs (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  button_id TEXT NOT NULL REFERENCES command_buttons(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'success', 'error', 'killed')),
+  output TEXT NOT NULL DEFAULT '',
+  exit_code INTEGER,
+  started_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  completed_at INTEGER
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
@@ -214,3 +226,6 @@ CREATE INDEX IF NOT EXISTS idx_summaries_session ON session_summaries(session_id
 CREATE INDEX IF NOT EXISTS idx_attachments_message ON message_attachments(message_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_session ON message_attachments(session_id);
 CREATE INDEX IF NOT EXISTS idx_command_buttons_project ON command_buttons(project_id);
+CREATE INDEX IF NOT EXISTS idx_command_runs_session ON command_runs(session_id);
+CREATE INDEX IF NOT EXISTS idx_command_runs_button ON command_runs(button_id);
+CREATE INDEX IF NOT EXISTS idx_command_runs_status ON command_runs(status);

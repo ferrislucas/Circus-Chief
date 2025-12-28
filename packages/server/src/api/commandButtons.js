@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { commandButtons, sessions } from '../database.js';
+import { commandButtons, sessions, commandRuns } from '../database.js';
 import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@claudetools/shared/contracts/commandButtons';
 import { commandRunner } from '../services/commandRunner.js';
 import { broadcastToSession } from '../websocket.js';
@@ -155,6 +155,41 @@ router.get('/runs', (req, res) => {
 
   const activeRuns = commandRunner.getRunsBySession(sessionId);
   res.json(activeRuns);
+});
+
+// GET /api/sessions/:sessionId/command-buttons/runs/:runId - Get single run by ID
+router.get('/runs/:runId', (req, res) => {
+  const { sessionId, runId } = req.params;
+
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Check if run is currently running (in memory)
+  if (commandRunner.isRunning(runId)) {
+    const activeRuns = commandRunner.getRunsBySession(sessionId);
+    const run = activeRuns.find((r) => r.runId === runId);
+    if (run) {
+      return res.json(run);
+    }
+  }
+
+  // Otherwise check database
+  const run = commandRuns.getById(runId);
+  if (!run || run.sessionId !== sessionId) {
+    return res.status(404).json({ error: 'Run not found' });
+  }
+
+  res.json({
+    runId: run.id,
+    buttonId: run.buttonId,
+    status: run.status,
+    output: run.output,
+    exitCode: run.exitCode,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+  });
 });
 
 // POST /api/sessions/:sessionId/command-buttons/runs/:runId/kill - Kill running command

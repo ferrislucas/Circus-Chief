@@ -361,5 +361,208 @@ describe('CommandButtons Store', () => {
 
       expect(Object.keys(store.runs).length).toBe(0);
     });
+
+    it('fetchActiveRuns restores both running and recently completed runs', async () => {
+      const store = useCommandButtonsStore();
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'running',
+          output: 'Running...\n',
+          startedAt: Date.now(),
+        },
+        {
+          runId: 'run-2',
+          buttonId: 'btn-2',
+          status: 'success',
+          output: 'Complete\n',
+          exitCode: 0,
+          startedAt: Date.now() - 5000,
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      const result = await store.fetchActiveRuns('sess-123');
+
+      expect(api.getActiveRuns).toHaveBeenCalledWith('sess-123');
+      expect(store.runs['run-1']).toBeDefined();
+      expect(store.runs['run-1'].status).toBe('running');
+      expect(store.runs['run-2']).toBeDefined();
+      expect(store.runs['run-2'].status).toBe('success');
+      expect(result).toEqual(runs);
+    });
+
+    it('fetchActiveRuns handles recently completed runs with proper status', async () => {
+      const store = useCommandButtonsStore();
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'success',
+          output: 'Success\n',
+          exitCode: 0,
+          startedAt: Date.now() - 2000,
+        },
+        {
+          runId: 'run-2',
+          buttonId: 'btn-2',
+          status: 'error',
+          output: 'Error occurred\n',
+          exitCode: 1,
+          startedAt: Date.now() - 3000,
+        },
+        {
+          runId: 'run-3',
+          buttonId: 'btn-3',
+          status: 'killed',
+          output: 'Terminated\n',
+          startedAt: Date.now() - 1000,
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      expect(store.runs['run-1'].status).toBe('success');
+      expect(store.runs['run-2'].status).toBe('error');
+      expect(store.runs['run-2'].exitCode).toBe(1);
+      expect(store.runs['run-3'].status).toBe('killed');
+    });
+
+    it('fetchActiveRuns preserves undefined exitCode for running processes', async () => {
+      const store = useCommandButtonsStore();
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'running',
+          output: 'Running...\n',
+          exitCode: undefined,
+          startedAt: Date.now(),
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      expect(store.runs['run-1'].exitCode).toBeNull();
+    });
+
+    it('fetchActiveRuns handles mixed running and completed runs', async () => {
+      const store = useCommandButtonsStore();
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'running',
+          output: 'Processing...\n',
+          startedAt: Date.now(),
+        },
+        {
+          runId: 'run-2',
+          buttonId: 'btn-2',
+          status: 'running',
+          output: 'Also processing...\n',
+          startedAt: Date.now(),
+        },
+        {
+          runId: 'run-3',
+          buttonId: 'btn-1',
+          status: 'success',
+          output: 'Completed\n',
+          exitCode: 0,
+          startedAt: Date.now() - 10000,
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      const runningRuns = Object.values(store.runs).filter((r) => r.status === 'running');
+      const completedRuns = Object.values(store.runs).filter((r) => r.status !== 'running');
+
+      expect(runningRuns.length).toBe(2);
+      expect(completedRuns.length).toBe(1);
+    });
+
+    it('fetchActiveRuns returns empty array when no runs exist', async () => {
+      const store = useCommandButtonsStore();
+      api.getActiveRuns.mockResolvedValue([]);
+
+      const result = await store.fetchActiveRuns('sess-123');
+
+      expect(result).toEqual([]);
+      expect(Object.keys(store.runs).length).toBe(0);
+    });
+
+    it('fetchActiveRuns handles API error gracefully', async () => {
+      const store = useCommandButtonsStore();
+      const error = new Error('API Error');
+      api.getActiveRuns.mockRejectedValue(error);
+
+      const result = await store.fetchActiveRuns('sess-123');
+
+      expect(result).toEqual([]);
+      expect(store.error).toBe('Failed to fetch active runs: API Error');
+    });
+
+    it('fetchActiveRuns includes startedAt in restored runs', async () => {
+      const store = useCommandButtonsStore();
+      const startTime = Date.now() - 5000;
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'success',
+          output: 'Complete\n',
+          exitCode: 0,
+          startedAt: startTime,
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      expect(store.runs['run-1'].startedAt).toBe(startTime);
+    });
+
+    it('fetchActiveRuns sets exitCode to null when undefined for running process', async () => {
+      const store = useCommandButtonsStore();
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'running',
+          output: 'Running\n',
+          exitCode: undefined,
+          startedAt: Date.now(),
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      expect(store.runs['run-1'].exitCode).toBeNull();
+    });
+
+    it('fetchActiveRuns preserves non-zero exit codes for failed runs', async () => {
+      const store = useCommandButtonsStore();
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'error',
+          output: 'Failed\n',
+          exitCode: 127,
+          startedAt: Date.now(),
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      expect(store.runs['run-1'].exitCode).toBe(127);
+    });
   });
 });

@@ -1,12 +1,13 @@
 import { spawn } from 'child_process';
-import { databaseManager } from '../database.js';
+import { databaseManager, commandRuns } from '../database.js';
 
 /**
  * Service for running commands and managing their execution
  */
 export class CommandRunner {
   constructor() {
-    this.processes = new Map(); // runId -> { process, timeout }
+    this.processes = new Map(); // runId -> { process, timeout, outputBuffer, lastDbWrite }
+    this.outputBufferFlushInterval = 500; // Flush buffered output every 500ms
   }
 
   /**
@@ -25,6 +26,20 @@ export class CommandRunner {
 
     return new Promise((resolve) => {
       try {
+        // Create database record for this run (if database is available)
+        if (commandRuns && typeof commandRuns.create === 'function') {
+          try {
+            commandRuns.create({ id: runId, sessionId, buttonId });
+            console.log(`[commandRunner.run] Created run record in database for runId: ${runId}`);
+          } catch (dbErr) {
+            console.warn(
+              `[commandRunner.run] Warning: Failed to create database record for runId: ${runId}`,
+              dbErr.message
+            );
+            // Continue without database persistence - the run will still work
+          }
+        }
+
         const child = spawn('sh', ['-c', command], {
           cwd: workingDirectory,
           stdio: ['pipe', 'pipe', 'pipe'],
@@ -38,30 +53,94 @@ export class CommandRunner {
           sessionId,
           buttonId,
           output: '',
+          outputBuffer: '', // Accumulate output for batch writes
+          lastDbWrite: Date.now(),
+          bufferFlushTimer: null,
         };
         this.processes.set(runId, entry);
+
+        // Helper to flush buffered output to database
+        const flushOutputBuffer = () => {
+          if (entry.outputBuffer && sessionId && buttonId && commandRuns && typeof commandRuns.appendOutput === 'function') {
+            try {
+              commandRuns.appendOutput(runId, entry.outputBuffer);
+              entry.lastDbWrite = Date.now();
+            } catch (err) {
+              console.warn(`[commandRunner.run] Warning: Error flushing output to database for runId: ${runId}`, err.message);
+            }
+            entry.outputBuffer = '';
+          }
+        };
+
+        // Set up periodic buffer flushing
+        const setupBufferTimer = () => {
+          entry.bufferFlushTimer = setInterval(flushOutputBuffer, this.outputBufferFlushInterval);
+        };
+
+        const clearBufferTimer = () => {
+          if (entry.bufferFlushTimer) {
+            clearInterval(entry.bufferFlushTimer);
+            entry.bufferFlushTimer = null;
+          }
+        };
+
+        setupBufferTimer();
 
         child.stdout.on('data', (data) => {
           const text = data.toString();
           entry.output += text;
+          entry.outputBuffer += text;
           if (onOutput) onOutput(text);
         });
 
         child.stderr.on('data', (data) => {
           const text = data.toString();
           entry.output += text;
+          entry.outputBuffer += text;
           if (onOutput) onOutput(text);
         });
 
         child.on('error', (err) => {
+          clearBufferTimer();
+          flushOutputBuffer(); // Flush any remaining output
           const msg = `Failed to execute command: ${err.message}`;
+          console.error(`[commandRunner.run] Error for runId: ${runId}`, err);
           if (onError) onError(msg);
+          // Mark as error in database (if available)
+          if (commandRuns && typeof commandRuns.complete === 'function') {
+            try {
+              commandRuns.complete(runId, 1, entry.output);
+            } catch (dbErr) {
+              console.warn(`[commandRunner.run] Warning: Error marking run as error in database for runId: ${runId}`, dbErr.message);
+            }
+          }
           this.processes.delete(runId);
           resolve(1);
         });
 
         child.on('close', (exitCode, signal) => {
-          console.log(`[commandRunner.run] Process closed for runId: ${runId}, exitCode: ${exitCode}, signal: ${signal}`);
+          clearBufferTimer();
+          flushOutputBuffer(); // Flush any remaining output
+          console.log(
+            `[commandRunner.run] Process closed for runId: ${runId}, exitCode: ${exitCode}, signal: ${signal}`
+          );
+
+          // Mark as complete in database (if available)
+          if (commandRuns && typeof commandRuns.complete === 'function' && typeof commandRuns.markKilled === 'function') {
+            try {
+              if (signal) {
+                // Process was killed by signal, treat as error
+                commandRuns.markKilled(runId, entry.output);
+              } else {
+                // Normal completion
+                commandRuns.complete(runId, exitCode || 0, entry.output);
+              }
+              console.log(`[commandRunner.run] Marked run as complete in database for runId: ${runId}`);
+            } catch (dbErr) {
+              console.warn(`[commandRunner.run] Warning: Error marking run as complete in database for runId: ${runId}`, dbErr.message);
+            }
+          }
+
           this.processes.delete(runId);
           // If killed by signal, exitCode is null. Call onComplete with null to trigger error status
           if (onComplete) onComplete(exitCode, entry.output);
@@ -69,7 +148,16 @@ export class CommandRunner {
         });
       } catch (err) {
         const msg = `Error running command: ${err.message}`;
+        console.error(`[commandRunner.run] Exception for runId: ${runId}`, err);
         if (onError) onError(msg);
+        // Mark as error in database (if available)
+        if (commandRuns && typeof commandRuns.complete === 'function') {
+          try {
+            commandRuns.complete(runId, 1, '');
+          } catch (dbErr) {
+            console.warn(`[commandRunner.run] Warning: Error marking failed run in database for runId: ${runId}`, dbErr.message);
+          }
+        }
         this.processes.delete(runId);
         resolve(1);
       }
@@ -121,6 +209,26 @@ export class CommandRunner {
           console.log(`[commandRunner.kill] Process already exited for runId: ${runId}`);
         }
       }, 1000);
+
+      // Flush any remaining output (database mark as killed will be done in close event)
+      if (entry.bufferFlushTimer) {
+        clearInterval(entry.bufferFlushTimer);
+        entry.bufferFlushTimer = null;
+      }
+      if (entry.outputBuffer && commandRuns && typeof commandRuns.appendOutput === 'function') {
+        try {
+          commandRuns.appendOutput(runId, entry.outputBuffer);
+          entry.outputBuffer = '';
+        } catch (err) {
+          console.warn(
+            `[commandRunner.kill] Warning: Error flushing output to database for runId: ${runId}`,
+            err.message
+          );
+        }
+      }
+      // Note: We don't mark as killed here because the close event will handle it
+      // This is to avoid race conditions where we mark it killed before the process actually closes
+
       return true;
     } catch (err) {
       console.error(`Error killing process ${runId}:`, err);
@@ -146,12 +254,14 @@ export class CommandRunner {
   }
 
   /**
-   * Get all active runs for a specific session
+   * Get all active runs for a specific session (both running and recent completed)
    * @param {string} sessionId
    * @returns {Array} Array of run info objects
    */
   getRunsBySession(sessionId) {
     const runs = [];
+
+    // Add currently running processes
     for (const [runId, entry] of this.processes) {
       if (entry.sessionId === sessionId) {
         runs.push({
@@ -159,10 +269,39 @@ export class CommandRunner {
           buttonId: entry.buttonId,
           status: 'running',
           output: entry.output,
-          startTime: entry.startTime,
+          exitCode: undefined,
+          startedAt: entry.startTime,
         });
       }
     }
+
+    // Add recent completed runs from database (last 1 hour)
+    // Note: commandRuns might not be available in test environments
+    if (commandRuns && typeof commandRuns.getRecentBySessionId === 'function') {
+      try {
+        const dbRuns = commandRuns.getRecentBySessionId(sessionId, 3600000, false);
+        for (const dbRun of dbRuns) {
+          // Don't duplicate running processes
+          const isRunning = runs.some((r) => r.runId === dbRun.id);
+          if (!isRunning) {
+            runs.push({
+              runId: dbRun.id,
+              buttonId: dbRun.buttonId,
+              status: dbRun.status,
+              output: dbRun.output,
+              exitCode: dbRun.exitCode,
+              startedAt: dbRun.startedAt,
+            });
+          }
+        }
+      } catch (err) {
+        console.error(
+          `[commandRunner.getRunsBySession] Error fetching database runs for sessionId: ${sessionId}`,
+          err
+        );
+      }
+    }
+
     return runs;
   }
 }

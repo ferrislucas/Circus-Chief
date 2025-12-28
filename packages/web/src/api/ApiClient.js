@@ -698,12 +698,22 @@ export class ApiClient {
   }
 
   /**
-   * Get active command runs for a session
+   * Get active command runs for a session (both running and recently completed)
    * @param {string} sessionId - Session ID
    * @returns {Promise<Array>}
    */
   async getActiveRuns(sessionId) {
     return this.#request('GET', `/sessions/${sessionId}/command-buttons/runs`);
+  }
+
+  /**
+   * Get a single command run by ID
+   * @param {string} sessionId - Session ID
+   * @param {string} runId - Run ID
+   * @returns {Promise<Object>}
+   */
+  async getCommandRun(sessionId, runId) {
+    return this.#request('GET', `/sessions/${sessionId}/command-buttons/runs/${runId}`);
   }
 
   /**
