@@ -97,8 +97,8 @@ const props = defineProps({
 
 const emit = defineEmits(['run', 'kill', 'copy-output', 'send-to-canvas']);
 
-// CHANGED: Default to true (output visible by default)
-const showOutput = ref(true);
+// Default to true only if command is running, false otherwise
+const showOutput = ref(props.run?.status === 'running');
 
 // NEW: Ref to the output container div for scrolling
 const outputRef = ref(null);
@@ -203,6 +203,22 @@ watch(
   () => props.run?.runId,
   () => {
     userHasScrolledUp.value = false;
+  },
+  { immediate: false } // Don't fire on component mount
+);
+
+/**
+ * Watch for status changes and auto-expand output when running
+ *
+ * When a command starts running, automatically expand the output pane
+ * so users can see the live output immediately.
+ */
+watch(
+  () => props.run?.status,
+  (newStatus) => {
+    if (newStatus === 'running') {
+      showOutput.value = true;
+    }
   },
   { immediate: false } // Don't fire on component mount
 );

@@ -255,12 +255,16 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Output is visible by default, no need to expand
+    // Output is hidden by default for completed runs, click header to expand
+    const header = wrapper.find('.output-header');
+    await header.trigger('click');
+    await nextTick();
+
     expect(wrapper.find('.output-content').exists()).toBe(true);
     expect(wrapper.text()).toContain('Test output');
   });
 
-  it('shows output section by default', async () => {
+  it('shows output section by default for running commands', async () => {
     const button = {
       id: '1',
       label: 'Test',
@@ -270,9 +274,9 @@ describe('CommandButtonItem', () => {
     const run = {
       runId: 'run-1',
       buttonId: '1',
-      status: 'success',
+      status: 'running',
       output: 'Test output',
-      exitCode: 0,
+      exitCode: null,
     };
 
     const wrapper = mount(CommandButtonItem, {
@@ -283,7 +287,7 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Output should be visible by default
+    // Output should be visible by default when running
     expect(wrapper.find('.output-content').exists()).toBe(true);
   });
 
@@ -297,9 +301,9 @@ describe('CommandButtonItem', () => {
     const run = {
       runId: 'run-1',
       buttonId: '1',
-      status: 'success',
+      status: 'running',
       output: 'Test output',
-      exitCode: 0,
+      exitCode: null,
     };
 
     const wrapper = mount(CommandButtonItem, {
@@ -312,7 +316,7 @@ describe('CommandButtonItem', () => {
 
     const header = wrapper.find('.output-header');
 
-    // Initially visible
+    // Initially visible (because running)
     expect(wrapper.find('.output-content').exists()).toBe(true);
 
     // Click to hide
@@ -349,7 +353,11 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Output is visible by default
+    // Expand output section first
+    const header = wrapper.find('.output-header');
+    await header.trigger('click');
+    await nextTick();
+
     // Copy button exists
     const copyBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Copy'));
     expect(copyBtn).toBeDefined();
@@ -383,7 +391,12 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Output is visible by default, find copy button
+    // Expand output first
+    const header = wrapper.find('.output-header');
+    await header.trigger('click');
+    await nextTick();
+
+    // Find and click copy button
     const copyBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Copy'));
     expect(copyBtn).toBeDefined();
     await copyBtn.trigger('click');
@@ -416,7 +429,11 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Output is visible by default
+    // Expand output section first
+    const header = wrapper.find('.output-header');
+    await header.trigger('click');
+    await nextTick();
+
     // Canvas button exists
     const canvasBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Canvas'));
     expect(canvasBtn).toBeDefined();
@@ -450,7 +467,12 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Output is visible by default, find canvas button
+    // Expand output first
+    const header = wrapper.find('.output-header');
+    await header.trigger('click');
+    await nextTick();
+
+    // Find and click canvas button
     const canvasBtn = wrapper.findAll('.btn').find((btn) => btn.text().includes('Canvas'));
     expect(canvasBtn).toBeDefined();
     await canvasBtn.trigger('click');
@@ -525,9 +547,9 @@ describe('CommandButtonItem', () => {
     const run = {
       runId: 'run-1',
       buttonId: 'btn-1',
-      status: 'success',
+      status: 'running',
       output: '\x1b[32mSuccess\x1b[0m',
-      exitCode: 0,
+      exitCode: null,
     };
 
     const wrapper = mount(CommandButtonItem, {
@@ -557,9 +579,9 @@ describe('CommandButtonItem', () => {
     const run = {
       runId: 'run-1',
       buttonId: 'btn-1',
-      status: 'error',
+      status: 'running',
       output: '\x1b[31mError occurred\x1b[0m',
-      exitCode: 1,
+      exitCode: null,
     };
 
     const wrapper = mount(CommandButtonItem, {
@@ -765,9 +787,9 @@ describe('CommandButtonItem', () => {
       const run = {
         runId: 'run-1',
         buttonId: '1',
-        status: 'success',
+        status: 'running',
         output: largeOutput,
-        exitCode: 0,
+        exitCode: null,
       };
 
       const wrapper = mount(CommandButtonItem, {
