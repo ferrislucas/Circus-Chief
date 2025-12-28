@@ -79,11 +79,7 @@ describe('Command Buttons API', () => {
     buttonId = button.id;
 
     // Mount the routers AFTER creating test data
-    app.use('/api/projects/:projectId/command-buttons', (req, res, next) => {
-      // Merge the projectId from the URL params
-      req.params.projectId = req.params.projectId;
-      commandButtonsRouter(req, res, next);
-    });
+    app.use('/api/projects/:projectId/command-buttons', commandButtonsRouter);
     app.use('/api/sessions', sessionsRouter);
   });
 
