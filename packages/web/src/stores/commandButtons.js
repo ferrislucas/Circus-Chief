@@ -98,11 +98,18 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
         // Send API request in background (don't await from caller)
         // If it fails, we'll catch and update the run status to 'error'
         api.runCommandButton(sessionId, buttonId).catch((err) => {
-          // API failed: mark run as error
+          // API failed: mark run as error using $patch for reactivity
           if (this.runs[runId]) {
-            this.runs[runId].status = 'error';
-            this.runs[runId].output = `[Error] Failed to start command: ${err.message}`;
-            this.runs[runId].exitCode = 1;
+            this.$patch({
+              runs: {
+                [runId]: {
+                  ...this.runs[runId],
+                  status: 'error',
+                  output: `[Error] Failed to start command: ${err.message}`,
+                  exitCode: 1,
+                },
+              },
+            });
           }
           this.error = err.message;
         });
@@ -154,32 +161,56 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
     // Handle WebSocket messages
     appendOutput(runId, text) {
       if (this.runs[runId]) {
-        this.runs[runId].output += text;
+        // Use $patch to ensure reactivity
+        this.$patch({
+          runs: {
+            [runId]: {
+              ...this.runs[runId],
+              output: this.runs[runId].output + text,
+            },
+          },
+        });
       }
     },
 
     completeRun(runId, exitCode, output) {
       if (this.runs[runId]) {
-        this.runs[runId].exitCode = exitCode;
-        this.runs[runId].completedAt = Date.now();
-
+        // Use $patch to ensure reactivity
         // FIX: Only replace output if server has a more complete version
         // (longer output), otherwise keep the output we accumulated via
         // appendOutput calls. This prevents race conditions where the
         // completion message arrives before all streaming chunks.
-        if (output && output.length > this.runs[runId].output.length) {
-          this.runs[runId].output = output;
-        }
-        // Otherwise, keep the accumulated streamed output
+        const newOutput =
+          output && output.length > this.runs[runId].output.length
+            ? output
+            : this.runs[runId].output;
 
-        this.runs[runId].status = exitCode === 0 ? 'success' : 'error';
+        this.$patch({
+          runs: {
+            [runId]: {
+              ...this.runs[runId],
+              exitCode: exitCode,
+              completedAt: Date.now(),
+              output: newOutput,
+              status: exitCode === 0 ? 'success' : 'error',
+            },
+          },
+        });
       }
     },
 
     errorRun(runId, message) {
       if (this.runs[runId]) {
-        this.runs[runId].status = 'error';
-        this.runs[runId].output += `\n[Error] ${message}`;
+        // Use $patch to ensure reactivity
+        this.$patch({
+          runs: {
+            [runId]: {
+              ...this.runs[runId],
+              status: 'error',
+              output: this.runs[runId].output + `\n[Error] ${message}`,
+            },
+          },
+        });
       }
     },
 

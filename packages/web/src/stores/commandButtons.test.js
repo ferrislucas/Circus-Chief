@@ -372,6 +372,111 @@ describe('CommandButtons Store', () => {
   });
 
   describe('WebSocket message handlers', () => {
+    describe('appendOutput Reactivity ($patch)', () => {
+      it('appendOutput should update output reactively using $patch', () => {
+        const store = useCommandButtonsStore();
+        const runId = 'test-run-1';
+
+        // Create a run
+        store.runs = {
+          [runId]: {
+            runId,
+            buttonId: 'btn-1',
+            status: 'running',
+            output: 'Initial ',
+            exitCode: null,
+          },
+        };
+
+        // Track if $patch was called
+        const patchSpy = vi.spyOn(store, '$patch');
+
+        // Append output
+        store.appendOutput(runId, 'Hello ');
+        store.appendOutput(runId, 'World');
+
+        // Verify $patch was called for each append
+        expect(patchSpy).toHaveBeenCalledTimes(2);
+
+        // Verify output was appended correctly
+        expect(store.runs[runId].output).toBe('Initial Hello World');
+
+        patchSpy.mockRestore();
+      });
+
+      it('appendOutput does nothing for non-existent run', () => {
+        const store = useCommandButtonsStore();
+        store.appendOutput('nonexistent', 'text');
+        expect(store.runs['nonexistent']).toBeUndefined();
+      });
+    });
+
+    describe('completeRun Reactivity ($patch)', () => {
+      it('completeRun should update status and exitCode reactively using $patch', () => {
+        const store = useCommandButtonsStore();
+        const runId = 'test-run-2';
+
+        // Create a run
+        store.runs = {
+          [runId]: {
+            runId,
+            buttonId: 'btn-1',
+            status: 'running',
+            output: 'Command executed successfully',
+            exitCode: null,
+          },
+        };
+
+        // Track if $patch was called
+        const patchSpy = vi.spyOn(store, '$patch');
+
+        // Complete run with success
+        store.completeRun(runId, 0, 'Command executed successfully');
+
+        // Verify $patch was called
+        expect(patchSpy).toHaveBeenCalled();
+
+        // Verify run was updated correctly
+        expect(store.runs[runId].exitCode).toBe(0);
+        expect(store.runs[runId].status).toBe('success');
+        expect(store.runs[runId].completedAt).toBeGreaterThan(0);
+
+        patchSpy.mockRestore();
+      });
+    });
+
+    describe('errorRun Reactivity ($patch)', () => {
+      it('errorRun should update status reactively using $patch', () => {
+        const store = useCommandButtonsStore();
+        const runId = 'test-run-3';
+
+        // Create a run
+        store.runs = {
+          [runId]: {
+            runId,
+            buttonId: 'btn-1',
+            status: 'running',
+            output: 'Initial output',
+          },
+        };
+
+        // Track if $patch was called
+        const patchSpy = vi.spyOn(store, '$patch');
+
+        // Report error
+        store.errorRun(runId, 'Command failed');
+
+        // Verify $patch was called
+        expect(patchSpy).toHaveBeenCalled();
+
+        // Verify run was updated correctly
+        expect(store.runs[runId].status).toBe('error');
+        expect(store.runs[runId].output).toContain('[Error] Command failed');
+
+        patchSpy.mockRestore();
+      });
+    });
+
     it('appendOutput adds text to existing run', () => {
       const store = useCommandButtonsStore();
       store.runs = {
