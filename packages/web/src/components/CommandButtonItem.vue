@@ -71,13 +71,13 @@
     <!-- Loading Spinner (running state) -->
     <div v-if="run?.status === 'running'" class="running-indicator">
       <span class="spinner"></span>
-      Running...
+      Running <span class="elapsed-time">{{ elapsedTime }}</span>
     </div>
   </div>
 </template>
 
 <script setup>
-import { defineProps, defineEmits, ref, computed, watch, nextTick } from 'vue';
+import { defineProps, defineEmits, ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { ansiToHtml } from '../utils/ansi.js';
 
 const props = defineProps({
@@ -109,12 +109,66 @@ const userHasScrolledUp = ref(false);
 // NEW: Flag to prevent onScroll from firing during programmatic scrolls
 const isProgrammaticScroll = ref(false);
 
+// NEW: Elapsed time for running commands
+const elapsedTime = ref('0:00');
+let timerInterval = null;
+
 const truncateCommand = (command) => {
   const maxLength = 80;
   if (command.length > maxLength) {
     return command.substring(0, maxLength) + '...';
   }
   return command;
+};
+
+/**
+ * Update the elapsed time display for running commands
+ * Calculates time since startedAt and formats as MM:SS
+ */
+const updateElapsedTime = () => {
+  if (!props.run || props.run.status !== 'running') {
+    return;
+  }
+
+  const elapsed = Date.now() - props.run.startedAt;
+  const seconds = Math.floor(elapsed / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  elapsedTime.value = `${minutes}:${secs.toString().padStart(2, '0')}`;
+};
+
+/**
+ * Start the timer for running commands
+ * Updates elapsed time every 1 second
+ */
+const startTimer = () => {
+  if (!props.run || props.run.status !== 'running') {
+    return;
+  }
+
+  // Clear any existing timer
+  if (timerInterval) {
+    clearInterval(timerInterval);
+  }
+
+  // Update immediately
+  updateElapsedTime();
+
+  // Update every 1 second
+  timerInterval = setInterval(() => {
+    updateElapsedTime();
+  }, 1000);
+};
+
+/**
+ * Stop the timer and reset elapsed time
+ */
+const stopTimer = () => {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+  elapsedTime.value = '0:00';
 };
 
 /**
@@ -207,6 +261,24 @@ watch(
   { immediate: false } // Don't fire on component mount
 );
 
+/**
+ * Watch for run status changes to start/stop the timer
+ *
+ * When status changes to 'running', start the timer.
+ * When status changes away from 'running', stop the timer.
+ */
+watch(
+  () => props.run?.status,
+  (newStatus) => {
+    if (newStatus === 'running') {
+      startTimer();
+    } else {
+      stopTimer();
+    }
+  },
+  { immediate: false } // Don't fire on component mount
+);
+
 const statusIcon = computed(() => {
   if (!props.run) return '';
   switch (props.run.status) {
@@ -236,6 +308,26 @@ const handleCopy = () => {
 const handleCanvas = () => {
   emit('send-to-canvas', props.button.label, props.run.output);
 };
+
+/**
+ * Lifecycle hook: On component mount
+ *
+ * If a command is already running, start the timer.
+ */
+onMounted(() => {
+  if (props.run?.status === 'running') {
+    startTimer();
+  }
+});
+
+/**
+ * Lifecycle hook: Before component unmount
+ *
+ * Clean up the timer to prevent memory leaks.
+ */
+onBeforeUnmount(() => {
+  stopTimer();
+});
 
 // Expose methods for testing
 defineExpose({
@@ -392,6 +484,14 @@ defineExpose({
   color: var(--color-text-soft);
   font-size: 0.9rem;
   margin-top: 0.5rem;
+}
+
+.elapsed-time {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--color-text);
+  font-weight: 500;
+  min-width: 2.5rem;
 }
 
 .spinner {

@@ -65,6 +65,110 @@ describe('CommandButtons Store', () => {
       expect(active.length).toBe(2);
       expect(active.every((r) => r.status === 'running')).toBe(true);
     });
+
+    it('getButtonsByProjectId returns buttons for a specific project', () => {
+      const store = useCommandButtonsStore();
+      store.buttons = [
+        { id: 'btn-1', projectId: 'proj-1', label: 'Build' },
+        { id: 'btn-2', projectId: 'proj-1', label: 'Test' },
+        { id: 'btn-3', projectId: 'proj-2', label: 'Deploy' },
+      ];
+
+      const proj1Buttons = store.getButtonsByProjectId('proj-1');
+      expect(proj1Buttons.length).toBe(2);
+      expect(proj1Buttons.every((b) => b.projectId === 'proj-1')).toBe(true);
+    });
+
+    it('getButtonsByProjectId returns empty array when project has no buttons', () => {
+      const store = useCommandButtonsStore();
+      store.buttons = [
+        { id: 'btn-1', projectId: 'proj-1', label: 'Build' },
+      ];
+
+      const proj2Buttons = store.getButtonsByProjectId('proj-2');
+      expect(proj2Buttons).toEqual([]);
+    });
+
+    it('getLatestRunForButton returns most recent run for button in session', () => {
+      const store = useCommandButtonsStore();
+      const now = Date.now();
+      store.runs = {
+        'run-1': {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          sessionId: 'sess-1',
+          startedAt: now - 10000,
+          status: 'success',
+        },
+        'run-2': {
+          runId: 'run-2',
+          buttonId: 'btn-1',
+          sessionId: 'sess-1',
+          startedAt: now - 5000,
+          status: 'success',
+        },
+        'run-3': {
+          runId: 'run-3',
+          buttonId: 'btn-1',
+          sessionId: 'sess-1',
+          startedAt: now,
+          status: 'running',
+        },
+      };
+
+      const latestRun = store.getLatestRunForButton('btn-1', 'sess-1');
+      expect(latestRun.runId).toBe('run-3');
+      expect(latestRun.startedAt).toBe(now);
+    });
+
+    it('getLatestRunForButton returns null when no runs exist for button', () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'run-1': { runId: 'run-1', buttonId: 'btn-2', sessionId: 'sess-1', startedAt: Date.now() },
+      };
+
+      const latestRun = store.getLatestRunForButton('btn-1', 'sess-1');
+      expect(latestRun).toBeNull();
+    });
+
+    it('getLatestRunForButton returns null when button has runs but not in this session', () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'run-1': { runId: 'run-1', buttonId: 'btn-1', sessionId: 'sess-2', startedAt: Date.now() },
+      };
+
+      const latestRun = store.getLatestRunForButton('btn-1', 'sess-1');
+      expect(latestRun).toBeNull();
+    });
+
+    it('getLatestRunForButton correctly filters by sessionId', () => {
+      const store = useCommandButtonsStore();
+      const now = Date.now();
+      store.runs = {
+        'run-1': {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          sessionId: 'sess-1',
+          startedAt: now - 5000,
+          status: 'success',
+        },
+        'run-2': {
+          runId: 'run-2',
+          buttonId: 'btn-1',
+          sessionId: 'sess-2',
+          startedAt: now,
+          status: 'running',
+        },
+      };
+
+      const latestInSession1 = store.getLatestRunForButton('btn-1', 'sess-1');
+      expect(latestInSession1.runId).toBe('run-1');
+      expect(latestInSession1.sessionId).toBe('sess-1');
+
+      const latestInSession2 = store.getLatestRunForButton('btn-1', 'sess-2');
+      expect(latestInSession2.runId).toBe('run-2');
+      expect(latestInSession2.sessionId).toBe('sess-2');
+    });
   });
 
   describe('fetchActiveRuns', () => {
@@ -136,6 +240,27 @@ describe('CommandButtons Store', () => {
       expect(store.runs['run-123'].status).toBe('running');
       expect(store.runs['run-123'].buttonId).toBe('btn-1');
     });
+
+    it('stores sessionId when running button', async () => {
+      api.runCommandButton.mockResolvedValue({ runId: 'run-123', buttonId: 'btn-1', status: 'running', output: '' });
+
+      const store = useCommandButtonsStore();
+      const runId = await store.runButton('session-1', 'btn-1');
+
+      expect(store.runs['run-123'].sessionId).toBe('session-1');
+    });
+
+    it('sets startedAt timestamp when running button', async () => {
+      const beforeTime = Date.now();
+      api.runCommandButton.mockResolvedValue({ runId: 'run-123', buttonId: 'btn-1', status: 'running', output: '' });
+
+      const store = useCommandButtonsStore();
+      const runId = await store.runButton('session-1', 'btn-1');
+      const afterTime = Date.now();
+
+      expect(store.runs['run-123'].startedAt).toBeGreaterThanOrEqual(beforeTime);
+      expect(store.runs['run-123'].startedAt).toBeLessThanOrEqual(afterTime);
+    });
   });
 
   describe('WebSocket message handlers', () => {
@@ -179,6 +304,20 @@ describe('CommandButtons Store', () => {
 
       expect(store.runs['run-1'].status).toBe('error');
       expect(store.runs['run-1'].exitCode).toBe(1);
+    });
+
+    it('completeRun sets completedAt timestamp', () => {
+      const beforeTime = Date.now();
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'run-1': { runId: 'run-1', status: 'running', output: '', exitCode: null },
+      };
+
+      store.completeRun('run-1', 0, 'output');
+      const afterTime = Date.now();
+
+      expect(store.runs['run-1'].completedAt).toBeGreaterThanOrEqual(beforeTime);
+      expect(store.runs['run-1'].completedAt).toBeLessThanOrEqual(afterTime);
     });
 
     describe('completeRun Race Condition Prevention', () => {
@@ -563,6 +702,63 @@ describe('CommandButtons Store', () => {
       await store.fetchActiveRuns('sess-123');
 
       expect(store.runs['run-1'].exitCode).toBe(127);
+    });
+
+    it('fetchActiveRuns stores sessionId for each run', async () => {
+      const store = useCommandButtonsStore();
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'running',
+          output: 'Running...\n',
+          startedAt: Date.now(),
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      expect(store.runs['run-1'].sessionId).toBe('sess-123');
+    });
+
+    it('fetchActiveRuns preserves completedAt for completed runs', async () => {
+      const store = useCommandButtonsStore();
+      const completedAt = Date.now() - 1000;
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'success',
+          output: 'Complete\n',
+          exitCode: 0,
+          startedAt: Date.now() - 5000,
+          completedAt: completedAt,
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      expect(store.runs['run-1'].completedAt).toBe(completedAt);
+    });
+
+    it('fetchActiveRuns omits completedAt for running runs', async () => {
+      const store = useCommandButtonsStore();
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'running',
+          output: 'Running...\n',
+          startedAt: Date.now(),
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      expect(store.runs['run-1'].completedAt).toBeUndefined();
     });
   });
 });

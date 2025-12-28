@@ -16,20 +16,21 @@ export class CommandButtonRepository extends BaseRepository {
       label: row.label,
       command: row.command,
       sortOrder: row.sort_order,
+      showOnList: row.show_on_list === 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
   }
 
-  create({ projectId, label, command, sortOrder = 0 }) {
+  create({ projectId, label, command, sortOrder = 0, showOnList = false }) {
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO command_buttons (id, project_id, label, command, sort_order, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO command_buttons (id, project_id, label, command, sort_order, show_on_list, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, projectId, label, command, sortOrder, now, now);
+      .run(id, projectId, label, command, sortOrder, showOnList ? 1 : 0, now, now);
     return this.getById(id);
   }
 
@@ -55,6 +56,10 @@ export class CommandButtonRepository extends BaseRepository {
     if (data.sortOrder !== undefined) {
       updates.push('sort_order = ?');
       values.push(data.sortOrder);
+    }
+    if (data.showOnList !== undefined) {
+      updates.push('show_on_list = ?');
+      values.push(data.showOnList ? 1 : 0);
     }
 
     if (updates.length === 0) return this.getById(id);

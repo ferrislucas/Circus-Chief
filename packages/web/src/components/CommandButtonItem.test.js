@@ -788,4 +788,273 @@ describe('CommandButtonItem', () => {
     });
   });
 
+  /**
+   * TEST SUITE: Timer Functionality for Running Commands
+   * Tests for elapsed time display using startedAt timestamp
+   */
+  describe('Timer Functionality', () => {
+    it('shows running indicator with elapsed time during execution', async () => {
+      const button = {
+        id: '1',
+        label: 'Build',
+        command: 'npm run build',
+        sortOrder: 0,
+      };
+
+      const startTime = Date.now() - 65000; // 1 minute, 5 seconds ago
+      const run = {
+        runId: 'run-1',
+        buttonId: '1',
+        status: 'running',
+        output: 'Building...',
+        exitCode: null,
+        startedAt: startTime,
+      };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button,
+          run,
+          sessionId: 'session-1',
+        },
+      });
+
+      await nextTick();
+
+      // Verify running indicator exists
+      const runningIndicator = wrapper.find('.running-indicator');
+      expect(runningIndicator.exists()).toBe(true);
+      expect(runningIndicator.text()).toContain('Running');
+
+      // Verify elapsed time is displayed
+      const elapsedTime = wrapper.find('.elapsed-time');
+      expect(elapsedTime.exists()).toBe(true);
+    });
+
+    it('displays elapsed time in MM:SS format', async () => {
+      const button = {
+        id: '1',
+        label: 'Build',
+        command: 'npm run build',
+        sortOrder: 0,
+      };
+
+      const startTime = Date.now() - 125000; // 2 minutes, 5 seconds ago
+      const run = {
+        runId: 'run-1',
+        buttonId: '1',
+        status: 'running',
+        output: 'Building...',
+        exitCode: null,
+        startedAt: startTime,
+      };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button,
+          run,
+          sessionId: 'session-1',
+        },
+      });
+
+      await nextTick();
+
+      const elapsedTime = wrapper.find('.elapsed-time');
+      expect(elapsedTime.exists()).toBe(true);
+      // The displayed time should be close to 2:05
+      // Allow some variance in timing
+      expect(elapsedTime.text()).toMatch(/\d+:\d{2}/);
+    });
+
+    it('includes spinner icon in running indicator', async () => {
+      const button = {
+        id: '1',
+        label: 'Test',
+        command: 'npm test',
+        sortOrder: 0,
+      };
+
+      const run = {
+        runId: 'run-1',
+        buttonId: '1',
+        status: 'running',
+        output: 'Testing...',
+        exitCode: null,
+        startedAt: Date.now(),
+      };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button,
+          run,
+          sessionId: 'session-1',
+        },
+      });
+
+      await nextTick();
+
+      // Verify spinner exists
+      const spinner = wrapper.find('.spinner');
+      expect(spinner.exists()).toBe(true);
+    });
+
+    it('hides running indicator when command completes', async () => {
+      const button = {
+        id: '1',
+        label: 'Build',
+        command: 'npm run build',
+        sortOrder: 0,
+      };
+
+      const runningRun = {
+        runId: 'run-1',
+        buttonId: '1',
+        status: 'running',
+        output: 'Building...',
+        exitCode: null,
+        startedAt: Date.now(),
+      };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button,
+          run: runningRun,
+          sessionId: 'session-1',
+        },
+      });
+
+      await nextTick();
+
+      // Verify running indicator exists while running
+      expect(wrapper.find('.running-indicator').exists()).toBe(true);
+
+      // Change to completed state
+      const completedRun = {
+        ...runningRun,
+        status: 'success',
+        exitCode: 0,
+      };
+
+      await wrapper.setProps({ run: completedRun });
+      await nextTick();
+
+      // Verify running indicator is hidden
+      expect(wrapper.find('.running-indicator').exists()).toBe(false);
+    });
+
+    it('hides elapsed time when command completes', async () => {
+      const button = {
+        id: '1',
+        label: 'Build',
+        command: 'npm run build',
+        sortOrder: 0,
+      };
+
+      const runningRun = {
+        runId: 'run-1',
+        buttonId: '1',
+        status: 'running',
+        output: 'Building...',
+        exitCode: null,
+        startedAt: Date.now() - 30000,
+      };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button,
+          run: runningRun,
+          sessionId: 'session-1',
+        },
+      });
+
+      await nextTick();
+
+      // Verify elapsed time exists while running
+      expect(wrapper.find('.elapsed-time').exists()).toBe(true);
+
+      // Change to error state
+      const errorRun = {
+        ...runningRun,
+        status: 'error',
+        exitCode: 1,
+      };
+
+      await wrapper.setProps({ run: errorRun });
+      await nextTick();
+
+      // Verify running indicator (and elapsed time) is hidden
+      expect(wrapper.find('.running-indicator').exists()).toBe(false);
+    });
+
+    it('uses startedAt timestamp to calculate elapsed time', async () => {
+      const button = {
+        id: '1',
+        label: 'Deploy',
+        command: 'npm run deploy',
+        sortOrder: 0,
+      };
+
+      const now = Date.now();
+      const oneMinuteAgo = now - 60000;
+
+      const run = {
+        runId: 'run-1',
+        buttonId: '1',
+        status: 'running',
+        output: 'Deploying...',
+        exitCode: null,
+        startedAt: oneMinuteAgo, // Should show approximately 1:00
+      };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button,
+          run,
+          sessionId: 'session-1',
+        },
+      });
+
+      await nextTick();
+
+      // Verify elapsed time is calculated
+      const elapsedTime = wrapper.find('.elapsed-time');
+      expect(elapsedTime.exists()).toBe(true);
+    });
+
+    it('maintains timer accuracy for long-running processes', async () => {
+      const button = {
+        id: '1',
+        label: 'Build',
+        command: 'npm run build',
+        sortOrder: 0,
+      };
+
+      const tenMinutesAgo = Date.now() - 600000; // 10 minutes
+
+      const run = {
+        runId: 'run-1',
+        buttonId: '1',
+        status: 'running',
+        output: 'Building...',
+        exitCode: null,
+        startedAt: tenMinutesAgo,
+      };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button,
+          run,
+          sessionId: 'session-1',
+        },
+      });
+
+      await nextTick();
+
+      const elapsedTime = wrapper.find('.elapsed-time');
+      expect(elapsedTime.exists()).toBe(true);
+      // Should show 10:XX
+      expect(elapsedTime.text()).toMatch(/10:\d{2}/);
+    });
+  });
+
 });

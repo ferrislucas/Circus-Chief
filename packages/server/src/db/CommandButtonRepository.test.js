@@ -41,6 +41,39 @@ describe('CommandButtonRepository', () => {
       expect(button.updatedAt).toBeTypeOf('number');
     });
 
+    it('creates a button with showOnList enabled', () => {
+      const button = repo.create({
+        projectId,
+        label: 'Important Build',
+        command: 'npm run build',
+        sortOrder: 1,
+        showOnList: true,
+      });
+
+      expect(button.showOnList).toBe(true);
+    });
+
+    it('creates a button with default showOnList (false)', () => {
+      const button = repo.create({
+        projectId,
+        label: 'Hidden Button',
+        command: 'npm run hidden',
+      });
+
+      expect(button.showOnList).toBe(false);
+    });
+
+    it('creates a button with explicit showOnList false', () => {
+      const button = repo.create({
+        projectId,
+        label: 'Explicit False',
+        command: 'npm run explicit',
+        showOnList: false,
+      });
+
+      expect(button.showOnList).toBe(false);
+    });
+
     it('creates a button with default sortOrder', () => {
       const button = repo.create({
         projectId,
@@ -182,6 +215,30 @@ describe('CommandButtonRepository', () => {
       expect(updated.sortOrder).toBe(5);
     });
 
+    it('updates button showOnList from false to true', () => {
+      const button = repo.create({
+        projectId,
+        label: 'Test',
+        command: 'cmd',
+        showOnList: false,
+      });
+      const updated = repo.update(button.id, { showOnList: true });
+
+      expect(updated.showOnList).toBe(true);
+    });
+
+    it('updates button showOnList from true to false', () => {
+      const button = repo.create({
+        projectId,
+        label: 'Test',
+        command: 'cmd',
+        showOnList: true,
+      });
+      const updated = repo.update(button.id, { showOnList: false });
+
+      expect(updated.showOnList).toBe(false);
+    });
+
     it('updates multiple fields at once', () => {
       const button = repo.create({
         projectId,
@@ -198,6 +255,27 @@ describe('CommandButtonRepository', () => {
       expect(updated.label).toBe('New Label');
       expect(updated.command).toBe('new cmd');
       expect(updated.sortOrder).toBe(10);
+    });
+
+    it('updates all fields including showOnList at once', () => {
+      const button = repo.create({
+        projectId,
+        label: 'Original',
+        command: 'original',
+        sortOrder: 0,
+        showOnList: false,
+      });
+      const updated = repo.update(button.id, {
+        label: 'New Label',
+        command: 'new cmd',
+        sortOrder: 5,
+        showOnList: true,
+      });
+
+      expect(updated.label).toBe('New Label');
+      expect(updated.command).toBe('new cmd');
+      expect(updated.sortOrder).toBe(5);
+      expect(updated.showOnList).toBe(true);
     });
 
     it('updates updatedAt timestamp', () => {
@@ -236,6 +314,19 @@ describe('CommandButtonRepository', () => {
       const updated = repo.update(button.id, { label: 'Changed' });
 
       expect(updated.projectId).toBe(projectId);
+    });
+
+    it('preserves showOnList when not provided in update', () => {
+      const button = repo.create({
+        projectId,
+        label: 'Test',
+        command: 'cmd',
+        showOnList: true,
+      });
+
+      const updated = repo.update(button.id, { label: 'Changed' });
+
+      expect(updated.showOnList).toBe(true);
     });
 
     it('returns unchanged button when no updates provided', () => {
