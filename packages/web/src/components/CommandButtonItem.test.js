@@ -418,6 +418,7 @@ describe('CommandButtonItem', () => {
     // Component should render successfully with output
     let outputText = wrapper.find('.output-text');
     expect(outputText.exists()).toBe(true);
+    expect(outputText.text()).toContain('Test output content');
   });
 
   it('shows send to canvas button in output actions', async () => {
@@ -476,6 +477,13 @@ describe('CommandButtonItem', () => {
 
     // Component should render with output section
     expect(wrapper.find('.output-section').exists()).toBe(true);
+
+    // Output section starts collapsed, click to expand it
+    const outputHeader = wrapper.find('.output-header');
+    expect(outputHeader.exists()).toBe(true);
+    await outputHeader.trigger('click');
+    await wrapper.vm.$nextTick();
+
     // Output should be visible in the output text div
     let outputDiv = wrapper.find('.output-text');
     expect(outputDiv.html()).toContain('Test output');

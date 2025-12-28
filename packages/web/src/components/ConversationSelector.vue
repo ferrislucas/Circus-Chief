@@ -2,7 +2,7 @@
   <div class="conversation-selector">
     <div class="selector-row">
       <!-- Dropdown -->
-      <div class="dropdown-container">
+      <div v-if="conversations.length > 1" class="dropdown-container" ref="dropdownRef">
         <button
           type="button"
           class="dropdown-trigger"
@@ -54,7 +54,7 @@
       >
         <span v-if="isDisabled" class="lock-icon">🔒</span>
         <span v-else>+</span>
-        New
+        new conversation
       </button>
     </div>
 
@@ -84,9 +84,19 @@ const conversations = computed(() => sessionsStore.conversations);
 const activeConversationId = computed(() => sessionsStore.activeConversationId);
 const activeConversation = computed(() => sessionsStore.activeConversation);
 
-// Generate display names for conversations (fallback to "Conversation N" if no name)
+// Convert number to ordinal (1→"1st", 2→"2nd", 3→"3rd", 4→"4th", etc.)
+function toOrdinal(num) {
+  const j = num % 10;
+  const k = num % 100;
+  if (j === 1 && k !== 11) return `${num}st`;
+  if (j === 2 && k !== 12) return `${num}nd`;
+  if (j === 3 && k !== 13) return `${num}rd`;
+  return `${num}th`;
+}
+
+// Generate display names for conversations (fallback to ordinal format if no name)
 function getConversationDisplayName(conv, index) {
-  return conv.name || `Conversation ${index + 1}`;
+  return conv.name || `${toOrdinal(index + 1)} conversation`;
 }
 
 // Format token count for display (Issue #175)

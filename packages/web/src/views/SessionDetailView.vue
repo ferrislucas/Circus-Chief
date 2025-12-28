@@ -121,7 +121,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
-import { useSessionSubscription } from '../composables/useWebSocket.js';
+import { useSessionSubscription, ensureSubscribed } from '../composables/useWebSocket.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
 import { api } from '../composables/useApi.js';
 import ConversationTab from '../components/ConversationTab.vue';
@@ -239,41 +239,17 @@ watch(
 );
 
 onMounted(async () => {
-  // Subscribe to WebSocket first to minimize race condition window
-  subscribe();
-
-  // Then fetch data - this ensures we don't miss updates
-  await sessionsStore.fetchSession(sessionId);
-  await sessionsStore.fetchMessages(sessionId);
-  // Load conversations proactively so token updates are available immediately
-  // (Issue: conversations were only loaded when ConversationTab became visible)
-  await sessionsStore.fetchConversations(sessionId);
-  await sessionsStore.fetchWorkLogs(sessionId);
-  canvasStore.fetchItems(sessionId);
-  todosStore.fetchTodos(sessionId);
-
-  // Fetch summary for PR indicators (don't await, not critical)
-  api.getSessionSummary(sessionId).then((s) => {
-    summary.value = s;
-  }).catch(() => {
-    // Ignore errors - summary may not exist yet
-  });
-
-  // Check for file system changes initially
-  checkForChanges();
-
-  // Fetch templates for the selector
-  if (sessionsStore.currentSession?.projectId) {
-    templatesStore.fetchProjectTemplates(sessionsStore.currentSession.projectId);
+  // STEP 1: Ensure subscribed to WebSocket first
+  // This waits for the socket to be OPEN and subscription message to be sent
+  try {
+    await ensureSubscribed(sessionId);
+  } catch (error) {
+    console.error('Failed to subscribe to session updates:', error);
+    uiStore.error('Failed to subscribe to session updates');
   }
 
-  // Start polling if session is actively processing (handles race condition where session
-  // completes before WebSocket subscription is established)
-  const status = sessionsStore.currentSession?.status;
-  if (status === 'running' || status === 'starting') {
-    startPolling();
-  }
-
+  // STEP 2: Register all handlers IMMEDIATELY (before fetching data)
+  // This ensures we don't miss any updates that arrive while data is being fetched
   cleanups.push(
     onStatus((status) => {
       sessionsStore.updateSessionStatus(sessionId, status);
@@ -352,10 +328,49 @@ onMounted(async () => {
 
   // Handle real-time changes updates from server
   cleanups.push(
-    onChangesUpdate((changeCount, hasChanges) => {
+    onChangesUpdate((changeCount, hasChangesUpdate) => {
       changesFileCount.value = changeCount;
+      // Update the orange circle indicator when changes are committed or new changes appear
+      if (typeof hasChangesUpdate === 'boolean') {
+        hasChanges.value = hasChangesUpdate;
+      } else {
+        // Fallback: determine from file count if hasChanges is not explicitly provided
+        hasChanges.value = changeCount > 0;
+      }
     })
   );
+
+  // STEP 3: Now fetch data (handlers are ready to receive updates)
+  await sessionsStore.fetchSession(sessionId);
+  await sessionsStore.fetchMessages(sessionId);
+  // Load conversations proactively so token updates are available immediately
+  // (Issue: conversations were only loaded when ConversationTab became visible)
+  await sessionsStore.fetchConversations(sessionId);
+  await sessionsStore.fetchWorkLogs(sessionId);
+  canvasStore.fetchItems(sessionId);
+  todosStore.fetchTodos(sessionId);
+
+  // Fetch summary for PR indicators (don't await, not critical)
+  api.getSessionSummary(sessionId).then((s) => {
+    summary.value = s;
+  }).catch(() => {
+    // Ignore errors - summary may not exist yet
+  });
+
+  // Check for file system changes initially
+  checkForChanges();
+
+  // Fetch templates for the selector
+  if (sessionsStore.currentSession?.projectId) {
+    templatesStore.fetchProjectTemplates(sessionsStore.currentSession.projectId);
+  }
+
+  // STEP 4: Start polling if session is actively processing
+  // (handles race condition where session completes before WebSocket subscription is established)
+  const status = sessionsStore.currentSession?.status;
+  if (status === 'running' || status === 'starting') {
+    startPolling();
+  }
 });
 
 onUnmounted(() => {

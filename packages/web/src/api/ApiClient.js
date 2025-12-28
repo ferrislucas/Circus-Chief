@@ -266,6 +266,15 @@ export class ApiClient {
   }
 
   /**
+   * Get the default branch for a session (for branch comparison)
+   * @param {string} sessionId
+   * @returns {Promise<{branch: string}>}
+   */
+  async getSessionDefaultBranch(sessionId) {
+    return this.#request('GET', `/sessions/${sessionId}/default-branch`);
+  }
+
+  /**
    * Restart a completed or errored session
    * @param {string} id - Session ID
    * @returns {Promise<Object>}

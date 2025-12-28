@@ -74,7 +74,7 @@ describe('ConversationSelector', () => {
     it('renders the new conversation button', () => {
       const wrapper = mountComponent();
       expect(wrapper.find('.btn-new').exists()).toBe(true);
-      expect(wrapper.find('.btn-new').text()).toContain('New');
+      expect(wrapper.find('.btn-new').text()).toContain('new conversation');
     });
 
     it('shows dropdown arrow when not disabled', () => {
@@ -305,12 +305,14 @@ describe('ConversationSelector', () => {
     it('handles empty conversations list', () => {
       mockSessionsStore.conversations = [];
       mockSessionsStore.activeConversation = null;
+      mockSessionsStore.activeConversationId = null;
 
       const wrapper = mountComponent();
-      expect(wrapper.find('.dropdown-label').text()).toBe('Select conversation');
+      // When no conversations, dropdown is hidden but button still shows
+      expect(wrapper.find('.btn-new').exists()).toBe(true);
     });
 
-    it('handles conversation with null name', () => {
+    it('shows button text with unnamed single conversation', () => {
       mockSessionsStore.conversations = [
         { id: 'conv-1', name: null, isActive: true, messageCount: 0 },
       ];
@@ -318,19 +320,123 @@ describe('ConversationSelector', () => {
       mockSessionsStore.activeConversationId = 'conv-1';
 
       const wrapper = mountComponent();
-      expect(wrapper.find('.dropdown-label').text()).toBe('Conversation 1');
+      // Dropdown is hidden with 1 conversation, so can only check the button
+      expect(wrapper.find('.btn-new').text()).toContain('new conversation');
     });
 
-    it('hides delete button when only one conversation exists', async () => {
+    it('hides delete button when only one conversation exists', () => {
+      mockSessionsStore.conversations = [
+        { id: 'conv-1', name: 'Only One', isActive: true, messageCount: 5 },
+      ];
+
+      // With single conversation, dropdown is not rendered at all
+      const wrapper = mountComponent();
+      expect(wrapper.find('.delete-btn').exists()).toBe(false);
+    });
+
+    it('hides dropdown container when only one conversation exists', () => {
       mockSessionsStore.conversations = [
         { id: 'conv-1', name: 'Only One', isActive: true, messageCount: 5 },
       ];
 
       const wrapper = mountComponent();
+      expect(wrapper.find('.dropdown-container').exists()).toBe(false);
+    });
+
+    it('shows dropdown container when multiple conversations exist', () => {
+      const wrapper = mountComponent();
+      expect(wrapper.find('.dropdown-container').exists()).toBe(true);
+    });
+  });
+
+  describe('ordinal conversation labels', () => {
+    it('formats conversation names with ordinal numbers for unnamed conversations', async () => {
+      mockSessionsStore.conversations = [
+        { id: 'conv-1', name: null, isActive: false, messageCount: 0 },
+        { id: 'conv-2', name: null, isActive: true, messageCount: 0 },
+        { id: 'conv-3', name: null, isActive: false, messageCount: 0 },
+      ];
+      mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
+      mockSessionsStore.activeConversationId = 'conv-2';
+
+      const wrapper = mountComponent();
+      expect(wrapper.find('.dropdown-label').text()).toBe('2nd conversation');
+
       await wrapper.find('.dropdown-trigger').trigger('click');
       await nextTick();
 
-      expect(wrapper.find('.delete-btn').exists()).toBe(false);
+      const items = wrapper.findAll('.dropdown-item');
+      expect(items[0].find('.conv-name').text()).toBe('1st conversation');
+      expect(items[1].find('.conv-name').text()).toBe('2nd conversation');
+      expect(items[2].find('.conv-name').text()).toBe('3rd conversation');
+    });
+
+    it('correctly formats ordinal numbers ending in 1 and 2', async () => {
+      mockSessionsStore.conversations = [
+        { id: 'conv-1', name: null, isActive: true, messageCount: 0 },
+        { id: 'conv-2', name: null, isActive: false, messageCount: 0 },
+        { id: 'conv-3', name: null, isActive: false, messageCount: 0 },
+        { id: 'conv-4', name: null, isActive: false, messageCount: 0 },
+        { id: 'conv-5', name: null, isActive: false, messageCount: 0 },
+      ];
+      mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
+      mockSessionsStore.activeConversationId = 'conv-1';
+
+      const wrapper = mountComponent();
+      expect(wrapper.find('.dropdown-label').text()).toBe('1st conversation');
+
+      await wrapper.find('.dropdown-trigger').trigger('click');
+      await nextTick();
+
+      const items = wrapper.findAll('.dropdown-item');
+      expect(items[0].find('.conv-name').text()).toBe('1st conversation');
+      expect(items[1].find('.conv-name').text()).toBe('2nd conversation');
+      expect(items[2].find('.conv-name').text()).toBe('3rd conversation');
+      expect(items[3].find('.conv-name').text()).toBe('4th conversation');
+      expect(items[4].find('.conv-name').text()).toBe('5th conversation');
+    });
+
+    it('correctly formats ordinal numbers ending in 11, 12, 13', async () => {
+      // Create 15 conversations to test indices 10, 11, 12 (which are 11th, 12th, 13th)
+      const conversations = Array.from({ length: 15 }, (_, i) => ({
+        id: `conv-${i}`,
+        name: null,
+        isActive: i === 0,
+        messageCount: 0,
+      }));
+      mockSessionsStore.conversations = conversations;
+      mockSessionsStore.activeConversation = conversations[0];
+      mockSessionsStore.activeConversationId = 'conv-0';
+
+      const wrapper = mountComponent();
+      await wrapper.find('.dropdown-trigger').trigger('click');
+      await nextTick();
+
+      const items = wrapper.findAll('.dropdown-item');
+      expect(items[10].find('.conv-name').text()).toBe('11th conversation');
+      expect(items[11].find('.conv-name').text()).toBe('12th conversation');
+      expect(items[12].find('.conv-name').text()).toBe('13th conversation');
+    });
+
+    it('preserves custom conversation names', async () => {
+      mockSessionsStore.conversations = [
+        { id: 'conv-1', name: 'My Custom Name', isActive: true, messageCount: 0 },
+        { id: 'conv-2', name: 'Another Custom', isActive: false, messageCount: 0 },
+        { id: 'conv-3', name: null, isActive: false, messageCount: 0 },
+      ];
+      mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
+      mockSessionsStore.activeConversationId = 'conv-1';
+
+      const wrapper = mountComponent();
+      expect(wrapper.find('.dropdown-label').text()).toBe('My Custom Name');
+
+      await wrapper.find('.dropdown-trigger').trigger('click');
+      await nextTick();
+
+      const items = wrapper.findAll('.dropdown-item');
+      expect(items[0].find('.conv-name').text()).toBe('My Custom Name');
+      expect(items[1].find('.conv-name').text()).toBe('Another Custom');
+      expect(items[2].find('.conv-name').text()).toBe('3rd conversation');
     });
   });
 
@@ -354,76 +460,82 @@ describe('ConversationSelector', () => {
 
     it('shows 0 tokens for conversations with no usage', async () => {
       mockSessionsStore.conversations = [
-        { id: 'conv-1', name: 'Empty', isActive: true, messageCount: 0 },
+        { id: 'conv-1', name: 'Empty', isActive: false, messageCount: 0 },
+        { id: 'conv-2', name: 'Second', isActive: true, messageCount: 5 },
       ];
-      mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
-      mockSessionsStore.activeConversationId = 'conv-1';
+      mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
+      mockSessionsStore.activeConversationId = 'conv-2';
 
       const wrapper = mountComponent();
       await wrapper.find('.dropdown-trigger').trigger('click');
       await nextTick();
 
-      const item = wrapper.find('.dropdown-item');
-      expect(item.find('.conv-meta').text()).toContain('0 msgs');
+      const items = wrapper.findAll('.dropdown-item');
+      expect(items[0].find('.conv-meta').text()).toContain('0 msgs');
     });
 
     it('formats large token counts with K suffix', async () => {
       mockSessionsStore.conversations = [
-        { id: 'conv-1', name: 'Large', isActive: true, messageCount: 20, inputTokens: 50000, outputTokens: 25000 },
+        { id: 'conv-1', name: 'Large', isActive: false, messageCount: 20, inputTokens: 50000, outputTokens: 25000 },
+        { id: 'conv-2', name: 'Second', isActive: true, messageCount: 5 },
       ];
-      mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
-      mockSessionsStore.activeConversationId = 'conv-1';
+      mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
+      mockSessionsStore.activeConversationId = 'conv-2';
 
       const wrapper = mountComponent();
       await wrapper.find('.dropdown-trigger').trigger('click');
       await nextTick();
 
-      const item = wrapper.find('.dropdown-item');
-      expect(item.text()).toContain('75.0K');
+      const items = wrapper.findAll('.dropdown-item');
+      expect(items[0].text()).toContain('75.0K');
     });
 
     it('formats very large token counts with M suffix', async () => {
       mockSessionsStore.conversations = [
-        { id: 'conv-1', name: 'Huge', isActive: true, messageCount: 100, inputTokens: 1500000, outputTokens: 500000 },
+        { id: 'conv-1', name: 'Huge', isActive: false, messageCount: 100, inputTokens: 1500000, outputTokens: 500000 },
+        { id: 'conv-2', name: 'Second', isActive: true, messageCount: 5 },
       ];
-      mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
-      mockSessionsStore.activeConversationId = 'conv-1';
+      mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
+      mockSessionsStore.activeConversationId = 'conv-2';
 
       const wrapper = mountComponent();
       await wrapper.find('.dropdown-trigger').trigger('click');
       await nextTick();
 
-      const item = wrapper.find('.dropdown-item');
-      expect(item.text()).toContain('2.0M');
+      const items = wrapper.findAll('.dropdown-item');
+      expect(items[0].text()).toContain('2.0M');
     });
 
     it('handles missing token fields gracefully', async () => {
       mockSessionsStore.conversations = [
-        { id: 'conv-1', name: 'Missing', isActive: true, messageCount: 5 },
+        { id: 'conv-1', name: 'Missing', isActive: false, messageCount: 5 },
+        { id: 'conv-2', name: 'Second', isActive: true, messageCount: 5 },
       ];
-      mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
-      mockSessionsStore.activeConversationId = 'conv-1';
+      mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
+      mockSessionsStore.activeConversationId = 'conv-2';
 
       const wrapper = mountComponent();
       await wrapper.find('.dropdown-trigger').trigger('click');
       await nextTick();
 
-      const item = wrapper.find('.dropdown-item');
-      expect(item.exists()).toBe(true);
+      const items = wrapper.findAll('.dropdown-item');
+      expect(items[0].exists()).toBe(true);
     });
 
     it('shows token count in meta section', async () => {
       mockSessionsStore.conversations = [
-        { id: 'conv-1', name: 'Test', isActive: true, messageCount: 5, inputTokens: 2000, outputTokens: 1000 },
+        { id: 'conv-1', name: 'Test', isActive: false, messageCount: 5, inputTokens: 2000, outputTokens: 1000 },
+        { id: 'conv-2', name: 'Second', isActive: true, messageCount: 5 },
       ];
-      mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
-      mockSessionsStore.activeConversationId = 'conv-1';
+      mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
+      mockSessionsStore.activeConversationId = 'conv-2';
 
       const wrapper = mountComponent();
       await wrapper.find('.dropdown-trigger').trigger('click');
       await nextTick();
 
-      const meta = wrapper.find('.conv-meta');
+      const items = wrapper.findAll('.dropdown-item');
+      const meta = items[0].find('.conv-meta');
       expect(meta.exists()).toBe(true);
       expect(meta.text()).toContain('3.0K');
     });

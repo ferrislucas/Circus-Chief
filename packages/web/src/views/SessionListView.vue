@@ -153,6 +153,7 @@ import { ref, onMounted, onUnmounted, reactive, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectSubscription } from '../composables/useWebSocket.js';
 import { api } from '../composables/useApi.js';
 import SessionCard from '../components/SessionCard.vue';
@@ -163,6 +164,7 @@ const route = useRoute();
 const activeTab = ref('sessions');
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
+const commandButtonsStore = useCommandButtonsStore();
 
 const toggleFilter = (status) => {
   // If the clicked filter is already active, clear all filters (show all)
@@ -234,6 +236,7 @@ watch(
     // Fetch new project data
     projectsStore.fetchProject(newProjectId);
     await sessionsStore.fetchSessions(newProjectId);
+    await commandButtonsStore.fetchButtons(newProjectId);
     fetchSummaries();
 
     // Create new subscription for new project
