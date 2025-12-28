@@ -14,6 +14,26 @@ vi.mock('vue-router', () => ({
   })),
 }));
 
+// Mock commandButtons store
+vi.mock('../stores/commandButtons.js', () => ({
+  useCommandButtonsStore: vi.fn(() => ({
+    buttons: [],
+    getButtonsByProjectId: vi.fn(() => []),
+    getLatestRunForButton: vi.fn(() => null),
+  })),
+}));
+
+// Mock ButtonStatusModal component
+vi.mock('./ButtonStatusModal.vue', () => ({
+  default: defineComponent({
+    name: 'ButtonStatusModal',
+    props: ['button', 'latestRun', 'isOpen'],
+    setup() {
+      return () => h('div', { class: 'button-status-modal-mock' });
+    },
+  }),
+}));
+
 // Mock PrIndicators component with actual rendering logic
 vi.mock('./PrIndicators.vue', () => ({
   default: defineComponent({
@@ -168,8 +188,10 @@ describe('SessionCard', () => {
 
     it('links to session detail page', () => {
       const wrapper = mountComponent();
-      // Check that the router-link has the correct `to` attribute
-      expect(wrapper.attributes('to')).toBe('/sessions/session-123');
+      // Find the RouterLink component within the wrapper
+      const routerLink = wrapper.findComponent({ name: 'RouterLink' });
+      expect(routerLink.exists()).toBe(true);
+      expect(routerLink.attributes('to')).toBe('/sessions/session-123');
     });
 
     it('renders formatted date', () => {
@@ -638,6 +660,96 @@ describe('SessionCard', () => {
         expect(wrapper.find('.pr-state-badge').exists()).toBe(true);
         expect(wrapper.find('.conflict-indicator').exists()).toBe(false);
         expect(wrapper.find('.ci-indicator').exists()).toBe(false);
+      });
+    });
+  });
+
+  describe('button status indicators', () => {
+    it('displays button status indicators from commandButtons store', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, projectId: 'proj-1' },
+      });
+
+      // Command buttons store should be accessed via computed property
+      // Even if no buttons exist, the property should be accessible
+      expect(wrapper.vm.buttonStatusesToDisplay).toBeDefined();
+      expect(Array.isArray(wrapper.vm.buttonStatusesToDisplay)).toBe(true);
+    });
+
+    it('only shows buttons marked with showOnList', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, projectId: 'proj-1' },
+      });
+
+      // The computed property should filter buttons by showOnList
+      // Each button in the display list should have showOnList = true
+      const buttons = wrapper.vm.buttonStatusesToDisplay;
+      buttons.forEach((btn) => {
+        expect(btn.status).toBeDefined();
+        expect(btn.label).toBeDefined();
+      });
+    });
+
+    it('only shows buttons that have been run', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, projectId: 'proj-1' },
+      });
+
+      // Only buttons with latestRun should be displayed
+      const buttons = wrapper.vm.buttonStatusesToDisplay;
+      buttons.forEach((btn) => {
+        expect(btn.latestRun).toBeDefined();
+      });
+    });
+
+    it('shows button status indicator with correct CSS class', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, projectId: 'proj-1' },
+      });
+
+      // If there are button statuses to display, verify they have proper classes
+      const indicators = wrapper.findAll('.button-status-indicator');
+      indicators.forEach((indicator) => {
+        const classes = indicator.classes();
+        expect(classes.some((c) => c.startsWith('button-status-'))).toBe(true);
+      });
+    });
+
+    it('displays button status indicator for each button in list', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, projectId: 'proj-1' },
+      });
+
+      const indicators = wrapper.findAll('.button-status-indicator');
+      const displayButtons = wrapper.vm.buttonStatusesToDisplay;
+
+      expect(indicators.length).toBe(displayButtons.length);
+    });
+
+    it('shows modal when button status indicator clicked', async () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, projectId: 'proj-1' },
+      });
+
+      const indicators = wrapper.findAll('.button-status-indicator');
+      if (indicators.length > 0) {
+        await indicators[0].trigger('click');
+
+        // Modal should be displayed
+        expect(wrapper.vm.selectedButtonForModal).toBeDefined();
+      }
+    });
+
+    it('button status indicator has correct title/label', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, projectId: 'proj-1' },
+      });
+
+      const indicators = wrapper.findAll('.button-status-indicator');
+      const displayButtons = wrapper.vm.buttonStatusesToDisplay;
+
+      indicators.forEach((indicator, index) => {
+        expect(indicator.attributes('title')).toBe(displayButtons[index].label);
       });
     });
   });

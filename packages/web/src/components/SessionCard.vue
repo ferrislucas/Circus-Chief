@@ -19,6 +19,13 @@
           <p class="session-meta">
             <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
             <span class="session-mode">{{ formattedMode }}</span>
+            <span
+              v-for="indicator in buttonStatusesToDisplay"
+              :key="indicator.buttonId"
+              :class="['button-status-indicator', `button-status-${indicator.status}`]"
+              :title="indicator.label"
+              @click.stop.prevent="selectedButtonForModal = indicator"
+            ></span>
           </p>
           <div v-if="session.gitBranch || session.prUrl" class="branch-row">
             <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
@@ -90,6 +97,13 @@
           <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
           <span class="session-mode">{{ formattedMode }}</span>
           <span class="session-model">{{ formattedModel }}</span>
+          <span
+            v-for="indicator in buttonStatusesToDisplay"
+            :key="indicator.buttonId"
+            :class="['button-status-indicator', `button-status-${indicator.status}`]"
+            :title="indicator.label"
+            @click.stop.prevent="selectedButtonForModal = indicator"
+          ></span>
         </p>
         <div v-if="session.gitBranch || session.prUrl" class="branch-row">
           <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
@@ -156,18 +170,31 @@
       </div>
     </div>
   </router-link>
+
+  <!-- Button Status Modal -->
+  <ButtonStatusModal
+    v-if="selectedButtonForModal"
+    :button="{ label: selectedButtonForModal.label }"
+    :latest-run="selectedButtonForModal.latestRun"
+    :is-open="!!selectedButtonForModal"
+    @close="selectedButtonForModal = null"
+  />
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { formatDate } from '../utils/formatters.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
 import PrIndicators from './PrIndicators.vue';
+import ButtonStatusModal from './ButtonStatusModal.vue';
 
 const router = useRouter();
 const sessionsStore = useSessionsStore();
+const commandButtonsStore = useCommandButtonsStore();
+const selectedButtonForModal = ref(null);
 
 const props = defineProps({
   session: {
@@ -264,6 +291,34 @@ const addChildSession = () => {
 const getChildrenForSession = (sessionId) => {
   return sessionsStore.getChildSessions(sessionId);
 };
+
+const buttonStatusesToDisplay = computed(() => {
+  const projectId = props.session.projectId;
+  if (!projectId) return [];
+
+  const buttons = commandButtonsStore.getButtonsByProjectId(projectId);
+  const displayButtons = [];
+
+  for (const button of buttons) {
+    // Only include buttons marked to show on list
+    if (!button.showOnList) continue;
+
+    // Get latest run for this button in this session
+    const latestRun = commandButtonsStore.getLatestRunForButton(button.id, props.session.id);
+
+    // Only show if button has been run (never-run buttons are hidden)
+    if (!latestRun) continue;
+
+    displayButtons.push({
+      buttonId: button.id,
+      label: button.label,
+      status: latestRun.status,
+      latestRun: latestRun,
+    });
+  }
+
+  return displayButtons;
+});
 
 const onArchiveClick = () => {
   if (confirm('Archive this session?')) {
@@ -573,6 +628,54 @@ const onUnarchiveClick = () => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+.button-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  margin-left: 0.5rem;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.button-status-indicator:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+}
+
+.button-status-running {
+  background-color: rgba(210, 153, 34, 0.3);
+  color: #d29922;
+  border-color: #d29922;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.button-status-success {
+  background-color: rgba(63, 185, 80, 0.3);
+  color: #3fb950;
+  border-color: #3fb950;
+}
+
+.button-status-error {
+  background-color: rgba(248, 81, 73, 0.3);
+  color: #f85149;
+  border-color: #f85149;
+}
+
+.button-status-killed {
+  background-color: rgba(248, 81, 73, 0.3);
+  color: #f85149;
+  border-color: #f85149;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 @media (max-width: 480px) {

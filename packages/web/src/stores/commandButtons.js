@@ -13,6 +13,16 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
     getButtonById: (state) => (buttonId) => state.buttons.find((b) => b.id === buttonId),
     getRun: (state) => (runId) => state.runs[runId],
     activeRuns: (state) => Object.values(state.runs).filter((r) => r.status === 'running'),
+    getButtonsByProjectId: (state) => (projectId) => state.buttons.filter((b) => b.projectId === projectId),
+    getLatestRunForButton: (state) => (buttonId, sessionId) => {
+      // Find all runs for this button in this session, sorted by startedAt descending
+      const runsForButton = Object.values(state.runs)
+        .filter((r) => r.buttonId === buttonId && r.sessionId === sessionId)
+        .sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+
+      // Return the first one (most recent)
+      return runsForButton.length > 0 ? runsForButton[0] : null;
+    },
   },
 
   actions: {
@@ -74,9 +84,11 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
         this.runs[runId] = {
           runId,
           buttonId,
+          sessionId,
           status: 'running',
           output: '',
           exitCode: null,
+          startedAt: Date.now(),
         };
         return runId;
       } catch (err) {
@@ -104,10 +116,12 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
           this.runs[run.runId] = {
             runId: run.runId,
             buttonId: run.buttonId,
+            sessionId: sessionId,
             status: run.status || 'running',
             output: run.output || '',
             exitCode: run.exitCode !== undefined ? run.exitCode : null,
             startedAt: run.startedAt,
+            completedAt: run.completedAt,
           };
         }
         return runs;
@@ -128,6 +142,7 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
     completeRun(runId, exitCode, output) {
       if (this.runs[runId]) {
         this.runs[runId].exitCode = exitCode;
+        this.runs[runId].completedAt = Date.now();
 
         // FIX: Only replace output if server has a more complete version
         // (longer output), otherwise keep the output we accumulated via
