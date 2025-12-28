@@ -4,6 +4,7 @@ export {
   DatabaseManager,
   BaseRepository,
   ProjectRepository,
+  ProjectDefaultsRepository,
   SessionRepository,
   SessionTemplateRepository,
   MessageRepository,
@@ -19,6 +20,7 @@ export {
   // Singleton instances
   databaseManager,
   projects,
+  projectDefaults,
   sessions,
   sessionTemplates,
   messages,
