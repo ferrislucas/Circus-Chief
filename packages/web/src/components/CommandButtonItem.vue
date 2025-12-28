@@ -97,8 +97,8 @@ const props = defineProps({
 
 const emit = defineEmits(['run', 'kill', 'copy-output', 'send-to-canvas']);
 
-// CHANGED: Default to true (output visible by default)
-const showOutput = ref(true);
+// Default to true only if command is running, false otherwise
+const showOutput = ref(props.run?.status === 'running');
 
 // NEW: Ref to the output container div for scrolling
 const outputRef = ref(null);
@@ -262,9 +262,10 @@ watch(
 );
 
 /**
- * Watch for run status changes to start/stop the timer
+ * Watch for run status changes to start/stop the timer and auto-expand output
  *
- * When status changes to 'running', start the timer.
+ * When status changes to 'running', start the timer and expand the output pane
+ * so users can see the live output immediately.
  * When status changes away from 'running', stop the timer.
  */
 watch(
@@ -272,6 +273,7 @@ watch(
   (newStatus) => {
     if (newStatus === 'running') {
       startTimer();
+      showOutput.value = true;
     } else {
       stopTimer();
     }

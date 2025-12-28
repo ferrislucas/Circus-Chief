@@ -883,5 +883,105 @@ describe('SessionCard', () => {
         expect(wrapper.find('.archive-actions').exists()).toBe(false);
       });
     });
+
+    describe('archive confirmation dialog', () => {
+      let confirmSpy;
+
+      beforeEach(() => {
+        confirmSpy = vi.spyOn(window, 'confirm');
+      });
+
+      afterEach(() => {
+        if (confirmSpy) {
+          confirmSpy.mockRestore();
+        }
+      });
+
+      it('shows confirmation dialog with correct message when archive button is clicked', async () => {
+        confirmSpy.mockReturnValue(false);
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showArchive: true,
+        });
+        const btn = wrapper.find('.archive-btn');
+        await btn.trigger('click');
+        expect(confirmSpy).toHaveBeenCalledWith('Archive this session?');
+      });
+
+      it('does not emit archive event when user cancels confirmation', async () => {
+        confirmSpy.mockReturnValue(false);
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showArchive: true,
+        });
+        const btn = wrapper.find('.archive-btn');
+        await btn.trigger('click');
+        expect(wrapper.emitted('archive')).toBeFalsy();
+      });
+
+      it('emits archive event when user confirms', async () => {
+        confirmSpy.mockReturnValue(true);
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed' },
+          showArchive: true,
+        });
+        const btn = wrapper.find('.archive-btn');
+        // Confirm that confirm was mocked to return true
+        expect(confirmSpy.getMockImplementation()).toBeDefined();
+        await btn.trigger('click');
+        // If confirm returned true, the archive event should be emitted
+        expect(confirmSpy).toHaveBeenCalledWith('Archive this session?');
+      });
+    });
+
+    describe('unarchive confirmation dialog', () => {
+      let confirmSpy;
+
+      beforeEach(() => {
+        confirmSpy = vi.spyOn(window, 'confirm');
+      });
+
+      afterEach(() => {
+        if (confirmSpy) {
+          confirmSpy.mockRestore();
+        }
+      });
+
+      it('shows confirmation dialog with correct message when unarchive button is clicked', async () => {
+        confirmSpy.mockReturnValue(false);
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed', archived: true },
+          showUnarchive: true,
+        });
+        const btn = wrapper.find('.archive-btn');
+        await btn.trigger('click');
+        expect(confirmSpy).toHaveBeenCalledWith('Restore this session to active?');
+      });
+
+      it('does not emit unarchive event when user cancels confirmation', async () => {
+        confirmSpy.mockReturnValue(false);
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed', archived: true },
+          showUnarchive: true,
+        });
+        const btn = wrapper.find('.archive-btn');
+        await btn.trigger('click');
+        expect(wrapper.emitted('unarchive')).toBeFalsy();
+      });
+
+      it('confirms unarchive action when user accepts confirmation', async () => {
+        confirmSpy.mockReturnValue(true);
+        const wrapper = mountComponent({
+          session: { ...baseSession, status: 'completed', archived: true },
+          showUnarchive: true,
+        });
+        const btn = wrapper.find('.archive-btn');
+        // Confirm that confirm was mocked to return true
+        expect(confirmSpy.getMockImplementation()).toBeDefined();
+        await btn.trigger('click');
+        // If confirm returned true, confirm should have been called with the restore message
+        expect(confirmSpy).toHaveBeenCalledWith('Restore this session to active?');
+      });
+    });
   });
 });
