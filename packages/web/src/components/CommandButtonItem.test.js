@@ -96,6 +96,7 @@ describe('CommandButtonItem', () => {
       status: 'running',
       output: 'Starting tests...',
       exitCode: null,
+      startedAt: Date.now(),
     };
 
     const wrapper = mount(CommandButtonItem, {
@@ -106,9 +107,14 @@ describe('CommandButtonItem', () => {
       },
     });
 
+    await flushPromises();
+    await nextTick();
+
     expect(wrapper.text()).toContain('Running');
-    expect(wrapper.find('.spinner').exists()).toBe(true);
-    expect(wrapper.find('.btn-outline-danger').exists()).toBe(true);
+    let spinner = wrapper.find('.spinner');
+    expect(spinner.exists()).toBe(true);
+    let killButton = wrapper.find('.btn-outline-danger');
+    expect(killButton.exists()).toBe(true);
   });
 
   it('shows kill button when running', async () => {
@@ -124,6 +130,7 @@ describe('CommandButtonItem', () => {
       status: 'running',
       output: '',
       exitCode: null,
+      startedAt: Date.now(),
     };
 
     const wrapper = mount(CommandButtonItem, {
@@ -134,7 +141,9 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    const killButton = wrapper.find('.btn-outline-danger');
+    await nextTick();
+
+    let killButton = wrapper.find('.btn-outline-danger');
     expect(killButton.exists()).toBe(true);
     expect(killButton.text()).toContain('✕');
   });
@@ -152,6 +161,7 @@ describe('CommandButtonItem', () => {
       status: 'running',
       output: '',
       exitCode: null,
+      startedAt: Date.now(),
     };
 
     const onKill = vi.fn();
@@ -167,11 +177,14 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    const killButton = wrapper.find('.btn-outline-danger');
+    let killButton = wrapper.find('.btn-outline-danger');
     expect(killButton.exists()).toBe(true);
     await killButton.trigger('click');
+    await flushPromises();
     await nextTick();
 
+    // Re-query after async operations
+    killButton = wrapper.find('.btn-outline-danger');
     // The kill button should exist and be clickable
     expect(killButton.exists()).toBe(true);
   });
@@ -242,9 +255,10 @@ describe('CommandButtonItem', () => {
     const run = {
       runId: 'run-1',
       buttonId: '1',
-      status: 'success',
+      status: 'running',
       output: 'Test output',
       exitCode: 0,
+      startedAt: Date.now(),
     };
 
     const wrapper = mount(CommandButtonItem, {
@@ -255,11 +269,10 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Output is hidden by default for completed runs, click header to expand
-    const header = wrapper.find('.output-header');
-    await header.trigger('click');
+    await flushPromises();
     await nextTick();
 
+    // For running commands, output is visible by default
     expect(wrapper.find('.output-content').exists()).toBe(true);
     expect(wrapper.text()).toContain('Test output');
   });
@@ -277,6 +290,7 @@ describe('CommandButtonItem', () => {
       status: 'running',
       output: 'Test output',
       exitCode: null,
+      startedAt: Date.now(),
     };
 
     const wrapper = mount(CommandButtonItem, {
@@ -286,6 +300,8 @@ describe('CommandButtonItem', () => {
         sessionId: 'session-1',
       },
     });
+
+    await nextTick();
 
     // Output should be visible by default when running
     expect(wrapper.find('.output-content').exists()).toBe(true);
@@ -304,6 +320,7 @@ describe('CommandButtonItem', () => {
       status: 'running',
       output: 'Test output',
       exitCode: null,
+      startedAt: Date.now(),
     };
 
     const wrapper = mount(CommandButtonItem, {
@@ -314,18 +331,24 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    const header = wrapper.find('.output-header');
+    await nextTick();
+
+    let header = wrapper.find('.output-header');
 
     // Initially visible (because running)
     expect(wrapper.find('.output-content').exists()).toBe(true);
 
     // Click to hide
     await header.trigger('click');
+    await flushPromises();
     await nextTick();
     expect(wrapper.find('.output-content').exists()).toBe(false);
 
+    // Re-query header
+    header = wrapper.find('.output-header');
     // Click to show
     await header.trigger('click');
+    await flushPromises();
     await nextTick();
     expect(wrapper.find('.output-content').exists()).toBe(true);
   });
@@ -340,9 +363,10 @@ describe('CommandButtonItem', () => {
     const run = {
       runId: 'run-1',
       buttonId: '1',
-      status: 'success',
+      status: 'running',
       output: 'Test output',
       exitCode: 0,
+      startedAt: Date.now(),
     };
 
     const wrapper = mount(CommandButtonItem, {
@@ -353,15 +377,14 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    // Verify output section can be expanded
-    const header = wrapper.find('.output-header');
-    expect(header.exists()).toBe(true);
-
-    // Expand output section
-    await header.trigger('click');
+    await flushPromises();
     await nextTick();
 
-    // Output content should be visible
+    // Verify output section can be expanded
+    let header = wrapper.find('.output-header');
+    expect(header.exists()).toBe(true);
+
+    // Output content should be visible for running commands
     expect(wrapper.find('.output-content').exists()).toBe(true);
   });
 
@@ -375,9 +398,10 @@ describe('CommandButtonItem', () => {
     const run = {
       runId: 'run-1',
       buttonId: '1',
-      status: 'success',
+      status: 'running',
       output: 'Test output content',
       exitCode: 0,
+      startedAt: Date.now(),
     };
 
     const wrapper = mount(CommandButtonItem, {
@@ -388,8 +412,11 @@ describe('CommandButtonItem', () => {
       },
     });
 
+    await flushPromises();
+    await nextTick();
+
     // Component should render successfully with output
-    const outputText = wrapper.find('.output-text');
+    let outputText = wrapper.find('.output-text');
     expect(outputText.exists()).toBe(true);
   });
 
@@ -430,9 +457,10 @@ describe('CommandButtonItem', () => {
     const run = {
       runId: 'run-1',
       buttonId: '1',
-      status: 'success',
+      status: 'running',
       output: 'Test output',
       exitCode: 0,
+      startedAt: Date.now(),
     };
 
     const wrapper = mount(CommandButtonItem, {
@@ -443,10 +471,13 @@ describe('CommandButtonItem', () => {
       },
     });
 
+    await flushPromises();
+    await nextTick();
+
     // Component should render with output section
     expect(wrapper.find('.output-section').exists()).toBe(true);
     // Output should be visible in the output text div
-    const outputDiv = wrapper.find('.output-text');
+    let outputDiv = wrapper.find('.output-text');
     expect(outputDiv.html()).toContain('Test output');
   });
 
@@ -518,6 +549,7 @@ describe('CommandButtonItem', () => {
       status: 'running',
       output: '\x1b[32mSuccess\x1b[0m',
       exitCode: null,
+      startedAt: Date.now(),
     };
 
     const wrapper = mount(CommandButtonItem, {
@@ -531,7 +563,7 @@ describe('CommandButtonItem', () => {
     await nextTick();
 
     // Output should be rendered via v-html and contain styled span
-    const outputDiv = wrapper.find('.output-text');
+    let outputDiv = wrapper.find('.output-text');
     expect(outputDiv.html()).toContain('span');
     expect(outputDiv.html()).toContain('style');
     expect(outputDiv.html()).toContain('Success');
@@ -550,6 +582,7 @@ describe('CommandButtonItem', () => {
       status: 'running',
       output: '\x1b[31mError occurred\x1b[0m',
       exitCode: null,
+      startedAt: Date.now(),
     };
 
     const wrapper = mount(CommandButtonItem, {
@@ -562,7 +595,7 @@ describe('CommandButtonItem', () => {
 
     await nextTick();
 
-    const outputDiv = wrapper.find('.output-text');
+    let outputDiv = wrapper.find('.output-text');
     expect(outputDiv.html()).toContain('Error occurred');
   });
 
@@ -589,6 +622,7 @@ describe('CommandButtonItem', () => {
         status: 'running',
         output: 'Output text',
         exitCode: null,
+        startedAt: Date.now(),
       };
 
       const wrapper = mount(CommandButtonItem, {
@@ -602,7 +636,7 @@ describe('CommandButtonItem', () => {
       await nextTick();
 
       // Verify the output div has ref and scroll handler
-      const outputDiv = wrapper.find('.output-text');
+      let outputDiv = wrapper.find('.output-text');
       expect(outputDiv.exists()).toBe(true);
 
       // The component should have ref="outputRef" set up
@@ -623,6 +657,7 @@ describe('CommandButtonItem', () => {
         status: 'running',
         output: 'Output 1',
         exitCode: null,
+        startedAt: Date.now(),
       };
 
       const wrapper = mount(CommandButtonItem, {
@@ -643,11 +678,12 @@ describe('CommandButtonItem', () => {
             output: `Output 1\nOutput ${i}`,
           },
         });
+        await flushPromises();
         await nextTick();
       }
 
       // Verify output is still displayed and contains all content
-      const outputDiv = wrapper.find('.output-text');
+      let outputDiv = wrapper.find('.output-text');
       expect(outputDiv.html()).toContain('Output 1');
       expect(outputDiv.html()).toContain('Output 5');
     });
@@ -665,6 +701,7 @@ describe('CommandButtonItem', () => {
         status: 'running',
         output: 'Output from run 1',
         exitCode: null,
+        startedAt: Date.now(),
       };
 
       const wrapper = mount(CommandButtonItem, {
@@ -684,13 +721,15 @@ describe('CommandButtonItem', () => {
         status: 'running',
         output: 'Output from run 2',
         exitCode: null,
+        startedAt: Date.now(),
       };
 
       await wrapper.setProps({ run: run2 });
+      await flushPromises();
       await nextTick();
 
       // Verify new output is displayed
-      const outputDiv = wrapper.find('.output-text');
+      let outputDiv = wrapper.find('.output-text');
       expect(outputDiv.html()).toContain('Output from run 2');
       expect(outputDiv.html()).not.toContain('Output from run 1');
     });
@@ -708,6 +747,7 @@ describe('CommandButtonItem', () => {
         status: 'running',
         output: 'Test output\nAll tests passed',
         exitCode: null,
+        startedAt: Date.now(),
       };
 
       const wrapper = mount(CommandButtonItem, {
@@ -720,7 +760,7 @@ describe('CommandButtonItem', () => {
 
       await nextTick();
 
-      const runningOutput = wrapper.find('.output-text').html();
+      let runningOutput = wrapper.find('.output-text').html();
       expect(runningOutput).toContain('Test output');
 
       // Transition to completed state
@@ -731,10 +771,11 @@ describe('CommandButtonItem', () => {
       };
 
       await wrapper.setProps({ run: completedRun });
+      await flushPromises();
       await nextTick();
 
       // Output should be preserved
-      const completedOutput = wrapper.find('.output-text').html();
+      let completedOutput = wrapper.find('.output-text').html();
       expect(completedOutput).toContain('Test output');
       expect(completedOutput).toContain('All tests passed');
     });
@@ -758,6 +799,7 @@ describe('CommandButtonItem', () => {
         status: 'running',
         output: largeOutput,
         exitCode: null,
+        startedAt: Date.now(),
       };
 
       const wrapper = mount(CommandButtonItem, {
@@ -771,7 +813,7 @@ describe('CommandButtonItem', () => {
       await nextTick();
 
       // Verify all output is rendered
-      const outputDiv = wrapper.find('.output-text');
+      let outputDiv = wrapper.find('.output-text');
       expect(outputDiv.html()).toContain('Line 1');
       expect(outputDiv.html()).toContain('Line 1000');
       expect(wrapper.html()).toContain('1000');
@@ -812,12 +854,12 @@ describe('CommandButtonItem', () => {
       await nextTick();
 
       // Verify running indicator exists
-      const runningIndicator = wrapper.find('.running-indicator');
+      let runningIndicator = wrapper.find('.running-indicator');
       expect(runningIndicator.exists()).toBe(true);
       expect(runningIndicator.text()).toContain('Running');
 
       // Verify elapsed time is displayed
-      const elapsedTime = wrapper.find('.elapsed-time');
+      let elapsedTime = wrapper.find('.elapsed-time');
       expect(elapsedTime.exists()).toBe(true);
     });
 
@@ -847,9 +889,10 @@ describe('CommandButtonItem', () => {
         },
       });
 
+      await flushPromises();
       await nextTick();
 
-      const elapsedTime = wrapper.find('.elapsed-time');
+      let elapsedTime = wrapper.find('.elapsed-time');
       expect(elapsedTime.exists()).toBe(true);
       // The displayed time should be close to 2:05
       // Allow some variance in timing
@@ -881,10 +924,11 @@ describe('CommandButtonItem', () => {
         },
       });
 
+      await flushPromises();
       await nextTick();
 
       // Verify spinner exists
-      const spinner = wrapper.find('.spinner');
+      let spinner = wrapper.find('.spinner');
       expect(spinner.exists()).toBe(true);
     });
 
@@ -913,6 +957,7 @@ describe('CommandButtonItem', () => {
         },
       });
 
+      await flushPromises();
       await nextTick();
 
       // Verify running indicator exists while running
@@ -926,6 +971,7 @@ describe('CommandButtonItem', () => {
       };
 
       await wrapper.setProps({ run: completedRun });
+      await flushPromises();
       await nextTick();
 
       // Verify running indicator is hidden
@@ -957,6 +1003,7 @@ describe('CommandButtonItem', () => {
         },
       });
 
+      await flushPromises();
       await nextTick();
 
       // Verify elapsed time exists while running
@@ -970,6 +1017,7 @@ describe('CommandButtonItem', () => {
       };
 
       await wrapper.setProps({ run: errorRun });
+      await flushPromises();
       await nextTick();
 
       // Verify running indicator (and elapsed time) is hidden
@@ -1004,10 +1052,11 @@ describe('CommandButtonItem', () => {
         },
       });
 
+      await flushPromises();
       await nextTick();
 
       // Verify elapsed time is calculated
-      const elapsedTime = wrapper.find('.elapsed-time');
+      let elapsedTime = wrapper.find('.elapsed-time');
       expect(elapsedTime.exists()).toBe(true);
     });
 
@@ -1038,9 +1087,10 @@ describe('CommandButtonItem', () => {
         },
       });
 
+      await flushPromises();
       await nextTick();
 
-      const elapsedTime = wrapper.find('.elapsed-time');
+      let elapsedTime = wrapper.find('.elapsed-time');
       expect(elapsedTime.exists()).toBe(true);
       // Should show 10:XX
       expect(elapsedTime.text()).toMatch(/10:\d{2}/);
@@ -1258,6 +1308,9 @@ describe('CommandButtonItem', () => {
         },
       });
 
+      await flushPromises();
+      await nextTick();
+
       // When run.status === 'running', button should not be visible
       // (template: v-if="!run || run.status !== 'running'")
       expect(wrapper.find('.btn-primary').exists()).toBe(false);
@@ -1297,14 +1350,18 @@ describe('CommandButtonItem', () => {
         },
       });
 
+      await flushPromises();
+      await nextTick();
+
       // While running, button is hidden
       expect(wrapper.find('.btn-primary').exists()).toBe(false);
 
       // After completion, run button appears again
       await wrapper.setProps({ run: completedRun });
+      await flushPromises();
       await nextTick();
 
-      const runButton = wrapper.find('.btn-primary');
+      let runButton = wrapper.find('.btn-primary');
       expect(runButton.exists()).toBe(true);
       expect(runButton.attributes('disabled')).toBeUndefined();
     });

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import { createRouter, createMemoryHistory } from 'vue-router';
 import { createPinia, setActivePinia } from 'pinia';
 import ProjectEditView from './ProjectEditView.vue';
@@ -143,7 +144,8 @@ describe('ProjectEditView with Session Defaults', () => {
 
       // Wait for watchers to run
       await wrapper.vm.$nextTick();
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await flushPromises();
+      await nextTick();
 
       // Check that form fields are populated
       const selects = wrapper.findAll('select');
@@ -197,7 +199,8 @@ describe('ProjectEditView with Session Defaults', () => {
       });
 
       await wrapper.vm.$nextTick();
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await flushPromises();
+      await nextTick();
 
       // After watcher runs, checkboxes should be initialized
       const checkboxes = wrapper.findAll('input[type="checkbox"]');
@@ -301,7 +304,8 @@ describe('ProjectEditView with Session Defaults', () => {
       const form = wrapper.find('form');
       await form.trigger('submit');
 
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await flushPromises();
+      await nextTick();
 
       // Should have called updateDefaults with the values
       expect(defaultsStore.updateDefaults).toHaveBeenCalledWith(
@@ -336,7 +340,8 @@ describe('ProjectEditView with Session Defaults', () => {
       const form = wrapper.find('form');
       await form.trigger('submit');
 
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await flushPromises();
+      await nextTick();
 
       expect(projectsStore.updateProject).toHaveBeenCalled();
       expect(defaultsStore.updateDefaults).toHaveBeenCalled();
@@ -364,7 +369,8 @@ describe('ProjectEditView with Session Defaults', () => {
       const form = wrapper.find('form');
       await form.trigger('submit');
 
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await flushPromises();
+      await nextTick();
 
       expect(wrapper.vm.error).toBeDefined();
     });
@@ -392,7 +398,8 @@ describe('ProjectEditView with Session Defaults', () => {
       const form = wrapper.find('form');
       await form.trigger('submit');
 
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await flushPromises();
+      await nextTick();
 
       // Should only send mode in the defaults
       const callArgs = defaultsStore.updateDefaults.mock.calls[0];
@@ -451,7 +458,8 @@ describe('ProjectEditView with Session Defaults', () => {
       });
 
       await wrapper.vm.$nextTick();
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await flushPromises();
+      await nextTick();
 
       expect(wrapper.vm.defaultMode).toBe('');
 
@@ -461,7 +469,8 @@ describe('ProjectEditView with Session Defaults', () => {
       };
 
       await wrapper.vm.$nextTick();
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await flushPromises();
+      await nextTick();
 
       expect(wrapper.vm.defaultMode).toBe('plan');
     });
