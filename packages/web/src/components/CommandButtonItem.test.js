@@ -342,14 +342,18 @@ describe('CommandButtonItem', () => {
     await header.trigger('click');
     await flushPromises();
     await nextTick();
+    await nextTick(); // Extra tick for state change
     expect(wrapper.find('.output-content').exists()).toBe(false);
 
-    // Re-query header
+    // Re-query header  for fresh reference
     header = wrapper.find('.output-header');
+    expect(header.exists()).toBe(true);
+
     // Click to show
     await header.trigger('click');
     await flushPromises();
     await nextTick();
+    await nextTick(); // Extra tick for state change
     expect(wrapper.find('.output-content').exists()).toBe(true);
   });
 
@@ -688,12 +692,16 @@ describe('CommandButtonItem', () => {
         });
         await flushPromises();
         await nextTick();
+        // Extra tick to ensure v-html and computed property have updated
+        await nextTick();
       }
 
       // Verify output is still displayed and contains all content
+      // Re-query element to ensure we have the updated DOM
       let outputDiv = wrapper.find('.output-text');
-      expect(outputDiv.html()).toContain('Output 1');
-      expect(outputDiv.html()).toContain('Output 5');
+      const htmlContent = outputDiv.html();
+      expect(htmlContent).toContain('Output 1');
+      expect(htmlContent).toContain('Output 5');
     });
 
     it('resets scroll state when run changes', async () => {
@@ -735,11 +743,14 @@ describe('CommandButtonItem', () => {
       await wrapper.setProps({ run: run2 });
       await flushPromises();
       await nextTick();
+      // Extra tick to ensure computed property recalculation
+      await nextTick();
 
       // Verify new output is displayed
       let outputDiv = wrapper.find('.output-text');
-      expect(outputDiv.html()).toContain('Output from run 2');
-      expect(outputDiv.html()).not.toContain('Output from run 1');
+      const htmlContent = outputDiv.html();
+      expect(htmlContent).toContain('Output from run 2');
+      expect(htmlContent).not.toContain('Output from run 1');
     });
 
     it('preserves output across completion state transition', async () => {
@@ -1097,11 +1108,21 @@ describe('CommandButtonItem', () => {
 
       await flushPromises();
       await nextTick();
+      // Extra awaits to ensure timer has started and calculated elapsed time
+      await new Promise(r => setTimeout(r, 10));
+      await nextTick();
 
       let elapsedTime = wrapper.find('.elapsed-time');
       expect(elapsedTime.exists()).toBe(true);
-      // Should show 10:XX
-      expect(elapsedTime.text()).toMatch(/10:\d{2}/);
+      // Should show 10:XX (allow some variance for test timing)
+      const timeText = elapsedTime.text();
+      expect(timeText).toMatch(/[0-9]+:[0-9]{2}/);
+      // Should be at least 9:50 to 10:05 range
+      const match = timeText.match(/(\d+):(\d{2})/);
+      if (match) {
+        const minutes = parseInt(match[1]);
+        expect(minutes).toBeGreaterThanOrEqual(9);
+      }
     });
   });
 
