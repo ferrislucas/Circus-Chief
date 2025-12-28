@@ -560,6 +560,7 @@ describe('SessionDetailView', () => {
           return vi.fn();
         }),
         onConversationUpdated: vi.fn(() => vi.fn()),
+        onChangesUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -665,6 +666,7 @@ describe('SessionDetailView', () => {
         onSummaryUpdate: vi.fn(() => vi.fn()),
         onUsageUpdate: vi.fn(() => vi.fn()),
         onConversationUpdated: vi.fn(() => vi.fn()),
+        onChangesUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -725,6 +727,7 @@ describe('SessionDetailView', () => {
         onSummaryUpdate: vi.fn(() => vi.fn()),
         onUsageUpdate: vi.fn(() => vi.fn()),
         onConversationUpdated: vi.fn(() => vi.fn()),
+        onChangesUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -762,6 +765,7 @@ describe('SessionDetailView', () => {
         onSummaryUpdate: vi.fn(() => vi.fn()),
         onUsageUpdate: vi.fn(() => vi.fn()),
         onConversationUpdated: vi.fn(() => vi.fn()),
+        onChangesUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -1362,6 +1366,7 @@ describe('SessionDetailView', () => {
         onSummaryUpdate: vi.fn(() => vi.fn()),
         onUsageUpdate: mockOnUsageUpdate,
         onConversationUpdated: vi.fn(() => vi.fn()),
+        onChangesUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -1390,6 +1395,7 @@ describe('SessionDetailView', () => {
           return vi.fn();
         }),
         onConversationUpdated: vi.fn(() => vi.fn()),
+        onChangesUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -1429,6 +1435,7 @@ describe('SessionDetailView', () => {
           return vi.fn();
         }),
         onConversationUpdated: vi.fn(() => vi.fn()),
+        onChangesUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -1468,6 +1475,7 @@ describe('SessionDetailView', () => {
           return vi.fn();
         }),
         onConversationUpdated: vi.fn(() => vi.fn()),
+        onChangesUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -1506,6 +1514,7 @@ describe('SessionDetailView', () => {
         onSummaryUpdate: vi.fn(() => vi.fn()),
         onUsageUpdate: vi.fn(() => vi.fn()),
         onConversationUpdated: mockOnConversationUpdated,
+        onChangesUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();
@@ -1534,6 +1543,7 @@ describe('SessionDetailView', () => {
           capturedConversationCallback = callback;
           return vi.fn();
         }),
+        onChangesUpdate: vi.fn(() => vi.fn()),
       }));
 
       const wrapper = mountComponent();

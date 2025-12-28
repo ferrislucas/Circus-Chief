@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons } from '../database.js';
+import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons, commandRuns } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -812,6 +812,41 @@ router.get('/:id/command-buttons/runs', (req, res) => {
 
   const activeRuns = commandRunner.getRunsBySession(sessionId);
   res.json(activeRuns);
+});
+
+// GET /api/sessions/:id/command-buttons/runs/:runId - Get single run by ID
+router.get('/:id/command-buttons/runs/:runId', (req, res) => {
+  const { id: sessionId, runId } = req.params;
+
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Check if run is currently running (in memory)
+  if (commandRunner.isRunning(runId)) {
+    const activeRuns = commandRunner.getRunsBySession(sessionId);
+    const run = activeRuns.find((r) => r.runId === runId);
+    if (run) {
+      return res.json(run);
+    }
+  }
+
+  // Otherwise check database
+  const run = commandRuns.getById(runId);
+  if (!run || run.sessionId !== sessionId) {
+    return res.status(404).json({ error: 'Run not found' });
+  }
+
+  res.json({
+    runId: run.id,
+    buttonId: run.buttonId,
+    status: run.status,
+    output: run.output,
+    exitCode: run.exitCode,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+  });
 });
 
 // POST /api/sessions/:id/command-buttons/runs/:runId/kill - Kill running command

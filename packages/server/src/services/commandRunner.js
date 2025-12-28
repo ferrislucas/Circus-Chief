@@ -144,6 +144,10 @@ export class CommandRunner {
           this.processes.delete(runId);
           // If killed by signal, exitCode is null. Call onComplete with null to trigger error status
           if (onComplete) onComplete(exitCode, entry.output);
+          // Return non-zero exit code for signal termination (143 for SIGTERM)
+          if (signal) {
+            resolve(143);
+          }
           resolve(exitCode || 0);
         });
       } catch (err) {
