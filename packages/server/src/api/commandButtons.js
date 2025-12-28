@@ -27,6 +27,7 @@ router.post('/', (req, res) => {
     label: result.data.label,
     command: result.data.command,
     sortOrder: result.data.sortOrder,
+    showOnList: result.data.showOnList,
   });
 
   res.status(201).json(button);
@@ -53,7 +54,14 @@ router.patch('/:id', (req, res) => {
     return res.status(400).json({ error: result.error.errors[0].message });
   }
 
-  const updated = commandButtons.update(req.params.id, result.data);
+  // Map validated data and only include fields that were provided
+  const updateData = {};
+  if (result.data.label !== undefined) updateData.label = result.data.label;
+  if (result.data.command !== undefined) updateData.command = result.data.command;
+  if (result.data.sortOrder !== undefined) updateData.sortOrder = result.data.sortOrder;
+  if (result.data.showOnList !== undefined) updateData.showOnList = result.data.showOnList;
+
+  const updated = commandButtons.update(req.params.id, updateData);
   res.json(updated);
 });
 
