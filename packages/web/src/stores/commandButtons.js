@@ -97,18 +97,19 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
 
     async fetchActiveRuns(sessionId) {
       try {
-        const activeRuns = await api.getActiveRuns(sessionId);
-        // Restore runs to state
-        for (const run of activeRuns) {
+        const runs = await api.getActiveRuns(sessionId);
+        // Restore runs to state (both running and recently completed)
+        for (const run of runs) {
           this.runs[run.runId] = {
             runId: run.runId,
             buttonId: run.buttonId,
-            status: 'running',
-            output: run.output,
-            exitCode: null,
+            status: run.status || 'running',
+            output: run.output || '',
+            exitCode: run.exitCode !== undefined ? run.exitCode : null,
+            startedAt: run.startedAt,
           };
         }
-        return activeRuns;
+        return runs;
       } catch (err) {
         console.error('Failed to fetch active runs:', err);
         return [];
@@ -125,7 +126,16 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
     completeRun(runId, exitCode, output) {
       if (this.runs[runId]) {
         this.runs[runId].exitCode = exitCode;
-        this.runs[runId].output = output;
+
+        // FIX: Only replace output if server has a more complete version
+        // (longer output), otherwise keep the output we accumulated via
+        // appendOutput calls. This prevents race conditions where the
+        // completion message arrives before all streaming chunks.
+        if (output && output.length > this.runs[runId].output.length) {
+          this.runs[runId].output = output;
+        }
+        // Otherwise, keep the accumulated streamed output
+
         this.runs[runId].status = exitCode === 0 ? 'success' : 'error';
       }
     },

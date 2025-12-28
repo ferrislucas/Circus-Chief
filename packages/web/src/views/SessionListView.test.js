@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { nextTick, defineComponent } from 'vue';
+import { nextTick, defineComponent, reactive } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 
 // Create mutable route params
@@ -98,11 +98,12 @@ import { useProjectSubscription } from '../composables/useWebSocket.js';
 
 // Helper to create a sessions store mock with proper groupedSessions getter
 function createSessionsStoreMock(sessions = [], overrides = {}) {
-  const baseStore = {
+  const baseStore = reactive({
     loading: false,
     error: null,
     sessions,
     archivedSessions: [],
+    statusFilter: null,
     get groupedSessions() {
       // Derive groupedSessions from sessions like the real store does
       const grouped = [];
@@ -129,8 +130,13 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
     removeSessionFromList: vi.fn(),
     restoreExpandedState: vi.fn(),
     saveExpandedState: vi.fn(),
+    restoreStatusFilter: vi.fn(),
+    setStatusFilter(filter) {
+      this.statusFilter = filter;
+    },
+    saveStatusFilter: vi.fn(),
     ...overrides,
-  };
+  });
   return baseStore;
 }
 

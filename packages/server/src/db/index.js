@@ -17,6 +17,7 @@ export { WorkLogRepository } from './WorkLogRepository.js';
 export { SessionSummaryRepository } from './SessionSummaryRepository.js';
 export { AttachmentRepository } from './AttachmentRepository.js';
 export { CommandButtonRepository } from './CommandButtonRepository.js';
+export { CommandRunRepository } from './CommandRunRepository.js';
 
 // Singleton instances
 import { ProjectRepository } from './ProjectRepository.js';
@@ -30,6 +31,7 @@ import { SessionSummaryRepository } from './SessionSummaryRepository.js';
 import { SessionTemplateRepository } from './SessionTemplateRepository.js';
 import { AttachmentRepository } from './AttachmentRepository.js';
 import { CommandButtonRepository } from './CommandButtonRepository.js';
+import { CommandRunRepository } from './CommandRunRepository.js';
 
 export const projects = new ProjectRepository();
 export const messages = new MessageRepository();
@@ -42,6 +44,7 @@ export const sessionSummaries = new SessionSummaryRepository();
 export const sessionTemplates = new SessionTemplateRepository();
 export const attachments = new AttachmentRepository();
 export const commandButtons = new CommandButtonRepository();
+export const commandRuns = new CommandRunRepository();
 
 // SessionRepository needs to be instantiated after messages is available
 import { SessionRepository } from './SessionRepository.js';

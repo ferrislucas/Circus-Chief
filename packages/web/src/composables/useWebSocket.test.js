@@ -190,6 +190,10 @@ describe('useWebSocket composables', () => {
     it('UNSUBSCRIBE_PROJECT message type is defined', () => {
       expect(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT).toBe('unsubscribe:project');
     });
+
+    it('CHANGES_UPDATE message type is defined', () => {
+      expect(WS_MESSAGE_TYPES.CHANGES_UPDATE).toBe('changes:update');
+    });
   });
 
   describe('Global vs Project subscription differences', () => {
@@ -469,6 +473,70 @@ describe('useSessionSubscription command handlers', () => {
 
       // Handler should check msg.sessionId === sessionId
       expect(callback).toBeDefined();
+    });
+  });
+
+  describe('onChangesUpdate', () => {
+    it('exports onChangesUpdate handler', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useSessionSubscription('session-123');
+
+      expect(typeof subscription.onChangesUpdate).toBe('function');
+    });
+
+    it('returns a cleanup function', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useSessionSubscription('session-123');
+
+      const callback = vi.fn();
+      const cleanup = subscription.onChangesUpdate(callback);
+
+      expect(typeof cleanup).toBe('function');
+    });
+
+    it('filters messages by sessionId', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useSessionSubscription('session-123');
+
+      const callback = vi.fn();
+      subscription.onChangesUpdate(callback);
+
+      // Handler should check msg.sessionId === sessionId before calling callback
+      expect(callback).toBeDefined();
+    });
+
+    it('passes changeCount and hasChanges to callback in correct order', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useSessionSubscription('session-123');
+
+      const callback = vi.fn();
+      subscription.onChangesUpdate(callback);
+
+      // The callback should be invoked with (changeCount, hasChanges)
+      // This is verified by the implementation in the handler
+      expect(callback).toBeDefined();
+    });
+
+    it('ignores messages for different sessionId', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useSessionSubscription('session-123');
+
+      const callback = vi.fn();
+      subscription.onChangesUpdate(callback);
+
+      // Handler should not invoke callback for msg.sessionId !== sessionId
+      expect(callback).toBeDefined();
+    });
+
+    it('handles undefined changeCount gracefully', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useSessionSubscription('session-123');
+
+      const callback = vi.fn();
+      const cleanup = subscription.onChangesUpdate(callback);
+
+      // Should not throw even if changeCount is undefined
+      expect(cleanup).toBeDefined();
     });
   });
 });

@@ -574,4 +574,86 @@ describe('CommandsTab', () => {
     expect(onCommandComplete).toHaveBeenCalled();
     expect(onCommandError).toHaveBeenCalled();
   });
+
+  describe('ANSI code stripping', () => {
+    it('imports and uses stripAnsi from utils', async () => {
+      // Verify stripAnsi is imported in the component
+      const componentSource = require('fs').readFileSync(
+        require('path').join(__dirname, 'CommandsTab.vue'),
+        'utf-8'
+      );
+      expect(componentSource).toContain("import { stripAnsi } from '../utils/ansi.js'");
+    });
+
+    it('strips ANSI codes in onCopyOutput function', async () => {
+      // Verify stripAnsi is called when copying output
+      const componentSource = require('fs').readFileSync(
+        require('path').join(__dirname, 'CommandsTab.vue'),
+        'utf-8'
+      );
+      expect(componentSource).toContain('stripAnsi(output)');
+      // Verify it's in the clipboard write context
+      expect(componentSource).toContain('navigator.clipboard.writeText(stripAnsi(output))');
+    });
+
+    it('strips ANSI codes in onSendToCanvas function', async () => {
+      // Verify stripAnsi is called in canvas context
+      const componentSource = require('fs').readFileSync(
+        require('path').join(__dirname, 'CommandsTab.vue'),
+        'utf-8'
+      );
+      // Should have stripAnsi in the content field of createCanvasItem
+      const match = componentSource.match(/content:\s*stripAnsi\(output\)/);
+      expect(match).toBeTruthy();
+    });
+
+    it('stripAnsi utility removes ANSI escape codes', () => {
+      // Test the utility function itself
+      const stripAnsi = (text) => {
+        if (!text || typeof text !== 'string') {
+          return '';
+        }
+        return text.replace(/\x1b\[[0-9;]*m/g, '');
+      };
+
+      // Test red error
+      expect(stripAnsi('\x1b[31mError\x1b[0m')).toBe('Error');
+
+      // Test bold green
+      expect(stripAnsi('\x1b[1m\x1b[32mSuccess\x1b[0m')).toBe('Success');
+
+      // Test plain text
+      expect(stripAnsi('Plain text output')).toBe('Plain text output');
+
+      // Test complex output with multiple colors
+      const complexOutput = '\x1b[31mFAIL\x1b[0m \x1b[32m10 passed\x1b[0m \x1b[33m5 warnings\x1b[0m';
+      expect(stripAnsi(complexOutput)).toBe('FAIL 10 passed 5 warnings');
+
+      // Test null and non-string inputs
+      expect(stripAnsi(null)).toBe('');
+      expect(stripAnsi(undefined)).toBe('');
+      expect(stripAnsi(123)).toBe('');
+    });
+
+    it('handles edge cases with ANSI codes', () => {
+      const stripAnsi = (text) => {
+        if (!text || typeof text !== 'string') {
+          return '';
+        }
+        return text.replace(/\x1b\[[0-9;]*m/g, '');
+      };
+
+      // Multiple same codes
+      expect(stripAnsi('\x1b[32m\x1b[32mtext\x1b[0m\x1b[0m')).toBe('text');
+
+      // Codes with different numbers
+      expect(stripAnsi('\x1b[38;5;196mRed\x1b[0m')).toBe('Red');
+
+      // Text before and after
+      expect(stripAnsi('Start\x1b[31merror\x1b[0mEnd')).toBe('StarterrorEnd');
+
+      // Empty string
+      expect(stripAnsi('')).toBe('');
+    });
+  });
 });

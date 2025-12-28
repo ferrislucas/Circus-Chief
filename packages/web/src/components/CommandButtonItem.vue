@@ -50,7 +50,9 @@
       <!-- Output Content (when expanded) -->
       <div v-if="showOutput" class="output-content">
         <div
+          ref="outputRef"
           class="output-text"
+          @scroll="onScroll"
           v-html="formattedOutput || '(no output)'"
         ></div>
 
@@ -104,6 +106,9 @@ const outputRef = ref(null);
 // NEW: Track if user has manually scrolled up from the bottom
 const userHasScrolledUp = ref(false);
 
+// NEW: Flag to prevent onScroll from firing during programmatic scrolls
+const isProgrammaticScroll = ref(false);
+
 const truncateCommand = (command) => {
   const maxLength = 80;
   if (command.length > maxLength) {
@@ -132,8 +137,18 @@ const formattedOutput = computed(() => {
  * If scrollTop is more than 50px from bottom, user has scrolled up.
  * This allows auto-scroll to pause while user reads earlier output.
  * Threshold of 50px is forgiving for trackpad/mouse wheel jumps.
+ *
+ * FIX: Ignore scroll events that we triggered programmatically to prevent
+ * race conditions where auto-scroll causes onScroll to fire and incorrectly
+ * set userHasScrolledUp to true.
  */
 const onScroll = () => {
+  // Ignore scroll events triggered by our own programmatic scrolling
+  if (isProgrammaticScroll.value) {
+    isProgrammaticScroll.value = false;
+    return;
+  }
+
   if (!outputRef.value) return;
 
   const { scrollTop, scrollHeight, clientHeight } = outputRef.value;
@@ -154,6 +169,9 @@ const onScroll = () => {
  * Triggers when run.output property changes (when new text arrives).
  * Only auto-scrolls if user hasn't manually scrolled up.
  * Uses nextTick to ensure DOM has updated before scrolling.
+ *
+ * FIX: Set isProgrammaticScroll flag before scrolling so the scroll event
+ * handler knows not to treat this as a user-initiated scroll.
  */
 watch(
   () => props.run?.output,
@@ -166,6 +184,8 @@ watch(
     // Wait for DOM to update with new content, then scroll to bottom
     nextTick(() => {
       if (outputRef.value) {
+        // Mark this scroll as programmatic so onScroll handler ignores it
+        isProgrammaticScroll.value = true;
         outputRef.value.scrollTop = outputRef.value.scrollHeight;
       }
     });

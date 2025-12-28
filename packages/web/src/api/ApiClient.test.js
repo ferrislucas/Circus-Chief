@@ -984,5 +984,193 @@ describe('ApiClient', () => {
         expect(result).toEqual(mockData);
       });
     });
+
+    describe('getActiveRuns', () => {
+      it('fetches active command runs for session', async () => {
+        const mockRuns = [
+          {
+            runId: 'run-1',
+            buttonId: 'btn-1',
+            status: 'running',
+            output: 'Processing...\n',
+            startedAt: Date.now(),
+          },
+          {
+            runId: 'run-2',
+            buttonId: 'btn-2',
+            status: 'success',
+            output: 'Complete\n',
+            exitCode: 0,
+            startedAt: Date.now() - 5000,
+          },
+        ];
+        mockFetch.mockReturnValue(mockResponse(mockRuns));
+
+        const result = await client.getActiveRuns('sess-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/command-buttons/runs', expect.any(Object));
+        expect(result).toEqual(mockRuns);
+      });
+
+      it('returns empty array when no active runs', async () => {
+        mockFetch.mockReturnValue(mockResponse([]));
+
+        const result = await client.getActiveRuns('sess-123');
+
+        expect(result).toEqual([]);
+      });
+
+      it('includes both running and recently completed runs', async () => {
+        const mockRuns = [
+          {
+            runId: 'run-1',
+            buttonId: 'btn-1',
+            status: 'running',
+            output: 'Running...\n',
+          },
+          {
+            runId: 'run-2',
+            buttonId: 'btn-1',
+            status: 'error',
+            output: 'Failed\n',
+            exitCode: 1,
+          },
+        ];
+        mockFetch.mockReturnValue(mockResponse(mockRuns));
+
+        const result = await client.getActiveRuns('sess-123');
+
+        expect(result.length).toBe(2);
+        expect(result[0].status).toBe('running');
+        expect(result[1].status).toBe('error');
+      });
+    });
+
+    describe('getCommandRun', () => {
+      it('fetches a single command run by ID', async () => {
+        const mockRun = {
+          runId: 'run-123',
+          buttonId: 'btn-1',
+          status: 'success',
+          output: 'Command executed successfully\n',
+          exitCode: 0,
+          startedAt: Date.now() - 10000,
+          completedAt: Date.now(),
+        };
+        mockFetch.mockReturnValue(mockResponse(mockRun));
+
+        const result = await client.getCommandRun('sess-123', 'run-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/command-buttons/runs/run-123', expect.any(Object));
+        expect(result).toEqual(mockRun);
+      });
+
+      it('returns error status for failed runs', async () => {
+        const mockRun = {
+          runId: 'run-456',
+          buttonId: 'btn-2',
+          status: 'error',
+          output: 'Command failed with error\n',
+          exitCode: 1,
+          startedAt: Date.now() - 5000,
+          completedAt: Date.now(),
+        };
+        mockFetch.mockReturnValue(mockResponse(mockRun));
+
+        const result = await client.getCommandRun('sess-123', 'run-456');
+
+        expect(result.status).toBe('error');
+        expect(result.exitCode).toBe(1);
+      });
+
+      it('returns killed status for terminated runs', async () => {
+        const mockRun = {
+          runId: 'run-789',
+          buttonId: 'btn-3',
+          status: 'killed',
+          output: 'Process terminated\n',
+          startedAt: Date.now() - 3000,
+          completedAt: Date.now(),
+        };
+        mockFetch.mockReturnValue(mockResponse(mockRun));
+
+        const result = await client.getCommandRun('sess-123', 'run-789');
+
+        expect(result.status).toBe('killed');
+        expect(result).not.toHaveProperty('exitCode');
+      });
+
+      it('returns running status for in-progress runs', async () => {
+        const mockRun = {
+          runId: 'run-999',
+          buttonId: 'btn-4',
+          status: 'running',
+          output: 'Currently processing...\n',
+          startedAt: Date.now(),
+        };
+        mockFetch.mockReturnValue(mockResponse(mockRun));
+
+        const result = await client.getCommandRun('sess-123', 'run-999');
+
+        expect(result.status).toBe('running');
+        expect(result.exitCode).toBeUndefined();
+      });
+
+      it('includes all expected fields in response', async () => {
+        const mockRun = {
+          runId: 'run-complete',
+          buttonId: 'btn-test',
+          status: 'success',
+          output: 'Complete\n',
+          exitCode: 0,
+          startedAt: Date.now() - 5000,
+          completedAt: Date.now(),
+        };
+        mockFetch.mockReturnValue(mockResponse(mockRun));
+
+        const result = await client.getCommandRun('sess-123', 'run-complete');
+
+        expect(result).toHaveProperty('runId');
+        expect(result).toHaveProperty('buttonId');
+        expect(result).toHaveProperty('status');
+        expect(result).toHaveProperty('output');
+        expect(result).toHaveProperty('startedAt');
+      });
+
+      it('handles 404 response for non-existent run', async () => {
+        mockFetch.mockReturnValue({
+          ok: false,
+          status: 404,
+          json: async () => ({ error: 'Run not found' }),
+        });
+
+        await expect(client.getCommandRun('sess-123', 'nonexistent')).rejects.toThrow();
+      });
+    });
+
+    describe('killCommandRun', () => {
+      it('sends kill request for running command', async () => {
+        mockFetch.mockReturnValue(mockResponse({ success: true }));
+
+        const result = await client.killCommandRun('sess-123', 'run-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/command-buttons/runs/run-123/kill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: undefined,
+        });
+        expect(result).toEqual({ success: true });
+      });
+
+      it('handles error response when killing non-existent run', async () => {
+        mockFetch.mockReturnValue({
+          ok: false,
+          status: 404,
+          json: async () => ({ error: 'Run not found' }),
+        });
+
+        await expect(client.killCommandRun('sess-123', 'nonexistent')).rejects.toThrow();
+      });
+    });
   });
 });

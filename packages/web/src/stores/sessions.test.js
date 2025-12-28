@@ -2065,4 +2065,114 @@ describe('Sessions Store', () => {
       expect(store.isDraftSession(sessionNoDraft)).toBe(true);
     });
   });
+
+  describe('statusFilter', () => {
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    it('should initialize with null statusFilter', () => {
+      const store = useSessionsStore();
+      expect(store.statusFilter).toBe(null);
+    });
+
+    it('setStatusFilter should update state and save to localStorage', () => {
+      const store = useSessionsStore();
+      store.setStatusFilter('running');
+      expect(store.statusFilter).toBe('running');
+      expect(localStorage.getItem('sessionStatusFilter')).toBe('running');
+    });
+
+    it('setStatusFilter with null should remove from localStorage', () => {
+      const store = useSessionsStore();
+      store.setStatusFilter('idle');
+      store.setStatusFilter(null);
+      expect(store.statusFilter).toBe(null);
+      expect(localStorage.getItem('sessionStatusFilter')).toBe(null);
+    });
+
+    it('restoreStatusFilter should restore valid filter from localStorage', () => {
+      localStorage.setItem('sessionStatusFilter', 'idle');
+      const store = useSessionsStore();
+      store.restoreStatusFilter();
+      expect(store.statusFilter).toBe('idle');
+    });
+
+    it('restoreStatusFilter should ignore invalid values in localStorage', () => {
+      localStorage.setItem('sessionStatusFilter', 'invalid');
+      const store = useSessionsStore();
+      store.restoreStatusFilter();
+      expect(store.statusFilter).toBe(null);
+    });
+
+    it('restoreStatusFilter should handle missing localStorage gracefully', () => {
+      const store = useSessionsStore();
+      store.restoreStatusFilter();
+      expect(store.statusFilter).toBe(null);
+    });
+
+    it('saveStatusFilter should persist status filter to localStorage', () => {
+      const store = useSessionsStore();
+      store.statusFilter = 'running';
+      store.saveStatusFilter();
+      expect(localStorage.getItem('sessionStatusFilter')).toBe('running');
+    });
+
+    it('saveStatusFilter with null should remove from localStorage', () => {
+      localStorage.setItem('sessionStatusFilter', 'idle');
+      const store = useSessionsStore();
+      store.statusFilter = null;
+      store.saveStatusFilter();
+      expect(localStorage.getItem('sessionStatusFilter')).toBe(null);
+    });
+
+    it('handles localStorage errors gracefully when saving', () => {
+      const store = useSessionsStore();
+      // Mock localStorage.setItem to throw
+      const originalSetItem = localStorage.setItem;
+      localStorage.setItem = vi.fn(() => {
+        throw new Error('Storage quota exceeded');
+      });
+
+      expect(() => {
+        store.setStatusFilter('running');
+      }).not.toThrow();
+
+      // Restore original method
+      localStorage.setItem = originalSetItem;
+    });
+
+    it('handles localStorage errors gracefully when restoring', () => {
+      localStorage.setItem('sessionStatusFilter', 'invalid-json');
+      const store = useSessionsStore();
+
+      expect(() => {
+        store.restoreStatusFilter();
+      }).not.toThrow();
+      expect(store.statusFilter).toBe(null);
+    });
+
+    it('supports toggling between filters', () => {
+      const store = useSessionsStore();
+
+      store.setStatusFilter('running');
+      expect(store.statusFilter).toBe('running');
+
+      store.setStatusFilter('idle');
+      expect(store.statusFilter).toBe('idle');
+
+      store.setStatusFilter('running');
+      expect(store.statusFilter).toBe('running');
+    });
+
+    it('persists both running and idle filters to localStorage', () => {
+      const store = useSessionsStore();
+
+      store.setStatusFilter('running');
+      expect(localStorage.getItem('sessionStatusFilter')).toBe('running');
+
+      store.setStatusFilter('idle');
+      expect(localStorage.getItem('sessionStatusFilter')).toBe('idle');
+    });
+  });
 });

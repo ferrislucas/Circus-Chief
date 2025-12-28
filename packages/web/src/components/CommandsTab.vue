@@ -57,6 +57,7 @@ import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useUiStore } from '../stores/ui.js';
 import { api } from '../composables/useApi.js';
+import { stripAnsi } from '../utils/ansi.js';
 import CommandButtonItem from './CommandButtonItem.vue';
 
 const props = defineProps({
@@ -144,7 +145,7 @@ const onCopyOutput = async (output) => {
   }
 
   try {
-    await navigator.clipboard.writeText(output);
+    await navigator.clipboard.writeText(stripAnsi(output));
     uiStore.success('Output copied to clipboard');
   } catch (err) {
     // Provide more specific error messages
@@ -183,7 +184,7 @@ const onSendToCanvas = async (buttonLabel, output) => {
     await api.createCanvasItem(props.sessionId, {
       type: 'text',
       filename: `${sanitizedLabel}-output.txt`,
-      content: output,
+      content: stripAnsi(output),
       label: `${buttonLabel} output`,
     });
 

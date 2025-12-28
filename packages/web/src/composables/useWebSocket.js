@@ -320,6 +320,16 @@ export function useSessionSubscription(sessionId) {
     return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);
   };
 
+  const onChangesUpdate = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.changeCount, msg.hasChanges);
+      }
+    };
+    on(WS_MESSAGE_TYPES.CHANGES_UPDATE, handler);
+    return () => off(WS_MESSAGE_TYPES.CHANGES_UPDATE, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -348,6 +358,7 @@ export function useSessionSubscription(sessionId) {
     onCommandOutput,
     onCommandComplete,
     onCommandError,
+    onChangesUpdate,
   };
 }
 

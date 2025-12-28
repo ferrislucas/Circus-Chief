@@ -57,7 +57,7 @@
       <button
         v-for="status in ['running', 'idle']"
         :key="status"
-        :class="['filter-btn', { active: statusFilters.includes(status) }]"
+        :class="['filter-btn', { active: sessionsStore.statusFilter === status }]"
         @click="toggleFilter(status)"
       >
         {{ status }}
@@ -164,16 +164,13 @@ const activeTab = ref('sessions');
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
 
-// Filter state - empty means show all
-const statusFilters = ref([]);
-
 const toggleFilter = (status) => {
   // If the clicked filter is already active, clear all filters (show all)
-  if (statusFilters.value.includes(status)) {
-    statusFilters.value = [];
+  if (sessionsStore.statusFilter === status) {
+    sessionsStore.setStatusFilter(null);
   } else {
     // Otherwise, set this filter as the only active one (exclusive)
-    statusFilters.value = [status];
+    sessionsStore.setStatusFilter(status);
   }
 };
 
@@ -184,17 +181,17 @@ const RUNNING_STATUSES = ['running', 'starting'];
 
 const filteredGroupedSessions = computed(() => {
   const groups = sessionsStore.groupedSessions;
-  if (statusFilters.value.length === 0) return groups;
+  if (!sessionsStore.statusFilter) return groups;
 
   // Filter groups based on parent session status
   return groups.filter(group => {
     const parentStatus = group.parent.status;
     // "idle" filter matches waiting, stopped, or error statuses
-    if (statusFilters.value.includes('idle') && IDLE_STATUSES.includes(parentStatus)) {
+    if (sessionsStore.statusFilter === 'idle' && IDLE_STATUSES.includes(parentStatus)) {
       return true;
     }
     // "running" filter matches running and starting statuses
-    if (statusFilters.value.includes('running') && RUNNING_STATUSES.includes(parentStatus)) {
+    if (sessionsStore.statusFilter === 'running' && RUNNING_STATUSES.includes(parentStatus)) {
       return true;
     }
     return false;
@@ -365,6 +362,7 @@ async function handleUnarchive(sessionId) {
 // Restore expanded sessions state from localStorage on mount
 onMounted(() => {
   sessionsStore.restoreExpandedState();
+  sessionsStore.restoreStatusFilter();
 });
 
 // Save expanded state and cleanup WebSocket listeners on unmount

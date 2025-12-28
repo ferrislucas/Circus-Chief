@@ -181,6 +181,150 @@ describe('CommandButtons Store', () => {
       expect(store.runs['run-1'].exitCode).toBe(1);
     });
 
+    describe('completeRun Race Condition Prevention', () => {
+      it('replaces output when server output is larger (more complete)', () => {
+        const store = useCommandButtonsStore();
+        store.runs = {
+          'run-1': { runId: 'run-1', status: 'running', output: 'partial', exitCode: null },
+        };
+
+        // Server has more complete output
+        store.completeRun('run-1', 0, 'partial\nMore content here');
+
+        expect(store.runs['run-1'].output).toBe('partial\nMore content here');
+        expect(store.runs['run-1'].status).toBe('success');
+      });
+
+      it('preserves accumulated output when server output is smaller', () => {
+        const store = useCommandButtonsStore();
+        // Simulate streaming: client accumulated more output than what server sends
+        const accumulatedOutput = 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5\n';
+        store.runs = {
+          'run-1': {
+            runId: 'run-1',
+            status: 'running',
+            output: accumulatedOutput,
+            exitCode: null
+          },
+        };
+
+        // Server completion arrives with less output (incomplete)
+        const serverOutput = 'Line 1\nLine 2\nLine';
+        store.completeRun('run-1', 0, serverOutput);
+
+        // Should keep the accumulated output, not replace with incomplete server output
+        expect(store.runs['run-1'].output).toBe(accumulatedOutput);
+        expect(store.runs['run-1'].status).toBe('success');
+        expect(store.runs['run-1'].exitCode).toBe(0);
+      });
+
+      it('preserves accumulated output when server output equals accumulated', () => {
+        const store = useCommandButtonsStore();
+        const output = 'Full output\nAll content';
+        store.runs = {
+          'run-1': {
+            runId: 'run-1',
+            status: 'running',
+            output: output,
+            exitCode: null
+          },
+        };
+
+        // Server completion with same length output
+        store.completeRun('run-1', 0, output);
+
+        // Should keep the existing accumulated output
+        expect(store.runs['run-1'].output).toBe(output);
+        expect(store.runs['run-1'].status).toBe('success');
+      });
+
+      it('does not replace output when server output is empty string', () => {
+        const store = useCommandButtonsStore();
+        const accumulatedOutput = 'Accumulated output from streaming';
+        store.runs = {
+          'run-1': {
+            runId: 'run-1',
+            status: 'running',
+            output: accumulatedOutput,
+            exitCode: null
+          },
+        };
+
+        // Server sends empty output (shouldn't happen but guard against it)
+        store.completeRun('run-1', 0, '');
+
+        // Should keep the accumulated output
+        expect(store.runs['run-1'].output).toBe(accumulatedOutput);
+        expect(store.runs['run-1'].status).toBe('success');
+      });
+
+      it('handles null server output gracefully', () => {
+        const store = useCommandButtonsStore();
+        const accumulatedOutput = 'Accumulated output';
+        store.runs = {
+          'run-1': {
+            runId: 'run-1',
+            status: 'running',
+            output: accumulatedOutput,
+            exitCode: null
+          },
+        };
+
+        // Server sends null output
+        store.completeRun('run-1', 0, null);
+
+        // Should keep the accumulated output
+        expect(store.runs['run-1'].output).toBe(accumulatedOutput);
+        expect(store.runs['run-1'].status).toBe('success');
+      });
+
+      it('handles race condition: completion arrives before all streaming chunks', () => {
+        const store = useCommandButtonsStore();
+
+        // Simulate: run starts, first chunk arrives
+        store.runs = {
+          'run-1': {
+            runId: 'run-1',
+            status: 'running',
+            output: 'Chunk 1\n',
+            exitCode: null
+          },
+        };
+
+        // More chunks arrive
+        store.appendOutput('run-1', 'Chunk 2\n');
+        store.appendOutput('run-1', 'Chunk 3\n');
+
+        // But completion arrives with server's view (might be incomplete if buffering)
+        const serverOutput = 'Chunk 1\nChunk 2\n'; // Missing chunk 3
+        store.completeRun('run-1', 0, serverOutput);
+
+        // Should keep accumulated output with all chunks
+        expect(store.runs['run-1'].output).toBe('Chunk 1\nChunk 2\nChunk 3\n');
+      });
+
+      it('replaces with server output when server has everything', () => {
+        const store = useCommandButtonsStore();
+
+        // Simulate: streaming output
+        store.runs = {
+          'run-1': {
+            runId: 'run-1',
+            status: 'running',
+            output: 'Chunk 1\nChunk 2\n',
+            exitCode: null
+          },
+        };
+
+        // Server completion with full output
+        const fullOutput = 'Chunk 1\nChunk 2\nChunk 3\nChunk 4\nComplete\n';
+        store.completeRun('run-1', 0, fullOutput);
+
+        // Should replace with complete server output
+        expect(store.runs['run-1'].output).toBe(fullOutput);
+      });
+    });
+
     it('errorRun updates status and appends error message', () => {
       const store = useCommandButtonsStore();
       store.runs = {
@@ -216,6 +360,209 @@ describe('CommandButtons Store', () => {
       store.clearAllRuns();
 
       expect(Object.keys(store.runs).length).toBe(0);
+    });
+
+    it('fetchActiveRuns restores both running and recently completed runs', async () => {
+      const store = useCommandButtonsStore();
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'running',
+          output: 'Running...\n',
+          startedAt: Date.now(),
+        },
+        {
+          runId: 'run-2',
+          buttonId: 'btn-2',
+          status: 'success',
+          output: 'Complete\n',
+          exitCode: 0,
+          startedAt: Date.now() - 5000,
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      const result = await store.fetchActiveRuns('sess-123');
+
+      expect(api.getActiveRuns).toHaveBeenCalledWith('sess-123');
+      expect(store.runs['run-1']).toBeDefined();
+      expect(store.runs['run-1'].status).toBe('running');
+      expect(store.runs['run-2']).toBeDefined();
+      expect(store.runs['run-2'].status).toBe('success');
+      expect(result).toEqual(runs);
+    });
+
+    it('fetchActiveRuns handles recently completed runs with proper status', async () => {
+      const store = useCommandButtonsStore();
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'success',
+          output: 'Success\n',
+          exitCode: 0,
+          startedAt: Date.now() - 2000,
+        },
+        {
+          runId: 'run-2',
+          buttonId: 'btn-2',
+          status: 'error',
+          output: 'Error occurred\n',
+          exitCode: 1,
+          startedAt: Date.now() - 3000,
+        },
+        {
+          runId: 'run-3',
+          buttonId: 'btn-3',
+          status: 'killed',
+          output: 'Terminated\n',
+          startedAt: Date.now() - 1000,
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      expect(store.runs['run-1'].status).toBe('success');
+      expect(store.runs['run-2'].status).toBe('error');
+      expect(store.runs['run-2'].exitCode).toBe(1);
+      expect(store.runs['run-3'].status).toBe('killed');
+    });
+
+    it('fetchActiveRuns preserves undefined exitCode for running processes', async () => {
+      const store = useCommandButtonsStore();
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'running',
+          output: 'Running...\n',
+          exitCode: undefined,
+          startedAt: Date.now(),
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      expect(store.runs['run-1'].exitCode).toBeNull();
+    });
+
+    it('fetchActiveRuns handles mixed running and completed runs', async () => {
+      const store = useCommandButtonsStore();
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'running',
+          output: 'Processing...\n',
+          startedAt: Date.now(),
+        },
+        {
+          runId: 'run-2',
+          buttonId: 'btn-2',
+          status: 'running',
+          output: 'Also processing...\n',
+          startedAt: Date.now(),
+        },
+        {
+          runId: 'run-3',
+          buttonId: 'btn-1',
+          status: 'success',
+          output: 'Completed\n',
+          exitCode: 0,
+          startedAt: Date.now() - 10000,
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      const runningRuns = Object.values(store.runs).filter((r) => r.status === 'running');
+      const completedRuns = Object.values(store.runs).filter((r) => r.status !== 'running');
+
+      expect(runningRuns.length).toBe(2);
+      expect(completedRuns.length).toBe(1);
+    });
+
+    it('fetchActiveRuns returns empty array when no runs exist', async () => {
+      const store = useCommandButtonsStore();
+      api.getActiveRuns.mockResolvedValue([]);
+
+      const result = await store.fetchActiveRuns('sess-123');
+
+      expect(result).toEqual([]);
+      expect(Object.keys(store.runs).length).toBe(0);
+    });
+
+    it('fetchActiveRuns handles API error gracefully', async () => {
+      const store = useCommandButtonsStore();
+      const error = new Error('API Error');
+      api.getActiveRuns.mockRejectedValue(error);
+
+      const result = await store.fetchActiveRuns('sess-123');
+
+      expect(result).toEqual([]);
+      expect(store.error).toBe('Failed to fetch active runs: API Error');
+    });
+
+    it('fetchActiveRuns includes startedAt in restored runs', async () => {
+      const store = useCommandButtonsStore();
+      const startTime = Date.now() - 5000;
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'success',
+          output: 'Complete\n',
+          exitCode: 0,
+          startedAt: startTime,
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      expect(store.runs['run-1'].startedAt).toBe(startTime);
+    });
+
+    it('fetchActiveRuns sets exitCode to null when undefined for running process', async () => {
+      const store = useCommandButtonsStore();
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'running',
+          output: 'Running\n',
+          exitCode: undefined,
+          startedAt: Date.now(),
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      expect(store.runs['run-1'].exitCode).toBeNull();
+    });
+
+    it('fetchActiveRuns preserves non-zero exit codes for failed runs', async () => {
+      const store = useCommandButtonsStore();
+      const runs = [
+        {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          status: 'error',
+          output: 'Failed\n',
+          exitCode: 127,
+          startedAt: Date.now(),
+        },
+      ];
+      api.getActiveRuns.mockResolvedValue(runs);
+
+      await store.fetchActiveRuns('sess-123');
+
+      expect(store.runs['run-1'].exitCode).toBe(127);
     });
   });
 });
