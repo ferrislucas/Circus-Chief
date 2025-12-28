@@ -54,16 +54,21 @@
 <script setup>
 import { onMounted, onUnmounted, reactive, watch, ref, computed } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useGlobalSessionSubscription } from '../composables/useWebSocket.js';
 import { api } from '../composables/useApi.js';
 import SessionCard from '../components/SessionCard.vue';
 
 const sessionsStore = useSessionsStore();
+const commandButtonsStore = useCommandButtonsStore();
 
 // Statuses that count as "idle" (not actively running)
 const IDLE_STATUSES = ['waiting', 'stopped', 'error'];
 // Statuses that count as "running" (actively processing or starting up)
 const RUNNING_STATUSES = ['running', 'starting'];
+
+// Track which projects we've already fetched buttons for
+const fetchedProjectIds = ref(new Set());
 
 const toggleFilter = (status) => {
   // If the clicked filter is already active, clear all filters (show all)
@@ -106,9 +111,33 @@ const cleanups = [];
 // Get global session subscription for real-time updates across all projects
 const { onSessionCreated, onSessionUpdated, onSessionDeleted, onSessionSummaryUpdated } = useGlobalSessionSubscription();
 
-onMounted(() => {
+/**
+ * Fetch buttons for projects that have active sessions
+ * Only fetches for projects we haven't already loaded
+ */
+async function ensureButtonsLoadedForSessions() {
+  const uniqueProjectIds = new Set(
+    sessionsStore.activeSessions
+      .map((s) => s.projectId)
+      .filter((id) => id && !fetchedProjectIds.value.has(id))
+  );
+
+  for (const projectId of uniqueProjectIds) {
+    try {
+      await commandButtonsStore.fetchButtons(projectId);
+      fetchedProjectIds.value.add(projectId);
+    } catch (error) {
+      console.error(`Failed to fetch buttons for project ${projectId}:`, error);
+    }
+  }
+}
+
+onMounted(async () => {
   sessionsStore.restoreStatusFilter();
-  sessionsStore.fetchActiveSessions();
+  await sessionsStore.fetchActiveSessions();
+
+  // Fetch buttons for projects with active sessions
+  await ensureButtonsLoadedForSessions();
 
   // Set up WebSocket listeners for real-time updates
   cleanups.push(
@@ -119,6 +148,11 @@ onMounted(() => {
         const exists = sessionsStore.activeSessions.some((s) => s.id === session.id);
         if (!exists) {
           sessionsStore.activeSessions.unshift(session);
+          // Fetch buttons for this project if we haven't already
+          if (session.projectId && !fetchedProjectIds.value.has(session.projectId)) {
+            commandButtonsStore.fetchButtons(session.projectId);
+            fetchedProjectIds.value.add(session.projectId);
+          }
         }
       }
     })
@@ -187,11 +221,13 @@ onUnmounted(() => {
   }
 });
 
-// Watch for sessions changes and fetch summaries
+// Watch for sessions changes and fetch summaries + command buttons
 watch(
   () => sessionsStore.activeSessions,
   () => {
     fetchSummaries();
+    // Also ensure buttons are loaded for any new projects
+    ensureButtonsLoadedForSessions();
   },
   { immediate: true }
 );
