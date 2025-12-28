@@ -5,6 +5,7 @@ import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@c
 import { updateTodos } from './todoStore.js';
 import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
+import * as diffService from './diffService.js';
 
 /** @type {Map<string, string|null>} Track last message ID for end-of-turn work log association */
 const lastMessageIds = new Map();
@@ -611,6 +612,12 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
       // Trigger summary generation when session completes a turn
       summaryService.onSessionActivity(sessionId);
 
+      // Broadcast changes update when turn completes (real-time indicator)
+      const currentSession = sessions.getById(sessionId);
+      if (currentSession) {
+        await broadcastChangesUpdate(sessionId, currentSession.projectId, workingDirectory);
+      }
+
       // Check if template should be triggered after turn completion
       await handleTemplateTriggerIfNeeded(sessionId);
     }
@@ -725,6 +732,12 @@ export async function continueSession(sessionId, content, workingDirectory, syst
       broadcastSessionStatus(sessionId, 'waiting');
       // Trigger summary generation when session completes a turn
       summaryService.onSessionActivity(sessionId);
+
+      // Broadcast changes update when turn completes (real-time indicator)
+      const currentSession = sessions.getById(sessionId);
+      if (currentSession) {
+        await broadcastChangesUpdate(sessionId, currentSession.projectId, workingDirectory);
+      }
 
       // Check if template should be triggered after turn completion
       await handleTemplateTriggerIfNeeded(sessionId);
@@ -1111,5 +1124,43 @@ function broadcastSessionStatus(sessionId, status) {
       sessionId,
       session: { ...session, status },
     });
+  }
+}
+
+/**
+ * Compute and broadcast changes state when turn completes
+ * Called after status is set to "waiting" to provide real-time changes update
+ * @param {string} sessionId
+ * @param {string} projectId
+ * @param {string} workingDirectory
+ */
+async function broadcastChangesUpdate(sessionId, projectId, workingDirectory) {
+  try {
+    const changes = await diffService.getChanges(workingDirectory);
+    const hasChanges = !!(changes.staged || changes.unstaged || changes.untracked);
+
+    // Count total files with changes
+    // Parse diff output to count unique files
+    const parseFilesFromDiff = (diff) => {
+      if (!diff) return 0;
+      const matches = diff.match(/^diff --git a\/(.+) b\//gm) || [];
+      return matches.length;
+    };
+
+    const stagedCount = parseFilesFromDiff(changes.staged);
+    const unstagedCount = parseFilesFromDiff(changes.unstaged);
+    const untrackedCount = parseFilesFromDiff(changes.untracked);
+    const changeCount = stagedCount + unstagedCount + untrackedCount;
+
+    // Broadcast to session subscribers
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.CHANGES_UPDATE, {
+      sessionId,
+      hasChanges,
+      changeCount,
+    });
+  } catch (error) {
+    // Silently fail - changes indicator is not critical
+    // This handles cases like non-git directories or permission errors
+    console.error(`Failed to compute changes for session ${sessionId}:`, error.message);
   }
 }

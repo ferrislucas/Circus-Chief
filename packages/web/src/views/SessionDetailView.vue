@@ -170,7 +170,7 @@ function navigateToTab(tabId) {
   router.push(`/sessions/${route.params.id}/${tabId}`);
 }
 
-const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onUsageUpdate, onConversationUpdated } =
+const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onUsageUpdate, onConversationUpdated, onChangesUpdate } =
   useSessionSubscription(sessionId);
 
 let cleanups = [];
@@ -347,6 +347,13 @@ onMounted(async () => {
   cleanups.push(
     onConversationUpdated((conversation) => {
       sessionsStore.updateConversation(conversation);
+    })
+  );
+
+  // Handle real-time changes updates from server
+  cleanups.push(
+    onChangesUpdate((changeCount, hasChanges) => {
+      changesFileCount.value = changeCount;
     })
   );
 });

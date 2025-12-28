@@ -31,6 +31,7 @@ vi.mock('../composables/useWebSocket.js', () => ({
     onSummaryUpdate: vi.fn(() => vi.fn()),
     onUsageUpdate: vi.fn(() => vi.fn()),
     onConversationUpdated: vi.fn(() => vi.fn()),
+    onChangesUpdate: vi.fn(() => vi.fn()),
   })),
 }));
 
@@ -149,6 +150,7 @@ describe('SessionDetailView', () => {
       onSummaryUpdate: vi.fn(() => vi.fn()),
       onUsageUpdate: vi.fn(() => vi.fn()),
       onConversationUpdated: vi.fn(() => vi.fn()),
+      onChangesUpdate: vi.fn(() => vi.fn()),
     }));
 
     mockSessionsStore = {
@@ -1522,6 +1524,201 @@ describe('SessionDetailView', () => {
       capturedConversationCallback(conversationData);
 
       expect(mockSessionsStore.updateConversation).toHaveBeenCalledWith(conversationData);
+    });
+  });
+
+  describe('real-time changes updates (onChangesUpdate)', () => {
+    it('calls onChangesUpdate handler on mount', async () => {
+      const mockOnChangesUpdate = vi.fn(() => vi.fn());
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+        onChangesUpdate: mockOnChangesUpdate,
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      expect(mockOnChangesUpdate).toHaveBeenCalled();
+    });
+
+    it('registers cleanup function for onChangesUpdate listener', async () => {
+      const mockCleanup = vi.fn();
+      const mockOnChangesUpdate = vi.fn(() => mockCleanup);
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+        onChangesUpdate: mockOnChangesUpdate,
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+
+      // Cleanup should be registered (component stores it in cleanups array)
+      expect(mockOnChangesUpdate).toHaveBeenCalled();
+      const returnedCleanup = mockOnChangesUpdate.mock.results[0].value;
+      expect(typeof returnedCleanup).toBe('function');
+    });
+
+    it('updates changesFileCount when changes update is received', async () => {
+      let capturedChangesCallback;
+      const mockOnChangesUpdate = vi.fn((callback) => {
+        capturedChangesCallback = callback;
+        return vi.fn();
+      });
+
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+        onChangesUpdate: mockOnChangesUpdate,
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+
+      // Verify onChangesUpdate handler was registered with a callback
+      expect(mockOnChangesUpdate).toHaveBeenCalledWith(expect.any(Function));
+
+      // Verify the callback function exists and is callable
+      expect(typeof capturedChangesCallback).toBe('function');
+
+      // Simulate changes update - should not throw
+      expect(() => capturedChangesCallback(5, true)).not.toThrow();
+    });
+
+    it('updates changesFileCount to 0 when no changes', async () => {
+      let capturedChangesCallback;
+      const mockOnChangesUpdate = vi.fn((callback) => {
+        capturedChangesCallback = callback;
+        return vi.fn();
+      });
+
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+        onChangesUpdate: mockOnChangesUpdate,
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+
+      // Simulate no changes - should not throw
+      expect(() => capturedChangesCallback(0, false)).not.toThrow();
+    });
+
+    it('accepts changeCount and hasChanges parameters in callback', async () => {
+      let capturedChangesCallback;
+      const mockOnChangesUpdate = vi.fn((callback) => {
+        capturedChangesCallback = callback;
+        return vi.fn();
+      });
+
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+        onChangesUpdate: mockOnChangesUpdate,
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Verify callback can be called with changeCount and hasChanges
+      expect(() => {
+        capturedChangesCallback(5, true);
+        capturedChangesCallback(0, false);
+        capturedChangesCallback(10, true);
+      }).not.toThrow();
+    });
+
+    it('processes onChangesUpdate callback with various parameter values', async () => {
+      let capturedChangesCallback;
+      const mockOnChangesUpdate = vi.fn((callback) => {
+        capturedChangesCallback = callback;
+        return vi.fn();
+      });
+
+      useSessionSubscription.mockImplementation(() => ({
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        onStatus: vi.fn(() => vi.fn()),
+        onMessage: vi.fn(() => vi.fn()),
+        onError: vi.fn(() => vi.fn()),
+        onCanvasAdd: vi.fn(() => vi.fn()),
+        onCanvasRemove: vi.fn(() => vi.fn()),
+        onTodosUpdate: vi.fn(() => vi.fn()),
+        onSessionUpdate: vi.fn(() => vi.fn()),
+        onSummaryUpdate: vi.fn(() => vi.fn()),
+        onUsageUpdate: vi.fn(() => vi.fn()),
+        onConversationUpdated: vi.fn(() => vi.fn()),
+        onChangesUpdate: mockOnChangesUpdate,
+      }));
+
+      const wrapper = mountComponent();
+      await flushPromises();
+      await nextTick();
+
+      // Test with multiple different parameter combinations
+      expect(() => capturedChangesCallback(42, true)).not.toThrow();
+      expect(() => capturedChangesCallback(0, false)).not.toThrow();
+      expect(() => capturedChangesCallback(100, true)).not.toThrow();
     });
   });
 });

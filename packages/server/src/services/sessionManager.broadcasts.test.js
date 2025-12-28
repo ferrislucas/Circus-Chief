@@ -28,6 +28,15 @@ vi.mock('./templateTriggerService.js', () => ({
   checkAndTriggerNextTemplate: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Mock diffService
+vi.mock('./diffService.js', () => ({
+  getChanges: vi.fn().mockResolvedValue({
+    staged: null,
+    unstaged: null,
+    untracked: null,
+  }),
+}));
+
 // Import after mocks are set up
 import { runSession } from './sessionManager.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -35,6 +44,7 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { generateSummaryNow } from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
+import { getChanges } from './diffService.js';
 
 describe('sessionManager broadcasts', () => {
   let tempDir;
@@ -716,6 +726,266 @@ describe('sessionManager broadcasts', () => {
 
       // Template IS triggered even on error because session transitions to 'waiting'
       expect(checkAndTriggerNextTemplate).toHaveBeenCalledWith(sessionId);
+    });
+  });
+
+  describe('changes update broadcasting (broadcastChangesUpdate)', () => {
+    it('broadcasts CHANGES_UPDATE message when turn completes successfully', async () => {
+      getChanges.mockResolvedValue({
+        staged: null,
+        unstaged: null,
+        untracked: null,
+      });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Verify CHANGES_UPDATE was broadcast to session
+      const changesUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.CHANGES_UPDATE
+      );
+
+      expect(changesUpdateCalls.length).toBeGreaterThan(0);
+      expect(changesUpdateCalls[0][0]).toBe(sessionId);
+    });
+
+    it('includes sessionId, hasChanges, and changeCount in CHANGES_UPDATE broadcast', async () => {
+      getChanges.mockResolvedValue({
+        staged: 'diff --git a/file1.txt b/file1.txt\n',
+        unstaged: null,
+        untracked: null,
+      });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      const changesUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.CHANGES_UPDATE
+      );
+
+      expect(changesUpdateCalls.length).toBeGreaterThan(0);
+      const payload = changesUpdateCalls[0][2];
+      expect(payload).toHaveProperty('sessionId');
+      expect(payload).toHaveProperty('hasChanges');
+      expect(payload).toHaveProperty('changeCount');
+      expect(payload.sessionId).toBe(sessionId);
+    });
+
+    it('detects hasChanges as true when staged files exist', async () => {
+      getChanges.mockResolvedValue({
+        staged: 'diff --git a/staged.txt b/staged.txt\n',
+        unstaged: null,
+        untracked: null,
+      });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      const changesUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.CHANGES_UPDATE
+      );
+
+      const payload = changesUpdateCalls[0][2];
+      expect(payload.hasChanges).toBe(true);
+      expect(payload.changeCount).toBeGreaterThan(0);
+    });
+
+    it('detects hasChanges as true when unstaged files exist', async () => {
+      getChanges.mockResolvedValue({
+        staged: null,
+        unstaged: 'diff --git a/unstaged.txt b/unstaged.txt\n',
+        untracked: null,
+      });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      const changesUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.CHANGES_UPDATE
+      );
+
+      const payload = changesUpdateCalls[0][2];
+      expect(payload.hasChanges).toBe(true);
+    });
+
+    it('detects hasChanges as true when untracked files exist', async () => {
+      getChanges.mockResolvedValue({
+        staged: null,
+        unstaged: null,
+        untracked: 'diff --git a/untracked.txt b/untracked.txt\n',
+      });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      const changesUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.CHANGES_UPDATE
+      );
+
+      const payload = changesUpdateCalls[0][2];
+      expect(payload.hasChanges).toBe(true);
+    });
+
+    it('sets hasChanges to false when no changes exist', async () => {
+      getChanges.mockResolvedValue({
+        staged: null,
+        unstaged: null,
+        untracked: null,
+      });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      const changesUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.CHANGES_UPDATE
+      );
+
+      const payload = changesUpdateCalls[0][2];
+      expect(payload.hasChanges).toBe(false);
+      expect(payload.changeCount).toBe(0);
+    });
+
+    it('correctly counts multiple staged files', async () => {
+      getChanges.mockResolvedValue({
+        staged: 'diff --git a/file1.txt b/file1.txt\ndiff --git a/file2.txt b/file2.txt\ndiff --git a/file3.txt b/file3.txt\n',
+        unstaged: null,
+        untracked: null,
+      });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      const changesUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.CHANGES_UPDATE
+      );
+
+      const payload = changesUpdateCalls[0][2];
+      expect(payload.changeCount).toBe(3);
+    });
+
+    it('sums file counts across staged, unstaged, and untracked', async () => {
+      getChanges.mockResolvedValue({
+        staged: 'diff --git a/staged1.txt b/staged1.txt\n',
+        unstaged: 'diff --git a/unstaged1.txt b/unstaged1.txt\ndiff --git a/unstaged2.txt b/unstaged2.txt\n',
+        untracked: 'diff --git a/untracked1.txt b/untracked1.txt\n',
+      });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      const changesUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.CHANGES_UPDATE
+      );
+
+      const payload = changesUpdateCalls[0][2];
+      // 1 staged + 2 unstaged + 1 untracked = 4
+      expect(payload.changeCount).toBe(4);
+      expect(payload.hasChanges).toBe(true);
+    });
+
+    it('silently handles errors in non-git directories', async () => {
+      getChanges.mockRejectedValue(new Error('Not a git repository'));
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      // Should not throw
+      await expect(runSession(sessionId, 'Test prompt', tempDir)).resolves.not.toThrow();
+    });
+
+    it('does not prevent session from completing when changes broadcast fails', async () => {
+      getChanges.mockRejectedValue(new Error('Permission denied'));
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Session should still go to waiting status
+      const session = sessions.getById(sessionId);
+      expect(session.status).toBe('waiting');
+    });
+
+    it('calls diffService with correct working directory', async () => {
+      getChanges.mockResolvedValue({
+        staged: null,
+        unstaged: null,
+        untracked: null,
+      });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Verify diffService was called with correct working directory
+      expect(getChanges).toHaveBeenCalledWith(tempDir);
+    });
+
+    it('broadcasts CHANGES_UPDATE in continueSession after turn completes', async () => {
+      const { continueSession } = await import('./sessionManager.js');
+
+      // Update claude session ID
+      sessions.update(sessionId, { claudeSessionId: 'claude-session-456' });
+
+      getChanges.mockResolvedValue({
+        staged: 'diff --git a/file.txt b/file.txt\n',
+        unstaged: null,
+        untracked: null,
+      });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-456', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await continueSession(sessionId, 'Continue prompt', tempDir);
+
+      // Verify CHANGES_UPDATE was broadcast
+      const changesUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.CHANGES_UPDATE
+      );
+
+      expect(changesUpdateCalls.length).toBeGreaterThan(0);
+      expect(changesUpdateCalls[0][0]).toBe(sessionId);
     });
   });
 });
