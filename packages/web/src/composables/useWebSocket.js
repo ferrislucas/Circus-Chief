@@ -6,6 +6,9 @@ let reconnectTimeout = null;
 let reconnectDelay = WS_RECONNECT_BASE_DELAY;
 const listeners = new Map();
 const isConnected = ref(false);
+// Buffer for messages that arrive before handlers are registered
+// Specifically buffers SESSION_USAGE_UPDATE messages to prevent loss during subscription lag
+const messageBuffer = new Map(); // Map of sessionId -> array of buffered messages
 
 function getWebSocketUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -28,6 +31,22 @@ function connect() {
     if (!message) return;
 
     const typeListeners = listeners.get(message.type);
+
+    // Buffer SESSION_USAGE_UPDATE messages if no handlers are registered yet
+    // This prevents message loss during subscription lag
+    if (message.type === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE && (!typeListeners || typeListeners.size === 0)) {
+      const sessionId = message.sessionId;
+      if (!messageBuffer.has(sessionId)) {
+        messageBuffer.set(sessionId, []);
+      }
+      messageBuffer.get(sessionId).push(message);
+      // Keep buffer size reasonable (max 100 messages per session)
+      if (messageBuffer.get(sessionId).length > 100) {
+        messageBuffer.get(sessionId).shift();
+      }
+      return;
+    }
+
     if (typeListeners) {
       for (const callback of typeListeners) {
         callback(message);
@@ -64,6 +83,16 @@ function disconnect() {
     socket.close(1000);
     socket = null;
   }
+  // Clear all message buffers on disconnect
+  messageBuffer.clear();
+}
+
+/**
+ * Clear the message buffer for a specific session
+ * @param {string} sessionId - The session ID to clear buffer for
+ */
+function clearSessionBuffer(sessionId) {
+  messageBuffer.delete(sessionId);
 }
 
 function send(type, payload) {
@@ -77,6 +106,20 @@ function on(type, callback) {
     listeners.set(type, new Set());
   }
   listeners.get(type).add(callback);
+
+  // If registering a SESSION_USAGE_UPDATE handler, replay any buffered messages
+  if (type === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE) {
+    // We need to get sessionId from the callback context, but callbacks are stateless
+    // So we replay buffered messages for all sessions that have them
+    for (const [sessionId, bufferedMessages] of messageBuffer.entries()) {
+      // Replay all buffered messages for this session
+      for (const message of bufferedMessages) {
+        callback(message);
+      }
+      // Clear the buffer after replay
+      messageBuffer.delete(sessionId);
+    }
+  }
 }
 
 function off(type, callback) {
@@ -101,6 +144,7 @@ export function useWebSocket() {
     on,
     off,
     disconnect,
+    clearSessionBuffer,
   };
 }
 
@@ -109,7 +153,7 @@ export function useWebSocket() {
  * @param {string} sessionId
  */
 export function useSessionSubscription(sessionId) {
-  const { send, on, off } = useWebSocket();
+  const { send, on, off, clearSessionBuffer } = useWebSocket();
 
   const subscribe = () => {
     send(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId });
@@ -117,6 +161,8 @@ export function useSessionSubscription(sessionId) {
 
   const unsubscribe = () => {
     send(WS_MESSAGE_TYPES.UNSUBSCRIBE_SESSION, { sessionId });
+    // Clear any buffered messages for this session
+    clearSessionBuffer(sessionId);
   };
 
   const onStatus = (callback) => {
@@ -360,6 +406,48 @@ export function useSessionSubscription(sessionId) {
     onCommandError,
     onChangesUpdate,
   };
+}
+
+/**
+ * Ensure the WebSocket is connected and subscribed to a session
+ * Waits for the socket to be OPEN before sending the subscription message
+ * @param {string} sessionId - The session ID to subscribe to
+ * @returns {Promise<void>} - Resolves when subscription message is sent
+ */
+export async function ensureSubscribed(sessionId) {
+  return new Promise((resolve, reject) => {
+    // Set a 5-second timeout for subscription
+    const timeout = setTimeout(() => {
+      reject(new Error(`Subscription timeout for session ${sessionId}`));
+    }, 5000);
+
+    const { send, isConnected: wsIsConnected } = useWebSocket();
+
+    // Helper to send subscription and resolve
+    const sendSubscription = () => {
+      send(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId });
+      clearTimeout(timeout);
+      resolve();
+    };
+
+    // If socket is already open, send immediately
+    if (socket?.readyState === WebSocket.OPEN) {
+      sendSubscription();
+      return;
+    }
+
+    // Otherwise, wait for socket to open
+    if (!socket) {
+      connect();
+    }
+
+    // Wrap the original onopen handler to preserve any existing behavior
+    const originalOnOpen = socket.onopen;
+    socket.onopen = () => {
+      originalOnOpen?.();
+      sendSubscription();
+    };
+  });
 }
 
 /**

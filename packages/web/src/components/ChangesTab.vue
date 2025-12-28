@@ -134,13 +134,25 @@ async function fetchChanges() {
   }
 }
 
+// Fetch the default branch for comparison
+async function fetchDefaultBranch() {
+  try {
+    const response = await api.getSessionDefaultBranch(props.sessionId);
+    defaultBranch.value = response.branch;
+  } catch (err) {
+    // Silently fail - compare mode is optional
+    console.warn('Failed to fetch default branch:', err.message);
+  }
+}
+
 // Watch for compareMode changes and refetch
 watch(compareMode, () => {
   fetchChanges();
 });
 
 onMounted(() => {
-  fetchChanges();
+  // Fetch both default branch and initial changes
+  Promise.all([fetchDefaultBranch(), fetchChanges()]);
 });
 
 // Expose for testing
