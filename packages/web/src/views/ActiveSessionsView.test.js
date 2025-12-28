@@ -75,6 +75,7 @@ describe('ActiveSessionsView', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    setActivePinia(createPinia());
 
     // Reset callbacks
     onSessionCreatedCallback = null;
@@ -283,6 +284,7 @@ describe('Status filtering', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    setActivePinia(createPinia());
 
     onSessionCreatedCallback = null;
     onSessionUpdatedCallback = null;
@@ -340,6 +342,7 @@ describe('Status filtering', () => {
 
     const runningButton = wrapper.findAll('.filter-btn')[0];
     await runningButton.trigger('click');
+    await flushPromises();
 
     const sessionCards = wrapper.findAll('.session-card');
     expect(sessionCards).toHaveLength(2);
@@ -354,6 +357,7 @@ describe('Status filtering', () => {
 
     const idleButton = wrapper.findAll('.filter-btn')[1];
     await idleButton.trigger('click');
+    await flushPromises();
 
     const sessionCards = wrapper.findAll('.session-card');
     expect(sessionCards).toHaveLength(3);
@@ -367,17 +371,25 @@ describe('Status filtering', () => {
     const wrapper = mount(ActiveSessionsView);
     await flushPromises();
 
-    const filterButtons = wrapper.findAll('.filter-btn');
-    const runningButton = filterButtons[0];
-    const idleButton = filterButtons[1];
+    let filterButtons = wrapper.findAll('.filter-btn');
+    let runningButton = filterButtons[0];
+    let idleButton = filterButtons[1];
 
     // Click running filter
     await runningButton.trigger('click');
+    await flushPromises();
+    filterButtons = wrapper.findAll('.filter-btn');
+    runningButton = filterButtons[0];
+    idleButton = filterButtons[1];
     expect(runningButton.classes()).toContain('active');
     expect(idleButton.classes()).not.toContain('active');
 
     // Click idle filter - should disable running and enable idle
     await idleButton.trigger('click');
+    await flushPromises();
+    filterButtons = wrapper.findAll('.filter-btn');
+    runningButton = filterButtons[0];
+    idleButton = filterButtons[1];
     expect(runningButton.classes()).not.toContain('active');
     expect(idleButton.classes()).toContain('active');
   });
@@ -386,17 +398,25 @@ describe('Status filtering', () => {
     const wrapper = mount(ActiveSessionsView);
     await flushPromises();
 
-    const filterButtons = wrapper.findAll('.filter-btn');
-    const runningButton = filterButtons[0];
-    const idleButton = filterButtons[1];
+    let filterButtons = wrapper.findAll('.filter-btn');
+    let runningButton = filterButtons[0];
+    let idleButton = filterButtons[1];
 
     // Click idle filter first
     await idleButton.trigger('click');
+    await flushPromises();
+    filterButtons = wrapper.findAll('.filter-btn');
+    runningButton = filterButtons[0];
+    idleButton = filterButtons[1];
     expect(idleButton.classes()).toContain('active');
     expect(runningButton.classes()).not.toContain('active');
 
     // Click running filter - should disable idle and enable running
     await runningButton.trigger('click');
+    await flushPromises();
+    filterButtons = wrapper.findAll('.filter-btn');
+    runningButton = filterButtons[0];
+    idleButton = filterButtons[1];
     expect(idleButton.classes()).not.toContain('active');
     expect(runningButton.classes()).toContain('active');
   });
@@ -405,15 +425,19 @@ describe('Status filtering', () => {
     const wrapper = mount(ActiveSessionsView);
     await flushPromises();
 
-    const runningButton = wrapper.findAll('.filter-btn')[0];
+    let runningButton = wrapper.findAll('.filter-btn')[0];
 
     // Click to enable filter
     await runningButton.trigger('click');
+    await flushPromises();
+    runningButton = wrapper.findAll('.filter-btn')[0];
     expect(wrapper.findAll('.session-card')).toHaveLength(2);
     expect(runningButton.classes()).toContain('active');
 
     // Click again to disable filter (show all)
     await runningButton.trigger('click');
+    await flushPromises();
+    runningButton = wrapper.findAll('.filter-btn')[0];
     expect(wrapper.findAll('.session-card')).toHaveLength(5);
     expect(runningButton.classes()).not.toContain('active');
   });
@@ -422,10 +446,12 @@ describe('Status filtering', () => {
     const wrapper = mount(ActiveSessionsView);
     await flushPromises();
 
-    const runningButton = wrapper.findAll('.filter-btn')[0];
+    let runningButton = wrapper.findAll('.filter-btn')[0];
     expect(runningButton.classes()).not.toContain('active');
 
     await runningButton.trigger('click');
+    await flushPromises();
+    runningButton = wrapper.findAll('.filter-btn')[0];
     expect(runningButton.classes()).toContain('active');
   });
 
@@ -435,6 +461,7 @@ describe('Status filtering', () => {
 
     const runningButton = wrapper.findAll('.filter-btn')[0];
     await runningButton.trigger('click');
+    await flushPromises();
 
     const sessionCards = wrapper.findAll('.session-card');
     const sessionIds = sessionCards.map(card => card.attributes('data-session-id'));
@@ -449,6 +476,7 @@ describe('Status filtering', () => {
 
     const idleButton = wrapper.findAll('.filter-btn')[1];
     await idleButton.trigger('click');
+    await flushPromises();
 
     const sessionCards = wrapper.findAll('.session-card');
     const sessionIds = sessionCards.map(card => card.attributes('data-session-id'));
@@ -471,6 +499,7 @@ describe('Status filtering', () => {
     // Click idle filter - no idle sessions exist
     const idleButton = wrapper.findAll('.filter-btn')[1];
     await idleButton.trigger('click');
+    await flushPromises();
 
     const emptyState = wrapper.find('.empty-state');
     expect(emptyState.exists()).toBe(true);
@@ -491,6 +520,7 @@ describe('Status filtering', () => {
 
     const runningButton = wrapper.findAll('.filter-btn')[0];
     await runningButton.trigger('click');
+    await flushPromises();
 
     const sessionCards = wrapper.findAll('.session-card');
     expect(sessionCards).toHaveLength(2);
@@ -513,6 +543,7 @@ describe('Status filtering', () => {
 
     const idleButton = wrapper.findAll('.filter-btn')[1];
     await idleButton.trigger('click');
+    await flushPromises();
 
     const sessionCards = wrapper.findAll('.session-card');
     expect(sessionCards).toHaveLength(3);
@@ -524,6 +555,7 @@ describe('Status filtering', () => {
 describe('ActiveSessionsView polling fallback', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    setActivePinia(createPinia());
 
     onSessionSummaryUpdatedCallback = null;
 
