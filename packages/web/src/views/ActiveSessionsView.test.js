@@ -48,6 +48,11 @@ vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: vi.fn(),
 }));
 
+// Mock command buttons store
+vi.mock('../stores/commandButtons.js', () => ({
+  useCommandButtonsStore: vi.fn(),
+}));
+
 // Mock API
 const mockGetSessionSummary = vi.fn();
 vi.mock('../composables/useApi.js', () => ({
@@ -68,10 +73,12 @@ vi.mock('../components/SessionCard.vue', () => ({
 
 import ActiveSessionsView from './ActiveSessionsView.vue';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useGlobalSessionSubscription } from '../composables/useWebSocket.js';
 
 describe('ActiveSessionsView', () => {
   let mockSessionsStore;
+  let mockCommandButtonsStore;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -100,6 +107,18 @@ describe('ActiveSessionsView', () => {
       setStatusFilter: vi.fn(),
     };
     useSessionsStore.mockReturnValue(mockSessionsStore);
+
+    // Setup command buttons store mock
+    mockCommandButtonsStore = {
+      buttons: [],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn().mockResolvedValue(),
+      getButtonsByProjectId: vi.fn(() => []),
+      getLatestRunForButton: vi.fn(() => null),
+    };
+    useCommandButtonsStore.mockReturnValue(mockCommandButtonsStore);
   });
 
   afterEach(() => {
@@ -522,6 +541,8 @@ describe('Status filtering', () => {
 });
 
 describe('ActiveSessionsView polling fallback', () => {
+  let mockCommandButtonsStore;
+
   beforeEach(() => {
     vi.useFakeTimers();
 
@@ -531,11 +552,26 @@ describe('ActiveSessionsView polling fallback', () => {
       loading: false,
       error: null,
       statusFilter: null,
-      activeSessions: [{ id: 'session-1', status: 'running' }],
+      activeSessions: [
+        { id: 'session-1', status: 'running', projectId: 'project-1' },
+        { id: 'session-2', status: 'waiting', projectId: 'project-2' },
+      ],
       fetchActiveSessions: vi.fn().mockResolvedValue(),
       restoreStatusFilter: vi.fn(),
       setStatusFilter: vi.fn(),
     });
+
+    // Setup command buttons store mock
+    mockCommandButtonsStore = {
+      buttons: [],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn().mockResolvedValue(),
+      getButtonsByProjectId: vi.fn(() => []),
+      getLatestRunForButton: vi.fn(() => null),
+    };
+    useCommandButtonsStore.mockReturnValue(mockCommandButtonsStore);
 
     mockGetSessionSummary.mockResolvedValue(null);
   });
@@ -558,5 +594,29 @@ describe('ActiveSessionsView polling fallback', () => {
 
     // Should have called fetchActiveSessions again
     expect(sessionsStore.fetchActiveSessions).toHaveBeenCalledTimes(2);
+  });
+
+  describe('Command buttons loading for multiple projects', () => {
+    it('fetches command buttons for projects with active sessions on mount', async () => {
+      mockCommandButtonsStore.fetchButtons.mockClear();
+      mount(ActiveSessionsView);
+      await flushPromises();
+
+      // Should fetch buttons for both projects
+      expect(mockCommandButtonsStore.fetchButtons).toHaveBeenCalledWith('project-1');
+      expect(mockCommandButtonsStore.fetchButtons).toHaveBeenCalledWith('project-2');
+    });
+
+    it('handles errors when fetching buttons gracefully', async () => {
+      mockCommandButtonsStore.fetchButtons.mockRejectedValueOnce(new Error('API Error'));
+
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mount(ActiveSessionsView);
+      await flushPromises();
+
+      // Should not throw, just log the error
+      expect(mockCommandButtonsStore.fetchButtons).toHaveBeenCalled();
+      consoleErrorSpy.mockRestore();
+    });
   });
 });

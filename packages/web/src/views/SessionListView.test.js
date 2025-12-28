@@ -57,6 +57,10 @@ vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: vi.fn(),
 }));
 
+vi.mock('../stores/commandButtons.js', () => ({
+  useCommandButtonsStore: vi.fn(),
+}));
+
 // Mock API
 const mockGetSessionSummary = vi.fn();
 vi.mock('../composables/useApi.js', () => ({
@@ -94,6 +98,7 @@ vi.mock('../components/CommandButtonsPanel.vue', () => ({
 import SessionListView from './SessionListView.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectSubscription } from '../composables/useWebSocket.js';
 
 // Helper to create a sessions store mock with proper groupedSessions getter
@@ -143,6 +148,7 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
 describe('SessionListView', () => {
   let mockProjectsStore;
   let mockSessionsStore;
+  let mockCommandButtonsStore;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -174,6 +180,18 @@ describe('SessionListView', () => {
       { id: 'session-2', name: 'Session 2', status: 'running' },
     ]);
     useSessionsStore.mockReturnValue(mockSessionsStore);
+
+    // Setup command buttons store mock - MUST be created fresh in each test
+    mockCommandButtonsStore = {
+      buttons: [],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn().mockResolvedValue(),
+      getButtonsByProjectId: vi.fn(() => []),
+      getLatestRunForButton: vi.fn(() => null),
+    };
+    useCommandButtonsStore.mockReturnValue(mockCommandButtonsStore);
   });
 
   afterEach(() => {
@@ -877,6 +895,7 @@ describe('SessionListView integration', () => {
 describe('SessionListView Archived Tab', () => {
   let mockSessionsStore;
   let mockProjectsStore;
+  let mockCommandButtonsStore;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -897,6 +916,18 @@ describe('SessionListView Archived Tab', () => {
       { id: 'session-2', name: 'Session 2', status: 'running' },
     ]);
     useSessionsStore.mockReturnValue(mockSessionsStore);
+
+    // Setup command buttons store mock
+    mockCommandButtonsStore = {
+      buttons: [],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn().mockResolvedValue(),
+      getButtonsByProjectId: vi.fn(() => []),
+      getLatestRunForButton: vi.fn(() => null),
+    };
+    useCommandButtonsStore.mockReturnValue(mockCommandButtonsStore);
 
     mockGetSessionSummary.mockResolvedValue(null);
   });
@@ -1038,5 +1069,25 @@ describe('SessionListView Archived Tab', () => {
 
     // Button should be hidden
     expect(wrapper.find('.btn-primary').exists()).toBe(false);
+  });
+
+  describe('Command buttons loading', () => {
+    it('fetches command buttons when component mounts', async () => {
+      mockCommandButtonsStore.fetchButtons.mockClear();
+      mount(SessionListView);
+      await flushPromises();
+
+      expect(mockCommandButtonsStore.fetchButtons).toHaveBeenCalledWith('test-project-id');
+    });
+
+    it('fetches buttons alongside session data on mount', async () => {
+      mockCommandButtonsStore.fetchButtons.mockClear();
+      mount(SessionListView);
+      await flushPromises();
+
+      // Verify both sessions and buttons are fetched
+      expect(mockSessionsStore.fetchSessions).toHaveBeenCalledWith('test-project-id');
+      expect(mockCommandButtonsStore.fetchButtons).toHaveBeenCalledWith('test-project-id');
+    });
   });
 });
