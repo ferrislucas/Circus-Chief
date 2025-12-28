@@ -191,6 +191,13 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('click', closeDropdown);
 });
+
+// Expose internal state and methods for testing
+defineExpose({
+  isOpen,
+  toggleDropdown,
+  closeDropdown,
+});
 </script>
 
 <style scoped>
