@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
-import { projects, sessions, sessionTemplates } from '../database.js';
+import { projects, sessions, sessionTemplates, projectDefaults } from '../database.js';
 
 // Mock websocket and sessionManager before importing the router
 vi.mock('../websocket.js', () => ({
@@ -358,6 +358,319 @@ describe('Projects API', () => {
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Project not found');
+    });
+  });
+
+  describe('GET /api/projects/:id/session-defaults', () => {
+    it('returns null when project has no defaults set', async () => {
+      const res = await request(app).get(`/api/projects/${projectId}/session-defaults`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toBeNull();
+    });
+
+    it('returns project defaults when set', async () => {
+      // Set some defaults
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        mode: 'plan',
+        thinkingEnabled: true,
+      });
+
+      const res = await request(app).get(`/api/projects/${projectId}/session-defaults`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.mode).toBe('plan');
+      expect(res.body.thinkingEnabled).toBe(true);
+      expect(res.body).toHaveProperty('id');
+      expect(res.body).toHaveProperty('projectId', projectId);
+    });
+
+    it('returns 404 for non-existent project', async () => {
+      const res = await request(app).get('/api/projects/non-existent-id/session-defaults');
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Project not found');
+    });
+  });
+
+  describe('POST /api/projects/:id/session-defaults', () => {
+    it('creates defaults for project', async () => {
+      const res = await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        mode: 'plan',
+        thinkingEnabled: true,
+        gitMode: 'worktree',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.mode).toBe('plan');
+      expect(res.body.thinkingEnabled).toBe(true);
+      expect(res.body.gitMode).toBe('worktree');
+      expect(res.body).toHaveProperty('id');
+      expect(res.body).toHaveProperty('createdAt');
+      expect(res.body).toHaveProperty('updatedAt');
+    });
+
+    it('updates existing defaults', async () => {
+      // Create initial defaults
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        mode: 'plan',
+      });
+
+      // Update with new values
+      const res = await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        mode: 'standard',
+        thinkingEnabled: true,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.mode).toBe('standard');
+      expect(res.body.thinkingEnabled).toBe(true);
+    });
+
+    it('allows partial updates', async () => {
+      // Create defaults
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        mode: 'plan',
+        thinkingEnabled: true,
+        gitMode: 'branch',
+      });
+
+      // Update only mode
+      const res = await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        mode: 'standard',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.mode).toBe('standard');
+      expect(res.body.thinkingEnabled).toBe(true); // Should remain unchanged
+      expect(res.body.gitMode).toBe('branch'); // Should remain unchanged
+    });
+
+    it('validates mode enum', async () => {
+      const res = await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        mode: 'invalid-mode',
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBeDefined();
+    });
+
+    it('validates gitMode enum', async () => {
+      const res = await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        gitMode: 'invalid-gitmode',
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBeDefined();
+    });
+
+    it('returns 404 for non-existent project', async () => {
+      const res = await request(app).post('/api/projects/non-existent-id/session-defaults').send({
+        mode: 'plan',
+      });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Project not found');
+    });
+
+    it('accepts empty object (all fields optional)', async () => {
+      const res = await request(app).post(`/api/projects/${projectId}/session-defaults`).send({});
+
+      expect(res.status).toBe(200);
+      expect(res.body).toBeDefined();
+    });
+  });
+
+  describe('DELETE /api/projects/:id/session-defaults', () => {
+    it('resets defaults to system defaults', async () => {
+      // Create defaults
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        mode: 'plan',
+        thinkingEnabled: true,
+        gitMode: 'worktree',
+      });
+
+      // Reset
+      const res = await request(app).delete(`/api/projects/${projectId}/session-defaults`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.message).toBeDefined();
+
+      // Verify defaults are now null
+      const getRes = await request(app).get(`/api/projects/${projectId}/session-defaults`);
+      expect(getRes.body.mode).toBeNull();
+      expect(getRes.body.thinkingEnabled).toBeNull();
+      expect(getRes.body.gitMode).toBeNull();
+    });
+
+    it('returns 404 for non-existent project', async () => {
+      const res = await request(app).delete('/api/projects/non-existent-id/session-defaults');
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Project not found');
+    });
+  });
+
+  describe('Session creation with project defaults', () => {
+    it('applies project mode default when no param provided', async () => {
+      // Set project defaults
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        mode: 'plan',
+      });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+      });
+
+      expect(res.status).toBe(201);
+
+      const session = sessions.getById(res.body.id);
+      expect(session.mode).toBe('plan');
+    });
+
+    it('applies project thinking default when no param provided', async () => {
+      // Set project defaults
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        thinkingEnabled: true,
+      });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+      });
+
+      expect(res.status).toBe(201);
+
+      const session = sessions.getById(res.body.id);
+      expect(session.thinkingEnabled).toBe(true);
+    });
+
+    it('applies project gitMode and gitBranch defaults', async () => {
+      // Set project defaults
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        gitMode: 'worktree',
+        gitBranch: 'feature/test',
+      });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+      });
+
+      expect(res.status).toBe(201);
+
+      // Verify setupGitForSession was called with defaults
+      expect(setupGitForSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          gitMode: 'worktree',
+          gitBranch: 'feature/test',
+        })
+      );
+    });
+
+    it('applies project model default', async () => {
+      // Set project defaults
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        model: 'claude-opus-4',
+      });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+      });
+
+      expect(res.status).toBe(201);
+
+      const session = sessions.getById(res.body.id);
+      expect(session.model).toBe('claude-opus-4');
+    });
+
+    it('explicit param overrides project default', async () => {
+      // Set project default
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        mode: 'plan',
+      });
+
+      // Create session with explicit mode
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+        mode: 'standard',
+      });
+
+      expect(res.status).toBe(201);
+
+      const session = sessions.getById(res.body.id);
+      expect(session.mode).toBe('standard'); // Param overrides default
+    });
+
+    it('applies each default independently', async () => {
+      // Set only mode default, not thinking
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        mode: 'plan',
+      });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+      });
+
+      expect(res.status).toBe(201);
+
+      const session = sessions.getById(res.body.id);
+      expect(session.mode).toBe('plan'); // From project default
+      expect(session.thinkingEnabled).toBe(false); // From system default
+    });
+
+    it('applies startImmediately default', async () => {
+      // Set startImmediately to false
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        startImmediately: false,
+      });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+      });
+
+      expect(res.status).toBe(201);
+
+      const session = sessions.getById(res.body.id);
+      expect(session.status).toBe('waiting'); // startImmediately was false
+    });
+
+    it('template overrides project defaults', async () => {
+      // Set project default
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        mode: 'plan',
+      });
+
+      // Create template with different mode
+      const template = sessionTemplates.create({
+        name: 'Override Template',
+        prompt: 'Template prompt',
+        projectId: projectId,
+        thinkingEnabled: true,
+      });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+        templateId: template.id,
+        thinkingEnabled: false, // Param says false
+      });
+
+      expect(res.status).toBe(201);
+
+      const session = sessions.getById(res.body.id);
+      // Template overrides param, so thinking should be true
+      expect(session.thinkingEnabled).toBe(true);
+    });
+
+    it('uses system defaults when project has no defaults', async () => {
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+      });
+
+      expect(res.status).toBe(201);
+
+      const session = sessions.getById(res.body.id);
+      expect(session.mode).toBe('standard'); // System default
+      expect(session.thinkingEnabled).toBe(false); // System default
+      expect(session.status).toBe('starting'); // startImmediately default is true
     });
   });
 });

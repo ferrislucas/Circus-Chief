@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { projects, sessions, sessionTemplates, attachments, commandButtons } from '../database.js';
-import { CreateProjectRequest, UpdateProjectRequest } from '@claudetools/shared/contracts/projects';
+import { projects, sessions, sessionTemplates, attachments, commandButtons, projectDefaults } from '../database.js';
+import { CreateProjectRequest, UpdateProjectRequest, ProjectSessionDefaultsRequest } from '@claudetools/shared/contracts/projects';
+import { ProjectDefaultsRepository } from '../db/ProjectDefaultsRepository.js';
 import { CreateSessionTemplateRequest } from '@claudetools/shared/contracts/templates';
 import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@claudetools/shared/contracts/commandButtons';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
@@ -119,17 +120,51 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
     return res.status(404).json({ error: 'Project not found' });
   }
 
+  // Get project defaults and system defaults
+  const projectDefs = projectDefaults.getByProjectId(req.params.id);
+  const systemDefaults = ProjectDefaultsRepository.getSystemDefaults();
+
   // Handle both JSON and form-data - parse booleans from form-data strings
   const prompt = req.body.prompt;
   const name = req.body.name;
-  const mode = req.body.mode;
-  const model = req.body.model;
+
+  // Apply defaults priority: explicit param > project default > system default
+  let mode = req.body.mode;
+  if (!mode && projectDefs?.mode) mode = projectDefs.mode;
+  if (!mode) mode = systemDefaults.mode;
+
+  let model = req.body.model;
+  if (!model && projectDefs?.model) model = projectDefs.model;
+
   let thinkingEnabled = req.body.thinkingEnabled === true || req.body.thinkingEnabled === 'true';
+  if (!thinkingEnabled && req.body.thinkingEnabled !== false && req.body.thinkingEnabled !== 'false') {
+    // No explicit value provided, use defaults
+    if (projectDefs?.thinkingEnabled !== undefined && projectDefs?.thinkingEnabled !== null) {
+      thinkingEnabled = projectDefs.thinkingEnabled;
+    } else {
+      thinkingEnabled = systemDefaults.thinkingEnabled;
+    }
+  }
+
   let gitBranch = req.body.gitBranch;
+  if (!gitBranch && projectDefs?.gitBranch) gitBranch = projectDefs.gitBranch;
+
   let gitMode = req.body.gitMode;
+  if (!gitMode && projectDefs?.gitMode) gitMode = projectDefs.gitMode;
+
   const templateId = req.body.templateId;
   const parentSessionId = req.body.parentSessionId || null; // Optional: parent session ID for child sessions
+
   let startImmediately = req.body.startImmediately !== false && req.body.startImmediately !== 'false';
+  if (req.body.startImmediately === undefined || req.body.startImmediately === null) {
+    // No explicit value provided, use defaults
+    if (projectDefs?.startImmediately !== undefined && projectDefs?.startImmediately !== null) {
+      startImmediately = projectDefs.startImmediately;
+    } else {
+      startImmediately = systemDefaults.startImmediately;
+    }
+  }
+
   const files = req.files || [];
 
   if (!prompt) {
@@ -141,7 +176,7 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   if (templateId) {
     const template = sessionTemplates.getById(templateId);
     if (template) {
-      // Template settings override if set (not null/undefined)
+      // Template settings override project defaults if set (not null/undefined)
       if (template.thinkingEnabled !== null && template.thinkingEnabled !== undefined) {
         thinkingEnabled = template.thinkingEnabled;
       }
@@ -339,6 +374,48 @@ router.delete('/:id/command-buttons/:buttonId', (req, res) => {
 
   commandButtons.delete(req.params.buttonId);
   res.status(204).send();
+});
+
+// GET /api/projects/:id/session-defaults - Get session defaults for project
+router.get('/:id/session-defaults', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const defaults = projectDefaults.getByProjectId(req.params.id);
+  if (!defaults) {
+    return res.json(null);
+  }
+
+  res.json(defaults);
+});
+
+// POST /api/projects/:id/session-defaults - Update/create session defaults for project
+router.post('/:id/session-defaults', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const result = ProjectSessionDefaultsRequest.safeParse(req.body);
+  if (!result.success) {
+    return res.status(400).json({ error: result.error.errors[0].message });
+  }
+
+  const updated = projectDefaults.upsert(req.params.id, result.data);
+  res.status(200).json(updated);
+});
+
+// DELETE /api/projects/:id/session-defaults - Reset session defaults for project
+router.delete('/:id/session-defaults', (req, res) => {
+  const project = projects.getById(req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const result = projectDefaults.resetToDefaults(req.params.id);
+  res.json(result);
 });
 
 export default router;

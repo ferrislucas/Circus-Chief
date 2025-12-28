@@ -6,6 +6,7 @@ export { BaseRepository } from './BaseRepository.js';
 
 // Repository classes
 export { ProjectRepository } from './ProjectRepository.js';
+export { ProjectDefaultsRepository } from './ProjectDefaultsRepository.js';
 export { SessionRepository } from './SessionRepository.js';
 export { SessionTemplateRepository } from './SessionTemplateRepository.js';
 export { MessageRepository } from './MessageRepository.js';
@@ -21,6 +22,7 @@ export { CommandRunRepository } from './CommandRunRepository.js';
 
 // Singleton instances
 import { ProjectRepository } from './ProjectRepository.js';
+import { ProjectDefaultsRepository } from './ProjectDefaultsRepository.js';
 import { MessageRepository } from './MessageRepository.js';
 import { ConversationRepository } from './ConversationRepository.js';
 import { CanvasItemRepository } from './CanvasItemRepository.js';
@@ -34,6 +36,7 @@ import { CommandButtonRepository } from './CommandButtonRepository.js';
 import { CommandRunRepository } from './CommandRunRepository.js';
 
 export const projects = new ProjectRepository();
+export const projectDefaults = new ProjectDefaultsRepository();
 export const messages = new MessageRepository();
 export const conversations = new ConversationRepository();
 export const canvasItems = new CanvasItemRepository();

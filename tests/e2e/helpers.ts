@@ -425,6 +425,45 @@ export async function cleanupTemplates() {
 }
 
 // ============================================================
+// Project Session Defaults Helpers
+// ============================================================
+
+export async function getProjectSessionDefaults(projectId: string) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/session-defaults`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+export async function setProjectSessionDefaults(
+  projectId: string,
+  defaults: {
+    mode?: string;
+    thinkingEnabled?: boolean;
+    startImmediately?: boolean;
+    gitMode?: string | null;
+    gitBranch?: string | null;
+    model?: string | null;
+  }
+) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/session-defaults`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(defaults),
+  });
+  if (!response.ok) throw new Error('Failed to set project session defaults');
+  return response.json();
+}
+
+export async function resetProjectSessionDefaults(projectId: string) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/session-defaults`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to reset project session defaults');
+  return response.json();
+}
+
+// ============================================================
 // File Attachment Helpers
 // ============================================================
 
