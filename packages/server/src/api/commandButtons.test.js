@@ -195,6 +195,19 @@ describe('Command Buttons API', () => {
 
       expect(res.status).toBe(400);
     });
+
+    it('creates button with showOnList field in response', async () => {
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/command-buttons`)
+        .send({
+          label: 'Test Button',
+          command: 'echo test',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('showOnList');
+      expect(typeof res.body.showOnList).toBe('boolean');
+    });
   });
 
   describe('GET /api/projects/:projectId/command-buttons/:id', () => {
@@ -205,6 +218,14 @@ describe('Command Buttons API', () => {
       expect(res.body.id).toBe(buttonId);
       expect(res.body.label).toBe('Test Button');
       expect(res.body.command).toBe('echo test');
+    });
+
+    it('returns showOnList field', async () => {
+      const res = await request(app).get(`/api/projects/${projectId}/command-buttons/${buttonId}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('showOnList');
+      expect(typeof res.body.showOnList).toBe('boolean');
     });
 
     it('returns 404 for non-existent button', async () => {
@@ -280,6 +301,20 @@ describe('Command Buttons API', () => {
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Command button not found');
+    });
+
+    it('accepts showOnList in update request', async () => {
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/command-buttons/${buttonId}`)
+        .send({
+          label: 'Test Button',
+          command: 'echo test',
+          showOnList: false,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('showOnList');
+      expect(typeof res.body.showOnList).toBe('boolean');
     });
   });
 

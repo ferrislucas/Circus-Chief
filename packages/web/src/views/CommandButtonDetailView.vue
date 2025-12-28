@@ -121,6 +121,7 @@ import { defineProps, ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useUiStore } from '../stores/ui.js';
+import { api } from '../composables/useApi.js';
 import { ROUTE_PARAMS } from '@claudetools/shared/routeParams';
 
 const route = useRoute();
@@ -147,7 +148,16 @@ const isEditMode = computed(() => !!route.params.buttonId);
 const loadButton = async (buttonId) => {
   isLoading.value = true;
   try {
-    const button = commandButtonsStore.getButtonById(buttonId);
+    const projectId = route.params[ROUTE_PARAMS.PROJECT_ID];
+
+    // First try to get from store
+    let button = commandButtonsStore.getButtonById(buttonId);
+
+    // If not in store, fetch from API
+    if (!button) {
+      button = await api.getCommandButton(projectId, buttonId);
+    }
+
     if (button) {
       formData.value = {
         label: button.label,

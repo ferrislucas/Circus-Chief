@@ -31,8 +31,19 @@ vi.mock('../stores/ui.js', () => ({
   useUiStore: vi.fn(),
 }));
 
+// Mock API
+vi.mock('../composables/useApi.js', () => ({
+  api: {
+    getCommandButton: vi.fn(),
+    createCommandButton: vi.fn(),
+    updateCommandButton: vi.fn(),
+    deleteCommandButton: vi.fn(),
+  },
+}));
+
 const { useCommandButtonsStore } = await import('../stores/commandButtons.js');
 const { useUiStore } = await import('../stores/ui.js');
+const { api } = await import('../composables/useApi.js');
 
 describe('CommandButtonDetailView', () => {
   beforeEach(() => {
@@ -361,7 +372,8 @@ describe('CommandButtonDetailView', () => {
     // Fill in form with showOnList checked
     await wrapper.find('#label').setValue('Test Button');
     await wrapper.find('#command').setValue('npm test');
-    await wrapper.find('#showOnList').trigger('change');
+    await wrapper.find('#showOnList').setValue(true);
+    await nextTick();
     await wrapper.find('form').trigger('submit');
     await flushPromises();
 
@@ -401,8 +413,9 @@ describe('CommandButtonDetailView', () => {
     const checkbox = wrapper.find('#showOnList');
     expect(checkbox.element.checked).toBe(false);
 
-    // Toggle checkbox
-    await checkbox.trigger('change');
+    // Toggle checkbox using setValue
+    await checkbox.setValue(true);
+    await nextTick();
 
     expect(checkbox.element.checked).toBe(true);
   });
