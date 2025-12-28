@@ -414,8 +414,8 @@ router.delete('/:id/session-defaults', (req, res) => {
     return res.status(404).json({ error: 'Project not found' });
   }
 
-  const result = projectDefaults.resetToDefaults(req.params.id);
-  res.json(result);
+  projectDefaults.resetToDefaults(req.params.id);
+  res.json({ message: 'Session defaults reset to system defaults' });
 });
 
 export default router;

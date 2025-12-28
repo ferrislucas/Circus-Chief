@@ -116,36 +116,27 @@ export class ProjectDefaultsRepository extends BaseRepository {
 
   /**
    * Reset defaults to system defaults (all fields become null)
-   * Creates a new defaults record if one doesn't exist
+   * Returns null if no defaults exist for the project
    * @param {string} projectId - Project ID
-   * @returns {Object} Updated defaults object with all fields set to null
+   * @returns {Object|null} Updated defaults object with all fields set to null, or null if project has no defaults
    */
   resetToDefaults(projectId) {
     let existing = this.getByProjectId(projectId);
 
     if (!existing) {
-      // Create a new record with all nulls
-      const id = databaseManager.generateId();
-      const now = Date.now();
-
-      this.db
-        .prepare(
-          `INSERT INTO project_session_defaults
-           (id, project_id, mode, thinking_enabled, start_immediately, git_mode, git_branch, model, created_at, updated_at)
-           VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)`
-        )
-        .run(id, projectId, now, now);
-    } else {
-      // Update existing defaults to all nulls
-      this.db
-        .prepare(
-          `UPDATE project_session_defaults
-           SET mode = NULL, thinking_enabled = NULL, start_immediately = NULL,
-               git_mode = NULL, git_branch = NULL, model = NULL, updated_at = ?
-           WHERE project_id = ?`
-        )
-        .run(Date.now(), projectId);
+      // Return null for non-existent projects/defaults
+      return null;
     }
+
+    // Update existing defaults to all nulls
+    this.db
+      .prepare(
+        `UPDATE project_session_defaults
+         SET mode = NULL, thinking_enabled = NULL, start_immediately = NULL,
+             git_mode = NULL, git_branch = NULL, model = NULL, updated_at = ?
+         WHERE project_id = ?`
+      )
+      .run(Date.now(), projectId);
 
     return this.getByProjectId(projectId);
   }
@@ -166,7 +157,7 @@ export class ProjectDefaultsRepository extends BaseRepository {
    */
   static getSystemDefaults() {
     return {
-      mode: 'yolo',
+      mode: 'standard',
       thinkingEnabled: false,
       startImmediately: true,
       gitMode: null,
