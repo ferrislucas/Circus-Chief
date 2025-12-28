@@ -6,7 +6,7 @@
         v-for="m in models"
         :key="m.id"
         type="button"
-        :class="['model-btn', { active: currentModel === m.id }]"
+        :class="['model-btn', { active: selectedModel === m.id }]"
         @click="handleModelChange(m.id)"
         :disabled="disabled || togglingModel"
         :title="m.description"
@@ -18,7 +18,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { CLAUDE_MODELS } from '@claudetools/shared';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
@@ -53,16 +53,29 @@ const currentModel = computed(() => {
   return props.modelValue;
 });
 
+// Local state for optimistic UI updates - provides immediate visual feedback
+const selectedModel = ref(currentModel.value);
+
+// Watch for external changes to keep local selection in sync
+watch(() => currentModel.value, (newModel) => {
+  selectedModel.value = newModel;
+});
+
 async function handleModelChange(id) {
   if (togglingModel.value) return;
-  if (currentModel.value === id) return;
+  if (selectedModel.value === id) return;
+
+  // Immediate visual feedback - update UI right away
+  selectedModel.value = id;
 
   if (props.sessionId) {
-    // Session context: update store directly for immediate visual feedback
+    // Session context: update store asynchronously
     togglingModel.value = true;
     try {
       await sessionsStore.updateSessionModel(props.sessionId, id);
     } catch (err) {
+      // Revert selection on error
+      selectedModel.value = currentModel.value;
       uiStore.error(err.message);
     } finally {
       togglingModel.value = false;

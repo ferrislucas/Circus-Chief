@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons, commandRuns } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
-import { getChanges } from '../services/diffService.js';
+import { getChanges, getChangesBranch } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
@@ -34,8 +34,8 @@ router.get('/:id', (req, res) => {
 
 // GET /api/sessions/:id/changes - Get git changes for session
 // Query params:
-//   compareMode: ignored (backwards compatibility)
-//   branch: ignored (backwards compatibility)
+//   compareMode: 'local' (default) or 'branch' - determines what to compare against
+//   branch: branch ref to compare against (e.g., 'origin/main') - used when compareMode='branch'
 router.get('/:id/changes', async (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
@@ -51,10 +51,41 @@ router.get('/:id/changes', async (req, res) => {
   const directory = session.gitWorktree || project.workingDirectory;
 
   try {
-    // Always get local changes (staged, unstaged, untracked)
-    // Old query params (compareMode, branch) are silently ignored for backwards compatibility
-    const changes = await getChanges(directory);
+    const { compareMode = 'local', branch } = req.query;
+
+    let changes;
+    if (compareMode === 'branch' && branch) {
+      // Get changes compared to a specific branch
+      changes = await getChangesBranch(directory, branch);
+    } else {
+      // Default: get local changes (staged, unstaged, untracked)
+      changes = await getChanges(directory);
+    }
+
     res.json(changes);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/sessions/:id/default-branch - Get the default branch for branch comparison
+router.get('/:id/default-branch', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const project = projects.getById(session.projectId);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  // Use gitWorktree if set, otherwise use the project's working directory
+  const directory = session.gitWorktree || project.workingDirectory;
+
+  try {
+    const branch = await gitService.getOriginDefaultBranch(directory);
+    res.json({ branch });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

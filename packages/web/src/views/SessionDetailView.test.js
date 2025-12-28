@@ -33,6 +33,7 @@ vi.mock('../composables/useWebSocket.js', () => ({
     onConversationUpdated: vi.fn(() => vi.fn()),
     onChangesUpdate: vi.fn(() => vi.fn()),
   })),
+  ensureSubscribed: vi.fn(() => Promise.resolve()),
 }));
 
 // Mock useModelInfo composable - use real implementation to test model display
