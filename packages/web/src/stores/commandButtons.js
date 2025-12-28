@@ -79,8 +79,12 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
     async runButton(sessionId, buttonId) {
       this.error = null;
       try {
-        const response = await api.runCommandButton(sessionId, buttonId);
-        const runId = response.runId;
+        // Generate runId locally - don't wait for API
+        // Using timestamp + random to ensure uniqueness
+        const runId = `run-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        // Optimistic update: create run IMMEDIATELY
+        // This disables the button instantly in the UI
         this.runs[runId] = {
           runId,
           buttonId,
@@ -90,6 +94,21 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
           exitCode: null,
           startedAt: Date.now(),
         };
+
+        // Send API request in background (don't await from caller)
+        // If it fails, we'll catch and update the run status to 'error'
+        api.runCommandButton(sessionId, buttonId).catch((err) => {
+          // API failed: mark run as error
+          if (this.runs[runId]) {
+            this.runs[runId].status = 'error';
+            this.runs[runId].output = `[Error] Failed to start command: ${err.message}`;
+            this.runs[runId].exitCode = 1;
+          }
+          this.error = err.message;
+        });
+
+        // Return runId immediately (synchronous)
+        // This allows button to disable immediately without waiting for API
         return runId;
       } catch (err) {
         this.error = err.message;

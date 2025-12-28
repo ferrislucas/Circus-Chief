@@ -234,11 +234,13 @@ describe('CommandButtons Store', () => {
       const store = useCommandButtonsStore();
       const runId = await store.runButton('session-1', 'btn-1');
 
-      expect(runId).toBe('run-123');
+      // runId is generated locally (timestamp + random), not from API
+      expect(typeof runId).toBe('string');
+      expect(runId).toMatch(/^run-\d+-[a-z0-9]+$/);
       expect(api.runCommandButton).toHaveBeenCalledWith('session-1', 'btn-1');
-      expect(store.runs['run-123']).toBeDefined();
-      expect(store.runs['run-123'].status).toBe('running');
-      expect(store.runs['run-123'].buttonId).toBe('btn-1');
+      expect(store.runs[runId]).toBeDefined();
+      expect(store.runs[runId].status).toBe('running');
+      expect(store.runs[runId].buttonId).toBe('btn-1');
     });
 
     it('stores sessionId when running button', async () => {
@@ -247,7 +249,7 @@ describe('CommandButtons Store', () => {
       const store = useCommandButtonsStore();
       const runId = await store.runButton('session-1', 'btn-1');
 
-      expect(store.runs['run-123'].sessionId).toBe('session-1');
+      expect(store.runs[runId].sessionId).toBe('session-1');
     });
 
     it('sets startedAt timestamp when running button', async () => {
@@ -258,8 +260,114 @@ describe('CommandButtons Store', () => {
       const runId = await store.runButton('session-1', 'btn-1');
       const afterTime = Date.now();
 
-      expect(store.runs['run-123'].startedAt).toBeGreaterThanOrEqual(beforeTime);
-      expect(store.runs['run-123'].startedAt).toBeLessThanOrEqual(afterTime);
+      expect(store.runs[runId].startedAt).toBeGreaterThanOrEqual(beforeTime);
+      expect(store.runs[runId].startedAt).toBeLessThanOrEqual(afterTime);
+    });
+
+    it('creates run optimistically before API call completes', async () => {
+      // This test verifies the optimistic update pattern:
+      // Run should be created in state BEFORE API resolves
+      let apiResolved = false;
+      let apiCallStarted = false;
+      api.runCommandButton.mockImplementation(() => {
+        apiCallStarted = true;
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            apiResolved = true;
+            resolve({ runId: 'api-123', buttonId: 'btn-1', status: 'running', output: '' });
+          }, 100); // Simulate network delay
+        });
+      });
+
+      const store = useCommandButtonsStore();
+      // Call runButton (which is async but returns runId synchronously)
+      const runIdPromise = store.runButton('session-1', 'btn-1');
+      const runId = await runIdPromise;
+
+      // Run should be created synchronously BEFORE API call returns
+      expect(typeof runId).toBe('string');
+      expect(store.runs[runId]).toBeDefined();
+      expect(store.runs[runId].status).toBe('running');
+      expect(apiCallStarted).toBe(true);
+
+      // Wait for API to resolve
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(apiResolved).toBe(true);
+    });
+
+    it('API failure updates run status to error', async () => {
+      const apiError = new Error('Connection timeout');
+      api.runCommandButton.mockRejectedValue(apiError);
+
+      const store = useCommandButtonsStore();
+      const runId = await store.runButton('session-1', 'btn-1');
+
+      // Wait for the promise chain to complete (API call happens in background)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Run should exist but have error status
+      expect(store.runs[runId]).toBeDefined();
+      expect(store.runs[runId].status).toBe('error');
+      expect(store.runs[runId].output).toContain('Failed to start command');
+      expect(store.runs[runId].output).toContain(apiError.message);
+      expect(store.runs[runId].exitCode).toBe(1);
+    });
+
+    it('sets error message in store on API failure', async () => {
+      const apiError = new Error('Network error');
+      api.runCommandButton.mockRejectedValue(apiError);
+
+      const store = useCommandButtonsStore();
+      const runId = await store.runButton('session-1', 'btn-1');
+
+      // Wait for async error handling
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Store error state should be set
+      expect(store.error).toBe(apiError.message);
+    });
+
+    it('returns runId synchronously (not awaiting API)', async () => {
+      let apiCallStarted = false;
+      api.runCommandButton.mockImplementation(() => {
+        apiCallStarted = true;
+        return new Promise((resolve) => {
+          setTimeout(() => resolve({ runId: 'delayed', status: 'running' }), 500);
+        });
+      });
+
+      const store = useCommandButtonsStore();
+      const startTime = Date.now();
+      const runId = await store.runButton('session-1', 'btn-1');
+      const endTime = Date.now();
+
+      // runButton should return almost immediately (not wait 500ms for API)
+      // Should be <50ms total (plenty of buffer for slow systems)
+      expect(endTime - startTime).toBeLessThan(50);
+      expect(typeof runId).toBe('string');
+      expect(runId).toMatch(/^run-\d+-[a-z0-9]+$/);
+      // But API should still be in flight
+      expect(apiCallStarted).toBe(true);
+    });
+
+    it('does not use API-provided runId', async () => {
+      // Verify that we generate our own runId, not use the one from API
+      api.runCommandButton.mockResolvedValue({
+        runId: 'api-generated-id',
+        buttonId: 'btn-1',
+        status: 'running',
+        output: '',
+      });
+
+      const store = useCommandButtonsStore();
+      const localRunId = await store.runButton('session-1', 'btn-1');
+
+      // The returned runId should NOT be the API one
+      expect(localRunId).not.toBe('api-generated-id');
+      expect(localRunId).toMatch(/^run-\d+-[a-z0-9]+$/);
+
+      // But run should still be in store with our generated ID
+      expect(store.runs[localRunId]).toBeDefined();
     });
   });
 
