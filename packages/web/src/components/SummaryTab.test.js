@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
-import { nextTick } from 'vue';
+import { nextTick, reactive } from 'vue';
 
 // Mock the API - MUST be before imports that use it
 vi.mock('../composables/useApi.js', () => ({
@@ -53,13 +53,13 @@ describe('SummaryTab', () => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
 
-    mockSessionsStore = {
+    mockSessionsStore = reactive({
       sessions: [{ id: 'sess-123', status: 'waiting' }],
       currentSession: { id: 'sess-123', status: 'waiting' },
       conversations: [],
       fetchConversations: vi.fn().mockResolvedValue([]),
       switchConversation: vi.fn().mockResolvedValue(),
-    };
+    });
 
     vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
 
