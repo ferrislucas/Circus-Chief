@@ -18,10 +18,12 @@
           v-if="!run || run.status !== 'running'"
           class="btn btn-primary btn-sm"
           @click="handleRun"
-          :disabled="run?.status === 'running'"
+          :disabled="run?.status === 'running' || isSubmitting"
+          :class="{ 'is-loading': isSubmitting }"
           data-testid="run-button"
         >
-          ▶ Run
+          <span v-if="isSubmitting" class="spinner-inline"></span>
+          {{ isSubmitting ? 'Starting...' : '▶ Run' }}
         </button>
 
         <!-- Kill Button (running state) -->
@@ -99,6 +101,9 @@ const emit = defineEmits(['run', 'kill', 'copy-output', 'send-to-canvas']);
 
 // Default to true only if command is running, false otherwise
 const showOutput = ref(props.run?.status === 'running');
+
+// Track if button click is in flight (prevents double-clicks)
+const isSubmitting = ref(false);
 
 // NEW: Ref to the output container div for scrolling
 const outputRef = ref(null);
@@ -295,8 +300,20 @@ const statusIcon = computed(() => {
   }
 });
 
-const handleRun = () => {
-  emit('run');
+const handleRun = async () => {
+  if (isSubmitting.value) return; // Prevent double-click
+
+  isSubmitting.value = true;
+  try {
+    emit('run');
+  } finally {
+    // Reset after a brief delay to let state updates propagate
+    // If store immediately creates run, button will disable via run.status
+    // This is a safety timeout to reset if something goes wrong
+    setTimeout(() => {
+      isSubmitting.value = false;
+    }, 100);
+  }
 };
 
 const handleKill = () => {
@@ -504,6 +521,23 @@ defineExpose({
   border-top-color: var(--color-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+.spinner-inline {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 0.5rem;
+  opacity: 0.8;
+}
+
+.btn.is-loading {
+  opacity: 0.8;
+  position: relative;
 }
 
 /* Animations */
