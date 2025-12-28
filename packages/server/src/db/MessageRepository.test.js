@@ -273,4 +273,110 @@ describe('MessageRepository', () => {
       expect(allMessages[0].content).toBe('Without conv');
     });
   });
+
+  describe('updateContent', () => {
+    it('updates message content successfully', () => {
+      const message = repo.create(sessionId, 'user', 'Original content');
+      const updated = repo.updateContent(message.id, 'Updated content');
+
+      expect(updated.content).toBe('Updated content');
+      expect(updated.id).toBe(message.id);
+      expect(updated.role).toBe('user');
+      expect(updated.sessionId).toBe(sessionId);
+    });
+
+    it('persists content update in database', () => {
+      const message = repo.create(sessionId, 'user', 'Original');
+      repo.updateContent(message.id, 'Updated');
+
+      const retrieved = repo.getById(message.id);
+      expect(retrieved.content).toBe('Updated');
+    });
+
+    it('returns updated message with all fields intact', () => {
+      const message = repo.create(sessionId, 'assistant', 'Original response', null, conversationId);
+      const updated = repo.updateContent(message.id, 'New response');
+
+      expect(updated.id).toBe(message.id);
+      expect(updated.role).toBe('assistant');
+      expect(updated.sessionId).toBe(sessionId);
+      expect(updated.conversationId).toBe(conversationId);
+      expect(updated.content).toBe('New response');
+    });
+
+    it('rejects empty string prompt', () => {
+      const message = repo.create(sessionId, 'user', 'Original');
+      expect(() => repo.updateContent(message.id, '')).toThrow('Message content cannot be empty');
+    });
+
+    it('rejects whitespace-only prompt', () => {
+      const message = repo.create(sessionId, 'user', 'Original');
+      expect(() => repo.updateContent(message.id, '   ')).toThrow('Message content cannot be empty');
+      expect(() => repo.updateContent(message.id, '\t\n')).toThrow('Message content cannot be empty');
+    });
+
+    it('rejects null or undefined prompt', () => {
+      const message = repo.create(sessionId, 'user', 'Original');
+      expect(() => repo.updateContent(message.id, null)).toThrow('Message content cannot be empty');
+      expect(() => repo.updateContent(message.id, undefined)).toThrow('Message content cannot be empty');
+    });
+
+    it('preserves other message fields on update', () => {
+      const toolUse = [{ name: 'bash', input: { command: 'ls -la' } }];
+      const message = repo.create(sessionId, 'assistant', 'Original', toolUse, conversationId);
+      const updated = repo.updateContent(message.id, 'New content');
+
+      // Note: toolUse is not updated by this method, only content
+      expect(updated.role).toBe(message.role);
+      expect(updated.sessionId).toBe(message.sessionId);
+      expect(updated.conversationId).toBe(message.conversationId);
+      expect(updated.timestamp).toBe(message.timestamp);
+    });
+
+    it('handles non-existent message gracefully', () => {
+      // Should not throw, but update will not find anything
+      const updated = repo.updateContent('non-existent-id', 'New content');
+      expect(updated).toBeNull();
+    });
+
+    it('allows very long content', () => {
+      const message = repo.create(sessionId, 'user', 'Short');
+      const longContent = 'a'.repeat(10000);
+      const updated = repo.updateContent(message.id, longContent);
+
+      expect(updated.content).toBe(longContent);
+      expect(updated.content.length).toBe(10000);
+    });
+
+    it('handles special characters in content', () => {
+      const message = repo.create(sessionId, 'user', 'Original');
+      const specialContent = 'Content with "quotes", \'single quotes\', \n newlines, \t tabs, and unicode: 你好';
+      const updated = repo.updateContent(message.id, specialContent);
+
+      expect(updated.content).toBe(specialContent);
+    });
+
+    it('allows updating to same content', () => {
+      const message = repo.create(sessionId, 'user', 'Content');
+      const updated = repo.updateContent(message.id, 'Content');
+
+      expect(updated.content).toBe('Content');
+    });
+
+    it('multiple consecutive updates work correctly', () => {
+      const message = repo.create(sessionId, 'user', 'Version 1');
+
+      let updated = repo.updateContent(message.id, 'Version 2');
+      expect(updated.content).toBe('Version 2');
+
+      updated = repo.updateContent(message.id, 'Version 3');
+      expect(updated.content).toBe('Version 3');
+
+      updated = repo.updateContent(message.id, 'Version 4');
+      expect(updated.content).toBe('Version 4');
+
+      const final = repo.getById(message.id);
+      expect(final.content).toBe('Version 4');
+    });
+  });
 });

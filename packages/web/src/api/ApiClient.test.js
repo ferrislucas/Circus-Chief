@@ -343,6 +343,204 @@ describe('ApiClient', () => {
       });
     });
 
+    describe('Draft Session Management', () => {
+      describe('updateSessionInitialPrompt', () => {
+        it('puts to initial-prompt endpoint', async () => {
+          const mockData = { id: 'msg-123', content: 'New prompt', role: 'user' };
+          mockFetch.mockReturnValue(mockResponse(mockData));
+
+          const result = await client.updateSessionInitialPrompt('sess-123', 'New prompt');
+
+          expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/initial-prompt', expect.objectContaining({
+            method: 'PUT',
+            body: JSON.stringify({ prompt: 'New prompt' }),
+          }));
+          expect(result).toEqual(mockData);
+        });
+
+        it('sends prompt in request body', async () => {
+          mockFetch.mockReturnValue(mockResponse({ success: true }));
+
+          await client.updateSessionInitialPrompt('sess-123', 'Updated prompt text');
+
+          const callArgs = mockFetch.mock.calls[0];
+          const body = JSON.parse(callArgs[1].body);
+          expect(body.prompt).toBe('Updated prompt text');
+        });
+
+        it('handles empty prompt error', async () => {
+          mockFetch.mockReturnValue({
+            ok: false,
+            status: 400,
+            json: async () => ({ error: 'Prompt must be a non-empty string' }),
+          });
+
+          await expect(client.updateSessionInitialPrompt('sess-123', '')).rejects.toThrow('Prompt must be a non-empty string');
+        });
+
+        it('handles session not found error', async () => {
+          mockFetch.mockReturnValue({
+            ok: false,
+            status: 404,
+            json: async () => ({ error: 'Session not found' }),
+          });
+
+          await expect(client.updateSessionInitialPrompt('nonexistent', 'prompt')).rejects.toThrow('Session not found');
+        });
+
+        it('handles session status validation error', async () => {
+          mockFetch.mockReturnValue({
+            ok: false,
+            status: 400,
+            json: async () => ({ error: 'Session must be in waiting status to edit the prompt' }),
+          });
+
+          await expect(client.updateSessionInitialPrompt('sess-123', 'prompt')).rejects.toThrow('Session must be in waiting status to edit the prompt');
+        });
+
+        it('handles draft state validation error', async () => {
+          mockFetch.mockReturnValue({
+            ok: false,
+            status: 400,
+            json: async () => ({ error: 'Session is not a draft - it already has responses' }),
+          });
+
+          await expect(client.updateSessionInitialPrompt('sess-123', 'prompt')).rejects.toThrow('Session is not a draft - it already has responses');
+        });
+
+        it('returns updated message object with all fields', async () => {
+          const mockData = {
+            id: 'msg-123',
+            sessionId: 'sess-123',
+            content: 'Updated prompt',
+            role: 'user',
+            timestamp: 1234567890,
+            conversationId: null,
+            toolUse: null,
+          };
+          mockFetch.mockReturnValue(mockResponse(mockData));
+
+          const result = await client.updateSessionInitialPrompt('sess-123', 'Updated prompt');
+
+          expect(result).toEqual(mockData);
+          expect(result).toHaveProperty('id');
+          expect(result).toHaveProperty('content');
+          expect(result).toHaveProperty('role');
+          expect(result).toHaveProperty('sessionId');
+        });
+      });
+
+      describe('startSession', () => {
+        it('posts to start endpoint without prompt parameter', async () => {
+          mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+
+          await client.startSession('sess-123');
+
+          expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/start', expect.objectContaining({
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }));
+          // Verify body is not in the options when prompt is not provided
+          const callArgs = mockFetch.mock.calls[0];
+          expect(callArgs[1].body).not.toBeDefined();
+        });
+
+        it('posts to start endpoint with prompt parameter', async () => {
+          mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+
+          await client.startSession('sess-123', 'Updated prompt for start');
+
+          const callArgs = mockFetch.mock.calls[0];
+          expect(callArgs[1].method).toBe('POST');
+          const body = JSON.parse(callArgs[1].body);
+          expect(body.prompt).toBe('Updated prompt for start');
+        });
+
+        it('includes prompt in body only when defined', async () => {
+          mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+
+          await client.startSession('sess-123', 'My prompt');
+
+          const callArgs = mockFetch.mock.calls[0];
+          expect(callArgs[1].body).toBeDefined();
+        });
+
+        it('does not include prompt in body when undefined', async () => {
+          mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+
+          await client.startSession('sess-123');
+
+          const callArgs = mockFetch.mock.calls[0];
+          expect(callArgs[1].body).toBeUndefined();
+        });
+
+        it('returns updated session object', async () => {
+          const mockData = { id: 'sess-123', status: 'starting', name: 'Test Session' };
+          mockFetch.mockReturnValue(mockResponse(mockData));
+
+          const result = await client.startSession('sess-123', 'prompt');
+
+          expect(result).toEqual(mockData);
+          expect(result.status).toBe('starting');
+        });
+
+        it('handles session not found error', async () => {
+          mockFetch.mockReturnValue({
+            ok: false,
+            status: 404,
+            json: async () => ({ error: 'Session not found' }),
+          });
+
+          await expect(client.startSession('nonexistent', 'prompt')).rejects.toThrow('Session not found');
+        });
+
+        it('handles session status validation error', async () => {
+          mockFetch.mockReturnValue({
+            ok: false,
+            status: 400,
+            json: async () => ({ error: 'Session must be in waiting status to start' }),
+          });
+
+          await expect(client.startSession('sess-123', 'prompt')).rejects.toThrow('Session must be in waiting status to start');
+        });
+
+        it('handles draft state validation error', async () => {
+          mockFetch.mockReturnValue({
+            ok: false,
+            status: 400,
+            json: async () => ({ error: 'Session is not a draft - it already has responses' }),
+          });
+
+          await expect(client.startSession('sess-123', 'prompt')).rejects.toThrow('Session is not a draft - it already has responses');
+        });
+
+        it('handles empty prompt error when provided', async () => {
+          mockFetch.mockReturnValue({
+            ok: false,
+            status: 400,
+            json: async () => ({ error: 'Prompt must be a non-empty string' }),
+          });
+
+          await expect(client.startSession('sess-123', '')).rejects.toThrow('Prompt must be a non-empty string');
+        });
+
+        it('supports both with and without optional prompt parameter', async () => {
+          mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+
+          // Call without prompt
+          await client.startSession('sess-123');
+          expect(mockFetch).toHaveBeenCalled();
+
+          mockFetch.mockClear();
+          mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+
+          // Call with prompt
+          await client.startSession('sess-123', 'new prompt');
+          expect(mockFetch).toHaveBeenCalled();
+        });
+      });
+    });
+
     describe('getSessionChanges', () => {
       it('fetches changes for session', async () => {
         const mockData = { staged: 'staged diff', unstaged: 'unstaged diff', untracked: '' };

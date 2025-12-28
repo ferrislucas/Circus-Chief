@@ -277,10 +277,22 @@ export class ApiClient {
   /**
    * Start a draft session (waiting status with no assistant messages)
    * @param {string} id - Session ID
+   * @param {string|undefined} prompt - Optional updated prompt to use when starting
    * @returns {Promise<Object>}
    */
-  async startSession(id) {
-    return this.#request('POST', `/sessions/${id}/start`);
+  async startSession(id, prompt) {
+    const data = prompt !== undefined ? { prompt } : undefined;
+    return this.#request('POST', `/sessions/${id}/start`, data);
+  }
+
+  /**
+   * Update the initial prompt for a draft session
+   * @param {string} id - Session ID
+   * @param {string} prompt - The new prompt
+   * @returns {Promise<Object>}
+   */
+  async updateSessionInitialPrompt(id, prompt) {
+    return this.#request('PUT', `/sessions/${id}/initial-prompt`, { prompt });
   }
 
   /**
