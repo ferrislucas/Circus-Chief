@@ -7,7 +7,7 @@
           type="button"
           class="dropdown-trigger"
           :disabled="isDisabled"
-          @click="toggleDropdown"
+          @click.stop="toggleDropdown"
           :title="isDisabled ? 'Stop the session to switch conversations' : 'Switch conversation'"
         >
           <span class="dropdown-label">
