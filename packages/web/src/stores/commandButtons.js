@@ -125,7 +125,16 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
     completeRun(runId, exitCode, output) {
       if (this.runs[runId]) {
         this.runs[runId].exitCode = exitCode;
-        this.runs[runId].output = output;
+
+        // FIX: Only replace output if server has a more complete version
+        // (longer output), otherwise keep the output we accumulated via
+        // appendOutput calls. This prevents race conditions where the
+        // completion message arrives before all streaming chunks.
+        if (output && output.length > this.runs[runId].output.length) {
+          this.runs[runId].output = output;
+        }
+        // Otherwise, keep the accumulated streamed output
+
         this.runs[runId].status = exitCode === 0 ? 'success' : 'error';
       }
     },
