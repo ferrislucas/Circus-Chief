@@ -1,147 +1,70 @@
-# Plan: Active/Waiting Sessions List View
+# Plan: Persist New Session Prompt to localStorage
 
 ## Overview
+Save the prompt text in the New Session view so users don't lose their work when navigating away or refreshing the page.
 
-Create a new view that shows all sessions across all projects that are currently "active" (running, waiting, or starting). This provides users with a quick way to see all sessions that need attention without having to navigate to each project individually.
+## Existing Pattern (ConversationTab.vue)
+The conversation tab already implements this pattern:
+- **Storage key**: `session-draft-${sessionId}`
+- **Debounced save**: 500ms delay before writing to localStorage
+- **Load on mount**: Reads saved draft when component mounts
+- **Clear on submit**: Removes draft from localStorage after successful send
 
-## Session Statuses Reference
+## Implementation Plan
 
-- `starting` - Initial creation (ACTIVE)
-- `running` - Claude is actively processing (ACTIVE)
-- `waiting` - Waiting for user input (ACTIVE)
-- `completed` - Session ended
-- `error` - An error occurred
-
-**Active sessions = `starting`, `running`, or `waiting` status**
-
----
-
-## Implementation Steps
-
-### 1. Backend: Add Repository Method
-
-**File:** `packages/server/src/db/SessionRepository.js`
-
-Add a new method to fetch all active sessions across all projects:
-
+### 1. Define Storage Key
+Since NewSessionView doesn't have a session ID yet, use the **project ID** as the key:
 ```javascript
-getActiveAndWaiting() {
-  const rows = this.db
-    .prepare(
-      `SELECT s.*, p.name as project_name, p.path as project_path
-       FROM sessions s
-       JOIN projects p ON s.project_id = p.id
-       WHERE s.status IN ('starting', 'running', 'waiting')
-       ORDER BY s.updated_at DESC`
-    )
-    .all();
-  return rows.map(row => ({
-    ...this.map(row),
-    projectName: row.project_name,
-    projectPath: row.project_path
-  }));
+const STORAGE_KEY = computed(() => `new-session-draft-${route.params.id}`);
+```
+
+### 2. Load Draft on Mount
+Add to `onMounted()`:
+```javascript
+const savedDraft = localStorage.getItem(STORAGE_KEY.value);
+if (savedDraft) {
+  prompt.value = savedDraft;
 }
 ```
 
-### 2. Backend: Add API Endpoint
-
-**File:** `packages/server/src/api/sessions.js`
-
-Add a new route at the beginning of the router (before `/:id` routes):
-
+### 3. Save Draft on Change (Debounced)
+Add a watcher with 500ms debounce:
 ```javascript
-router.get('/', async (req, res) => {
-  const sessions = req.sessionRepository.getActiveAndWaiting();
-  res.json(sessions);
+let debounceTimer = null;
+
+watch(prompt, (newValue) => {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    if (newValue.trim()) {
+      localStorage.setItem(STORAGE_KEY.value, newValue);
+    } else {
+      localStorage.removeItem(STORAGE_KEY.value);
+    }
+  }, 500);
 });
 ```
 
-This will be accessible at `GET /api/sessions`.
-
-### 3. Frontend: Add API Client Method
-
-**File:** `packages/web/src/api/ApiClient.js`
-
-Add method:
-
+### 4. Clear Draft on Successful Submit
+In `handleSubmit()`, after successful session creation:
 ```javascript
-async getActiveSessions() {
-  return this.get('/sessions');
-}
+localStorage.removeItem(STORAGE_KEY.value);
 ```
 
-### 4. Frontend: Update Sessions Store
-
-**File:** `packages/web/src/stores/sessions.js`
-
-Add new state and action:
-
+### 5. Cleanup Timer on Unmount
+Add `onUnmounted()` hook to clear the debounce timer:
 ```javascript
-// In state
-activeSessions: []
-
-// New action
-async fetchActiveSessions() {
-  this.loading = true;
-  this.error = null;
-  try {
-    this.activeSessions = await apiClient.getActiveSessions();
-  } catch (error) {
-    this.error = error.message;
-  } finally {
-    this.loading = false;
-  }
-}
+onUnmounted(() => {
+  if (debounceTimer) clearTimeout(debounceTimer);
+});
 ```
 
-### 5. Frontend: Create New View Component
+## Files to Modify
+- `packages/web/src/views/NewSessionView.vue`
 
-**File:** `packages/web/src/views/ActiveSessionsView.vue` (new file)
-
-Create a view that:
-- Fetches and displays all active/waiting sessions on mount
-- Shows session name, project name, status, mode, and last updated time
-- Links to the session detail view
-- Highlights "waiting" sessions as needing user attention
-- Shows empty state when no active sessions exist
-- Auto-refreshes periodically (every 10 seconds) to keep status current
-
-### 6. Frontend: Add Route
-
-**File:** `packages/web/src/router.js`
-
-Add new route BEFORE the `/sessions/:id/:tab?` route to avoid conflict:
-
-```javascript
-{
-  path: '/sessions/active',
-  name: 'ActiveSessions',
-  component: () => import('./views/ActiveSessionsView.vue'),
-}
-```
-
-### 7. Frontend: Add Navigation Link
-
-**File:** `packages/web/src/App.vue`
-
-Add a link to the active sessions view in the main navigation.
-
-### 8. Tests
-
-**Files to update:**
-- `packages/server/src/db/SessionRepository.test.js` - Test `getActiveAndWaiting()` method
-
----
-
-## Files to Modify/Create Summary
-
-| File | Action |
-|------|--------|
-| `packages/server/src/db/SessionRepository.js` | Add `getActiveAndWaiting()` method |
-| `packages/server/src/api/sessions.js` | Add `GET /api/sessions` route |
-| `packages/web/src/api/ApiClient.js` | Add `getActiveSessions()` method |
-| `packages/web/src/stores/sessions.js` | Add `activeSessions` state and fetch action |
-| `packages/web/src/views/ActiveSessionsView.vue` | **Create new file** |
-| `packages/web/src/router.js` | Add route for active sessions |
-| `packages/web/src/App.vue` | Add navigation link |
-| `packages/server/src/db/SessionRepository.test.js` | Add tests for new method |
+## Testing
+1. Type a prompt in the New Session view
+2. Navigate away (e.g., back to sessions list)
+3. Return to New Session view → prompt should be restored
+4. Hard refresh the browser → prompt should be restored
+5. Submit the form → prompt should be cleared from localStorage
+6. Create a new session for a different project → should have its own separate draft
