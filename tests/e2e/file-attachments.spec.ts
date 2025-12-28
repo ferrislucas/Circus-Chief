@@ -2,11 +2,15 @@ import { test, expect } from '@playwright/test';
 import {
   seedProject,
   cleanupAll,
+  cleanupCreatedResources,
   seedSessionWithFiles,
   sendMessageWithFiles,
   getSessionMessages,
   getSessionAttachments,
   updateSessionStatus,
+  navigateAndWait,
+  waitForSessionToExist,
+  waitForPageReady,
 } from './helpers';
 
 // Helper to set session to waiting status for testing
@@ -41,7 +45,7 @@ test.describe('File Attachments - Session Creation', () => {
     expect(session.name).toBe('Text File Test');
 
     // Navigate and prepare session for testing
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
 
     // Verify attachments are stored and returned in messages
@@ -65,7 +69,7 @@ test.describe('File Attachments - Session Creation', () => {
     expect(session.id).toBeTruthy();
 
     // Navigate and prepare session for testing
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
 
     // Verify all attachments are stored
@@ -89,7 +93,7 @@ test.describe('File Attachments - Session Creation', () => {
     expect(session.id).toBeTruthy();
 
     // Navigate and prepare session for testing
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
 
     // Get messages and verify the user message exists with the file
@@ -114,7 +118,7 @@ test.describe('File Attachments - Session Creation', () => {
       [{ name: 'code.js', content: 'const x = 1;', type: 'application/javascript' }]
     );
 
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
 
     // Get messages with attachments
@@ -149,7 +153,7 @@ test.describe('File Attachments - Follow-up Messages', () => {
     );
 
     // Navigate and prepare session for testing
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
 
     // Send follow-up message with attachment - this should succeed
@@ -181,7 +185,7 @@ test.describe('File Attachments - Follow-up Messages', () => {
       [{ name: 'initial.txt', content: 'Initial content', type: 'text/plain' }]
     );
 
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
 
     // Verify the initial message has the attachment
@@ -216,7 +220,7 @@ test.describe('File Attachments - UI Display', () => {
       [{ name: 'display-test.txt', content: 'Test content for display', type: 'text/plain' }]
     );
 
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
     await page.reload();
     await page.waitForLoadState('networkidle');
@@ -236,7 +240,7 @@ test.describe('File Attachments - UI Display', () => {
       ]
     );
 
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
     await page.reload();
     await page.waitForLoadState('networkidle');
@@ -267,7 +271,7 @@ test.describe('File Attachments - Different File Types', () => {
       [{ name: 'data.json', content: jsonContent, type: 'application/json' }]
     );
 
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
 
     const attachments = await getSessionAttachments(session.id);
@@ -283,7 +287,7 @@ test.describe('File Attachments - Different File Types', () => {
       [{ name: 'script.js', content: jsContent, type: 'application/javascript' }]
     );
 
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
 
     const attachments = await getSessionAttachments(session.id);
@@ -299,7 +303,7 @@ test.describe('File Attachments - Different File Types', () => {
       [{ name: 'readme.md', content: mdContent, type: 'text/markdown' }]
     );
 
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
 
     const attachments = await getSessionAttachments(session.id);
@@ -315,7 +319,7 @@ test.describe('File Attachments - Different File Types', () => {
       [{ name: 'styles.css', content: cssContent, type: 'text/css' }]
     );
 
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
 
     const attachments = await getSessionAttachments(session.id);
@@ -346,7 +350,7 @@ test.describe('File Attachments - Error Handling', () => {
 
     expect(session.id).toBeTruthy();
 
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
 
     const attachments = await getSessionAttachments(session.id);
@@ -366,7 +370,7 @@ test.describe('File Attachments - Error Handling', () => {
 
     expect(session.id).toBeTruthy();
 
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
 
     const attachments = await getSessionAttachments(session.id);

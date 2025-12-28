@@ -16,7 +16,149 @@ function getAPIURL(): string {
 }
 
 const API_URL = getAPIURL();
-const TEST_PREFIX = '[TEST] ';
+
+// Generate unique test prefix per test run to avoid race conditions between parallel tests
+const TEST_RUN_ID = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+const TEST_PREFIX = `[TEST-${TEST_RUN_ID}] `;
+
+// ============================================================
+// Resource Tracking for Scoped Cleanup
+// ============================================================
+
+// Track created resources for scoped cleanup per test
+const createdResources = {
+  projects: new Set<string>(),
+  sessions: new Set<string>(),
+};
+
+/**
+ * Clear the resource tracking (called after cleanup)
+ */
+function clearResourceTracking() {
+  createdResources.projects.clear();
+  createdResources.sessions.clear();
+}
+
+/**
+ * Clean up only resources created by the current test
+ */
+export async function cleanupCreatedResources() {
+  // Delete sessions first (they depend on projects)
+  for (const sessionId of createdResources.sessions) {
+    try {
+      await fetch(`${API_URL}/api/sessions/${sessionId}`, { method: 'DELETE' });
+    } catch (e) {
+      // Ignore errors - session may already be deleted
+    }
+  }
+
+  // Then delete projects
+  for (const projectId of createdResources.projects) {
+    try {
+      await fetch(`${API_URL}/api/projects/${projectId}`, { method: 'DELETE' });
+    } catch (e) {
+      // Ignore errors - project may already be deleted
+    }
+  }
+
+  clearResourceTracking();
+}
+
+// ============================================================
+// Wait/Navigation Helpers for DOM Readiness
+// ============================================================
+
+/**
+ * Wait for page to be fully loaded and ready
+ */
+export async function waitForPageReady(page: Page, options: { timeout?: number } = {}) {
+  const timeout = options.timeout || 10000;
+  await page.waitForLoadState('networkidle', { timeout });
+  // Wait for any loading indicators to disappear
+  const loadingIndicators = page.locator('.loading, .spinner, [data-loading="true"]');
+  const count = await loadingIndicators.count();
+  if (count > 0) {
+    await expect(loadingIndicators.first()).not.toBeVisible({ timeout });
+  }
+}
+
+/**
+ * Navigate to a URL and wait for page to be ready
+ */
+export async function navigateAndWait(page: Page, url: string, options: { timeout?: number } = {}) {
+  await page.goto(url);
+  await waitForPageReady(page, options);
+}
+
+/**
+ * Wait for a session to exist in the API
+ */
+export async function waitForSessionToExist(sessionId: string, timeout = 5000): Promise<any> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const session = await getSession(sessionId);
+    if (session) return session;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Session ${sessionId} not found after ${timeout}ms`);
+}
+
+/**
+ * Wait for a project to have a certain number of sessions
+ */
+export async function waitForProjectSessions(
+  projectId: string,
+  minCount: number,
+  timeout = 5000
+): Promise<any[]> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const sessions = await getProjectSessions(projectId);
+    if (sessions.length >= minCount) return sessions;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Expected at least ${minCount} sessions, found less after ${timeout}ms`);
+}
+
+/**
+ * Wait for canvas items to exist
+ */
+export async function waitForCanvasItems(
+  sessionId: string,
+  minCount: number,
+  timeout = 5000
+): Promise<any[]> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const items = await getCanvasItems(sessionId);
+    if (items.length >= minCount) return items;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Expected at least ${minCount} canvas items, found less after ${timeout}ms`);
+}
+
+/**
+ * Wait for an element to be visible with extended timeout
+ */
+export async function waitForElement(
+  page: Page,
+  selector: string,
+  options: { timeout?: number; state?: 'visible' | 'attached' | 'hidden' } = {}
+) {
+  const element = page.locator(selector);
+  await element.waitFor({
+    state: options.state || 'visible',
+    timeout: options.timeout || 10000,
+  });
+  return element;
+}
+
+/**
+ * Wait for text to be visible on the page
+ */
+export async function waitForTextVisible(page: Page, text: string, timeout = 10000) {
+  await expect(page.getByText(text)).toBeVisible({ timeout });
+}
 
 // ============================================================
 // API Verification Helpers
@@ -64,7 +206,10 @@ export async function seedProject(name: string, workingDirectory: string) {
     body: JSON.stringify({ name: testName, workingDirectory }),
   });
   if (!response.ok) throw new Error('Failed to seed project');
-  return response.json();
+  const project = await response.json();
+  // Track for scoped cleanup
+  createdResources.projects.add(project.id);
+  return project;
 }
 
 export async function seedSession(
@@ -77,7 +222,10 @@ export async function seedSession(
     body: JSON.stringify(data),
   });
   if (!response.ok) throw new Error('Failed to seed session');
-  return response.json();
+  const session = await response.json();
+  // Track for scoped cleanup
+  createdResources.sessions.add(session.id);
+  return session;
 }
 
 export async function seedCanvasItem(
@@ -304,7 +452,10 @@ export async function seedSessionWithFiles(
     body: formData,
   });
   if (!response.ok) throw new Error('Failed to seed session with files');
-  return response.json();
+  const session = await response.json();
+  // Track for scoped cleanup
+  createdResources.sessions.add(session.id);
+  return session;
 }
 
 /**

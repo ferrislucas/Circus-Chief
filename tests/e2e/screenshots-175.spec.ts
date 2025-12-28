@@ -38,6 +38,13 @@ async function postScreenshotToCanvas(filePath: string, label: string, filename:
 }
 
 test.describe('Issue #175 Screenshots', () => {
+  // Skip these tests in normal runs - they use hardcoded session IDs
+  // and URLs that only work in specific worktree environments
+  test.skip(
+    !process.env.SCREENSHOT_MODE,
+    'Screenshots only run with SCREENSHOT_MODE=1'
+  );
+
   // Use longer timeout since we're taking multiple screenshots
   test.setTimeout(60000);
 

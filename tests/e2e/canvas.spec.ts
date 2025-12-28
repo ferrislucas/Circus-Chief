@@ -1,5 +1,15 @@
 import { test, expect } from '@playwright/test';
-import { seedProject, seedSession, seedCanvasItem, cleanupAll, getCanvasItems } from './helpers';
+import {
+  seedProject,
+  seedSession,
+  seedCanvasItem,
+  cleanupAll,
+  cleanupCreatedResources,
+  getCanvasItems,
+  navigateAndWait,
+  waitForSessionToExist,
+  waitForCanvasItems,
+} from './helpers';
 
 // A minimal 1x1 red PNG image in base64
 const TEST_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
@@ -19,11 +29,11 @@ test.describe('Canvas Management', () => {
   });
 
   test('displays empty canvas state with upload option', async ({ page }) => {
-    await page.goto(`/sessions/${session.id}/canvas`);
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
     // Empty state message should be visible
-    await expect(page.getByText('No canvas items yet')).toBeVisible();
+    await expect(page.getByText('No canvas items yet')).toBeVisible({ timeout: 10000 });
     // Upload button should be present
-    await expect(page.getByRole('button', { name: 'Upload File' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Upload File' })).toBeVisible({ timeout: 10000 });
   });
 
   test('displays single canvas item directly in viewer (no list)', async ({ page }) => {
@@ -33,10 +43,13 @@ test.describe('Canvas Management', () => {
       label: 'Test Label',
     });
 
-    await page.goto(`/sessions/${session.id}/canvas`);
+    // Ensure canvas item is available
+    await waitForCanvasItems(session.id, 1);
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
     // Single item should show directly in viewer (not in list)
-    await expect(page.locator('.viewer-filename')).toContainText('Test Label');
+    await expect(page.locator('.viewer-filename')).toContainText('Test Label', { timeout: 10000 });
 
     // Back button should NOT be visible (only one item)
     await expect(page.locator('.btn-back')).not.toBeVisible();
@@ -66,12 +79,15 @@ test.describe('Canvas Management', () => {
       label: 'Second Item',
     });
 
-    await page.goto(`/sessions/${session.id}/canvas`);
+    // Wait for both items to be available
+    await waitForCanvasItems(session.id, 2);
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
     // Should show list view with both items
-    await expect(page.locator('.file-row')).toHaveCount(2);
-    await expect(page.getByText('First Item')).toBeVisible();
-    await expect(page.getByText('Second Item')).toBeVisible();
+    await expect(page.locator('.file-row')).toHaveCount(2, { timeout: 10000 });
+    await expect(page.getByText('First Item')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Second Item')).toBeVisible({ timeout: 10000 });
   });
 
   test('clicking list item opens viewer', async ({ page }) => {
@@ -87,13 +103,16 @@ test.describe('Canvas Management', () => {
       label: 'Second Item',
     });
 
-    await page.goto(`/sessions/${session.id}/canvas`);
+    // Wait for items to be available
+    await waitForCanvasItems(session.id, 2);
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
     // Click on first item
     await page.locator('.file-row').filter({ hasText: 'First Item' }).click();
 
     // Should show viewer with back button
-    await expect(page.locator('.viewer-filename')).toContainText('First Item');
+    await expect(page.locator('.viewer-filename')).toContainText('First Item', { timeout: 10000 });
     await expect(page.locator('.btn-back')).toBeVisible();
   });
 
@@ -110,7 +129,10 @@ test.describe('Canvas Management', () => {
       label: 'Second Item',
     });
 
-    await page.goto(`/sessions/${session.id}/canvas`);
+    // Wait for items to be available
+    await waitForCanvasItems(session.id, 2);
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
     // Click on first item to open viewer
     await page.locator('.file-row').filter({ hasText: 'First Item' }).click();
@@ -130,7 +152,10 @@ test.describe('Canvas Management', () => {
       label: 'Markdown Test',
     });
 
-    await page.goto(`/sessions/${session.id}/canvas`);
+    // Wait for canvas item to be available
+    await waitForCanvasItems(session.id, 1);
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
     // Should be in preview mode by default - shows rendered markdown
     await expect(page.locator('.markdown-viewer')).toBeVisible();
@@ -166,7 +191,10 @@ test.describe('Canvas Management', () => {
       label: 'Rich Markdown',
     });
 
-    await page.goto(`/sessions/${session.id}/canvas`);
+    // Wait for canvas item to be available
+    await waitForCanvasItems(session.id, 1);
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
     // Verify markdown is rendered (not raw)
     await expect(page.locator('.markdown-viewer h1')).toContainText('Main Heading');
@@ -186,8 +214,8 @@ test.describe('Canvas Management', () => {
     expect(items.length).toBe(1);
     expect(items[0].id).toBe(item.id);
 
-    await page.goto(`/sessions/${session.id}/canvas`);
-    await expect(page.locator('.viewer-filename')).toContainText('To Delete');
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
+    await expect(page.locator('.viewer-filename')).toContainText('To Delete', { timeout: 10000 });
 
     // Handle confirmation dialog
     page.on('dialog', (dialog) => dialog.accept());
@@ -217,7 +245,7 @@ test.describe('Canvas Management', () => {
       label: 'JSON Item',
     });
 
-    await page.goto(`/sessions/${session.id}/canvas`);
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
     // Verify both items are visible in list with correct labels and types
     await expect(page.getByText('Text Item')).toBeVisible();
@@ -249,7 +277,7 @@ test.describe('Canvas Management', () => {
       label: 'Test Image',
     });
 
-    await page.goto(`/sessions/${session.id}/canvas`);
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
     // Should be in viewer directly (single item)
     await expect(page.locator('.viewer-filename')).toContainText('Test Image');
@@ -272,7 +300,7 @@ test.describe('Canvas Management', () => {
       label: 'Data URL Image',
     });
 
-    await page.goto(`/sessions/${session.id}/canvas`);
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
     // Should be in viewer directly (single item)
     await expect(page.locator('.viewer-filename')).toContainText('Data URL Image');
@@ -295,7 +323,7 @@ test.describe('Canvas Management', () => {
       label: 'Broken Image',
     });
 
-    await page.goto(`/sessions/${session.id}/canvas`);
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
     // Verify the image element is present
     const image = page.locator('.viewer-image');
@@ -325,7 +353,7 @@ test.describe('Canvas Management', () => {
         label: 'File Path Image',
       });
 
-      await page.goto(`/sessions/${session.id}/canvas`);
+      await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
       // Should be in viewer directly (single item)
       await expect(page.locator('.viewer-filename')).toContainText('File Path Image');
@@ -418,7 +446,7 @@ test.describe('Canvas Management', () => {
   });
 
   test('can upload an image file via file input', async ({ page }) => {
-    await page.goto(`/sessions/${session.id}/canvas`);
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
     // Initially empty
     await expect(page.getByText('No canvas items yet')).toBeVisible();
@@ -489,7 +517,7 @@ test.describe('Canvas Management', () => {
       label: 'other.txt',
     });
 
-    await page.goto(`/sessions/${session.id}/canvas`);
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
     // Should show list with 2 groups (screenshot.png with v2, other.txt with no badge)
     const rows = page.locator('.file-row');
@@ -522,7 +550,7 @@ test.describe('Canvas Management', () => {
       label: 'doc.txt',
     });
 
-    await page.goto(`/sessions/${session.id}/canvas`);
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
     // Single group, should show viewer directly
     await expect(page.locator('.viewer-filename')).toContainText('doc.txt');
@@ -560,7 +588,7 @@ test.describe('Canvas Management', () => {
       label: 'doc.txt',
     });
 
-    await page.goto(`/sessions/${session.id}/canvas`);
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
 
     // Handle confirmation dialog
     page.on('dialog', (dialog) => dialog.accept());

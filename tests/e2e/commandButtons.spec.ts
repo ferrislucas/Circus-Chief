@@ -3,9 +3,13 @@ import {
   seedProject,
   seedSession,
   cleanupAll,
+  cleanupCreatedResources,
   getProject,
   getProjectSessions,
   seedCommandButton,
+  navigateAndWait,
+  waitForSessionToExist,
+  waitForPageReady,
 } from './helpers';
 
 test.describe('Command Buttons', () => {
@@ -16,8 +20,10 @@ test.describe('Command Buttons', () => {
 
   test.beforeEach(async () => {
     await cleanupAll();
-    project = await seedProject('[TEST] Command Buttons', '/tmp/test');
+    project = await seedProject('Command Buttons', '/tmp/test');
     session = await seedSession(project.id, { prompt: 'Test prompt', name: 'Test Session' });
+    // Wait for session to be available
+    await waitForSessionToExist(session.id);
   });
 
   test.afterEach(async () => {
@@ -35,7 +41,7 @@ test.describe('Command Buttons', () => {
     });
 
     // Navigate to session commands tab
-    await page.goto(`/sessions/${session.id}/commands`);
+    await navigateAndWait(page, `/sessions/${session.id}/commands`);
 
     // Verify button is visible
     await expect(page.getByText('Print Working Dir')).toBeVisible();
@@ -78,7 +84,7 @@ test.describe('Command Buttons', () => {
     });
 
     // Navigate to session commands tab
-    await page.goto(`/sessions/${session.id}/commands`);
+    await navigateAndWait(page, `/sessions/${session.id}/commands`);
 
     // Verify button is visible
     await expect(page.getByText('Echo Marker')).toBeVisible();
@@ -117,7 +123,7 @@ test.describe('Command Buttons', () => {
     });
 
     // Navigate to session commands tab
-    await page.goto(`/sessions/${session.id}/commands`);
+    await navigateAndWait(page, `/sessions/${session.id}/commands`);
 
     // Verify button is visible
     await expect(page.getByText('Multi-line')).toBeVisible();
@@ -159,7 +165,7 @@ test.describe('Command Buttons', () => {
     });
 
     // Navigate to session commands tab
-    await page.goto(`/sessions/${session.id}/commands`);
+    await navigateAndWait(page, `/sessions/${session.id}/commands`);
 
     // Verify button is visible
     await expect(page.getByText('Long Sleep')).toBeVisible();
@@ -214,7 +220,7 @@ test.describe('Command Buttons', () => {
     });
 
     // Navigate to session commands tab
-    await page.goto(`/sessions/${session.id}/commands`);
+    await navigateAndWait(page, `/sessions/${session.id}/commands`);
 
     // Verify button is visible
     await expect(page.getByText('Streaming Test')).toBeVisible();
@@ -255,7 +261,7 @@ test.describe('Command Buttons', () => {
 
   test('create a new command button', async ({ page }) => {
     // Navigate to project sessions page
-    await page.goto(`/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Click Commands tab
     await page.click('text=Commands');
@@ -264,7 +270,7 @@ test.describe('Command Buttons', () => {
     await page.click('button:has-text("Configure")');
 
     // Should navigate to commands page (click tab again if not there)
-    await page.goto(`/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`);
     await page.click('text=Commands');
     await page.click('button:has-text("New Command Button")');
 
@@ -289,7 +295,7 @@ test.describe('Command Buttons', () => {
 
   test('edit an existing command button', async ({ page }) => {
     // First create a button
-    await page.goto(`/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
     await page.fill('#label', 'Original Label');
     await page.fill('#command', 'original command');
     await page.click('button:has-text("Create")');
@@ -298,7 +304,7 @@ test.describe('Command Buttons', () => {
     const project_data = await getProject(project.id);
 
     // Navigate back to commands page
-    await page.goto(`/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`);
     await page.click('text=Commands');
 
     // Click on the button row to edit
@@ -324,13 +330,13 @@ test.describe('Command Buttons', () => {
 
   test('delete a command button', async ({ page }) => {
     // Create a button first
-    await page.goto(`/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
     await page.fill('#label', 'Button to Delete');
     await page.fill('#command', 'delete me');
     await page.click('button:has-text("Create")');
 
     // Navigate to commands tab
-    await page.goto(`/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`);
     await page.click('text=Commands');
 
     // Click delete button
@@ -348,13 +354,13 @@ test.describe('Command Buttons', () => {
 
   test('run command button from session detail view', async ({ page }) => {
     // Create a command button
-    await page.goto(`/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
     await page.fill('#label', 'Echo Test');
     await page.fill('#command', 'echo "Hello World"');
     await page.click('button:has-text("Create")');
 
     // Navigate to session detail
-    await page.goto(`/sessions/${session.id}/commands`);
+    await navigateAndWait(page, `/sessions/${session.id}/commands`);
 
     // Should see the button
     await expect(page.getByText('Echo Test')).toBeVisible();
@@ -380,13 +386,13 @@ test.describe('Command Buttons', () => {
 
   test('see real-time command output', async ({ page }) => {
     // Create a button
-    await page.goto(`/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
     await page.fill('#label', 'Multi-line Output');
     await page.fill('#command', 'echo "Line 1" && echo "Line 2" && echo "Line 3"');
     await page.click('button:has-text("Create")');
 
     // Navigate to session and run
-    await page.goto(`/sessions/${session.id}/commands`);
+    await navigateAndWait(page, `/sessions/${session.id}/commands`);
     await page.click('button:has-text("▶ Run")');
 
     // Wait for output to appear in running state
@@ -404,13 +410,13 @@ test.describe('Command Buttons', () => {
 
   test('kill running command', async ({ page }) => {
     // Create a long-running command button
-    await page.goto(`/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
     await page.fill('#label', 'Sleep Command');
     await page.fill('#command', 'sleep 10');
     await page.click('button:has-text("Create")');
 
     // Navigate to session and run
-    await page.goto(`/sessions/${session.id}/commands`);
+    await navigateAndWait(page, `/sessions/${session.id}/commands`);
     await page.click('button:has-text("▶ Run")');
 
     // Should show running state
@@ -430,13 +436,13 @@ test.describe('Command Buttons', () => {
 
   test('copy command output to clipboard', async ({ page }) => {
     // Create a button
-    await page.goto(`/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
     await page.fill('#label', 'Copy Output');
     await page.fill('#command', 'echo "Test output to copy"');
     await page.click('button:has-text("Create")');
 
     // Run the command
-    await page.goto(`/sessions/${session.id}/commands`);
+    await navigateAndWait(page, `/sessions/${session.id}/commands`);
     await page.click('button:has-text("▶ Run")');
 
     // Wait for completion
@@ -454,13 +460,13 @@ test.describe('Command Buttons', () => {
 
   test('send command output to canvas', async ({ page }) => {
     // Create a button
-    await page.goto(`/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
     await page.fill('#label', 'Canvas Output');
     await page.fill('#command', 'echo "Send to canvas"');
     await page.click('button:has-text("Create")');
 
     // Run the command
-    await page.goto(`/sessions/${session.id}/commands`);
+    await navigateAndWait(page, `/sessions/${session.id}/commands`);
     await page.click('button:has-text("▶ Run")');
 
     // Wait for completion
@@ -484,13 +490,13 @@ test.describe('Command Buttons', () => {
 
   test('navigate between tabs with output persisting', async ({ page }) => {
     // Create a button
-    await page.goto(`/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
     await page.fill('#label', 'Tab Test');
     await page.fill('#command', 'echo "Persist output"');
     await page.click('button:has-text("Create")');
 
     // Run command
-    await page.goto(`/sessions/${session.id}/commands`);
+    await navigateAndWait(page, `/sessions/${session.id}/commands`);
     await page.click('button:has-text("▶ Run")');
 
     // Wait for output
@@ -516,7 +522,7 @@ test.describe('Command Buttons', () => {
 
   test('show empty state when no buttons configured', async ({ page }) => {
     // Navigate to commands tab in session
-    await page.goto(`/sessions/${session.id}/commands`);
+    await navigateAndWait(page, `/sessions/${session.id}/commands`);
 
     // Should show empty state
     await expect(page.getByText('No command buttons configured')).toBeVisible();
@@ -524,13 +530,13 @@ test.describe('Command Buttons', () => {
 
   test('show error state when command fails', async ({ page }) => {
     // Create a command button with a failing command
-    await page.goto(`/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
     await page.fill('#label', 'Failing Command');
     await page.fill('#command', 'exit 1');
     await page.click('button:has-text("Create")');
 
     // Run the command
-    await page.goto(`/sessions/${session.id}/commands`);
+    await navigateAndWait(page, `/sessions/${session.id}/commands`);
     await page.click('button:has-text("▶ Run")');
 
     // Wait for completion
@@ -545,13 +551,13 @@ test.describe('Command Buttons', () => {
 
   test('show success state when command succeeds', async ({ page }) => {
     // Create a command button that succeeds
-    await page.goto(`/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
     await page.fill('#label', 'Successful Command');
     await page.fill('#command', 'echo "Success"');
     await page.click('button:has-text("Create")');
 
     // Run the command
-    await page.goto(`/sessions/${session.id}/commands`);
+    await navigateAndWait(page, `/sessions/${session.id}/commands`);
     await page.click('button:has-text("▶ Run")');
 
     // Wait for completion
@@ -566,7 +572,7 @@ test.describe('Command Buttons', () => {
 
   test('validate required form fields', async ({ page }) => {
     // Navigate to create form
-    await page.goto(`/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
 
     // Try to submit empty form
     await page.click('button:has-text("Create")');
@@ -578,19 +584,19 @@ test.describe('Command Buttons', () => {
 
   test('display command buttons in table on management page', async ({ page }) => {
     // Create multiple buttons
-    await page.goto(`/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
     await page.fill('#label', 'Button 1');
     await page.fill('#command', 'command 1');
     await page.click('button:has-text("Create")');
 
     // Create second button
-    await page.goto(`/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
     await page.fill('#label', 'Button 2');
     await page.fill('#command', 'command 2');
     await page.click('button:has-text("Create")');
 
     // Navigate to commands panel
-    await page.goto(`/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`);
     await page.click('text=Commands');
 
     // Should see both buttons in table
