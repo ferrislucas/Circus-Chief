@@ -30,6 +30,7 @@ vi.mock('../services/commandRunner.js', () => ({
     kill: vi.fn().mockReturnValue(true),
     getRunsBySession: vi.fn().mockReturnValue([]),
     getActiveRuns: vi.fn().mockReturnValue(new Map()),
+    isRunning: vi.fn().mockReturnValue(false),
   },
 }));
 
@@ -79,11 +80,7 @@ describe('Command Buttons API', () => {
     buttonId = button.id;
 
     // Mount the routers AFTER creating test data
-    app.use('/api/projects/:projectId/command-buttons', (req, res, next) => {
-      // Merge the projectId from the URL params
-      req.params.projectId = req.params.projectId;
-      commandButtonsRouter(req, res, next);
-    });
+    app.use('/api/projects/:projectId/command-buttons', commandButtonsRouter);
     app.use('/api/sessions', sessionsRouter);
   });
 
@@ -663,7 +660,7 @@ describe('Command Buttons API', () => {
         startedAt: Date.now() - 5000,
       };
 
-      commandRunner.isRunning.mockReturnValue(false);
+      commandRunner.isRunning.mockReturnValue(true);
       commandRunner.getRunsBySession.mockReturnValue([runData]);
 
       const res = await request(app).get(
@@ -690,7 +687,7 @@ describe('Command Buttons API', () => {
         startedAt: Date.now() - 3000,
       };
 
-      commandRunner.isRunning.mockReturnValue(false);
+      commandRunner.isRunning.mockReturnValue(true);
       commandRunner.getRunsBySession.mockReturnValue([failedRun]);
 
       const res = await request(app).get(
@@ -713,7 +710,7 @@ describe('Command Buttons API', () => {
         startedAt: Date.now() - 2000,
       };
 
-      commandRunner.isRunning.mockReturnValue(false);
+      commandRunner.isRunning.mockReturnValue(true);
       commandRunner.getRunsBySession.mockReturnValue([killedRun]);
 
       const res = await request(app).get(

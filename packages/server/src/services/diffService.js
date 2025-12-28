@@ -149,21 +149,3 @@ export async function getChanges(directory) {
   return { staged, unstaged, untracked };
 }
 
-/**
- * Get the combined diff when comparing against a branch
- * @param {string} directory
- * @param {string} branchName - Branch to compare against (e.g., 'origin/main')
- * @returns {Promise<{staged: string, unstaged: string, untracked: string}>}
- */
-export async function getChangesBranchComparison(directory, branchName) {
-  const [staged, unstaged, untrackedPaths] = await Promise.all([
-    gitService.getStagedDiffAgainstBranch(directory, branchName),
-    gitService.getDiffAgainstBranch(directory, branchName),
-    gitService.getUntrackedFiles(directory),
-  ]);
-
-  // Generate synthetic diffs for untracked files
-  const untracked = await generateUntrackedDiffs(directory, untrackedPaths);
-
-  return { staged, unstaged, untracked };
-}

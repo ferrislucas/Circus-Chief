@@ -6,7 +6,7 @@ import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { databaseManager } from '../db/DatabaseManager.js';
 
-const router = Router();
+const router = Router({ mergeParams: true });
 
 // GET /api/projects/:projectId/command-buttons - List all command buttons for project
 router.get('/', (req, res) => {

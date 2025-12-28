@@ -156,6 +156,9 @@ defineExpose({
   unstagedFiles,
   untrackedFiles,
   fileCount,
+  compareMode,
+  defaultBranch,
+  branchLabel,
 });
 </script>
 

@@ -51,7 +51,7 @@
 </template>
 
 <script setup>
-import { defineProps, ref, onMounted, onUnmounted, reactive } from 'vue';
+import { defineProps, defineExpose, ref, onMounted, onUnmounted, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
@@ -247,6 +247,14 @@ onUnmounted(() => {
   // Cleanup all WebSocket handlers
   cleanups.forEach((cleanup) => cleanup());
   cleanups.length = 0;
+});
+
+// Expose methods for testing
+defineExpose({
+  onCopyOutput,
+  onSendToCanvas,
+  onButtonRun,
+  onButtonKill,
 });
 </script>
 

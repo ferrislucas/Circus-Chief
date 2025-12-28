@@ -651,12 +651,19 @@ describe('SessionRepository', () => {
       expect(updated.parentSessionId).toBe(parent.id);
     });
 
-    it('children are ordered by updatedAt DESC when fetched', () => {
+    it('children are ordered by updatedAt DESC when fetched', async () => {
       const parent = repo.create(projectId, 'Parent', 'Parent prompt');
       const child1 = repo.create(projectId, 'Child 1', 'Prompt 1', 'standard', false, null, null, parent.id);
+
+      // Wait to ensure different millisecond timestamps
+      await new Promise((resolve) => setTimeout(resolve, 2));
+
       const child2 = repo.create(projectId, 'Child 2', 'Prompt 2', 'standard', false, null, null, parent.id);
 
-      // Update child1 to be more recent
+      // Wait again before update to ensure different timestamp
+      await new Promise((resolve) => setTimeout(resolve, 2));
+
+      // Update child1 to be more recent (happens after child2 is created)
       repo.update(child1.id, { status: 'stopped' });
 
       const children = repo.getChildSessions(parent.id);

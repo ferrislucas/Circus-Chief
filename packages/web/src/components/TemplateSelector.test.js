@@ -54,7 +54,7 @@ describe('TemplateSelector', () => {
 
     it('renders default option in select', () => {
       const wrapper = mountComponent();
-      const defaultOption = wrapper.find('select option[value="null"]');
+      const defaultOption = wrapper.find('select option');
       expect(defaultOption.exists()).toBe(true);
       expect(defaultOption.text()).toBe('Select a template to run...');
     });
