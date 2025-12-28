@@ -352,8 +352,15 @@ onMounted(async () => {
 
   // Handle real-time changes updates from server
   cleanups.push(
-    onChangesUpdate((changeCount, hasChanges) => {
+    onChangesUpdate((changeCount, hasChangesUpdate) => {
       changesFileCount.value = changeCount;
+      // Update the orange circle indicator when changes are committed or new changes appear
+      if (typeof hasChangesUpdate === 'boolean') {
+        hasChanges.value = hasChangesUpdate;
+      } else {
+        // Fallback: determine from file count if hasChanges is not explicitly provided
+        hasChanges.value = changeCount > 0;
+      }
     })
   );
 });

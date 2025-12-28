@@ -31,11 +31,22 @@ vi.mock('../services/diffService.js', () => ({
     unstaged: 'mock unstaged diff',
     untracked: 'mock untracked diff',
   }),
+  getChangesBranch: vi.fn().mockResolvedValue({
+    staged: 'mock branch staged diff',
+    unstaged: 'mock branch unstaged diff',
+    untracked: 'mock branch untracked diff',
+  }),
+}));
+
+// Mock gitService
+vi.mock('../services/gitService.js', () => ({
+  getOriginDefaultBranch: vi.fn().mockResolvedValue('origin/main'),
 }));
 
 // Import after mocks
 import sessionsRouter from './sessions.js';
-import { getChanges } from '../services/diffService.js';
+import { getChanges, getChangesBranch } from '../services/diffService.js';
+import { getOriginDefaultBranch } from '../services/gitService.js';
 
 describe('Sessions API - Changes Endpoint', () => {
   let app;
@@ -131,56 +142,28 @@ describe('Sessions API - Changes Endpoint', () => {
       });
     });
 
-    it('ignores branch comparison query parameters (backwards compatibility)', async () => {
-      getChanges.mockResolvedValue({
-        staged: 'local staged',
-        unstaged: 'local unstaged',
-        untracked: 'local untracked',
+    it('supports branch comparison query parameters', async () => {
+      getChangesBranch.mockResolvedValue({
+        staged: 'branch staged',
+        unstaged: 'branch unstaged',
+        untracked: 'branch untracked',
       });
 
-      // Send request with old branch comparison parameters that should be ignored
+      // Send request with branch comparison parameters
       const res = await request(app)
         .get(`/api/sessions/${session.id}/changes`)
         .query({ compareMode: 'branch', branch: 'origin/main' });
 
-      // Should still work and return local changes only
+      // Should return branch comparison changes
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
-        staged: 'local staged',
-        unstaged: 'local unstaged',
-        untracked: 'local untracked',
+        staged: 'branch staged',
+        unstaged: 'branch unstaged',
+        untracked: 'branch untracked',
       });
 
-      // Verify getChanges was called with directory, not branch parameters
-      expect(getChanges).toHaveBeenCalledWith('/tmp/test');
-    });
-
-    it('never attempts branch comparison even with old API format', async () => {
-      getChanges.mockResolvedValue({
-        staged: 'only local changes',
-        unstaged: '',
-        untracked: '',
-      });
-
-      // Try to force branch comparison with multiple different query formats
-      const res = await request(app)
-        .get(`/api/sessions/${session.id}/changes`)
-        .query({ compareMode: 'branch' })
-        .query({ branch: 'origin/develop' });
-
-      expect(res.status).toBe(200);
-
-      // Verify that only getChanges was called (local changes)
-      // and no branch comparison function would be called
-      expect(getChanges).toHaveBeenCalledTimes(1);
-      expect(getChanges).toHaveBeenCalledWith('/tmp/test');
-
-      // The response should only contain local changes
-      expect(res.body).toEqual({
-        staged: 'only local changes',
-        unstaged: '',
-        untracked: '',
-      });
+      // Verify getChangesBranch was called with directory and branch
+      expect(getChangesBranch).toHaveBeenCalledWith('/tmp/test', 'origin/main');
     });
 
     it('includes all three change types in response', async () => {
@@ -199,38 +182,34 @@ describe('Sessions API - Changes Endpoint', () => {
     });
   });
 
-  describe('Branch comparison removal', () => {
-    it('endpoint should not support compareMode parameter', async () => {
+  describe('Branch comparison support', () => {
+    it('falls back to local changes when compareMode=branch without branch parameter', async () => {
       getChanges.mockResolvedValue({
         staged: '',
         unstaged: '',
         untracked: '',
       });
 
-      // Send request with branch comparison parameter
+      // Send request with branch comparison mode but no branch specified
       const res = await request(app)
         .get(`/api/sessions/${session.id}/changes`)
         .query({ compareMode: 'branch' });
 
-      // Should still succeed but ignore the parameter
+      // Should succeed and use local changes as fallback
       expect(res.status).toBe(200);
 
-      // Verify only local changes were requested
+      // Verify only local changes were requested (no branch parameter)
       expect(getChanges).toHaveBeenCalledWith('/tmp/test');
     });
 
-    it('should not attempt to fetch origin default branch', async () => {
-      getChanges.mockResolvedValue({
-        staged: 'local',
-        unstaged: 'local',
-        untracked: 'local',
-      });
+    it('provides default-branch endpoint to fetch the repository default branch', async () => {
+      getOriginDefaultBranch.mockResolvedValue('origin/main');
 
-      await request(app).get(`/api/sessions/${session.id}/changes`);
+      const res = await request(app).get(`/api/sessions/${session.id}/default-branch`);
 
-      // getChanges should be called exactly once (for local changes)
-      // No function to get origin default branch should be called
-      expect(getChanges).toHaveBeenCalledTimes(1);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ branch: 'origin/main' });
+      expect(getOriginDefaultBranch).toHaveBeenCalledWith('/tmp/test');
     });
   });
 });
