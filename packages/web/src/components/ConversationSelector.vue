@@ -2,7 +2,7 @@
   <div class="conversation-selector">
     <div class="selector-row">
       <!-- Dropdown -->
-      <div v-if="conversations.length > 1" class="dropdown-container" ref="dropdownRef">
+      <div v-if="conversations.length > 1" class="dropdown-container">
         <button
           type="button"
           class="dropdown-trigger"
