@@ -3,11 +3,15 @@ import {
   seedProject,
   seedSession,
   cleanupAll,
+  cleanupCreatedResources,
   waitForSessionStatus,
   getSession,
   getProjectSessions,
   getSessionMessages,
   sendSessionMessage,
+  navigateAndWait,
+  waitForSessionToExist,
+  waitForPageReady,
 } from './helpers';
 
 test.describe('New Session - Thinking Toggle', () => {
@@ -28,16 +32,16 @@ test.describe('New Session - Thinking Toggle', () => {
   test('thinking toggle is visible on new session form', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions/new`);
 
-    // Verify toggle is visible
-    await expect(page.locator('.thinking-toggle')).toBeVisible();
+    // Verify toggle is visible - use first() to target the "Enable Thinking" toggle specifically
+    await expect(page.locator('.thinking-toggle').first()).toBeVisible();
     await expect(page.getByText('Enable Thinking')).toBeVisible();
   });
 
   test('thinking toggle defaults to on', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions/new`);
 
-    // Verify toggle is checked by default
-    const checkbox = page.locator('.thinking-toggle input[type="checkbox"]');
+    // Verify toggle is checked by default - use first() to target the "Enable Thinking" toggle specifically
+    const checkbox = page.locator('.thinking-toggle').first().locator('input[type="checkbox"]');
     await expect(checkbox).toBeChecked();
   });
 
@@ -76,12 +80,13 @@ test.describe('New Session - Thinking Toggle', () => {
     const prompt = 'Test with thinking disabled';
     await page.fill('textarea[id="prompt"]', prompt);
 
-    // Verify thinking toggle is checked by default
-    const checkbox = page.locator('.thinking-toggle input[type="checkbox"]');
+    // Verify thinking toggle is checked by default - use first() to target the "Enable Thinking" toggle specifically
+    const thinkingToggleContainer = page.locator('.thinking-toggle').first();
+    const checkbox = thinkingToggleContainer.locator('input[type="checkbox"]');
     await expect(checkbox).toBeChecked();
 
     // Disable thinking toggle (click the toggle-switch label since checkbox has opacity: 0)
-    await page.locator('.thinking-toggle .toggle-switch').click();
+    await thinkingToggleContainer.locator('.toggle-switch').click();
     await expect(checkbox).not.toBeChecked();
 
     // Submit the form
@@ -117,8 +122,8 @@ test.describe('Session Management', () => {
   });
 
   test('displays empty state when no sessions exist', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/sessions`);
-    await expect(page.getByText('No sessions yet')).toBeVisible();
+    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    await expect(page.getByText('No sessions yet')).toBeVisible({ timeout: 10000 });
   });
 
   test('can create a new session', async ({ page }) => {
@@ -160,11 +165,14 @@ test.describe('Session Management', () => {
     expect(session1.id).toBeTruthy();
     expect(session2.id).toBeTruthy();
 
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.waitForLoadState('networkidle');
+    // Wait for sessions to exist before navigating
+    await waitForSessionToExist(session1.id);
+    await waitForSessionToExist(session2.id);
 
-    await expect(page.getByText('Session 1')).toBeVisible();
-    await expect(page.getByText('Session 2')).toBeVisible();
+    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+
+    await expect(page.getByText('Session 1')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Session 2')).toBeVisible({ timeout: 10000 });
 
     // Verify via API that sessions exist using their IDs
     const fetchedSession1 = await getSession(session1.id);
@@ -178,10 +186,13 @@ test.describe('Session Management', () => {
   test('can view session details', async ({ page }) => {
     const session = await seedSession(project.id, { prompt: 'Test prompt', name: 'Test Session' });
 
-    await page.goto(`/sessions/${session.id}`);
+    // Wait for session to be available
+    await waitForSessionToExist(session.id);
+
+    await navigateAndWait(page, `/sessions/${session.id}`);
 
     // Verify session name is visible
-    await expect(page.getByText('Test Session')).toBeVisible();
+    await expect(page.getByText('Test Session')).toBeVisible({ timeout: 10000 });
 
     // Verify all tabs are present
     await expect(page.getByRole('link', { name: 'Conversation' })).toBeVisible();
@@ -202,16 +213,22 @@ test.describe('Session Management', () => {
   test('displays session messages', async ({ page }) => {
     const session = await seedSession(project.id, { prompt: 'Hello Claude', name: 'Chat Session' });
 
-    await page.goto(`/sessions/${session.id}`);
+    // Wait for session to be available
+    await waitForSessionToExist(session.id);
+
+    await navigateAndWait(page, `/sessions/${session.id}`);
 
     // The initial user message should be visible
-    await expect(page.locator('.message-content').getByText('Hello Claude', { exact: true })).toBeVisible();
+    await expect(page.locator('.message-content').getByText('Hello Claude', { exact: true })).toBeVisible({ timeout: 10000 });
   });
 
   test('can switch between tabs', async ({ page }) => {
     const session = await seedSession(project.id, { prompt: 'Test prompt for tabs', name: 'Tab Test' });
 
-    await page.goto(`/sessions/${session.id}`);
+    // Wait for session to be available
+    await waitForSessionToExist(session.id);
+
+    await navigateAndWait(page, `/sessions/${session.id}`);
 
     // Click on Canvas tab and verify content
     await page.click('text=Canvas');
@@ -244,7 +261,10 @@ test.describe('Session Management', () => {
       mode: 'plan',
     });
 
-    await page.goto(`/sessions/${session.id}`);
+    // Wait for session to be available
+    await waitForSessionToExist(session.id);
+
+    await navigateAndWait(page, `/sessions/${session.id}`);
 
     // Verify mode badge is visible with correct mode (use specific class to avoid matching mode switcher buttons)
     await expect(page.locator('.session-mode').getByText('plan')).toBeVisible();
