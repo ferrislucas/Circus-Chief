@@ -87,4 +87,27 @@ export class MessageRepository extends BaseRepository {
       .prepare('DELETE FROM conversation_messages WHERE conversation_id = ?')
       .run(conversationId);
   }
+
+  /**
+   * Update message content
+   * @param {string} messageId - The message ID
+   * @param {string} content - The new content
+   * @returns {Object} The updated message
+   * @throws {Error} If message not found or content is empty
+   */
+  updateContent(messageId, content) {
+    if (!content || content.trim() === '') {
+      throw new Error('Message content cannot be empty');
+    }
+
+    // Update the message content
+    this.db
+      .prepare(
+        `UPDATE conversation_messages SET content = ? WHERE id = ?`
+      )
+      .run(content, messageId);
+
+    // Return the updated message
+    return this.getById(messageId);
+  }
 }

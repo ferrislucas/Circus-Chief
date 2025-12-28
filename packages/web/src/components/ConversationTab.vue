@@ -124,9 +124,23 @@
           </div>
         </div>
         <div class="input-actions">
-          <button type="submit" class="btn btn-primary btn-send" :disabled="isDraft ? restarting : (!input.trim() || sending)">
-            <span v-if="isDraft ? restarting : sending" class="loading-spinner"></span>
-            {{ isDraft ? 'Start Session' : 'Send' }}
+          <div v-if="isDraft" class="draft-actions">
+            <button type="submit" class="btn btn-primary btn-send" :disabled="restarting || saveStatus === 'saving'">
+              <span v-if="restarting" class="loading-spinner"></span>
+              {{ restarting ? 'Starting...' : 'Start Session' }}
+            </button>
+            <div :class="['save-indicator', `save-${saveStatus}`]">
+              <span v-if="saveStatus === 'saving'" class="save-icon">⏳</span>
+              <span v-else-if="saveStatus === 'saved'" class="save-icon">✓</span>
+              <span v-else-if="saveStatus === 'error'" class="save-icon">⚠</span>
+              <span class="save-text">
+                {{ saveStatus === 'saving' ? 'Saving...' : (saveStatus === 'saved' ? 'Saved' : (saveStatus === 'error' ? saveError || 'Save failed' : 'Unsaved')) }}
+              </span>
+            </div>
+          </div>
+          <button v-else type="submit" class="btn btn-primary btn-send" :disabled="!input.trim() || sending">
+            <span v-if="sending" class="loading-spinner"></span>
+            {{ sending ? 'Sending...' : 'Send' }}
           </button>
         </div>
       </div>
@@ -181,6 +195,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
+import { api } from '../composables/useApi.js';
 import TodoDrawer from './TodoDrawer.vue';
 import WorkLogPanel from './WorkLogPanel.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
@@ -199,6 +214,8 @@ const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 
 const input = ref('');
+const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
+const saveError = ref('');
 
 // Create keyboard shortcut handler
 const handleKeydown = useSubmitShortcut(() => {
@@ -216,6 +233,7 @@ const togglingMode = ref(false);
 const messagesContainer = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
+let draftSaveTimer = null;
 
 const modes = [
   { value: 'plan', label: 'Plan', description: 'Agent plans before implementing' },
@@ -375,6 +393,7 @@ onUnmounted(() => {
   if (unsubConvUpdated) unsubConvUpdated();
   if (unsubConvDeleted) unsubConvDeleted();
   if (debounceTimer) clearTimeout(debounceTimer);
+  if (draftSaveTimer) clearTimeout(draftSaveTimer);
   if (messagesContainer.value) {
     messagesContainer.value.removeEventListener('scroll', handleScroll);
   }
@@ -384,12 +403,23 @@ onUnmounted(() => {
   sessionsStore.clearWorkLogs();
 });
 
-// Save draft to localStorage with debounce
+// Auto-save draft to database (for draft sessions) and localStorage with debounce
 watch(input, (newValue) => {
   if (debounceTimer) clearTimeout(debounceTimer);
+  if (draftSaveTimer) clearTimeout(draftSaveTimer);
+
+  // Mark as unsaved immediately when user types
+  if (isDraft.value) {
+    saveStatus.value = 'unsaved';
+  }
+
   debounceTimer = setTimeout(() => {
     if (newValue.trim()) {
       localStorage.setItem(STORAGE_KEY, newValue);
+      // Auto-save draft to database
+      if (isDraft.value) {
+        saveDraftPrompt(newValue);
+      }
     } else {
       localStorage.removeItem(STORAGE_KEY);
     }
@@ -496,13 +526,36 @@ async function handleRestart() {
   }
 }
 
+async function saveDraftPrompt(prompt) {
+  try {
+    saveStatus.value = 'saving';
+    saveError.value = '';
+    await api.updateSessionInitialPrompt(props.sessionId, prompt);
+    saveStatus.value = 'saved';
+    // Reset save status after 2 seconds
+    if (draftSaveTimer) clearTimeout(draftSaveTimer);
+    draftSaveTimer = setTimeout(() => {
+      if (saveStatus.value === 'saved') {
+        saveStatus.value = 'saved';
+      }
+    }, 2000);
+  } catch (err) {
+    saveStatus.value = 'error';
+    saveError.value = err.message;
+    console.error('Failed to save draft prompt:', err);
+  }
+}
+
 async function handleStart() {
-  if (restarting.value) return;
+  if (restarting.value || !input.value.trim()) return;
 
   restarting.value = true;
   try {
-    await sessionsStore.startSession(props.sessionId);
+    // Pass the current prompt to the start API
+    await api.startSession(props.sessionId, input.value);
     uiStore.success('Session started');
+    // Clear localStorage draft on successful start
+    localStorage.removeItem(STORAGE_KEY);
   } catch (err) {
     uiStore.error(err.message);
   } finally {
@@ -819,6 +872,61 @@ async function handleTemplateChange(templateId) {
 .input-actions {
   display: flex;
   gap: 0.5rem;
+}
+
+.draft-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.save-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-background-soft);
+  min-height: 40px;
+}
+
+.save-saving {
+  border-color: rgba(100, 200, 255, 0.5);
+  background: rgba(100, 200, 255, 0.05);
+  color: var(--color-accent);
+}
+
+.save-saved {
+  border-color: rgba(34, 197, 94, 0.5);
+  background: rgba(34, 197, 94, 0.05);
+  color: var(--color-success, #22c55e);
+}
+
+.save-error {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.05);
+  color: var(--color-danger, #ef4444);
+}
+
+.save-unsaved {
+  border-color: rgba(251, 146, 60, 0.5);
+  background: rgba(251, 146, 60, 0.05);
+  color: var(--color-warning, #fb923c);
+}
+
+.save-icon {
+  font-size: 1rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.save-text {
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .model-row {

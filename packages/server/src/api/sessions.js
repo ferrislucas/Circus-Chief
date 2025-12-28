@@ -215,6 +215,56 @@ router.post('/:id/restart', (req, res) => {
   }
 });
 
+// PUT /api/sessions/:id/initial-prompt - Update the initial prompt for a draft session
+router.put('/:id/initial-prompt', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Validate session is in waiting status (draft state)
+  if (session.status !== 'waiting') {
+    return res.status(400).json({ error: 'Session must be in waiting status to edit the prompt' });
+  }
+
+  // Check if session has any assistant messages (should not have any for a draft)
+  const allMessages = messages.getBySessionId(session.id);
+  const hasAssistantMessages = allMessages.some(msg => msg.role === 'assistant');
+  if (hasAssistantMessages) {
+    return res.status(400).json({ error: 'Session is not a draft - it already has responses' });
+  }
+
+  // Get the request body
+  const { prompt } = req.body;
+
+  // Validate prompt is provided and non-empty
+  if (!prompt || typeof prompt !== 'string' || prompt.trim() === '') {
+    return res.status(400).json({ error: 'Prompt must be a non-empty string' });
+  }
+
+  try {
+    // Find the first user message and update it
+    const userMessages = allMessages.filter(msg => msg.role === 'user');
+    if (userMessages.length === 0) {
+      return res.status(400).json({ error: 'No initial prompt found' });
+    }
+
+    const initialMessage = userMessages[0];
+    const updatedMessage = messages.updateContent(initialMessage.id, prompt);
+
+    // Broadcast the update to session subscribers
+    broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_UPDATED, {
+      sessionId: session.id,
+      message: updatedMessage,
+    });
+
+    res.json({ success: true, message: updatedMessage });
+  } catch (error) {
+    console.error('Update initial prompt error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /api/sessions/:id/start - Start a draft session (waiting status with no assistant messages)
 router.post('/:id/start', async (req, res) => {
   const session = sessions.getById(req.params.id);
@@ -249,7 +299,25 @@ router.post('/:id/start', async (req, res) => {
     if (userMessages.length === 0) {
       return res.status(400).json({ error: 'No initial prompt found' });
     }
-    const initialPrompt = userMessages[0].content;
+    const initialMessage = userMessages[0];
+
+    // If a new prompt is provided in the request body, update the message
+    let finalPrompt = initialMessage.content;
+    if (req.body.prompt !== undefined) {
+      // Validate provided prompt
+      if (!req.body.prompt || typeof req.body.prompt !== 'string' || req.body.prompt.trim() === '') {
+        return res.status(400).json({ error: 'Prompt must be a non-empty string' });
+      }
+      // Update the message with the new prompt
+      const updatedMessage = messages.updateContent(initialMessage.id, req.body.prompt);
+      finalPrompt = updatedMessage.content;
+
+      // Broadcast the update to session subscribers
+      broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_UPDATED, {
+        sessionId: session.id,
+        message: updatedMessage,
+      });
+    }
 
     // Get session attachments for context
     const sessionAttachments = attachments.getBySessionId(session.id);
@@ -259,7 +327,7 @@ router.post('/:id/start', async (req, res) => {
 
     // Start session manager (non-blocking)
     const { runSession } = await import('../services/sessionManager.js');
-    runSession(session.id, initialPrompt, workingDirectory, project.systemPrompt, sessionAttachments, session.model).catch((error) => {
+    runSession(session.id, finalPrompt, workingDirectory, project.systemPrompt, sessionAttachments, session.model).catch((error) => {
       console.error('Session error:', error);
       sessions.update(session.id, { status: 'error', error: error.message });
     });
