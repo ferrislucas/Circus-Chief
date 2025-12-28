@@ -5,7 +5,7 @@
       <span class="live-title">Claude is working...</span>
       <span v-if="totalCount" class="live-count">({{ totalCount }} {{ totalCount === 1 ? 'item' : 'items' }})</span>
     </div>
-    <div v-if="hasContent" class="live-logs" ref="logsContainer" @scroll="handleScroll">
+    <div v-if="hasContent" class="live-logs" @scroll="handleScroll">
       <div v-for="log in workLogs" :key="log.id" class="live-log-item">
         <ThinkingBlock v-if="log.type === 'thinking'" :content="log.content" :timestamp="log.timestamp" />
         <CommandBlock v-else :log="log" />
@@ -28,8 +28,6 @@ const props = defineProps({
   partialThinking: { type: String, default: null },
 });
 
-const logsContainer = ref(null);
-
 // Scroll state tracking - auto-scroll unless user manually scrolls up
 const SCROLL_THRESHOLD = 50; // pixels from bottom to consider "near bottom"
 const isNearBottom = ref(true);
@@ -43,17 +41,25 @@ const hasContent = computed(() => {
 });
 
 // Detect when user manually scrolls away from bottom
-function handleScroll() {
-  if (!logsContainer.value) return;
-  const { scrollTop, scrollHeight, clientHeight } = logsContainer.value;
+function handleScroll(event) {
+  const container = event.target;
+  if (!container) return;
+  const { scrollTop, scrollHeight, clientHeight } = container;
   isNearBottom.value = scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD;
 }
 
 // Auto-scroll to bottom when new logs arrive (only if user is near bottom)
 function scrollToBottom() {
   nextTick(() => {
-    if (logsContainer.value && isNearBottom.value) {
-      logsContainer.value.scrollTop = logsContainer.value.scrollHeight;
+    if (isNearBottom.value) {
+      try {
+        const container = document.querySelector('.live-logs');
+        if (container) {
+          container.scrollTop = container.scrollHeight;
+        }
+      } catch (e) {
+        // May fail in certain environments, silently ignore
+      }
     }
   });
 }

@@ -2,7 +2,7 @@
   <div class="conversation-selector">
     <div class="selector-row">
       <!-- Dropdown -->
-      <div class="dropdown-container" ref="dropdownRef">
+      <div class="dropdown-container">
         <button
           type="button"
           class="dropdown-trigger"
@@ -78,7 +78,6 @@ const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 
 const isOpen = ref(false);
-const dropdownRef = ref(null);
 const showWarning = ref(false);
 
 const conversations = computed(() => sessionsStore.conversations);
@@ -125,7 +124,9 @@ function toggleDropdown() {
 }
 
 function closeDropdown(event) {
-  if (dropdownRef.value && !dropdownRef.value.contains(event.target)) {
+  // Close dropdown if clicking outside
+  const container = document.querySelector('.conversation-selector');
+  if (container && !container.contains(event.target)) {
     isOpen.value = false;
   }
 }

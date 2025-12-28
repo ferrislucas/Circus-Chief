@@ -69,8 +69,8 @@ vi.mock('../composables/useApi.js', () => ({
 vi.mock('../components/SessionCard.vue', () => ({
   default: defineComponent({
     name: 'SessionCard',
-    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError'],
-    emits: ['retrySummary'],
+    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'children', 'summaries', 'showArchive', 'showUnarchive'],
+    emits: ['retrySummary', 'archive', 'unarchive'],
     template: '<div class="session-card" :data-session-id="session.id" :data-summary="JSON.stringify(summary)"><slot /></div>',
   }),
 }));
@@ -368,6 +368,7 @@ describe('Status filtering', () => {
       // Click on templates tab
       const templatesTab = wrapper.findAll('.tab')[2];
       await templatesTab.trigger('click');
+      await nextTick();
 
       // Filters should not be visible on templates tab
       expect(wrapper.find('.status-filters').exists()).toBe(false);
@@ -377,10 +378,12 @@ describe('Status filtering', () => {
       const wrapper = mount(SessionListView);
       await flushPromises();
 
-      const runningButton = wrapper.findAll('.filter-btn')[0];
+      let runningButton = wrapper.findAll('.filter-btn')[0];
       expect(runningButton.classes()).not.toContain('active');
 
       await runningButton.trigger('click');
+      await nextTick();
+      runningButton = wrapper.findAll('.filter-btn')[0];
       expect(runningButton.classes()).toContain('active');
     });
 
@@ -388,10 +391,12 @@ describe('Status filtering', () => {
       const wrapper = mount(SessionListView);
       await flushPromises();
 
-      const idleButton = wrapper.findAll('.filter-btn')[1];
+      let idleButton = wrapper.findAll('.filter-btn')[1];
       expect(idleButton.classes()).not.toContain('active');
 
       await idleButton.trigger('click');
+      await nextTick();
+      idleButton = wrapper.findAll('.filter-btn')[1];
       expect(idleButton.classes()).toContain('active');
     });
   });
@@ -413,6 +418,7 @@ describe('Status filtering', () => {
 
       const runningButton = wrapper.findAll('.filter-btn')[0];
       await runningButton.trigger('click');
+      await nextTick();
 
       const sessionCards = wrapper.findAll('.session-card');
       expect(sessionCards).toHaveLength(2); // running + starting
@@ -428,6 +434,7 @@ describe('Status filtering', () => {
 
       const runningButton = wrapper.findAll('.filter-btn')[0];
       await runningButton.trigger('click');
+      await nextTick();
 
       const sessionCards = wrapper.findAll('.session-card');
       const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
@@ -440,6 +447,7 @@ describe('Status filtering', () => {
 
       const runningButton = wrapper.findAll('.filter-btn')[0];
       await runningButton.trigger('click');
+      await nextTick();
 
       const sessionCards = wrapper.findAll('.session-card');
       const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
@@ -456,10 +464,12 @@ describe('Status filtering', () => {
 
       // Click to enable filter
       await runningButton.trigger('click');
+      await nextTick();
       expect(wrapper.findAll('.session-card')).toHaveLength(2); // running + starting
 
       // Click again to disable filter
       await runningButton.trigger('click');
+      await nextTick();
       expect(wrapper.findAll('.session-card')).toHaveLength(5);
     });
   });
@@ -471,6 +481,7 @@ describe('Status filtering', () => {
 
       const idleButton = wrapper.findAll('.filter-btn')[1];
       await idleButton.trigger('click');
+      await nextTick();
 
       const sessionCards = wrapper.findAll('.session-card');
       const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
@@ -483,6 +494,7 @@ describe('Status filtering', () => {
 
       const idleButton = wrapper.findAll('.filter-btn')[1];
       await idleButton.trigger('click');
+      await nextTick();
 
       const sessionCards = wrapper.findAll('.session-card');
       const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
@@ -495,6 +507,7 @@ describe('Status filtering', () => {
 
       const idleButton = wrapper.findAll('.filter-btn')[1];
       await idleButton.trigger('click');
+      await nextTick();
 
       const sessionCards = wrapper.findAll('.session-card');
       const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
@@ -507,6 +520,7 @@ describe('Status filtering', () => {
 
       const idleButton = wrapper.findAll('.filter-btn')[1];
       await idleButton.trigger('click');
+      await nextTick();
 
       const sessionCards = wrapper.findAll('.session-card');
       expect(sessionCards).toHaveLength(3); // waiting, stopped, error
@@ -523,6 +537,7 @@ describe('Status filtering', () => {
 
       const idleButton = wrapper.findAll('.filter-btn')[1];
       await idleButton.trigger('click');
+      await nextTick();
 
       const sessionCards = wrapper.findAll('.session-card');
       const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
@@ -535,6 +550,7 @@ describe('Status filtering', () => {
 
       const idleButton = wrapper.findAll('.filter-btn')[1];
       await idleButton.trigger('click');
+      await nextTick();
 
       const sessionCards = wrapper.findAll('.session-card');
       const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
@@ -549,10 +565,12 @@ describe('Status filtering', () => {
 
       // Click to enable filter
       await idleButton.trigger('click');
+      await nextTick();
       expect(wrapper.findAll('.session-card')).toHaveLength(3);
 
       // Click again to disable filter
       await idleButton.trigger('click');
+      await nextTick();
       expect(wrapper.findAll('.session-card')).toHaveLength(5);
     });
   });
@@ -566,11 +584,13 @@ describe('Status filtering', () => {
 
       // Click running filter
       await filterButtons[0].trigger('click');
+      await nextTick();
       let sessionCards = wrapper.findAll('.session-card');
       expect(sessionCards).toHaveLength(2); // running + starting
 
       // Click idle filter (should disable running and enable idle)
       await filterButtons[1].trigger('click');
+      await nextTick();
 
       // Should now show only idle sessions
       sessionCards = wrapper.findAll('.session-card');
@@ -592,11 +612,13 @@ describe('Status filtering', () => {
 
       // Click idle filter
       await filterButtons[1].trigger('click');
+      await nextTick();
       let sessionCards = wrapper.findAll('.session-card');
       expect(sessionCards).toHaveLength(3); // waiting, stopped, error
 
       // Click running filter (should disable idle and enable running)
       await filterButtons[0].trigger('click');
+      await nextTick();
 
       // Should now show only running sessions
       sessionCards = wrapper.findAll('.session-card');
@@ -614,20 +636,26 @@ describe('Status filtering', () => {
       const wrapper = mount(SessionListView);
       await flushPromises();
 
-      const filterButtons = wrapper.findAll('.filter-btn');
+      let filterButtons = wrapper.findAll('.filter-btn');
 
       // Click running filter
       await filterButtons[0].trigger('click');
+      await nextTick();
+      filterButtons = wrapper.findAll('.filter-btn');
       expect(filterButtons[0].classes()).toContain('active');
       expect(filterButtons[1].classes()).not.toContain('active');
 
       // Click idle filter
       await filterButtons[1].trigger('click');
+      await nextTick();
+      filterButtons = wrapper.findAll('.filter-btn');
       expect(filterButtons[0].classes()).not.toContain('active');
       expect(filterButtons[1].classes()).toContain('active');
 
       // Click running again
       await filterButtons[0].trigger('click');
+      await nextTick();
+      filterButtons = wrapper.findAll('.filter-btn');
       expect(filterButtons[0].classes()).toContain('active');
       expect(filterButtons[1].classes()).not.toContain('active');
     });
@@ -647,6 +675,7 @@ describe('Status filtering', () => {
 
       const runningButton = wrapper.findAll('.filter-btn')[0];
       await runningButton.trigger('click');
+      await nextTick();
 
       // Should show only the running parent group
       const sessionCards = wrapper.findAll('.session-card');
@@ -667,6 +696,7 @@ describe('Status filtering', () => {
 
       const idleButton = wrapper.findAll('.filter-btn')[1];
       await idleButton.trigger('click');
+      await nextTick();
 
       // Should show only the waiting parent group
       const sessionCards = wrapper.findAll('.session-card');
@@ -689,6 +719,7 @@ describe('Status filtering', () => {
       // Click running filter
       const runningButton = wrapper.findAll('.filter-btn')[0];
       await runningButton.trigger('click');
+      await nextTick();
 
       // Should show the session card (which includes its children)
       const sessionCards = wrapper.findAll('.session-card');
@@ -710,6 +741,7 @@ describe('Status filtering', () => {
 
       const runningButton = wrapper.findAll('.filter-btn')[0];
       await runningButton.trigger('click');
+      await nextTick();
 
       const emptyState = wrapper.find('.empty-state');
       expect(emptyState.exists()).toBe(true);
@@ -728,6 +760,7 @@ describe('Status filtering', () => {
 
       const idleButton = wrapper.findAll('.filter-btn')[1];
       await idleButton.trigger('click');
+      await nextTick();
 
       const emptyState = wrapper.find('.empty-state');
       expect(emptyState.exists()).toBe(true);
@@ -746,6 +779,7 @@ describe('Status filtering', () => {
 
       const idleButton = wrapper.findAll('.filter-btn')[1];
       await idleButton.trigger('click');
+      await nextTick();
 
       const sessionCards = wrapper.findAll('.session-card');
       expect(sessionCards).toHaveLength(1);
@@ -779,6 +813,7 @@ describe('Status filtering', () => {
       // Running filter should show the starting session
       const runningButton = wrapper.findAll('.filter-btn')[0];
       await runningButton.trigger('click');
+      await nextTick();
 
       let sessionCards = wrapper.findAll('.session-card');
       expect(sessionCards).toHaveLength(1);
@@ -786,10 +821,12 @@ describe('Status filtering', () => {
 
       // Reset to no filter
       await runningButton.trigger('click');
+      await nextTick();
 
       // Idle filter should show empty (starting is not idle)
       const idleButton = wrapper.findAll('.filter-btn')[1];
       await idleButton.trigger('click');
+      await nextTick();
 
       const emptyState = wrapper.find('.empty-state');
       expect(emptyState.exists()).toBe(true);
@@ -809,6 +846,7 @@ describe('Status filtering', () => {
       // Running filter should include starting
       const runningButton = wrapper.findAll('.filter-btn')[0];
       await runningButton.trigger('click');
+      await nextTick();
 
       let sessionCards = wrapper.findAll('.session-card');
       expect(sessionCards).toHaveLength(2);
@@ -818,10 +856,12 @@ describe('Status filtering', () => {
 
       // Reset
       await runningButton.trigger('click');
+      await nextTick();
 
       // Idle filter should NOT include starting
       const idleButton = wrapper.findAll('.filter-btn')[1];
       await idleButton.trigger('click');
+      await nextTick();
 
       sessionCards = wrapper.findAll('.session-card');
       expect(sessionCards).toHaveLength(1);
@@ -921,10 +961,12 @@ describe('SessionListView Archived Tab', () => {
     const wrapper = mount(SessionListView);
     await flushPromises();
 
-    const archivedTab = wrapper.findAll('.tab')[1];
+    let archivedTab = wrapper.findAll('.tab')[1];
     await archivedTab.trigger('click');
     await flushPromises();
+    await nextTick();
 
+    archivedTab = wrapper.findAll('.tab')[1];
     expect(archivedTab.classes()).toContain('active');
   });
 
@@ -976,6 +1018,7 @@ describe('SessionListView Archived Tab', () => {
     const archivedTab = wrapper.findAll('.tab')[1];
     await archivedTab.trigger('click');
     await flushPromises();
+    await nextTick();
 
     const emptyState = wrapper.find('.empty-state');
     expect(emptyState.exists()).toBe(true);
@@ -1019,6 +1062,7 @@ describe('SessionListView Archived Tab', () => {
     const archivedTab = wrapper.findAll('.tab')[1];
     await archivedTab.trigger('click');
     await flushPromises();
+    await nextTick();
 
     const sessionCards = wrapper.findAll('.session-card');
     expect(sessionCards.length).toBe(1);
@@ -1035,6 +1079,7 @@ describe('SessionListView Archived Tab', () => {
     const archivedTab = wrapper.findAll('.tab')[1];
     await archivedTab.trigger('click');
     await flushPromises();
+    await nextTick();
 
     // Button should be hidden
     expect(wrapper.find('.btn-primary').exists()).toBe(false);
