@@ -17,7 +17,7 @@
         <button
           v-if="!run || run.status !== 'running'"
           class="btn btn-primary btn-sm"
-          @click="onRunClick"
+          @click="handleRun"
           :disabled="run?.status === 'running'"
           data-testid="run-button"
         >
@@ -28,7 +28,7 @@
         <button
           v-if="run?.status === 'running'"
           class="btn btn-outline-danger btn-sm kill-button"
-          @click="onKillClick"
+          @click="handleKill"
           title="Kill running command"
           data-testid="kill-button"
         >
@@ -56,10 +56,10 @@
 
         <!-- Output Actions (success/error states) -->
         <div v-if="run.status !== 'running'" class="output-actions">
-          <button class="btn btn-sm btn-outline-secondary" @click="onCopyClick">
+          <button class="btn btn-sm btn-outline-secondary" @click="handleCopy">
             📋 Copy
           </button>
-          <button class="btn btn-sm btn-outline-secondary" @click="onSendCanvasClick">
+          <button class="btn btn-sm btn-outline-secondary" @click="handleCanvas">
             🎨 Send to Canvas
           </button>
         </div>
@@ -201,21 +201,30 @@ const statusIcon = computed(() => {
   }
 });
 
-const onRunClick = () => {
+const handleRun = () => {
   emit('run');
 };
 
-const onCopyClick = async () => {
+const handleKill = () => {
+  emit('kill');
+};
+
+const handleCopy = () => {
   emit('copy-output', props.run.output);
 };
 
-const onSendCanvasClick = () => {
+const handleCanvas = () => {
   emit('send-to-canvas', props.button.label, props.run.output);
 };
 
-const onKillClick = () => {
-  emit('kill');
-};
+// Expose methods for testing
+defineExpose({
+  handleRun,
+  handleKill,
+  handleCopy,
+  handleCanvas,
+});
+
 </script>
 
 <style scoped>

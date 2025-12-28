@@ -107,7 +107,7 @@ const RouterLinkStub = defineComponent({
   name: 'RouterLink',
   props: ['to'],
   setup(props, { slots }) {
-    return () => h('a', { href: props.to, class: 'router-link-stub' }, slots.default?.());
+    return () => h('a', { href: props.to, to: props.to, class: 'router-link-stub' }, slots.default?.());
   },
 });
 

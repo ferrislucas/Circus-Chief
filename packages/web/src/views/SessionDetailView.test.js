@@ -116,6 +116,7 @@ vi.mock('../stores/templates.js', () => ({
 
 import SessionDetailView from './SessionDetailView.vue';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useCanvasStore } from '../stores/canvas.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 
 describe('SessionDetailView', () => {
@@ -124,6 +125,9 @@ describe('SessionDetailView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
+
+    // Reset canvas store mock after clearAllMocks
+    useCanvasStore.mockReturnValue(mockCanvasStoreState);
 
     // Mock confirm dialog to always return true for testing
     global.confirm = vi.fn(() => true);
@@ -184,13 +188,25 @@ describe('SessionDetailView', () => {
   });
 
   function mountComponent() {
+    const RouterLinkStub = defineComponent({
+      name: 'RouterLink',
+      props: {
+        to: String,
+        activeClass: String,
+      },
+      inheritAttrs: true,
+      template: '<a :href="to" v-bind="$attrs" :class="$attrs.class"><slot /></a>',
+    });
+
     return mount(SessionDetailView, {
       global: {
+        components: {
+          'router-link': RouterLinkStub,
+          'RouterLink': RouterLinkStub,
+        },
         stubs: {
-          'router-link': {
-            template: '<a><slot /></a>',
-            props: ['to'],
-          },
+          'router-link': RouterLinkStub,
+          'RouterLink': RouterLinkStub,
         },
       },
     });
@@ -768,8 +784,9 @@ describe('SessionDetailView', () => {
   describe('canvas indicator', () => {
     beforeEach(() => {
       // Reset canvas store state for each test
-      mockCanvasStoreState.items.length = 0;
-      mockCanvasStoreState.groupedItems.length = 0;
+      // Use splice to properly clear arrays while maintaining Vue reactivity
+      mockCanvasStoreState.items.splice(0);
+      mockCanvasStoreState.groupedItems.splice(0);
       mockCanvasStoreState.fetchItems = vi.fn();
       mockCanvasStoreState.addItem = vi.fn();
       mockCanvasStoreState.removeItem = vi.fn();
@@ -816,7 +833,8 @@ describe('SessionDetailView', () => {
     });
 
     it('shows "Canvas" without count when empty', async () => {
-      mockCanvasStoreState.groupedItems = [];
+      // Use splice to clear while maintaining reactivity (not array reassignment)
+      mockCanvasStoreState.groupedItems.splice(0);
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -829,7 +847,8 @@ describe('SessionDetailView', () => {
     });
 
     it('canvas indicator has correct CSS class', async () => {
-      mockCanvasStoreState.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+      // Add item to reactive array
+      mockCanvasStoreState.groupedItems.splice(0, 0, { id: 'item-1', filename: 'image.png' });
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -841,7 +860,8 @@ describe('SessionDetailView', () => {
     });
 
     it('canvas indicator has tooltip title attribute', async () => {
-      mockCanvasStoreState.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+      // Add item to reactive array
+      mockCanvasStoreState.groupedItems.splice(0, 0, { id: 'item-1', filename: 'image.png' });
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -876,10 +896,11 @@ describe('SessionDetailView', () => {
     });
 
     it('shows canvas bullet indicator on mobile dropdown when files exist', async () => {
-      mockCanvasStoreState.groupedItems = [
+      // Add items to reactive array
+      mockCanvasStoreState.groupedItems.push(
         { id: 'item-1', filename: 'image.png' },
-        { id: 'item-2', filename: 'document.md' },
-      ];
+        { id: 'item-2', filename: 'document.md' }
+      );
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -892,7 +913,8 @@ describe('SessionDetailView', () => {
     });
 
     it('does not show canvas bullet indicator on mobile when empty', async () => {
-      mockCanvasStoreState.groupedItems = [];
+      // groupedItems is already empty from beforeEach, but explicitly ensure it
+      mockCanvasStoreState.groupedItems.splice(0);
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -916,7 +938,8 @@ describe('SessionDetailView', () => {
     });
 
     it('indicator dot has amber background color styling', async () => {
-      mockCanvasStoreState.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+      // Add item to reactive array
+      mockCanvasStoreState.groupedItems.push({ id: 'item-1', filename: 'image.png' });
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -929,7 +952,8 @@ describe('SessionDetailView', () => {
     });
 
     it('canvas indicator appears next to tab label', async () => {
-      mockCanvasStoreState.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+      // Add item to reactive array
+      mockCanvasStoreState.groupedItems.push({ id: 'item-1', filename: 'image.png' });
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -943,10 +967,12 @@ describe('SessionDetailView', () => {
     });
 
     it('canvas indicator count shows multiple items correctly', async () => {
-      mockCanvasStoreState.groupedItems = Array.from({ length: 10 }, (_, i) => ({
+      // Add 10 items to reactive array
+      const items = Array.from({ length: 10 }, (_, i) => ({
         id: `item-${i}`,
         filename: `file-${i}.txt`,
       }));
+      mockCanvasStoreState.groupedItems.push(...items);
 
       const wrapper = mountComponent();
       await flushPromises();
@@ -959,7 +985,8 @@ describe('SessionDetailView', () => {
     });
 
     it('indicator does not appear for other tabs when canvas has files', async () => {
-      mockCanvasStoreState.groupedItems = [{ id: 'item-1', filename: 'image.png' }];
+      // Add item to reactive array
+      mockCanvasStoreState.groupedItems.push({ id: 'item-1', filename: 'image.png' });
 
       const wrapper = mountComponent();
       await flushPromises();
