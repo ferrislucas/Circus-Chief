@@ -74,6 +74,44 @@ describe('Command Buttons Contracts', () => {
       });
       expect(result.success).toBe(false);
     });
+
+    it('accepts valid create request with showOnList true', () => {
+      const result = CreateCommandButtonRequest.safeParse({
+        label: 'Build',
+        command: 'npm run build',
+        showOnList: true,
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.showOnList).toBe(true);
+    });
+
+    it('accepts valid create request with showOnList false', () => {
+      const result = CreateCommandButtonRequest.safeParse({
+        label: 'Build',
+        command: 'npm run build',
+        showOnList: false,
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.showOnList).toBe(false);
+    });
+
+    it('sets default showOnList to false', () => {
+      const result = CreateCommandButtonRequest.safeParse({
+        label: 'Test',
+        command: 'npm test',
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.showOnList).toBe(false);
+    });
+
+    it('rejects non-boolean showOnList', () => {
+      const result = CreateCommandButtonRequest.safeParse({
+        label: 'Build',
+        command: 'npm run build',
+        showOnList: 'true',
+      });
+      expect(result.success).toBe(false);
+    });
   });
 
   describe('UpdateCommandButtonRequest', () => {
@@ -132,6 +170,40 @@ describe('Command Buttons Contracts', () => {
       });
       expect(result.success).toBe(false);
     });
+
+    it('accepts update with showOnList true', () => {
+      const result = UpdateCommandButtonRequest.safeParse({
+        showOnList: true,
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.showOnList).toBe(true);
+    });
+
+    it('accepts update with showOnList false', () => {
+      const result = UpdateCommandButtonRequest.safeParse({
+        showOnList: false,
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.showOnList).toBe(false);
+    });
+
+    it('accepts update with all fields including showOnList', () => {
+      const result = UpdateCommandButtonRequest.safeParse({
+        label: 'Updated',
+        command: 'new command',
+        sortOrder: 5,
+        showOnList: true,
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.showOnList).toBe(true);
+    });
+
+    it('rejects non-boolean showOnList', () => {
+      const result = UpdateCommandButtonRequest.safeParse({
+        showOnList: 'true',
+      });
+      expect(result.success).toBe(false);
+    });
   });
 
   describe('CommandButtonResponse', () => {
@@ -142,10 +214,39 @@ describe('Command Buttons Contracts', () => {
         label: 'Build',
         command: 'npm run build',
         sortOrder: 0,
+        showOnList: false,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
       expect(result.success).toBe(true);
+    });
+
+    it('accepts valid button response with showOnList true', () => {
+      const result = CommandButtonResponse.safeParse({
+        id: 'btn-123',
+        projectId: 'proj-123',
+        label: 'Build',
+        command: 'npm run build',
+        sortOrder: 0,
+        showOnList: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.showOnList).toBe(true);
+    });
+
+    it('rejects response missing showOnList', () => {
+      const result = CommandButtonResponse.safeParse({
+        id: 'btn-123',
+        projectId: 'proj-123',
+        label: 'Build',
+        command: 'npm run build',
+        sortOrder: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      expect(result.success).toBe(false);
     });
 
     it('rejects missing fields', () => {

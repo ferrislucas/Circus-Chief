@@ -190,6 +190,7 @@ CREATE TABLE IF NOT EXISTS command_buttons (
   label TEXT NOT NULL,
   command TEXT NOT NULL,
   sort_order INTEGER NOT NULL DEFAULT 0,
+  show_on_list INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

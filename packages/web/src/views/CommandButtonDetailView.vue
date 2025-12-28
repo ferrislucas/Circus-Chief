@@ -59,6 +59,20 @@
           <span class="form-help">Buttons are displayed in ascending order. Leave as 0 for default.</span>
         </div>
 
+        <!-- Show on List Checkbox -->
+        <div class="form-group form-group-checkbox">
+          <label for="showOnList" class="checkbox-label">
+            <input
+              id="showOnList"
+              v-model="formData.showOnList"
+              type="checkbox"
+              class="form-checkbox"
+            />
+            <span>Show status indicator on session lists</span>
+          </label>
+          <span class="form-help">When enabled, the button status will be displayed on session cards</span>
+        </div>
+
         <!-- Form Actions -->
         <div class="form-actions">
           <button type="button" class="btn btn-outline-secondary" @click="onCancel">
@@ -125,6 +139,7 @@ const formData = ref({
   label: '',
   command: '',
   sortOrder: 0,
+  showOnList: false,
 });
 
 const isEditMode = computed(() => !!route.params.buttonId);
@@ -138,6 +153,7 @@ const loadButton = async (buttonId) => {
         label: button.label,
         command: button.command,
         sortOrder: button.sortOrder || 0,
+        showOnList: button.showOnList || false,
       };
     }
   } catch (err) {
@@ -179,6 +195,7 @@ const onSubmit = async () => {
       label: formData.value.label,
       command: formData.value.command,
       sortOrder: formData.value.sortOrder,
+      showOnList: formData.value.showOnList,
     };
 
     if (isEditMode.value) {
@@ -324,6 +341,28 @@ textarea.form-input {
 .form-error {
   font-size: 0.85rem;
   color: var(--color-error);
+}
+
+.form-group-checkbox {
+  gap: 0.25rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  color: var(--color-text);
+  font-size: 0.95rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.form-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
 }
 
 .form-error-message {

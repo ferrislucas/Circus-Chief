@@ -100,6 +100,65 @@ describe('CommandButtonDetailView', () => {
     expect(wrapper.find('#label').exists()).toBe(true);
     expect(wrapper.find('#command').exists()).toBe(true);
     expect(wrapper.find('#sortOrder').exists()).toBe(true);
+    expect(wrapper.find('#showOnList').exists()).toBe(true);
+  });
+
+  it('renders showOnList checkbox field', async () => {
+    const mockCommandStore = {
+      loading: false,
+      error: null,
+      getButtonById: vi.fn().mockReturnValue(null),
+      createButton: vi.fn(),
+      updateButton: vi.fn(),
+      deleteButton: vi.fn(),
+    };
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    const wrapper = mount(CommandButtonDetailView, {
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+
+    const checkbox = wrapper.find('#showOnList');
+    expect(checkbox.exists()).toBe(true);
+    expect(checkbox.attributes('type')).toBe('checkbox');
+    expect(wrapper.text()).toContain('Show status indicator on session lists');
+  });
+
+  it('showOnList checkbox defaults to false', async () => {
+    const mockCommandStore = {
+      loading: false,
+      error: null,
+      getButtonById: vi.fn().mockReturnValue(null),
+      createButton: vi.fn(),
+      updateButton: vi.fn(),
+      deleteButton: vi.fn(),
+    };
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    const wrapper = mount(CommandButtonDetailView, {
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+
+    const checkbox = wrapper.find('#showOnList');
+    expect(checkbox.element.checked).toBe(false);
   });
 
   it('validates required fields on submit', async () => {
@@ -174,6 +233,7 @@ describe('CommandButtonDetailView', () => {
       label: 'Test Button',
       command: 'npm test',
       sortOrder: 1,
+      showOnList: false,
     });
 
     // Verify success message
@@ -271,6 +331,122 @@ describe('CommandButtonDetailView', () => {
 
     // Dialog should now be visible
     expect(wrapper.find('.modal-overlay').exists()).toBe(true);
+  });
+
+  it('includes showOnList in create request', async () => {
+    const createButton = vi.fn().mockResolvedValue({ id: 'new' });
+    const mockCommandStore = {
+      loading: false,
+      error: null,
+      getButtonById: vi.fn().mockReturnValue(null),
+      createButton,
+      updateButton: vi.fn(),
+      deleteButton: vi.fn(),
+    };
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    const wrapper = mount(CommandButtonDetailView, {
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+
+    // Fill in form with showOnList checked
+    await wrapper.find('#label').setValue('Test Button');
+    await wrapper.find('#command').setValue('npm test');
+    await wrapper.find('#showOnList').trigger('change');
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    // Verify create was called with showOnList true
+    expect(createButton).toHaveBeenCalledWith('test-project', {
+      label: 'Test Button',
+      command: 'npm test',
+      sortOrder: 0,
+      showOnList: true,
+    });
+  });
+
+  it('can toggle showOnList checkbox', async () => {
+    const mockCommandStore = {
+      loading: false,
+      error: null,
+      getButtonById: vi.fn().mockReturnValue(null),
+      createButton: vi.fn(),
+      updateButton: vi.fn(),
+      deleteButton: vi.fn(),
+    };
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    const wrapper = mount(CommandButtonDetailView, {
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+
+    const checkbox = wrapper.find('#showOnList');
+    expect(checkbox.element.checked).toBe(false);
+
+    // Toggle checkbox
+    await checkbox.trigger('change');
+
+    expect(checkbox.element.checked).toBe(true);
+  });
+
+  it('loads showOnList from existing button in edit mode', async () => {
+    const mockCommandStore = {
+      loading: false,
+      error: null,
+      getButtonById: vi.fn().mockReturnValue({
+        id: 'btn-1',
+        label: 'Existing Button',
+        command: 'npm run',
+        sortOrder: 0,
+        showOnList: true,
+      }),
+      createButton: vi.fn(),
+      updateButton: vi.fn(),
+      deleteButton: vi.fn(),
+    };
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    // Set route params for edit mode (buttonId present)
+    currentMockRouteParams = {
+      [ROUTE_PARAMS.PROJECT_ID]: 'test-project',
+      [ROUTE_PARAMS.BUTTON_ID]: 'btn-1',
+    };
+
+    const wrapper = mount(CommandButtonDetailView, {
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+
+    await nextTick();
+
+    const checkbox = wrapper.find('#showOnList');
+    expect(checkbox.element.checked).toBe(true);
   });
 
   it('handles API errors', async () => {
