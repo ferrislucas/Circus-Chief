@@ -67,12 +67,12 @@ function scrollToBottom() {
 // Watch for new work logs
 watch(() => props.workLogs?.length, () => {
   scrollToBottom();
-});
+}, { flush: 'sync' });
 
 // Watch for partial thinking changes
 watch(() => props.partialThinking, () => {
   scrollToBottom();
-});
+}, { flush: 'sync' });
 </script>
 
 <style scoped>

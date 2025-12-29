@@ -342,6 +342,7 @@ describe('ModelSelector', () => {
   describe('watch observer for external changes', () => {
     it('syncs selectedModel when currentModel prop changes', async () => {
       const wrapper = mountComponent({ modelValue: sonnet.id });
+      await flushAll(wrapper);
       let buttons = wrapper.findAll('.model-btn');
 
       expect(buttons[0].classes()).toContain('active');
@@ -416,6 +417,7 @@ describe('ModelSelector', () => {
 
     it('reflects external v-model updates', async () => {
       const wrapper = mountComponent({ modelValue: sonnet.id });
+      await flushAll(wrapper);
 
       let buttons = wrapper.findAll('.model-btn');
       expect(buttons[0].classes()).toContain('active');

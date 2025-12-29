@@ -16,6 +16,9 @@ async function flushAll(wrapper) {
     // Multiple update cycles to ensure all conditions re-evaluate
     await wrapper.vm.$forceUpdate();
     await nextTick();
+    // CRITICAL: Additional flush for nested nextTick in scrollToBottom()
+    await nextTick();
+    await flushPromises();
   }
 }
 
@@ -128,8 +131,8 @@ describe('LiveWorkLogPanel', () => {
       const el = logsContainer.element;
 
       // Mock scrollHeight and clientHeight to simulate scrollable content
-      Object.defineProperty(el, 'scrollHeight', { value: 500, configurable: true });
-      Object.defineProperty(el, 'clientHeight', { value: 250, configurable: true });
+      Object.defineProperty(el, 'scrollHeight', { value: 500, configurable: true, writable: true });
+      Object.defineProperty(el, 'clientHeight', { value: 250, configurable: true, writable: true });
       el.scrollTop = 250; // At bottom (scrollHeight - clientHeight = 250)
 
       // Trigger scroll to set isNearBottom = true
@@ -139,6 +142,8 @@ describe('LiveWorkLogPanel', () => {
       await wrapper.setProps({
         workLogs: [createWorkLog(1), createWorkLog(2)],
       });
+      await nextTick();  // Initial watcher fire
+      await nextTick();  // Nested nextTick inside scrollToBottom() callback
 
       await flushAll(wrapper);
 
@@ -186,8 +191,8 @@ describe('LiveWorkLogPanel', () => {
       const el = logsContainer.element;
 
       // Mock scrollable container - user is at bottom
-      Object.defineProperty(el, 'scrollHeight', { value: 500, configurable: true });
-      Object.defineProperty(el, 'clientHeight', { value: 250, configurable: true });
+      Object.defineProperty(el, 'scrollHeight', { value: 500, configurable: true, writable: true });
+      Object.defineProperty(el, 'clientHeight', { value: 250, configurable: true, writable: true });
       el.scrollTop = 250;
 
       // Trigger scroll to set isNearBottom = true
@@ -197,6 +202,8 @@ describe('LiveWorkLogPanel', () => {
       await wrapper.setProps({
         partialThinking: 'Updated thinking content',
       });
+      await nextTick();  // Initial watcher fire
+      await nextTick();  // Nested nextTick inside scrollToBottom() callback
 
       await flushAll(wrapper);
 
@@ -241,8 +248,8 @@ describe('LiveWorkLogPanel', () => {
       const el = logsContainer.element;
 
       // Mock scrollable container
-      Object.defineProperty(el, 'scrollHeight', { value: 500, configurable: true });
-      Object.defineProperty(el, 'clientHeight', { value: 250, configurable: true });
+      Object.defineProperty(el, 'scrollHeight', { value: 500, configurable: true, writable: true });
+      Object.defineProperty(el, 'clientHeight', { value: 250, configurable: true, writable: true });
       // scrollHeight - scrollTop - clientHeight = 500 - 220 - 250 = 30 (within 50px threshold)
       el.scrollTop = 220;
 
@@ -253,6 +260,8 @@ describe('LiveWorkLogPanel', () => {
       await wrapper.setProps({
         workLogs: [createWorkLog(1), createWorkLog(2)],
       });
+      await nextTick();  // Initial watcher fire
+      await nextTick();  // Nested nextTick inside scrollToBottom() callback
 
       await flushAll(wrapper);
 

@@ -188,7 +188,7 @@ describe('CanvasTab', () => {
 
       await flushPromises();
 
-      const uploadButton = wrapper.find('button.btn-primary');
+      const uploadButton = wrapper.find('label.btn-primary');
       expect(uploadButton.exists()).toBe(true);
       expect(uploadButton.text()).toBe('Upload File');
     });
@@ -202,7 +202,7 @@ describe('CanvasTab', () => {
 
       const fileInput = wrapper.find('input[type="file"]');
       expect(fileInput.exists()).toBe(true);
-      expect(fileInput.attributes('hidden')).toBeDefined();
+      expect(fileInput.element.style.display).toBe('none');
     });
   });
 
@@ -221,7 +221,7 @@ describe('CanvasTab', () => {
 
       // The dragover handler should be called (sets isDragOver = true)
       // We can verify by checking the class is added
-      await nextTick();
+      await flushAll(wrapper);
       expect(container.classes()).toContain('drag-over');
     });
 

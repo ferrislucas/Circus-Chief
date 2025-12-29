@@ -178,10 +178,13 @@ describe('TemplateSelector', () => {
 
       const onUpdateTemplateId = vi.fn();
       const wrapper = mountComponent({}, { 'onUpdate:templateId': onUpdateTemplateId });
-      await flushPromises();
+      await flushAll(wrapper);
 
       const select = wrapper.find('select');
-      await select.setValue('template-1');
+      // Manually set the value and trigger change
+      select.element.value = 'template-1';
+      await select.trigger('change');
+      await flushAll(wrapper);
 
       expect(onUpdateTemplateId).toHaveBeenCalledWith('template-1');
     });
@@ -316,17 +319,20 @@ describe('TemplateSelector', () => {
       await flushPromises();
 
       const wrapper = mountComponent();
-      await flushPromises();
+      await flushAll(wrapper);
 
       const select = wrapper.find('select');
-      await select.setValue('template-1');
+      // Manually set the value and trigger change
+      select.element.value = 'template-1';
+      await select.trigger('change');
+      await flushAll(wrapper);
 
       expect(wrapper.find('.saving-indicator').exists()).toBe(true);
       expect(wrapper.text()).toContain('Saving...');
 
       // Wait for saving to complete
       vi.advanceTimersByTime(1000);
-      await flushPromises();
+      await flushAll(wrapper);
 
       expect(wrapper.find('.saving-indicator').exists()).toBe(false);
 
@@ -340,7 +346,7 @@ describe('TemplateSelector', () => {
       await flushPromises();
 
       const wrapper = mountComponent({ currentTemplateId: 'template-1' });
-      await flushPromises();
+      await flushAll(wrapper);
 
       expect(wrapper.find('select').element.value).toBe('template-1');
 

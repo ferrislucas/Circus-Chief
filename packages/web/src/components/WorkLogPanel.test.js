@@ -234,6 +234,7 @@ describe('WorkLogPanel', () => {
       await wrapper.setProps({
         workLogs: [createWorkLog(1), createWorkLog(2)],
       });
+      await flushAll(wrapper);
 
       // Count updated
       expect(wrapper.find('.work-log-count').text()).toBe('(2)');

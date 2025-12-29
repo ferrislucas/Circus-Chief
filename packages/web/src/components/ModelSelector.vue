@@ -59,7 +59,7 @@ const selectedModel = ref(currentModel.value);
 // Watch for external changes to keep local selection in sync
 watch(() => currentModel.value, (newModel) => {
   selectedModel.value = newModel;
-});
+}, { flush: 'sync' });
 
 async function handleModelChange(id) {
   if (togglingModel.value) return;

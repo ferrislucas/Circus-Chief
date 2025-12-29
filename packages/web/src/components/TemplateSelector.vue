@@ -108,7 +108,8 @@ watch(
   () => props.currentTemplateId,
   (newId) => {
     selectedTemplateId.value = newId;
-  }
+  },
+  { flush: 'sync' }
 );
 
 onMounted(() => {
