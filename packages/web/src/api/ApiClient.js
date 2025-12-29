@@ -776,6 +776,73 @@ export class ApiClient {
   async resetProjectSessionDefaults(projectId) {
     return this.#request('DELETE', `/projects/${projectId}/session-defaults`);
   }
+
+  // Quick Responses
+
+  /**
+   * Get quick responses for a project (includes both project-specific and global)
+   * @param {string} projectId - Project ID
+   * @returns {Promise<{project: Array, global: Array}>}
+   */
+  async getQuickResponses(projectId) {
+    return this.#request('GET', `/projects/${projectId}/quick-responses`);
+  }
+
+  /**
+   * Get global quick responses only
+   * @returns {Promise<Array>}
+   */
+  async getGlobalQuickResponses() {
+    return this.#request('GET', '/quick-responses/global');
+  }
+
+  /**
+   * Create a quick response
+   * @param {string} projectId - Project ID
+   * @param {Object} data - Quick response data
+   * @returns {Promise<Object>}
+   */
+  async createQuickResponse(projectId, data) {
+    return this.#request('POST', `/projects/${projectId}/quick-responses`, data);
+  }
+
+  /**
+   * Update a quick response
+   * @param {string} id - Quick response ID
+   * @param {Object} data - Update data
+   * @returns {Promise<Object>}
+   */
+  async updateQuickResponse(id, data) {
+    return this.#request('PATCH', `/quick-responses/${id}`, data);
+  }
+
+  /**
+   * Delete a quick response
+   * @param {string} id - Quick response ID
+   * @returns {Promise<void>}
+   */
+  async deleteQuickResponse(id) {
+    return this.#request('DELETE', `/quick-responses/${id}`);
+  }
+
+  /**
+   * Reorder quick responses for a project
+   * @param {string} projectId - Project ID
+   * @param {Array<{id: string, sortOrder: number}>} orders - Array of id/sortOrder pairs
+   * @returns {Promise<{project: Array, global: Array}>}
+   */
+  async reorderQuickResponses(projectId, orders) {
+    return this.#request('POST', `/projects/${projectId}/quick-responses/reorder`, orders);
+  }
+
+  /**
+   * Reorder global quick responses
+   * @param {Array<{id: string, sortOrder: number}>} orders - Array of id/sortOrder pairs
+   * @returns {Promise<Array>}
+   */
+  async reorderGlobalQuickResponses(orders) {
+    return this.#request('POST', '/quick-responses/global/reorder', orders);
+  }
 }
 
 // Singleton instance

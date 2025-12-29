@@ -17,6 +17,7 @@ export {
   AttachmentRepository,
   CommandButtonRepository,
   CommandRunRepository,
+  QuickResponseRepository,
   // Singleton instances
   databaseManager,
   projects,
@@ -33,6 +34,7 @@ export {
   attachments,
   commandButtons,
   commandRuns,
+  quickResponses,
   // Legacy functions
   initDatabase,
   getDatabase,
