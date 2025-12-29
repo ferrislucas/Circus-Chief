@@ -13,6 +13,21 @@ vi.mock('../components/PathChooser.vue', () => ({
   default: { name: 'PathChooser', template: '<input />' }
 }));
 
+// Global helper to flush all async updates and force DOM re-render
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    // Force Vue to re-render with updated state
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    // Multiple update cycles to ensure all conditions re-evaluate
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
+
 describe('ProjectEditView with Session Defaults', () => {
   let pinia;
   let router;
@@ -30,6 +45,20 @@ describe('ProjectEditView with Session Defaults', () => {
         { path: '/projects/:id/sessions', component: { template: '<div></div>' } }
       ]
     });
+
+  // Helper to flush all async updates and force DOM re-render
+  async function flushAll(wrapper) {
+    await flushAll(wrapper);
+    if (wrapper && wrapper.vm) {
+      await wrapper.vm.$nextTick?.();
+      // Force Vue to re-render with updated state
+      await wrapper.vm.$forceUpdate();
+      await nextTick();
+      // Multiple update cycles to ensure all conditions re-evaluate
+      await wrapper.vm.$forceUpdate();
+      await nextTick();
+    }
+  }
 
     projectsStore = useProjectsStore();
     defaultsStore = useProjectDefaultsStore();
@@ -144,8 +173,7 @@ describe('ProjectEditView with Session Defaults', () => {
 
       // Wait for watchers to run
       await wrapper.vm.$nextTick();
-      await flushPromises();
-      await nextTick();
+      await flushAll(wrapper);
 
       // Check that form fields are populated
       const selects = wrapper.findAll('select');
@@ -199,8 +227,7 @@ describe('ProjectEditView with Session Defaults', () => {
       });
 
       await wrapper.vm.$nextTick();
-      await flushPromises();
-      await nextTick();
+      await flushAll(wrapper);
 
       // After watcher runs, checkboxes should be initialized
       const checkboxes = wrapper.findAll('input[type="checkbox"]');
@@ -304,8 +331,7 @@ describe('ProjectEditView with Session Defaults', () => {
       const form = wrapper.find('form');
       await form.trigger('submit');
 
-      await flushPromises();
-      await nextTick();
+      await flushAll(wrapper);
 
       // Should have called updateDefaults with the values
       expect(defaultsStore.updateDefaults).toHaveBeenCalledWith(
@@ -340,8 +366,7 @@ describe('ProjectEditView with Session Defaults', () => {
       const form = wrapper.find('form');
       await form.trigger('submit');
 
-      await flushPromises();
-      await nextTick();
+      await flushAll(wrapper);
 
       expect(projectsStore.updateProject).toHaveBeenCalled();
       expect(defaultsStore.updateDefaults).toHaveBeenCalled();
@@ -369,8 +394,7 @@ describe('ProjectEditView with Session Defaults', () => {
       const form = wrapper.find('form');
       await form.trigger('submit');
 
-      await flushPromises();
-      await nextTick();
+      await flushAll(wrapper);
 
       expect(wrapper.vm.error).toBeDefined();
     });
@@ -398,8 +422,7 @@ describe('ProjectEditView with Session Defaults', () => {
       const form = wrapper.find('form');
       await form.trigger('submit');
 
-      await flushPromises();
-      await nextTick();
+      await flushAll(wrapper);
 
       // Should only send mode in the defaults
       const callArgs = defaultsStore.updateDefaults.mock.calls[0];
@@ -458,8 +481,7 @@ describe('ProjectEditView with Session Defaults', () => {
       });
 
       await wrapper.vm.$nextTick();
-      await flushPromises();
-      await nextTick();
+      await flushAll(wrapper);
 
       expect(wrapper.vm.defaultMode).toBe('');
 
@@ -469,8 +491,7 @@ describe('ProjectEditView with Session Defaults', () => {
       };
 
       await wrapper.vm.$nextTick();
-      await flushPromises();
-      await nextTick();
+      await flushAll(wrapper);
 
       expect(wrapper.vm.defaultMode).toBe('plan');
     });
