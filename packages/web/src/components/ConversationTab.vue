@@ -82,6 +82,14 @@
       Session stopped - send a message to resume
     </div>
 
+    <!-- Quick Responses Panel - shows above the input when not running -->
+    <QuickResponsesPanel
+      v-if="canSendMessage && !isDraft"
+      :show-empty="false"
+      @insert="handleQuickResponseInsert"
+      @openSettings="quickResponseSettingsOpen = true"
+    />
+
     <form v-if="canSendMessage" @submit.prevent="isDraft ? handleStart() : handleSend()" class="input-form">
       <textarea
         v-model="input"
@@ -186,6 +194,13 @@
         Restart Session
       </button>
     </div>
+
+    <!-- Quick Response Settings Modal -->
+    <QuickResponseSettings
+      :isOpen="quickResponseSettingsOpen"
+      :projectId="sessionsStore.currentSession?.projectId"
+      @close="quickResponseSettingsOpen = false"
+    />
   </div>
 </template>
 
@@ -205,6 +220,9 @@ import TokenUsagePanel from './TokenUsagePanel.vue';
 import FileAttachment from './FileAttachment.vue';
 import ModelSelector from './ModelSelector.vue';
 import TemplateSelector from './TemplateSelector.vue';
+import QuickResponsesPanel from './QuickResponsesPanel.vue';
+import QuickResponseSettings from './QuickResponseSettings.vue';
+import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -212,8 +230,10 @@ const props = defineProps({
 
 const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
+const quickResponsesStore = useQuickResponsesStore();
 
 const input = ref('');
+const quickResponseSettingsOpen = ref(false);
 const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
 const saveError = ref('');
 
@@ -323,6 +343,11 @@ onMounted(async () => {
 
   // Fetch conversations for this session
   await sessionsStore.fetchConversations(props.sessionId);
+
+  // Fetch quick responses for the project
+  if (sessionsStore.currentSession?.projectId) {
+    quickResponsesStore.fetchForProject(sessionsStore.currentSession.projectId);
+  }
 
   unsubPartial = onPartial((text) => {
     partialText.value = text;
@@ -495,6 +520,24 @@ async function handleSend() {
     uiStore.error(err.message);
   } finally {
     sending.value = false;
+  }
+}
+
+function handleQuickResponseInsert({ content, autoSubmit }) {
+  if (autoSubmit) {
+    // Auto-submit: send immediately
+    input.value = content;
+    nextTick(() => {
+      handleSend();
+    });
+  } else {
+    // Insert content into input field for editing
+    if (input.value.trim()) {
+      // Append to existing content with newline
+      input.value = input.value.trim() + '\n\n' + content;
+    } else {
+      input.value = content;
+    }
   }
 }
 
