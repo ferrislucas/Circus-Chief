@@ -92,10 +92,11 @@
 
     <form v-if="canSendMessage" @submit.prevent="isDraft ? handleStart() : handleSend()" class="input-form">
       <textarea
-        v-model="input"
+        ref="textareaRef"
         class="form-input form-textarea"
         :placeholder="isDraft ? 'Edit your prompt...' : (isStopped ? 'Send a message to resume session...' : 'Send a follow-up message...')"
         rows="3"
+        @input="handleInput"
         @keydown="handleKeydown"
       ></textarea>
       <div class="input-controls">
@@ -146,7 +147,7 @@
               </span>
             </div>
           </div>
-          <button v-else type="submit" class="btn btn-primary btn-send" :disabled="!input.trim() || sending">
+          <button v-else type="submit" class="btn btn-primary btn-send" :disabled="isSendDisabled">
             <span v-if="sending" class="loading-spinner"></span>
             {{ sending ? 'Sending...' : 'Send' }}
           </button>
@@ -234,8 +235,11 @@ const quickResponsesStore = useQuickResponsesStore();
 
 const input = ref('');
 const quickResponseSettingsOpen = ref(false);
+const inputHasContent = ref(false); // Tracks if textarea has content (for button disabled state)
 const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
 const saveError = ref('');
+const textareaRef = ref(null);
+let inputSyncTimer = null;
 
 // Create keyboard shortcut handler
 const handleKeydown = useSubmitShortcut(() => {
@@ -287,6 +291,11 @@ const unassociatedWorkLogs = computed(() => {
   return sessionsStore.getUnassociatedWorkLogs;
 });
 
+// Computed for send button disabled state - avoids re-evaluating on every render
+const isSendDisabled = computed(() => {
+  return !inputHasContent.value || sending.value;
+});
+
 // Subscribe to partial messages for streaming, work logs, and conversation events
 const {
   onPartial,
@@ -325,6 +334,13 @@ onMounted(async () => {
     const userMessage = sessionsStore.messages.find(msg => msg.role === 'user');
     if (userMessage) {
       input.value = userMessage.content;
+      inputHasContent.value = userMessage.content.trim().length > 0;
+      // Set textarea value directly
+      nextTick(() => {
+        if (textareaRef.value) {
+          textareaRef.value.value = userMessage.content;
+        }
+      });
     }
   }
 
@@ -333,6 +349,13 @@ onMounted(async () => {
     const savedDraft = localStorage.getItem(STORAGE_KEY);
     if (savedDraft) {
       input.value = savedDraft;
+      inputHasContent.value = savedDraft.trim().length > 0;
+      // Set textarea value directly
+      nextTick(() => {
+        if (textareaRef.value) {
+          textareaRef.value.value = savedDraft;
+        }
+      });
     }
   }
 
@@ -419,6 +442,7 @@ onUnmounted(() => {
   if (unsubConvDeleted) unsubConvDeleted();
   if (debounceTimer) clearTimeout(debounceTimer);
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
+  if (inputSyncTimer) clearTimeout(inputSyncTimer);
   if (messagesContainer.value) {
     messagesContainer.value.removeEventListener('scroll', handleScroll);
   }
@@ -428,28 +452,43 @@ onUnmounted(() => {
   sessionsStore.clearWorkLogs();
 });
 
-// Auto-save draft to database (for draft sessions) and localStorage with debounce
-watch(input, (newValue) => {
-  if (debounceTimer) clearTimeout(debounceTimer);
-  if (draftSaveTimer) clearTimeout(draftSaveTimer);
+// Handle textarea input with debounced sync to reactive state
+// This prevents Vue reactivity from firing on every keystroke
+function handleInput(event) {
+  const value = event.target.value;
+  const hasContent = value.trim().length > 0;
 
-  // Mark as unsaved immediately when user types
-  if (isDraft.value) {
+  // Only update the reactive flag if it changed (minimizes re-renders)
+  if (inputHasContent.value !== hasContent) {
+    inputHasContent.value = hasContent;
+  }
+
+  // Mark draft as unsaved immediately (but only if status changed)
+  if (isDraft.value && saveStatus.value !== 'unsaved' && saveStatus.value !== 'saving') {
     saveStatus.value = 'unsaved';
   }
 
-  debounceTimer = setTimeout(() => {
-    if (newValue.trim()) {
-      localStorage.setItem(STORAGE_KEY, newValue);
+  // Debounce the sync to reactive state and localStorage
+  if (inputSyncTimer) clearTimeout(inputSyncTimer);
+  if (debounceTimer) clearTimeout(debounceTimer);
+  if (draftSaveTimer) clearTimeout(draftSaveTimer);
+
+  inputSyncTimer = setTimeout(() => {
+    // Sync to reactive state (for handleSend/handleStart to access)
+    input.value = value;
+
+    // Save to localStorage
+    if (value.trim()) {
+      localStorage.setItem(STORAGE_KEY, value);
       // Auto-save draft to database
       if (isDraft.value) {
-        saveDraftPrompt(newValue);
+        saveDraftPrompt(value);
       }
     } else {
       localStorage.removeItem(STORAGE_KEY);
     }
-  }, 500);
-});
+  }, 150); // Short debounce for syncing, longer operations handled inside
+}
 
 function scrollToBottom(force = false) {
   nextTick(() => {
@@ -507,12 +546,16 @@ function getAttachmentIcon(mimeType) {
 }
 
 async function handleSend() {
-  if (!input.value.trim() || sending.value) return;
+  // Sync from textarea directly in case debounce timer hasn't fired
+  const currentValue = textareaRef.value?.value || input.value;
+  if (!currentValue.trim() || sending.value) return;
 
   sending.value = true;
   try {
-    await sessionsStore.sendMessage(props.sessionId, input.value, attachedFiles.value);
+    await sessionsStore.sendMessage(props.sessionId, currentValue, attachedFiles.value);
     input.value = '';
+    inputHasContent.value = false;
+    if (textareaRef.value) textareaRef.value.value = '';
     attachedFiles.value = [];
     fileAttachment.value?.clear();
     localStorage.removeItem(STORAGE_KEY);
@@ -590,12 +633,14 @@ async function saveDraftPrompt(prompt) {
 }
 
 async function handleStart() {
-  if (restarting.value || !input.value.trim()) return;
+  // Sync from textarea directly in case debounce timer hasn't fired
+  const currentValue = textareaRef.value?.value || input.value;
+  if (restarting.value || !currentValue.trim()) return;
 
   restarting.value = true;
   try {
     // Pass the current prompt to the start API
-    await api.startSession(props.sessionId, input.value);
+    await api.startSession(props.sessionId, currentValue);
     uiStore.success('Session started');
     // Clear localStorage draft on successful start
     localStorage.removeItem(STORAGE_KEY);
