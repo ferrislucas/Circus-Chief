@@ -185,6 +185,48 @@ describe('summaryService', () => {
       expect(result).toContain('Session title guidelines');
       expect(result).toContain('PR #N:');
     });
+
+    it('uses default session title prompt when none provided', () => {
+      const recentMessages = [{ role: 'user', content: 'Test' }];
+      const result = buildIncrementalPrompt(null, recentMessages, 'running', null);
+      expect(result).toContain('STRATEGIC GOAL');
+      expect(result).toContain('PRESERVE the existing title');
+      expect(result).toContain('max 60 characters');
+    });
+
+    it('uses custom session title prompt when provided', () => {
+      const customPrompt = 'Custom title guidelines: Always use emojis in titles!';
+      const recentMessages = [{ role: 'user', content: 'Test' }];
+      const result = buildIncrementalPrompt(null, recentMessages, 'running', customPrompt);
+      expect(result).toContain(customPrompt);
+      expect(result).not.toContain('STRATEGIC GOAL'); // Should not have default when custom provided
+    });
+
+    it('includes previous title in context when existing summary provided', () => {
+      const existingSummary = {
+        fullSummary: 'Previous work',
+        keyActions: ['action1'],
+        filesModified: ['file1.js'],
+        outcome: 'ongoing',
+        sessionTitle: 'Add dark mode support',
+      };
+      const recentMessages = [{ role: 'user', content: 'Test message' }];
+      const result = buildIncrementalPrompt(existingSummary, recentMessages, 'running');
+      expect(result).toContain('Previous title: Add dark mode support');
+    });
+
+    it('shows not set for previous title when missing', () => {
+      const existingSummary = {
+        fullSummary: 'Previous work',
+        keyActions: ['action1'],
+        filesModified: ['file1.js'],
+        outcome: 'ongoing',
+        sessionTitle: null,
+      };
+      const recentMessages = [{ role: 'user', content: 'Test message' }];
+      const result = buildIncrementalPrompt(existingSummary, recentMessages, 'running');
+      expect(result).toContain('Previous title: Not set');
+    });
   });
 
   describe('parseSummaryResponse', () => {

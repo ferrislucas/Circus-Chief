@@ -22,19 +22,96 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Compose file location
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.playwright.yml"
 
-# Auto-detect server port
+# Wait for server to be ready
+# Polls the server on the given port until it responds or timeout
+# Args: $1 = port number, $2 = timeout in seconds (default: 30)
+wait_for_server() {
+    local port=$1
+    local timeout=${2:-30}
+    local elapsed=0
+
+    print_info "Waiting for server on port $port to be ready..."
+
+    while [ $elapsed -lt $timeout ]; do
+        if curl -s "http://localhost:$port/api/projects" > /dev/null 2>&1; then
+            print_success "Server is ready on port $port"
+            return 0
+        fi
+        sleep 1
+        ((elapsed++))
+    done
+
+    print_error "Server did not respond after ${timeout}s"
+    return 1
+}
+
+# Detect or start server
+# Checks if .server-port exists and if server is running, or starts it
+# Returns the port number on success
+detect_or_start_server() {
+    local port_file="$PROJECT_ROOT/.server-port"
+    local detected_port=""
+
+    # Check if .server-port file exists
+    if [ -f "$port_file" ]; then
+        detected_port=$(cat "$port_file")
+        print_info "Found .server-port file with port: $detected_port"
+
+        # Check if server is actually running on that port
+        if curl -s "http://localhost:$detected_port/api/projects" > /dev/null 2>&1; then
+            print_success "Server is already running on port $detected_port"
+            echo "$detected_port"
+            return 0
+        else
+            print_warning "Server not running on port $detected_port (stale .server-port file)"
+            rm -f "$port_file"
+        fi
+    fi
+
+    # No valid server found, start one
+    print_info "Starting server..."
+
+    # Run start-server.sh in background
+    "$SCRIPT_DIR/start-server.sh" > /tmp/server-startup.log 2>&1 &
+    local server_pid=$!
+
+    # Wait for .server-port file to be created
+    local elapsed=0
+    local timeout=30
+    while [ $elapsed -lt $timeout ]; do
+        if [ -f "$port_file" ]; then
+            detected_port=$(cat "$port_file")
+            print_success "Server started with port: $detected_port"
+
+            # Wait for server to be ready
+            if wait_for_server "$detected_port" 30; then
+                echo "$detected_port"
+                return 0
+            else
+                print_error "Failed to start server. Check /tmp/server-startup.log"
+                return 1
+            fi
+        fi
+        sleep 1
+        ((elapsed++))
+    done
+
+    print_error "Server startup timed out. Check /tmp/server-startup.log"
+    return 1
+}
+
+# Auto-detect server port (legacy, kept for backward compatibility)
 detect_server_port() {
     local port_file="$PROJECT_ROOT/.server-port"
     if [ -f "$port_file" ]; then
         cat "$port_file"
     else
-        echo "5000"  # Default fallback
+        echo ""  # No fallback - return empty
     fi
 }
 
-# Get the server port (auto-detect or use default)
-SERVER_PORT=$(detect_server_port)
-SERVER_URL="http://localhost:$SERVER_PORT"
+# Server port will be detected dynamically per command
+# (Previously defaulted to 5000, now requires active server or auto-starts it)
 
 # Colors for output
 RED='\033[0;31m'
@@ -77,15 +154,18 @@ cmd_build() {
 # Run tests
 cmd_test() {
     ensure_directories
-    print_info "Running Playwright tests..."
 
-    # Read the server port if .server-port file exists
-    if [ -f "$PROJECT_ROOT/.server-port" ]; then
-        TEST_SERVER_PORT=$(cat "$PROJECT_ROOT/.server-port")
-        export API_URL="http://localhost:$TEST_SERVER_PORT"
-        export BASE_URL="http://localhost:$TEST_SERVER_PORT"
-        print_info "Using test server port: $TEST_SERVER_PORT"
+    # Ensure server is running
+    local TEST_SERVER_PORT
+    TEST_SERVER_PORT=$(detect_or_start_server)
+    if [ -z "$TEST_SERVER_PORT" ]; then
+        print_error "Failed to start or detect server. Cannot run tests."
+        exit 1
     fi
+
+    export API_URL="http://localhost:$TEST_SERVER_PORT"
+    export BASE_URL="http://localhost:$TEST_SERVER_PORT"
+    print_info "Running Playwright tests on port: $TEST_SERVER_PORT"
 
     docker compose -f "$COMPOSE_FILE" run --rm playwright test "$@"
 }
@@ -97,7 +177,15 @@ cmd_screenshot() {
     if [ -z "$1" ]; then
         print_error "URL is required"
         echo "Usage: $0 screenshot <url> [filename]"
-        echo "Example: $0 screenshot $SERVER_URL homepage.png"
+
+        # Try to detect the server for the example, but don't fail if it doesn't exist
+        local example_url="http://localhost:5000"
+        if [ -f "$PROJECT_ROOT/.server-port" ]; then
+            local port=$(cat "$PROJECT_ROOT/.server-port")
+            example_url="http://localhost:$port"
+        fi
+
+        echo "Example: $0 screenshot $example_url homepage.png"
         exit 1
     fi
 
@@ -111,7 +199,15 @@ cmd_screenshot() {
 
 # Run codegen
 cmd_codegen() {
-    local url="${1:-$SERVER_URL}"
+    # Ensure server is running to provide a default URL
+    local SERVER_PORT
+    SERVER_PORT=$(detect_or_start_server)
+    if [ -z "$SERVER_PORT" ]; then
+        print_error "Failed to start or detect server. Cannot run codegen."
+        exit 1
+    fi
+
+    local url="${1:-http://localhost:$SERVER_PORT}"
 
     # Check if X11 is available
     if [ -z "$DISPLAY" ]; then
@@ -139,15 +235,17 @@ cmd_debug() {
         print_warning "DISPLAY not set. Debug mode requires X11 for headed mode."
     fi
 
-    print_info "Running tests in debug mode (headed browser)..."
-
-    # Read the server port if .server-port file exists
-    if [ -f "$PROJECT_ROOT/.server-port" ]; then
-        TEST_SERVER_PORT=$(cat "$PROJECT_ROOT/.server-port")
-        export API_URL="http://localhost:$TEST_SERVER_PORT"
-        export BASE_URL="http://localhost:$TEST_SERVER_PORT"
-        print_info "Using test server port: $TEST_SERVER_PORT"
+    # Ensure server is running
+    local TEST_SERVER_PORT
+    TEST_SERVER_PORT=$(detect_or_start_server)
+    if [ -z "$TEST_SERVER_PORT" ]; then
+        print_error "Failed to start or detect server. Cannot run debug tests."
+        exit 1
     fi
+
+    export API_URL="http://localhost:$TEST_SERVER_PORT"
+    export BASE_URL="http://localhost:$TEST_SERVER_PORT"
+    print_info "Running tests in debug mode (headed browser) on port: $TEST_SERVER_PORT"
 
     docker compose -f "$COMPOSE_FILE" --profile headed run --rm playwright-headed test "$@"
 }
@@ -181,10 +279,11 @@ Commands:
 
   help                     Show this help message
 
-Auto-Detection:
-  Server port is automatically detected from .server-port file.
-  Current detected URL: $SERVER_URL
-  (Falls back to http://localhost:5000 if .server-port not found)
+Auto-Detection & Auto-Start:
+  • If .server-port exists and server is running → use that port
+  • If .server-port is stale or missing → automatically start server via ./scripts/start-server.sh
+  • Each worktree gets its own port (main repo = 5000, worktrees = 5001+)
+  • Tests will NEVER use the wrong server
 
 Environment Variables:
   BASE_URL          Base URL for tests (auto-detected, can be overridden)
@@ -197,20 +296,20 @@ Environment Variables:
   TIMEOUT           Timeout in ms (default: 30000)
 
 Examples:
-  # Run all tests
+  # Run all tests (auto-starts server if needed)
   $(basename "$0") test
 
   # Run specific test
   $(basename "$0") test tests/auth.spec.ts
 
-  # Screenshot with custom viewport
-  VIEWPORT_WIDTH=1920 VIEWPORT_HEIGHT=1080 $(basename "$0") screenshot $SERVER_URL wide.png
+  # Debug mode (headed browser, auto-starts server)
+  $(basename "$0") debug tests/login.spec.ts
 
-  # Mobile screenshot
-  DEVICE="iPhone 14" $(basename "$0") screenshot $SERVER_URL mobile.png
+  # Screenshot (server URL auto-detected from .server-port)
+  $(basename "$0") screenshot http://localhost:5001 homepage.png
 
-  # Full page screenshot
-  FULL_PAGE=true $(basename "$0") screenshot $SERVER_URL full.png
+  # Codegen (auto-starts server and opens it by default)
+  $(basename "$0") codegen
 
   # Use Firefox
   BROWSER=firefox $(basename "$0") test

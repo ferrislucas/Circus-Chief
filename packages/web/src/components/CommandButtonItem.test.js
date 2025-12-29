@@ -493,8 +493,8 @@ describe('CommandButtonItem', () => {
     // Component should render with output section
     expect(wrapper.find('.output-section').exists()).toBe(true);
 
-    // Output section is expanded by default for running commands
-    // (showOutput defaults to true when status is 'running')
+    // Output section starts EXPANDED when status is 'running' (showOutput defaults to true)
+    // So we don't need to click to expand - it's already visible
     const outputDiv = wrapper.find('.output-text');
     expect(outputDiv.exists()).toBe(true);
     expect(outputDiv.html()).toContain('Test output');
