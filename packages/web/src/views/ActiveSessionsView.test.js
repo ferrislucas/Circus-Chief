@@ -76,6 +76,21 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useGlobalSessionSubscription } from '../composables/useWebSocket.js';
 
+// Global helper to flush all async updates and force DOM re-render
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    // Force Vue to re-render with updated state
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    // Multiple update cycles to ensure all conditions re-evaluate
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
+
 describe('ActiveSessionsView', () => {
   let mockSessionsStore;
   let mockCommandButtonsStore;
@@ -357,11 +372,11 @@ describe('Status filtering', () => {
 
   it('filters to show only running sessions (running + starting) when running filter is clicked', async () => {
     const wrapper = mount(ActiveSessionsView);
-    await flushPromises();
+    await flushAll(wrapper);
 
     const runningButton = wrapper.findAll('.filter-btn')[0];
     await runningButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
 
     const sessionCards = wrapper.findAll('.session-card');
     expect(sessionCards).toHaveLength(2);
@@ -372,11 +387,11 @@ describe('Status filtering', () => {
 
   it('filters to show only idle sessions (waiting + error + stopped) when idle filter is clicked', async () => {
     const wrapper = mount(ActiveSessionsView);
-    await flushPromises();
+    await flushAll(wrapper);
 
     const idleButton = wrapper.findAll('.filter-btn')[1];
     await idleButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
 
     const sessionCards = wrapper.findAll('.session-card');
     expect(sessionCards).toHaveLength(3);
@@ -388,7 +403,7 @@ describe('Status filtering', () => {
 
   it('makes filters mutually exclusive - running filter disables idle filter', async () => {
     const wrapper = mount(ActiveSessionsView);
-    await flushPromises();
+    await flushAll(wrapper);
 
     let filterButtons = wrapper.findAll('.filter-btn');
     let runningButton = filterButtons[0];
@@ -396,7 +411,7 @@ describe('Status filtering', () => {
 
     // Click running filter
     await runningButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
     filterButtons = wrapper.findAll('.filter-btn');
     runningButton = filterButtons[0];
     idleButton = filterButtons[1];
@@ -405,7 +420,7 @@ describe('Status filtering', () => {
 
     // Click idle filter - should disable running and enable idle
     await idleButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
     filterButtons = wrapper.findAll('.filter-btn');
     runningButton = filterButtons[0];
     idleButton = filterButtons[1];
@@ -415,7 +430,7 @@ describe('Status filtering', () => {
 
   it('makes filters mutually exclusive - idle filter disables running filter', async () => {
     const wrapper = mount(ActiveSessionsView);
-    await flushPromises();
+    await flushAll(wrapper);
 
     let filterButtons = wrapper.findAll('.filter-btn');
     let runningButton = filterButtons[0];
@@ -423,7 +438,7 @@ describe('Status filtering', () => {
 
     // Click idle filter first
     await idleButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
     filterButtons = wrapper.findAll('.filter-btn');
     runningButton = filterButtons[0];
     idleButton = filterButtons[1];
@@ -432,7 +447,7 @@ describe('Status filtering', () => {
 
     // Click running filter - should disable idle and enable running
     await runningButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
     filterButtons = wrapper.findAll('.filter-btn');
     runningButton = filterButtons[0];
     idleButton = filterButtons[1];
@@ -442,20 +457,20 @@ describe('Status filtering', () => {
 
   it('toggles filter off when clicked again (shows all sessions)', async () => {
     const wrapper = mount(ActiveSessionsView);
-    await flushPromises();
+    await flushAll(wrapper);
 
     let runningButton = wrapper.findAll('.filter-btn')[0];
 
     // Click to enable filter
     await runningButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
     runningButton = wrapper.findAll('.filter-btn')[0];
     expect(wrapper.findAll('.session-card')).toHaveLength(2);
     expect(runningButton.classes()).toContain('active');
 
     // Click again to disable filter (show all)
     await runningButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
     runningButton = wrapper.findAll('.filter-btn')[0];
     expect(wrapper.findAll('.session-card')).toHaveLength(5);
     expect(runningButton.classes()).not.toContain('active');
@@ -463,24 +478,24 @@ describe('Status filtering', () => {
 
   it('adds active class to selected filter button', async () => {
     const wrapper = mount(ActiveSessionsView);
-    await flushPromises();
+    await flushAll(wrapper);
 
     let runningButton = wrapper.findAll('.filter-btn')[0];
     expect(runningButton.classes()).not.toContain('active');
 
     await runningButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
     runningButton = wrapper.findAll('.filter-btn')[0];
     expect(runningButton.classes()).toContain('active');
   });
 
   it('includes starting status in running filter', async () => {
     const wrapper = mount(ActiveSessionsView);
-    await flushPromises();
+    await flushAll(wrapper);
 
     const runningButton = wrapper.findAll('.filter-btn')[0];
     await runningButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
 
     const sessionCards = wrapper.findAll('.session-card');
     const sessionIds = sessionCards.map(card => card.attributes('data-session-id'));
@@ -491,11 +506,11 @@ describe('Status filtering', () => {
 
   it('includes waiting and error statuses in idle filter', async () => {
     const wrapper = mount(ActiveSessionsView);
-    await flushPromises();
+    await flushAll(wrapper);
 
     const idleButton = wrapper.findAll('.filter-btn')[1];
     await idleButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
 
     const sessionCards = wrapper.findAll('.session-card');
     const sessionIds = sessionCards.map(card => card.attributes('data-session-id'));
@@ -513,12 +528,12 @@ describe('Status filtering', () => {
     useSessionsStore.mockReturnValue(mockSessionsStore);
 
     const wrapper = mount(ActiveSessionsView);
-    await flushPromises();
+    await flushAll(wrapper);
 
     // Click idle filter - no idle sessions exist
     const idleButton = wrapper.findAll('.filter-btn')[1];
     await idleButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
 
     const emptyState = wrapper.find('.empty-state');
     expect(emptyState.exists()).toBe(true);
@@ -535,11 +550,11 @@ describe('Status filtering', () => {
     useSessionsStore.mockReturnValue(mockSessionsStore);
 
     const wrapper = mount(ActiveSessionsView);
-    await flushPromises();
+    await flushAll(wrapper);
 
     const runningButton = wrapper.findAll('.filter-btn')[0];
     await runningButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
 
     const sessionCards = wrapper.findAll('.session-card');
     expect(sessionCards).toHaveLength(2);
@@ -558,11 +573,11 @@ describe('Status filtering', () => {
     useSessionsStore.mockReturnValue(mockSessionsStore);
 
     const wrapper = mount(ActiveSessionsView);
-    await flushPromises();
+    await flushAll(wrapper);
 
     const idleButton = wrapper.findAll('.filter-btn')[1];
     await idleButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
 
     const sessionCards = wrapper.findAll('.session-card');
     expect(sessionCards).toHaveLength(3);

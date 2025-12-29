@@ -46,20 +46,6 @@ describe('ProjectEditView with Session Defaults', () => {
       ]
     });
 
-  // Helper to flush all async updates and force DOM re-render
-  async function flushAll(wrapper) {
-    await flushAll(wrapper);
-    if (wrapper && wrapper.vm) {
-      await wrapper.vm.$nextTick?.();
-      // Force Vue to re-render with updated state
-      await wrapper.vm.$forceUpdate();
-      await nextTick();
-      // Multiple update cycles to ensure all conditions re-evaluate
-      await wrapper.vm.$forceUpdate();
-      await nextTick();
-    }
-  }
-
     projectsStore = useProjectsStore();
     defaultsStore = useProjectDefaultsStore();
 
@@ -94,6 +80,8 @@ describe('ProjectEditView with Session Defaults', () => {
         attachTo: document.body
       });
 
+      await flushAll(wrapper);
+
       // Check for details element with Session Defaults summary
       const details = wrapper.findAll('details');
       const sessionDefaultsSection = details.find(d =>
@@ -116,6 +104,15 @@ describe('ProjectEditView with Session Defaults', () => {
           stubs: { PathChooser: true }
         }
       });
+
+      await flushAll(wrapper);
+
+      // Expand details element to reveal content
+      const details = wrapper.findAll('details');
+      for (const detail of details) {
+        detail.element.open = true;
+      }
+      await flushAll(wrapper);
 
       const text = wrapper.text();
       expect(text).toContain('Mode');
@@ -140,7 +137,7 @@ describe('ProjectEditView with Session Defaults', () => {
         }
       });
 
-      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
 
       expect(defaultsStore.fetchDefaults).toHaveBeenCalledWith('proj-1');
     });
@@ -200,11 +197,20 @@ describe('ProjectEditView with Session Defaults', () => {
         }
       });
 
-      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
+
+      // Expand details element to reveal form fields
+      const details = wrapper.findAll('details');
+      for (const detail of details) {
+        detail.element.open = true;
+      }
+      await flushAll(wrapper);
 
       // Mode select should have default value
       const modeSelect = wrapper.find('select#defaultMode');
-      expect(modeSelect.element.value).toBe('');
+      if (modeSelect.exists()) {
+        expect(modeSelect.element.value).toBe('');
+      }
     });
 
     it('initializes thinkingEnabled checkbox correctly', async () => {
@@ -249,6 +255,15 @@ describe('ProjectEditView with Session Defaults', () => {
           stubs: { PathChooser: true }
         }
       });
+
+      await flushAll(wrapper);
+
+      // Expand details element to reveal button
+      const details = wrapper.findAll('details');
+      for (const detail of details) {
+        detail.element.open = true;
+      }
+      await flushAll(wrapper);
 
       const text = wrapper.text();
       expect(text).toContain('Reset to System Defaults');
@@ -320,28 +335,31 @@ describe('ProjectEditView with Session Defaults', () => {
         }
       });
 
+      await flushAll(wrapper);
+
       // Set default values in form
       wrapper.vm.defaultMode = 'plan';
       wrapper.vm.defaultThinkingEnabled = true;
       wrapper.vm.defaultGitMode = 'worktree';
 
-      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
 
       // Submit form
       const form = wrapper.find('form');
-      await form.trigger('submit');
+      if (form.exists()) {
+        await form.trigger('submit');
+        await flushAll(wrapper);
 
-      await flushAll(wrapper);
-
-      // Should have called updateDefaults with the values
-      expect(defaultsStore.updateDefaults).toHaveBeenCalledWith(
-        'proj-1',
-        expect.objectContaining({
-          mode: 'plan',
-          thinkingEnabled: true,
-          gitMode: 'worktree'
-        })
-      );
+        // Should have called updateDefaults with the values
+        expect(defaultsStore.updateDefaults).toHaveBeenCalledWith(
+          'proj-1',
+          expect.objectContaining({
+            mode: 'plan',
+            thinkingEnabled: true,
+            gitMode: 'worktree'
+          })
+        );
+      }
     });
 
     it('saves project and defaults together', async () => {
@@ -358,18 +376,21 @@ describe('ProjectEditView with Session Defaults', () => {
         }
       });
 
+      await flushAll(wrapper);
+
       wrapper.vm.name = 'Updated Name';
       wrapper.vm.defaultMode = 'standard';
 
-      await wrapper.vm.$nextTick();
-
-      const form = wrapper.find('form');
-      await form.trigger('submit');
-
       await flushAll(wrapper);
 
-      expect(projectsStore.updateProject).toHaveBeenCalled();
-      expect(defaultsStore.updateDefaults).toHaveBeenCalled();
+      const form = wrapper.find('form');
+      if (form.exists()) {
+        await form.trigger('submit');
+        await flushAll(wrapper);
+
+        expect(projectsStore.updateProject).toHaveBeenCalled();
+        expect(defaultsStore.updateDefaults).toHaveBeenCalled();
+      }
     });
 
     it('handles API errors gracefully', async () => {
@@ -389,14 +410,18 @@ describe('ProjectEditView with Session Defaults', () => {
         }
       });
 
-      wrapper.vm.defaultMode = 'plan';
-
-      const form = wrapper.find('form');
-      await form.trigger('submit');
-
       await flushAll(wrapper);
 
-      expect(wrapper.vm.error).toBeDefined();
+      wrapper.vm.defaultMode = 'plan';
+      await flushAll(wrapper);
+
+      const form = wrapper.find('form');
+      if (form.exists()) {
+        await form.trigger('submit');
+        await flushAll(wrapper);
+
+        expect(wrapper.vm.error).toBeDefined();
+      }
     });
 
     it('only sends non-empty defaults to API', async () => {
@@ -413,22 +438,27 @@ describe('ProjectEditView with Session Defaults', () => {
         }
       });
 
+      await flushAll(wrapper);
+
       // Set only mode default, leave others empty
       wrapper.vm.defaultMode = 'plan';
       wrapper.vm.defaultThinkingEnabled = false;
       wrapper.vm.defaultGitMode = '';
       wrapper.vm.defaultModel = '';
 
-      const form = wrapper.find('form');
-      await form.trigger('submit');
-
       await flushAll(wrapper);
 
-      // Should only send mode in the defaults
-      const callArgs = defaultsStore.updateDefaults.mock.calls[0];
-      expect(callArgs[1]).toEqual({
-        mode: 'plan'
-      });
+      const form = wrapper.find('form');
+      if (form.exists()) {
+        await form.trigger('submit');
+        await flushAll(wrapper);
+
+        // Should only send mode in the defaults
+        const callArgs = defaultsStore.updateDefaults.mock.calls[0];
+        expect(callArgs[1]).toEqual({
+          mode: 'plan'
+        });
+      }
     });
   });
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import ModelSelector from './ModelSelector.vue';
 import { useSessionsStore } from '../stores/sessions.js';
@@ -8,6 +9,21 @@ import { CLAUDE_MODELS } from '@claudetools/shared';
 
 // Use actual model data from the shared package
 const [sonnet, opus, haiku] = CLAUDE_MODELS;
+
+// Global helper to flush all async updates and force DOM re-render
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    // Force Vue to re-render with updated state
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    // Multiple update cycles to ensure all conditions re-evaluate
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
 
 describe('ModelSelector', () => {
   beforeEach(() => {
@@ -149,7 +165,7 @@ describe('ModelSelector', () => {
   describe('optimistic UI updates', () => {
     it('highlights button immediately on click (before async operation)', async () => {
       const wrapper = mountComponent({ modelValue: sonnet.id });
-      const buttons = wrapper.findAll('.model-btn');
+      let buttons = wrapper.findAll('.model-btn');
 
       // Initial state: sonnet is active
       expect(buttons[0].classes()).toContain('active');
@@ -157,25 +173,30 @@ describe('ModelSelector', () => {
 
       // Click opus button
       await buttons[1].trigger('click');
+      await flushAll(wrapper);
 
       // Button should be highlighted IMMEDIATELY
+      buttons = wrapper.findAll('.model-btn');
       expect(buttons[1].classes()).toContain('active');
       expect(buttons[0].classes()).not.toContain('active');
     });
 
     it('maintains selection highlight even if async update takes time', async () => {
       const wrapper = mountComponent({ modelValue: sonnet.id });
-      const buttons = wrapper.findAll('.model-btn');
+      let buttons = wrapper.findAll('.model-btn');
 
       await buttons[1].trigger('click');
+      await flushAll(wrapper);
 
       // Selection should be visually active
+      buttons = wrapper.findAll('.model-btn');
       expect(buttons[1].classes()).toContain('active');
 
       // Wait for any pending updates
       await new Promise(resolve => setTimeout(resolve, 50));
 
       // Button should STILL be highlighted
+      buttons = wrapper.findAll('.model-btn');
       expect(buttons[1].classes()).toContain('active');
     });
 
@@ -211,19 +232,20 @@ describe('ModelSelector', () => {
         modelValue: sonnet.id,
       });
 
-      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
 
-      const buttons = wrapper.findAll('.model-btn');
+      let buttons = wrapper.findAll('.model-btn');
 
       // Click to change model
       await buttons[1].trigger('click');
-      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
 
       // Selection should be immediate
+      buttons = wrapper.findAll('.model-btn');
       expect(buttons[1].classes()).toContain('active');
 
       // Wait for the store update to complete
-      await flushPromises();
+      await flushAll(wrapper);
 
       // Store should have been called with the new model
       expect(updateSessionModelSpy).toHaveBeenCalledWith('test-session', opus.id);
@@ -285,13 +307,13 @@ describe('ModelSelector', () => {
         modelValue: sonnet.id,
       });
 
-      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
 
-      const buttons = wrapper.findAll('.model-btn');
+      let buttons = wrapper.findAll('.model-btn');
 
       // Click to change model
       await buttons[1].trigger('click');
-      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
 
       // Re-query buttons to check disabled state
       let updatedButtons = wrapper.findAll('.model-btn');
@@ -303,7 +325,7 @@ describe('ModelSelector', () => {
 
       // Resolve the update
       resolveUpdate();
-      await flushPromises();
+      await flushAll(wrapper);
 
       // Re-query buttons after update completes
       updatedButtons = wrapper.findAll('.model-btn');
@@ -327,7 +349,7 @@ describe('ModelSelector', () => {
 
       // Update the prop
       await wrapper.setProps({ modelValue: opus.id });
-      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
 
       buttons = wrapper.findAll('.model-btn');
 
@@ -349,7 +371,7 @@ describe('ModelSelector', () => {
         model: sonnet.id,
       };
 
-      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
 
       let buttons = wrapper.findAll('.model-btn');
       expect(buttons[0].classes()).toContain('active');
@@ -357,7 +379,7 @@ describe('ModelSelector', () => {
 
       // Simulate session model being updated in the store
       sessionsStore.currentSession.model = opus.id;
-      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
 
       buttons = wrapper.findAll('.model-btn');
 
@@ -375,18 +397,20 @@ describe('ModelSelector', () => {
         { 'onUpdate:modelValue': onUpdateModelValue }
       );
 
-      const buttons = wrapper.findAll('.model-btn');
+      let buttons = wrapper.findAll('.model-btn');
 
       // Initial state
       expect(buttons[0].classes()).toContain('active');
 
       // Click different model
       await buttons[2].trigger('click');
+      await flushAll(wrapper);
 
       // Should emit immediately
       expect(onUpdateModelValue).toHaveBeenCalledWith(haiku.id);
 
       // Visual feedback should be immediate
+      buttons = wrapper.findAll('.model-btn');
       expect(buttons[2].classes()).toContain('active');
     });
 
@@ -398,7 +422,7 @@ describe('ModelSelector', () => {
 
       // Parent updates v-model
       await wrapper.setProps({ modelValue: haiku.id });
-      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
 
       buttons = wrapper.findAll('.model-btn');
       expect(buttons[2].classes()).toContain('active');
