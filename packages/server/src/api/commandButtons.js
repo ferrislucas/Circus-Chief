@@ -19,7 +19,7 @@ router.get('/', (req, res) => {
 router.post('/', (req, res) => {
   const result = CreateCommandButtonRequest.safeParse(req.body);
   if (!result.success) {
-    return res.status(400).json({ error: result.error.errors[0].message });
+    return res.status(400).json({ error: result.error.issues[0].message });
   }
 
   const button = commandButtons.create({
@@ -51,7 +51,7 @@ router.patch('/:id', (req, res) => {
 
   const result = UpdateCommandButtonRequest.safeParse(req.body);
   if (!result.success) {
-    return res.status(400).json({ error: result.error.errors[0].message });
+    return res.status(400).json({ error: result.error.issues[0].message });
   }
 
   // Map validated data and only include fields that were provided

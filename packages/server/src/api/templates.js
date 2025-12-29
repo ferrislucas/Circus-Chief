@@ -14,7 +14,7 @@ router.get('/', (_req, res) => {
 router.post('/', (req, res) => {
   const result = CreateSessionTemplateRequest.safeParse(req.body);
   if (!result.success) {
-    return res.status(400).json({ error: result.error.errors[0].message });
+    return res.status(400).json({ error: result.error.issues[0].message });
   }
 
   const template = sessionTemplates.create({
@@ -42,7 +42,7 @@ router.patch('/:id', (req, res) => {
 
   const result = UpdateSessionTemplateRequest.safeParse(req.body);
   if (!result.success) {
-    return res.status(400).json({ error: result.error.errors[0].message });
+    return res.status(400).json({ error: result.error.issues[0].message });
   }
 
   const updated = sessionTemplates.update(req.params.id, result.data);

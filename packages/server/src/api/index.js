@@ -5,6 +5,7 @@ import templatesRouter from './templates.js';
 import canvasRouter from './canvas.js';
 import gitRouter from './git.js';
 import filesystemRouter from './filesystem.js';
+import quickResponsesRouter from './quickResponses.js';
 
 const router = Router();
 
@@ -16,5 +17,8 @@ router.use('/filesystem', filesystemRouter);
 
 // Canvas routes are nested under sessions
 router.use('/sessions', canvasRouter);
+
+// Quick responses routes (nested under both projects and standalone)
+router.use('/', quickResponsesRouter);
 
 export default router;
