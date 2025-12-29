@@ -20,6 +20,16 @@ const MAX_RETRIES = 2;
 // Check if mock mode is enabled
 const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
 
+// Default prompt for strategic session titles
+const DEFAULT_SESSION_TITLE_PROMPT = `Guidelines for generating session titles:
+- The title should capture the SESSION'S STRATEGIC GOAL, not current tactical activity
+- Focus on WHAT the user ultimately wants to achieve (e.g., "Add dark mode support")
+- NOT the current step (e.g., "Fix TypeScript error", "Update tests")
+- If a PR was created, format as "PR #N: <strategic goal>"
+- PRESERVE the existing title if it still reflects the strategic goal
+- Only change the title if the session's fundamental purpose has changed
+- Keep titles concise (max 60 characters)`;
+
 /**
  * Mock query generator for summary generation in test mode
  * Mirrors the Claude Code SDK's async generator pattern
@@ -180,19 +190,24 @@ function formatMessages(messageList) {
  * @param {Object|null} existingSummary - Existing summary if any
  * @param {Array} recentMessages - Recent messages to summarize
  * @param {string} sessionStatus - Current session status
+ * @param {string|null} projectTitlePrompt - Custom prompt for session titles (uses default if null)
  * @returns {string}
  */
-function buildIncrementalPrompt(existingSummary, recentMessages, sessionStatus) {
+function buildIncrementalPrompt(existingSummary, recentMessages, sessionStatus, projectTitlePrompt = null) {
   const existingContext = existingSummary
     ? `EXISTING SUMMARY:
 ${existingSummary.fullSummary}
 
 Key actions so far: ${JSON.stringify(existingSummary.keyActions || [])}
 Files modified: ${JSON.stringify(existingSummary.filesModified || [])}
-Previous outcome: ${existingSummary.outcome}`
+Previous outcome: ${existingSummary.outcome}
+Previous title: ${existingSummary.sessionTitle || 'Not set'}`
     : 'EXISTING SUMMARY:\nNo previous summary - this is the first generation.';
 
   const formattedMessages = formatMessages(recentMessages);
+
+  // Use custom prompt if provided, otherwise use default
+  const sessionTitlePrompt = projectTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT;
 
   return `You are updating a session summary for a Claude Code session. Current session status: ${sessionStatus}
 
@@ -225,8 +240,7 @@ Outcome guidelines:
 - "ongoing": Session is still active/waiting for user input
 
 Session title guidelines:
-- If a PR was created or updated, format as "PR #N: brief description"
-- Otherwise, create a concise descriptive title summarizing the task`;
+${sessionTitlePrompt}`;
 }
 
 /**
@@ -328,8 +342,8 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
       generating: true,
     });
 
-    // Build prompt
-    const prompt = buildIncrementalPrompt(existingSummary, recentMessages, session.status);
+    // Build prompt with project-specific title prompt if available
+    const prompt = buildIncrementalPrompt(existingSummary, recentMessages, session.status, project?.sessionTitlePrompt);
 
     // Call Claude via SDK (or mock in test mode)
     const responseText = await callClaude(prompt, recentMessages, session.status);
@@ -714,4 +728,4 @@ export async function generateConversationSummary(sessionId, conversationId) {
 }
 
 // Export for testing
-export { DEBOUNCE_DELAY, MAX_MESSAGES, MAX_RETRIES, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse };
+export { DEBOUNCE_DELAY, MAX_MESSAGES, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse };
