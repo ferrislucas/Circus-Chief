@@ -32,13 +32,9 @@ vi.mock('../composables/useApi.js', () => ({
 import { api } from '../composables/useApi.js';
 
 describe('Sessions Store', () => {
-  // Create Pinia instance once for all tests
-  setActivePinia(createPinia());
-
   beforeEach(() => {
-    // Reset the store state before each test
-    const store = useSessionsStore();
-    store.$reset();
+    // Create a fresh Pinia instance for each test
+    setActivePinia(createPinia());
     // Reset all API mocks before each test
     vi.clearAllMocks();
   });

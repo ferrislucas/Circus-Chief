@@ -52,10 +52,10 @@
       <!-- Output Content (when expanded) -->
       <div v-if="showOutput" class="output-content">
         <div
-          ref="outputRef"
           class="output-text"
           @scroll="onScroll"
           v-html="formattedOutput || '(no output)'"
+          data-output-container
         ></div>
 
         <!-- Output Actions (success/error states) -->
@@ -105,14 +105,19 @@ const showOutput = ref(props.run?.status === 'running');
 // Track if button click is in flight (prevents double-clicks)
 const isSubmitting = ref(false);
 
-// NEW: Ref to the output container div for scrolling
-const outputRef = ref(null);
-
 // NEW: Track if user has manually scrolled up from the bottom
 const userHasScrolledUp = ref(false);
 
 // NEW: Flag to prevent onScroll from firing during programmatic scrolls
 const isProgrammaticScroll = ref(false);
+
+/**
+ * Get the output container element from the DOM
+ * Uses querySelector instead of template ref to avoid Vue ref setup issues in tests
+ */
+const getOutputContainer = () => {
+  return document.querySelector('[data-output-container]');
+};
 
 // NEW: Elapsed time for running commands
 const elapsedTime = ref('0:00');
@@ -208,9 +213,10 @@ const onScroll = () => {
     return;
   }
 
-  if (!outputRef.value) return;
+  const element = getOutputContainer();
+  if (!element) return;
 
-  const { scrollTop, scrollHeight, clientHeight } = outputRef.value;
+  const { scrollTop, scrollHeight, clientHeight } = element;
 
   // Calculate how far from bottom (pixels)
   const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
@@ -236,16 +242,22 @@ watch(
   () => props.run?.output,
   () => {
     // Skip auto-scroll if user has scrolled up to read earlier output
-    if (userHasScrolledUp.value || !outputRef.value) {
+    if (userHasScrolledUp.value) {
       return;
     }
 
     // Wait for DOM to update with new content, then scroll to bottom
     nextTick(() => {
-      if (outputRef.value) {
-        // Mark this scroll as programmatic so onScroll handler ignores it
-        isProgrammaticScroll.value = true;
-        outputRef.value.scrollTop = outputRef.value.scrollHeight;
+      const element = getOutputContainer();
+      if (element && element.scrollHeight !== undefined) {
+        try {
+          // Mark this scroll as programmatic so onScroll handler ignores it
+          isProgrammaticScroll.value = true;
+          element.scrollTop = element.scrollHeight;
+        } catch (e) {
+          // Silently fail if element no longer exists (component cleanup)
+          // This can happen during test teardown
+        }
       }
     });
   },

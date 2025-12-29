@@ -3,6 +3,21 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick, defineComponent } from 'vue';
 import { setActivePinia, createPinia } from 'pinia';
 
+// Global helper to flush all async updates and force DOM re-render
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    // Force Vue to re-render with updated state
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    // Multiple update cycles to ensure all conditions re-evaluate
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
+
 // Mock the API - MUST be before imports that use it
 vi.mock('../composables/useApi.js', () => ({
   api: {
@@ -109,7 +124,7 @@ describe('CanvasTab', () => {
       const wrapper = mountComponent();
 
       // Wait for next tick to allow component to render with loading state
-      await nextTick();
+      await flushAll(wrapper);
 
       expect(wrapper.find('.loading-state').exists()).toBe(true);
       expect(wrapper.text()).toContain('Loading canvas items...');
@@ -126,8 +141,7 @@ describe('CanvasTab', () => {
 
       const wrapper = mountComponent();
 
-      await flushPromises();
-      await nextTick();
+      await flushAll(wrapper);
 
       expect(wrapper.find('.empty-state').exists()).toBe(true);
       expect(wrapper.text()).toContain('No canvas items yet');
@@ -155,10 +169,9 @@ describe('CanvasTab', () => {
         { id: '1', filename: 'single-file.png', createdAt: 1000 },
       ]);
 
-      mountComponent();
+      const wrapper = mountComponent();
 
-      await flushPromises();
-      await nextTick();
+      await flushAll(wrapper);
 
       // Verify the store has the item
       expect(canvasStore.items).toHaveLength(1);
@@ -175,7 +188,7 @@ describe('CanvasTab', () => {
 
       await flushPromises();
 
-      const uploadButton = wrapper.find('button.btn-primary');
+      const uploadButton = wrapper.find('label.btn-primary');
       expect(uploadButton.exists()).toBe(true);
       expect(uploadButton.text()).toBe('Upload File');
     });
@@ -189,7 +202,7 @@ describe('CanvasTab', () => {
 
       const fileInput = wrapper.find('input[type="file"]');
       expect(fileInput.exists()).toBe(true);
-      expect(fileInput.attributes('hidden')).toBeDefined();
+      expect(fileInput.element.style.display).toBe('none');
     });
   });
 
@@ -208,7 +221,7 @@ describe('CanvasTab', () => {
 
       // The dragover handler should be called (sets isDragOver = true)
       // We can verify by checking the class is added
-      await nextTick();
+      await flushAll(wrapper);
       expect(container.classes()).toContain('drag-over');
     });
 

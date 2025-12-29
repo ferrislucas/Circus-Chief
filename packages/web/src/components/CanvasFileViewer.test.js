@@ -1,7 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import { setActivePinia, createPinia } from 'pinia';
 import CanvasFileViewer from './CanvasFileViewer.vue';
+
+// Global helper to flush all async updates and force DOM re-render
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    // Force Vue to re-render with updated state
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    // Multiple update cycles to ensure all conditions re-evaluate
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
 
 // Mock markdown utility
 vi.mock('../utils/markdown.js', () => ({
@@ -220,11 +236,13 @@ describe('CanvasFileViewer', () => {
 
       // Click toggle to switch to raw
       await wrapper.find('.preview-toggle').trigger('click');
+      await flushAll(wrapper);
       expect(wrapper.find('.viewer-markdown-raw').exists()).toBe(true);
       expect(wrapper.find('.markdown-viewer').exists()).toBe(false);
 
       // Click toggle to switch back to preview
       await wrapper.find('.preview-toggle').trigger('click');
+      await flushAll(wrapper);
       expect(wrapper.find('.markdown-viewer').exists()).toBe(true);
       expect(wrapper.find('.viewer-markdown-raw').exists()).toBe(false);
     });

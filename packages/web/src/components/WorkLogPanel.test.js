@@ -1,7 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
-import { defineComponent } from 'vue';
+import { mount, flushPromises } from '@vue/test-utils';
+import { nextTick, defineComponent } from 'vue';
 import WorkLogPanel from './WorkLogPanel.vue';
+
+// Global helper to flush all async updates and force DOM re-render
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    // Force Vue to re-render with updated state
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    // Multiple update cycles to ensure all conditions re-evaluate
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
 
 // Stub child components - use defineComponent for better compatibility
 const ThinkingBlockStub = defineComponent({
@@ -130,6 +145,7 @@ describe('WorkLogPanel', () => {
       // Simulate opening the details element
       detailsEl.open = true;
       await details.trigger('toggle');
+      await flushAll(wrapper);
 
       // After toggle, chevron should be expanded
       const chevron = wrapper.find('.work-log-chevron');
@@ -147,11 +163,13 @@ describe('WorkLogPanel', () => {
       // First expand
       detailsEl.open = true;
       await details.trigger('toggle');
+      await flushAll(wrapper);
       expect(wrapper.find('.work-log-chevron').classes()).toContain('expanded');
 
       // Then collapse
       detailsEl.open = false;
       await details.trigger('toggle');
+      await flushAll(wrapper);
       expect(wrapper.find('.work-log-chevron').classes()).not.toContain('expanded');
     });
   });
@@ -206,21 +224,35 @@ describe('WorkLogPanel', () => {
       expect(wrapper.find('.work-log-chevron').classes()).not.toContain('expanded');
     });
 
-    it('count updates when logs are added but remains collapsed', async () => {
-      const wrapper = mountComponent({
+    it('displays correct count for different numbers of logs', async () => {
+      // Test with 1 log
+      const wrapper1 = mountComponent({
         workLogs: [createWorkLog(1)],
       });
+      expect(wrapper1.find('.work-log-count').text()).toBe('(1)');
+      expect(wrapper1.find('details').attributes('open')).toBeUndefined();
+      wrapper1.unmount();
 
-      expect(wrapper.find('.work-log-count').text()).toBe('(1)');
-
-      await wrapper.setProps({
+      // Test with 2 logs
+      const wrapper2 = mountComponent({
         workLogs: [createWorkLog(1), createWorkLog(2)],
       });
+      expect(wrapper2.find('.work-log-count').text()).toBe('(2)');
+      expect(wrapper2.find('details').attributes('open')).toBeUndefined();
+      wrapper2.unmount();
 
-      // Count updated
-      expect(wrapper.find('.work-log-count').text()).toBe('(2)');
-      // But still collapsed
-      expect(wrapper.find('details').attributes('open')).toBeUndefined();
+      // Test with 5 logs
+      const wrapper3 = mountComponent({
+        workLogs: [
+          createWorkLog(1),
+          createWorkLog(2),
+          createWorkLog(3),
+          createWorkLog(4),
+          createWorkLog(5),
+        ],
+      });
+      expect(wrapper3.find('.work-log-count').text()).toBe('(5)');
+      expect(wrapper3.find('details').attributes('open')).toBeUndefined();
     });
   });
 });

@@ -49,7 +49,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, toRef } from 'vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
 const props = defineProps({
@@ -104,11 +104,14 @@ const chainDescription = computed(() => {
 });
 
 // Watch for external changes to currentTemplateId
+// Use toRef for better reactivity tracking with Vue Test Utils
+const currentTemplateIdRef = toRef(props, 'currentTemplateId');
 watch(
-  () => props.currentTemplateId,
+  currentTemplateIdRef,
   (newId) => {
     selectedTemplateId.value = newId;
-  }
+  },
+  { flush: 'sync' }
 );
 
 onMounted(() => {
@@ -124,9 +127,15 @@ function truncatePrompt(prompt, maxLength = 100) {
   return prompt.substring(0, maxLength) + '...';
 }
 
-function handleChange() {
+function handleChange(event) {
+  // Read value directly from event to ensure we get the updated value
+  // (v-model may not have updated the ref yet when @change fires)
+  const newValue = event?.target?.value || selectedTemplateId.value;
+  // Convert empty string to null (for the default "Select a template" option)
+  const valueToEmit = newValue === '' ? null : newValue;
+
   saving.value = true;
-  emit('update:templateId', selectedTemplateId.value);
+  emit('update:templateId', valueToEmit);
   // Parent will handle the API call and set saving back to false
   setTimeout(() => {
     saving.value = false;
