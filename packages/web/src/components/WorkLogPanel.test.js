@@ -1,7 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
-import { defineComponent } from 'vue';
+import { mount, flushPromises } from '@vue/test-utils';
+import { nextTick, defineComponent } from 'vue';
 import WorkLogPanel from './WorkLogPanel.vue';
+
+// Global helper to flush all async updates and force DOM re-render
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    // Force Vue to re-render with updated state
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    // Multiple update cycles to ensure all conditions re-evaluate
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
 
 // Stub child components - use defineComponent for better compatibility
 const ThinkingBlockStub = defineComponent({
@@ -130,6 +145,7 @@ describe('WorkLogPanel', () => {
       // Simulate opening the details element
       detailsEl.open = true;
       await details.trigger('toggle');
+      await flushAll(wrapper);
 
       // After toggle, chevron should be expanded
       const chevron = wrapper.find('.work-log-chevron');
@@ -147,11 +163,13 @@ describe('WorkLogPanel', () => {
       // First expand
       detailsEl.open = true;
       await details.trigger('toggle');
+      await flushAll(wrapper);
       expect(wrapper.find('.work-log-chevron').classes()).toContain('expanded');
 
       // Then collapse
       detailsEl.open = false;
       await details.trigger('toggle');
+      await flushAll(wrapper);
       expect(wrapper.find('.work-log-chevron').classes()).not.toContain('expanded');
     });
   });

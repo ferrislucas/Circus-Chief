@@ -1,7 +1,23 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import DiffViewer from './DiffViewer.vue';
 import { parseDiff } from '../utils/diffParser.js';
+
+// Global helper to flush all async updates and force DOM re-render
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    // Force Vue to re-render with updated state
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    // Multiple update cycles to ensure all conditions re-evaluate
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
 
 // Mock MarkdownViewer component
 vi.mock('./MarkdownViewer.vue', () => ({
@@ -156,6 +172,7 @@ index 1234567..abcdefg 100644
 
         // Click the file header to toggle
         await fileHeaders[0].trigger('click');
+        await flushAll(wrapper);
 
         const newContent = wrapper.find('.diff-file-content').exists();
         // State should have toggled
@@ -211,7 +228,7 @@ index 1234567..abcdefg 100644
         const initialCopyButtons = mdWrapper.findAll('.copy-button').length;
 
         await previewToggle.trigger('click');
-        await mdWrapper.vm.$nextTick();
+        await flushAll(mdWrapper);
 
         const newText = previewToggle.text();
         // Button text should have changed

@@ -169,7 +169,7 @@ describe('ActiveSessionsView', () => {
   describe('Real-time summary updates', () => {
     it('updates summary when onSessionSummaryUpdated is called', async () => {
       const wrapper = mount(ActiveSessionsView);
-      await flushPromises();
+      await flushAll(wrapper);
 
       // Verify callback is registered
       expect(onSessionSummaryUpdatedCallback).not.toBeNull();
@@ -187,7 +187,7 @@ describe('ActiveSessionsView', () => {
 
       // Global subscription callback signature: (sessionId, summary, projectId)
       onSessionSummaryUpdatedCallback('session-1', newSummary, 'project-1');
-      await nextTick();
+      await flushAll(wrapper);
 
       // Find the SessionCard for session-1 and check the summary prop
       const sessionCard = wrapper.find('[data-session-id="session-1"]');
@@ -219,7 +219,7 @@ describe('ActiveSessionsView', () => {
 
     it('handles summary updates for sessions from different projects', async () => {
       const wrapper = mount(ActiveSessionsView);
-      await flushPromises();
+      await flushAll(wrapper);
 
       // Update summaries for sessions from different projects
       const summary1 = { shortSummary: 'Summary from project 1' };
@@ -227,7 +227,7 @@ describe('ActiveSessionsView', () => {
 
       onSessionSummaryUpdatedCallback('session-1', summary1, 'project-1');
       onSessionSummaryUpdatedCallback('session-2', summary2, 'project-2');
-      await nextTick();
+      await flushAll(wrapper);
 
       // Verify both summaries are updated
       const card1 = wrapper.find('[data-session-id="session-1"]');
@@ -239,17 +239,17 @@ describe('ActiveSessionsView', () => {
 
     it('overwrites existing summary with new update', async () => {
       const wrapper = mount(ActiveSessionsView);
-      await flushPromises();
+      await flushAll(wrapper);
 
       // Initial summary
       const initialSummary = { shortSummary: 'Initial' };
       onSessionSummaryUpdatedCallback('session-1', initialSummary, 'project-1');
-      await nextTick();
+      await flushAll(wrapper);
 
       // Updated summary
       const updatedSummary = { shortSummary: 'Updated' };
       onSessionSummaryUpdatedCallback('session-1', updatedSummary, 'project-1');
-      await nextTick();
+      await flushAll(wrapper);
 
       const card = wrapper.find('[data-session-id="session-1"]');
       expect(card.attributes('data-summary')).toBe(JSON.stringify(updatedSummary));

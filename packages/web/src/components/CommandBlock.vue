@@ -30,10 +30,10 @@
       <!-- Fallback: Original display for outputs or when no summary available -->
       <template v-else>
         <pre class="command-pre" :class="{ expanded: isExpanded }">{{ displayContent }}</pre>
-        <button v-if="shouldTruncate && !isExpanded" class="show-more-btn" @click="isExpanded = true">
+        <button v-if="shouldTruncate && !isExpanded" class="show-more-btn" @click="toggleExpanded">
           Show more ({{ lineCount }} lines)
         </button>
-        <button v-if="isExpanded && shouldTruncate" class="show-more-btn" @click="isExpanded = false">
+        <button v-if="isExpanded && shouldTruncate" class="show-more-btn" @click="toggleExpanded">
           Show less
         </button>
       </template>
@@ -50,6 +50,10 @@ const props = defineProps({
 
 const MAX_LINES = 10;
 const isExpanded = ref(false);
+
+const toggleExpanded = () => {
+  isExpanded.value = !isExpanded.value;
+};
 
 const lines = computed(() => props.log.content.split('\n'));
 const lineCount = computed(() => lines.value.length);

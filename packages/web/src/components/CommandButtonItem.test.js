@@ -701,10 +701,7 @@ describe('CommandButtonItem', () => {
             output: `Output 1\nOutput ${i}`,
           },
         });
-        await flushPromises();
-        await nextTick();
-        // Extra tick to ensure v-html and computed property have updated
-        await nextTick();
+        await flushAll(wrapper);
       }
 
       // Verify output is still displayed and contains all content

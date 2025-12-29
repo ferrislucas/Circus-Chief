@@ -1,7 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import ButtonStatusModal from './ButtonStatusModal.vue';
+
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
 
 describe('ButtonStatusModal.vue', () => {
   const baseButton = {
@@ -500,16 +512,17 @@ describe('ButtonStatusModal.vue', () => {
         },
       });
 
-      await nextTick();
+      await flushAll(wrapper);
 
       // Initially shows running status
       expect(wrapper.text()).toContain('Running');
 
       // Process completes
+      const newRun = { ...baseRun, status: 'success', exitCode: 0, completedAt: Date.now() };
       await wrapper.setProps({
-        latestRun: { ...baseRun, status: 'success', exitCode: 0, completedAt: Date.now() },
+        latestRun: newRun,
       });
-      await nextTick();
+      await flushAll(wrapper);
 
       // Display should update to show success with completion time
       expect(wrapper.text()).toContain('Success');

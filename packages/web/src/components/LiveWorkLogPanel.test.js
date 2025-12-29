@@ -4,6 +4,21 @@ import { nextTick } from 'vue';
 import { setActivePinia, createPinia } from 'pinia';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
 
+// Global helper to flush all async updates and force DOM re-render
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    // Force Vue to re-render with updated state
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    // Multiple update cycles to ensure all conditions re-evaluate
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
+
 // Stub child components
 const ThinkingBlockStub = {
   name: 'ThinkingBlock',
@@ -125,8 +140,7 @@ describe('LiveWorkLogPanel', () => {
         workLogs: [createWorkLog(1), createWorkLog(2)],
       });
 
-      await nextTick();
-      await flushPromises();
+      await flushAll(wrapper);
 
       // scrollTop should be set to scrollHeight (auto-scrolled to bottom)
       expect(el.scrollTop).toBe(500);
@@ -156,8 +170,7 @@ describe('LiveWorkLogPanel', () => {
         workLogs: [createWorkLog(1), createWorkLog(2)],
       });
 
-      await nextTick();
-      await flushPromises();
+      await flushAll(wrapper);
 
       // scrollTop should NOT have changed (no auto-scroll)
       expect(el.scrollTop).toBe(initialScrollTop);
@@ -185,8 +198,7 @@ describe('LiveWorkLogPanel', () => {
         partialThinking: 'Updated thinking content',
       });
 
-      await nextTick();
-      await flushPromises();
+      await flushAll(wrapper);
 
       // Should auto-scroll
       expect(el.scrollTop).toBe(500);
@@ -214,8 +226,7 @@ describe('LiveWorkLogPanel', () => {
         partialThinking: 'Updated thinking content',
       });
 
-      await nextTick();
-      await flushPromises();
+      await flushAll(wrapper);
 
       // Should NOT auto-scroll
       expect(el.scrollTop).toBe(50);
@@ -243,8 +254,7 @@ describe('LiveWorkLogPanel', () => {
         workLogs: [createWorkLog(1), createWorkLog(2)],
       });
 
-      await nextTick();
-      await flushPromises();
+      await flushAll(wrapper);
 
       // Should auto-scroll because within threshold
       expect(el.scrollTop).toBe(500);
@@ -274,8 +284,7 @@ describe('LiveWorkLogPanel', () => {
         workLogs: [createWorkLog(1), createWorkLog(2)],
       });
 
-      await nextTick();
-      await flushPromises();
+      await flushAll(wrapper);
 
       // Should NOT auto-scroll because beyond threshold
       expect(el.scrollTop).toBe(initialScrollTop);

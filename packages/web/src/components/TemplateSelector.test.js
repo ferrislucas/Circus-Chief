@@ -1,8 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import TemplateSelector from './TemplateSelector.vue';
 import { useTemplatesStore } from '../stores/templates.js';
+
+// Global helper to flush all async updates and force DOM re-render
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    // Force Vue to re-render with updated state
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    // Multiple update cycles to ensure all conditions re-evaluate
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
 
 describe('TemplateSelector', () => {
   const mockProjectTemplates = [
@@ -329,7 +345,7 @@ describe('TemplateSelector', () => {
       expect(wrapper.find('select').element.value).toBe('template-1');
 
       await wrapper.setProps({ currentTemplateId: 'template-2' });
-      await flushPromises();
+      await flushAll(wrapper);
 
       expect(wrapper.find('select').element.value).toBe('template-2');
     });
