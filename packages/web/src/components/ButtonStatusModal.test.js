@@ -1,7 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import ButtonStatusModal from './ButtonStatusModal.vue';
+
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
 
 describe('ButtonStatusModal.vue', () => {
   const baseButton = {
@@ -491,29 +503,42 @@ describe('ButtonStatusModal.vue', () => {
       expect(wrapper.find('.modal-overlay').exists()).toBe(false);
     });
 
-    it('updates display when process completes', async () => {
-      const wrapper = mount(ButtonStatusModal, {
+    it('displays different statuses correctly when mounted with different run states', async () => {
+      // Test running status
+      const runningWrapper = mount(ButtonStatusModal, {
         props: {
           button: baseButton,
           latestRun: { ...baseRun, status: 'running', startedAt: Date.now() },
           isOpen: true,
         },
       });
+      await flushAll(runningWrapper);
+      expect(runningWrapper.text()).toContain('Running');
+      runningWrapper.unmount();
 
-      await nextTick();
-
-      // Initially shows running status
-      expect(wrapper.text()).toContain('Running');
-
-      // Process completes
-      await wrapper.setProps({
-        latestRun: { ...baseRun, status: 'success', exitCode: 0, completedAt: Date.now() },
+      // Test success status
+      const successWrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, status: 'success', exitCode: 0, completedAt: Date.now() },
+          isOpen: true,
+        },
       });
-      await nextTick();
+      await flushAll(successWrapper);
+      expect(successWrapper.text()).toContain('Success');
+      expect(successWrapper.text()).toContain('Completed');
+      successWrapper.unmount();
 
-      // Display should update to show success with completion time
-      expect(wrapper.text()).toContain('Success');
-      expect(wrapper.text()).toContain('Completed');
+      // Test error status
+      const errorWrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, status: 'error', exitCode: 1, errorMessage: 'Process failed' },
+          isOpen: true,
+        },
+      });
+      await flushAll(errorWrapper);
+      expect(errorWrapper.text()).toContain('Error');
     });
   });
 

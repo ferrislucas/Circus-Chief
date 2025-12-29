@@ -746,6 +746,36 @@ export class ApiClient {
   async killCommandRun(sessionId, runId) {
     return this.#request('POST', `/sessions/${sessionId}/command-buttons/runs/${runId}/kill`);
   }
+
+  // Project Session Defaults
+
+  /**
+   * Get session defaults for a project
+   * @param {string} projectId - Project ID
+   * @returns {Promise<Object|null>}
+   */
+  async getProjectSessionDefaults(projectId) {
+    return this.#request('GET', `/projects/${projectId}/session-defaults`);
+  }
+
+  /**
+   * Update/create session defaults for a project
+   * @param {string} projectId - Project ID
+   * @param {Object} data - Defaults data
+   * @returns {Promise<Object>}
+   */
+  async updateProjectSessionDefaults(projectId, data) {
+    return this.#request('POST', `/projects/${projectId}/session-defaults`, data);
+  }
+
+  /**
+   * Reset session defaults for a project to system defaults
+   * @param {string} projectId - Project ID
+   * @returns {Promise<Object>}
+   */
+  async resetProjectSessionDefaults(projectId) {
+    return this.#request('DELETE', `/projects/${projectId}/session-defaults`);
+  }
 }
 
 // Singleton instance

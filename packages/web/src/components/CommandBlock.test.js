@@ -1,6 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import CommandBlock from './CommandBlock.vue';
+
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
 
 describe('CommandBlock', () => {
   function mountComponent(log) {
@@ -334,7 +347,9 @@ describe('CommandBlock', () => {
         timestamp: Date.now(),
       });
 
-      await wrapper.find('.show-more-btn').trigger('click');
+      const button = wrapper.find('.show-more-btn');
+      await button.trigger('click');
+      await flushAll(wrapper);
 
       expect(wrapper.find('.command-pre').text()).toBe(longContent);
       expect(wrapper.find('.show-more-btn').text()).toBe('Show less');

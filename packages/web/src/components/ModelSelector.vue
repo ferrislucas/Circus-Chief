@@ -18,7 +18,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, toRef } from 'vue';
 import { CLAUDE_MODELS } from '@claudetools/shared';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
@@ -57,9 +57,13 @@ const currentModel = computed(() => {
 const selectedModel = ref(currentModel.value);
 
 // Watch for external changes to keep local selection in sync
-watch(() => currentModel.value, (newModel) => {
-  selectedModel.value = newModel;
-});
+// Create a ref from the modelValue prop for reliable reactivity tracking
+const modelValueRef = toRef(props, 'modelValue');
+
+// Watch both the computed and the prop ref to ensure we catch all changes
+watch([currentModel, modelValueRef], ([newCurrentModel]) => {
+  selectedModel.value = newCurrentModel;
+}, { flush: 'sync' });
 
 async function handleModelChange(id) {
   if (togglingModel.value) return;

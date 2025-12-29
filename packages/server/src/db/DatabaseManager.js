@@ -210,6 +210,24 @@ export class DatabaseManager {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
       this.#db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived)');
     }
+
+    // Create project_session_defaults table if it doesn't exist
+    this.#db.exec(`
+      CREATE TABLE IF NOT EXISTS project_session_defaults (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL UNIQUE,
+        mode TEXT CHECK(mode IN ('plan', 'standard', 'yolo')),
+        thinking_enabled INTEGER,
+        start_immediately INTEGER,
+        git_mode TEXT CHECK(git_mode IN ('branch', 'worktree')),
+        git_branch TEXT,
+        model TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_project_defaults_projectId ON project_session_defaults(project_id);
+    `);
   }
 
   /**

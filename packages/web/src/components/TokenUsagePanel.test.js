@@ -1,6 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
+
+// Global helper to flush all async updates and force DOM re-render
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    // Force Vue to re-render with updated state
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    // Multiple update cycles to ensure all conditions re-evaluate
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
 
 // Mock the sessions store
 vi.mock('../stores/sessions.js', () => ({
@@ -201,11 +217,13 @@ describe('TokenUsagePanel', () => {
 
       // Click to show details
       await wrapper.find('.toggle-details').trigger('click');
+      await flushAll(wrapper);
 
       expect(wrapper.find('.usage-details').exists()).toBe(true);
 
       // Click to hide details
       await wrapper.find('.toggle-details').trigger('click');
+      await flushAll(wrapper);
 
       expect(wrapper.find('.usage-details').exists()).toBe(false);
     });
@@ -230,6 +248,7 @@ describe('TokenUsagePanel', () => {
 
       const wrapper = mountComponent();
       await wrapper.find('.toggle-details').trigger('click');
+      await flushAll(wrapper);
 
       expect(wrapper.text()).toContain('Input');
       expect(wrapper.text()).toContain('Output');

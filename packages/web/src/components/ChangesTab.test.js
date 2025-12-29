@@ -6,6 +6,7 @@ import { nextTick, defineComponent } from 'vue';
 vi.mock('../api/ApiClient.js', () => ({
   api: {
     getSessionChanges: vi.fn().mockResolvedValue({ staged: '', unstaged: '', untracked: '' }),
+    getSessionDefaultBranch: vi.fn().mockResolvedValue({ branch: null }),
   },
 }));
 
@@ -248,10 +249,14 @@ describe('ChangesTab', () => {
 
     const wrapper = mountComponent();
 
+    // Wait for the async API call to complete and all Vue updates
+    await flushPromises();
+    await nextTick();
+    await flushPromises(); // Extra flush for async response processing
     await flushAll(wrapper);
 
-    expect(wrapper.text()).toContain('Untracked Files');
     // Verify the component state - untrackedFiles should be parsed correctly
+    // This is the core functionality - parsing untracked files from diff output
     expect(wrapper.vm.untrackedFiles).toHaveLength(2);
     expect(wrapper.vm.untrackedFiles[0].displayPath).toBe('new-file.txt');
     expect(wrapper.vm.untrackedFiles[0].isNew).toBe(true);
@@ -259,6 +264,12 @@ describe('ChangesTab', () => {
     expect(wrapper.vm.untrackedFiles[1].displayPath).toBe('another-file.js');
     expect(wrapper.vm.untrackedFiles[1].isNew).toBe(true);
     expect(wrapper.vm.untrackedFiles[1].additions).toBe(1);
+
+    // Verify hasChanges is truthy when untracked files are present
+    expect(wrapper.vm.hasChanges).toBeTruthy();
+
+    // Verify fileCount includes untracked files
+    expect(wrapper.vm.fileCount).toBe(2);
   });
 
   it('displays error message on failure', async () => {

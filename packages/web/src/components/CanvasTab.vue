@@ -8,15 +8,15 @@
   >
     <!-- Upload header -->
     <div class="canvas-header">
-      <button class="btn btn-primary" @click="triggerFileInput" :disabled="uploading">
+      <label class="btn btn-primary" :class="{ disabled: uploading }">
         {{ uploading ? 'Uploading...' : 'Upload File' }}
-      </button>
-      <input
-        type="file"
-        ref="fileInput"
-        @change="handleFileSelect"
-        hidden
-      />
+        <input
+          type="file"
+          @change="handleFileSelect"
+          :disabled="uploading"
+          style="display: none"
+        />
+      </label>
       <span v-if="isDragOver" class="drag-hint">Drop file to upload</span>
     </div>
 
@@ -71,7 +71,6 @@ const uiStore = useUiStore();
 onMounted(() => {
   canvasStore.fetchItems(props.sessionId);
 });
-const fileInput = ref(null);
 const isDragOver = ref(false);
 const uploading = ref(false);
 
@@ -156,10 +155,6 @@ async function handleDeleteAll(filename) {
 }
 
 // File upload handlers
-function triggerFileInput() {
-  fileInput.value?.click();
-}
-
 function handleDragOver() {
   isDragOver.value = true;
 }
@@ -231,6 +226,12 @@ async function uploadFile(file) {
   align-items: center;
   gap: 1rem;
   margin-bottom: 1rem;
+}
+
+.canvas-header label.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .drag-hint {

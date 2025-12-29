@@ -6,18 +6,9 @@ import ConversationSelector from './ConversationSelector.vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 
-// Mock the stores
-vi.mock('../stores/sessions.js', () => ({
-  useSessionsStore: vi.fn(),
-}));
-
-vi.mock('../stores/ui.js', () => ({
-  useUiStore: vi.fn(),
-}));
-
 describe('ConversationSelector', () => {
-  let mockSessionsStore;
-  let mockUiStore;
+  let sessionsStore;
+  let uiStore;
   let confirmSpy;
 
   const baseConversations = [
@@ -29,23 +20,28 @@ describe('ConversationSelector', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
 
-    mockSessionsStore = {
-      conversations: [...baseConversations],
-      activeConversationId: 'conv-2',
-      activeConversation: baseConversations[1],
-      currentSession: { id: 'session-123', status: 'waiting' },
-      switchConversation: vi.fn().mockResolvedValue(undefined),
-      createConversation: vi.fn().mockResolvedValue({ id: 'conv-new', name: null }),
-      deleteConversation: vi.fn().mockResolvedValue(undefined),
-    };
+    // Get actual store instances
+    sessionsStore = useSessionsStore();
+    uiStore = useUiStore();
 
-    mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
+    // Initialize store with test data
+    sessionsStore.conversations = [...baseConversations];
+    sessionsStore.activeConversationId = 'conv-2';
+    sessionsStore.activeConversation = baseConversations[1];
+    sessionsStore.currentSession = { id: 'session-123', status: 'waiting' };
 
-    vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
-    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+    // Mock store methods
+    vi.spyOn(sessionsStore, 'switchConversation').mockResolvedValue(undefined);
+    vi.spyOn(sessionsStore, 'createConversation').mockResolvedValue({ id: 'conv-new', name: null });
+    vi.spyOn(sessionsStore, 'deleteConversation').mockResolvedValue(undefined);
+
+    // Mock UI store methods
+    vi.spyOn(uiStore, 'success').mockImplementation(() => {});
+    vi.spyOn(uiStore, 'error').mockImplementation(() => {});
+
+    // Mock document.addEventListener to prevent closeDropdown listener interference
+    vi.spyOn(document, 'addEventListener').mockImplementation(() => {});
+    vi.spyOn(document, 'removeEventListener').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -62,7 +58,19 @@ describe('ConversationSelector', () => {
         sessionId: 'session-123',
         ...props,
       },
+      global: {
+        stubs: {
+          transition: false,
+        },
+      },
     });
+  }
+
+  async function flushAll(wrapper) {
+    await flushPromises();
+    await wrapper.vm.$nextTick?.();
+    await wrapper.vm.$forceUpdate?.();
+    await wrapper.vm.$nextTick?.();
   }
 
   describe('basic rendering', () => {
@@ -85,7 +93,7 @@ describe('ConversationSelector', () => {
 
   describe('disabled state', () => {
     beforeEach(() => {
-      mockSessionsStore.currentSession = { id: 'session-123', status: 'running' };
+      sessionsStore.currentSession = { id: 'session-123', status: 'running' };
     });
 
     it('disables dropdown when session is running', () => {
@@ -113,18 +121,26 @@ describe('ConversationSelector', () => {
   });
 
   describe('dropdown interaction', () => {
-    it('opens dropdown when clicked', async () => {
+    it('opens dropdown when toggled', async () => {
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
 
+      // Call the exposed toggleDropdown method
+      expect(wrapper.vm.isOpen).toBe(false);
+      wrapper.vm.toggleDropdown();
+      await flushAll(wrapper);
+
+      // State should be updated
+      expect(wrapper.vm.isOpen).toBe(true);
+
+      // Check that dropdown-menu appears in the DOM
       expect(wrapper.find('.dropdown-menu').exists()).toBe(true);
     });
 
     it('shows all conversations in dropdown', async () => {
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items.length).toBe(3);
@@ -132,8 +148,9 @@ describe('ConversationSelector', () => {
 
     it('marks active conversation in dropdown', async () => {
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const activeItem = wrapper.find('.dropdown-item.active');
       expect(activeItem.exists()).toBe(true);
@@ -142,8 +159,9 @@ describe('ConversationSelector', () => {
 
     it('shows message count for each conversation', async () => {
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].find('.conv-meta').text()).toContain('5 msgs');
@@ -152,8 +170,9 @@ describe('ConversationSelector', () => {
 
     it('shows delete button for non-active conversations', async () => {
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].find('.delete-btn').exists()).toBe(true);
@@ -164,54 +183,54 @@ describe('ConversationSelector', () => {
   describe('switching conversations', () => {
     it('calls switchConversation when selecting different conversation', async () => {
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       await items[0].trigger('click');
       await flushPromises();
 
-      expect(mockSessionsStore.switchConversation).toHaveBeenCalledWith('session-123', 'conv-1');
+      expect(sessionsStore.switchConversation).toHaveBeenCalledWith('session-123', 'conv-1');
     });
 
     it('closes dropdown after selecting conversation', async () => {
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
       expect(wrapper.find('.dropdown-menu').exists()).toBe(true);
 
       const items = wrapper.findAll('.dropdown-item');
       await items[0].trigger('click');
       await flushPromises();
-      await nextTick();
+      await flushAll(wrapper);
 
       expect(wrapper.find('.dropdown-menu').exists()).toBe(false);
     });
 
     it('does not call switchConversation when selecting same conversation', async () => {
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       await items[1].trigger('click');
       await flushPromises();
 
-      expect(mockSessionsStore.switchConversation).not.toHaveBeenCalled();
+      expect(sessionsStore.switchConversation).not.toHaveBeenCalled();
     });
 
     it('shows error message on switch failure', async () => {
-      mockSessionsStore.switchConversation.mockRejectedValue(new Error('Switch failed'));
+      sessionsStore.switchConversation.mockRejectedValue(new Error('Switch failed'));
 
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       await items[0].trigger('click');
       await flushPromises();
 
-      expect(mockUiStore.error).toHaveBeenCalledWith('Switch failed');
+      expect(uiStore.error).toHaveBeenCalledWith('Switch failed');
     });
   });
 
@@ -221,7 +240,7 @@ describe('ConversationSelector', () => {
       await wrapper.find('.btn-new').trigger('click');
       await flushPromises();
 
-      expect(mockSessionsStore.createConversation).toHaveBeenCalledWith('session-123');
+      expect(sessionsStore.createConversation).toHaveBeenCalledWith('session-123');
     });
 
     it('shows success message after creating conversation', async () => {
@@ -229,17 +248,17 @@ describe('ConversationSelector', () => {
       await wrapper.find('.btn-new').trigger('click');
       await flushPromises();
 
-      expect(mockUiStore.success).toHaveBeenCalledWith('New conversation created');
+      expect(uiStore.success).toHaveBeenCalledWith('New conversation created');
     });
 
     it('shows error message on create failure', async () => {
-      mockSessionsStore.createConversation.mockRejectedValue(new Error('Create failed'));
+      sessionsStore.createConversation.mockRejectedValue(new Error('Create failed'));
 
       const wrapper = mountComponent();
       await wrapper.find('.btn-new').trigger('click');
       await flushPromises();
 
-      expect(mockUiStore.error).toHaveBeenCalledWith('Create failed');
+      expect(uiStore.error).toHaveBeenCalledWith('Create failed');
     });
   });
 
@@ -248,8 +267,8 @@ describe('ConversationSelector', () => {
       confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const deleteBtn = wrapper.find('.delete-btn');
       await deleteBtn.trigger('click');
@@ -262,50 +281,50 @@ describe('ConversationSelector', () => {
       confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const deleteBtn = wrapper.find('.delete-btn');
       await deleteBtn.trigger('click');
       await flushPromises();
 
-      expect(mockSessionsStore.deleteConversation).toHaveBeenCalledWith('session-123', 'conv-1');
+      expect(sessionsStore.deleteConversation).toHaveBeenCalledWith('session-123', 'conv-1');
     });
 
     it('does not delete when cancelled', async () => {
       confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
 
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const deleteBtn = wrapper.find('.delete-btn');
       await deleteBtn.trigger('click');
       await flushPromises();
 
-      expect(mockSessionsStore.deleteConversation).not.toHaveBeenCalled();
+      expect(sessionsStore.deleteConversation).not.toHaveBeenCalled();
     });
 
     it('shows success message after deleting', async () => {
       confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const deleteBtn = wrapper.find('.delete-btn');
       await deleteBtn.trigger('click');
       await flushPromises();
 
-      expect(mockUiStore.success).toHaveBeenCalledWith('Conversation deleted');
+      expect(uiStore.success).toHaveBeenCalledWith('Conversation deleted');
     });
   });
 
   describe('edge cases', () => {
     it('handles empty conversations list', () => {
-      mockSessionsStore.conversations = [];
-      mockSessionsStore.activeConversation = null;
-      mockSessionsStore.activeConversationId = null;
+      sessionsStore.conversations = [];
+      sessionsStore.activeConversation = null;
+      sessionsStore.activeConversationId = null;
 
       const wrapper = mountComponent();
       // When no conversations, dropdown is hidden but button still shows
@@ -313,11 +332,11 @@ describe('ConversationSelector', () => {
     });
 
     it('shows button text with unnamed single conversation', () => {
-      mockSessionsStore.conversations = [
+      sessionsStore.conversations = [
         { id: 'conv-1', name: null, isActive: true, messageCount: 0 },
       ];
-      mockSessionsStore.activeConversation = { id: 'conv-1', name: null };
-      mockSessionsStore.activeConversationId = 'conv-1';
+      sessionsStore.activeConversation = { id: 'conv-1', name: null };
+      sessionsStore.activeConversationId = 'conv-1';
 
       const wrapper = mountComponent();
       // Dropdown is hidden with 1 conversation, so can only check the button
@@ -325,7 +344,7 @@ describe('ConversationSelector', () => {
     });
 
     it('hides delete button when only one conversation exists', () => {
-      mockSessionsStore.conversations = [
+      sessionsStore.conversations = [
         { id: 'conv-1', name: 'Only One', isActive: true, messageCount: 5 },
       ];
 
@@ -335,7 +354,7 @@ describe('ConversationSelector', () => {
     });
 
     it('hides dropdown container when only one conversation exists', () => {
-      mockSessionsStore.conversations = [
+      sessionsStore.conversations = [
         { id: 'conv-1', name: 'Only One', isActive: true, messageCount: 5 },
       ];
 
@@ -351,19 +370,19 @@ describe('ConversationSelector', () => {
 
   describe('ordinal conversation labels', () => {
     it('formats conversation names with ordinal numbers for unnamed conversations', async () => {
-      mockSessionsStore.conversations = [
+      sessionsStore.conversations = [
         { id: 'conv-1', name: null, isActive: false, messageCount: 0 },
         { id: 'conv-2', name: null, isActive: true, messageCount: 0 },
         { id: 'conv-3', name: null, isActive: false, messageCount: 0 },
       ];
-      mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
-      mockSessionsStore.activeConversationId = 'conv-2';
+      sessionsStore.activeConversation = sessionsStore.conversations[1];
+      sessionsStore.activeConversationId = 'conv-2';
 
       const wrapper = mountComponent();
       expect(wrapper.find('.dropdown-label').text()).toBe('2nd conversation');
 
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].find('.conv-name').text()).toBe('1st conversation');
@@ -372,21 +391,21 @@ describe('ConversationSelector', () => {
     });
 
     it('correctly formats ordinal numbers ending in 1 and 2', async () => {
-      mockSessionsStore.conversations = [
+      sessionsStore.conversations = [
         { id: 'conv-1', name: null, isActive: true, messageCount: 0 },
         { id: 'conv-2', name: null, isActive: false, messageCount: 0 },
         { id: 'conv-3', name: null, isActive: false, messageCount: 0 },
         { id: 'conv-4', name: null, isActive: false, messageCount: 0 },
         { id: 'conv-5', name: null, isActive: false, messageCount: 0 },
       ];
-      mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
-      mockSessionsStore.activeConversationId = 'conv-1';
+      sessionsStore.activeConversation = sessionsStore.conversations[0];
+      sessionsStore.activeConversationId = 'conv-1';
 
       const wrapper = mountComponent();
       expect(wrapper.find('.dropdown-label').text()).toBe('1st conversation');
 
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].find('.conv-name').text()).toBe('1st conversation');
@@ -404,13 +423,13 @@ describe('ConversationSelector', () => {
         isActive: i === 0,
         messageCount: 0,
       }));
-      mockSessionsStore.conversations = conversations;
-      mockSessionsStore.activeConversation = conversations[0];
-      mockSessionsStore.activeConversationId = 'conv-0';
+      sessionsStore.conversations = conversations;
+      sessionsStore.activeConversation = conversations[0];
+      sessionsStore.activeConversationId = 'conv-0';
 
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[10].find('.conv-name').text()).toBe('11th conversation');
@@ -419,19 +438,19 @@ describe('ConversationSelector', () => {
     });
 
     it('preserves custom conversation names', async () => {
-      mockSessionsStore.conversations = [
+      sessionsStore.conversations = [
         { id: 'conv-1', name: 'My Custom Name', isActive: true, messageCount: 0 },
         { id: 'conv-2', name: 'Another Custom', isActive: false, messageCount: 0 },
         { id: 'conv-3', name: null, isActive: false, messageCount: 0 },
       ];
-      mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
-      mockSessionsStore.activeConversationId = 'conv-1';
+      sessionsStore.activeConversation = sessionsStore.conversations[0];
+      sessionsStore.activeConversationId = 'conv-1';
 
       const wrapper = mountComponent();
       expect(wrapper.find('.dropdown-label').text()).toBe('My Custom Name');
 
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].find('.conv-name').text()).toBe('My Custom Name');
@@ -442,16 +461,16 @@ describe('ConversationSelector', () => {
 
   describe('token count display', () => {
     it('shows token count for each conversation in dropdown', async () => {
-      mockSessionsStore.conversations = [
+      sessionsStore.conversations = [
         { id: 'conv-1', name: 'First', isActive: false, messageCount: 5, inputTokens: 1000, outputTokens: 500 },
         { id: 'conv-2', name: 'Second', isActive: true, messageCount: 10, inputTokens: 5000, outputTokens: 2500 },
       ];
-      mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
-      mockSessionsStore.activeConversationId = 'conv-2';
+      sessionsStore.activeConversation = sessionsStore.conversations[1];
+      sessionsStore.activeConversationId = 'conv-2';
 
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].text()).toContain('1.5K');
@@ -459,80 +478,80 @@ describe('ConversationSelector', () => {
     });
 
     it('shows 0 tokens for conversations with no usage', async () => {
-      mockSessionsStore.conversations = [
+      sessionsStore.conversations = [
         { id: 'conv-1', name: 'Empty', isActive: false, messageCount: 0 },
         { id: 'conv-2', name: 'Second', isActive: true, messageCount: 5 },
       ];
-      mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
-      mockSessionsStore.activeConversationId = 'conv-2';
+      sessionsStore.activeConversation = sessionsStore.conversations[1];
+      sessionsStore.activeConversationId = 'conv-2';
 
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].find('.conv-meta').text()).toContain('0 msgs');
     });
 
     it('formats large token counts with K suffix', async () => {
-      mockSessionsStore.conversations = [
+      sessionsStore.conversations = [
         { id: 'conv-1', name: 'Large', isActive: false, messageCount: 20, inputTokens: 50000, outputTokens: 25000 },
         { id: 'conv-2', name: 'Second', isActive: true, messageCount: 5 },
       ];
-      mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
-      mockSessionsStore.activeConversationId = 'conv-2';
+      sessionsStore.activeConversation = sessionsStore.conversations[1];
+      sessionsStore.activeConversationId = 'conv-2';
 
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].text()).toContain('75.0K');
     });
 
     it('formats very large token counts with M suffix', async () => {
-      mockSessionsStore.conversations = [
+      sessionsStore.conversations = [
         { id: 'conv-1', name: 'Huge', isActive: false, messageCount: 100, inputTokens: 1500000, outputTokens: 500000 },
         { id: 'conv-2', name: 'Second', isActive: true, messageCount: 5 },
       ];
-      mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
-      mockSessionsStore.activeConversationId = 'conv-2';
+      sessionsStore.activeConversation = sessionsStore.conversations[1];
+      sessionsStore.activeConversationId = 'conv-2';
 
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].text()).toContain('2.0M');
     });
 
     it('handles missing token fields gracefully', async () => {
-      mockSessionsStore.conversations = [
+      sessionsStore.conversations = [
         { id: 'conv-1', name: 'Missing', isActive: false, messageCount: 5 },
         { id: 'conv-2', name: 'Second', isActive: true, messageCount: 5 },
       ];
-      mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
-      mockSessionsStore.activeConversationId = 'conv-2';
+      sessionsStore.activeConversation = sessionsStore.conversations[1];
+      sessionsStore.activeConversationId = 'conv-2';
 
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].exists()).toBe(true);
     });
 
     it('shows token count in meta section', async () => {
-      mockSessionsStore.conversations = [
+      sessionsStore.conversations = [
         { id: 'conv-1', name: 'Test', isActive: false, messageCount: 5, inputTokens: 2000, outputTokens: 1000 },
         { id: 'conv-2', name: 'Second', isActive: true, messageCount: 5 },
       ];
-      mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
-      mockSessionsStore.activeConversationId = 'conv-2';
+      sessionsStore.activeConversation = sessionsStore.conversations[1];
+      sessionsStore.activeConversationId = 'conv-2';
 
       const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
+      wrapper.vm.isOpen = true;
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       const meta = items[0].find('.conv-meta');

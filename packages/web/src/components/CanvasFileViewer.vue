@@ -17,7 +17,6 @@
         <!-- Version dropdown -->
         <details
           v-if="versions.length > 1"
-          ref="versionDropdown"
           class="version-dropdown"
         >
           <summary class="version-badge">
@@ -50,7 +49,7 @@
         </button>
 
         <!-- Delete dropdown -->
-        <details ref="deleteDropdown" class="delete-dropdown">
+        <details class="delete-dropdown">
           <summary class="btn-delete" title="Delete">
             &#128465;
           </summary>
@@ -161,8 +160,6 @@ const props = defineProps({
 const emit = defineEmits(['back', 'selectVersion', 'delete', 'deleteAll']);
 
 const previewMode = ref(true);
-const versionDropdown = ref(null);
-const deleteDropdown = ref(null);
 
 const currentVersionIndex = computed(() => {
   const idx = props.versions.findIndex((v) => v.id === props.item.id);
@@ -211,26 +208,14 @@ function formatJson(data) {
 }
 
 function selectVersion(itemId) {
-  // Close dropdown
-  if (versionDropdown.value) {
-    versionDropdown.value.open = false;
-  }
   emit('selectVersion', itemId);
 }
 
 function handleDeleteVersion() {
-  // Close dropdown
-  if (deleteDropdown.value) {
-    deleteDropdown.value.open = false;
-  }
   emit('delete', props.item.id);
 }
 
 function handleDeleteAll() {
-  // Close dropdown
-  if (deleteDropdown.value) {
-    deleteDropdown.value.open = false;
-  }
   const filename = props.item.filename || props.item.label || props.item.id;
   emit('deleteAll', filename);
 }

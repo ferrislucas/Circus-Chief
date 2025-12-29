@@ -4,6 +4,21 @@ import { createPinia, setActivePinia } from 'pinia';
 import { nextTick } from 'vue';
 import CommandButtonsPanel from './CommandButtonsPanel.vue';
 
+// Global helper to flush all async updates and force DOM re-render
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    // Force Vue to re-render with updated state
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    // Multiple update cycles to ensure all conditions re-evaluate
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
+
 // Mock router
 vi.mock('vue-router', () => ({
   useRouter: () => ({
@@ -190,7 +205,7 @@ describe('CommandButtonsPanel', () => {
     const deleteButton = wrapper.find('.table-row .btn-outline-danger');
     expect(deleteButton.exists()).toBe(true);
     await deleteButton.trigger('click');
-    await nextTick();
+    await flushAll(wrapper);
 
     // Dialog appears
     expect(wrapper.find('.modal-overlay').exists()).toBe(true);
@@ -227,7 +242,7 @@ describe('CommandButtonsPanel', () => {
     // Show dialog by clicking delete button in table row
     const deleteButton = wrapper.find('.table-row .btn-outline-danger');
     await deleteButton.trigger('click');
-    await nextTick();
+    await flushAll(wrapper);
 
     // Modal should be visible
     expect(wrapper.find('.modal-overlay').exists()).toBe(true);
@@ -237,7 +252,7 @@ describe('CommandButtonsPanel', () => {
     const cancelButton = modalFooter.findAll('button').find((btn) => btn.text() === 'Cancel');
     expect(cancelButton).toBeDefined();
     await cancelButton.trigger('click');
-    await nextTick();
+    await flushAll(wrapper);
 
     // Dialog is gone
     expect(wrapper.find('.modal-overlay').exists()).toBe(false);
@@ -273,7 +288,7 @@ describe('CommandButtonsPanel', () => {
     // Show dialog by clicking delete button in table row
     const deleteBtn = wrapper.find('.table-row .btn-outline-danger');
     await deleteBtn.trigger('click');
-    await nextTick();
+    await flushAll(wrapper);
 
     // Modal should be visible
     expect(wrapper.find('.modal-overlay').exists()).toBe(true);
@@ -283,7 +298,7 @@ describe('CommandButtonsPanel', () => {
     const confirmButton = modalFooter.findAll('button').find((btn) => btn.text() === 'Delete');
     expect(confirmButton).toBeDefined();
     await confirmButton.trigger('click');
-    await flushPromises();
+    await flushAll(wrapper);
 
     // Verify delete was called
     expect(deleteButtonFn).toHaveBeenCalledWith('test-project', '1');

@@ -1,6 +1,6 @@
 <template>
   <div v-if="workLogs?.length" class="work-log-panel">
-    <details :open="isExpanded" ref="detailsRef" @toggle="handleToggle">
+    <details :open="isExpanded" @toggle="handleToggle" data-work-log-details>
       <summary class="work-log-header">
         <span class="work-log-icon">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -34,7 +34,6 @@ const props = defineProps({
   workLogs: { type: Array, default: () => [] },
 });
 
-const detailsRef = ref(null);
 // Work logs in completed messages should always start collapsed
 const isExpanded = ref(false);
 
