@@ -40,7 +40,16 @@ export class CommandRunner {
           }
         }
 
-        const child = spawn('sh', ['-c', command], {
+        // Wrap command with 'script' to allocate a pseudo-TTY
+        // This ensures line-buffered output like a normal terminal, so output
+        // streams in real-time instead of being block-buffered
+        // -q = quiet mode (no header/footer messages)
+        // -e = return exit code of the child process (Linux)
+        // -c = run command
+        // /dev/null = don't save to file
+        const wrappedCommand = `script -q -e -c ${JSON.stringify(command)} /dev/null`;
+
+        const child = spawn('sh', ['-c', wrappedCommand], {
           cwd: workingDirectory,
           stdio: ['pipe', 'pipe', 'pipe'],
           detached: true, // Create a new process group for proper signal handling
