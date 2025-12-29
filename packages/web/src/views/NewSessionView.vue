@@ -193,7 +193,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
@@ -264,24 +264,35 @@ const thinkingEnabled = ref(true);
 const quickGitMode = ref('worktree'); // '', 'branch', or 'worktree'
 const quickWorktreeBranch = ref('');
 const editingBranch = ref(false);
+let branchDebounceTimer = null;
 
-// Generate branch name from prompt
-const autoBranchName = computed(() => {
-  return generateWorktreeBranch('', prompt.value);
+// Store the branch name (debounced to avoid regenerating random ID on every keystroke)
+const autoBranchName = ref('');
+
+// Debounced function to update branch name from prompt
+function updateBranchNameFromPrompt(promptValue) {
+  if (branchDebounceTimer) clearTimeout(branchDebounceTimer);
+  branchDebounceTimer = setTimeout(() => {
+    autoBranchName.value = generateWorktreeBranch('', promptValue);
+    // Also update the input field if user hasn't manually edited it
+    if (!editingBranch.value) {
+      quickWorktreeBranch.value = autoBranchName.value;
+    }
+  }, 300);
+}
+
+// Watch prompt changes with debouncing for branch name generation
+watch(prompt, (newPrompt) => {
+  updateBranchNameFromPrompt(newPrompt);
 });
 
-// Update quick worktree branch when auto-generated name changes
-watch(autoBranchName, (newBranch) => {
-  if (!editingBranch.value) {
-    quickWorktreeBranch.value = newBranch;
-  }
-});
-
-// Initialize quick worktree branch
+// Initialize quick worktree branch when git status loads
 watch(
   () => gitStatus.value,
   (status) => {
-    if (status?.isGitRepo) {
+    if (status?.isGitRepo && !autoBranchName.value) {
+      // Generate initial branch name
+      autoBranchName.value = generateWorktreeBranch('', prompt.value);
       quickWorktreeBranch.value = autoBranchName.value;
     }
   },
@@ -311,6 +322,11 @@ watch(quickGitMode, () => {
 
 watch(quickWorktreeBranch, () => {
   usingDefaults.value.quickWorktreeBranch = false;
+});
+
+// Cleanup debounce timer on unmount
+onUnmounted(() => {
+  if (branchDebounceTimer) clearTimeout(branchDebounceTimer);
 });
 
 onMounted(async () => {
