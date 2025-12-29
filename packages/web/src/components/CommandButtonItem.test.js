@@ -487,8 +487,8 @@ describe('CommandButtonItem', () => {
       },
     });
 
-    await flushPromises();
-    await nextTick();
+    // Use flushAll for more thorough async settling (prevents flakiness under load)
+    await flushAll(wrapper);
 
     // Component should render with output section
     expect(wrapper.find('.output-section').exists()).toBe(true);
