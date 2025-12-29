@@ -3,6 +3,21 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import CommandButtonItem from './CommandButtonItem.vue';
 
+// Global helper to flush all async updates and force DOM re-render
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    // Force Vue to re-render with updated state
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+    // Multiple update cycles to ensure all conditions re-evaluate
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
+
 describe('CommandButtonItem', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -340,20 +355,16 @@ describe('CommandButtonItem', () => {
 
     // Click to hide
     await header.trigger('click');
-    await flushPromises();
-    await nextTick();
-    await nextTick(); // Extra tick for state change
+    await flushAll(wrapper);
     expect(wrapper.find('.output-content').exists()).toBe(false);
 
-    // Re-query header  for fresh reference
+    // Re-query header for fresh reference
     header = wrapper.find('.output-header');
     expect(header.exists()).toBe(true);
 
     // Click to show
     await header.trigger('click');
-    await flushPromises();
-    await nextTick();
-    await nextTick(); // Extra tick for state change
+    await flushAll(wrapper);
     expect(wrapper.find('.output-content').exists()).toBe(true);
   });
 

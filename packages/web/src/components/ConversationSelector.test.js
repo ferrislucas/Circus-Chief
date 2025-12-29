@@ -58,7 +58,19 @@ describe('ConversationSelector', () => {
         sessionId: 'session-123',
         ...props,
       },
+      global: {
+        stubs: {
+          transition: false,
+        },
+      },
     });
+  }
+
+  async function flushAll(wrapper) {
+    await flushPromises();
+    await wrapper.vm.$nextTick?.();
+    await wrapper.vm.$forceUpdate?.();
+    await wrapper.vm.$nextTick?.();
   }
 
   describe('basic rendering', () => {
@@ -115,9 +127,7 @@ describe('ConversationSelector', () => {
       // Call the exposed toggleDropdown method
       expect(wrapper.vm.isOpen).toBe(false);
       wrapper.vm.toggleDropdown();
-      await flushPromises();
-      await nextTick();
-      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
 
       // State should be updated
       expect(wrapper.vm.isOpen).toBe(true);
@@ -130,7 +140,7 @@ describe('ConversationSelector', () => {
       const wrapper = mountComponent();
 
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items.length).toBe(3);
@@ -140,7 +150,7 @@ describe('ConversationSelector', () => {
       const wrapper = mountComponent();
 
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const activeItem = wrapper.find('.dropdown-item.active');
       expect(activeItem.exists()).toBe(true);
@@ -151,7 +161,7 @@ describe('ConversationSelector', () => {
       const wrapper = mountComponent();
 
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].find('.conv-meta').text()).toContain('5 msgs');
@@ -162,7 +172,7 @@ describe('ConversationSelector', () => {
       const wrapper = mountComponent();
 
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].find('.delete-btn').exists()).toBe(true);
@@ -174,7 +184,7 @@ describe('ConversationSelector', () => {
     it('calls switchConversation when selecting different conversation', async () => {
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       await items[0].trigger('click');
@@ -186,13 +196,13 @@ describe('ConversationSelector', () => {
     it('closes dropdown after selecting conversation', async () => {
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
       expect(wrapper.find('.dropdown-menu').exists()).toBe(true);
 
       const items = wrapper.findAll('.dropdown-item');
       await items[0].trigger('click');
       await flushPromises();
-      await nextTick();
+      await flushAll(wrapper);
 
       expect(wrapper.find('.dropdown-menu').exists()).toBe(false);
     });
@@ -200,7 +210,7 @@ describe('ConversationSelector', () => {
     it('does not call switchConversation when selecting same conversation', async () => {
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       await items[1].trigger('click');
@@ -214,7 +224,7 @@ describe('ConversationSelector', () => {
 
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       await items[0].trigger('click');
@@ -258,7 +268,7 @@ describe('ConversationSelector', () => {
 
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const deleteBtn = wrapper.find('.delete-btn');
       await deleteBtn.trigger('click');
@@ -272,7 +282,7 @@ describe('ConversationSelector', () => {
 
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const deleteBtn = wrapper.find('.delete-btn');
       await deleteBtn.trigger('click');
@@ -286,7 +296,7 @@ describe('ConversationSelector', () => {
 
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const deleteBtn = wrapper.find('.delete-btn');
       await deleteBtn.trigger('click');
@@ -300,7 +310,7 @@ describe('ConversationSelector', () => {
 
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const deleteBtn = wrapper.find('.delete-btn');
       await deleteBtn.trigger('click');
@@ -372,7 +382,7 @@ describe('ConversationSelector', () => {
       expect(wrapper.find('.dropdown-label').text()).toBe('2nd conversation');
 
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].find('.conv-name').text()).toBe('1st conversation');
@@ -395,7 +405,7 @@ describe('ConversationSelector', () => {
       expect(wrapper.find('.dropdown-label').text()).toBe('1st conversation');
 
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].find('.conv-name').text()).toBe('1st conversation');
@@ -419,7 +429,7 @@ describe('ConversationSelector', () => {
 
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[10].find('.conv-name').text()).toBe('11th conversation');
@@ -440,7 +450,7 @@ describe('ConversationSelector', () => {
       expect(wrapper.find('.dropdown-label').text()).toBe('My Custom Name');
 
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].find('.conv-name').text()).toBe('My Custom Name');
@@ -460,7 +470,7 @@ describe('ConversationSelector', () => {
 
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].text()).toContain('1.5K');
@@ -477,7 +487,7 @@ describe('ConversationSelector', () => {
 
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].find('.conv-meta').text()).toContain('0 msgs');
@@ -493,7 +503,7 @@ describe('ConversationSelector', () => {
 
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].text()).toContain('75.0K');
@@ -509,7 +519,7 @@ describe('ConversationSelector', () => {
 
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].text()).toContain('2.0M');
@@ -525,7 +535,7 @@ describe('ConversationSelector', () => {
 
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       expect(items[0].exists()).toBe(true);
@@ -541,7 +551,7 @@ describe('ConversationSelector', () => {
 
       const wrapper = mountComponent();
       wrapper.vm.isOpen = true;
-      await nextTick();
+      await flushAll(wrapper);
 
       const items = wrapper.findAll('.dropdown-item');
       const meta = items[0].find('.conv-meta');

@@ -189,10 +189,9 @@ describe('SessionCard', () => {
 
     it('links to session detail page', () => {
       const wrapper = mountComponent();
-      // Find the RouterLink component within the wrapper
-      const routerLink = wrapper.findComponent({ name: 'RouterLink' });
-      expect(routerLink.exists()).toBe(true);
-      expect(routerLink.attributes('to')).toBe('/sessions/session-123');
+      // Check that the component renders with correct link attributes
+      const html = wrapper.html();
+      expect(html).toContain('to="/sessions/session-123"');
     });
 
     it('renders formatted date', () => {

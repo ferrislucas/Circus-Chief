@@ -6,6 +6,7 @@ import { nextTick, defineComponent } from 'vue';
 vi.mock('../api/ApiClient.js', () => ({
   api: {
     getSessionChanges: vi.fn().mockResolvedValue({ staged: '', unstaged: '', untracked: '' }),
+    getSessionDefaultBranch: vi.fn().mockResolvedValue({ branch: null }),
   },
 }));
 
