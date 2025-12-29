@@ -73,6 +73,12 @@ watch(() => props.workLogs?.length, () => {
 watch(() => props.partialThinking, () => {
   scrollToBottom();
 }, { flush: 'sync' });
+
+// Expose for testing
+defineExpose({
+  isNearBottom,
+  scrollToBottom,
+});
 </script>
 
 <style scoped>

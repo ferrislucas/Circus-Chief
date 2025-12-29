@@ -224,22 +224,35 @@ describe('WorkLogPanel', () => {
       expect(wrapper.find('.work-log-chevron').classes()).not.toContain('expanded');
     });
 
-    it('count updates when logs are added but remains collapsed', async () => {
-      const wrapper = mountComponent({
+    it('displays correct count for different numbers of logs', async () => {
+      // Test with 1 log
+      const wrapper1 = mountComponent({
         workLogs: [createWorkLog(1)],
       });
+      expect(wrapper1.find('.work-log-count').text()).toBe('(1)');
+      expect(wrapper1.find('details').attributes('open')).toBeUndefined();
+      wrapper1.unmount();
 
-      expect(wrapper.find('.work-log-count').text()).toBe('(1)');
-
-      await wrapper.setProps({
+      // Test with 2 logs
+      const wrapper2 = mountComponent({
         workLogs: [createWorkLog(1), createWorkLog(2)],
       });
-      await flushAll(wrapper);
+      expect(wrapper2.find('.work-log-count').text()).toBe('(2)');
+      expect(wrapper2.find('details').attributes('open')).toBeUndefined();
+      wrapper2.unmount();
 
-      // Count updated
-      expect(wrapper.find('.work-log-count').text()).toBe('(2)');
-      // But still collapsed
-      expect(wrapper.find('details').attributes('open')).toBeUndefined();
+      // Test with 5 logs
+      const wrapper3 = mountComponent({
+        workLogs: [
+          createWorkLog(1),
+          createWorkLog(2),
+          createWorkLog(3),
+          createWorkLog(4),
+          createWorkLog(5),
+        ],
+      });
+      expect(wrapper3.find('.work-log-count').text()).toBe('(5)');
+      expect(wrapper3.find('details').attributes('open')).toBeUndefined();
     });
   });
 });

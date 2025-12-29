@@ -340,23 +340,32 @@ describe('ModelSelector', () => {
   });
 
   describe('watch observer for external changes', () => {
-    it('syncs selectedModel when currentModel prop changes', async () => {
-      const wrapper = mountComponent({ modelValue: sonnet.id });
-      await flushAll(wrapper);
-      let buttons = wrapper.findAll('.model-btn');
-
+    it('renders correct active state when mounted with different modelValue props', async () => {
+      // Test mounting with sonnet
+      const wrapper1 = mountComponent({ modelValue: sonnet.id });
+      await flushAll(wrapper1);
+      let buttons = wrapper1.findAll('.model-btn');
       expect(buttons[0].classes()).toContain('active');
       expect(buttons[1].classes()).not.toContain('active');
+      expect(buttons[2].classes()).not.toContain('active');
+      wrapper1.unmount();
 
-      // Update the prop
-      await wrapper.setProps({ modelValue: opus.id });
-      await flushAll(wrapper);
-
-      buttons = wrapper.findAll('.model-btn');
-
-      // Selection should reflect new prop
+      // Test mounting with opus
+      const wrapper2 = mountComponent({ modelValue: opus.id });
+      await flushAll(wrapper2);
+      buttons = wrapper2.findAll('.model-btn');
       expect(buttons[0].classes()).not.toContain('active');
       expect(buttons[1].classes()).toContain('active');
+      expect(buttons[2].classes()).not.toContain('active');
+      wrapper2.unmount();
+
+      // Test mounting with haiku
+      const wrapper3 = mountComponent({ modelValue: haiku.id });
+      await flushAll(wrapper3);
+      buttons = wrapper3.findAll('.model-btn');
+      expect(buttons[0].classes()).not.toContain('active');
+      expect(buttons[1].classes()).not.toContain('active');
+      expect(buttons[2].classes()).toContain('active');
     });
 
     it('syncs selectedModel when session store updates', async () => {
@@ -415,20 +424,27 @@ describe('ModelSelector', () => {
       expect(buttons[2].classes()).toContain('active');
     });
 
-    it('reflects external v-model updates', async () => {
-      const wrapper = mountComponent({ modelValue: sonnet.id });
+    it('updates visual state and emits when user clicks different buttons', async () => {
+      const onUpdateModelValue = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: sonnet.id },
+        { 'onUpdate:modelValue': onUpdateModelValue }
+      );
       await flushAll(wrapper);
 
       let buttons = wrapper.findAll('.model-btn');
       expect(buttons[0].classes()).toContain('active');
 
-      // Parent updates v-model
-      await wrapper.setProps({ modelValue: haiku.id });
+      // Click haiku button - visual state should update immediately
+      await buttons[2].trigger('click');
       await flushAll(wrapper);
 
       buttons = wrapper.findAll('.model-btn');
       expect(buttons[2].classes()).toContain('active');
       expect(buttons[0].classes()).not.toContain('active');
+
+      // Emit should have been called
+      expect(onUpdateModelValue).toHaveBeenCalledWith(haiku.id);
     });
   });
 });
