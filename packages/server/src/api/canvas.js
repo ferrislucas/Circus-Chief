@@ -123,67 +123,114 @@ export function getTypeFromExtension(ext) {
   return null; // Unknown, will try binary detection
 }
 
+/**
+ * Get MIME type for a canvas type
+ * @param {string} type - The canvas type (text, markdown, code, json)
+ * @returns {string} The MIME type
+ */
+function getMimeTypeForType(type) {
+  switch (type) {
+    case 'text':
+      return 'text/plain';
+    case 'markdown':
+      return 'text/markdown';
+    case 'code':
+      return 'text/plain';
+    case 'json':
+      return 'application/json';
+    default:
+      return 'text/plain';
+  }
+}
+
 // POST /api/sessions/:id/canvas - Add canvas item
+// Supports two modes:
+// 1. File mode: { filePath, label? } - reads file from disk
+// 2. Inline mode: { type, content, filename, label? } - uses provided content directly
 router.post('/:id/canvas', (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const { filePath, label } = req.body;
-
-  if (!filePath) {
-    return res.status(400).json({ error: 'filePath is required' });
-  }
-
-  if (!existsSync(filePath)) {
-    return res.status(400).json({ error: `File not found: ${filePath}` });
-  }
-
+  const { filePath, label, type, content, filename } = req.body;
   let itemData;
 
-  try {
-    const fileBuffer = readFileSync(filePath);
-    const ext = extname(filePath).toLowerCase();
-    let detectedType = getTypeFromExtension(ext);
-    let detectedMimeType = MIME_TYPES[ext] || TEXT_EXTENSIONS[ext];
+  // Mode 1: File path provided - read from disk
+  if (filePath) {
+    if (!existsSync(filePath)) {
+      return res.status(400).json({ error: `File not found: ${filePath}` });
+    }
 
-    // For unknown extensions, detect if binary or text
-    if (!detectedType) {
-      if (isBinaryContent(fileBuffer)) {
-        return res.status(400).json({
-          error: `Unsupported binary file format: ${ext}. Supported binary formats: ${Object.keys(MIME_TYPES).join(', ')}`
-        });
+    try {
+      const fileBuffer = readFileSync(filePath);
+      const ext = extname(filePath).toLowerCase();
+      let detectedType = getTypeFromExtension(ext);
+      let detectedMimeType = MIME_TYPES[ext] || TEXT_EXTENSIONS[ext];
+
+      // For unknown extensions, detect if binary or text
+      if (!detectedType) {
+        if (isBinaryContent(fileBuffer)) {
+          return res.status(400).json({
+            error: `Unsupported binary file format: ${ext}. Supported binary formats: ${Object.keys(MIME_TYPES).join(', ')}`
+          });
+        }
+        // It's a text file with unknown extension, treat as code
+        detectedType = 'code';
+        detectedMimeType = 'text/plain';
       }
-      // It's a text file with unknown extension, treat as code
-      detectedType = 'code';
-      detectedMimeType = 'text/plain';
+
+      // Handle binary types (image, pdf)
+      if (detectedType === 'image' || detectedType === 'pdf') {
+        const base64 = fileBuffer.toString('base64');
+        itemData = {
+          type: detectedType,
+          data: base64,
+          mimeType: detectedMimeType,
+          filename: basename(filePath),
+          label: label || null,
+        };
+      } else {
+        // Handle text-based types (code, markdown, json)
+        const textContent = fileBuffer.toString('utf-8');
+        itemData = {
+          type: detectedType,
+          content: detectedType === 'json' ? null : textContent,
+          data: detectedType === 'json' ? textContent : null,
+          mimeType: detectedMimeType,
+          filename: basename(filePath),
+          label: label || null,
+        };
+      }
+    } catch (err) {
+      return res.status(400).json({ error: `Failed to read file: ${err.message}` });
+    }
+  }
+  // Mode 2: Inline content provided - use directly
+  else if (content !== undefined && type && filename) {
+    // Validate type is text-based (not image/pdf which require binary)
+    const validInlineTypes = ['text', 'markdown', 'code', 'json'];
+    if (!validInlineTypes.includes(type)) {
+      return res.status(400).json({
+        error: `Invalid type for inline content: ${type}. Valid types: ${validInlineTypes.join(', ')}`
+      });
     }
 
-    // Handle binary types (image, pdf)
-    if (detectedType === 'image' || detectedType === 'pdf') {
-      const base64 = fileBuffer.toString('base64');
-      itemData = {
-        type: detectedType,
-        data: base64,
-        mimeType: detectedMimeType,
-        filename: basename(filePath),
-        label: label || null,
-      };
-    } else {
-      // Handle text-based types (code, markdown, json)
-      const textContent = fileBuffer.toString('utf-8');
-      itemData = {
-        type: detectedType,
-        content: detectedType === 'json' ? null : textContent,
-        data: detectedType === 'json' ? textContent : null,
-        mimeType: detectedMimeType,
-        filename: basename(filePath),
-        label: label || null,
-      };
-    }
-  } catch (err) {
-    return res.status(400).json({ error: `Failed to read file: ${err.message}` });
+    // Create canvas item from inline content
+    itemData = {
+      type,
+      content: type === 'json' ? null : content,
+      data: type === 'json' ? content : null,
+      mimeType: getMimeTypeForType(type),
+      filename,
+      label: label || null,
+    };
+  }
+  // Neither mode provided
+  else {
+    return res.status(400).json({
+      error: 'Either filePath or (type + content + filename) is required'
+    });
   }
 
   const item = canvasItems.create(req.params.id, itemData);

@@ -107,7 +107,6 @@
         <ConversationTab v-else-if="activeTab === 'conversation'" :session-id="route.params.id" />
         <ChangesTab v-else-if="activeTab === 'changes'" :session-id="route.params.id" @update:file-count="changesFileCount = $event" />
         <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
-        <NotesTab v-else-if="activeTab === 'notes'" :session-id="route.params.id" />
         <CommandsTab v-else-if="activeTab === 'commands'" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
       </div>
     </template>
@@ -128,7 +127,6 @@ import { parseDiff } from '../utils/diffParser.js';
 import ConversationTab from '../components/ConversationTab.vue';
 import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
-import NotesTab from '../components/NotesTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
 import CommandsTab from '../components/CommandsTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
@@ -163,7 +161,6 @@ const tabs = computed(() => [
   { id: 'conversation', label: 'Conversation' },
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
   { id: 'canvas', label: canvasItemCount.value > 0 ? `Canvas (${canvasItemCount.value})` : 'Canvas' },
-  { id: 'notes', label: 'Notes' },
   { id: 'commands', label: 'Commands' }
 ]);
 
@@ -208,6 +205,8 @@ function startPolling() {
       await sessionsStore.fetchSession(sessionId, false);
       await sessionsStore.fetchMessages(sessionId, false);
       await sessionsStore.fetchWorkLogs(sessionId);
+      // Check for file changes during active session so the Changes tab indicator updates
+      checkForChanges();
     } else {
       // Session no longer actively processing, stop polling
       stopPolling();
@@ -353,7 +352,9 @@ onMounted(async () => {
   // (Issue: conversations were only loaded when ConversationTab became visible)
   await sessionsStore.fetchConversations(sessionId);
   await sessionsStore.fetchWorkLogs(sessionId);
-  canvasStore.fetchItems(sessionId);
+  // Await canvas fetch to ensure indicator shows correct count immediately.
+  // This catches items added before/during WebSocket subscription establishment.
+  await canvasStore.fetchItems(sessionId);
   todosStore.fetchTodos(sessionId);
 
   // Fetch summary for PR indicators (don't await, not critical)

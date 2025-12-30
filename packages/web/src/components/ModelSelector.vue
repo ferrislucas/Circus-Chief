@@ -72,6 +72,12 @@ async function handleModelChange(id) {
   // Immediate visual feedback - update UI right away
   selectedModel.value = id;
 
+  // Force browser repaint by blurring the clicked button
+  // This ensures the 'active' class style change is rendered immediately
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+
   if (props.sessionId) {
     // Session context: update store asynchronously
     togglingModel.value = true;

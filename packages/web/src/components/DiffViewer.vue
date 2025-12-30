@@ -280,10 +280,9 @@ function getLinePrefix(type) {
 
 .diff-file-path {
   flex: 1;
+  min-width: 0;
   color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-word;
 }
 
 .diff-file-stats {
