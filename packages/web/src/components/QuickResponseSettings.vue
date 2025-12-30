@@ -271,19 +271,20 @@ async function handleDelete() {
 }
 
 .add-button {
-  background: var(--color-accent);
-  color: var(--color-background);
+  background: var(--color-accent, #22d3ee);
+  color: #000;
   border: none;
-  padding: 0.375rem 0.75rem;
+  padding: 0.5rem 1rem;
   border-radius: var(--border-radius);
-  font-size: 0.8125rem;
-  font-weight: 500;
+  font-size: 0.875rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: all 0.15s;
 }
 
 .add-button:hover {
-  opacity: 0.9;
+  background: var(--color-accent-hover, #06b6d4);
+  transform: translateY(-1px);
 }
 
 .loading-state,

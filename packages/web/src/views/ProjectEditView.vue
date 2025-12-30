@@ -185,6 +185,20 @@
       </details>
 
       <details class="advanced-settings">
+        <summary>Quick Responses</summary>
+        <p class="form-help">
+          Quick responses are shortcuts that can be inserted into the chat input. You can create project-specific or global responses.
+        </p>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          @click="quickResponseSettingsOpen = true"
+        >
+          Manage Quick Responses
+        </button>
+      </details>
+
+      <details class="advanced-settings">
         <summary>Summary Settings</summary>
         <div class="form-group">
           <label class="checkbox-label">
@@ -240,6 +254,13 @@
         </div>
       </div>
     </form>
+
+    <!-- Quick Response Settings Modal -->
+    <QuickResponseSettings
+      :isOpen="quickResponseSettingsOpen"
+      :projectId="route.params.id"
+      @close="quickResponseSettingsOpen = false"
+    />
   </div>
 </template>
 
@@ -248,14 +269,17 @@ import { ref, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
+import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useUiStore } from '../stores/ui.js';
 import PathChooser from '../components/PathChooser.vue';
+import QuickResponseSettings from '../components/QuickResponseSettings.vue';
 import { DEFAULT_SYSTEM_PROMPT as defaultSystemPrompt } from '@claudetools/shared/constants';
 
 const route = useRoute();
 const router = useRouter();
 const projectsStore = useProjectsStore();
 const defaultsStore = useProjectDefaultsStore();
+const quickResponsesStore = useQuickResponsesStore();
 const uiStore = useUiStore();
 
 const name = ref('');
@@ -279,10 +303,12 @@ const defaultModel = ref('');
 const saving = ref(false);
 const savingDefaults = ref(false);
 const error = ref(null);
+const quickResponseSettingsOpen = ref(false);
 
 onMounted(() => {
   projectsStore.fetchProject(route.params.id);
   defaultsStore.fetchDefaults(route.params.id);
+  quickResponsesStore.fetchForProject(route.params.id);
 });
 
 watch(() => projectsStore.currentProject, (project) => {

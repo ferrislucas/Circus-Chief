@@ -6,11 +6,15 @@ import { createPinia, setActivePinia } from 'pinia';
 import ProjectEditView from './ProjectEditView.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
+import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 // Mock the API and components
 vi.mock('../composables/useApi.js');
 vi.mock('../components/PathChooser.vue', () => ({
   default: { name: 'PathChooser', template: '<input />' }
+}));
+vi.mock('../components/QuickResponseSettings.vue', () => ({
+  default: { name: 'QuickResponseSettings', template: '<div />' }
 }));
 
 // Global helper to flush all async updates and force DOM re-render
@@ -33,6 +37,7 @@ describe('ProjectEditView with Session Defaults', () => {
   let router;
   let projectsStore;
   let defaultsStore;
+  let quickResponsesStore;
 
   beforeEach(() => {
     pinia = createPinia();
@@ -48,6 +53,7 @@ describe('ProjectEditView with Session Defaults', () => {
 
     projectsStore = useProjectsStore();
     defaultsStore = useProjectDefaultsStore();
+    quickResponsesStore = useQuickResponsesStore();
 
     // Mock store methods
     vi.spyOn(projectsStore, 'fetchProject').mockResolvedValue(undefined);
@@ -60,6 +66,9 @@ describe('ProjectEditView with Session Defaults', () => {
     vi.spyOn(defaultsStore, 'fetchDefaults').mockResolvedValue(null);
     vi.spyOn(defaultsStore, 'updateDefaults').mockResolvedValue({});
     vi.spyOn(defaultsStore, 'resetDefaults').mockResolvedValue(null);
+
+    // Mock quick responses store
+    vi.spyOn(quickResponsesStore, 'fetchForProject').mockResolvedValue({ project: [], global: [] });
   });
 
   describe('Session Defaults Section', () => {
