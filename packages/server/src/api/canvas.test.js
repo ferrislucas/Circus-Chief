@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { canvasItems, projects } from '../database.js';
+import express from 'express';
+import request from 'supertest';
+import { canvasItems, projects, sessions } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { existsSync, rmSync } from 'fs';
 import { isBinaryContent, getTypeFromExtension } from './canvas.js';
+import canvasRouter from './canvas.js';
 
 /**
  * Extracts mimeType and base64 data from request body for canvas image items.
@@ -707,6 +710,231 @@ describe('Canvas API', () => {
       expect(retrieved.content).toBe('Inline test content');
       expect(retrieved.filename).toBe('inline-test.txt');
       expect(retrieved.label).toBe('Test');
+    });
+  });
+
+  describe('HTTP POST /api/sessions/:id/canvas (Inline Content Mode)', () => {
+    let app;
+    let projectId;
+    let sessionId;
+
+    beforeEach(() => {
+      app = express();
+      app.use(express.json());
+      app.use('/api/sessions', canvasRouter);
+
+      // Create project and session
+      const project = projects.create('Test Project', '/tmp/test');
+      projectId = project.id;
+
+      const now = Date.now();
+      const id = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, projectId, 'Test Session', 'running', 'standard', now, now);
+      sessionId = id;
+    });
+
+    describe('inline content mode', () => {
+      it('creates canvas item from inline text content', async () => {
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({
+            type: 'text',
+            content: 'Hello, World!',
+            filename: 'output.txt',
+            label: 'Command Output'
+          });
+
+        expect(res.status).toBe(201);
+        expect(res.body.type).toBe('text');
+        expect(res.body.content).toBe('Hello, World!');
+        expect(res.body.filename).toBe('output.txt');
+        expect(res.body.label).toBe('Command Output');
+        expect(res.body.mimeType).toBe('text/plain');
+      });
+
+      it('creates canvas item from inline markdown content', async () => {
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({
+            type: 'markdown',
+            content: '# Heading\n\nParagraph text',
+            filename: 'output.md',
+            label: 'Markdown Output'
+          });
+
+        expect(res.status).toBe(201);
+        expect(res.body.type).toBe('markdown');
+        expect(res.body.content).toBe('# Heading\n\nParagraph text');
+        expect(res.body.mimeType).toBe('text/markdown');
+      });
+
+      it('creates canvas item from inline code content', async () => {
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({
+            type: 'code',
+            content: 'function hello() { return "world"; }',
+            filename: 'output.js',
+            label: 'Code Output'
+          });
+
+        expect(res.status).toBe(201);
+        expect(res.body.type).toBe('code');
+        expect(res.body.content).toBe('function hello() { return "world"; }');
+        expect(res.body.filename).toBe('output.js');
+        expect(res.body.mimeType).toBe('text/plain');
+      });
+
+      it('creates canvas item from inline JSON content', async () => {
+        const jsonContent = '{"key": "value", "nested": {"a": 1}}';
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({
+            type: 'json',
+            content: jsonContent,
+            filename: 'output.json',
+            label: 'JSON Output'
+          });
+
+        expect(res.status).toBe(201);
+        expect(res.body.type).toBe('json');
+        expect(res.body.data).toBe(jsonContent);
+        expect(res.body.mimeType).toBe('application/json');
+      });
+
+      it('rejects inline content with invalid type', async () => {
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({
+            type: 'image',
+            content: 'base64data',
+            filename: 'output.jpg'
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain('Invalid type for inline content');
+      });
+
+      it('rejects inline content type pdf', async () => {
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({
+            type: 'pdf',
+            content: 'pdfcontent',
+            filename: 'output.pdf'
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain('Invalid type for inline content');
+      });
+
+      it('includes label in response when provided', async () => {
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({
+            type: 'text',
+            content: 'Test content',
+            filename: 'test.txt',
+            label: 'Test Label'
+          });
+
+        expect(res.status).toBe(201);
+        expect(res.body.label).toBe('Test Label');
+      });
+
+      it('sets label to null when not provided', async () => {
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({
+            type: 'text',
+            content: 'Test content',
+            filename: 'test.txt'
+          });
+
+        expect(res.status).toBe(201);
+        expect(res.body.label).toBeNull();
+      });
+
+      it('returns 400 when neither filePath nor inline content provided', async () => {
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({});
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain('filePath or');
+      });
+
+      it('returns 400 when only type is provided without content and filename', async () => {
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({
+            type: 'text'
+          });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain('filePath or');
+      });
+
+      it('prefers filePath mode when both filePath and inline content provided', async () => {
+        // Create a temporary file
+        const { writeFileSync } = await import('fs');
+        const tempFile = '/tmp/test-canvas-file.txt';
+        writeFileSync(tempFile, 'File content');
+
+        try {
+          const res = await request(app)
+            .post(`/api/sessions/${sessionId}/canvas`)
+            .send({
+              filePath: tempFile,
+              type: 'text',
+              content: 'Should be ignored',
+              filename: 'should-be-ignored.txt'
+            });
+
+          expect(res.status).toBe(201);
+          expect(res.body.content).toBe('File content');
+          expect(res.body.filename).toContain('test-canvas-file');
+        } finally {
+          rmSync(tempFile, { force: true });
+        }
+      });
+
+      it('creates retrievable canvas item from inline content', async () => {
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({
+            type: 'markdown',
+            content: '# Test\n\nMarkdown content',
+            filename: 'test.md',
+            label: 'Test Markdown'
+          });
+
+        expect(res.status).toBe(201);
+        const itemId = res.body.id;
+
+        // Verify the item was stored and can be retrieved
+        const retrieved = canvasItems.getById(itemId);
+        expect(retrieved).toBeDefined();
+        expect(retrieved.type).toBe('markdown');
+        expect(retrieved.content).toBe('# Test\n\nMarkdown content');
+      });
+    });
+
+    describe('error handling', () => {
+      it('returns 404 for non-existent session', async () => {
+        const res = await request(app)
+          .post('/api/sessions/nonexistent-id/canvas')
+          .send({
+            type: 'text',
+            content: 'Test',
+            filename: 'test.txt'
+          });
+
+        expect(res.status).toBe(404);
+        expect(res.body.error).toContain('Session not found');
+      });
     });
   });
 });

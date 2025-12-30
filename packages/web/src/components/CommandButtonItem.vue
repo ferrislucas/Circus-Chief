@@ -55,7 +55,12 @@
         <div v-if="run.outputTruncated" class="output-truncated-warning">
           ⚠️ Output truncated (showing last 2000 lines)
         </div>
+        <!-- Loading skeleton while output is being processed -->
+        <div v-if="isLoadingOutput" class="output-skeleton">
+          <div class="skeleton-line" v-for="i in 5" :key="i"></div>
+        </div>
         <div
+          v-else
           class="output-text"
           @scroll="onScroll"
           v-html="formattedOutput || '(no output)'"
@@ -85,6 +90,34 @@
 <script setup>
 import { defineProps, defineEmits, ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { ansiToHtml } from '../utils/ansi.js';
+
+/**
+ * Debounce with leading edge - first call is immediate, subsequent calls are debounced
+ * This provides instant feedback on first render while throttling rapid updates
+ * @param {Function} fn - Function to debounce
+ * @param {number} delay - Delay in milliseconds
+ * @returns {Function} Debounced function with leading edge
+ */
+const debounceLeading = (fn, delay) => {
+  let timeoutId = null;
+  let lastCalled = 0;
+  return (...args) => {
+    const now = Date.now();
+    if (timeoutId) clearTimeout(timeoutId);
+
+    // If enough time has passed, call immediately (leading edge)
+    if (now - lastCalled >= delay) {
+      lastCalled = now;
+      fn(...args);
+    } else {
+      // Otherwise schedule for later (trailing edge)
+      timeoutId = setTimeout(() => {
+        lastCalled = Date.now();
+        fn(...args);
+      }, delay);
+    }
+  };
+};
 
 const props = defineProps({
   button: {
@@ -186,18 +219,48 @@ const stopTimer = () => {
 };
 
 /**
- * Computed property: Format output with ANSI codes converted to HTML
+ * Ref for formatted HTML output (debounced for performance)
  *
  * This converts raw terminal output containing ANSI escape codes
  * (colors, bold, dim, etc.) into styled HTML that renders correctly.
- * Falls back to plain text if run.output is not available.
+ * Debounced to avoid excessive re-renders during rapid output streaming.
  */
-const formattedOutput = computed(() => {
-  if (!props.run?.output) {
-    return '';
-  }
-  return ansiToHtml(props.run.output);
+const formattedOutput = ref('');
+
+/**
+ * Track if output is being processed (for loading skeleton)
+ * True when there's raw output but formatted output is not yet ready
+ */
+const isLoadingOutput = computed(() => {
+  return showOutput.value && !!props.run?.output && !formattedOutput.value;
 });
+
+/**
+ * Debounced function to update formatted output
+ * First call is immediate for responsive UI, subsequent calls debounced every 250ms
+ */
+const updateFormattedOutput = debounceLeading((output) => {
+  formattedOutput.value = ansiToHtml(output);
+}, 250);
+
+/**
+ * Watch for output changes and update formatted output (debounced)
+ * Only processes when output section is expanded (lazy loading)
+ */
+watch(
+  () => [props.run?.output, showOutput.value],
+  ([newOutput, isVisible]) => {
+    if (!newOutput) {
+      formattedOutput.value = '';
+      return;
+    }
+    // Only process ANSI conversion when output is visible (lazy load)
+    if (isVisible) {
+      updateFormattedOutput(newOutput);
+    }
+  },
+  { immediate: true }
+);
 
 /**
  * Detect scroll position: has user scrolled up from the bottom?
@@ -579,6 +642,42 @@ defineExpose({
   }
   50% {
     opacity: 1;
+  }
+}
+
+/* Loading Skeleton */
+.output-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+
+.skeleton-line {
+  height: 0.9rem;
+  background: linear-gradient(
+    90deg,
+    var(--color-border) 0%,
+    rgba(88, 166, 255, 0.15) 50%,
+    var(--color-border) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+.skeleton-line:nth-child(1) { width: 80%; }
+.skeleton-line:nth-child(2) { width: 95%; }
+.skeleton-line:nth-child(3) { width: 70%; }
+.skeleton-line:nth-child(4) { width: 85%; }
+.skeleton-line:nth-child(5) { width: 60%; }
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
   }
 }
 

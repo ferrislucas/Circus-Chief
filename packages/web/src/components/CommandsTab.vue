@@ -230,17 +230,19 @@ const setupWebSocketHandlers = () => {
 };
 
 onMounted(async () => {
-  // Fetch buttons for this project
-  await commandButtonsStore.fetchButtons(props.projectId);
+  // Setup WebSocket handlers immediately for live updates
+  setupWebSocketHandlers();
 
-  // Fetch and restore any active runs for this session
-  const activeRuns = await commandButtonsStore.fetchActiveRuns(props.sessionId);
+  // Fetch buttons and active runs in parallel for faster loading
+  const [, activeRuns] = await Promise.all([
+    commandButtonsStore.fetchButtons(props.projectId),
+    commandButtonsStore.fetchActiveRuns(props.sessionId),
+  ]);
+
+  // Map button IDs to their current run IDs
   for (const run of activeRuns) {
     currentRunIds[run.buttonId] = run.runId;
   }
-
-  // Setup WebSocket handlers
-  setupWebSocketHandlers();
 });
 
 onUnmounted(() => {

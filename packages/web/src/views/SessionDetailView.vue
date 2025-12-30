@@ -388,6 +388,7 @@ onUnmounted(() => {
 });
 
 function formatMode(mode) {
+  if (!mode) return 'Standard';
   if (mode === 'yolo') return 'YOLO';
   return mode.charAt(0).toUpperCase() + mode.slice(1);
 }
