@@ -124,6 +124,7 @@ import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription, ensureSubscribed } from '../composables/useWebSocket.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
 import { api } from '../composables/useApi.js';
+import { parseDiff } from '../utils/diffParser.js';
 import ConversationTab from '../components/ConversationTab.vue';
 import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
@@ -185,6 +186,11 @@ async function checkForChanges() {
   try {
     const changes = await api.getSessionChanges(sessionId);
     hasChanges.value = !!(changes.staged || changes.unstaged || changes.untracked);
+    // Count files from the diff responses so the tab shows the count immediately
+    const stagedFiles = parseDiff(changes.staged || '');
+    const unstagedFiles = parseDiff(changes.unstaged || '');
+    const untrackedFiles = parseDiff(changes.untracked || '');
+    changesFileCount.value = stagedFiles.length + unstagedFiles.length + untrackedFiles.length;
   } catch (error) {
     // Silently fail - changes indicator is not critical
     console.error('Failed to check for changes:', error);
