@@ -208,6 +208,8 @@ function startPolling() {
       await sessionsStore.fetchSession(sessionId, false);
       await sessionsStore.fetchMessages(sessionId, false);
       await sessionsStore.fetchWorkLogs(sessionId);
+      // Check for file changes during active session so the Changes tab indicator updates
+      checkForChanges();
     } else {
       // Session no longer actively processing, stop polling
       stopPolling();
