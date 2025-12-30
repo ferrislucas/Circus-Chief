@@ -85,7 +85,7 @@
     <!-- Quick Responses Panel - shows above the input when not running -->
     <QuickResponsesPanel
       v-if="canSendMessage && !isDraft"
-      :show-empty="false"
+      :show-empty="true"
       @insert="handleQuickResponseInsert"
       @openSettings="quickResponseSettingsOpen = true"
     />
