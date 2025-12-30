@@ -25,7 +25,7 @@
               :class="['button-status-indicator', `button-status-${indicator.status}`]"
               :title="indicator.label"
               @click.stop.prevent="selectedButtonForModal = indicator"
-            ></span>
+            >{{ getStatusIcon(indicator.status) }}</span>
           </p>
           <div v-if="session.gitBranch || session.prUrl" class="branch-row">
             <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
@@ -103,7 +103,7 @@
             :class="['button-status-indicator', `button-status-${indicator.status}`]"
             :title="indicator.label"
             @click.stop.prevent="selectedButtonForModal = indicator"
-          ></span>
+          >{{ getStatusIcon(indicator.status) }}</span>
         </p>
         <div v-if="session.gitBranch || session.prUrl" class="branch-row">
           <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
@@ -319,6 +319,21 @@ const buttonStatusesToDisplay = computed(() => {
 
   return displayButtons;
 });
+
+const getStatusIcon = (status) => {
+  switch (status) {
+    case 'running':
+      return '⊙';
+    case 'success':
+      return '✓';
+    case 'error':
+      return '✕';
+    case 'killed':
+      return '✕';
+    default:
+      return '';
+  }
+};
 
 const onArchiveClick = () => {
   if (confirm('Archive this session?')) {
