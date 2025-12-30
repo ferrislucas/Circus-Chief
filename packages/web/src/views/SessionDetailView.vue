@@ -107,7 +107,6 @@
         <ConversationTab v-else-if="activeTab === 'conversation'" :session-id="route.params.id" />
         <ChangesTab v-else-if="activeTab === 'changes'" :session-id="route.params.id" @update:file-count="changesFileCount = $event" />
         <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
-        <NotesTab v-else-if="activeTab === 'notes'" :session-id="route.params.id" />
         <CommandsTab v-else-if="activeTab === 'commands'" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
       </div>
     </template>
@@ -128,7 +127,6 @@ import { parseDiff } from '../utils/diffParser.js';
 import ConversationTab from '../components/ConversationTab.vue';
 import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
-import NotesTab from '../components/NotesTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
 import CommandsTab from '../components/CommandsTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
@@ -163,7 +161,6 @@ const tabs = computed(() => [
   { id: 'conversation', label: 'Conversation' },
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
   { id: 'canvas', label: canvasItemCount.value > 0 ? `Canvas (${canvasItemCount.value})` : 'Canvas' },
-  { id: 'notes', label: 'Notes' },
   { id: 'commands', label: 'Commands' }
 ]);
 
