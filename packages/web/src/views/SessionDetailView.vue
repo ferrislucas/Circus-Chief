@@ -208,6 +208,8 @@ function startPolling() {
       await sessionsStore.fetchSession(sessionId, false);
       await sessionsStore.fetchMessages(sessionId, false);
       await sessionsStore.fetchWorkLogs(sessionId);
+      // Check for file changes during active session so the Changes tab indicator updates
+      checkForChanges();
     } else {
       // Session no longer actively processing, stop polling
       stopPolling();
@@ -353,7 +355,9 @@ onMounted(async () => {
   // (Issue: conversations were only loaded when ConversationTab became visible)
   await sessionsStore.fetchConversations(sessionId);
   await sessionsStore.fetchWorkLogs(sessionId);
-  canvasStore.fetchItems(sessionId);
+  // Await canvas fetch to ensure indicator shows correct count immediately.
+  // This catches items added before/during WebSocket subscription establishment.
+  await canvasStore.fetchItems(sessionId);
   todosStore.fetchTodos(sessionId);
 
   // Fetch summary for PR indicators (don't await, not critical)
