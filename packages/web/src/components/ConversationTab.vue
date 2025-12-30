@@ -268,6 +268,9 @@ const partialText = ref('');
 const isNearBottom = ref(true);
 const hasNewMessages = ref(false);
 let debounceTimer = null;
+let partialThrottleTimer = null;
+let pendingPartialText = null;
+const PARTIAL_THROTTLE_MS = 150; // Throttle streaming updates to reduce CPU load on iPad
 
 const SCROLL_THRESHOLD = 100; // pixels from bottom to consider "at bottom"
 
@@ -372,9 +375,26 @@ onMounted(async () => {
     quickResponsesStore.fetchForProject(sessionsStore.currentSession.projectId);
   }
 
+  // Throttle partial text updates to reduce CPU load on iPad
+  // Without throttling, rapid updates cause excessive re-renders and markdown parsing
   unsubPartial = onPartial((text) => {
-    partialText.value = text;
-    scrollToBottom();
+    pendingPartialText = text;
+
+    // If no throttle timer is running, update immediately and start timer
+    if (!partialThrottleTimer) {
+      partialText.value = text;
+      scrollToBottom();
+
+      partialThrottleTimer = setTimeout(() => {
+        // Apply any pending update that arrived during throttle period
+        if (pendingPartialText !== null && pendingPartialText !== partialText.value) {
+          partialText.value = pendingPartialText;
+          scrollToBottom();
+        }
+        partialThrottleTimer = null;
+        pendingPartialText = null;
+      }, PARTIAL_THROTTLE_MS);
+    }
   });
 
   // Clear partial text when full message arrives
@@ -443,6 +463,7 @@ onUnmounted(() => {
   if (debounceTimer) clearTimeout(debounceTimer);
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
   if (inputSyncTimer) clearTimeout(inputSyncTimer);
+  if (partialThrottleTimer) clearTimeout(partialThrottleTimer);
   if (messagesContainer.value) {
     messagesContainer.value.removeEventListener('scroll', handleScroll);
   }

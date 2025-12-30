@@ -65,14 +65,15 @@ function scrollToBottom() {
 }
 
 // Watch for new work logs
+// Use 'post' flush to let Vue batch updates instead of 'sync' which forces immediate execution
 watch(() => props.workLogs?.length, () => {
   scrollToBottom();
-}, { flush: 'sync' });
+}, { flush: 'post' });
 
 // Watch for partial thinking changes
 watch(() => props.partialThinking, () => {
   scrollToBottom();
-}, { flush: 'sync' });
+}, { flush: 'post' });
 
 // Expose for testing
 defineExpose({
@@ -148,5 +149,12 @@ defineExpose({
 
 .live-logs::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-soft);
+}
+
+/* Reduce animations for users who prefer reduced motion or on low-power devices */
+@media (prefers-reduced-motion: reduce) {
+  .live-log-item {
+    animation: none;
+  }
 }
 </style>
