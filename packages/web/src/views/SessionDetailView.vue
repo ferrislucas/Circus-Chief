@@ -355,7 +355,9 @@ onMounted(async () => {
   // (Issue: conversations were only loaded when ConversationTab became visible)
   await sessionsStore.fetchConversations(sessionId);
   await sessionsStore.fetchWorkLogs(sessionId);
-  canvasStore.fetchItems(sessionId);
+  // Await canvas fetch to ensure indicator shows correct count immediately.
+  // This catches items added before/during WebSocket subscription establishment.
+  await canvasStore.fetchItems(sessionId);
   todosStore.fetchTodos(sessionId);
 
   // Fetch summary for PR indicators (don't await, not critical)
