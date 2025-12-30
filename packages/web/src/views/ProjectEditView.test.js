@@ -871,4 +871,196 @@ describe('ProjectEditView with Session Defaults', () => {
       }
     });
   });
+
+  describe('Quick Responses Section', () => {
+    it('displays Quick Responses collapsible section', async () => {
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp'
+      };
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true, QuickResponseSettings: true }
+        }
+      });
+
+      await flushAll(wrapper);
+
+      const text = wrapper.text();
+      expect(text).toContain('Quick Responses');
+      expect(text).toContain('Quick responses are shortcuts');
+    });
+
+    it('displays Manage Quick Responses button', async () => {
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp'
+      };
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true, QuickResponseSettings: true }
+        }
+      });
+
+      await flushAll(wrapper);
+
+      // Expand details element to reveal button
+      const details = wrapper.findAll('details');
+      for (const detail of details) {
+        detail.element.open = true;
+      }
+      await flushAll(wrapper);
+
+      const text = wrapper.text();
+      expect(text).toContain('Manage Quick Responses');
+    });
+
+    it('opens QuickResponseSettings modal on button click', async () => {
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp'
+      };
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true, QuickResponseSettings: true }
+        }
+      });
+
+      await flushAll(wrapper);
+
+      // Expand details to show button
+      const details = wrapper.findAll('details');
+      for (const detail of details) {
+        detail.element.open = true;
+      }
+      await flushAll(wrapper);
+
+      // Find and click the Manage Quick Responses button
+      const allButtons = wrapper.findAll('button');
+      const manageButton = allButtons.find(btn => btn.text().includes('Manage Quick Responses'));
+
+      if (manageButton) {
+        await manageButton.trigger('click');
+        await flushAll(wrapper);
+
+        // Verify the modal opens by checking if quickResponseSettingsOpen is true
+        expect(wrapper.vm.quickResponseSettingsOpen).toBe(true);
+      }
+    });
+
+    it('fetches quick responses for project on mount', async () => {
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp'
+      };
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true, QuickResponseSettings: true }
+        }
+      });
+
+      await flushAll(wrapper);
+
+      // Verify fetchForProject was called with project ID
+      expect(quickResponsesStore.fetchForProject).toHaveBeenCalledWith('proj-1');
+    });
+
+    it('passes projectId to QuickResponseSettings modal', async () => {
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp'
+      };
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true, QuickResponseSettings: true }
+        }
+      });
+
+      await flushAll(wrapper);
+
+      // Check that QuickResponseSettings component has projectId prop
+      const quickResponseSettings = wrapper.findComponent({ name: 'QuickResponseSettings' });
+      if (quickResponseSettings.exists()) {
+        expect(quickResponseSettings.props('projectId')).toBe('proj-1');
+      }
+    });
+
+    it('closes QuickResponseSettings modal when close event is emitted', async () => {
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp'
+      };
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true, QuickResponseSettings: true }
+        }
+      });
+
+      await flushAll(wrapper);
+
+      // Open modal
+      wrapper.vm.quickResponseSettingsOpen = true;
+      await flushAll(wrapper);
+
+      expect(wrapper.vm.quickResponseSettingsOpen).toBe(true);
+
+      // Emit close event from mock component
+      const quickResponseSettings = wrapper.findComponent({ name: 'QuickResponseSettings' });
+      if (quickResponseSettings.exists()) {
+        await quickResponseSettings.vm.$emit('close');
+        await flushAll(wrapper);
+      }
+
+      // Modal should be closed
+      expect(wrapper.vm.quickResponseSettingsOpen).toBe(false);
+    });
+
+    it('displays help text explaining quick responses', async () => {
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp'
+      };
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true, QuickResponseSettings: true }
+        }
+      });
+
+      await flushAll(wrapper);
+
+      // Expand the Quick Responses section
+      const details = wrapper.findAll('details');
+      for (const detail of details) {
+        if (detail.text().includes('Quick Responses')) {
+          detail.element.open = true;
+          break;
+        }
+      }
+      await flushAll(wrapper);
+
+      const text = wrapper.text();
+      expect(text).toContain('project-specific or global responses');
+    });
+  });
 });

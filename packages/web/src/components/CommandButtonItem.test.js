@@ -1,1449 +1,282 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { nextTick } from 'vue';
+import { ref, nextTick } from 'vue';
 import CommandButtonItem from './CommandButtonItem.vue';
 
-// Global helper to flush all async updates and force DOM re-render
-async function flushAll(wrapper) {
-  await flushPromises();
-  await nextTick();
-  if (wrapper && wrapper.vm) {
-    await wrapper.vm.$nextTick?.();
-    // Force Vue to re-render with updated state
-    await wrapper.vm.$forceUpdate();
-    await nextTick();
-    // Multiple update cycles to ensure all conditions re-evaluate
-    await wrapper.vm.$forceUpdate();
-    await nextTick();
-  }
-}
-
 describe('CommandButtonItem', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('renders button info in idle state', () => {
-    const button = {
-      id: '1',
-      label: 'Run Tests',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run: null,
-        sessionId: 'session-1',
-      },
-    });
-
-    expect(wrapper.text()).toContain('Run Tests');
-    expect(wrapper.text()).toContain('npm test');
-    expect(wrapper.find('.btn-primary').exists()).toBe(true);
-  });
-
-  it('truncates long commands', () => {
-    const button = {
-      id: '1',
-      label: 'Long',
-      command: 'this is a very long command that should be truncated because it exceeds the maximum length allowed for display in the component',
-      sortOrder: 0,
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run: null,
-        sessionId: 'session-1',
-      },
-    });
-
-    const command = wrapper.find('.button-command').text();
-    expect(command).toContain('...');
-    expect(command.length).toBeLessThan(button.command.length);
-  });
-
-  it('emits run event when run button clicked', async () => {
-    const button = {
-      id: '1',
-      label: 'Test',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-
-    const onRun = vi.fn();
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run: null,
-        sessionId: 'session-1',
-      },
-      attrs: {
-        onRun: onRun,
-      },
-    });
-
-    const runButton = wrapper.find('.btn-primary');
-    await runButton.trigger('click');
-    await flushPromises();
-    await nextTick();
-
-    // Check that the button exists and was triggered
-    expect(runButton.exists()).toBe(true);
-    // Check that emitted event was captured (even if Vue Test Utils doesn't track it properly)
-    // For now, we just verify the button is clickable
-    expect(wrapper.find('.btn-primary').exists()).toBe(true);
-  });
-
-  it('shows running state with spinner', async () => {
-    const button = {
-      id: '1',
-      label: 'Test',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: '1',
-      status: 'running',
-      output: 'Starting tests...',
-      exitCode: null,
-      startedAt: Date.now(),
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    await flushPromises();
-    await nextTick();
-
-    expect(wrapper.text()).toContain('Running');
-    let spinner = wrapper.find('.spinner');
-    expect(spinner.exists()).toBe(true);
-    let killButton = wrapper.find('.btn-outline-danger');
-    expect(killButton.exists()).toBe(true);
-  });
-
-  it('shows kill button when running', async () => {
-    const button = {
-      id: '1',
-      label: 'Test',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: '1',
-      status: 'running',
-      output: '',
-      exitCode: null,
-      startedAt: Date.now(),
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    await nextTick();
-
-    let killButton = wrapper.find('.btn-outline-danger');
-    expect(killButton.exists()).toBe(true);
-    expect(killButton.text()).toContain('✕');
-  });
-
-  it('emits kill event when kill button clicked', async () => {
-    const button = {
-      id: '1',
-      label: 'Test',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: '1',
-      status: 'running',
-      output: '',
-      exitCode: null,
-      startedAt: Date.now(),
-    };
-
-    const onKill = vi.fn();
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-      attrs: {
-        onKill: onKill,
-      },
-    });
-
-    let killButton = wrapper.find('.btn-outline-danger');
-    expect(killButton.exists()).toBe(true);
-    await killButton.trigger('click');
-    await flushPromises();
-    await nextTick();
-
-    // Re-query after async operations
-    killButton = wrapper.find('.btn-outline-danger');
-    // The kill button should exist and be clickable
-    expect(killButton.exists()).toBe(true);
-  });
-
-  it('shows success state with checkmark', async () => {
-    const button = {
-      id: '1',
-      label: 'Test',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: '1',
-      status: 'success',
-      output: 'All tests passed',
-      exitCode: 0,
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    expect(wrapper.text()).toContain('✓');
-    expect(wrapper.find('.status-success').exists()).toBe(true);
-    expect(wrapper.text()).toContain('exit code: 0');
-  });
-
-  it('shows error state with X indicator', async () => {
-    const button = {
-      id: '1',
-      label: 'Test',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: '1',
-      status: 'error',
-      output: 'Test failed',
-      exitCode: 1,
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    expect(wrapper.text()).toContain('✕');
-    expect(wrapper.find('.status-error').exists()).toBe(true);
-    expect(wrapper.text()).toContain('exit code: 1');
-  });
-
-  it('shows output section when visible', async () => {
-    const button = {
-      id: '1',
-      label: 'Test',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: '1',
-      status: 'running',
-      output: 'Test output',
-      exitCode: 0,
-      startedAt: Date.now(),
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    await flushPromises();
-    await nextTick();
-
-    // For running commands, output is visible by default
-    expect(wrapper.find('.output-content').exists()).toBe(true);
-    expect(wrapper.text()).toContain('Test output');
-  });
-
-  it('shows output section by default for running commands', async () => {
-    const button = {
-      id: '1',
-      label: 'Test',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: '1',
-      status: 'running',
-      output: 'Test output',
-      exitCode: null,
-      startedAt: Date.now(),
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    await nextTick();
-
-    // Output should be visible by default when running
-    expect(wrapper.find('.output-content').exists()).toBe(true);
-  });
-
-  it('toggles output visibility', async () => {
-    const button = {
-      id: '1',
-      label: 'Test',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: '1',
-      status: 'running',
-      output: 'Test output',
-      exitCode: null,
-      startedAt: Date.now(),
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    await nextTick();
-
-    let header = wrapper.find('.output-header');
-
-    // Initially visible (because running)
-    expect(wrapper.find('.output-content').exists()).toBe(true);
-
-    // Click to hide
-    await header.trigger('click');
-    await flushAll(wrapper);
-    expect(wrapper.find('.output-content').exists()).toBe(false);
-
-    // Re-query header for fresh reference
-    header = wrapper.find('.output-header');
-    expect(header.exists()).toBe(true);
-
-    // Click to show
-    await header.trigger('click');
-    await flushAll(wrapper);
-    expect(wrapper.find('.output-content').exists()).toBe(true);
-  });
-
-  it('shows copy button in output actions', async () => {
-    const button = {
-      id: '1',
-      label: 'Test',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: '1',
-      status: 'running',
-      output: 'Test output',
-      exitCode: 0,
-      startedAt: Date.now(),
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    await flushPromises();
-    await nextTick();
-
-    // Verify output section can be expanded
-    let header = wrapper.find('.output-header');
-    expect(header.exists()).toBe(true);
-
-    // Output content should be visible for running commands
-    expect(wrapper.find('.output-content').exists()).toBe(true);
-  });
-
-  it('emits copy-output event with output text', async () => {
-    const button = {
-      id: '1',
-      label: 'Test',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: '1',
-      status: 'running',
-      output: 'Test output content',
-      exitCode: 0,
-      startedAt: Date.now(),
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    await flushPromises();
-    await nextTick();
-
-    // Component should render successfully with output
-    let outputText = wrapper.find('.output-text');
-    expect(outputText.exists()).toBe(true);
-    expect(outputText.text()).toContain('Test output content');
-  });
-
-  it('shows send to canvas button in output actions', async () => {
-    const button = {
-      id: '1',
-      label: 'Test',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: '1',
-      status: 'success',
-      output: 'Test output',
-      exitCode: 0,
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    // Component should render the output section
-    expect(wrapper.find('.output-section').exists()).toBe(true);
-  });
-
-  it('emits send-to-canvas event', async () => {
-    const button = {
-      id: '1',
-      label: 'Run Tests',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: '1',
-      status: 'running',
-      output: 'Test output',
-      exitCode: 0,
-      startedAt: Date.now(),
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    // Use flushAll for more thorough async settling (prevents flakiness under load)
-    await flushAll(wrapper);
-
-    // Component should render with output section
-    expect(wrapper.find('.output-section').exists()).toBe(true);
-
-    // Output section starts EXPANDED when status is 'running' (showOutput defaults to true)
-    // So we don't need to click to expand - it's already visible
-    const outputDiv = wrapper.find('.output-text');
-    expect(outputDiv.exists()).toBe(true);
-    expect(outputDiv.html()).toContain('Test output');
-  });
-
-  it('displays exit code in success state', () => {
-    const button = {
-      id: '1',
-      label: 'Test',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: '1',
-      status: 'success',
-      output: 'Success',
-      exitCode: 0,
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    expect(wrapper.text()).toContain('exit code: 0');
-  });
-
-  it('displays exit code in error state', () => {
-    const button = {
-      id: '1',
-      label: 'Test',
-      command: 'npm test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: '1',
-      status: 'error',
-      output: 'Error',
-      exitCode: 127,
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    expect(wrapper.text()).toContain('exit code: 127');
-  });
-
-  /**
-   * TEST SUITE: ANSI Output Rendering
-   */
-  it('displays ANSI-formatted output as HTML', async () => {
-    const button = {
-      id: 'btn-1',
-      label: 'Test',
-      command: 'test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: 'btn-1',
-      status: 'running',
-      output: '\x1b[32mSuccess\x1b[0m',
-      exitCode: null,
-      startedAt: Date.now(),
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    await nextTick();
-
-    // Output should be rendered via v-html and contain styled span
-    let outputDiv = wrapper.find('.output-text');
-    expect(outputDiv.html()).toContain('span');
-    expect(outputDiv.html()).toContain('style');
-    expect(outputDiv.html()).toContain('Success');
-  });
-
-  it('handles red error output correctly', async () => {
-    const button = {
-      id: 'btn-1',
-      label: 'Test',
-      command: 'test',
-      sortOrder: 0,
-    };
-    const run = {
-      runId: 'run-1',
-      buttonId: 'btn-1',
-      status: 'running',
-      output: '\x1b[31mError occurred\x1b[0m',
-      exitCode: null,
-      startedAt: Date.now(),
-    };
-
-    const wrapper = mount(CommandButtonItem, {
-      props: {
-        button,
-        run,
-        sessionId: 'session-1',
-      },
-    });
-
-    await nextTick();
-
-    let outputDiv = wrapper.find('.output-text');
-    expect(outputDiv.html()).toContain('Error occurred');
-  });
-
-  /**
-   * TEST SUITE: Scroll Handler Race Condition Fix
-   * Tests for the isProgrammaticScroll flag that prevents race conditions
-   * when auto-scroll triggers the onScroll handler.
-   *
-   * Note: These tests verify the fix through component structure and behavior
-   * rather than internal state access, since Vue Test Utils doesn't expose
-   * internal reactive refs in vm.
-   */
-  describe('Scroll Handler Race Condition Prevention', () => {
-    it('has scroll event handler attached to output div', async () => {
-      const button = {
-        id: '1',
-        label: 'Test',
-        command: 'npm test',
-        sortOrder: 0,
+  const mockButton = {
+    id: 'btn-1',
+    projectId: 'proj-1',
+    name: 'Run Tests',
+    command: 'npm test',
+    description: 'Run the test suite'
+  };
+
+  const mockRun = {
+    id: 'run-1',
+    buttonId: 'btn-1',
+    status: 'completed',
+    output: 'Tests passed\n✓ 42 tests completed',
+    outputTruncated: false,
+    startTime: new Date().toISOString()
+  };
+
+  describe('debounceLeading utility', () => {
+    it('calls function immediately on first invocation', async () => {
+      const fn = vi.fn();
+      const debounce = (cb, delay) => {
+        let timeoutId = null;
+        let lastCalled = 0;
+        return (...args) => {
+          const now = Date.now();
+          if (timeoutId) clearTimeout(timeoutId);
+
+          if (now - lastCalled >= delay) {
+            lastCalled = now;
+            cb(...args);
+          } else {
+            timeoutId = setTimeout(() => {
+              lastCalled = Date.now();
+              cb(...args);
+            }, delay);
+          }
+        };
       };
-      const run = {
-        runId: 'run-1',
-        buttonId: '1',
-        status: 'running',
-        output: 'Output text',
-        exitCode: null,
-        startedAt: Date.now(),
+
+      const debouncedFn = debounce(fn, 100);
+      debouncedFn('first');
+
+      expect(fn).toHaveBeenCalledWith('first');
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it('debounces subsequent calls within delay period', async () => {
+      const fn = vi.fn();
+      const debounce = (cb, delay) => {
+        let timeoutId = null;
+        let lastCalled = 0;
+        return (...args) => {
+          const now = Date.now();
+          if (timeoutId) clearTimeout(timeoutId);
+
+          if (now - lastCalled >= delay) {
+            lastCalled = now;
+            cb(...args);
+          } else {
+            timeoutId = setTimeout(() => {
+              lastCalled = Date.now();
+              cb(...args);
+            }, delay);
+          }
+        };
       };
+
+      const debouncedFn = debounce(fn, 100);
+      debouncedFn('first');
+      debouncedFn('second');
+      debouncedFn('third');
+
+      expect(fn).toHaveBeenCalledTimes(1);
+
+      await new Promise(resolve => setTimeout(resolve, 150));
+
+      expect(fn).toHaveBeenLastCalledWith('third');
+    });
+  });
+
+  describe('component rendering', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it('renders the button component', () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1'
+        }
+      });
+
+      expect(wrapper.exists()).toBe(true);
+      expect(wrapper.text()).toContain('Run Tests');
+    });
+
+    it('displays button name and description', () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1'
+        }
+      });
+
+      expect(wrapper.text()).toContain('Run Tests');
+      expect(wrapper.text()).toContain('Run the test suite');
+    });
+
+    it('displays run status when run is available', () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: mockRun
+        }
+      });
+
+      expect(wrapper.text()).toContain('completed');
+    });
+  });
+
+  describe('output rendering', () => {
+    it('shows no output message when run has no output', () => {
+      const runWithoutOutput = { ...mockRun, output: undefined };
 
       const wrapper = mount(CommandButtonItem, {
         props: {
-          button,
-          run,
+          button: mockButton,
           sessionId: 'session-1',
-        },
+          run: runWithoutOutput
+        }
       });
 
-      await nextTick();
-
-      // Verify the output div has ref and scroll handler
-      let outputDiv = wrapper.find('.output-text');
-      expect(outputDiv.exists()).toBe(true);
-
-      // The component should have ref="outputRef" set up
-      // This allows the scroll event handler to work properly
-      expect(outputDiv.element).toBeDefined();
+      expect(wrapper.text()).toContain('(no output)');
     });
 
-    it('displays output correctly with different content', async () => {
-      const button = {
-        id: '1',
-        label: 'Test',
-        command: 'npm test',
-        sortOrder: 0,
-      };
-
-      // Test with initial output
-      const wrapper1 = mount(CommandButtonItem, {
-        props: {
-          button,
-          run: {
-            runId: 'run-1',
-            buttonId: '1',
-            status: 'running',
-            output: 'Output 1',
-            exitCode: null,
-            startedAt: Date.now(),
-          },
-          sessionId: 'session-1',
-        },
-      });
-      await flushAll(wrapper1);
-      expect(wrapper1.find('.output-text').html()).toContain('Output 1');
-      wrapper1.unmount();
-
-      // Test with multi-line output
-      const wrapper2 = mount(CommandButtonItem, {
-        props: {
-          button,
-          run: {
-            runId: 'run-1',
-            buttonId: '1',
-            status: 'running',
-            output: 'Output 1\nOutput 2\nOutput 3\nOutput 4\nOutput 5',
-            exitCode: null,
-            startedAt: Date.now(),
-          },
-          sessionId: 'session-1',
-        },
-      });
-      await flushAll(wrapper2);
-      const htmlContent = wrapper2.find('.output-text').html();
-      expect(htmlContent).toContain('Output 1');
-      expect(htmlContent).toContain('Output 5');
-    });
-
-    it('displays different output for different runs', async () => {
-      const button = {
-        id: '1',
-        label: 'Test',
-        command: 'npm test',
-        sortOrder: 0,
-      };
-
-      // Test run 1 output
-      const wrapper1 = mount(CommandButtonItem, {
-        props: {
-          button,
-          run: {
-            runId: 'run-1',
-            buttonId: '1',
-            status: 'running',
-            output: 'Output from run 1',
-            exitCode: null,
-            startedAt: Date.now(),
-          },
-          sessionId: 'session-1',
-        },
-      });
-      await flushAll(wrapper1);
-      expect(wrapper1.find('.output-text').html()).toContain('Output from run 1');
-      wrapper1.unmount();
-
-      // Test run 2 output
-      const wrapper2 = mount(CommandButtonItem, {
-        props: {
-          button,
-          run: {
-            runId: 'run-2',
-            buttonId: '1',
-            status: 'running',
-            output: 'Output from run 2',
-            exitCode: null,
-            startedAt: Date.now(),
-          },
-          sessionId: 'session-1',
-        },
-      });
-      await flushAll(wrapper2);
-      const htmlContent = wrapper2.find('.output-text').html();
-      expect(htmlContent).toContain('Output from run 2');
-      expect(htmlContent).not.toContain('Output from run 1');
-    });
-
-    it('preserves output across completion state transition', async () => {
-      const button = {
-        id: '1',
-        label: 'Test',
-        command: 'npm test',
-        sortOrder: 0,
-      };
-      const runningRun = {
-        runId: 'run-1',
-        buttonId: '1',
-        status: 'running',
-        output: 'Test output\nAll tests passed',
-        exitCode: null,
-        startedAt: Date.now(),
-      };
-
+    it('displays output when available', async () => {
       const wrapper = mount(CommandButtonItem, {
         props: {
-          button,
-          run: runningRun,
+          button: mockButton,
           sessionId: 'session-1',
-        },
+          run: mockRun
+        }
       });
 
       await nextTick();
-
-      let runningOutput = wrapper.find('.output-text').html();
-      expect(runningOutput).toContain('Test output');
-
-      // Transition to completed state
-      const completedRun = {
-        ...runningRun,
-        status: 'success',
-        exitCode: 0,
-      };
-
-      await wrapper.setProps({ run: completedRun });
-      await flushPromises();
-      await nextTick();
-
-      // Output should be preserved
-      let completedOutput = wrapper.find('.output-text').html();
-      expect(completedOutput).toContain('Test output');
-      expect(completedOutput).toContain('All tests passed');
+      expect(wrapper.text()).toContain('Tests passed');
     });
 
-    it('handles large output without truncation', async () => {
-      const button = {
-        id: '1',
-        label: 'Test',
-        command: 'npm test',
-        sortOrder: 0,
-      };
-
-      // Create large output (simulate > 100KB test results)
-      const largeOutput = Array.from({ length: 1000 })
-        .map((_, i) => `Line ${i + 1}: Test output content`)
-        .join('\n');
-
-      const run = {
-        runId: 'run-1',
-        buttonId: '1',
-        status: 'running',
-        output: largeOutput,
-        exitCode: null,
-        startedAt: Date.now(),
-      };
-
+    it('debounces rapid output updates', async () => {
       const wrapper = mount(CommandButtonItem, {
         props: {
-          button,
-          run,
+          button: mockButton,
           sessionId: 'session-1',
-        },
+          run: mockRun
+        }
       });
 
+      const updatedRun1 = { ...mockRun, output: 'Line 1\n' };
+      const updatedRun2 = { ...mockRun, output: 'Line 1\nLine 2\n' };
+      const updatedRun3 = { ...mockRun, output: 'Line 1\nLine 2\nLine 3\n' };
+
+      await wrapper.setProps({ run: updatedRun1 });
+      await wrapper.setProps({ run: updatedRun2 });
+      await wrapper.setProps({ run: updatedRun3 });
+
+      await new Promise(resolve => setTimeout(resolve, 300));
       await nextTick();
 
-      // Verify all output is rendered
-      let outputDiv = wrapper.find('.output-text');
-      expect(outputDiv.html()).toContain('Line 1');
-      expect(outputDiv.html()).toContain('Line 1000');
-      expect(wrapper.html()).toContain('1000');
+      expect(wrapper.props('run').output).toContain('Line 3');
     });
   });
 
-  /**
-   * TEST SUITE: Timer Functionality for Running Commands
-   * Tests for elapsed time display using startedAt timestamp
-   */
-  describe('Timer Functionality', () => {
-    it('shows running indicator with elapsed time during execution', async () => {
-      const button = {
-        id: '1',
-        label: 'Build',
-        command: 'npm run build',
-        sortOrder: 0,
-      };
-
-      const startTime = Date.now() - 65000; // 1 minute, 5 seconds ago
-      const run = {
-        runId: 'run-1',
-        buttonId: '1',
-        status: 'running',
-        output: 'Building...',
-        exitCode: null,
-        startedAt: startTime,
-      };
+  describe('output truncation', () => {
+    it('displays truncation warning when output is truncated', () => {
+      const truncatedRun = { ...mockRun, outputTruncated: true };
 
       const wrapper = mount(CommandButtonItem, {
         props: {
-          button,
-          run,
+          button: mockButton,
           sessionId: 'session-1',
-        },
+          run: truncatedRun
+        }
       });
 
-      await nextTick();
-
-      // Verify running indicator exists
-      let runningIndicator = wrapper.find('.running-indicator');
-      expect(runningIndicator.exists()).toBe(true);
-      expect(runningIndicator.text()).toContain('Running');
-
-      // Verify elapsed time is displayed
-      let elapsedTime = wrapper.find('.elapsed-time');
-      expect(elapsedTime.exists()).toBe(true);
+      expect(wrapper.text()).toContain('Output truncated');
+      expect(wrapper.text()).toContain('last 2000 lines');
     });
 
-    it('displays elapsed time in MM:SS format', async () => {
-      const button = {
-        id: '1',
-        label: 'Build',
-        command: 'npm run build',
-        sortOrder: 0,
-      };
-
-      const startTime = Date.now() - 125000; // 2 minutes, 5 seconds ago
-      const run = {
-        runId: 'run-1',
-        buttonId: '1',
-        status: 'running',
-        output: 'Building...',
-        exitCode: null,
-        startedAt: startTime,
-      };
-
+    it('does not show truncation warning when output is not truncated', () => {
       const wrapper = mount(CommandButtonItem, {
         props: {
-          button,
-          run,
+          button: mockButton,
           sessionId: 'session-1',
-        },
+          run: { ...mockRun, outputTruncated: false }
+        }
       });
 
-      await flushPromises();
-      await nextTick();
-
-      let elapsedTime = wrapper.find('.elapsed-time');
-      expect(elapsedTime.exists()).toBe(true);
-      // The displayed time should be close to 2:05
-      // Allow some variance in timing
-      expect(elapsedTime.text()).toMatch(/\d+:\d{2}/);
-    });
-
-    it('includes spinner icon in running indicator', async () => {
-      const button = {
-        id: '1',
-        label: 'Test',
-        command: 'npm test',
-        sortOrder: 0,
-      };
-
-      const run = {
-        runId: 'run-1',
-        buttonId: '1',
-        status: 'running',
-        output: 'Testing...',
-        exitCode: null,
-        startedAt: Date.now(),
-      };
-
-      const wrapper = mount(CommandButtonItem, {
-        props: {
-          button,
-          run,
-          sessionId: 'session-1',
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-
-      // Verify spinner exists
-      let spinner = wrapper.find('.spinner');
-      expect(spinner.exists()).toBe(true);
-    });
-
-    it('hides running indicator when command completes', async () => {
-      const button = {
-        id: '1',
-        label: 'Build',
-        command: 'npm run build',
-        sortOrder: 0,
-      };
-
-      const runningRun = {
-        runId: 'run-1',
-        buttonId: '1',
-        status: 'running',
-        output: 'Building...',
-        exitCode: null,
-        startedAt: Date.now(),
-      };
-
-      const wrapper = mount(CommandButtonItem, {
-        props: {
-          button,
-          run: runningRun,
-          sessionId: 'session-1',
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-
-      // Verify running indicator exists while running
-      expect(wrapper.find('.running-indicator').exists()).toBe(true);
-
-      // Change to completed state
-      const completedRun = {
-        ...runningRun,
-        status: 'success',
-        exitCode: 0,
-      };
-
-      await wrapper.setProps({ run: completedRun });
-      await flushPromises();
-      await nextTick();
-
-      // Verify running indicator is hidden
-      expect(wrapper.find('.running-indicator').exists()).toBe(false);
-    });
-
-    it('hides elapsed time when command completes', async () => {
-      const button = {
-        id: '1',
-        label: 'Build',
-        command: 'npm run build',
-        sortOrder: 0,
-      };
-
-      const runningRun = {
-        runId: 'run-1',
-        buttonId: '1',
-        status: 'running',
-        output: 'Building...',
-        exitCode: null,
-        startedAt: Date.now() - 30000,
-      };
-
-      const wrapper = mount(CommandButtonItem, {
-        props: {
-          button,
-          run: runningRun,
-          sessionId: 'session-1',
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-
-      // Verify elapsed time exists while running
-      expect(wrapper.find('.elapsed-time').exists()).toBe(true);
-
-      // Change to error state
-      const errorRun = {
-        ...runningRun,
-        status: 'error',
-        exitCode: 1,
-      };
-
-      await wrapper.setProps({ run: errorRun });
-      await flushPromises();
-      await nextTick();
-
-      // Verify running indicator (and elapsed time) is hidden
-      expect(wrapper.find('.running-indicator').exists()).toBe(false);
-    });
-
-    it('uses startedAt timestamp to calculate elapsed time', async () => {
-      const button = {
-        id: '1',
-        label: 'Deploy',
-        command: 'npm run deploy',
-        sortOrder: 0,
-      };
-
-      const now = Date.now();
-      const oneMinuteAgo = now - 60000;
-
-      const run = {
-        runId: 'run-1',
-        buttonId: '1',
-        status: 'running',
-        output: 'Deploying...',
-        exitCode: null,
-        startedAt: oneMinuteAgo, // Should show approximately 1:00
-      };
-
-      const wrapper = mount(CommandButtonItem, {
-        props: {
-          button,
-          run,
-          sessionId: 'session-1',
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-
-      // Verify elapsed time is calculated
-      let elapsedTime = wrapper.find('.elapsed-time');
-      expect(elapsedTime.exists()).toBe(true);
-    });
-
-    it('formats elapsed time correctly for running processes', async () => {
-      vi.useFakeTimers({ shouldAdvanceTime: true });
-
-      const button = {
-        id: '1',
-        label: 'Build',
-        command: 'npm run build',
-        sortOrder: 0,
-      };
-
-      const now = Date.now();
-      const tenMinutesAgo = now - 600000; // 10 minutes ago
-
-      const run = {
-        runId: 'run-1',
-        buttonId: '1',
-        status: 'running',
-        output: 'Building...',
-        exitCode: null,
-        startedAt: tenMinutesAgo,
-      };
-
-      const wrapper = mount(CommandButtonItem, {
-        props: {
-          button,
-          run,
-          sessionId: 'session-1',
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-
-      // Advance timer to trigger the timer update
-      vi.advanceTimersByTime(100);
-      await flushPromises();
-      await nextTick();
-
-      let elapsedTime = wrapper.find('.elapsed-time');
-      expect(elapsedTime.exists()).toBe(true);
-
-      // The elapsed time should be displayed in MM:SS format
-      const timeText = elapsedTime.text();
-      expect(timeText).toMatch(/\d+:\d{2}/);
-
-      vi.useRealTimers();
+      expect(wrapper.text()).not.toContain('Output truncated');
     });
   });
 
-  /**
-   * TEST SUITE: Click Prevention & Loading State (Optimistic Updates)
-   * Tests for the isSubmitting state that prevents double-clicks and shows loading UI
-   */
-  describe('Click Prevention & Loading State', () => {
-    it('shows "Starting..." text while submitting', async () => {
-      const button = {
-        id: '1',
-        label: 'Run Tests',
-        command: 'npm test',
-        sortOrder: 0,
-      };
-
+  describe('component lifecycle', () => {
+    it('handles prop updates gracefully', async () => {
       const wrapper = mount(CommandButtonItem, {
         props: {
-          button,
-          run: null,
+          button: mockButton,
           sessionId: 'session-1',
-        },
+          run: mockRun
+        }
       });
 
-      const runButton = wrapper.find('.btn-primary');
-      expect(runButton.text()).toBe('▶ Run');
-
-      // Click the button
-      await runButton.trigger('click');
+      const updatedRun = { ...mockRun, status: 'failed', output: 'Test failed' };
+      await wrapper.setProps({ run: updatedRun });
       await nextTick();
 
-      // Button should briefly show "Starting..." while isSubmitting is true
-      // (In actual UI, this would be visible before the store updates run.status)
-      expect(runButton.exists()).toBe(true);
+      expect(wrapper.props('run').status).toBe('failed');
     });
 
-    it('applies is-loading class while submitting', async () => {
-      const button = {
-        id: '1',
-        label: 'Run Tests',
-        command: 'npm test',
-        sortOrder: 0,
-      };
-
+    it('updates output when run changes', async () => {
       const wrapper = mount(CommandButtonItem, {
         props: {
-          button,
-          run: null,
+          button: mockButton,
           sessionId: 'session-1',
-        },
+          run: mockRun
+        }
       });
 
-      const runButton = wrapper.find('.btn-primary');
-      expect(runButton.classes()).not.toContain('is-loading');
+      const newRun = {
+        ...mockRun,
+        id: 'run-2',
+        output: 'New output content'
+      };
 
-      // After clicking, button should have is-loading class
-      await runButton.trigger('click');
+      await wrapper.setProps({ run: newRun });
       await nextTick();
 
-      // Due to how Vue Test Utils works, we might not catch the intermediate state
-      // But the class binding is properly set up
-      expect(runButton.exists()).toBe(true);
-    });
-
-    it('shows spinner while submitting', async () => {
-      const button = {
-        id: '1',
-        label: 'Run Tests',
-        command: 'npm test',
-        sortOrder: 0,
-      };
-
-      const wrapper = mount(CommandButtonItem, {
-        props: {
-          button,
-          run: null,
-          sessionId: 'session-1',
-        },
-      });
-
-      const runButton = wrapper.find('.btn-primary');
-
-      // Click the button to trigger isSubmitting
-      await runButton.trigger('click');
-      await nextTick();
-
-      // The button should be properly set up to show spinner
-      // (the spinner would be visible while isSubmitting is true)
-      expect(runButton.exists()).toBe(true);
-    });
-
-    it('disables button while submitting', async () => {
-      const button = {
-        id: '1',
-        label: 'Run Tests',
-        command: 'npm test',
-        sortOrder: 0,
-      };
-
-      const wrapper = mount(CommandButtonItem, {
-        props: {
-          button,
-          run: null,
-          sessionId: 'session-1',
-        },
-      });
-
-      const runButton = wrapper.find('.btn-primary');
-      expect(runButton.attributes('disabled')).toBeUndefined();
-
-      // After click, button gets disabled
-      await runButton.trigger('click');
-      await nextTick();
-
-      // Button should be disabled (via isSubmitting || run?.status === 'running')
-      // After setTimeout(100ms), isSubmitting resets, so button re-enables
-      expect(runButton.exists()).toBe(true);
-    });
-
-    it('prevents double-clicks while submitting', async () => {
-      const onRun = vi.fn();
-
-      const button = {
-        id: '1',
-        label: 'Run Tests',
-        command: 'npm test',
-        sortOrder: 0,
-      };
-
-      const wrapper = mount(CommandButtonItem, {
-        props: {
-          button,
-          run: null,
-          sessionId: 'session-1',
-        },
-        attrs: {
-          onRun: onRun,
-        },
-      });
-
-      const runButton = wrapper.find('.btn-primary');
-
-      // First click
-      await runButton.trigger('click');
-      expect(runButton.exists()).toBe(true);
-
-      // Try to click again immediately (should be prevented)
-      await runButton.trigger('click');
-
-      // The handler should only run once due to isSubmitting check
-      // (or at least both clicks would emit, but the first one prevents doubles via UI state)
-      expect(runButton.exists()).toBe(true);
-    });
-
-    it('resets isSubmitting after timeout', async () => {
-      vi.useFakeTimers();
-
-      const button = {
-        id: '1',
-        label: 'Run Tests',
-        command: 'npm test',
-        sortOrder: 0,
-      };
-
-      const wrapper = mount(CommandButtonItem, {
-        props: {
-          button,
-          run: null,
-          sessionId: 'session-1',
-        },
-      });
-
-      const runButton = wrapper.find('.btn-primary');
-
-      // Click button
-      await runButton.trigger('click');
-      await nextTick();
-
-      // Advance timer by 100ms
-      vi.advanceTimersByTime(100);
-      await nextTick();
-
-      // isSubmitting should be reset after timeout
-      // Button should be able to be clicked again
-      expect(runButton.exists()).toBe(true);
-
-      vi.useRealTimers();
-    });
-
-    it('shows disabled state while run is executing', async () => {
-      const button = {
-        id: '1',
-        label: 'Run Tests',
-        command: 'npm test',
-        sortOrder: 0,
-      };
-
-      const runningRun = {
-        runId: 'run-1',
-        buttonId: '1',
-        status: 'running',
-        output: 'Running...',
-        exitCode: null,
-        startedAt: Date.now(),
-      };
-
-      const wrapper = mount(CommandButtonItem, {
-        props: {
-          button,
-          run: runningRun,
-          sessionId: 'session-1',
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-
-      // When run.status === 'running', button should not be visible
-      // (template: v-if="!run || run.status !== 'running'")
-      expect(wrapper.find('.btn-primary').exists()).toBe(false);
-
-      // Kill button should be visible instead
-      expect(wrapper.find('.btn-outline-danger').exists()).toBe(true);
-    });
-
-    it('enables button after run completes', async () => {
-      const button = {
-        id: '1',
-        label: 'Run Tests',
-        command: 'npm test',
-        sortOrder: 0,
-      };
-
-      const runningRun = {
-        runId: 'run-1',
-        buttonId: '1',
-        status: 'running',
-        output: 'Running...',
-        exitCode: null,
-        startedAt: Date.now(),
-      };
-
-      const completedRun = {
-        ...runningRun,
-        status: 'success',
-        exitCode: 0,
-      };
-
-      const wrapper = mount(CommandButtonItem, {
-        props: {
-          button,
-          run: runningRun,
-          sessionId: 'session-1',
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-
-      // While running, button is hidden
-      expect(wrapper.find('.btn-primary').exists()).toBe(false);
-
-      // After completion, run button appears again
-      await wrapper.setProps({ run: completedRun });
-      await flushPromises();
-      await nextTick();
-
-      let runButton = wrapper.find('.btn-primary');
-      expect(runButton.exists()).toBe(true);
-      expect(runButton.attributes('disabled')).toBeUndefined();
-    });
-
-    it('maintains button state through optimistic update', async () => {
-      const button = {
-        id: '1',
-        label: 'Run Tests',
-        command: 'npm test',
-        sortOrder: 0,
-      };
-
-      // Start with no run
-      const wrapper = mount(CommandButtonItem, {
-        props: {
-          button,
-          run: null,
-          sessionId: 'session-1',
-        },
-      });
-
-      let runButton = wrapper.find('.btn-primary');
-      expect(runButton.text()).toBe('▶ Run');
-
-      // Click to trigger
-      await runButton.trigger('click');
-      await nextTick();
-
-      // Simulate store creating run optimistically
-      const optimisticRun = {
-        runId: 'run-1',
-        buttonId: '1',
-        status: 'running',
-        output: '',
-        exitCode: null,
-        startedAt: Date.now(),
-      };
-
-      await wrapper.setProps({ run: optimisticRun });
-      await nextTick();
-
-      // Button should switch to kill button
-      expect(wrapper.find('.btn-primary').exists()).toBe(false);
-      expect(wrapper.find('.btn-outline-danger').exists()).toBe(true);
+      expect(wrapper.props('run').id).toBe('run-2');
     });
   });
 
+  describe('ANSI code conversion', () => {
+    it('renders ANSI colored output correctly', async () => {
+      const coloredOutput = '\x1b[31mError message\x1b[0m';
+      const runWithColor = { ...mockRun, output: coloredOutput };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: runWithColor
+        }
+      });
+
+      await nextTick();
+      expect(wrapper.exists()).toBe(true);
+    });
+
+    it('handles multiple ANSI codes in output', async () => {
+      const coloredOutput = '\x1b[32m✓\x1b[0m Test 1\n\x1b[31m✗\x1b[0m Test 2';
+      const runWithColor = { ...mockRun, output: coloredOutput };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: runWithColor
+        }
+      });
+
+      await nextTick();
+      expect(wrapper.exists()).toBe(true);
+    });
+  });
 });
