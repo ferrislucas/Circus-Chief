@@ -304,10 +304,10 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
-    async startSession(id) {
+    async startSession(id, prompt = undefined) {
       this.error = null;
       try {
-        const result = await api.startSession(id);
+        const result = await api.startSession(id, prompt);
         // Update session status to starting
         if (this.currentSession?.id === id) {
           this.currentSession.status = 'starting';
