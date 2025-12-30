@@ -910,16 +910,18 @@ async function handleStreamEvent(sessionId, event) {
         // Broadcast message
         broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
 
-        // Check for TodoWrite tool and update todos
-        if (toolUse) {
-          const todoWrite = toolUse.find((t) => t.name === 'TodoWrite');
-          if (todoWrite?.input?.todos) {
-            updateTodos(sessionId, todoWrite.input.todos);
-          }
-        }
-
         // Trigger debounced summary generation on new message
         summaryService.onSessionActivity(sessionId);
+      }
+
+      // Check for TodoWrite tool and update todos
+      // NOTE: This must be OUTSIDE the if (textContent) block because Claude can call
+      // TodoWrite without any accompanying text content (tool-only messages)
+      if (toolUseBlocks.length > 0) {
+        const todoWrite = toolUseBlocks.find((t) => t.name === 'TodoWrite');
+        if (todoWrite?.input?.todos) {
+          updateTodos(sessionId, todoWrite.input.todos);
+        }
       }
 
       // Note: Thinking content is logged via stream_event -> content_block_stop
