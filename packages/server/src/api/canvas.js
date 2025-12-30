@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import multer from 'multer';
 import { readFileSync, existsSync } from 'fs';
 import { mkdir, writeFile } from 'fs/promises';
 import { extname, join, basename } from 'path';
@@ -8,7 +7,6 @@ import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
 
 // Map file extensions to MIME types for binary files (images/PDF)
 const MIME_TYPES = {
@@ -126,142 +124,66 @@ export function getTypeFromExtension(ext) {
 }
 
 // POST /api/sessions/:id/canvas - Add canvas item
-router.post('/:id/canvas', upload.single('file'), (req, res) => {
+router.post('/:id/canvas', (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
   }
 
+  const { filePath, label } = req.body;
+
+  if (!filePath) {
+    return res.status(400).json({ error: 'filePath is required' });
+  }
+
+  if (!existsSync(filePath)) {
+    return res.status(400).json({ error: `File not found: ${filePath}` });
+  }
+
   let itemData;
 
-  if (req.file) {
-    // File upload (image)
-    const base64 = req.file.buffer.toString('base64');
-    itemData = {
-      type: 'image',
-      data: base64,
-      mimeType: req.file.mimetype,
-      filename: req.file.originalname,
-      label: req.body.label || null,
-    };
-  } else {
-    // JSON body (markdown, text, json, image)
-    const { type, content, data, label, title, width, height, mimeType, filePath } = req.body;
-    if (!type) {
-      return res.status(400).json({ error: 'Type is required' });
+  try {
+    const fileBuffer = readFileSync(filePath);
+    const ext = extname(filePath).toLowerCase();
+    let detectedType = getTypeFromExtension(ext);
+    let detectedMimeType = MIME_TYPES[ext] || TEXT_EXTENSIONS[ext];
+
+    // For unknown extensions, detect if binary or text
+    if (!detectedType) {
+      if (isBinaryContent(fileBuffer)) {
+        return res.status(400).json({
+          error: `Unsupported binary file format: ${ext}. Supported binary formats: ${Object.keys(MIME_TYPES).join(', ')}`
+        });
+      }
+      // It's a text file with unknown extension, treat as code
+      detectedType = 'code';
+      detectedMimeType = 'text/plain';
     }
 
-    // Handle file from file path
-    if (filePath) {
-      if (!existsSync(filePath)) {
-        return res.status(400).json({ error: `File not found: ${filePath}` });
-      }
-
-      const ext = extname(filePath).toLowerCase();
-      let detectedType = getTypeFromExtension(ext);
-      let detectedMimeType = MIME_TYPES[ext] || TEXT_EXTENSIONS[ext];
-
-      // Validate requested type matches detected type for binary formats
-      if (type === 'image' && detectedType !== 'image') {
-        const supportedImageExts = Object.keys(MIME_TYPES).filter(e => e !== '.pdf').join(', ');
-        return res.status(400).json({
-          error: `Unsupported image format: ${ext || '(no extension)'}. Supported formats: ${supportedImageExts}`
-        });
-      }
-      if (type === 'pdf' && detectedType !== 'pdf') {
-        return res.status(400).json({
-          error: `Unsupported PDF format: ${ext || '(no extension)'}. Expected .pdf extension`
-        });
-      }
-
-      try {
-        const fileBuffer = readFileSync(filePath);
-
-        // For unknown extensions, detect if binary or text
-        if (!detectedType) {
-          if (isBinaryContent(fileBuffer)) {
-            return res.status(400).json({
-              error: `Unsupported binary file format: ${ext}. Supported binary formats: ${Object.keys(MIME_TYPES).join(', ')}`
-            });
-          }
-          // It's a text file with unknown extension, treat as code
-          detectedType = 'code';
-          detectedMimeType = 'text/plain';
-        }
-
-        // Handle binary types (image, pdf)
-        if (detectedType === 'image' || detectedType === 'pdf') {
-          const base64 = fileBuffer.toString('base64');
-          itemData = {
-            type: detectedType,
-            data: base64,
-            mimeType: detectedMimeType,
-            filename: filePath.split('/').pop(),
-            label: label || title || null,
-            width: width || null,
-            height: height || null,
-          };
-        } else {
-          // Handle text-based types (code, markdown, text, json)
-          const textContent = fileBuffer.toString('utf-8');
-          itemData = {
-            type: detectedType,
-            content: detectedType === 'json' ? null : textContent,
-            data: detectedType === 'json' ? textContent : null,
-            mimeType: detectedMimeType,
-            filename: filePath.split('/').pop(),
-            label: label || title || null,
-          };
-        }
-      } catch (err) {
-        return res.status(400).json({ error: `Failed to read file: ${err.message}` });
-      }
-    } else if (type === 'image' || type === 'pdf') {
-      // Handle data URL format: extract mimeType and base64 data from "data:image/jpeg;base64,..."
-      let extractedMimeType = mimeType || null;
-      let extractedData = typeof data === 'object' ? JSON.stringify(data) : data || null;
-
-      if (type === 'image' && content && !data) {
-        const dataUrlMatch = content.match(/^data:([^;]+);base64,(.+)$/);
-        if (dataUrlMatch) {
-          extractedMimeType = dataUrlMatch[1];
-          extractedData = dataUrlMatch[2];
-        }
-      }
-
-      // Validate image has required data
-      if (type === 'image' && !extractedData && !extractedMimeType) {
-        return res.status(400).json({
-          error: 'Image requires either: filePath, data+mimeType, or content as data URL (data:image/...;base64,...)'
-        });
-      }
-
-      // Ensure image types always have a valid mimeType to prevent broken images in the frontend
-      if (type === 'image' && !extractedMimeType) {
-        extractedMimeType = 'image/png';
-      }
-
+    // Handle binary types (image, pdf)
+    if (detectedType === 'image' || detectedType === 'pdf') {
+      const base64 = fileBuffer.toString('base64');
       itemData = {
-        type,
-        content: content || null,
-        data: extractedData,
-        mimeType: extractedMimeType,
-        label: label || title || null, // Support both 'label' and 'title' fields
-        width: width || null,
-        height: height || null,
+        type: detectedType,
+        data: base64,
+        mimeType: detectedMimeType,
+        filename: basename(filePath),
+        label: label || null,
       };
     } else {
-      // Handle other types (markdown, text, json, code) without filePath
+      // Handle text-based types (code, markdown, json)
+      const textContent = fileBuffer.toString('utf-8');
       itemData = {
-        type,
-        content: content || null,
-        data: typeof data === 'object' ? JSON.stringify(data) : data || null,
-        mimeType: mimeType || null,
-        label: label || title || null,
-        width: width || null,
-        height: height || null,
+        type: detectedType,
+        content: detectedType === 'json' ? null : textContent,
+        data: detectedType === 'json' ? textContent : null,
+        mimeType: detectedMimeType,
+        filename: basename(filePath),
+        label: label || null,
       };
     }
+  } catch (err) {
+    return res.status(400).json({ error: `Failed to read file: ${err.message}` });
   }
 
   const item = canvasItems.create(req.params.id, itemData);

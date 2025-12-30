@@ -574,4 +574,36 @@ describe('Canvas API', () => {
       expect(retrieved.filename).toBe('test.js');
     });
   });
+
+  describe('filePath Type Auto-Detection', () => {
+    it('auto-detects markdown from .md filePath', () => {
+      const result = getTypeFromExtension('.md');
+      expect(result).toBe('markdown');
+    });
+
+    it('auto-detects JSON from .json filePath', () => {
+      const result = getTypeFromExtension('.json');
+      expect(result).toBe('json');
+    });
+
+    it('auto-detects code from .js filePath', () => {
+      const result = getTypeFromExtension('.js');
+      expect(result).toBe('code');
+    });
+
+    it('auto-detects image from .png filePath', () => {
+      const result = getTypeFromExtension('.png');
+      expect(result).toBe('image');
+    });
+
+    it('auto-detects pdf from .pdf filePath', () => {
+      const result = getTypeFromExtension('.pdf');
+      expect(result).toBe('pdf');
+    });
+
+    it('returns null for unknown extension', () => {
+      const result = getTypeFromExtension('.xyz');
+      expect(result).toBeNull();
+    });
+  });
 });

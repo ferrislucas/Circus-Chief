@@ -300,10 +300,11 @@ async function* mockQuery({ prompt }) {
 function buildCanvasWriteSystemPrompt(sessionId) {
   const apiUrl = process.env.CLAUDETOOLS_API_URL || `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`;
   return `When you generate artifacts that should be displayed on the canvas (images, markdown documents, code snippets, data visualizations, PDFs), POST them to:
-POST ${apiUrl}/api/sessions/${sessionId}/canvas
-Body: {"filePath": "/path/to/file", "label": "Description"}
 
-The type is auto-detected from file extension. Supported formats:
+POST ${apiUrl}/api/sessions/${sessionId}/canvas
+Body: {"filePath": "/path/to/file", "label": "Optional description"}
+
+The file type is automatically detected from the file extension. Supported formats:
 - Images: .png, .jpg, .jpeg, .gif, .webp, .svg, .bmp
 - PDFs: .pdf
 - Markdown: .md, .mdx
