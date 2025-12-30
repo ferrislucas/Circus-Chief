@@ -596,12 +596,31 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
     });
   } else {
     // Insert content into input field for editing
-    if (input.value.trim()) {
-      // Append to existing content with newline
-      input.value = input.value.trim() + '\n\n' + content;
-    } else {
-      input.value = content;
-    }
+    const currentValue = input.value.trim();
+    const newValue = currentValue ? currentValue + '\n\n' + content : content;
+
+    // Update reactive state
+    input.value = newValue;
+    inputHasContent.value = true;
+
+    // Ensure DOM updates and focus
+    nextTick(() => {
+      if (textareaRef.value) {
+        // Update textarea DOM element
+        textareaRef.value.value = newValue;
+
+        // Focus textarea
+        textareaRef.value.focus();
+
+        // Set cursor to end
+        textareaRef.value.selectionStart = textareaRef.value.selectionEnd = textareaRef.value.value.length;
+
+        // Mark as unsaved and save to localStorage (if not draft mode)
+        if (!isDraft.value && newValue.trim()) {
+          localStorage.setItem(STORAGE_KEY, newValue);
+        }
+      }
+    });
   }
 }
 
