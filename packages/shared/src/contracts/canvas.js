@@ -1,14 +1,8 @@
 import { z } from 'zod';
 
 export const CreateCanvasItemRequest = z.object({
-  type: z.enum(['image', 'markdown', 'text', 'json', 'pdf', 'code']),
-  content: z.string().optional(),
-  data: z.string().optional(),
-  mimeType: z.string().optional(),
-  filename: z.string().optional(),
+  filePath: z.string(),
   label: z.string().optional(),
-  width: z.number().optional(),
-  height: z.number().optional(),
 });
 
 export const CanvasItemResponse = z.object({
