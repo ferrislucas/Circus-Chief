@@ -3,7 +3,8 @@ import { api } from '../composables/useApi.js';
 
 // Performance: Limit output to prevent memory bloat and UI slowdown
 const MAX_OUTPUT_LINES = 2000;
-const OUTPUT_FLUSH_INTERVAL_MS = 100;
+// Increased from 100ms to 300ms to reduce reactive updates while remaining responsive
+const OUTPUT_FLUSH_INTERVAL_MS = 300;
 
 export const useCommandButtonsStore = defineStore('commandButtons', {
   state: () => ({
