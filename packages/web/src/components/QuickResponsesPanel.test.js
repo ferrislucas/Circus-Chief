@@ -90,4 +90,40 @@ describe('QuickResponsesPanel', () => {
       expect(mockStore.hasResponses).toBe(true);
     });
   });
+
+  describe('visibility', () => {
+    it('shows panel when showEmpty is true even with no responses', () => {
+      mockStore.hasResponses = false;
+      const wrapper = mountComponent({ showEmpty: true });
+      expect(wrapper.find('.quick-responses-panel').exists()).toBe(true);
+    });
+
+    it('hides panel when showEmpty is false and no responses', () => {
+      mockStore.hasResponses = false;
+      const wrapper = mountComponent({ showEmpty: false });
+      expect(wrapper.find('.quick-responses-panel').exists()).toBe(false);
+    });
+
+    it('shows panel when there are responses regardless of showEmpty', () => {
+      mockStore.hasResponses = true;
+      mockStore.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      const wrapper = mountComponent({ showEmpty: false });
+      expect(wrapper.find('.quick-responses-panel').exists()).toBe(true);
+    });
+
+    it('shows empty state message when no responses', () => {
+      mockStore.hasResponses = false;
+      const wrapper = mountComponent({ showEmpty: true });
+      expect(wrapper.find('.empty-state').exists()).toBe(true);
+      expect(wrapper.find('.empty-text').text()).toBe('No quick responses yet');
+    });
+
+    it('shows add button in empty state', () => {
+      mockStore.hasResponses = false;
+      const wrapper = mountComponent({ showEmpty: true });
+      const addButton = wrapper.find('.add-button');
+      expect(addButton.exists()).toBe(true);
+      expect(addButton.text()).toBe('+ Add Quick Response');
+    });
+  });
 });
