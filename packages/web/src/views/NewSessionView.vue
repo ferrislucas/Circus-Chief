@@ -10,11 +10,12 @@
         <label class="form-label" for="prompt">Initial Prompt</label>
         <textarea
           id="prompt"
-          v-model="prompt"
+          ref="textareaRef"
           class="form-input form-textarea"
           placeholder="What would you like Claude to help you with?"
           rows="5"
           required
+          @input="handleInput"
           @keydown="handleKeydown"
         ></textarea>
         <div class="attachment-row">
@@ -213,6 +214,9 @@ const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();
 
 const prompt = ref('');
+const promptHasContent = ref(false); // Tracks if textarea has content (for button disabled state)
+const textareaRef = ref(null);
+let inputSyncTimer = null;
 const mode = ref('yolo');
 const model = ref(DEFAULT_MODEL);
 const loading = ref(false);
@@ -229,7 +233,9 @@ const usingDefaults = ref({
 
 // Create keyboard shortcut handler for form submission
 const handleKeydown = useSubmitShortcut(() => {
-  if (!loading.value && prompt.value.trim()) {
+  // Read directly from textarea to avoid reactivity lag
+  const currentValue = textareaRef.value?.value || prompt.value;
+  if (!loading.value && currentValue.trim()) {
     handleSubmit();
   }
 });
@@ -281,10 +287,29 @@ function updateBranchNameFromPrompt(promptValue) {
   }, 300);
 }
 
-// Watch prompt changes with debouncing for branch name generation
-watch(prompt, (newPrompt) => {
-  updateBranchNameFromPrompt(newPrompt);
-});
+// Handle textarea input with debounced sync to reactive state
+// This prevents Vue reactivity from firing on every keystroke
+function handleInput(event) {
+  const value = event.target.value;
+  const hasContent = value.trim().length > 0;
+
+  // Only update the reactive flag if it changed (minimizes re-renders)
+  if (promptHasContent.value !== hasContent) {
+    promptHasContent.value = hasContent;
+  }
+
+  // Debounce the sync to reactive state
+  if (inputSyncTimer) clearTimeout(inputSyncTimer);
+  inputSyncTimer = setTimeout(() => {
+    // Sync to reactive state (for handleSubmit to access as fallback)
+    prompt.value = value;
+  }, 150);
+
+  // Update branch name (already has its own debounce)
+  if (gitStatus.value?.isGitRepo) {
+    updateBranchNameFromPrompt(value);
+  }
+}
 
 // Initialize quick worktree branch when git status loads
 watch(
@@ -324,9 +349,10 @@ watch(quickWorktreeBranch, () => {
   usingDefaults.value.quickWorktreeBranch = false;
 });
 
-// Cleanup debounce timer on unmount
+// Cleanup timers on unmount
 onUnmounted(() => {
   if (branchDebounceTimer) clearTimeout(branchDebounceTimer);
+  if (inputSyncTimer) clearTimeout(inputSyncTimer);
 });
 
 onMounted(async () => {
@@ -463,6 +489,10 @@ async function handleResetToProjectDefaults() {
 }
 
 async function handleSubmit() {
+  // Read directly from textarea in case debounce timer hasn't fired
+  const currentPrompt = textareaRef.value?.value || prompt.value;
+  if (!currentPrompt.trim()) return;
+
   loading.value = true;
   error.value = null;
 
@@ -472,7 +502,7 @@ async function handleSubmit() {
     const submitGitBranch = submitGitMode ? quickWorktreeBranch.value : undefined;
 
     const session = await sessionsStore.createSession(route.params.id, {
-      prompt: prompt.value,
+      prompt: currentPrompt,
       mode: mode.value,
       model: model.value,
       thinkingEnabled: thinkingEnabled.value,
