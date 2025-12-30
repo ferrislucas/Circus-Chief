@@ -332,6 +332,7 @@ describe('CommandButtons Store', () => {
 
       // WebSocket messages will use the same ID, so appendOutput should work
       store.appendOutput('server-generated-id', '\nmore output');
+      store.flushPendingOutput('server-generated-id'); // Flush throttled output
       expect(store.runs['server-generated-id'].output).toBe('initial output\nmore output');
     });
   });
@@ -350,18 +351,20 @@ describe('CommandButtons Store', () => {
             status: 'running',
             output: 'Initial ',
             exitCode: null,
+            outputTruncated: false,
           },
         };
 
         // Track if $patch was called
         const patchSpy = vi.spyOn(store, '$patch');
 
-        // Append output
+        // Append output (throttled - buffers until flush)
         store.appendOutput(runId, 'Hello ');
         store.appendOutput(runId, 'World');
+        store.flushPendingOutput(runId); // Flush to trigger $patch
 
-        // Verify $patch was called for each append
-        expect(patchSpy).toHaveBeenCalledTimes(2);
+        // Verify $patch was called once for the batched flush
+        expect(patchSpy).toHaveBeenCalledTimes(1);
 
         // Verify output was appended correctly
         expect(store.runs[runId].output).toBe('Initial Hello World');
@@ -445,10 +448,11 @@ describe('CommandButtons Store', () => {
     it('appendOutput adds text to existing run', () => {
       const store = useCommandButtonsStore();
       store.runs = {
-        'run-1': { runId: 'run-1', output: 'Hello ' },
+        'run-1': { runId: 'run-1', output: 'Hello ', outputTruncated: false },
       };
 
       store.appendOutput('run-1', 'World');
+      store.flushPendingOutput('run-1'); // Flush throttled output
 
       expect(store.runs['run-1'].output).toBe('Hello World');
     });

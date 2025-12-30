@@ -51,6 +51,10 @@
 
       <!-- Output Content (when expanded) -->
       <div v-if="showOutput" class="output-content">
+        <!-- Truncation warning -->
+        <div v-if="run.outputTruncated" class="output-truncated-warning">
+          ⚠️ Output truncated (showing last 2000 lines)
+        </div>
         <div
           class="output-text"
           @scroll="onScroll"
@@ -486,6 +490,16 @@ defineExpose({
   background-color: var(--color-background);
   border: 1px solid var(--color-border);
   border-radius: 4px;
+}
+
+.output-truncated-warning {
+  background-color: rgba(251, 191, 36, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: var(--color-warning, #fbbf24);
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
 }
 
 .output-text {
