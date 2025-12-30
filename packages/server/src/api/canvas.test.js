@@ -606,4 +606,107 @@ describe('Canvas API', () => {
       expect(result).toBeNull();
     });
   });
+
+  describe('Inline Canvas Item Creation (No File)', () => {
+    let sessionId;
+
+    beforeEach(() => {
+      // Create a project and session for testing
+      const project = projects.create('Test Project', '/tmp/test');
+      const now = Date.now();
+      const id = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, project.id, 'Test Session', 'running', 'standard', now, now);
+      sessionId = id;
+    });
+
+    it('creates text canvas item from inline content', () => {
+      const item = canvasItems.create(sessionId, {
+        type: 'text',
+        content: 'Hello, World!',
+        filename: 'output.txt',
+        label: 'Command Output',
+        mimeType: 'text/plain',
+      });
+
+      expect(item.type).toBe('text');
+      expect(item.content).toBe('Hello, World!');
+      expect(item.filename).toBe('output.txt');
+      expect(item.label).toBe('Command Output');
+      expect(item.mimeType).toBe('text/plain');
+    });
+
+    it('creates markdown canvas item from inline content', () => {
+      const item = canvasItems.create(sessionId, {
+        type: 'markdown',
+        content: '# Heading\n\nParagraph text',
+        filename: 'output.md',
+        label: 'Markdown Output',
+        mimeType: 'text/markdown',
+      });
+
+      expect(item.type).toBe('markdown');
+      expect(item.content).toBe('# Heading\n\nParagraph text');
+      expect(item.filename).toBe('output.md');
+      expect(item.mimeType).toBe('text/markdown');
+    });
+
+    it('creates code canvas item from inline content', () => {
+      const item = canvasItems.create(sessionId, {
+        type: 'code',
+        content: 'function hello() { console.log("test"); }',
+        filename: 'output.js',
+        label: 'Code Output',
+        mimeType: 'text/plain',
+      });
+
+      expect(item.type).toBe('code');
+      expect(item.content).toBe('function hello() { console.log("test"); }');
+      expect(item.filename).toBe('output.js');
+    });
+
+    it('creates JSON canvas item from inline content', () => {
+      const jsonString = '{"key": "value", "nested": {"a": 1}}';
+      const item = canvasItems.create(sessionId, {
+        type: 'json',
+        data: jsonString,
+        filename: 'output.json',
+        label: 'JSON Output',
+        mimeType: 'application/json',
+      });
+
+      expect(item.type).toBe('json');
+      expect(item.data).toBe(jsonString);
+      expect(item.filename).toBe('output.json');
+      expect(item.mimeType).toBe('application/json');
+    });
+
+    it('creates canvas item without label when not provided', () => {
+      const item = canvasItems.create(sessionId, {
+        type: 'text',
+        content: 'test content',
+        filename: 'test.txt',
+        mimeType: 'text/plain',
+      });
+
+      expect(item.label).toBeNull();
+    });
+
+    it('retrieves inline canvas item correctly', () => {
+      const created = canvasItems.create(sessionId, {
+        type: 'text',
+        content: 'Inline test content',
+        filename: 'inline-test.txt',
+        label: 'Test',
+        mimeType: 'text/plain',
+      });
+
+      const retrieved = canvasItems.getById(created.id);
+      expect(retrieved.type).toBe('text');
+      expect(retrieved.content).toBe('Inline test content');
+      expect(retrieved.filename).toBe('inline-test.txt');
+      expect(retrieved.label).toBe('Test');
+    });
+  });
 });
