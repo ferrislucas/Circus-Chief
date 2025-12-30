@@ -11,6 +11,9 @@ const md = new MarkdownIt({
   linkify: true, // Auto-convert URLs to links
   typographer: true, // Enable smart quotes and other typographic replacements
   highlight: function (str, lang) {
+    // Only highlight when language is explicitly specified
+    // IMPORTANT: Do NOT use highlightAuto() - it's extremely expensive and
+    // causes severe performance issues on iPad during streaming updates
     if (lang && hljs.getLanguage(lang)) {
       try {
         return `<pre class="hljs"><code class="language-${lang}">${hljs.highlight(str, { language: lang, ignoreIllegals: true }).value}</code></pre>`;
@@ -18,14 +21,7 @@ const md = new MarkdownIt({
         // Fall through to default
       }
     }
-    // Use auto-detection for unknown languages
-    try {
-      const result = hljs.highlightAuto(str);
-      return `<pre class="hljs"><code>${result.value}</code></pre>`;
-    } catch {
-      // Fall through to default
-    }
-    // Escape HTML and wrap in pre/code
+    // No language specified - just escape and display without highlighting
     return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`;
   },
 });

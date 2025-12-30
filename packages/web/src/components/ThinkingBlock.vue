@@ -165,4 +165,16 @@ function formatTime(ts) {
     transform: scale(1);
   }
 }
+
+/* Reduce animations for users who prefer reduced motion or on low-power devices */
+@media (prefers-reduced-motion: reduce) {
+  .thinking-streaming {
+    animation: none;
+  }
+
+  .streaming-dots .dot {
+    animation: none;
+    opacity: 0.6;
+  }
+}
 </style>
