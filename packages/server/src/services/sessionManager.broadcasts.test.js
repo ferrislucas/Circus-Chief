@@ -37,6 +37,12 @@ vi.mock('./diffService.js', () => ({
   }),
 }));
 
+// Mock todoStore
+vi.mock('./todoStore.js', () => ({
+  updateTodos: vi.fn(),
+  clearTodos: vi.fn(),
+}));
+
 // Import after mocks are set up
 import { runSession } from './sessionManager.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -45,6 +51,7 @@ import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { generateSummaryNow } from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { getChanges } from './diffService.js';
+import { updateTodos } from './todoStore.js';
 
 describe('sessionManager broadcasts', () => {
   let tempDir;
@@ -986,6 +993,129 @@ describe('sessionManager broadcasts', () => {
 
       expect(changesUpdateCalls.length).toBeGreaterThan(0);
       expect(changesUpdateCalls[0][0]).toBe(sessionId);
+    });
+  });
+
+  describe('TodoWrite tool detection', () => {
+    it('detects TodoWrite when message has ONLY tool_use content (no text)', async () => {
+      // This test verifies the bug fix for Issue: TodoWrite detection was inside
+      // the `if (textContent)` block, so tool-only messages were never processed.
+      //
+      // Scenario: Claude calls TodoWrite without any accompanying text content.
+      // This is a common pattern where Claude just updates the todo list.
+      const testTodos = [
+        { content: 'Research existing code', status: 'completed' },
+        { content: 'Implement feature', status: 'in_progress' },
+        { content: 'Write tests', status: 'pending' },
+      ];
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        // Assistant message with ONLY tool_use, no text content
+        yield {
+          type: 'assistant',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                id: 'tool-1',
+                name: 'TodoWrite',
+                input: { todos: testTodos },
+              },
+            ],
+            // No text blocks at all - this is the bug scenario
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Verify updateTodos was called with the correct arguments
+      expect(updateTodos).toHaveBeenCalledWith(sessionId, testTodos);
+    });
+
+    it('detects TodoWrite when message has both text AND tool_use content', async () => {
+      // This case should already work - verifying it still works after the fix
+      const testTodos = [
+        { content: 'First task', status: 'pending' },
+        { content: 'Second task', status: 'in_progress' },
+      ];
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'assistant',
+          message: {
+            content: [
+              { type: 'text', text: 'Let me update the todo list for you.' },
+              {
+                type: 'tool_use',
+                id: 'tool-1',
+                name: 'TodoWrite',
+                input: { todos: testTodos },
+              },
+            ],
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Verify updateTodos was called
+      expect(updateTodos).toHaveBeenCalledWith(sessionId, testTodos);
+    });
+
+    it('does not call updateTodos when no TodoWrite tool is used', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'assistant',
+          message: {
+            content: [
+              { type: 'text', text: 'Just a regular response.' },
+              {
+                type: 'tool_use',
+                id: 'tool-1',
+                name: 'Read',
+                input: { file_path: '/some/file.txt' },
+              },
+            ],
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Verify updateTodos was NOT called
+      expect(updateTodos).not.toHaveBeenCalled();
+    });
+
+    it('handles TodoWrite with empty todos array', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'assistant',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                id: 'tool-1',
+                name: 'TodoWrite',
+                input: { todos: [] },
+              },
+            ],
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Empty array should still trigger updateTodos
+      expect(updateTodos).toHaveBeenCalledWith(sessionId, []);
     });
   });
 });
