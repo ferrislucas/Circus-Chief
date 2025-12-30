@@ -7,7 +7,7 @@ describe('CommandButtonItem', () => {
   const mockButton = {
     id: 'btn-1',
     projectId: 'proj-1',
-    name: 'Run Tests',
+    label: 'Run Tests',
     command: 'npm test',
     description: 'Run the test suite'
   };
@@ -15,10 +15,11 @@ describe('CommandButtonItem', () => {
   const mockRun = {
     id: 'run-1',
     buttonId: 'btn-1',
-    status: 'completed',
+    status: 'success',
     output: 'Tests passed\n✓ 42 tests completed',
     outputTruncated: false,
-    startTime: new Date().toISOString()
+    startTime: new Date().toISOString(),
+    exitCode: 0
   };
 
   describe('debounceLeading utility', () => {
@@ -110,7 +111,7 @@ describe('CommandButtonItem', () => {
       });
 
       expect(wrapper.text()).toContain('Run Tests');
-      expect(wrapper.text()).toContain('Run the test suite');
+      expect(wrapper.text()).toContain('npm test');
     });
 
     it('displays run status when run is available', () => {
@@ -122,12 +123,13 @@ describe('CommandButtonItem', () => {
         }
       });
 
-      expect(wrapper.text()).toContain('completed');
+      // For a completed run, a checkmark icon is displayed
+      expect(wrapper.text()).toContain('✓');
     });
   });
 
   describe('output rendering', () => {
-    it('shows no output message when run has no output', () => {
+    it('shows no output message when run has no output', async () => {
       const runWithoutOutput = { ...mockRun, output: undefined };
 
       const wrapper = mount(CommandButtonItem, {
@@ -137,6 +139,13 @@ describe('CommandButtonItem', () => {
           run: runWithoutOutput
         }
       });
+
+      // Click to expand output section
+      const outputHeader = wrapper.find('.output-header');
+      if (outputHeader.exists()) {
+        await outputHeader.trigger('click');
+        await wrapper.vm.$nextTick();
+      }
 
       expect(wrapper.text()).toContain('(no output)');
     });
@@ -150,7 +159,17 @@ describe('CommandButtonItem', () => {
         }
       });
 
+      // Click to expand output section
+      const outputHeader = wrapper.find('.output-header');
+      if (outputHeader.exists()) {
+        await outputHeader.trigger('click');
+        await wrapper.vm.$nextTick();
+      }
+
+      // Wait for ANSI conversion to complete (debounced)
+      await new Promise(resolve => setTimeout(resolve, 300));
       await nextTick();
+
       expect(wrapper.text()).toContain('Tests passed');
     });
 
@@ -179,7 +198,7 @@ describe('CommandButtonItem', () => {
   });
 
   describe('output truncation', () => {
-    it('displays truncation warning when output is truncated', () => {
+    it('displays truncation warning when output is truncated', async () => {
       const truncatedRun = { ...mockRun, outputTruncated: true };
 
       const wrapper = mount(CommandButtonItem, {
@@ -189,6 +208,13 @@ describe('CommandButtonItem', () => {
           run: truncatedRun
         }
       });
+
+      // Click to expand output section
+      const outputHeader = wrapper.find('.output-header');
+      if (outputHeader.exists()) {
+        await outputHeader.trigger('click');
+        await wrapper.vm.$nextTick();
+      }
 
       expect(wrapper.text()).toContain('Output truncated');
       expect(wrapper.text()).toContain('last 2000 lines');
