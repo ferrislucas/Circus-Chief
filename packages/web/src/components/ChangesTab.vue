@@ -9,12 +9,9 @@
       {{ error }}
     </div>
 
-    <div v-else-if="!hasChanges" class="empty-state">
-      <p>No git changes to show.</p>
-    </div>
-
     <template v-else>
-      <div class="changes-toolbar">
+      <!-- Toolbar: Show when there are changes OR a default branch exists -->
+      <div v-if="hasChanges || defaultBranch" class="changes-toolbar">
         <div class="mode-toggle">
           <button
             class="toggle-button"
@@ -37,11 +34,18 @@
             Compare to {{ branchLabel }}
           </button>
         </div>
-        <button class="btn-link" @click="toggleAllFiles" :disabled="loading">
+        <button v-if="hasChanges" class="btn-link" @click="toggleAllFiles" :disabled="loading">
           {{ allExpanded ? 'Collapse All' : 'Expand All' }}
         </button>
       </div>
 
+      <!-- Empty state: Show when no changes in current mode -->
+      <div v-if="!hasChanges" class="empty-state">
+        <p v-if="compareMode === 'local'">No local git changes to show.</p>
+        <p v-else>No differences from {{ branchLabel }}.</p>
+      </div>
+
+      <!-- Diff sections: Only show when there are files -->
       <div v-if="stagedFiles.length > 0" class="diff-section">
         <h3>Staged Changes</h3>
         <DiffViewer ref="stagedDiffViewer" :files="stagedFiles" />

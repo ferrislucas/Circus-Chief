@@ -216,12 +216,15 @@ describe('ChangesTab', () => {
 
   it('displays empty state when no changes', async () => {
     api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+    api.getSessionDefaultBranch.mockResolvedValue({ branch: null });
 
     const wrapper = mountComponent();
 
     await flushAll(wrapper);
 
-    expect(wrapper.text()).toContain('No git changes to show');
+    // Toolbar should NOT show when there are no changes and no defaultBranch
+    expect(wrapper.find('.changes-toolbar').exists()).toBe(false);
+    expect(wrapper.text()).toContain('No local git changes to show');
   });
 
   it('displays untracked files when present', async () => {
@@ -295,12 +298,13 @@ describe('ChangesTab', () => {
 
   it('handles null staged/unstaged values', async () => {
     api.getSessionChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+    api.getSessionDefaultBranch.mockResolvedValue({ branch: null });
 
     const wrapper = mountComponent();
 
     await flushAll(wrapper);
 
-    expect(wrapper.text()).toContain('No git changes to show');
+    expect(wrapper.text()).toContain('No local git changes to show');
   });
 
   describe('branch comparison feature', () => {
@@ -461,6 +465,74 @@ describe('ChangesTab', () => {
       await nextTick();
 
       expect(wrapper.vm.branchLabel).toBe('master');
+    });
+
+    it('shows toolbar with compare button when no local changes but defaultBranch exists', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+      api.getSessionDefaultBranch.mockResolvedValue({ branch: 'origin/main' });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // Toolbar should show when there's a defaultBranch, even without local changes
+      const toolbar = wrapper.find('.changes-toolbar');
+      expect(toolbar.exists()).toBe(true);
+
+      // Should have both mode toggle buttons
+      const buttons = toolbar.findAll('button');
+      expect(buttons.length).toBeGreaterThanOrEqual(2);
+      expect(toolbar.text()).toContain('Local Changes');
+      expect(toolbar.text()).toContain('Compare to main');
+
+      // Should NOT show the Expand/Collapse button when there are no changes
+      expect(toolbar.text()).not.toContain('Expand All');
+      expect(toolbar.text()).not.toContain('Collapse All');
+    });
+
+    it('allows switching to branch compare mode when no local changes', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+      api.getSessionDefaultBranch.mockResolvedValue({ branch: 'origin/main' });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // Clear the mock to track the new call
+      api.getSessionChanges.mockClear();
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+
+      // Click the "Compare to main" button
+      const compareButton = wrapper.findAll('.toggle-button')[1];
+      await compareButton.trigger('click');
+      await flushAll(wrapper);
+
+      // Should have called API with 'branch' compare mode
+      expect(api.getSessionChanges).toHaveBeenCalledWith('test-session', 'branch', 'origin/main');
+      expect(wrapper.vm.compareMode).toBe('branch');
+    });
+
+    it('displays mode-aware empty state message', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+      api.getSessionDefaultBranch.mockResolvedValue({ branch: 'origin/main' });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // Start in local mode
+      expect(wrapper.vm.compareMode).toBe('local');
+      expect(wrapper.text()).toContain('No local git changes to show');
+
+      // Clear the mock and switch to branch mode
+      api.getSessionChanges.mockClear();
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+
+      wrapper.vm.compareMode = 'branch';
+      await flushAll(wrapper);
+
+      // Empty message should change for branch mode
+      expect(wrapper.text()).toContain('No differences from main');
     });
   });
 
