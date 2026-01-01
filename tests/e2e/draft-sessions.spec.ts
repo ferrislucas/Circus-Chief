@@ -35,10 +35,6 @@ test.describe('Draft Session Editing', () => {
     await page.goto(`/sessions/${session.id}`);
     await page.waitForLoadState('networkidle');
 
-    // Should show draft status
-    const draftBadge = page.locator('text=This session is a draft');
-    await expect(draftBadge).toBeVisible();
-
     // Should show "Edit your prompt..." placeholder
     const input = page.locator('textarea[placeholder*="Edit your prompt"]');
     await expect(input).toBeVisible();
@@ -272,10 +268,6 @@ test.describe('Draft Session Editing', () => {
     await page.goto(`/sessions/${session.id}`);
     await page.waitForLoadState('networkidle');
 
-    // Should show draft UI initially
-    const draftBadge = page.locator('text=This session is a draft');
-    await expect(draftBadge).toBeVisible();
-
     const input = page.locator('textarea[placeholder*="Edit your prompt"]');
     const startButton = page.locator('button:has-text("Start Session")');
 
@@ -295,7 +287,7 @@ test.describe('Draft Session Editing', () => {
     await page.waitForTimeout(3000);
 
     // Draft UI should be replaced with running/active UI
-    // The draft badge and edit prompt should be hidden
+    // The edit prompt and start button should be hidden
     // Messages should start appearing
   });
 

@@ -72,11 +72,6 @@
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
 
-    <div v-if="isDraft" class="status-message status-draft">
-      <span class="draft-icon">📝</span>
-      This session is a draft. Edit your prompt and click "Start Session" to begin.
-    </div>
-
     <div v-if="isStopped && !isDraft" class="status-message status-stopped">
       <span class="stopped-icon">⏸</span>
       Session stopped - send a message to resume
@@ -84,7 +79,7 @@
 
     <!-- Quick Responses Panel - shows above the input when not running -->
     <QuickResponsesPanel
-      v-if="canSendMessage && !isDraft"
+      v-if="canSendMessage"
       :show-empty="true"
       @insert="handleQuickResponseInsert"
       @openSettings="quickResponseSettingsOpen = true"
@@ -1137,17 +1132,6 @@ async function handleTemplateChange(templateId) {
 }
 
 .stopped-icon {
-  font-size: 1rem;
-}
-
-.status-draft {
-  color: var(--color-info, #3b82f6);
-  background-color: rgba(59, 130, 246, 0.1);
-  border-radius: var(--border-radius);
-  margin-bottom: 0.5rem;
-}
-
-.draft-icon {
   font-size: 1rem;
 }
 
