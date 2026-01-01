@@ -23,6 +23,9 @@ describe('DuplicateSessionButton', () => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
 
+    // Mock confirm dialog (default to true for most tests)
+    vi.stubGlobal('confirm', vi.fn(() => true));
+
     // Mock sessions store
     mockSessionsStore = {
       duplicateSession: vi.fn(),
@@ -399,6 +402,84 @@ describe('DuplicateSessionButton', () => {
       const wrapper = mountComponent();
       const button = wrapper.find('button');
       expect(button.element.tagName).toBe('BUTTON');
+    });
+  });
+
+  describe('confirmation dialog', () => {
+    it('shows confirmation dialog when button is clicked', async () => {
+      const wrapper = mountComponent();
+      mockSessionsStore.duplicateSession.mockResolvedValue({ id: 'new-session' });
+
+      await wrapper.find('button').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      expect(window.confirm).toHaveBeenCalledWith(
+        expect.stringContaining('Duplicate this session')
+      );
+    });
+
+    it('includes helpful message in confirmation dialog', async () => {
+      const wrapper = mountComponent();
+      mockSessionsStore.duplicateSession.mockResolvedValue({ id: 'new-session' });
+
+      await wrapper.find('button').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      expect(window.confirm).toHaveBeenCalledWith(
+        expect.stringContaining('conversations, canvas items, and notes')
+      );
+    });
+
+    it('proceeds with duplication when user confirms', async () => {
+      vi.mocked(window.confirm).mockReturnValue(true);
+      const wrapper = mountComponent();
+      mockSessionsStore.duplicateSession.mockResolvedValue({ id: 'new-session' });
+
+      await wrapper.find('button').trigger('click');
+      await flushPromises();
+
+      expect(mockSessionsStore.duplicateSession).toHaveBeenCalledWith('session-123');
+      expect(mockUiStore.success).toHaveBeenCalled();
+    });
+
+    it('cancels duplication when user declines confirmation', async () => {
+      vi.mocked(window.confirm).mockReturnValue(false);
+      const wrapper = mountComponent();
+
+      await wrapper.find('button').trigger('click');
+      await flushPromises();
+
+      expect(mockSessionsStore.duplicateSession).not.toHaveBeenCalled();
+      expect(mockUiStore.success).not.toHaveBeenCalled();
+      expect(mockUiStore.error).not.toHaveBeenCalled();
+    });
+
+    it('keeps button enabled when user cancels confirmation', async () => {
+      vi.mocked(window.confirm).mockReturnValue(false);
+      const wrapper = mountComponent();
+
+      await wrapper.find('button').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      expect(wrapper.find('button').attributes('disabled')).toBeUndefined();
+      expect(wrapper.text()).toContain('Duplicate');
+    });
+
+    it('allows retry after canceling confirmation', async () => {
+      const wrapper = mountComponent();
+      mockSessionsStore.duplicateSession.mockResolvedValue({ id: 'new-session' });
+
+      // First click: user cancels
+      vi.mocked(window.confirm).mockReturnValueOnce(false);
+      await wrapper.find('button').trigger('click');
+      await wrapper.vm.$nextTick();
+      expect(mockSessionsStore.duplicateSession).not.toHaveBeenCalled();
+
+      // Second click: user confirms
+      vi.mocked(window.confirm).mockReturnValueOnce(true);
+      await wrapper.find('button').trigger('click');
+      await flushPromises();
+      expect(mockSessionsStore.duplicateSession).toHaveBeenCalledOnce();
     });
   });
 });
