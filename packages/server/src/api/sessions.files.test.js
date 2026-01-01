@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'fs';
-import { join, resolve } from 'path';
-import { sessions, projects } from '../database.js';
+import { writeFileSync, mkdirSync, rmSync } from 'fs';
+import { join } from 'path';
+import { projects } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import sessionsRouter from './sessions.js';
 

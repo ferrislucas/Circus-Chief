@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { readFileSync, existsSync } from 'fs';
-import { join, extname, resolve, normalize } from 'path';
+import { extname, resolve, normalize } from 'path';
 import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons, commandRuns } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges, getChangesBranch } from '../services/diffService.js';
