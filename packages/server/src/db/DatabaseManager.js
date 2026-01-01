@@ -146,6 +146,16 @@ export class DatabaseManager {
     // Migrate canvas_items table to add 'code' type
     this.#migrateCanvasItemsTypeConstraint();
 
+    // Add deleted_at column to canvas_items table for soft delete (Issue #313)
+    const canvasTableInfo = this.#db.prepare('PRAGMA table_info(canvas_items)').all();
+    const canvasColumns = canvasTableInfo.map((col) => col.name);
+
+    if (!canvasColumns.includes('deleted_at')) {
+      this.#db.exec('ALTER TABLE canvas_items ADD COLUMN deleted_at INTEGER');
+    }
+    // Always ensure the index exists (moved from schema.sql for migration compatibility)
+    this.#db.exec('CREATE INDEX IF NOT EXISTS idx_canvas_deleted ON canvas_items(deleted_at)');
+
     // Add claude_session_id column to conversations table for per-conversation context isolation
     const conversationsTableInfo = this.#db.prepare('PRAGMA table_info(conversations)').all();
     const conversationsColumns = conversationsTableInfo.map((col) => col.name);
