@@ -45,6 +45,20 @@
         <p v-else>No differences from {{ branchLabel }}.</p>
       </div>
 
+      <!-- Branch diff section (only in branch compare mode) -->
+      <div v-if="compareMode === 'branch' && branchDiffFiles.length > 0" class="diff-section">
+        <h3>Changes vs {{ branchLabel }}</h3>
+        <DiffViewer ref="branchDiffViewer" :files="branchDiffFiles" />
+      </div>
+
+      <!-- Local changes header (only show in branch mode when there are both branch and local changes) -->
+      <div
+        v-if="compareMode === 'branch' && branchDiffFiles.length > 0 && hasLocalChanges"
+        class="local-changes-header"
+      >
+        <h3>Local Changes (uncommitted)</h3>
+      </div>
+
       <!-- Diff sections: Only show when there are files -->
       <div v-if="stagedFiles.length > 0" class="diff-section">
         <h3>Staged Changes</h3>
@@ -76,6 +90,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:fileCount']);
 
+const branchDiff = ref('');
 const staged = ref('');
 const unstaged = ref('');
 const untracked = ref('');
@@ -85,17 +100,35 @@ const allExpanded = ref(true);
 const compareMode = ref('local');
 const defaultBranch = ref(null);
 
+const branchDiffViewer = ref(null);
 const stagedDiffViewer = ref(null);
 const unstagedDiffViewer = ref(null);
 const untrackedDiffViewer = ref(null);
 
+const branchDiffFiles = computed(() => parseDiff(branchDiff.value));
 const stagedFiles = computed(() => parseDiff(staged.value));
 const unstagedFiles = computed(() => parseDiff(unstaged.value));
 const untrackedFiles = computed(() => parseDiff(untracked.value));
-const hasChanges = computed(() => staged.value || unstaged.value || untracked.value);
-const fileCount = computed(
-  () => stagedFiles.value.length + unstagedFiles.value.length + untrackedFiles.value.length
-);
+const hasLocalChanges = computed(() => staged.value || unstaged.value || untracked.value);
+const hasChanges = computed(() => {
+  if (compareMode.value === 'branch') {
+    return branchDiff.value || hasLocalChanges.value;
+  }
+  return hasLocalChanges.value;
+});
+const fileCount = computed(() => {
+  if (compareMode.value === 'branch') {
+    // In branch mode, count branch diff files + local changes
+    return (
+      branchDiffFiles.value.length +
+      stagedFiles.value.length +
+      unstagedFiles.value.length +
+      untrackedFiles.value.length
+    );
+  }
+  // In local mode, only count local changes
+  return stagedFiles.value.length + unstagedFiles.value.length + untrackedFiles.value.length;
+});
 const branchLabel = computed(() => {
   if (!defaultBranch.value) return 'branch';
   // Extract branch name from 'origin/main' or 'origin/master'
@@ -108,10 +141,12 @@ watch(fileCount, (count) => emit('update:fileCount', count), { immediate: true }
 
 function toggleAllFiles() {
   if (allExpanded.value) {
+    branchDiffViewer.value?.collapseAll();
     stagedDiffViewer.value?.collapseAll();
     unstagedDiffViewer.value?.collapseAll();
     untrackedDiffViewer.value?.collapseAll();
   } else {
+    branchDiffViewer.value?.expandAll();
     stagedDiffViewer.value?.expandAll();
     unstagedDiffViewer.value?.expandAll();
     untrackedDiffViewer.value?.expandAll();
@@ -128,6 +163,7 @@ async function fetchChanges() {
       compareMode.value,
       compareMode.value === 'branch' ? defaultBranch.value : null
     );
+    branchDiff.value = changes.branchDiff || '';
     staged.value = changes.staged || '';
     unstaged.value = changes.unstaged || '';
     untracked.value = changes.untracked || '';
@@ -162,12 +198,15 @@ onMounted(() => {
 // Expose for testing
 defineExpose({
   fetchChanges,
+  branchDiff,
   staged,
   unstaged,
   untracked,
   loading,
   error,
   hasChanges,
+  hasLocalChanges,
+  branchDiffFiles,
   stagedFiles,
   unstagedFiles,
   untrackedFiles,
@@ -289,5 +328,20 @@ defineExpose({
   font-size: 0.875rem;
   margin-bottom: 0.5rem;
   color: var(--color-text-soft);
+}
+
+.local-changes-header {
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.local-changes-header h3 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-soft);
+  margin: 0;
 }
 </style>
