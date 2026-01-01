@@ -6,7 +6,7 @@
 
     <div v-for="(file, fileIndex) in files" :key="fileIndex" class="diff-file">
       <div class="diff-file-header" @click="toggleFile(fileIndex)">
-        <span class="diff-file-toggle">{{ expandedFiles[fileIndex] ? '▼' : '▶' }}</span>
+        <span class="diff-file-toggle">{{ isFileExpanded(fileIndex) ? '▼' : '▶' }}</span>
         <span class="diff-file-icon">
           <span v-if="file.isNew" class="file-badge file-badge-new">A</span>
           <span v-else-if="file.isDeleted" class="file-badge file-badge-deleted">D</span>
@@ -42,7 +42,7 @@
         </button>
       </div>
 
-      <div v-if="expandedFiles[fileIndex]" class="diff-file-content">
+      <div v-if="isFileExpanded(fileIndex)" class="diff-file-content">
         <!-- Markdown preview mode -->
         <div v-if="previewMode[fileIndex] && isMarkdownFile(file.displayPath)" class="markdown-preview-container">
           <div v-if="!file.isDeleted && !file.isNew" class="markdown-preview-split">
@@ -93,7 +93,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import {
   isMarkdownFile,
@@ -111,19 +111,64 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  // External state management (keyed by file path)
+  externalExpandedState: {
+    type: Object,
+    default: null,
+  },
+  // Default expanded state for first-time viewing
+  // When undefined, falls back to expandAll prop behavior
+  defaultExpanded: {
+    type: Boolean,
+    default: undefined,
+  },
 });
+
+const emit = defineEmits(['update:expandedState']);
 
 const expandedFiles = ref({});
 const previewMode = ref({});
 const copiedFileIndex = ref(null);
 
-// Initialize expanded state
+// Check if using external state management
+// External state is in use when the prop is a non-null object
+const useExternalState = computed(
+  () => props.externalExpandedState !== null && typeof props.externalExpandedState === 'object'
+);
+
+// Get the effective expanded state for a file
+function isFileExpanded(index) {
+  const file = props.files[index];
+  if (!file) return false;
+
+  if (useExternalState.value) {
+    // Use external state if available, fall back to defaultExpanded
+    const filePath = file.displayPath;
+    return props.externalExpandedState[filePath] ?? props.defaultExpanded;
+  }
+  // Use internal state
+  return expandedFiles.value[index] ?? props.expandAll;
+}
+
+// Determine the default expanded state for new files
+// Priority: defaultExpanded prop (if provided) > expandAll prop
+function getDefaultExpandedState() {
+  // If externalExpandedState is provided, this shouldn't be used
+  // Otherwise, use defaultExpanded if explicitly set, otherwise fall back to expandAll
+  if (props.defaultExpanded !== undefined) {
+    return props.defaultExpanded;
+  }
+  return props.expandAll;
+}
+
+// Initialize expanded state (only for internal state mode)
 watch(
   () => props.files,
   (newFiles) => {
     newFiles.forEach((file, index) => {
-      if (expandedFiles.value[index] === undefined) {
-        expandedFiles.value[index] = props.expandAll;
+      // Only initialize internal state if not using external state
+      if (!useExternalState.value && expandedFiles.value[index] === undefined) {
+        expandedFiles.value[index] = getDefaultExpandedState();
       }
       // Initialize preview mode to true for markdown files (preview by default)
       if (previewMode.value[index] === undefined) {
@@ -135,7 +180,21 @@ watch(
 );
 
 function toggleFile(index) {
-  expandedFiles.value[index] = !expandedFiles.value[index];
+  const file = props.files[index];
+  if (!file) return;
+
+  const filePath = file.displayPath;
+  const currentState = isFileExpanded(index);
+  const newState = !currentState;
+
+  if (useExternalState.value) {
+    // Emit state update to parent
+    const updatedState = { ...props.externalExpandedState, [filePath]: newState };
+    emit('update:expandedState', updatedState);
+  } else {
+    // Update internal state
+    expandedFiles.value[index] = newState;
+  }
 }
 
 function togglePreview(index) {
@@ -173,20 +232,39 @@ async function copyFilePath(filePath, fileIndex) {
 }
 
 function collapseAllFiles() {
-  props.files.forEach((_, index) => {
-    expandedFiles.value[index] = false;
-  });
+  if (useExternalState.value) {
+    // Emit state update with all files collapsed
+    const newState = {};
+    props.files.forEach((file) => {
+      newState[file.displayPath] = false;
+    });
+    emit('update:expandedState', newState);
+  } else {
+    props.files.forEach((_, index) => {
+      expandedFiles.value[index] = false;
+    });
+  }
 }
 
 function expandAllFiles() {
-  props.files.forEach((_, index) => {
-    expandedFiles.value[index] = true;
-  });
+  if (useExternalState.value) {
+    // Emit state update with all files expanded
+    const newState = {};
+    props.files.forEach((file) => {
+      newState[file.displayPath] = true;
+    });
+    emit('update:expandedState', newState);
+  } else {
+    props.files.forEach((_, index) => {
+      expandedFiles.value[index] = true;
+    });
+  }
 }
 
 defineExpose({
   collapseAll: collapseAllFiles,
   expandAll: expandAllFiles,
+  isFileExpanded,
 });
 
 
