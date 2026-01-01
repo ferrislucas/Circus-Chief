@@ -182,6 +182,73 @@ describe('ApiClient', () => {
       });
     });
 
+    describe('duplicateSession', () => {
+      it('posts to duplicate endpoint with session ID', async () => {
+        const mockData = { id: 'new-sess-123', name: 'Copy of original' };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.duplicateSession('sess-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/duplicate', expect.objectContaining({
+          method: 'POST',
+        }));
+        expect(result.id).toBe('new-sess-123');
+      });
+
+      it('passes options parameter when provided', async () => {
+        const mockData = { id: 'new-sess-123', name: 'Custom Copy' };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+        const options = { name: 'Custom Copy', gitMode: 'branch', gitBranch: 'feature-branch' };
+
+        const result = await client.duplicateSession('sess-123', options);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/duplicate', expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify(options),
+        }));
+        expect(result.id).toBe('new-sess-123');
+      });
+
+      it('handles empty options object', async () => {
+        const mockData = { id: 'new-sess-123', name: 'Copy of original' };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.duplicateSession('sess-123', {});
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/duplicate', expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({}),
+        }));
+        expect(result.id).toBe('new-sess-123');
+      });
+
+      it('returns the duplicated session object', async () => {
+        const mockData = {
+          id: 'new-sess-456',
+          name: 'Duplicated Session',
+          status: 'waiting',
+          projectId: 'proj-123',
+          conversations: [],
+        };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.duplicateSession('sess-123');
+
+        expect(result).toEqual(mockData);
+        expect(result.name).toBe('Duplicated Session');
+      });
+
+      it('handles API errors appropriately', async () => {
+        mockFetch.mockReturnValue({
+          ok: false,
+          status: 400,
+          json: async () => ({ error: 'Invalid session' }),
+        });
+
+        await expect(client.duplicateSession('sess-999')).rejects.toThrow('Invalid session');
+      });
+    });
+
     describe('createSession', () => {
       it('posts to /api/projects/:id/sessions with JSON when no files', async () => {
         const sessionData = { name: 'New Session', prompt: 'Hello' };
