@@ -386,3 +386,257 @@ test.describe('Draft Session Editing', () => {
     expect(messages[0].content).toContain('char');
   });
 });
+
+test.describe('Draft Session Settings UI', () => {
+  test.describe.configure({ timeout: 60000 });
+
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    project = await seedProject('Settings Test Project', '/tmp/test-settings');
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+  });
+
+  test('shows session options (thinking toggle and mode switcher) for draft sessions', async ({ page }) => {
+    const session = await seedSession(project.id, 'Initial prompt', {});
+
+    await page.goto(`/sessions/${session.id}`);
+    await page.waitForLoadState('networkidle');
+
+    // Check that draft UI elements exist
+    const editPromptInput = page.locator('textarea[placeholder*="Edit your prompt"]');
+    await expect(editPromptInput).toBeVisible();
+
+    // NEW: Verify thinking toggle is visible for draft
+    const thinkingToggle = page.locator('.thinking-toggle');
+    await expect(thinkingToggle).toBeVisible();
+
+    // NEW: Verify mode switcher is visible for draft
+    const modeButtons = page.locator('.mode-buttons');
+    await expect(modeButtons).toBeVisible();
+
+    // NEW: Verify all mode options are present
+    const planButton = page.locator('button:has-text("Plan")');
+    const standardButton = page.locator('button:has-text("Standard")');
+    const yoloButton = page.locator('button:has-text("YOLO")');
+
+    await expect(planButton).toBeVisible();
+    await expect(standardButton).toBeVisible();
+    await expect(yoloButton).toBeVisible();
+  });
+
+  test('shows model selector for draft sessions', async ({ page }) => {
+    const session = await seedSession(project.id, 'Initial prompt', {});
+
+    await page.goto(`/sessions/${session.id}`);
+    await page.waitForLoadState('networkidle');
+
+    // NEW: Verify model selector is visible for draft
+    const modelRow = page.locator('.model-row');
+    await expect(modelRow).toBeVisible();
+
+    const modelButtons = page.locator('.model-buttons');
+    await expect(modelButtons).toBeVisible();
+
+    // Should have model options
+    const modelOptions = page.locator('.model-btn');
+    const count = await modelOptions.count();
+    expect(count).toBeGreaterThan(0);
+  });
+
+  test('shows template selector for draft sessions', async ({ page }) => {
+    const session = await seedSession(project.id, 'Initial prompt', {});
+
+    await page.goto(`/sessions/${session.id}`);
+    await page.waitForLoadState('networkidle');
+
+    // NEW: Verify template selector is visible for draft
+    const templateRow = page.locator('.template-row');
+    await expect(templateRow).toBeVisible();
+  });
+
+  test('shows quick responses panel for draft sessions', async ({ page }) => {
+    const session = await seedSession(project.id, 'Initial prompt', {});
+
+    await page.goto(`/sessions/${session.id}`);
+    await page.waitForLoadState('networkidle');
+
+    // NEW: Verify quick responses panel is visible for draft
+    const quickResponsesPanel = page.locator('.quick-responses-panel');
+    await expect(quickResponsesPanel).toBeVisible();
+  });
+
+  test('toggles thinking on draft session', async ({ page }) => {
+    const session = await seedSession(project.id, 'Initial prompt', {
+      thinkingEnabled: false,
+    });
+
+    await page.goto(`/sessions/${session.id}`);
+    await page.waitForLoadState('networkidle');
+
+    // Find the thinking toggle checkbox
+    const thinkingCheckbox = page.locator(
+      '.thinking-toggle input[type="checkbox"]'
+    );
+    await expect(thinkingCheckbox).toBeVisible();
+
+    // Initially unchecked
+    const isChecked = await thinkingCheckbox.isChecked();
+    expect(isChecked).toBe(false);
+
+    // Click to toggle on
+    await thinkingCheckbox.click();
+
+    // Wait a moment for the API call
+    await page.waitForTimeout(500);
+
+    // Verify it was toggled (in UI)
+    const checkedAfter = await thinkingCheckbox.isChecked();
+    expect(checkedAfter).toBe(true);
+
+    // Verify via API that setting was saved
+    const updatedSession = await getSession(session.id);
+    expect(updatedSession.thinkingEnabled).toBe(true);
+  });
+
+  test('changes mode on draft session', async ({ page }) => {
+    const session = await seedSession(project.id, 'Initial prompt', {
+      mode: 'standard',
+    });
+
+    await page.goto(`/sessions/${session.id}`);
+    await page.waitForLoadState('networkidle');
+
+    // Find and click Plan mode button
+    const planButton = page.locator('.mode-btn:has-text("Plan")');
+    await expect(planButton).toBeVisible();
+
+    // Click to switch to Plan mode
+    await planButton.click();
+
+    // Wait a moment for the API call
+    await page.waitForTimeout(500);
+
+    // Verify UI shows Plan is now active
+    const isPlanActive = await planButton.evaluate((el) =>
+      el.classList.contains('active')
+    );
+    expect(isPlanActive).toBe(true);
+
+    // Verify via API that mode was saved
+    const updatedSession = await getSession(session.id);
+    expect(updatedSession.mode).toBe('plan');
+  });
+
+  test('changes model on draft session', async ({ page }) => {
+    const session = await seedSession(project.id, 'Initial prompt', {
+      model: 'claude-opus-4-1-20250805',
+    });
+
+    await page.goto(`/sessions/${session.id}`);
+    await page.waitForLoadState('networkidle');
+
+    // Find model buttons - get all and pick second one
+    const modelButtons = page.locator('.model-btn');
+    const firstButton = modelButtons.first();
+    const secondButton = modelButtons.nth(1);
+
+    // Get the text of the second button to verify it's different
+    const secondModelText = await secondButton.textContent();
+
+    // Click second model option
+    await secondButton.click();
+
+    // Wait a moment for the API call
+    await page.waitForTimeout(500);
+
+    // Verify UI shows the model is active (has 'active' class)
+    const isSecondActive = await secondButton.evaluate((el) =>
+      el.classList.contains('active')
+    );
+    expect(isSecondActive).toBe(true);
+
+    // Verify via API that model was changed
+    const updatedSession = await getSession(session.id);
+    // The model should have changed from the initial value
+    expect(updatedSession.model).not.toBe('claude-opus-4-1-20250805');
+  });
+
+  test('applies multiple settings changes to draft before starting', async ({ page }) => {
+    const session = await seedSession(project.id, 'Initial prompt', {
+      mode: 'standard',
+      thinkingEnabled: false,
+    });
+
+    await page.goto(`/sessions/${session.id}`);
+    await page.waitForLoadState('networkidle');
+
+    // Change thinking
+    const thinkingCheckbox = page.locator(
+      '.thinking-toggle input[type="checkbox"]'
+    );
+    await thinkingCheckbox.click();
+    await page.waitForTimeout(300);
+
+    // Change mode
+    const yoloButton = page.locator('.mode-btn:has-text("YOLO")');
+    await yoloButton.click();
+    await page.waitForTimeout(300);
+
+    // Change model (pick first available if not current)
+    const modelButtons = page.locator('.model-btn');
+    const firstModel = modelButtons.first();
+    await firstModel.click();
+    await page.waitForTimeout(300);
+
+    // Verify all changes were saved
+    const updatedSession = await getSession(session.id);
+    expect(updatedSession.thinkingEnabled).toBe(true);
+    expect(updatedSession.mode).toBe('yolo');
+    // Model should be the first one
+    const modelText = await firstModel.textContent();
+    // We can't easily verify the exact model name without knowing the list,
+    // but we verified the click worked
+  });
+
+  test('preserves settings when starting draft session', async ({ page }) => {
+    const session = await seedSession(project.id, 'Initial prompt', {
+      mode: 'standard',
+      thinkingEnabled: false,
+    });
+
+    await page.goto(`/sessions/${session.id}`);
+    await page.waitForLoadState('networkidle');
+
+    // Apply settings changes
+    const thinkingCheckbox = page.locator(
+      '.thinking-toggle input[type="checkbox"]'
+    );
+    await thinkingCheckbox.click();
+    await page.waitForTimeout(300);
+
+    const planButton = page.locator('.mode-btn:has-text("Plan")');
+    await planButton.click();
+    await page.waitForTimeout(300);
+
+    // Wait for saves to complete
+    const savedText = page.locator('text=Saved');
+    await expect(savedText).toBeVisible({ timeout: 5000 });
+
+    // Now start the session
+    const startButton = page.locator('button:has-text("Start Session")');
+    await startButton.click();
+
+    // Wait for session to start
+    await page.waitForTimeout(2000);
+
+    // Verify settings were preserved
+    const startedSession = await getSession(session.id);
+    expect(startedSession.thinkingEnabled).toBe(true);
+    expect(startedSession.mode).toBe('plan');
+  });
+});

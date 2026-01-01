@@ -400,4 +400,117 @@ describe('ConversationRepository', () => {
       expect(updated.outputTokens).toBe(150);
     });
   });
+
+  describe('duplicateForSession', () => {
+    it('should copy all conversations to new session', () => {
+      const project = projectRepo.create('Test Project 2', '/tmp/test2');
+      const now = Date.now();
+      const targetSessionId = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target Session', 'waiting', 'standard', now, now);
+
+      const _conv1 = repo.create(sessionId, 'Initial');
+      const _conv2 = repo.create(sessionId, 'Follow-up');
+
+      const mapping = repo.duplicateForSession(sessionId, targetSessionId);
+
+      expect(mapping.size).toBe(2);
+      const targetConvs = repo.getBySessionId(targetSessionId);
+      expect(targetConvs).toHaveLength(2);
+      expect(targetConvs.map(c => c.name)).toContain('Initial');
+      expect(targetConvs.map(c => c.name)).toContain('Follow-up');
+    });
+
+    it('should return correct ID mapping', () => {
+      const project = projectRepo.create('Test Project 3', '/tmp/test3');
+      const now = Date.now();
+      const targetSessionId = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target Session', 'waiting', 'standard', now, now);
+
+      const conv = repo.create(sessionId, 'Test');
+
+      const mapping = repo.duplicateForSession(sessionId, targetSessionId);
+
+      expect(mapping.has(conv.id)).toBe(true);
+      const newId = mapping.get(conv.id);
+      expect(newId).not.toBe(conv.id);
+      expect(repo.getById(newId)).toBeDefined();
+    });
+
+    it('should preserve isActive flag', () => {
+      const project = projectRepo.create('Test Project 4', '/tmp/test4');
+      const now = Date.now();
+      const targetSessionId = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target Session', 'waiting', 'standard', now, now);
+
+      repo.create(sessionId, 'Inactive', false);
+      repo.create(sessionId, 'Active', true);
+
+      repo.duplicateForSession(sessionId, targetSessionId);
+
+      const targetConvs = repo.getBySessionId(targetSessionId);
+      const active = targetConvs.find(c => c.name === 'Active');
+      const inactive = targetConvs.find(c => c.name === 'Inactive');
+      expect(active.isActive).toBe(true);
+      expect(inactive.isActive).toBe(false);
+    });
+
+    it('should preserve conversation summaries', () => {
+      const project = projectRepo.create('Test Project 5', '/tmp/test5');
+      const now = Date.now();
+      const targetSessionId = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target Session', 'waiting', 'standard', now, now);
+
+      const conv = repo.create(sessionId, 'Test');
+      repo.update(conv.id, { summary: 'This is a summary' });
+
+      const mapping = repo.duplicateForSession(sessionId, targetSessionId);
+
+      const newConv = repo.getById(mapping.get(conv.id));
+      expect(newConv.summary).toBe('This is a summary');
+    });
+
+    it('should handle session with no conversations', () => {
+      const project = projectRepo.create('Test Project 6', '/tmp/test6');
+      const now = Date.now();
+      const emptySessionId = databaseManager.generateId();
+      const targetSessionId = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(emptySessionId, project.id, 'Empty Session', 'waiting', 'standard', now, now);
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target Session', 'waiting', 'standard', now, now);
+
+      const mapping = repo.duplicateForSession(emptySessionId, targetSessionId);
+
+      expect(mapping.size).toBe(0);
+      expect(repo.getBySessionId(targetSessionId)).toHaveLength(0);
+    });
+
+    it('should generate new IDs for all conversations', () => {
+      const project = projectRepo.create('Test Project 7', '/tmp/test7');
+      const now = Date.now();
+      const targetSessionId = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target Session', 'waiting', 'standard', now, now);
+
+      const conv1 = repo.create(sessionId);
+      const conv2 = repo.create(sessionId);
+
+      const mapping = repo.duplicateForSession(sessionId, targetSessionId);
+
+      const newIds = Array.from(mapping.values());
+      expect(newIds).not.toContain(conv1.id);
+      expect(newIds).not.toContain(conv2.id);
+    });
+  });
 });

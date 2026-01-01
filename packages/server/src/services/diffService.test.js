@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
-import { getChanges, generateUntrackedDiffs } from './diffService.js';
+import { getChanges, getChangesBranch, generateUntrackedDiffs } from './diffService.js';
 import * as gitService from './gitService.js';
 import { mkdir, writeFile, rm } from 'fs/promises';
 import { join } from 'path';
@@ -135,6 +135,172 @@ index 9876543..fedcba9 100644
 
       expect(result.staged).toBe(stagedDiff);
       expect(result.unstaged).toBe(unstagedDiff);
+    });
+  });
+
+  describe('getChangesBranch', () => {
+    it('returns branchDiff (committed changes vs branch) plus local changes', async () => {
+      gitService.getDiffBetweenRefs.mockResolvedValue('branch diff content');
+      gitService.getStagedDiff.mockResolvedValue('staged diff content');
+      gitService.getDiff.mockResolvedValue('unstaged diff content');
+      gitService.getUntrackedFiles.mockResolvedValue([]);
+
+      const result = await getChangesBranch('/test/dir', 'origin/main');
+
+      expect(result).toEqual({
+        branchDiff: 'branch diff content',
+        staged: 'staged diff content',
+        unstaged: 'unstaged diff content',
+        untracked: '',
+      });
+    });
+
+    it('calls correct git service functions with correct arguments', async () => {
+      gitService.getDiffBetweenRefs.mockResolvedValue('');
+      gitService.getStagedDiff.mockResolvedValue('');
+      gitService.getDiff.mockResolvedValue('');
+      gitService.getUntrackedFiles.mockResolvedValue([]);
+
+      await getChangesBranch('/my/project', 'origin/main');
+
+      expect(gitService.getDiffBetweenRefs).toHaveBeenCalledWith(
+        '/my/project',
+        'origin/main',
+        'HEAD'
+      );
+      expect(gitService.getStagedDiff).toHaveBeenCalledWith('/my/project');
+      expect(gitService.getDiff).toHaveBeenCalledWith('/my/project');
+      expect(gitService.getUntrackedFiles).toHaveBeenCalledWith('/my/project');
+    });
+
+    it('returns empty values when no changes exist', async () => {
+      gitService.getDiffBetweenRefs.mockResolvedValue('');
+      gitService.getStagedDiff.mockResolvedValue('');
+      gitService.getDiff.mockResolvedValue('');
+      gitService.getUntrackedFiles.mockResolvedValue([]);
+
+      const result = await getChangesBranch('/test/dir', 'origin/main');
+
+      expect(result).toEqual({
+        branchDiff: '',
+        staged: '',
+        unstaged: '',
+        untracked: '',
+      });
+    });
+
+    it('returns branchDiff with committed changes even when working tree is clean', async () => {
+      // This is the key scenario: all changes are committed, no local modifications
+      const branchDiff = `diff --git a/feature.js b/feature.js
+index 1234567..abcdefg 100644
+--- a/feature.js
++++ b/feature.js
+@@ -1,3 +1,4 @@
+ existing code
++new feature code
+ more code`;
+
+      gitService.getDiffBetweenRefs.mockResolvedValue(branchDiff);
+      gitService.getStagedDiff.mockResolvedValue(''); // No staged changes
+      gitService.getDiff.mockResolvedValue(''); // No unstaged changes
+      gitService.getUntrackedFiles.mockResolvedValue([]);
+
+      const result = await getChangesBranch('/test/dir', 'origin/main');
+
+      // Should show the committed changes in branchDiff, not in staged/unstaged
+      expect(result.branchDiff).toBe(branchDiff);
+      expect(result.staged).toBe('');
+      expect(result.unstaged).toBe('');
+    });
+
+    it('separates committed changes from local changes', async () => {
+      // branchDiff = committed changes on current branch vs target branch
+      const branchDiff = `diff --git a/committed.js b/committed.js
+index 1234567..abcdefg 100644
+--- a/committed.js
++++ b/committed.js
+@@ -1 +1,2 @@
+ committed line
++new committed line`;
+
+      // staged = actual git staged changes (git diff --cached)
+      const staged = `diff --git a/staged-file.js b/staged-file.js
+index 1234567..abcdefg 100644
+--- a/staged-file.js
++++ b/staged-file.js
+@@ -1 +1,2 @@
+ original
++staged change`;
+
+      // unstaged = actual git unstaged changes (git diff)
+      const unstaged = `diff --git a/working-file.js b/working-file.js
+index 1234567..abcdefg 100644
+--- a/working-file.js
++++ b/working-file.js
+@@ -1 +1,2 @@
+ original
++working change`;
+
+      gitService.getDiffBetweenRefs.mockResolvedValue(branchDiff);
+      gitService.getStagedDiff.mockResolvedValue(staged);
+      gitService.getDiff.mockResolvedValue(unstaged);
+      gitService.getUntrackedFiles.mockResolvedValue([]);
+
+      const result = await getChangesBranch('/test/dir', 'origin/main');
+
+      expect(result.branchDiff).toBe(branchDiff);
+      expect(result.staged).toBe(staged);
+      expect(result.unstaged).toBe(unstaged);
+    });
+
+    it('fetches all git info in parallel', async () => {
+      let branchDiffResolve;
+      let stagedResolve;
+      let unstagedResolve;
+      let untrackedResolve;
+
+      gitService.getDiffBetweenRefs.mockReturnValue(
+        new Promise((resolve) => {
+          branchDiffResolve = resolve;
+        })
+      );
+      gitService.getStagedDiff.mockReturnValue(
+        new Promise((resolve) => {
+          stagedResolve = resolve;
+        })
+      );
+      gitService.getDiff.mockReturnValue(
+        new Promise((resolve) => {
+          unstagedResolve = resolve;
+        })
+      );
+      gitService.getUntrackedFiles.mockReturnValue(
+        new Promise((resolve) => {
+          untrackedResolve = resolve;
+        })
+      );
+
+      const promise = getChangesBranch('/test/dir', 'origin/main');
+
+      // All should be called immediately (in parallel)
+      expect(gitService.getDiffBetweenRefs).toHaveBeenCalled();
+      expect(gitService.getStagedDiff).toHaveBeenCalled();
+      expect(gitService.getDiff).toHaveBeenCalled();
+      expect(gitService.getUntrackedFiles).toHaveBeenCalled();
+
+      // Resolve them
+      branchDiffResolve('branch');
+      stagedResolve('staged');
+      unstagedResolve('unstaged');
+      untrackedResolve([]);
+
+      const result = await promise;
+      expect(result).toEqual({
+        branchDiff: 'branch',
+        staged: 'staged',
+        unstaged: 'unstaged',
+        untracked: '',
+      });
     });
   });
 

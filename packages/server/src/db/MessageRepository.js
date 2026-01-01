@@ -110,4 +110,25 @@ export class MessageRepository extends BaseRepository {
     // Return the updated message
     return this.getById(messageId);
   }
+
+  /**
+   * Duplicates all messages from source conversations to target conversations.
+   * @param {Map<string, string>} conversationIdMapping - Map of old conversation IDs to new IDs
+   * @param {string} targetSessionId - The new session ID for the messages
+   */
+  duplicateForConversations(conversationIdMapping, targetSessionId) {
+    for (const [sourceConvId, targetConvId] of conversationIdMapping) {
+      const messages = this.getByConversationId(sourceConvId);
+
+      for (const msg of messages) {
+        this.create(
+          targetSessionId,
+          msg.role,
+          msg.content,
+          msg.toolUse,
+          targetConvId
+        );
+      }
+    }
+  }
 }

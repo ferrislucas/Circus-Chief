@@ -10,6 +10,7 @@ import { executeHookAsync } from '../services/hookService.js';
 import { upload, handleUploadError } from '../middleware/upload.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { databaseManager } from '../db/DatabaseManager.js';
+import { duplicateSession } from '../services/sessionDuplicator.js';
 
 const router = Router();
 
@@ -752,6 +753,30 @@ router.post('/:id/unarchive', (req, res) => {
   });
 
   res.json(updated);
+});
+
+// POST /api/sessions/:id/duplicate - Duplicate a session
+router.post('/:id/duplicate', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  try {
+    const { name } = req.body;
+    const newSession = await duplicateSession(req.params.id, { name });
+
+    // Broadcast new session creation to project subscribers
+    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_CREATED, {
+      projectId: session.projectId,
+      session: newSession,
+    });
+
+    res.status(201).json(newSession);
+  } catch (error) {
+    console.error('Error duplicating session:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // DELETE /api/sessions/:id - Delete session

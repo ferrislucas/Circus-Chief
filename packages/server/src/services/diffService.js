@@ -151,21 +151,22 @@ export async function getChanges(directory) {
 
 /**
  * Get changes compared to a specific branch
- * Shows commits that are on current branch but not on the target branch
+ * Returns committed changes vs the target branch, plus any local uncommitted changes
  * @param {string} directory - The git repository directory
  * @param {string} branch - Branch to compare against (e.g., 'origin/main')
- * @returns {Promise<{staged: string, unstaged: string, untracked: string}>}
+ * @returns {Promise<{branchDiff: string, staged: string, unstaged: string, untracked: string}>}
  */
 export async function getChangesBranch(directory, branch) {
-  const [staged, unstaged, untrackedPaths] = await Promise.all([
-    gitService.getStagedDiffAgainstBranch(directory, branch),
-    gitService.getDiffAgainstBranch(directory, branch),
+  const [branchDiff, staged, unstaged, untrackedPaths] = await Promise.all([
+    gitService.getDiffBetweenRefs(directory, branch, 'HEAD'), // Committed changes vs branch
+    gitService.getStagedDiff(directory), // Actual staged changes (local)
+    gitService.getDiff(directory), // Actual unstaged changes (local)
     gitService.getUntrackedFiles(directory),
   ]);
 
   // Generate synthetic diffs for untracked files
   const untracked = await generateUntrackedDiffs(directory, untrackedPaths);
 
-  return { staged, unstaged, untracked };
+  return { branchDiff, staged, unstaged, untracked };
 }
 

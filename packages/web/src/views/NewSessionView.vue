@@ -6,6 +6,13 @@
     <h1>New Session</h1>
 
     <form @submit.prevent="handleSubmit" class="form card">
+      <!-- Quick Responses Panel - shows quick response templates above the prompt -->
+      <QuickResponsesPanel
+        :show-empty="true"
+        @insert="handleQuickResponseInsert"
+        @openSettings="quickResponseSettingsOpen = true"
+      />
+
       <div class="form-group">
         <label class="form-label" for="prompt">Initial Prompt</label>
         <textarea
@@ -205,6 +212,7 @@ import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import { generateWorktreeBranch, DEFAULT_MODEL } from '@claudetools/shared';
 import FileAttachment from '../components/FileAttachment.vue';
 import ModelSelector from '../components/ModelSelector.vue';
+import QuickResponsesPanel from '../components/QuickResponsesPanel.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -220,6 +228,7 @@ let inputSyncTimer = null;
 const mode = ref('yolo');
 const model = ref(DEFAULT_MODEL);
 const loading = ref(false);
+const quickResponseSettingsOpen = ref(false);
 
 // Track which fields are using project defaults
 const usingDefaults = ref({
@@ -420,6 +429,23 @@ function handleBranchEdit() {
 function resetBranchName() {
   editingBranch.value = false;
   quickWorktreeBranch.value = autoBranchName.value;
+}
+
+function handleQuickResponseInsert(text) {
+  // Insert quick response text into textarea
+  const textarea = textareaRef.value;
+  if (textarea) {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const before = textarea.value.substring(0, start);
+    const after = textarea.value.substring(end);
+    textarea.value = before + text + after;
+    textarea.selectionStart = textarea.selectionEnd = start + text.length;
+
+    // Trigger input event to update prompt ref and UI
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    textarea.focus();
+  }
 }
 
 async function handleResetToProjectDefaults() {

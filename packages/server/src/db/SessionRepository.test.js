@@ -853,4 +853,124 @@ describe('SessionRepository', () => {
       expect(sessions[0].outputTokens).toBe(350);
     });
   });
+
+  describe('duplicate', () => {
+    it('should create a new session with same settings', () => {
+      const original = repo.create(projectId, 'Original Session', 'Prompt', 'plan', true, null, 'claude-opus-4-5-20251101');
+
+      const duplicate = repo.duplicate(original.id);
+
+      expect(duplicate.id).not.toBe(original.id);
+      expect(duplicate.name).toBe('Original Session (Copy)');
+      expect(duplicate.mode).toBe('plan');
+      expect(duplicate.thinkingEnabled).toBe(true);
+      expect(duplicate.model).toBe('claude-opus-4-5-20251101');
+      expect(duplicate.projectId).toBe(projectId);
+    });
+
+    it('should reset status to waiting', () => {
+      const original = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(original.id, { status: 'stopped' });
+
+      const duplicate = repo.duplicate(original.id);
+
+      expect(duplicate.status).toBe('waiting');
+    });
+
+    it('should preserve token counts and cost', () => {
+      const original = repo.create(projectId, 'Test', 'Prompt');
+      repo.updateUsage(original.id, {
+        inputTokens: 1000,
+        outputTokens: 500,
+        cacheReadInputTokens: 200,
+        cacheCreationInputTokens: 100,
+        webSearchRequests: 3,
+        contextWindow: 200000,
+      });
+      repo.update(original.id, { costUsd: 0.05 });
+
+      const duplicate = repo.duplicate(original.id);
+
+      expect(duplicate.inputTokens).toBe(1000);
+      expect(duplicate.outputTokens).toBe(500);
+      expect(duplicate.cacheReadInputTokens).toBe(200);
+      expect(duplicate.cacheCreationInputTokens).toBe(100);
+      expect(duplicate.webSearchRequests).toBe(3);
+      expect(duplicate.costUsd).toBe(0.05);
+    });
+
+    it('should copy gitBranch but not gitWorktree', () => {
+      const original = repo.create(projectId, 'Test', 'Prompt', 'standard', false, 'feature-branch');
+      repo.update(original.id, { gitWorktree: '/path/.worktrees/original-id' });
+
+      const duplicate = repo.duplicate(original.id);
+
+      expect(duplicate.gitBranch).toBe('feature-branch');
+      expect(duplicate.gitWorktree).toBeNull();
+    });
+
+    it('should allow custom name override', () => {
+      const original = repo.create(projectId, 'Original', 'Prompt');
+
+      const duplicate = repo.duplicate(original.id, { name: 'My Custom Name' });
+
+      expect(duplicate.name).toBe('My Custom Name');
+    });
+
+    it('should throw error for non-existent session', () => {
+      expect(() => repo.duplicate('non-existent-id')).toThrow('Session not found: non-existent-id');
+    });
+
+    it('should generate new timestamps', () => {
+      const original = repo.create(projectId, 'Test', 'Prompt');
+
+      const duplicate = repo.duplicate(original.id);
+
+      // Timestamps should be created (not null) and equal or newer than original
+      expect(duplicate.createdAt).toBeGreaterThanOrEqual(original.createdAt);
+      expect(duplicate.updatedAt).toBeGreaterThanOrEqual(duplicate.createdAt);
+      expect(duplicate.createdAt).toBeTypeOf('number');
+      expect(duplicate.updatedAt).toBeTypeOf('number');
+    });
+
+    it('should not copy error, prUrl, or claudeSessionId', () => {
+      const original = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(original.id, {
+        error: 'Some error',
+        prUrl: 'https://github.com/pr/123',
+        claudeSessionId: 'claude-session-xyz',
+      });
+
+      const duplicate = repo.duplicate(original.id);
+
+      expect(duplicate.error).toBeNull();
+      expect(duplicate.prUrl).toBeNull();
+      expect(duplicate.claudeSessionId).toBeNull();
+    });
+
+    it('should preserve context window', () => {
+      const original = repo.create(projectId, 'Test', 'Prompt');
+      repo.updateUsage(original.id, {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        webSearchRequests: 0,
+        contextWindow: 100000,
+      });
+
+      const duplicate = repo.duplicate(original.id);
+
+      expect(duplicate.contextWindow).toBe(100000);
+    });
+
+    it('should have null optional fields not copied', () => {
+      const original = repo.create(projectId, 'Test', 'Prompt');
+
+      const duplicate = repo.duplicate(original.id);
+
+      expect(duplicate.nextTemplateId).toBeNull();
+      expect(duplicate.parentSessionId).toBeNull();
+    });
+  });
 });

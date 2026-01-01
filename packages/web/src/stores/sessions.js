@@ -378,6 +378,18 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
+    async duplicateSession(id, options = {}) {
+      this.error = null;
+      try {
+        const newSession = await api.duplicateSession(id, options);
+        // New session will be added via WebSocket, but return it immediately for UI feedback
+        return newSession;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
     addMessage(message) {
       this.messages.push(message);
     },

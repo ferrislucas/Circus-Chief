@@ -5,7 +5,9 @@ import { nextTick, defineComponent } from 'vue';
 // Mock the API - MUST be before imports that use it
 vi.mock('../api/ApiClient.js', () => ({
   api: {
-    getSessionChanges: vi.fn().mockResolvedValue({ staged: '', unstaged: '', untracked: '' }),
+    getSessionChanges: vi
+      .fn()
+      .mockResolvedValue({ branchDiff: '', staged: '', unstaged: '', untracked: '' }),
     getSessionDefaultBranch: vi.fn().mockResolvedValue({ branch: null }),
   },
 }));
@@ -621,6 +623,215 @@ describe('ChangesTab', () => {
       await flushAll(wrapper);
 
       expect(wrapper.vm.fileCount).toBe(0);
+    });
+  });
+
+  describe('branchDiff feature', () => {
+    it('has branchDiff state', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        branchDiff: '',
+        staged: '',
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // Verify branchDiff ref exists and defaults to empty string
+      expect(wrapper.vm.branchDiff).toBe('');
+    });
+
+    it('has branchDiffFiles computed property', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        branchDiff: '',
+        staged: '',
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // Verify branchDiffFiles computed property exists
+      expect(wrapper.vm.branchDiffFiles).toBeDefined();
+      expect(wrapper.vm.branchDiffFiles).toEqual([]);
+    });
+
+    it('has hasLocalChanges computed property', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        branchDiff: '',
+        staged: '',
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // Verify hasLocalChanges computed property exists
+      expect(wrapper.vm.hasLocalChanges).toBeDefined();
+      expect(wrapper.vm.hasLocalChanges).toBeFalsy();
+    });
+
+    it('parses branchDiff when present', async () => {
+      const branchDiff = [
+        'diff --git a/feature.js b/feature.js',
+        'index 1234567..abcdefg 100644',
+        '--- a/feature.js',
+        '+++ b/feature.js',
+        '@@ -1,2 +1,3 @@',
+        ' const x = 1;',
+        '+const newFeature = 2;',
+      ].join('\n');
+
+      api.getSessionChanges.mockResolvedValue({
+        branchDiff,
+        staged: '',
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      expect(wrapper.vm.branchDiff).toBe(branchDiff);
+      expect(wrapper.vm.branchDiffFiles).toHaveLength(1);
+      expect(wrapper.vm.branchDiffFiles[0].displayPath).toBe('feature.js');
+    });
+
+    it('shows branchDiff as separate section from staged/unstaged', async () => {
+      const branchDiff = [
+        'diff --git a/committed.js b/committed.js',
+        'index 1234567..abcdefg 100644',
+        '--- a/committed.js',
+        '+++ b/committed.js',
+        '@@ -1,2 +1,3 @@',
+        ' const x = 1;',
+        '+committed change',
+      ].join('\n');
+
+      const staged = [
+        'diff --git a/staged.js b/staged.js',
+        'index 1234567..abcdefg 100644',
+        '--- a/staged.js',
+        '+++ b/staged.js',
+        '@@ -1,2 +1,3 @@',
+        ' const a = 1;',
+        '+local staged change',
+      ].join('\n');
+
+      api.getSessionChanges.mockResolvedValue({
+        branchDiff,
+        staged,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // branchDiffFiles should contain committed changes
+      expect(wrapper.vm.branchDiffFiles).toHaveLength(1);
+      expect(wrapper.vm.branchDiffFiles[0].displayPath).toBe('committed.js');
+
+      // stagedFiles should contain local staged changes
+      expect(wrapper.vm.stagedFiles).toHaveLength(1);
+      expect(wrapper.vm.stagedFiles[0].displayPath).toBe('staged.js');
+    });
+
+    it('hasChanges is true when only branchDiff has content in branch mode', async () => {
+      const branchDiff = [
+        'diff --git a/feature.js b/feature.js',
+        'index 1234567..abcdefg 100644',
+        '--- a/feature.js',
+        '+++ b/feature.js',
+        '@@ -1,2 +1,3 @@',
+        ' const x = 1;',
+        '+const y = 2;',
+      ].join('\n');
+
+      api.getSessionChanges.mockResolvedValue({
+        branchDiff,
+        staged: '',
+        unstaged: '',
+        untracked: '',
+      });
+      api.getSessionDefaultBranch.mockResolvedValue({ branch: 'origin/main' });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // In local mode, hasChanges should be falsy (no local changes)
+      expect(wrapper.vm.compareMode).toBe('local');
+      expect(wrapper.vm.hasChanges).toBeFalsy();
+      expect(wrapper.vm.hasLocalChanges).toBeFalsy();
+
+      // Switch to branch mode
+      wrapper.vm.compareMode = 'branch';
+      await flushAll(wrapper);
+
+      // In branch mode, hasChanges should be truthy (branchDiff has content)
+      expect(wrapper.vm.hasChanges).toBeTruthy();
+      expect(wrapper.vm.hasLocalChanges).toBeFalsy();
+    });
+
+    it('fileCount includes branchDiff files in branch mode', async () => {
+      const branchDiff = [
+        'diff --git a/feature1.js b/feature1.js',
+        'index 1234567..abcdefg 100644',
+        '--- a/feature1.js',
+        '+++ b/feature1.js',
+        '@@ -1,2 +1,3 @@',
+        ' const x = 1;',
+        '+const y = 2;',
+        'diff --git a/feature2.js b/feature2.js',
+        'index 1234567..abcdefg 100644',
+        '--- a/feature2.js',
+        '+++ b/feature2.js',
+        '@@ -1,2 +1,3 @@',
+        ' const a = 1;',
+        '+const b = 2;',
+      ].join('\n');
+
+      const staged = [
+        'diff --git a/local.js b/local.js',
+        'index 1234567..abcdefg 100644',
+        '--- a/local.js',
+        '+++ b/local.js',
+        '@@ -1,2 +1,3 @@',
+        ' const z = 1;',
+        '+const w = 2;',
+      ].join('\n');
+
+      api.getSessionChanges.mockResolvedValue({
+        branchDiff,
+        staged,
+        unstaged: '',
+        untracked: '',
+      });
+      api.getSessionDefaultBranch.mockResolvedValue({ branch: 'origin/main' });
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // In local mode, fileCount should only count local changes (1 staged)
+      expect(wrapper.vm.compareMode).toBe('local');
+      expect(wrapper.vm.fileCount).toBe(1);
+
+      // Switch to branch mode
+      wrapper.vm.compareMode = 'branch';
+      await nextTick();
+
+      // In branch mode, fileCount should include branchDiff (2) + staged (1) = 3
+      expect(wrapper.vm.fileCount).toBe(3);
     });
   });
 });

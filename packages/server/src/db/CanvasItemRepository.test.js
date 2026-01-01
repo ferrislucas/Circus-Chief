@@ -499,5 +499,113 @@ describe('CanvasItemRepository', () => {
         expect(recovered.deletedAt).toBeNull();
       });
     });
+
+    describe('duplicateForSession', () => {
+      let targetSessionId;
+      let targetProject;
+
+      const createTargetSession = () => {
+        targetProject = projectRepo.create('Target Project', '/tmp/target');
+        targetSessionId = databaseManager.generateId();
+        const now = Date.now();
+        databaseManager.get().prepare(
+          'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).run(targetSessionId, targetProject.id, 'Target Session', 'running', 'standard', now, now);
+      };
+
+      it('should copy all canvas items to new session', () => {
+        repo.create(sessionId, { type: 'image', filename: 'pic.png', content: 'base64data' });
+        repo.create(sessionId, { type: 'markdown', content: '# Title' });
+
+        createTargetSession();
+        repo.duplicateForSession(sessionId, targetSessionId);
+
+        const targetItems = repo.getBySessionId(targetSessionId);
+        expect(targetItems).toHaveLength(2);
+      });
+
+      it('should preserve all item metadata', () => {
+        repo.create(sessionId, {
+          type: 'image',
+          content: 'base64data',
+          mimeType: 'image/png',
+          filename: 'screenshot.png',
+          label: 'UI Screenshot',
+          width: 1920,
+          height: 1080,
+        });
+
+        createTargetSession();
+        repo.duplicateForSession(sessionId, targetSessionId);
+
+        const targetItems = repo.getBySessionId(targetSessionId);
+        expect(targetItems[0]).toMatchObject({
+          type: 'image',
+          content: 'base64data',
+          mimeType: 'image/png',
+          filename: 'screenshot.png',
+          label: 'UI Screenshot',
+          width: 1920,
+          height: 1080,
+        });
+      });
+
+      it('should handle all canvas item types', () => {
+        const types = ['image', 'markdown', 'text', 'json', 'pdf', 'code'];
+        types.forEach(type => {
+          repo.create(sessionId, { type, filename: `file.${type}` });
+        });
+
+        createTargetSession();
+        repo.duplicateForSession(sessionId, targetSessionId);
+
+        const targetItems = repo.getBySessionId(targetSessionId);
+        expect(targetItems).toHaveLength(types.length);
+        expect(targetItems.map(i => i.type).sort()).toEqual(types.sort());
+      });
+
+      it('should generate new IDs for all items', () => {
+        const original = repo.create(sessionId, { type: 'text' });
+
+        createTargetSession();
+        repo.duplicateForSession(sessionId, targetSessionId);
+
+        const targetItems = repo.getBySessionId(targetSessionId);
+        expect(targetItems[0].id).not.toBe(original.id);
+      });
+
+      it('should handle session with no canvas items', () => {
+        createTargetSession();
+        repo.duplicateForSession(sessionId, targetSessionId);
+
+        expect(repo.getBySessionId(targetSessionId)).toHaveLength(0);
+      });
+
+      it('should preserve JSON data field', () => {
+        repo.create(sessionId, {
+          type: 'json',
+          data: { key: 'value', nested: { a: 1 } },
+        });
+
+        createTargetSession();
+        repo.duplicateForSession(sessionId, targetSessionId);
+
+        const targetItems = repo.getBySessionId(targetSessionId);
+        expect(targetItems[0].data).toEqual({ key: 'value', nested: { a: 1 } });
+      });
+
+      it('should not copy deleted items', () => {
+        repo.create(sessionId, { type: 'text', content: 'Keep' });
+        const deleted = repo.create(sessionId, { type: 'text', content: 'Delete' });
+        repo.softDelete(deleted.id);
+
+        createTargetSession();
+        repo.duplicateForSession(sessionId, targetSessionId);
+
+        const targetItems = repo.getBySessionId(targetSessionId);
+        expect(targetItems).toHaveLength(1);
+        expect(targetItems[0].content).toBe('Keep');
+      });
+    });
   });
 });

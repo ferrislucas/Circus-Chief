@@ -19,9 +19,9 @@ export class SessionSummaryRepository extends BaseRepository {
       filesModified: row.files_modified ? JSON.parse(row.files_modified) : [],
       outcome: row.outcome,
       messageCount: row.message_count,
-      prMerged: row.pr_merged ? Boolean(row.pr_merged) : null,
+      prMerged: row.pr_merged !== null ? Boolean(row.pr_merged) : null,
       prState: row.pr_state,
-      hasMergeConflicts: row.has_merge_conflicts ? Boolean(row.has_merge_conflicts) : null,
+      hasMergeConflicts: row.has_merge_conflicts !== null ? Boolean(row.has_merge_conflicts) : null,
       ciStatus: row.ci_status,
       ciFailures: row.ci_failures ? JSON.parse(row.ci_failures) : [],
       generatedAt: row.generated_at,
@@ -167,5 +167,30 @@ export class SessionSummaryRepository extends BaseRepository {
    */
   deleteBySessionId(sessionId) {
     this.db.prepare('DELETE FROM session_summaries WHERE session_id = ?').run(sessionId);
+  }
+
+  /**
+   * Duplicates the session summary from one session to another.
+   * @param {string} sourceSessionId - Source session ID
+   * @param {string} targetSessionId - Target session ID
+   */
+  duplicateForSession(sourceSessionId, targetSessionId) {
+    const summary = this.getBySessionId(sourceSessionId);
+
+    if (summary) {
+      this.create(targetSessionId, {
+        shortSummary: summary.shortSummary,
+        fullSummary: summary.fullSummary,
+        keyActions: summary.keyActions,
+        filesModified: summary.filesModified,
+        outcome: summary.outcome,
+        messageCount: summary.messageCount,
+        prMerged: summary.prMerged,
+        prState: summary.prState,
+        hasMergeConflicts: summary.hasMergeConflicts,
+        ciStatus: summary.ciStatus,
+        ciFailures: summary.ciFailures,
+      });
+    }
   }
 }
