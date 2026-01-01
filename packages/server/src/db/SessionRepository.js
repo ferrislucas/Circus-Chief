@@ -182,6 +182,57 @@ export class SessionRepository extends BaseRepository {
   }
 
   /**
+   * Duplicates a session with a new ID and reset state.
+   * Does NOT handle git setup - that's done by the service layer.
+   * Does NOT create initial conversation/message - those are handled by conversation duplication.
+   *
+   * @param {string} sourceSessionId - ID of session to duplicate
+   * @param {object} options - Override options
+   * @param {string} [options.name] - New name (defaults to "Original Name (Copy)")
+   * @returns {object} The new session record
+   */
+  duplicate(sourceSessionId, { name } = {}) {
+    const source = this.getById(sourceSessionId);
+    if (!source) {
+      throw new Error(`Session not found: ${sourceSessionId}`);
+    }
+
+    const id = databaseManager.generateId();
+    const now = Date.now();
+    const newName = name || `${source.name} (Copy)`;
+
+    // Insert new session with same settings but new ID and status
+    this.db
+      .prepare(
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, model, context_window,
+                               input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+                               web_search_requests, cost_usd, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        source.projectId,
+        newName,
+        'waiting',  // Always reset status to draft
+        source.mode,
+        source.thinkingEnabled ? 1 : 0,
+        source.gitBranch,  // Copy branch name (NOT worktree path)
+        source.model,
+        source.contextWindow,
+        source.inputTokens,
+        source.outputTokens,
+        source.cacheReadInputTokens,
+        source.cacheCreationInputTokens,
+        source.webSearchRequests,
+        source.costUsd,
+        now,
+        now
+      );
+
+    return this.getById(id);
+  }
+
+  /**
    * Get all sessions that have a PR URL set
    * Used by prStatusService for polling CI status
    * @returns {Array<Object>} Sessions with PR URLs

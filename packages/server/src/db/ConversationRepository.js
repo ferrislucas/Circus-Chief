@@ -287,4 +287,39 @@ export class ConversationRepository extends BaseRepository {
       );
     return this.getById(id);
   }
+
+  /**
+   * Duplicates all conversations from one session to another.
+   * @param {string} sourceSessionId - Source session ID
+   * @param {string} targetSessionId - Target session ID
+   * @returns {Map<string, string>} Mapping of old conversation IDs to new IDs
+   */
+  duplicateForSession(sourceSessionId, targetSessionId) {
+    const sourceConversations = this.getBySessionId(sourceSessionId);
+    const idMapping = new Map();
+
+    for (const conv of sourceConversations) {
+      const id = databaseManager.generateId();
+      const now = Date.now();
+
+      this.db
+        .prepare(
+          `INSERT INTO conversations (id, session_id, name, summary, is_active, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          id,
+          targetSessionId,
+          conv.name,
+          conv.summary,
+          conv.isActive ? 1 : 0,
+          now,
+          now
+        );
+
+      idMapping.set(conv.id, id);
+    }
+
+    return idMapping;
+  }
 }

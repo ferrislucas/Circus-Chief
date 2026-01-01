@@ -380,14 +380,15 @@ describe('Canvas API', () => {
 
     it('correctly handles JSON data', () => {
       const jsonData = JSON.stringify({ key: 'value', nested: { a: 1 } });
+      const jsonObject = { key: 'value', nested: { a: 1 } };
       const item = canvasItems.create(sessionId, {
         type: 'json',
         data: jsonData,
         filename: 'data.json',
       });
 
-      expect(item.data).toBe(jsonData);
-      expect(JSON.parse(item.data)).toEqual({ key: 'value', nested: { a: 1 } });
+      // JSON strings are parsed to objects when retrieved
+      expect(item.data).toEqual(jsonObject);
     });
 
     it('correctly handles markdown content', () => {
@@ -671,6 +672,7 @@ describe('Canvas API', () => {
 
     it('creates JSON canvas item from inline content', () => {
       const jsonString = '{"key": "value", "nested": {"a": 1}}';
+      const jsonObject = { key: 'value', nested: { a: 1 } };
       const item = canvasItems.create(sessionId, {
         type: 'json',
         data: jsonString,
@@ -680,7 +682,8 @@ describe('Canvas API', () => {
       });
 
       expect(item.type).toBe('json');
-      expect(item.data).toBe(jsonString);
+      // JSON strings are parsed to objects when retrieved
+      expect(item.data).toEqual(jsonObject);
       expect(item.filename).toBe('output.json');
       expect(item.mimeType).toBe('application/json');
     });
@@ -789,6 +792,7 @@ describe('Canvas API', () => {
 
       it('creates canvas item from inline JSON content', async () => {
         const jsonContent = '{"key": "value", "nested": {"a": 1}}';
+        const jsonObject = { key: 'value', nested: { a: 1 } };
         const res = await request(app)
           .post(`/api/sessions/${sessionId}/canvas`)
           .send({
@@ -800,7 +804,8 @@ describe('Canvas API', () => {
 
         expect(res.status).toBe(201);
         expect(res.body.type).toBe('json');
-        expect(res.body.data).toBe(jsonContent);
+        // JSON strings are parsed to objects when retrieved
+        expect(res.body.data).toEqual(jsonObject);
         expect(res.body.mimeType).toBe('application/json');
       });
 

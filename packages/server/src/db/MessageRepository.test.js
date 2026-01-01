@@ -379,4 +379,98 @@ describe('MessageRepository', () => {
       expect(final.content).toBe('Version 4');
     });
   });
+
+  describe('duplicateForConversations', () => {
+    it('should copy all messages to new conversations', () => {
+      // Create two conversations with messages for this session
+      const sourceConv1 = convRepo.create(sessionId, 'Conv 1');
+      const sourceConv2 = convRepo.create(sessionId, 'Conv 2');
+
+      repo.create(sessionId, 'user', 'Question?', null, sourceConv1.id);
+      repo.create(sessionId, 'assistant', 'Answer!', null, sourceConv1.id);
+      repo.create(sessionId, 'user', 'Another Q', null, sourceConv2.id);
+
+      // Simulate creating new conversations (normally done via duplicateForSession)
+      const targetConv1 = convRepo.create(sessionId, 'Target Conv 1');
+      const targetConv2 = convRepo.create(sessionId, 'Target Conv 2');
+
+      // Test the duplication
+      const mapping = new Map([
+        [sourceConv1.id, targetConv1.id],
+        [sourceConv2.id, targetConv2.id]
+      ]);
+      repo.duplicateForConversations(mapping, sessionId);
+
+      // Verify messages were copied
+      const targetMsgs1 = repo.getByConversationId(targetConv1.id);
+      const targetMsgs2 = repo.getByConversationId(targetConv2.id);
+
+      expect(targetMsgs1).toHaveLength(2);
+      expect(targetMsgs2).toHaveLength(1);
+      expect(targetMsgs1[0].content).toBe('Question?');
+      expect(targetMsgs1[1].content).toBe('Answer!');
+      expect(targetMsgs2[0].content).toBe('Another Q');
+    });
+
+    it('should preserve message roles and toolUse', () => {
+      const sourceConv = convRepo.create(sessionId, 'Test Conv');
+      const toolUse = [{ name: 'bash', input: { command: 'ls -la' } }];
+
+      repo.create(sessionId, 'user', 'Q', null, sourceConv.id);
+      repo.create(sessionId, 'assistant', 'A', toolUse, sourceConv.id);
+
+      const targetConv = convRepo.create(sessionId, 'Target Conv');
+
+      const mapping = new Map([[sourceConv.id, targetConv.id]]);
+      repo.duplicateForConversations(mapping, sessionId);
+
+      const targetMsgs = repo.getByConversationId(targetConv.id);
+      expect(targetMsgs).toHaveLength(2);
+      expect(targetMsgs[0].role).toBe('user');
+      expect(targetMsgs[0].content).toBe('Q');
+      expect(targetMsgs[1].role).toBe('assistant');
+      expect(targetMsgs[1].content).toBe('A');
+      expect(targetMsgs[1].toolUse).toEqual(toolUse);
+    });
+
+    it('should preserve message order', () => {
+      const sourceConv = convRepo.create(sessionId, 'Test Conv');
+
+      repo.create(sessionId, 'user', 'First', null, sourceConv.id);
+      repo.create(sessionId, 'assistant', 'Second', null, sourceConv.id);
+      repo.create(sessionId, 'user', 'Third', null, sourceConv.id);
+
+      const targetConv = convRepo.create(sessionId, 'Target Conv');
+
+      const mapping = new Map([[sourceConv.id, targetConv.id]]);
+      repo.duplicateForConversations(mapping, sessionId);
+
+      const targetMsgs = repo.getByConversationId(targetConv.id);
+      expect(targetMsgs.map(m => m.content)).toEqual(['First', 'Second', 'Third']);
+    });
+
+    it('should generate new message IDs', () => {
+      const sourceConv = convRepo.create(sessionId, 'Test Conv');
+      const originalMsg = repo.create(sessionId, 'user', 'Test', null, sourceConv.id);
+
+      const targetConv = convRepo.create(sessionId, 'Target Conv');
+
+      const mapping = new Map([[sourceConv.id, targetConv.id]]);
+      repo.duplicateForConversations(mapping, sessionId);
+
+      const targetMsgs = repo.getByConversationId(targetConv.id);
+      expect(targetMsgs[0].id).not.toBe(originalMsg.id);
+    });
+
+    it('should handle empty conversation', () => {
+      const sourceConv = convRepo.create(sessionId, 'Empty Conv');
+      const targetConv = convRepo.create(sessionId, 'Target Conv');
+
+      const mapping = new Map([[sourceConv.id, targetConv.id]]);
+      repo.duplicateForConversations(mapping, sessionId);
+
+      const targetMsgs = repo.getByConversationId(targetConv.id);
+      expect(targetMsgs).toHaveLength(0);
+    });
+  });
 });

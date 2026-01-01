@@ -8,13 +8,14 @@ describe('SessionSummaryRepository', () => {
   let repo;
   let projectRepo;
   let sessionId;
+  let project;
 
   beforeEach(() => {
     repo = new SessionSummaryRepository();
     projectRepo = new ProjectRepository();
 
     // Create a project and session for testing
-    const project = projectRepo.create('Test Project', '/tmp/test');
+    project = projectRepo.create('Test Project', '/tmp/test');
     const now = Date.now();
     const id = databaseManager.generateId();
     databaseManager.get().prepare(
@@ -390,6 +391,111 @@ describe('SessionSummaryRepository', () => {
 
       // Summary should be cascade deleted
       expect(repo.getBySessionId(sessionId)).toBeNull();
+    });
+  });
+
+  describe('duplicateForSession', () => {
+    it('should copy session summary to new session', () => {
+      const targetSessionId = databaseManager.generateId();
+      const now = Date.now();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target', 'waiting', 'standard', now, now);
+
+      repo.create(sessionId, {
+        shortSummary: 'This session implemented feature X',
+        fullSummary: 'Full details',
+      });
+
+      repo.duplicateForSession(sessionId, targetSessionId);
+
+      const targetSummary = repo.getBySessionId(targetSessionId);
+      expect(targetSummary).not.toBeNull();
+      expect(targetSummary.shortSummary).toBe('This session implemented feature X');
+    });
+
+    it('should preserve summary content exactly', () => {
+      const targetSessionId = databaseManager.generateId();
+      const now = Date.now();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target', 'waiting', 'standard', now, now);
+
+      repo.create(sessionId, {
+        shortSummary: 'Short',
+        fullSummary: 'Full summary',
+        keyActions: ['Action 1', 'Action 2'],
+        filesModified: ['file1.js', 'file2.js'],
+        outcome: 'success',
+        messageCount: 42,
+      });
+
+      repo.duplicateForSession(sessionId, targetSessionId);
+
+      const targetSummary = repo.getBySessionId(targetSessionId);
+      expect(targetSummary.shortSummary).toBe('Short');
+      expect(targetSummary.fullSummary).toBe('Full summary');
+      expect(targetSummary.keyActions).toEqual(['Action 1', 'Action 2']);
+      expect(targetSummary.filesModified).toEqual(['file1.js', 'file2.js']);
+      expect(targetSummary.outcome).toBe('success');
+      expect(targetSummary.messageCount).toBe(42);
+    });
+
+    it('should generate new ID for the summary', () => {
+      const targetSessionId = databaseManager.generateId();
+      const now = Date.now();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target', 'waiting', 'standard', now, now);
+
+      const original = repo.create(sessionId, {
+        shortSummary: 'Summary',
+        fullSummary: 'Full',
+      });
+
+      repo.duplicateForSession(sessionId, targetSessionId);
+
+      const targetSummary = repo.getBySessionId(targetSessionId);
+      expect(targetSummary.id).not.toBe(original.id);
+    });
+
+    it('should handle session with no summary', () => {
+      const targetSessionId = databaseManager.generateId();
+      const now = Date.now();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target', 'waiting', 'standard', now, now);
+
+      repo.duplicateForSession(sessionId, targetSessionId);
+
+      expect(repo.getBySessionId(targetSessionId)).toBeNull();
+    });
+
+    it('should preserve all summary fields including PR and CI data', () => {
+      const targetSessionId = databaseManager.generateId();
+      const now = Date.now();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target', 'waiting', 'standard', now, now);
+
+      repo.create(sessionId, {
+        shortSummary: 'Short',
+        fullSummary: 'Full',
+        prMerged: true,
+        prState: 'merged',
+        hasMergeConflicts: false,
+        ciStatus: 'passed',
+        ciFailures: ['test1'],
+      });
+
+      repo.duplicateForSession(sessionId, targetSessionId);
+
+      const targetSummary = repo.getBySessionId(targetSessionId);
+      expect(targetSummary.prMerged).toBe(true);
+      expect(targetSummary.prState).toBe('merged');
+      expect(targetSummary.hasMergeConflicts).toBe(false);
+      expect(targetSummary.ciStatus).toBe('passed');
+      expect(targetSummary.ciFailures).toEqual(['test1']);
     });
   });
 });
