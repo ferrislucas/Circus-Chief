@@ -410,8 +410,8 @@ describe('ConversationRepository', () => {
         'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
       ).run(targetSessionId, project.id, 'Target Session', 'waiting', 'standard', now, now);
 
-      const conv1 = repo.create(sessionId, 'Initial');
-      const conv2 = repo.create(sessionId, 'Follow-up');
+      const _conv1 = repo.create(sessionId, 'Initial');
+      const _conv2 = repo.create(sessionId, 'Follow-up');
 
       const mapping = repo.duplicateForSession(sessionId, targetSessionId);
 
