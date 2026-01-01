@@ -21,34 +21,47 @@
 
     <!-- Tabs -->
     <div class="tabs">
-      <button
-        class="tab"
-        :class="{ active: activeTab === 'sessions' }"
-        @click="activeTab = 'sessions'"
-      >
-        Sessions
-      </button>
-      <button
-        class="tab"
-        :class="{ active: activeTab === 'archived' }"
-        @click="handleArchivedTabClick"
-      >
-        Archived
-      </button>
-      <button
-        class="tab"
-        :class="{ active: activeTab === 'templates' }"
-        @click="activeTab = 'templates'"
-      >
-        Templates
-      </button>
-      <button
-        class="tab"
-        :class="{ active: activeTab === 'commands' }"
-        @click="activeTab = 'commands'"
-      >
-        Commands
-      </button>
+      <!-- Desktop tabs -->
+      <div class="tabs-desktop">
+        <button
+          class="tab"
+          :class="{ active: activeTab === 'sessions' }"
+          @click="activeTab = 'sessions'"
+        >
+          Sessions
+        </button>
+        <button
+          class="tab"
+          :class="{ active: activeTab === 'archived' }"
+          @click="handleArchivedTabClick"
+        >
+          Archived
+        </button>
+        <button
+          class="tab"
+          :class="{ active: activeTab === 'templates' }"
+          @click="activeTab = 'templates'"
+        >
+          Templates
+        </button>
+        <button
+          class="tab"
+          :class="{ active: activeTab === 'commands' }"
+          @click="activeTab = 'commands'"
+        >
+          Commands
+        </button>
+      </div>
+
+      <!-- Mobile dropdown -->
+      <div class="tabs-mobile">
+        <select :value="activeTab" @change="handleTabChange($event.target.value)" class="tab-select">
+          <option value="sessions">Sessions</option>
+          <option value="archived">Archived</option>
+          <option value="templates">Templates</option>
+          <option value="commands">Commands</option>
+        </select>
+      </div>
     </div>
 
     <!-- Status Filters -->
@@ -175,6 +188,15 @@ const toggleFilter = (status) => {
     sessionsStore.setStatusFilter(status);
   }
 };
+
+// Handle tab change from mobile dropdown
+function handleTabChange(tab) {
+  if (tab === 'archived') {
+    handleArchivedTabClick();
+  } else {
+    activeTab.value = tab;
+  }
+}
 
 // Statuses that count as "idle" (not actively running)
 const IDLE_STATUSES = ['waiting', 'stopped', 'error'];
