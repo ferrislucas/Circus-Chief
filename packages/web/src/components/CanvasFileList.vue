@@ -1,11 +1,41 @@
 <template>
   <div class="canvas-file-list">
+    <!-- Header with select all checkbox -->
+    <div class="list-header" v-if="showSelectionUI">
+      <input
+        type="checkbox"
+        class="select-all-checkbox"
+        :checked="isAllSelected"
+        :indeterminate="isPartialSelection"
+        @change="toggleSelectAll"
+        :disabled="isOperationInProgress"
+        aria-label="Select all items"
+      />
+      <span class="header-label">Items</span>
+      <span class="selection-count" v-if="selectedCount > 0">
+        {{ selectedCount }} selected
+      </span>
+    </div>
+
     <div
       v-for="item in items"
       :key="item.id"
       class="file-row"
-      @click="$emit('select', item.id)"
+      :class="{ selected: isItemSelected(item.id) }"
+      @click="handleRowClick(item.id)"
     >
+      <!-- Checkbox for selection -->
+      <input
+        v-if="showSelectionUI"
+        type="checkbox"
+        class="item-checkbox"
+        :checked="isItemSelected(item.id)"
+        @change="toggleItemSelection(item.id)"
+        @click.stop
+        :disabled="isOperationInProgress"
+        :aria-label="`Select ${item.filename || 'item'}`"
+      />
+
       <span class="file-icon">{{ getTypeIcon(item.type) }}</span>
       <span class="file-name">{{ item.filename || item.label || 'Untitled' }}</span>
 
@@ -33,16 +63,54 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
+import { useCanvasStore } from '../stores/canvas.js';
+
+const canvasStore = useCanvasStore();
 
 defineProps({
   items: {
     type: Array,
     required: true,
   },
+  showSelectionUI: {
+    type: Boolean,
+    default: true,
+  },
 });
 
-defineEmits(['select']);
+const emit = defineEmits(['select']);
+
+const isOperationInProgress = computed(() => canvasStore.bulkOperationInProgress);
+const selectedCount = computed(() => canvasStore.selectedItemCount);
+const isAllSelected = computed(() => canvasStore.isAllItemsSelected);
+const isPartialSelection = computed(() => canvasStore.isPartialSelection);
+
+function isItemSelected(itemId) {
+  return canvasStore.selectedItemIds.has(itemId);
+}
+
+function toggleItemSelection(itemId) {
+  canvasStore.toggleItemSelection(itemId);
+}
+
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    canvasStore.deselectAllItems();
+  } else {
+    canvasStore.selectAllItems();
+  }
+}
+
+function handleRowClick(itemId) {
+  // Only emit select if item not already selected, or if shift/ctrl not held
+  if (!isItemSelected(itemId) || !canvasStore.selectedItemCount) {
+    // Clear selection when clicking item
+    canvasStore.deselectAllItems();
+    // Emit select to parent to view the item
+    emit('select', itemId);
+  }
+}
 
 const copiedItemId = ref(null);
 
@@ -212,6 +280,67 @@ function formatRelativeTime(timestamp) {
   100% { transform: scale(1); opacity: 1; }
 }
 
+/* List header styles for selection UI */
+.list-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.select-all-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.select-all-checkbox:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.header-label {
+  flex: 1;
+}
+
+.selection-count {
+  color: var(--color-text-soft);
+  font-size: 0.85rem;
+  font-weight: normal;
+  margin-left: auto;
+}
+
+/* Checkbox styles */
+.item-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.item-checkbox:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Selected row styling */
+.file-row.selected {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.file-row.selected:hover {
+  background: rgba(34, 197, 94, 0.15);
+}
+
 /* Mobile styles */
 @media (max-width: 640px) {
   .file-row {
@@ -226,6 +355,16 @@ function formatRelativeTime(timestamp) {
   .copy-button {
     min-width: 2.75rem;
     min-height: 2.75rem;
+  }
+
+  .item-checkbox {
+    width: 16px;
+    height: 16px;
+  }
+
+  .select-all-checkbox {
+    width: 16px;
+    height: 16px;
   }
 }
 </style>

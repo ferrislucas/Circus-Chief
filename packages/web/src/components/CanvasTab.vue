@@ -31,6 +31,38 @@
       <span v-if="isDragOver" class="drag-hint">Drop file to upload</span>
     </div>
 
+    <!-- Bulk action toolbar -->
+    <div v-if="canvasStore.selectedItemCount > 0 && !showTrash" class="bulk-action-toolbar">
+      <div class="toolbar-left">
+        <span class="selection-info">
+          {{ canvasStore.selectedItemCount }} item{{ canvasStore.selectedItemCount > 1 ? 's' : '' }} selected
+        </span>
+      </div>
+      <div class="toolbar-right">
+        <button
+          class="btn btn-sm"
+          @click="handleSelectAll"
+          :disabled="canvasStore.bulkOperationInProgress"
+        >
+          {{ canvasStore.isAllItemsSelected ? 'Deselect All' : 'Select All' }}
+        </button>
+        <button
+          class="btn btn-sm btn-danger"
+          @click="handleBulkDelete"
+          :disabled="canvasStore.bulkOperationInProgress"
+        >
+          {{ canvasStore.bulkOperationInProgress ? 'Deleting...' : 'Delete Selected' }}
+        </button>
+        <button
+          class="btn btn-sm btn-secondary"
+          @click="handleCancelSelection"
+          :disabled="canvasStore.bulkOperationInProgress"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+
     <!-- Trash view -->
     <CanvasTrash
       v-if="showTrash"
@@ -249,6 +281,32 @@ async function uploadFile(file) {
     uploading.value = false;
   }
 }
+
+// Bulk action handlers
+async function handleBulkDelete() {
+  const count = canvasStore.selectedItemCount;
+  if (!confirm(`Delete ${count} item${count > 1 ? 's' : ''}?`)) return;
+
+  try {
+    const itemIds = Array.from(canvasStore.selectedItemIds);
+    await canvasStore.bulkDeleteItems(props.sessionId, itemIds);
+    uiStore.success(`${count} item${count > 1 ? 's' : ''} deleted`);
+  } catch (err) {
+    uiStore.error(err.message);
+  }
+}
+
+function handleSelectAll() {
+  if (canvasStore.isAllItemsSelected) {
+    canvasStore.deselectAllItems();
+  } else {
+    canvasStore.selectAllItems();
+  }
+}
+
+function handleCancelSelection() {
+  canvasStore.deselectAllItems();
+}
 </script>
 
 <style scoped>
@@ -334,6 +392,65 @@ async function uploadFile(file) {
   opacity: 0.8;
 }
 
+/* Bulk action toolbar styles */
+.bulk-action-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--border-radius);
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.selection-info {
+  color: var(--color-text);
+  font-weight: 500;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.btn-danger {
+  background-color: var(--color-error);
+  color: white;
+  border-color: var(--color-error);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: #dc2626;
+  border-color: #dc2626;
+}
+
+.btn-secondary {
+  background-color: var(--color-background-mute);
+  color: var(--color-text-soft);
+  border-color: var(--color-border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--color-background-soft);
+  color: var(--color-text);
+}
+
 /* Mobile styles */
 @media (max-width: 640px) {
   .canvas-header {
@@ -348,6 +465,24 @@ async function uploadFile(file) {
 
   .drag-hint {
     display: none;
+  }
+
+  .bulk-action-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toolbar-left {
+    justify-content: center;
+  }
+
+  .toolbar-right {
+    justify-content: center;
+  }
+
+  .toolbar-right .btn {
+    flex: 1;
+    min-height: 44px;
   }
 }
 

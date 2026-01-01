@@ -48,7 +48,14 @@
       <!-- Branch diff section (only in branch compare mode) -->
       <div v-if="compareMode === 'branch' && branchDiffFiles.length > 0" class="diff-section">
         <h3>Changes vs {{ branchLabel }}</h3>
-        <DiffViewer ref="branchDiffViewer" :files="branchDiffFiles" :sessionId="sessionId" />
+        <DiffViewer
+          ref="branchDiffViewer"
+          :files="branchDiffFiles"
+          :external-expanded-state="getExpandedStateForSection('branch')"
+          :default-expanded="false"
+          :sessionId="sessionId"
+          @update:expanded-state="handleExpandedStateUpdate('branch', $event)"
+        />
       </div>
 
       <!-- Local changes header (only show in branch mode when there are both branch and local changes) -->
@@ -62,17 +69,38 @@
       <!-- Diff sections: Only show when there are files -->
       <div v-if="stagedFiles.length > 0" class="diff-section">
         <h3>Staged Changes</h3>
-        <DiffViewer ref="stagedDiffViewer" :files="stagedFiles" :sessionId="sessionId" />
+        <DiffViewer
+          ref="stagedDiffViewer"
+          :files="stagedFiles"
+          :external-expanded-state="getExpandedStateForSection('staged')"
+          :default-expanded="false"
+          :sessionId="sessionId"
+          @update:expanded-state="handleExpandedStateUpdate('staged', $event)"
+        />
       </div>
 
       <div v-if="unstagedFiles.length > 0" class="diff-section">
         <h3>Unstaged Changes</h3>
-        <DiffViewer ref="unstagedDiffViewer" :files="unstagedFiles" :sessionId="sessionId" />
+        <DiffViewer
+          ref="unstagedDiffViewer"
+          :files="unstagedFiles"
+          :external-expanded-state="getExpandedStateForSection('unstaged')"
+          :default-expanded="false"
+          :sessionId="sessionId"
+          @update:expanded-state="handleExpandedStateUpdate('unstaged', $event)"
+        />
       </div>
 
       <div v-if="untrackedFiles.length > 0" class="diff-section">
         <h3>Untracked Files</h3>
-        <DiffViewer ref="untrackedDiffViewer" :files="untrackedFiles" :sessionId="sessionId" />
+        <DiffViewer
+          ref="untrackedDiffViewer"
+          :files="untrackedFiles"
+          :external-expanded-state="getExpandedStateForSection('untracked')"
+          :default-expanded="false"
+          :sessionId="sessionId"
+          @update:expanded-state="handleExpandedStateUpdate('untracked', $event)"
+        />
       </div>
     </template>
   </div>
@@ -96,9 +124,21 @@ const unstaged = ref('');
 const untracked = ref('');
 const loading = ref(false);
 const error = ref(null);
-const allExpanded = ref(true);
 const compareMode = ref('local');
 const defaultBranch = ref(null);
+
+// Per-mode state tracking for expand/collapse
+// Keys in expandedFiles are "section:filepath", e.g., "staged:src/api.js"
+const modeState = ref({
+  local: {
+    hasBeenViewed: false,
+    expandedFiles: {},
+  },
+  branch: {
+    hasBeenViewed: false,
+    expandedFiles: {},
+  },
+});
 
 const branchDiffViewer = ref(null);
 const stagedDiffViewer = ref(null);
@@ -136,22 +176,101 @@ const branchLabel = computed(() => {
   return parts[parts.length - 1];
 });
 
+// Computed: allExpanded based on actual file states in current mode
+const allExpanded = computed(() => {
+  const currentState = modeState.value[compareMode.value];
+  if (!currentState.hasBeenViewed) return false; // First view = all collapsed
+
+  const expandedStates = Object.values(currentState.expandedFiles);
+  if (expandedStates.length === 0) return false;
+
+  return expandedStates.every((isExpanded) => isExpanded);
+});
+
+// Get expanded state for a specific section's files
+function getExpandedStateForSection(section) {
+  const currentMode = compareMode.value;
+  const state = modeState.value[currentMode];
+  const sectionState = {};
+
+  // Filter expandedFiles for this section
+  Object.entries(state.expandedFiles).forEach(([key, value]) => {
+    if (key.startsWith(`${section}:`)) {
+      const filePath = key.substring(section.length + 1);
+      sectionState[filePath] = value;
+    }
+  });
+
+  return sectionState;
+}
+
+// Update expanded state for a file
+function updateFileExpandedState(mode, key, isExpanded) {
+  modeState.value[mode].expandedFiles[key] = isExpanded;
+}
+
+// Handle state updates from DiffViewer
+function handleExpandedStateUpdate(section, newState) {
+  const currentMode = compareMode.value;
+  Object.entries(newState).forEach(([filePath, isExpanded]) => {
+    const key = `${section}:${filePath}`;
+    modeState.value[currentMode].expandedFiles[key] = isExpanded;
+  });
+}
+
+// Initialize state for files in a section (if not already initialized)
+function initializeFilesState(mode, section, files) {
+  const state = modeState.value[mode];
+  files.forEach((file) => {
+    const key = `${section}:${file.displayPath}`;
+    if (state.expandedFiles[key] === undefined) {
+      // Default to collapsed on first view
+      state.expandedFiles[key] = false;
+    }
+  });
+}
+
+// Initialize mode state after fetching changes
+function initializeModeState(mode) {
+  const state = modeState.value[mode];
+  if (!state.hasBeenViewed) {
+    state.hasBeenViewed = true;
+  }
+
+  // Initialize files based on mode
+  if (mode === 'branch') {
+    initializeFilesState(mode, 'branch', branchDiffFiles.value);
+  }
+  initializeFilesState(mode, 'staged', stagedFiles.value);
+  initializeFilesState(mode, 'unstaged', unstagedFiles.value);
+  initializeFilesState(mode, 'untracked', untrackedFiles.value);
+}
+
 // Emit file count whenever it changes
 watch(fileCount, (count) => emit('update:fileCount', count), { immediate: true });
 
 function toggleAllFiles() {
-  if (allExpanded.value) {
-    branchDiffViewer.value?.collapseAll();
-    stagedDiffViewer.value?.collapseAll();
-    unstagedDiffViewer.value?.collapseAll();
-    untrackedDiffViewer.value?.collapseAll();
-  } else {
+  const targetState = !allExpanded.value;
+  const currentMode = compareMode.value;
+
+  // Update all entries in current mode's expandedFiles
+  const state = modeState.value[currentMode];
+  Object.keys(state.expandedFiles).forEach((key) => {
+    state.expandedFiles[key] = targetState;
+  });
+
+  // Also call expand/collapse on viewers for immediate UI update
+  if (targetState) {
     branchDiffViewer.value?.expandAll();
     stagedDiffViewer.value?.expandAll();
     unstagedDiffViewer.value?.expandAll();
     untrackedDiffViewer.value?.expandAll();
+  } else {
+    branchDiffViewer.value?.collapseAll();
+    stagedDiffViewer.value?.collapseAll();
+    unstagedDiffViewer.value?.collapseAll();
+    untrackedDiffViewer.value?.collapseAll();
   }
-  allExpanded.value = !allExpanded.value;
 }
 
 async function fetchChanges() {
@@ -167,6 +286,9 @@ async function fetchChanges() {
     staged.value = changes.staged || '';
     unstaged.value = changes.unstaged || '';
     untracked.value = changes.untracked || '';
+
+    // Initialize mode state for the current mode after data is available
+    initializeModeState(compareMode.value);
   } catch (err) {
     error.value = err.message;
   } finally {
@@ -214,6 +336,11 @@ defineExpose({
   compareMode,
   defaultBranch,
   branchLabel,
+  modeState,
+  allExpanded,
+  toggleAllFiles,
+  updateFileExpandedState,
+  getExpandedStateForSection,
 });
 </script>
 

@@ -35,6 +35,8 @@ export const useTodosStore = defineStore('todos', {
 
     clearTodos() {
       this.items = [];
+      this.loading = false;
+      this.error = null;
     },
 
     toggleExpanded() {
