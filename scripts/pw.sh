@@ -121,20 +121,21 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Print colored message
+# All print functions output to stderr to avoid polluting function return values
 print_info() {
-    echo -e "${BLUE}ℹ${NC} $1"
+    echo -e "${BLUE}ℹ${NC} $1" >&2
 }
 
 print_success() {
-    echo -e "${GREEN}✓${NC} $1"
+    echo -e "${GREEN}✓${NC} $1" >&2
 }
 
 print_warning() {
-    echo -e "${YELLOW}⚠${NC} $1"
+    echo -e "${YELLOW}⚠${NC} $1" >&2
 }
 
 print_error() {
-    echo -e "${RED}✗${NC} $1"
+    echo -e "${RED}✗${NC} $1" >&2
 }
 
 # Ensure required directories exist
@@ -167,7 +168,14 @@ cmd_test() {
     export BASE_URL="http://localhost:$TEST_SERVER_PORT"
     print_info "Running Playwright tests on port: $TEST_SERVER_PORT"
 
-    docker compose -f "$COMPOSE_FILE" run --rm playwright test "$@"
+    # Use -T to disable pseudo-TTY allocation in docker
+    # This prevents conflicts with the PTY wrapper used by command buttons
+    # and ensures output is properly line-buffered for real-time streaming
+    docker compose -f "$COMPOSE_FILE" run --rm -T playwright test "$@"
+    local exit_code=$?
+
+    # Explicitly return the exit code from docker compose
+    return $exit_code
 }
 
 # Capture screenshot
@@ -247,7 +255,11 @@ cmd_debug() {
     export BASE_URL="http://localhost:$TEST_SERVER_PORT"
     print_info "Running tests in debug mode (headed browser) on port: $TEST_SERVER_PORT"
 
-    docker compose -f "$COMPOSE_FILE" --profile headed run --rm playwright-headed test "$@"
+    # Use -T for output streaming (headed mode still works with X11 forwarding)
+    docker compose -f "$COMPOSE_FILE" --profile headed run --rm -T playwright-headed test "$@"
+    local exit_code=$?
+
+    return $exit_code
 }
 
 # Show help

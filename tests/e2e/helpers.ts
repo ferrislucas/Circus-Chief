@@ -566,3 +566,77 @@ export async function seedCommandButton(
   }
   return response.json();
 }
+
+/**
+ * Run a command button and return the run ID
+ */
+export async function runCommandButton(sessionId: string, buttonId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/run/${buttonId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to run command button: ${response.status} - ${errorText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Get a specific command run by ID
+ */
+export async function getCommandRun(sessionId: string, runId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/runs/${runId}`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+/**
+ * Get all command runs for a session
+ */
+export async function getCommandRuns(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/runs`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+/**
+ * Wait for a command run to complete (not 'running' status)
+ * Returns the completed run with output and exit code
+ */
+export async function waitForCommandRunComplete(
+  sessionId: string,
+  runId: string,
+  timeout = 30000
+): Promise<{
+  runId: string;
+  buttonId: string;
+  status: 'success' | 'error' | 'killed';
+  output: string;
+  exitCode: number;
+  startedAt: number;
+  completedAt?: number;
+}> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const run = await getCommandRun(sessionId, runId);
+    if (run && run.status !== 'running') {
+      return run;
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`Command run ${runId} did not complete after ${timeout}ms`);
+}
+
+/**
+ * Run a command button and wait for completion
+ * Convenience function that combines runCommandButton + waitForCommandRunComplete
+ */
+export async function runCommandButtonAndWait(
+  sessionId: string,
+  buttonId: string,
+  timeout = 30000
+) {
+  const { runId } = await runCommandButton(sessionId, buttonId);
+  return waitForCommandRunComplete(sessionId, runId, timeout);
+}
