@@ -137,9 +137,21 @@ export const useSessionsStore = defineStore('sessions', {
         };
       }
 
-      // FINALIZED: Use active conversation tokens if available, fallback to session
-      const conv = state.conversations.find((c) => c.id === state.activeConversationId);
-      const source = conv || state.currentSession;
+      // FINALIZED: Try conversation first, but fall back to session if conversation has no tokens
+      let source = null;
+
+      if (state.activeConversationId && state.conversations.length > 0) {
+        const conv = state.conversations.find((c) => c.id === state.activeConversationId);
+        // Only use conversation if it actually has token data
+        if (conv && ((conv.inputTokens || 0) > 0 || (conv.outputTokens || 0) > 0)) {
+          source = conv;
+        }
+      }
+
+      // Fall back to session if no valid conversation data
+      if (!source) {
+        source = state.currentSession;
+      }
 
       if (!source) return { input: '0', output: '0', total: '0', cacheRead: '0', cacheCreation: '0' };
 

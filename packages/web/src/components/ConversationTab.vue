@@ -304,6 +304,7 @@ const {
   onConversationCreated,
   onConversationUpdated,
   onConversationDeleted,
+  onUsageUpdate,
 } = useSessionSubscription(props.sessionId);
 let unsubPartial = null;
 let unsubMessage = null;
@@ -313,6 +314,7 @@ let unsubThinkingPartial = null;
 let unsubConvCreated = null;
 let unsubConvUpdated = null;
 let unsubConvDeleted = null;
+let unsubUsage = null;
 
 function handleScroll() {
   if (!messagesContainer.value) return;
@@ -362,8 +364,12 @@ onMounted(async () => {
     messagesContainer.value.addEventListener('scroll', handleScroll);
   }
 
-  // Fetch conversations for this session
-  await sessionsStore.fetchConversations(props.sessionId);
+  // Only fetch conversations if not already loaded for this session
+  // This prevents overwriting updated data (e.g., token counts during streaming)
+  if (sessionsStore.conversations.length === 0 ||
+      sessionsStore.conversations[0]?.sessionId !== props.sessionId) {
+    await sessionsStore.fetchConversations(props.sessionId);
+  }
 
   // Fetch quick responses for the project
   if (sessionsStore.currentSession?.projectId) {
@@ -439,6 +445,15 @@ onMounted(async () => {
     }
   });
 
+  // Subscribe to usage updates - Critical fix for token count display during streaming
+  unsubUsage = onUsageUpdate((msg) => {
+    if (msg.isFinal) {
+      sessionsStore.finalizeUsage(msg.usage, msg.conversationId);
+    } else {
+      sessionsStore.updateRunningUsage(msg.usage, msg.conversationId);
+    }
+  });
+
   // Fetch initial work logs
   await sessionsStore.fetchWorkLogs(props.sessionId);
 
@@ -455,6 +470,7 @@ onUnmounted(() => {
   if (unsubConvCreated) unsubConvCreated();
   if (unsubConvUpdated) unsubConvUpdated();
   if (unsubConvDeleted) unsubConvDeleted();
+  if (unsubUsage) unsubUsage();
   if (debounceTimer) clearTimeout(debounceTimer);
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
   if (inputSyncTimer) clearTimeout(inputSyncTimer);

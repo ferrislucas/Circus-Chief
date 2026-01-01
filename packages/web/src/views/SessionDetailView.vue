@@ -253,7 +253,13 @@ onMounted(async () => {
     uiStore.error('Failed to subscribe to session updates');
   }
 
-  // STEP 2: Register all handlers IMMEDIATELY (before fetching data)
+  // STEP 1.5: Fetch critical data BEFORE registering handlers
+  // This ensures conversations array is populated when usage updates arrive
+  // and prevents handlers from trying to access empty conversation lists
+  await sessionsStore.fetchSession(sessionId);
+  await sessionsStore.fetchConversations(sessionId);
+
+  // STEP 2: Register all handlers (data is now ready)
   // This ensures we don't miss any updates that arrive while data is being fetched
   cleanups.push(
     onStatus((status) => {
@@ -345,12 +351,8 @@ onMounted(async () => {
     })
   );
 
-  // STEP 3: Now fetch data (handlers are ready to receive updates)
-  await sessionsStore.fetchSession(sessionId);
+  // STEP 3: Now fetch remaining data (handlers are ready to receive updates)
   await sessionsStore.fetchMessages(sessionId);
-  // Load conversations proactively so token updates are available immediately
-  // (Issue: conversations were only loaded when ConversationTab became visible)
-  await sessionsStore.fetchConversations(sessionId);
   await sessionsStore.fetchWorkLogs(sessionId);
   // Await canvas fetch to ensure indicator shows correct count immediately.
   // This catches items added before/during WebSocket subscription establishment.
