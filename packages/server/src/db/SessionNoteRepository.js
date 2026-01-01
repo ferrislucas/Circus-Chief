@@ -44,4 +44,17 @@ export class SessionNoteRepository extends BaseRepository {
       .run(content, Date.now(), id);
     return this.getById(id);
   }
+
+  /**
+   * Duplicates all notes from one session to another.
+   * @param {string} sourceSessionId - Source session ID
+   * @param {string} targetSessionId - Target session ID
+   */
+  duplicateForSession(sourceSessionId, targetSessionId) {
+    const notes = this.getBySessionId(sourceSessionId);
+
+    for (const note of notes) {
+      this.create(targetSessionId, note.content);
+    }
+  }
 }

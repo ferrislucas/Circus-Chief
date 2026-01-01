@@ -129,4 +129,27 @@ export class CanvasItemRepository extends BaseRepository {
   permanentDelete(itemId) {
     this.db.prepare('DELETE FROM canvas_items WHERE id = ?').run(itemId);
   }
+
+  /**
+   * Duplicates all canvas items from one session to another.
+   * Only copies non-deleted items.
+   * @param {string} sourceSessionId - Source session ID
+   * @param {string} targetSessionId - Target session ID
+   */
+  duplicateForSession(sourceSessionId, targetSessionId) {
+    const items = this.getBySessionId(sourceSessionId);
+
+    for (const item of items) {
+      this.create(targetSessionId, {
+        type: item.type,
+        content: item.content,
+        data: item.data,
+        mimeType: item.mimeType,
+        filename: item.filename,
+        label: item.label,
+        width: item.width,
+        height: item.height,
+      });
+    }
+  }
 }

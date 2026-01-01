@@ -8,13 +8,14 @@ describe('SessionNoteRepository', () => {
   let repo;
   let projectRepo;
   let sessionId;
+  let project;
 
   beforeEach(() => {
     repo = new SessionNoteRepository();
     projectRepo = new ProjectRepository();
 
     // Create a project and session for testing
-    const project = projectRepo.create('Test Project', '/tmp/test');
+    project = projectRepo.create('Test Project', '/tmp/test');
     const now = Date.now();
     const id = databaseManager.generateId();
     databaseManager.get().prepare(
@@ -171,6 +172,69 @@ describe('SessionNoteRepository', () => {
 
       expect(repo.getById(note1.id)).toBeNull();
       expect(repo.getById(note2.id)).not.toBeNull();
+    });
+  });
+
+  describe('duplicateForSession', () => {
+    it('should copy all notes to new session', () => {
+      const now = Date.now();
+      const targetSessionId = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target', 'waiting', 'standard', now, now);
+
+      repo.create(sessionId, 'Note 1');
+      repo.create(sessionId, 'Note 2');
+
+      repo.duplicateForSession(sessionId, targetSessionId);
+
+      const targetNotes = repo.getBySessionId(targetSessionId);
+      expect(targetNotes).toHaveLength(2);
+      expect(targetNotes.map(n => n.content).sort()).toContain('Note 1');
+      expect(targetNotes.map(n => n.content).sort()).toContain('Note 2');
+    });
+
+    it('should preserve note content exactly', () => {
+      const now = Date.now();
+      const targetSessionId = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target', 'waiting', 'standard', now, now);
+
+      const content = '# Markdown Note\\n\\nWith **formatting** and `code`';
+      repo.create(sessionId, content);
+
+      repo.duplicateForSession(sessionId, targetSessionId);
+
+      const targetNotes = repo.getBySessionId(targetSessionId);
+      expect(targetNotes[0].content).toBe(content);
+    });
+
+    it('should generate new IDs for all notes', () => {
+      const now = Date.now();
+      const targetSessionId = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target', 'waiting', 'standard', now, now);
+
+      const original = repo.create(sessionId, 'Test');
+
+      repo.duplicateForSession(sessionId, targetSessionId);
+
+      const targetNotes = repo.getBySessionId(targetSessionId);
+      expect(targetNotes[0].id).not.toBe(original.id);
+    });
+
+    it('should handle session with no notes', () => {
+      const now = Date.now();
+      const targetSessionId = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target', 'waiting', 'standard', now, now);
+
+      repo.duplicateForSession(sessionId, targetSessionId);
+
+      expect(repo.getBySessionId(targetSessionId)).toHaveLength(0);
     });
   });
 });
