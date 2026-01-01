@@ -169,4 +169,66 @@ export class CanvasItemRepository extends BaseRepository {
       });
     }
   }
+
+  /**
+   * Soft delete multiple items atomically
+   * @param {string[]} itemIds - Array of item IDs to soft delete
+   * @returns {number} Count of items actually deleted
+   */
+  softDeleteBatch(itemIds) {
+    if (!itemIds || itemIds.length === 0) {
+      return 0;
+    }
+
+    const now = Date.now();
+    const placeholders = itemIds.map(() => '?').join(',');
+
+    const updateStmt = this.db.prepare(
+      `UPDATE canvas_items SET deleted_at = ? WHERE id IN (${placeholders}) AND deleted_at IS NULL`
+    );
+
+    const result = updateStmt.run(now, ...itemIds);
+    return result.changes || 0;
+  }
+
+  /**
+   * Recover multiple items atomically
+   * @param {string[]} itemIds - Array of item IDs to recover
+   * @returns {number} Count of items actually recovered
+   */
+  recoverBatch(itemIds) {
+    if (!itemIds || itemIds.length === 0) {
+      return 0;
+    }
+
+    const placeholders = itemIds.map(() => '?').join(',');
+
+    const updateStmt = this.db.prepare(
+      `UPDATE canvas_items SET deleted_at = NULL WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL`
+    );
+
+    const result = updateStmt.run(...itemIds);
+    return result.changes || 0;
+  }
+
+  /**
+   * Permanently delete multiple items atomically
+   * @param {string[]} itemIds - Array of item IDs to permanently delete (must be from trash)
+   * @returns {number} Count of items actually deleted
+   */
+  permanentDeleteBatch(itemIds) {
+    if (!itemIds || itemIds.length === 0) {
+      return 0;
+    }
+
+    // Only allow permanent deletion of items that are in trash (deleted_at IS NOT NULL)
+    const placeholders = itemIds.map(() => '?').join(',');
+
+    const deleteStmt = this.db.prepare(
+      `DELETE FROM canvas_items WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL`
+    );
+
+    const result = deleteStmt.run(...itemIds);
+    return result.changes || 0;
+  }
 }

@@ -21,36 +21,89 @@
       <p class="empty-state-hint">Deleted files will appear here for recovery.</p>
     </div>
 
-    <div v-else class="trash-list">
-      <div
-        v-for="item in groupedItems"
-        :key="item.id"
-        class="trash-row"
-      >
-        <span class="file-icon">{{ getTypeIcon(item.type) }}</span>
-        <div class="file-info">
-          <span class="file-name">{{ item.filename || item.label || 'Untitled' }}</span>
-          <span class="file-meta">
-            {{ item.versionCount }} version{{ item.versionCount > 1 ? 's' : '' }}
-            &bull; Deleted {{ formatRelativeTime(item.deletedAt) }}
+    <div v-else>
+      <!-- Bulk action toolbar for trash -->
+      <div v-if="canvasStore.selectedItemCount > 0" class="bulk-action-toolbar">
+        <div class="toolbar-left">
+          <span class="selection-info">
+            {{ canvasStore.selectedItemCount }} item{{ canvasStore.selectedItemCount > 1 ? 's' : '' }} selected
           </span>
         </div>
-
-        <div class="trash-actions">
+        <div class="toolbar-right">
+          <button
+            class="btn btn-sm"
+            @click="handleSelectAll"
+            :disabled="canvasStore.bulkOperationInProgress"
+          >
+            {{ canvasStore.isAllItemsSelected ? 'Deselect All' : 'Select All' }}
+          </button>
           <button
             class="btn btn-sm btn-success"
-            @click="handleRecover(item.filename)"
-            :disabled="recovering === item.filename"
+            @click="handleBulkRecover"
+            :disabled="canvasStore.bulkOperationInProgress"
           >
-            {{ recovering === item.filename ? 'Recovering...' : 'Recover' }}
+            {{ canvasStore.bulkOperationInProgress ? 'Recovering...' : 'Recover Selected' }}
           </button>
           <button
             class="btn btn-sm btn-danger"
-            @click="handlePermanentDelete(item)"
-            :disabled="deleting === item.id"
+            @click="handleBulkPermanentDelete"
+            :disabled="canvasStore.bulkOperationInProgress"
           >
-            Delete Forever
+            {{ canvasStore.bulkOperationInProgress ? 'Deleting...' : 'Delete Forever' }}
           </button>
+          <button
+            class="btn btn-sm btn-secondary"
+            @click="handleCancelSelection"
+            :disabled="canvasStore.bulkOperationInProgress"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+
+      <div class="trash-list">
+        <div
+          v-for="item in groupedItems"
+          :key="item.id"
+          class="trash-row"
+          :class="{ selected: isItemSelected(item.id) }"
+        >
+          <!-- Checkbox for selection -->
+          <input
+            type="checkbox"
+            class="item-checkbox"
+            :checked="isItemSelected(item.id)"
+            @change="toggleItemSelection(item.id)"
+            @click.stop
+            :disabled="canvasStore.bulkOperationInProgress"
+            :aria-label="`Select ${item.filename || 'item'}`"
+          />
+
+          <span class="file-icon">{{ getTypeIcon(item.type) }}</span>
+          <div class="file-info">
+            <span class="file-name">{{ item.filename || item.label || 'Untitled' }}</span>
+            <span class="file-meta">
+              {{ item.versionCount }} version{{ item.versionCount > 1 ? 's' : '' }}
+              &bull; Deleted {{ formatRelativeTime(item.deletedAt) }}
+            </span>
+          </div>
+
+          <div class="trash-actions">
+            <button
+              class="btn btn-sm btn-success"
+              @click="handleRecover(item.filename)"
+              :disabled="recovering === item.filename || canvasStore.selectedItemCount > 0"
+            >
+              {{ recovering === item.filename ? 'Recovering...' : 'Recover' }}
+            </button>
+            <button
+              class="btn btn-sm btn-danger"
+              @click="handlePermanentDelete(item)"
+              :disabled="deleting === item.id || canvasStore.selectedItemCount > 0"
+            >
+              Delete Forever
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -141,6 +194,54 @@ function formatRelativeTime(timestamp) {
   if (hours > 0) return `${hours}h ago`;
   if (minutes > 0) return `${minutes}m ago`;
   return 'just now';
+}
+
+// Selection helpers
+function isItemSelected(itemId) {
+  return canvasStore.selectedItemIds.has(itemId);
+}
+
+function toggleItemSelection(itemId) {
+  canvasStore.toggleItemSelection(itemId);
+}
+
+function handleSelectAll() {
+  if (canvasStore.isAllItemsSelected) {
+    canvasStore.deselectAllItems();
+  } else {
+    canvasStore.selectAllItems();
+  }
+}
+
+function handleCancelSelection() {
+  canvasStore.deselectAllItems();
+}
+
+// Bulk action handlers
+async function handleBulkRecover() {
+  const count = canvasStore.selectedItemCount;
+  if (!confirm(`Recover ${count} item${count > 1 ? 's' : ''}?`)) return;
+
+  try {
+    const itemIds = Array.from(canvasStore.selectedItemIds);
+    await canvasStore.bulkRecoverItems(props.sessionId, itemIds);
+    uiStore.success(`${count} item${count > 1 ? 's' : ''} recovered`);
+  } catch (err) {
+    uiStore.error(err.message);
+  }
+}
+
+async function handleBulkPermanentDelete() {
+  const count = canvasStore.selectedItemCount;
+  if (!confirm(`Permanently delete ${count} item${count > 1 ? 's' : ''}? This cannot be undone.`)) return;
+
+  try {
+    const itemIds = Array.from(canvasStore.selectedItemIds);
+    await canvasStore.bulkPermanentlyDeleteItems(props.sessionId, itemIds);
+    uiStore.success(`${count} item${count > 1 ? 's' : ''} permanently deleted`);
+  } catch (err) {
+    uiStore.error(err.message);
+  }
 }
 </script>
 
@@ -260,6 +361,78 @@ function formatRelativeTime(timestamp) {
   background: rgba(248, 81, 73, 0.1);
 }
 
+/* Checkbox styles */
+.item-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.item-checkbox:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Selected row styling */
+.trash-row.selected {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.trash-row.selected:hover {
+  background: rgba(34, 197, 94, 0.15);
+}
+
+/* Bulk action toolbar styles */
+.bulk-action-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--border-radius);
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.selection-info {
+  color: var(--color-text);
+  font-weight: 500;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.btn-secondary {
+  background-color: var(--color-background-mute);
+  color: var(--color-text-soft);
+  border: 1px solid var(--color-border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--color-background-soft);
+  color: var(--color-text);
+}
+
 /* Mobile */
 @media (max-width: 640px) {
   .trash-row {
@@ -272,6 +445,29 @@ function formatRelativeTime(timestamp) {
   }
 
   .trash-actions .btn {
+    flex: 1;
+    min-height: 44px;
+  }
+
+  .item-checkbox {
+    width: 16px;
+    height: 16px;
+  }
+
+  .bulk-action-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toolbar-left {
+    justify-content: center;
+  }
+
+  .toolbar-right {
+    justify-content: center;
+  }
+
+  .toolbar-right .btn {
     flex: 1;
     min-height: 44px;
   }
