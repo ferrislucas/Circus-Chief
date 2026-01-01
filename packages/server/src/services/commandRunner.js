@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { databaseManager, commandRuns } from '../database.js';
+import { commandRuns } from '../database.js';
 
 /**
  * Service for running commands and managing their execution

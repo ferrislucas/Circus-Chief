@@ -83,6 +83,7 @@ export function stripAnsi(text) {
   }
   // Pattern matches all ANSI escape sequences
   // Format: \x1b[...m where ... is any sequence of numbers/semicolons
+  // eslint-disable-next-line no-control-regex
   return text.replace(/\x1b\[[0-9;]*m/g, '');
 }
 

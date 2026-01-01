@@ -905,7 +905,7 @@ describe('sessionManager broadcasts', () => {
     });
 
     it('usage is tracked per-conversation, not per-session', async () => {
-      const { conversations, messages } = await import('../database.js');
+      const { conversations } = await import('../database.js');
 
       // Create first conversation and run session
       query.mockImplementation(async function* () {

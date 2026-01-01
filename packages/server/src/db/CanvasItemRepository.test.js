@@ -288,7 +288,7 @@ describe('CanvasItemRepository', () => {
 
     describe('getDeletedBySessionId', () => {
       it('returns only deleted items', () => {
-        const item1 = repo.create(sessionId, { type: 'text', content: 'Active item' });
+        repo.create(sessionId, { type: 'text', content: 'Active item' });
         const item2 = repo.create(sessionId, { type: 'text', content: 'Deleted item' });
 
         repo.softDelete(item2.id);

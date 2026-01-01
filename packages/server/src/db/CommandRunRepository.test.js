@@ -175,13 +175,13 @@ describe('CommandRunRepository', () => {
 
   describe('getLastRunForButton', () => {
     it('returns the most recent run for a button', () => {
-      const run1 = repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
       // Give a tiny delay to ensure different timestamps
       const before = Date.now();
       while (Date.now() === before) {
         // Wait for timestamp to change
       }
-      const run2 = repository.create({ id: 'run-2', sessionId: testSessionId, buttonId: testButtonId });
+      repository.create({ id: 'run-2', sessionId: testSessionId, buttonId: testButtonId });
 
       const lastRun = repository.getLastRunForButton(testButtonId);
 
@@ -189,8 +189,7 @@ describe('CommandRunRepository', () => {
     });
 
     it('returns null when button has no runs', () => {
-      const run = repository.getLastRunForButton('nonexistent-button');
-      expect(run).toBeNull();
+      expect(repository.getLastRunForButton('nonexistent-button')).toBeNull();
     });
   });
 
@@ -224,7 +223,7 @@ describe('CommandRunRepository', () => {
 
   describe('data mapping', () => {
     it('maps database snake_case to camelCase', () => {
-      const run = repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
       repository.complete('run-1', 42, 'output');
 
       const retrieved = repository.getById('run-1');
@@ -238,9 +237,7 @@ describe('CommandRunRepository', () => {
     });
 
     it('returns null output as empty string', () => {
-      const run = repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
-
-      expect(run.output).toBe('');
+      expect(repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId }).output).toBe('');
     });
   });
 });

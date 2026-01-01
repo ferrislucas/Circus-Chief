@@ -6,11 +6,9 @@ import { CreateSessionTemplateRequest } from '@claudetools/shared/contracts/temp
 import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@claudetools/shared/contracts/commandButtons';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { executeHookAsync } from '../services/hookService.js';
-import { broadcastToProject, broadcastToSession } from '../websocket.js';
+import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { upload, handleUploadError } from '../middleware/upload.js';
-import { commandRunner } from '../services/commandRunner.js';
-import { databaseManager } from '../db/DatabaseManager.js';
 
 const router = Router();
 

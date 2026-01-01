@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   CreateProjectRequest,
   UpdateProjectRequest,
-  ProjectResponse,
-  ProjectListResponse,
   ProjectSessionDefaultsRequest,
   ProjectSessionDefaultsResponse,
 } from './projects.js';

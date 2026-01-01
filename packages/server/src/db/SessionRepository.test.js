@@ -259,7 +259,7 @@ describe('SessionRepository', () => {
     });
 
     it('filters by archived=true', () => {
-      const session1 = repo.create(projectId, 'Active Session', 'Prompt');
+      repo.create(projectId, 'Active Session', 'Prompt');
       const session2 = repo.create(projectId, 'Archived Session', 'Prompt');
       repo.update(session2.id, { archived: true });
 
@@ -270,7 +270,7 @@ describe('SessionRepository', () => {
     });
 
     it('returns all sessions when archived filter is null', () => {
-      const session1 = repo.create(projectId, 'Active Session', 'Prompt');
+      repo.create(projectId, 'Active Session', 'Prompt');
       const session2 = repo.create(projectId, 'Archived Session', 'Prompt');
       repo.update(session2.id, { archived: true });
 
@@ -280,7 +280,7 @@ describe('SessionRepository', () => {
     });
 
     it('returns all sessions when no filter option provided', () => {
-      const session1 = repo.create(projectId, 'Active Session', 'Prompt');
+      repo.create(projectId, 'Active Session', 'Prompt');
       const session2 = repo.create(projectId, 'Archived Session', 'Prompt');
       repo.update(session2.id, { archived: true });
 

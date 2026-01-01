@@ -391,13 +391,13 @@ describe('Command Buttons API', () => {
     });
 
     it('broadcasts command output when commandRunner calls onOutput', async () => {
-      commandRunner.run.mockImplementation(async (runId, command, wd, onOutput, onComplete, onError) => {
+      commandRunner.run.mockImplementation(async (_runId, _command, _wd, onOutput, _onComplete, _onError) => {
         // Simulate command output
         onOutput('Hello ');
         onOutput('World\n');
       });
 
-      const res = await request(app).post(
+      await request(app).post(
         `/api/sessions/${sessionId}/command-buttons/${buttonId}/run`
       );
 
@@ -413,7 +413,7 @@ describe('Command Buttons API', () => {
     });
 
     it('broadcasts completion when command exits successfully', async () => {
-      commandRunner.run.mockImplementation(async (runId, command, wd, onOutput, onComplete, onError) => {
+      commandRunner.run.mockImplementation(async (_runId, _command, _wd, _onOutput, onComplete, _onError) => {
         onComplete(0, 'output');
       });
 
@@ -439,7 +439,7 @@ describe('Command Buttons API', () => {
     });
 
     it('broadcasts error when command exits with non-zero code', async () => {
-      commandRunner.run.mockImplementation(async (runId, command, wd, onOutput, onComplete, onError) => {
+      commandRunner.run.mockImplementation(async (_runId, _command, _wd, _onOutput, onComplete, _onError) => {
         onComplete(1, 'error output');
       });
 
@@ -600,39 +600,13 @@ describe('Command Buttons API', () => {
     });
 
     it('returns a completed command run from database', async () => {
-      const runId = 'test-run-2';
-      const completedRun = {
-        id: runId,
-        session_id: sessionId,
-        button_id: buttonId,
-        status: 'success',
-        output: 'Command completed successfully\n',
-        exit_code: 0,
-        started_at: Date.now() - 10000,
-        completed_at: Date.now(),
-      };
-
       commandRunner.isRunning.mockReturnValue(false);
       commandRunner.getRunsBySession.mockReturnValue([]);
-
-      // Mock the database lookup
-      const mockCommandRuns = {
-        getById: vi.fn().mockReturnValue({
-          id: runId,
-          sessionId,
-          buttonId,
-          status: 'success',
-          output: 'Command completed successfully\n',
-          exitCode: 0,
-          startedAt: completedRun.started_at,
-          completedAt: completedRun.completed_at,
-        }),
-      };
 
       // We need to patch the database import, but since it's already imported,
       // we'll test the fallback behavior
       const res = await request(app).get(
-        `/api/sessions/${sessionId}/command-buttons/runs/${runId}`
+        `/api/sessions/${sessionId}/command-buttons/runs/test-run-2`
       );
 
       // If the run isn't found in active runs, it should try the database
@@ -654,21 +628,11 @@ describe('Command Buttons API', () => {
     });
 
     it('returns 404 for run from different session', async () => {
-      const runId = 'test-run-3';
-      const wrongSessionRun = {
-        runId,
-        buttonId,
-        status: 'success',
-        output: 'output',
-        startedAt: Date.now(),
-        exitCode: 0,
-      };
-
       commandRunner.isRunning.mockReturnValue(false);
       commandRunner.getRunsBySession.mockReturnValue([]);
 
       const res = await request(app).get(
-        `/api/sessions/${sessionId}/command-buttons/runs/${runId}`
+        `/api/sessions/${sessionId}/command-buttons/runs/test-run-3`
       );
 
       expect(res.status).toBe(404);

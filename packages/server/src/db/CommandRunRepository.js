@@ -1,5 +1,4 @@
 import { BaseRepository } from './BaseRepository.js';
-import { databaseManager } from './DatabaseManager.js';
 
 /**
  * Command run repository class for persisting command execution history
