@@ -18,6 +18,7 @@ vi.mock('../composables/useApi.js', () => ({
     updateSession: vi.fn(),
     archiveSession: vi.fn(),
     unarchiveSession: vi.fn(),
+    duplicateSession: vi.fn(),
     // Conversation API methods
     getConversations: vi.fn(),
     createConversation: vi.fn(),
@@ -1758,6 +1759,72 @@ describe('Sessions Store', () => {
 
         await expect(store.unarchiveSession('session-1')).rejects.toThrow('Unarchive failed');
         expect(store.error).toBe('Unarchive failed');
+      });
+    });
+
+    describe('duplicateSession', () => {
+      it('calls api.duplicateSession with correct session ID', async () => {
+        const store = useSessionsStore();
+
+        const newSession = { id: 'new-session-1', name: 'Copy of Test' };
+        api.duplicateSession.mockResolvedValue(newSession);
+
+        await store.duplicateSession('session-1');
+
+        expect(api.duplicateSession).toHaveBeenCalledWith('session-1', {});
+      });
+
+      it('returns the newly created session', async () => {
+        const store = useSessionsStore();
+
+        const newSession = { id: 'new-session-1', name: 'Copy of Test', status: 'waiting' };
+        api.duplicateSession.mockResolvedValue(newSession);
+
+        const result = await store.duplicateSession('session-1');
+
+        expect(result).toEqual(newSession);
+        expect(result.id).toBe('new-session-1');
+      });
+
+      it('clears error state on successful duplication', async () => {
+        const store = useSessionsStore();
+        store.error = 'Previous error';
+
+        const newSession = { id: 'new-session-1', name: 'Copy of Test' };
+        api.duplicateSession.mockResolvedValue(newSession);
+
+        await store.duplicateSession('session-1');
+
+        expect(store.error).toBeNull();
+      });
+
+      it('passes options to api.duplicateSession', async () => {
+        const store = useSessionsStore();
+
+        const newSession = { id: 'new-session-1', name: 'Custom Copy' };
+        api.duplicateSession.mockResolvedValue(newSession);
+        const options = { name: 'Custom Copy', gitMode: 'branch' };
+
+        await store.duplicateSession('session-1', options);
+
+        expect(api.duplicateSession).toHaveBeenCalledWith('session-1', options);
+      });
+
+      it('sets error state on API failure', async () => {
+        const store = useSessionsStore();
+
+        api.duplicateSession.mockRejectedValue(new Error('Duplication failed'));
+
+        await expect(store.duplicateSession('session-1')).rejects.toThrow('Duplication failed');
+        expect(store.error).toBe('Duplication failed');
+      });
+
+      it('throws error after catching it', async () => {
+        const store = useSessionsStore();
+
+        api.duplicateSession.mockRejectedValue(new Error('API error'));
+
+        await expect(store.duplicateSession('session-1')).rejects.toThrow('API error');
       });
     });
 

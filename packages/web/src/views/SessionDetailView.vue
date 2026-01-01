@@ -38,6 +38,10 @@
               />
             </div>
             <div class="session-action-buttons">
+              <DuplicateSessionButton
+                :session-id="sessionId"
+                :session-name="sessionsStore.currentSession?.name"
+              />
               <button
                 v-if="canArchive"
                 class="btn btn-outline-secondary btn-archive-session"
@@ -130,6 +134,7 @@ import CanvasTab from '../components/CanvasTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
 import CommandsTab from '../components/CommandsTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
+import DuplicateSessionButton from '../components/DuplicateSessionButton.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
 const route = useRoute();

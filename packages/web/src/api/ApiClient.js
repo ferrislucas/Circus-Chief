@@ -341,6 +341,19 @@ export class ApiClient {
     return this.#request('POST', `/sessions/${id}/unarchive`);
   }
 
+  /**
+   * Duplicate a session (clone with all data)
+   * @param {string} id - Session ID to duplicate
+   * @param {Object} options - Duplication options
+   * @param {string} [options.name] - Custom name for duplicated session
+   * @param {string} [options.gitMode] - Git mode (none|branch|worktree)
+   * @param {string} [options.gitBranch] - Git branch name (if gitMode is branch)
+   * @returns {Promise<Object>}
+   */
+  async duplicateSession(id, options = {}) {
+    return this.#request('POST', `/sessions/${id}/duplicate`, options);
+  }
+
   // Canvas
 
   /**
