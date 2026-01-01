@@ -33,11 +33,37 @@ describe('ChangesTab', () => {
   // Custom DiffViewer stub that properly exposes methods for refs
   const DiffViewerStub = defineComponent({
     name: 'DiffViewer',
-    props: ['files', 'expandAll'],
-    setup(props, { expose }) {
+    props: ['files', 'expandAll', 'externalExpandedState', 'defaultExpanded'],
+    emits: ['update:expandedState'],
+    setup(props, { expose, emit }) {
       expose({
-        collapseAll: () => {},
-        expandAll: () => {},
+        collapseAll: () => {
+          // When using external state, emit the update
+          if (props.externalExpandedState !== null && props.files) {
+            const newState = {};
+            props.files.forEach((file) => {
+              newState[file.displayPath] = false;
+            });
+            emit('update:expandedState', newState);
+          }
+        },
+        expandAll: () => {
+          // When using external state, emit the update
+          if (props.externalExpandedState !== null && props.files) {
+            const newState = {};
+            props.files.forEach((file) => {
+              newState[file.displayPath] = true;
+            });
+            emit('update:expandedState', newState);
+          }
+        },
+        isFileExpanded: (index) => {
+          if (props.externalExpandedState !== null && props.files && props.files[index]) {
+            const filePath = props.files[index].displayPath;
+            return props.externalExpandedState[filePath] ?? props.defaultExpanded;
+          }
+          return props.expandAll ?? true;
+        },
       });
       return () => null;
     },
@@ -832,6 +858,287 @@ describe('ChangesTab', () => {
 
       // In branch mode, fileCount should include branchDiff (2) + staged (1) = 3
       expect(wrapper.vm.fileCount).toBe(3);
+    });
+  });
+
+  describe('per-mode state management', () => {
+    const stagedDiffFixture = `diff --git a/file1.js b/file1.js
+index 1234567..abcdefg 100644
+--- a/file1.js
++++ b/file1.js
+@@ -1,2 +1,3 @@
+ const x = 1;
++const y = 2;`;
+
+    const twoFileDiffFixture = `diff --git a/file1.js b/file1.js
+index 1234567..abcdefg 100644
+--- a/file1.js
++++ b/file1.js
+@@ -1,2 +1,3 @@
+ const x = 1;
++const y = 2;
+diff --git a/file2.js b/file2.js
+index 1234567..abcdefg 100644
+--- a/file2.js
++++ b/file2.js
+@@ -1,2 +1,3 @@
+ const a = 1;
++const b = 2;`;
+
+    const branchDiffFixture = `diff --git a/feature.js b/feature.js
+index 1234567..abcdefg 100644
+--- a/feature.js
++++ b/feature.js
+@@ -1,2 +1,3 @@
+ const feature = 1;
++const newFeature = 2;`;
+
+    it('initializes modeState with local and branch entries', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: stagedDiffFixture, unstaged: '', untracked: '' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.vm.modeState).toBeDefined();
+      expect(wrapper.vm.modeState.local).toBeDefined();
+      expect(wrapper.vm.modeState.branch).toBeDefined();
+      expect(wrapper.vm.modeState.local.hasBeenViewed).toBe(true); // local is viewed on mount
+      expect(wrapper.vm.modeState.branch.hasBeenViewed).toBe(false);
+    });
+
+    it('marks mode as viewed when first switched to', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: stagedDiffFixture,
+        unstaged: '',
+        untracked: '',
+        branchDiff: branchDiffFixture,
+      });
+      api.getSessionDefaultBranch.mockResolvedValue({ branch: 'origin/main' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.vm.modeState.branch.hasBeenViewed).toBe(false);
+
+      wrapper.vm.compareMode = 'branch';
+      await flushAll(wrapper);
+
+      expect(wrapper.vm.modeState.branch.hasBeenViewed).toBe(true);
+    });
+
+    it('initializes files as collapsed on first view of a mode', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: stagedDiffFixture,
+        unstaged: '',
+        untracked: '',
+        branchDiff: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // First view of local mode: files should be collapsed
+      const localState = wrapper.vm.modeState.local;
+      const expandedValues = Object.values(localState.expandedFiles);
+      expect(expandedValues.every((v) => v === false)).toBe(true);
+    });
+
+    it('preserves local mode state when switching to branch mode and back', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: twoFileDiffFixture,
+        unstaged: '',
+        untracked: '',
+        branchDiff: branchDiffFixture,
+      });
+      api.getSessionDefaultBranch.mockResolvedValue({ branch: 'origin/main' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Update the state to have one file expanded
+      wrapper.vm.updateFileExpandedState('local', 'staged:file1.js', true);
+      wrapper.vm.updateFileExpandedState('local', 'staged:file2.js', false);
+
+      // Switch to branch mode
+      wrapper.vm.compareMode = 'branch';
+      await flushAll(wrapper);
+
+      // Switch back to local mode
+      wrapper.vm.compareMode = 'local';
+      await flushAll(wrapper);
+
+      // State should be preserved
+      expect(wrapper.vm.modeState.local.expandedFiles['staged:file1.js']).toBe(true);
+      expect(wrapper.vm.modeState.local.expandedFiles['staged:file2.js']).toBe(false);
+    });
+  });
+
+  describe('allExpanded computed property', () => {
+    const twoFileDiffFixture = `diff --git a/file1.js b/file1.js
+index 1234567..abcdefg 100644
+--- a/file1.js
++++ b/file1.js
+@@ -1,2 +1,3 @@
+ const x = 1;
++const y = 2;
+diff --git a/file2.js b/file2.js
+index 1234567..abcdefg 100644
+--- a/file2.js
++++ b/file2.js
+@@ -1,2 +1,3 @@
+ const a = 1;
++const b = 2;`;
+
+    it('returns false when all files are collapsed', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: twoFileDiffFixture,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // All files start collapsed on first view
+      expect(wrapper.vm.allExpanded).toBe(false);
+    });
+
+    it('returns false when some files are expanded and some collapsed', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: twoFileDiffFixture,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Expand one file, leave other collapsed
+      wrapper.vm.updateFileExpandedState('local', 'staged:file1.js', true);
+      wrapper.vm.updateFileExpandedState('local', 'staged:file2.js', false);
+
+      expect(wrapper.vm.allExpanded).toBe(false);
+    });
+
+    it('returns true when all files are expanded', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: twoFileDiffFixture,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Expand all files
+      wrapper.vm.updateFileExpandedState('local', 'staged:file1.js', true);
+      wrapper.vm.updateFileExpandedState('local', 'staged:file2.js', true);
+
+      expect(wrapper.vm.allExpanded).toBe(true);
+    });
+  });
+
+  describe('toggleAllFiles', () => {
+    const twoFileDiffFixture = `diff --git a/file1.js b/file1.js
+index 1234567..abcdefg 100644
+--- a/file1.js
++++ b/file1.js
+@@ -1,2 +1,3 @@
+ const x = 1;
++const y = 2;
+diff --git a/file2.js b/file2.js
+index 1234567..abcdefg 100644
+--- a/file2.js
++++ b/file2.js
+@@ -1,2 +1,3 @@
+ const a = 1;
++const b = 2;`;
+
+    it('expands all files when called and files are collapsed', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: twoFileDiffFixture,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Initially collapsed
+      expect(wrapper.vm.allExpanded).toBe(false);
+
+      wrapper.vm.toggleAllFiles();
+      await flushAll(wrapper);
+
+      expect(wrapper.vm.allExpanded).toBe(true);
+      // All files in state should be expanded
+      const localState = wrapper.vm.modeState.local;
+      Object.values(localState.expandedFiles).forEach((expanded) => {
+        expect(expanded).toBe(true);
+      });
+    });
+
+    it('collapses all files when called and files are expanded', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: twoFileDiffFixture,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Expand all first
+      wrapper.vm.toggleAllFiles();
+      await flushAll(wrapper);
+      expect(wrapper.vm.allExpanded).toBe(true);
+
+      // Now collapse all
+      wrapper.vm.toggleAllFiles();
+      await flushAll(wrapper);
+
+      expect(wrapper.vm.allExpanded).toBe(false);
+    });
+  });
+
+  describe('Expand All/Collapse All button text sync', () => {
+    const stagedDiffFixture = `diff --git a/file1.js b/file1.js
+index 1234567..abcdefg 100644
+--- a/file1.js
++++ b/file1.js
+@@ -1,2 +1,3 @@
+ const x = 1;
++const y = 2;`;
+
+    it('shows "Expand All" when files are collapsed', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: stagedDiffFixture,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const button = wrapper.find('.btn-link');
+      expect(button.text()).toBe('Expand All');
+    });
+
+    it('shows "Collapse All" when all files are expanded', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: stagedDiffFixture,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      wrapper.vm.toggleAllFiles(); // expand all
+      await flushAll(wrapper);
+
+      const button = wrapper.find('.btn-link');
+      expect(button.text()).toBe('Collapse All');
     });
   });
 });

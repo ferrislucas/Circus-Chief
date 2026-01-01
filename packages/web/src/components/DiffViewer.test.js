@@ -282,4 +282,235 @@ index 1234567..abcdefg 100644
       expect(previewToggles.length).toBe(0);
     });
   });
+
+  describe('external state management', () => {
+    const twoFileDiff = `diff --git a/file1.js b/file1.js
+index 1234567..abcdefg 100644
+--- a/file1.js
++++ b/file1.js
+@@ -1,2 +1,2 @@
+ const x = 1;
++const y = 2;
+diff --git a/file2.js b/file2.js
+index 1234567..abcdefg 100644
+--- a/file2.js
++++ b/file2.js
+@@ -1,2 +1,2 @@
+ const a = 1;
++const b = 2;`;
+
+    it('accepts externalExpandedState prop', () => {
+      const files = parseDiff(twoFileDiff);
+      const externalState = { 'file1.js': true };
+
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          externalExpandedState: externalState,
+        },
+      });
+
+      expect(wrapper.props('externalExpandedState')).toEqual(externalState);
+    });
+
+    it('uses external state when provided', async () => {
+      const files = parseDiff(twoFileDiff);
+      const externalState = {
+        'file1.js': true, // expanded
+        'file2.js': false, // collapsed
+      };
+
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          externalExpandedState: externalState,
+        },
+      });
+
+      await flushAll(wrapper);
+
+      // Check that expansion matches external state
+      expect(wrapper.vm.isFileExpanded(0)).toBe(true);
+      expect(wrapper.vm.isFileExpanded(1)).toBe(false);
+    });
+
+    it('emits update:expandedState when file is toggled', async () => {
+      const files = parseDiff(twoFileDiff);
+      const externalState = { 'file1.js': true, 'file2.js': false };
+
+      // Track emitted events via a spy
+      const emitSpy = vi.fn();
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          externalExpandedState: externalState,
+          'onUpdate:expandedState': emitSpy,
+        },
+      });
+
+      await flushAll(wrapper);
+
+      // Click to toggle first file
+      const header = wrapper.find('.diff-file-header');
+      await header.trigger('click');
+      await flushAll(wrapper);
+
+      // Should emit state change
+      expect(emitSpy).toHaveBeenCalled();
+      const emittedState = emitSpy.mock.calls[0][0];
+      expect(emittedState['file1.js']).toBe(false);
+    });
+
+    it('falls back to internal state when externalExpandedState is null', async () => {
+      const files = parseDiff(twoFileDiff);
+
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          externalExpandedState: null,
+          expandAll: true, // default expand
+        },
+      });
+
+      await flushAll(wrapper);
+
+      // Should use internal state with expandAll default
+      expect(wrapper.vm.isFileExpanded(0)).toBe(true);
+    });
+  });
+
+  describe('defaultExpanded prop', () => {
+    const twoFileDiff = `diff --git a/file1.js b/file1.js
+index 1234567..abcdefg 100644
+--- a/file1.js
++++ b/file1.js
+@@ -1,2 +1,2 @@
+ const x = 1;
++const y = 2;
+diff --git a/file2.js b/file2.js
+index 1234567..abcdefg 100644
+--- a/file2.js
++++ b/file2.js
+@@ -1,2 +1,2 @@
+ const a = 1;
++const b = 2;`;
+
+    it('accepts defaultExpanded prop', () => {
+      const files = parseDiff(twoFileDiff);
+
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          defaultExpanded: false,
+        },
+      });
+
+      expect(wrapper.props('defaultExpanded')).toBe(false);
+    });
+
+    it('uses defaultExpanded for files not in external state', async () => {
+      const files = parseDiff(twoFileDiff);
+      // Only file1.js is in state, file2.js should use defaultExpanded
+      const externalState = { 'file1.js': true };
+
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          externalExpandedState: externalState,
+          defaultExpanded: false,
+        },
+      });
+
+      await flushAll(wrapper);
+
+      expect(wrapper.vm.isFileExpanded(0)).toBe(true); // from externalState
+      expect(wrapper.vm.isFileExpanded(1)).toBe(false); // from defaultExpanded
+    });
+
+    it('initializes files as collapsed when defaultExpanded is false (no external state)', async () => {
+      const files = parseDiff(twoFileDiff);
+
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          defaultExpanded: false,
+        },
+      });
+
+      await flushAll(wrapper);
+
+      // With no external state and defaultExpanded: false, files should be collapsed
+      expect(wrapper.vm.isFileExpanded(0)).toBe(false);
+      expect(wrapper.vm.isFileExpanded(1)).toBe(false);
+    });
+  });
+
+  describe('expand/collapse all with external state', () => {
+    const twoFileDiff = `diff --git a/file1.js b/file1.js
+index 1234567..abcdefg 100644
+--- a/file1.js
++++ b/file1.js
+@@ -1,2 +1,2 @@
+ const x = 1;
++const y = 2;
+diff --git a/file2.js b/file2.js
+index 1234567..abcdefg 100644
+--- a/file2.js
++++ b/file2.js
+@@ -1,2 +1,2 @@
+ const a = 1;
++const b = 2;`;
+
+    it('expandAll emits update:expandedState with all files expanded', async () => {
+      const files = parseDiff(twoFileDiff);
+      const externalState = { 'file1.js': false, 'file2.js': false };
+
+      // Track emitted events via a spy
+      const emitSpy = vi.fn();
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          externalExpandedState: externalState,
+          'onUpdate:expandedState': emitSpy,
+        },
+      });
+
+      await flushAll(wrapper);
+
+      // Call expandAll exposed method
+      wrapper.vm.expandAll();
+      await flushAll(wrapper);
+
+      expect(emitSpy).toHaveBeenCalled();
+      const emittedState = emitSpy.mock.calls[0][0];
+      expect(emittedState['file1.js']).toBe(true);
+      expect(emittedState['file2.js']).toBe(true);
+    });
+
+    it('collapseAll emits update:expandedState with all files collapsed', async () => {
+      const files = parseDiff(twoFileDiff);
+      const externalState = { 'file1.js': true, 'file2.js': true };
+
+      // Track emitted events via a spy
+      const emitSpy = vi.fn();
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          externalExpandedState: externalState,
+          'onUpdate:expandedState': emitSpy,
+        },
+      });
+
+      await flushAll(wrapper);
+
+      // Call collapseAll exposed method
+      wrapper.vm.collapseAll();
+      await flushAll(wrapper);
+
+      expect(emitSpy).toHaveBeenCalled();
+      const emittedState = emitSpy.mock.calls[0][0];
+      expect(emittedState['file1.js']).toBe(false);
+      expect(emittedState['file2.js']).toBe(false);
+    });
+  });
 });
