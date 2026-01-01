@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CommandButtonRepository } from './CommandButtonRepository.js';
 import { ProjectRepository } from './ProjectRepository.js';
-import { databaseManager } from './DatabaseManager.js';
 
 describe('CommandButtonRepository', () => {
   let repo;
@@ -144,9 +143,9 @@ describe('CommandButtonRepository', () => {
     });
 
     it('returns buttons ordered by sort_order ascending', () => {
-      const b3 = repo.create({ projectId, label: 'Last', command: 'cmd', sortOrder: 2 });
-      const b1 = repo.create({ projectId, label: 'First', command: 'cmd', sortOrder: 0 });
-      const b2 = repo.create({ projectId, label: 'Second', command: 'cmd', sortOrder: 1 });
+      repo.create({ projectId, label: 'Last', command: 'cmd', sortOrder: 2 });
+      repo.create({ projectId, label: 'First', command: 'cmd', sortOrder: 0 });
+      repo.create({ projectId, label: 'Second', command: 'cmd', sortOrder: 1 });
 
       const buttons = repo.getByProjectId(projectId);
 

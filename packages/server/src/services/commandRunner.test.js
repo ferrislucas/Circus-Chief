@@ -466,17 +466,14 @@ describe('CommandRunner', () => {
   describe('error handling with database operations', () => {
     it('handles command execution error gracefully', async () => {
       const runId = 'test-cmd-error';
-      let errorMessage = null;
 
       const exitCode = await runner.run(
         runId,
         'nonexistent_command_12345',
         process.cwd(),
         () => {},
-        (code, output) => {},
-        (msg) => {
-          errorMessage = msg;
-        },
+        (_code, _output) => {},
+        (_msg) => {},
         { sessionId: 'error-session', buttonId: 'btn-1' }
       );
 
@@ -486,17 +483,13 @@ describe('CommandRunner', () => {
 
     it('handles signal termination correctly', async () => {
       const runId = 'test-signal';
-      let completedWith = null;
-      let completedOutput = null;
 
       const runPromise = runner.run(
         runId,
         'sleep 10',
         process.cwd(),
         () => {},
-        (code, output) => {
-          completedWith = code;
-          completedOutput = output;
+        (_code, _output) => {
         },
         () => {},
         { sessionId: 'signal-session', buttonId: 'btn-1' }

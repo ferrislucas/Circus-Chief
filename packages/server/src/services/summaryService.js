@@ -393,7 +393,7 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
 
       // If we have a PR URL, extract the repository base URL
       if (!extractedRepoUrl && summaryData.prUrl) {
-        const prMatch = summaryData.prUrl.match(/^(https:\/\/github\.com\/[^\/]+\/[^\/]+)(?:\/|$)/);
+        const prMatch = summaryData.prUrl.match(/^(https:\/\/github\.com\/[^/]+\/[^/]+)(?:\/|$)/);
         if (prMatch) {
           extractedRepoUrl = prMatch[1];
         }

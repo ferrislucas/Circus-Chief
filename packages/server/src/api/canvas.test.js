@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { canvasItems, projects, sessions } from '../database.js';
+import { canvasItems, projects } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { existsSync, rmSync } from 'fs';
 import { isBinaryContent, getTypeFromExtension } from './canvas.js';

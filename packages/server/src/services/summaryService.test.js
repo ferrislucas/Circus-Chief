@@ -781,15 +781,12 @@ describe('summaryService', () => {
       // We'll need to mock the summary data to include a PR URL
       vi.stubEnv('MOCK_CLAUDE', 'true');
 
-      // Override the mock to include a PR URL
-      const originalGenerateSummary = summaryService.generateSummary;
-
       // Create a summary with a PR URL via direct database update
       const prUrl = 'https://github.com/example/repo/pull/123';
 
       // We'll test this by creating a summary with a PR URL and verifying the project gets updated
       // First, create a minimal summary
-      const summary = await summaryService.generateSummary(sessionId);
+      await summaryService.generateSummary(sessionId);
 
       // Now update the summary to have a prUrl
       const summaryData = sessionSummaries.getBySessionId(sessionId);
@@ -831,7 +828,7 @@ describe('summaryService', () => {
       messages.create(sessionId, 'assistant', 'Task completed');
 
       // Create summary with merged PR
-      const existingSummary = sessionSummaries.create(sessionId, {
+      sessionSummaries.create(sessionId, {
         shortSummary: 'Task done',
         fullSummary: 'Task was completed successfully',
         keyActions: ['Task completed'],

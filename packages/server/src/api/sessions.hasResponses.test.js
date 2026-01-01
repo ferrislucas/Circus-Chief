@@ -81,7 +81,7 @@ describe('Sessions API - hasResponses', () => {
       messages.create(session.id, 'assistant', 'Response to first conv', null, conv1.id);
 
       // Create a new conversation (empty)
-      const conv2 = conversations.create(session.id, 'New Conversation', true);
+      conversations.create(session.id, 'New Conversation', true);
 
       // Even though the new conversation is now active and has no messages,
       // hasResponses should still be true because the session has assistant messages
