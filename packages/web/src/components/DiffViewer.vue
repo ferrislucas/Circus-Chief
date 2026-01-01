@@ -43,8 +43,39 @@
       </div>
 
       <div v-if="expandedFiles[fileIndex]" class="diff-file-content">
+        <!-- Image file preview -->
+        <div v-if="isImageFile(file.displayPath)" class="image-preview-container">
+          <div v-if="imageLoading[fileIndex]" class="image-loading">
+            <span class="loading-spinner"></span>
+            Loading image...
+          </div>
+          <div v-else-if="imageErrors[fileIndex]" class="image-error">
+            <span class="error-icon">⚠️</span>
+            {{ imageErrors[fileIndex] }}
+          </div>
+          <div v-else-if="imageData[fileIndex]" class="image-wrapper">
+            <img
+              :src="`data:${imageData[fileIndex].mimeType};base64,${imageData[fileIndex].data}`"
+              :alt="file.displayPath"
+              class="diff-image"
+            />
+          </div>
+          <div v-else-if="file.isDeleted" class="image-deleted">
+            <span class="deleted-icon">🗑️</span>
+            Image was deleted
+          </div>
+        </div>
+
+        <!-- Non-image binary file notice -->
+        <div v-else-if="isBinaryFile(file.displayPath)" class="binary-file-notice">
+          <div class="binary-icon">🔒</div>
+          <div class="binary-message">
+            <p>Binary file cannot be displayed as a diff</p>
+          </div>
+        </div>
+
         <!-- Markdown preview mode -->
-        <div v-if="previewMode[fileIndex] && isMarkdownFile(file.displayPath)" class="markdown-preview-container">
+        <div v-else-if="previewMode[fileIndex] && isMarkdownFile(file.displayPath)" class="markdown-preview-container">
           <div v-if="!file.isDeleted && !file.isNew" class="markdown-preview-split">
             <div class="markdown-preview-pane">
               <div class="markdown-preview-label markdown-preview-label-old">Before</div>
@@ -95,8 +126,11 @@
 <script setup>
 import { ref, watch } from 'vue';
 import MarkdownViewer from './MarkdownViewer.vue';
+import { api } from '../api/index.js';
 import {
   isMarkdownFile,
+  isImageFile,
+  isBinaryFile,
   extractOldContentFromDiff,
   extractNewContentFromDiff,
 } from '../utils/markdown.js';
@@ -111,13 +145,47 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  sessionId: {
+    type: String,
+    default: null,
+  },
 });
 
 const expandedFiles = ref({});
 const previewMode = ref({});
 const copiedFileIndex = ref(null);
 
-// Initialize expanded state
+// Image loading state
+const imageData = ref({});
+const imageLoading = ref({});
+const imageErrors = ref({});
+
+// Load image for a file
+async function loadImage(fileIndex, filePath) {
+  if (!props.sessionId) {
+    imageErrors.value[fileIndex] = 'Session ID not available';
+    return;
+  }
+
+  // Skip if already loaded or loading
+  if (imageData.value[fileIndex] || imageLoading.value[fileIndex]) {
+    return;
+  }
+
+  imageLoading.value[fileIndex] = true;
+  imageErrors.value[fileIndex] = null;
+
+  try {
+    const result = await api.getSessionFile(props.sessionId, filePath);
+    imageData.value[fileIndex] = result;
+  } catch (err) {
+    imageErrors.value[fileIndex] = err.message || 'Failed to load image';
+  } finally {
+    imageLoading.value[fileIndex] = false;
+  }
+}
+
+// Initialize expanded state and load images
 watch(
   () => props.files,
   (newFiles) => {
@@ -129,9 +197,26 @@ watch(
       if (previewMode.value[index] === undefined) {
         previewMode.value[index] = isMarkdownFile(file.displayPath);
       }
+      // Auto-load images when expanded
+      if (expandedFiles.value[index] && isImageFile(file.displayPath) && !file.isDeleted) {
+        loadImage(index, file.displayPath);
+      }
     });
   },
   { immediate: true }
+);
+
+// Watch for file expansion to load images
+watch(
+  expandedFiles,
+  (expanded) => {
+    props.files.forEach((file, index) => {
+      if (expanded[index] && isImageFile(file.displayPath) && !file.isDeleted) {
+        loadImage(index, file.displayPath);
+      }
+    });
+  },
+  { deep: true }
 );
 
 function toggleFile(index) {
@@ -503,6 +588,103 @@ function getLinePrefix(type) {
 @media (max-width: 768px) {
   .markdown-preview-split {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Binary file notice */
+.binary-file-notice {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem;
+  background-color: var(--color-background-soft);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--border-radius);
+  text-align: center;
+}
+
+.binary-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.binary-message {
+  flex: 1;
+}
+
+.binary-message p {
+  margin: 0.25rem 0;
+  color: var(--color-text-soft);
+  font-family: var(--font-base);
+  font-size: 0.9375rem;
+}
+
+.binary-message p:first-child {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/* Image preview */
+.image-preview-container {
+  padding: 1rem;
+  background-color: var(--color-background-soft);
+  border-radius: var(--border-radius);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100px;
+}
+
+.image-loading,
+.image-error,
+.image-deleted {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-text-soft);
+  font-family: var(--font-base);
+  font-size: 0.875rem;
+}
+
+.image-error {
+  color: var(--color-error);
+}
+
+.image-deleted {
+  color: var(--color-text-soft);
+  font-style: italic;
+}
+
+.error-icon,
+.deleted-icon {
+  font-size: 1.25rem;
+}
+
+.image-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+}
+
+.diff-image {
+  max-width: 100%;
+  max-height: 500px;
+  height: auto;
+  border-radius: var(--border-radius);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Responsive image sizing */
+@media (max-width: 768px) {
+  .diff-image {
+    max-height: 300px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .diff-image {
+    max-height: 600px;
   }
 }
 </style>

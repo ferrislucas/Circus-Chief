@@ -28,6 +28,7 @@
  * @property {boolean} isNew
  * @property {boolean} isDeleted
  * @property {boolean} isRenamed
+ * @property {boolean} isBinary - True if git reported this as a binary file
  * @property {DiffHunk[]} hunks
  * @property {number} additions
  * @property {number} deletions
@@ -70,6 +71,7 @@ export function parseDiff(diffText) {
         isNew: false,
         isDeleted: false,
         isRenamed: false,
+        isBinary: false,
         hunks: [],
         additions: 0,
         deletions: 0,
@@ -99,12 +101,17 @@ export function parseDiff(diffText) {
       continue;
     }
 
+    // Mark binary files
+    if (line.startsWith('Binary files')) {
+      currentFile.isBinary = true;
+      continue;
+    }
+
     // Skip index, ---, +++ lines (we already have paths from diff --git)
     if (
       line.startsWith('index ') ||
       line.startsWith('--- ') ||
-      line.startsWith('+++ ') ||
-      line.startsWith('Binary files')
+      line.startsWith('+++ ')
     ) {
       continue;
     }

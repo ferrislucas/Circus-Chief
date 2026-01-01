@@ -144,9 +144,10 @@ function getMimeTypeForType(type) {
 }
 
 // POST /api/sessions/:id/canvas - Add canvas item
-// Supports two modes:
-// 1. File mode: { filePath, label? } - reads file from disk
-// 2. Inline mode: { type, content, filename, label? } - uses provided content directly
+// Supports three modes:
+// 1. Multipart mode: FormData with 'file' field - from browser file uploads
+// 2. File mode: { filePath, label? } - reads file from disk
+// 3. Inline mode: { type, content, filename, label? } - uses provided content directly
 router.post('/:id/canvas', (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
@@ -156,8 +157,51 @@ router.post('/:id/canvas', (req, res) => {
   const { filePath, label, type, content, filename } = req.body;
   let itemData;
 
-  // Mode 1: File path provided - read from disk
-  if (filePath) {
+  // Mode 1: Multipart file upload from FormData
+  if (req.file) {
+    const fileBuffer = req.file.buffer;
+    const filename = req.file.originalname;
+    const ext = extname(filename).toLowerCase();
+    let detectedType = getTypeFromExtension(ext);
+    let detectedMimeType = MIME_TYPES[ext] || TEXT_EXTENSIONS[ext];
+
+    // For unknown extensions, detect if binary or text
+    if (!detectedType) {
+      if (isBinaryContent(fileBuffer)) {
+        return res.status(400).json({
+          error: `Unsupported binary file format: ${ext}. Supported binary formats: ${Object.keys(MIME_TYPES).join(', ')}`
+        });
+      }
+      // It's a text file with unknown extension, treat as code
+      detectedType = 'code';
+      detectedMimeType = 'text/plain';
+    }
+
+    // Handle binary types (image, pdf)
+    if (detectedType === 'image' || detectedType === 'pdf') {
+      const base64 = fileBuffer.toString('base64');
+      itemData = {
+        type: detectedType,
+        data: base64,
+        mimeType: detectedMimeType,
+        filename: filename,
+        label: req.body.label || null,
+      };
+    } else {
+      // Handle text-based types (code, markdown, json)
+      const textContent = fileBuffer.toString('utf-8');
+      itemData = {
+        type: detectedType,
+        content: detectedType === 'json' ? null : textContent,
+        data: detectedType === 'json' ? textContent : null,
+        mimeType: detectedMimeType,
+        filename: filename,
+        label: req.body.label || null,
+      };
+    }
+  }
+  // Mode 2: File path provided - read from disk
+  else if (filePath) {
     if (!existsSync(filePath)) {
       return res.status(400).json({ error: `File not found: ${filePath}` });
     }
@@ -206,7 +250,7 @@ router.post('/:id/canvas', (req, res) => {
       return res.status(400).json({ error: `Failed to read file: ${err.message}` });
     }
   }
-  // Mode 2: Inline content provided - use directly
+  // Mode 3: Inline content provided - use directly
   else if (content !== undefined && type && filename) {
     // Validate type is text-based (not image/pdf which require binary)
     const validInlineTypes = ['text', 'markdown', 'code', 'json'];
@@ -226,10 +270,10 @@ router.post('/:id/canvas', (req, res) => {
       label: label || null,
     };
   }
-  // Neither mode provided
+  // No valid mode provided
   else {
     return res.status(400).json({
-      error: 'Either filePath or (type + content + filename) is required'
+      error: 'Either file upload, filePath, or (type + content + filename) is required'
     });
   }
 

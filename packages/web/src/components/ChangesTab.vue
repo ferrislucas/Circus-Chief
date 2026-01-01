@@ -48,7 +48,7 @@
       <!-- Branch diff section (only in branch compare mode) -->
       <div v-if="compareMode === 'branch' && branchDiffFiles.length > 0" class="diff-section">
         <h3>Changes vs {{ branchLabel }}</h3>
-        <DiffViewer ref="branchDiffViewer" :files="branchDiffFiles" />
+        <DiffViewer ref="branchDiffViewer" :files="branchDiffFiles" :sessionId="sessionId" />
       </div>
 
       <!-- Local changes header (only show in branch mode when there are both branch and local changes) -->
@@ -62,17 +62,17 @@
       <!-- Diff sections: Only show when there are files -->
       <div v-if="stagedFiles.length > 0" class="diff-section">
         <h3>Staged Changes</h3>
-        <DiffViewer ref="stagedDiffViewer" :files="stagedFiles" />
+        <DiffViewer ref="stagedDiffViewer" :files="stagedFiles" :sessionId="sessionId" />
       </div>
 
       <div v-if="unstagedFiles.length > 0" class="diff-section">
         <h3>Unstaged Changes</h3>
-        <DiffViewer ref="unstagedDiffViewer" :files="unstagedFiles" />
+        <DiffViewer ref="unstagedDiffViewer" :files="unstagedFiles" :sessionId="sessionId" />
       </div>
 
       <div v-if="untrackedFiles.length > 0" class="diff-section">
         <h3>Untracked Files</h3>
-        <DiffViewer ref="untrackedDiffViewer" :files="untrackedFiles" />
+        <DiffViewer ref="untrackedDiffViewer" :files="untrackedFiles" :sessionId="sessionId" />
       </div>
     </template>
   </div>

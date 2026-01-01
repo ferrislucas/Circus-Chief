@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
+import multer from 'multer';
 import request from 'supertest';
 import { canvasItems, projects } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
@@ -724,6 +725,9 @@ describe('Canvas API', () => {
     beforeEach(() => {
       app = express();
       app.use(express.json());
+      // Add multer for file uploads
+      const upload = multer({ storage: multer.memoryStorage() });
+      app.use(upload.single('file'));
       app.use('/api/sessions', canvasRouter);
 
       // Create project and session
@@ -868,7 +872,7 @@ describe('Canvas API', () => {
           .send({});
 
         expect(res.status).toBe(400);
-        expect(res.body.error).toContain('filePath or');
+        expect(res.body.error).toContain('file upload');
       });
 
       it('returns 400 when only type is provided without content and filename', async () => {
@@ -879,7 +883,7 @@ describe('Canvas API', () => {
           });
 
         expect(res.status).toBe(400);
-        expect(res.body.error).toContain('filePath or');
+        expect(res.body.error).toContain('file upload');
       });
     });
 
@@ -1205,6 +1209,128 @@ describe('Canvas API', () => {
         expect(retrieved).toBeDefined();
         expect(retrieved.type).toBe('markdown');
         expect(retrieved.content).toBe('# Test\n\nMarkdown content');
+      });
+    });
+
+    describe('multipart file upload (FormData)', () => {
+      it('uploads PNG image via FormData', async () => {
+        // Create a minimal PNG file (1x1 pixel)
+        const pngBuffer = Buffer.from([
+          0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+          0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
+          0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+          0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+          0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, // IDAT chunk
+          0x54, 0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0xFF,
+          0x7F, 0x00, 0x05, 0xFE, 0x02, 0xFF, 0x11, 0x3A,
+          0x04, 0x08, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, // IEND chunk
+          0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82
+        ]);
+
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .attach('file', pngBuffer, 'test-image.png')
+          .field('label', 'Test PNG Image');
+
+        expect(res.status).toBe(201);
+        expect(res.body.type).toBe('image');
+        expect(res.body.mimeType).toBe('image/png');
+        expect(res.body.filename).toBe('test-image.png');
+        expect(res.body.label).toBe('Test PNG Image');
+        expect(res.body.data).toBeDefined();
+        // Verify it's base64 encoded
+        expect(typeof res.body.data).toBe('string');
+      });
+
+      it('uploads JPEG image via FormData', async () => {
+        // Minimal JPEG header
+        const jpegBuffer = Buffer.from([
+          0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46,
+          0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01
+        ]);
+
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .attach('file', jpegBuffer, 'photo.jpg');
+
+        expect(res.status).toBe(201);
+        expect(res.body.type).toBe('image');
+        expect(res.body.mimeType).toBe('image/jpeg');
+        expect(res.body.filename).toBe('photo.jpg');
+      });
+
+      it('uploads text file via FormData', async () => {
+        const textBuffer = Buffer.from('Hello, World!', 'utf-8');
+
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .attach('file', textBuffer, 'hello.txt');
+
+        expect(res.status).toBe(201);
+        // .txt files are detected as 'code' type (files in TEXT_EXTENSIONS are code)
+        expect(res.body.type).toBe('code');
+        expect(res.body.content).toBe('Hello, World!');
+        expect(res.body.filename).toBe('hello.txt');
+      });
+
+      it('uploads markdown file via FormData', async () => {
+        const mdBuffer = Buffer.from('# Title\n\nContent', 'utf-8');
+
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .attach('file', mdBuffer, 'readme.md');
+
+        expect(res.status).toBe(201);
+        expect(res.body.type).toBe('markdown');
+        expect(res.body.content).toBe('# Title\n\nContent');
+        expect(res.body.filename).toBe('readme.md');
+      });
+
+      it('uploads code file via FormData', async () => {
+        const jsBuffer = Buffer.from('const x = 42;', 'utf-8');
+
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .attach('file', jsBuffer, 'script.js');
+
+        expect(res.status).toBe(201);
+        expect(res.body.type).toBe('code');
+        expect(res.body.content).toBe('const x = 42;');
+        expect(res.body.filename).toBe('script.js');
+      });
+
+      it('retrieves uploaded PNG image correctly', async () => {
+        // Upload PNG
+        const pngBuffer = Buffer.from([
+          0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+          0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+          0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+          0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+          0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41,
+          0x54, 0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0xFF,
+          0x7F, 0x00, 0x05, 0xFE, 0x02, 0xFF, 0x11, 0x3A,
+          0x04, 0x08, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+          0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82
+        ]);
+
+        const uploadRes = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .attach('file', pngBuffer, 'pixel.png');
+
+        expect(uploadRes.status).toBe(201);
+        const itemId = uploadRes.body.id;
+
+        // Retrieve it
+        const retrieved = canvasItems.getById(itemId);
+        expect(retrieved).toBeDefined();
+        expect(retrieved.type).toBe('image');
+        expect(retrieved.mimeType).toBe('image/png');
+        // Verify base64 data can be decoded back to PNG
+        const buffer = Buffer.from(retrieved.data, 'base64');
+        expect(buffer[0]).toBe(0x89); // PNG magic number
+        expect(buffer[1]).toBe(0x50);
+        expect(buffer[2]).toBe(0x4E);
+        expect(buffer[3]).toBe(0x47);
       });
     });
 
