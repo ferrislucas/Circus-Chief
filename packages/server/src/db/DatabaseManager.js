@@ -246,6 +246,15 @@ export class DatabaseManager {
       this.#db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived)');
     }
 
+    // Check if sessions table has the starred column, add it if not
+    const starredSessionsTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const starredSessionsColumns = starredSessionsTableInfo.map((col) => col.name);
+
+    if (!starredSessionsColumns.includes('starred')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN starred INTEGER NOT NULL DEFAULT 0');
+      this.#db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_starred ON sessions(archived, starred)');
+    }
+
     // Create project_session_defaults table if it doesn't exist
     this.#db.exec(`
       CREATE TABLE IF NOT EXISTS project_session_defaults (

@@ -114,12 +114,25 @@ export class ApiClient {
    * Get all sessions for a project
    * @param {string} projectId - Project ID
    * @param {boolean|null} archived - Filter by archived status (null = all, true = archived only, false = non-archived only)
+   * @param {string|null} starred - Filter by starred status (null = all, 'starred' = starred only, 'unstarred' = unstarred only)
    * @returns {Promise<Array>}
    */
-  async getProjectSessions(projectId, archived = null) {
+  async getProjectSessions(projectId, archived = null, starred = null) {
     let path = `/projects/${projectId}/sessions`;
+    const params = new URLSearchParams();
+
     if (archived !== null) {
-      path += `?archived=${archived}`;
+      params.append('archived', archived);
+    }
+    if (starred === 'starred') {
+      params.append('starred', true);
+    } else if (starred === 'unstarred') {
+      params.append('starred', false);
+    }
+
+    const query = params.toString();
+    if (query) {
+      path += `?${query}`;
     }
     return this.#request('GET', path);
   }
@@ -349,6 +362,15 @@ export class ApiClient {
    */
   async unarchiveSession(id) {
     return this.#request('POST', `/sessions/${id}/unarchive`);
+  }
+
+  /**
+   * Toggle star status for a session
+   * @param {string} id - Session ID
+   * @returns {Promise<Object>}
+   */
+  async toggleSessionStar(id) {
+    return this.#request('POST', `/sessions/${id}/star`);
   }
 
   /**
