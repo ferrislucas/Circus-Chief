@@ -239,15 +239,6 @@ watch(
   }
 );
 
-// Watch canvas items and update count
-watch(
-  () => canvasStore.groupedItems.length,
-  (count) => {
-    canvasItemCount.value = count;
-  },
-  { immediate: true }
-);
-
 onMounted(async () => {
   // STEP 1: Ensure subscribed to WebSocket first
   // This waits for the socket to be OPEN and subscription message to be sent
@@ -291,12 +282,18 @@ onMounted(async () => {
   cleanups.push(
     onCanvasAdd((item) => {
       canvasStore.addItem(item);
+      // Update canvas count immediately when WebSocket event arrives
+      // Use groupedItems.length to get the deduplicated count
+      canvasItemCount.value = canvasStore.groupedItems.length;
     })
   );
 
   cleanups.push(
     onCanvasRemove((itemId) => {
       canvasStore.removeItem(itemId);
+      // Update canvas count immediately when item is removed
+      // Use groupedItems.length to get the deduplicated count
+      canvasItemCount.value = canvasStore.groupedItems.length;
     })
   );
 
@@ -360,6 +357,8 @@ onMounted(async () => {
   // Await canvas fetch to ensure indicator shows correct count immediately.
   // This catches items added before/during WebSocket subscription establishment.
   await canvasStore.fetchItems(sessionId);
+  // Update canvas count after fetch completes to show correct indicator
+  canvasItemCount.value = canvasStore.groupedItems.length;
   todosStore.fetchTodos(sessionId);
 
   // Fetch summary for PR indicators (don't await, not critical)
