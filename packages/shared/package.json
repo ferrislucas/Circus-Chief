@@ -1,0 +1,25 @@
+{
+  "name": "@claudetools/shared",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./types": "./src/types.js",
+    "./protocol": "./src/protocol.js",
+    "./constants": "./src/constants.js",
+    "./contracts/*": "./src/contracts/*.js",
+    "./utils": "./src/utils.js",
+    "./routeParams": "./src/routeParams.js"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "vitest": "^1.2.2"
+  }
+}
