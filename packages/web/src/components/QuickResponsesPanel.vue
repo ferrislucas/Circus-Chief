@@ -211,7 +211,7 @@ function handleClick(response) {
   cursor: pointer;
   transition: all 0.15s;
   border: 1px solid transparent;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .response-button:focus {
@@ -263,9 +263,7 @@ function handleClick(response) {
 }
 
 .button-label {
-  max-width: 150px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-word;
 }
 
 /* Mobile responsiveness */
