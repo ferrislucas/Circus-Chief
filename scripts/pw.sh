@@ -138,6 +138,14 @@ print_error() {
     echo -e "${RED}✗${NC} $1" >&2
 }
 
+# Ensure dependencies are installed
+ensure_dependencies() {
+    if [ ! -d "$PROJECT_ROOT/node_modules" ]; then
+        print_info "Installing dependencies..."
+        cd "$PROJECT_ROOT" && yarn install
+    fi
+}
+
 # Ensure required directories exist
 ensure_directories() {
     mkdir -p "$PROJECT_ROOT/screenshots"
@@ -154,6 +162,7 @@ cmd_build() {
 
 # Run tests
 cmd_test() {
+    ensure_dependencies
     ensure_directories
 
     # Ensure server is running
@@ -207,6 +216,8 @@ cmd_screenshot() {
 
 # Run codegen
 cmd_codegen() {
+    ensure_dependencies
+
     # Ensure server is running to provide a default URL
     local SERVER_PORT
     SERVER_PORT=$(detect_or_start_server)
@@ -230,6 +241,7 @@ cmd_codegen() {
 
 # Interactive shell
 cmd_shell() {
+    ensure_dependencies
     ensure_directories
     print_info "Starting interactive shell..."
     docker compose -f "$COMPOSE_FILE" run --rm playwright shell
@@ -237,6 +249,7 @@ cmd_shell() {
 
 # Debug mode (headed browser)
 cmd_debug() {
+    ensure_dependencies
     ensure_directories
 
     if [ -z "$DISPLAY" ]; then
