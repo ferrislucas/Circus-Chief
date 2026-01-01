@@ -353,7 +353,11 @@ onMounted(async () => {
     })
   );
 
-  // STEP 3: Now fetch remaining data (handlers are ready to receive updates)
+  // STEP 3: Clear todos store before fetching new session's todos
+  // This prevents old session's todos from persisting visually
+  todosStore.clearTodos();
+
+  // STEP 4: Now fetch remaining data (handlers are ready to receive updates)
   await sessionsStore.fetchMessages(sessionId);
   await sessionsStore.fetchWorkLogs(sessionId);
   // Await canvas fetch to ensure indicator shows correct count immediately.
@@ -378,13 +382,28 @@ onMounted(async () => {
     templatesStore.fetchProjectTemplates(sessionsStore.currentSession.projectId);
   }
 
-  // STEP 4: Start polling if session is actively processing
+  // STEP 5: Start polling if session is actively processing
   // (handles race condition where session completes before WebSocket subscription is established)
   const status = sessionsStore.currentSession?.status;
   if (status === 'running' || status === 'starting') {
     startPolling();
   }
 });
+
+// Watch for session changes within the same component (e.g., navigating between sessions)
+// This handles the case where the route changes but the component doesn't unmount/remount
+watch(
+  () => route.params.sessionId,
+  async (newSessionId, oldSessionId) => {
+    // Only proceed if the session ID actually changed
+    if (newSessionId && newSessionId !== oldSessionId) {
+      // Clear todos before switching to the new session
+      todosStore.clearTodos();
+      // Fetch the new session's todos
+      todosStore.fetchTodos(newSessionId);
+    }
+  }
+);
 
 onUnmounted(() => {
   stopPolling();
