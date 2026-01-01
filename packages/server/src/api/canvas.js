@@ -394,4 +394,104 @@ router.delete('/:id/canvas/:itemId/permanent', (req, res) => {
   res.status(204).send();
 });
 
+// POST /api/sessions/:id/canvas/bulk-delete - Soft delete multiple items
+router.post('/:id/canvas/bulk-delete', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const { itemIds } = req.body;
+  if (!Array.isArray(itemIds)) {
+    return res.status(400).json({ error: 'itemIds must be an array' });
+  }
+
+  if (itemIds.length === 0) {
+    return res.json({ deletedCount: 0 });
+  }
+
+  // Verify all items belong to this session
+  for (const itemId of itemIds) {
+    const item = canvasItems.getById(itemId);
+    if (!item || item.sessionId !== req.params.id) {
+      return res.status(404).json({ error: `Item ${itemId} not found in session` });
+    }
+  }
+
+  const deletedCount = canvasItems.softDeleteBatch(itemIds);
+
+  // Broadcast each deleted item to session subscribers
+  itemIds.forEach(itemId => {
+    broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_REMOVE, { sessionId: req.params.id, itemId });
+  });
+
+  res.json({ deletedCount });
+});
+
+// POST /api/sessions/:id/canvas/bulk-recover - Recover multiple items from trash
+router.post('/:id/canvas/bulk-recover', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const { itemIds } = req.body;
+  if (!Array.isArray(itemIds)) {
+    return res.status(400).json({ error: 'itemIds must be an array' });
+  }
+
+  if (itemIds.length === 0) {
+    return res.json({ recoveredCount: 0 });
+  }
+
+  const recoveredCount = canvasItems.recoverBatch(itemIds);
+
+  // Broadcast each recovered item to session subscribers
+  itemIds.forEach(itemId => {
+    const item = canvasItems.getById(itemId);
+    if (item) {
+      broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_ADD, { item });
+    }
+  });
+
+  res.json({ recoveredCount });
+});
+
+// DELETE /api/sessions/:id/canvas/bulk-delete-permanent - Permanently delete multiple items from trash
+router.delete('/:id/canvas/bulk-delete-permanent', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const { itemIds } = req.body;
+  if (!Array.isArray(itemIds)) {
+    return res.status(400).json({ error: 'itemIds must be an array' });
+  }
+
+  if (itemIds.length === 0) {
+    return res.json({ deletedCount: 0 });
+  }
+
+  // Verify all items are in trash and belong to this session
+  for (const itemId of itemIds) {
+    const item = canvasItems.getById(itemId);
+    if (!item || item.sessionId !== req.params.id) {
+      return res.status(404).json({ error: `Item ${itemId} not found in session` });
+    }
+    if (!item.deletedAt) {
+      return res.status(400).json({ error: `Item ${itemId} is not in trash (cannot permanently delete active items)` });
+    }
+  }
+
+  const deletedCount = canvasItems.permanentDeleteBatch(itemIds);
+
+  // Broadcast each deleted item to session subscribers
+  itemIds.forEach(itemId => {
+    broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_REMOVE, { sessionId: req.params.id, itemId });
+  });
+
+  res.json({ deletedCount });
+});
+
 export default router;
