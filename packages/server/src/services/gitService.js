@@ -380,3 +380,19 @@ export async function getStagedDiffAgainstBranch(directory, branch) {
     return '';
   }
 }
+
+/**
+ * Get diff between two git refs (e.g., comparing HEAD to origin/main)
+ * This shows the committed changes between two refs, ignoring working tree state
+ * @param {string} directory
+ * @param {string} fromRef - Base ref (e.g., 'origin/main')
+ * @param {string} toRef - Target ref (e.g., 'HEAD')
+ * @returns {Promise<string>}
+ */
+export async function getDiffBetweenRefs(directory, fromRef, toRef) {
+  try {
+    return await git(directory, `diff ${fromRef} ${toRef}`);
+  } catch {
+    return '';
+  }
+}
