@@ -959,6 +959,36 @@ async function handleStreamEvent(sessionId, event) {
     }
 
     case 'stream_event': {
+      // Handle message_start for initial usage (input tokens) - enables real-time token updates
+      if (event.event?.type === 'message_start') {
+        const usage = event.event?.message?.usage;
+        if (usage) {
+          const conversationId = activeConversationIds.get(sessionId);
+          const accumulated = accumulateUsage(conversationId, usage);
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
+            sessionId,
+            conversationId,
+            usage: accumulated,
+            isFinal: false,
+          });
+        }
+      }
+
+      // Handle message_delta for streaming output tokens
+      if (event.event?.type === 'message_delta') {
+        const usage = event.event?.usage;
+        if (usage) {
+          const conversationId = activeConversationIds.get(sessionId);
+          const accumulated = accumulateUsage(conversationId, usage);
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
+            sessionId,
+            conversationId,
+            usage: accumulated,
+            isFinal: false,
+          });
+        }
+      }
+
       // Real-time streaming - handle content_block_delta events
       if (event.event?.type === 'content_block_delta') {
         const delta = event.event.delta;
