@@ -394,13 +394,52 @@ export class ApiClient {
   }
 
   /**
-   * Delete a canvas item
+   * Delete a canvas item (soft delete - move to trash)
+   * @param {string} sessionId - Session ID
+   * @param {string} itemId - Canvas item ID
+   * @returns {Promise<Object>}
+   */
+  async deleteCanvasItem(sessionId, itemId) {
+    return this.#request('DELETE', `/sessions/${sessionId}/canvas/${itemId}`);
+  }
+
+  /**
+   * Get trashed canvas items for a session
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<Array>}
+   */
+  async getCanvasTrash(sessionId) {
+    return this.#request('GET', `/sessions/${sessionId}/canvas-trash`);
+  }
+
+  /**
+   * Recover a single canvas item from trash
+   * @param {string} sessionId - Session ID
+   * @param {string} itemId - Canvas item ID
+   * @returns {Promise<Object>}
+   */
+  async recoverCanvasItem(sessionId, itemId) {
+    return this.#request('POST', `/sessions/${sessionId}/canvas/${itemId}/recover`);
+  }
+
+  /**
+   * Recover all versions of a file from trash
+   * @param {string} sessionId - Session ID
+   * @param {string} filename - Filename
+   * @returns {Promise<Object>}
+   */
+  async recoverCanvasFile(sessionId, filename) {
+    return this.#request('POST', `/sessions/${sessionId}/canvas-trash/recover-file/${encodeURIComponent(filename)}`);
+  }
+
+  /**
+   * Permanently delete a canvas item from trash
    * @param {string} sessionId - Session ID
    * @param {string} itemId - Canvas item ID
    * @returns {Promise<void>}
    */
-  async deleteCanvasItem(sessionId, itemId) {
-    return this.#request('DELETE', `/sessions/${sessionId}/canvas/${itemId}`);
+  async permanentlyDeleteCanvasItem(sessionId, itemId) {
+    return this.#request('DELETE', `/sessions/${sessionId}/canvas/${itemId}/permanent`);
   }
 
   // Git

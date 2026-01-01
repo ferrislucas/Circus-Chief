@@ -4,7 +4,7 @@ import { api } from '../composables/useApi.js';
 export const useCanvasStore = defineStore('canvas', {
   state: () => ({
     items: [],
-    selectedItemId: null,
+    trashedItems: [],
     loading: false,
     error: null,
   }),
@@ -30,16 +30,24 @@ export const useCanvasStore = defineStore('canvas', {
         .sort((a, b) => b.createdAt - a.createdAt);
     },
 
-    selectedItem: (state) => state.items.find((i) => i.id === state.selectedItemId),
-
-    // Get all versions for the selected item's filename
-    selectedItemVersions: (state) => {
-      const selected = state.items.find((i) => i.id === state.selectedItemId);
-      if (!selected) return [];
-      const key = selected.filename || selected.label || selected.id;
-      return state.items
-        .filter((i) => (i.filename || i.label || i.id) === key)
-        .sort((a, b) => b.createdAt - a.createdAt);
+    // Group trashed items by filename, return latest of each with version info
+    groupedTrashedItems: (state) => {
+      const groups = {};
+      for (const item of state.trashedItems) {
+        const key = item.filename || item.label || item.id;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(item);
+      }
+      return Object.values(groups)
+        .map((versions) => {
+          versions.sort((a, b) => b.deletedAt - a.deletedAt);
+          return {
+            ...versions[0],
+            versionCount: versions.length,
+            allVersions: versions,
+          };
+        })
+        .sort((a, b) => b.deletedAt - a.deletedAt);
     },
   },
 
@@ -59,12 +67,9 @@ export const useCanvasStore = defineStore('canvas', {
     async deleteItem(sessionId, itemId) {
       this.error = null;
       try {
-        await api.deleteCanvasItem(sessionId, itemId);
+        const deletedItem = await api.deleteCanvasItem(sessionId, itemId);
         this.items = this.items.filter((i) => i.id !== itemId);
-        // Clear selection if deleted item was selected
-        if (this.selectedItemId === itemId) {
-          this.selectedItemId = null;
-        }
+        this.trashedItems.unshift(deletedItem);
       } catch (err) {
         this.error = err.message;
         throw err;
@@ -101,18 +106,52 @@ export const useCanvasStore = defineStore('canvas', {
 
     removeItem(itemId) {
       this.items = this.items.filter((i) => i.id !== itemId);
-      // Clear selection if removed item was selected
-      if (this.selectedItemId === itemId) {
-        this.selectedItemId = null;
+    },
+
+    async fetchTrashedItems(sessionId) {
+      this.error = null;
+      try {
+        this.trashedItems = await api.getCanvasTrash(sessionId);
+      } catch (err) {
+        this.error = err.message;
       }
     },
 
-    selectItem(itemId) {
-      this.selectedItemId = itemId;
+    async recoverItem(sessionId, itemId) {
+      this.error = null;
+      try {
+        const item = await api.recoverCanvasItem(sessionId, itemId);
+        this.trashedItems = this.trashedItems.filter((i) => i.id !== itemId);
+        this.items.unshift(item);
+        return item;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
     },
 
-    clearSelection() {
-      this.selectedItemId = null;
+    async recoverFile(sessionId, filename) {
+      this.error = null;
+      try {
+        await api.recoverCanvasFile(sessionId, filename);
+        // Refresh both lists
+        await this.fetchItems(sessionId);
+        await this.fetchTrashedItems(sessionId);
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    async permanentlyDeleteItem(sessionId, itemId) {
+      this.error = null;
+      try {
+        await api.permanentlyDeleteCanvasItem(sessionId, itemId);
+        this.trashedItems = this.trashedItems.filter((i) => i.id !== itemId);
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
     },
   },
 });

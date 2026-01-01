@@ -316,18 +316,81 @@ router.get('/:id/canvas/file/:filename', async (req, res) => {
   }
 });
 
-// DELETE /api/sessions/:id/canvas/:itemId - Delete canvas item
+// DELETE /api/sessions/:id/canvas/:itemId - Soft delete canvas item (move to trash)
 router.delete('/:id/canvas/:itemId', (req, res) => {
   const item = canvasItems.getById(req.params.itemId);
   if (!item || item.sessionId !== req.params.id) {
     return res.status(404).json({ error: 'Canvas item not found' });
   }
 
-  canvasItems.delete(req.params.itemId);
+  // Soft delete instead of hard delete
+  const deletedItem = canvasItems.softDelete(req.params.itemId);
 
   // Broadcast to session subscribers
   broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_REMOVE, { sessionId: req.params.id, itemId: req.params.itemId });
 
+  res.json(deletedItem);
+});
+
+// GET /api/sessions/:id/canvas-trash - List deleted items in trash
+router.get('/:id/canvas-trash', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const items = canvasItems.getDeletedBySessionId(req.params.id);
+  res.json(items);
+});
+
+// POST /api/sessions/:id/canvas/:itemId/recover - Recover a single item from trash
+router.post('/:id/canvas/:itemId/recover', (req, res) => {
+  const item = canvasItems.getById(req.params.itemId);
+  if (!item || item.sessionId !== req.params.id) {
+    return res.status(404).json({ error: 'Canvas item not found' });
+  }
+  if (!item.deletedAt) {
+    return res.status(400).json({ error: 'Item is not deleted' });
+  }
+
+  const recoveredItem = canvasItems.recover(req.params.itemId);
+
+  // Broadcast recovery - same as add
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_ADD, { item: recoveredItem });
+
+  res.json(recoveredItem);
+});
+
+// POST /api/sessions/:id/canvas-trash/recover-file/:filename - Recover all versions of a file
+router.post('/:id/canvas-trash/recover-file/:filename', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const { filename } = req.params;
+  canvasItems.recoverByFilename(req.params.id, filename);
+  const items = canvasItems.getAllVersionsByFilename(req.params.id, filename);
+
+  // Broadcast each recovered item
+  items.forEach(item => {
+    broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_ADD, { item });
+  });
+
+  res.json({ recovered: items.length });
+});
+
+// DELETE /api/sessions/:id/canvas/:itemId/permanent - Permanently delete from trash
+router.delete('/:id/canvas/:itemId/permanent', (req, res) => {
+  const item = canvasItems.getById(req.params.itemId);
+  if (!item || item.sessionId !== req.params.id) {
+    return res.status(404).json({ error: 'Canvas item not found' });
+  }
+  if (!item.deletedAt) {
+    return res.status(400).json({ error: 'Item must be in trash before permanent deletion' });
+  }
+
+  canvasItems.permanentDelete(req.params.itemId);
   res.status(204).send();
 });
 

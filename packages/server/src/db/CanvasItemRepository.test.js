@@ -255,4 +255,249 @@ describe('CanvasItemRepository', () => {
       expect(items[0].mimeType).toBe('application/pdf');
     });
   });
+
+  describe('soft delete functionality', () => {
+    describe('getBySessionId excludes soft-deleted items', () => {
+      it('excludes items with deleted_at set', () => {
+        const item1 = repo.create(sessionId, { type: 'text', content: 'Active item' });
+        const item2 = repo.create(sessionId, { type: 'text', content: 'Deleted item' });
+
+        repo.softDelete(item2.id);
+
+        const items = repo.getBySessionId(sessionId);
+
+        expect(items).toHaveLength(1);
+        expect(items[0].id).toBe(item1.id);
+      });
+    });
+
+    describe('getAllVersionsByFilename excludes soft-deleted items', () => {
+      it('excludes deleted versions from filename query', () => {
+        repo.create(sessionId, { type: 'text', content: 'Version 1', filename: 'test.txt' });
+        const v2 = repo.create(sessionId, { type: 'text', content: 'Version 2', filename: 'test.txt' });
+        repo.create(sessionId, { type: 'text', content: 'Version 3', filename: 'test.txt' });
+
+        repo.softDelete(v2.id);
+
+        const items = repo.getAllVersionsByFilename(sessionId, 'test.txt');
+
+        expect(items).toHaveLength(2);
+        expect(items.every(i => i.id !== v2.id)).toBe(true);
+      });
+    });
+
+    describe('getDeletedBySessionId', () => {
+      it('returns only deleted items', () => {
+        const item1 = repo.create(sessionId, { type: 'text', content: 'Active item' });
+        const item2 = repo.create(sessionId, { type: 'text', content: 'Deleted item' });
+
+        repo.softDelete(item2.id);
+
+        const deletedItems = repo.getDeletedBySessionId(sessionId);
+
+        expect(deletedItems).toHaveLength(1);
+        expect(deletedItems[0].id).toBe(item2.id);
+        expect(deletedItems[0].deletedAt).toBeDefined();
+        expect(deletedItems[0].deletedAt).not.toBeNull();
+      });
+
+      it('returns empty array for session with no trash', () => {
+        repo.create(sessionId, { type: 'text', content: 'Active item' });
+
+        const deletedItems = repo.getDeletedBySessionId(sessionId);
+
+        expect(deletedItems).toEqual([]);
+      });
+
+      it('orders by deleted_at descending (most recently deleted first)', () => {
+        const item1 = repo.create(sessionId, { type: 'text', content: 'First to delete' });
+        const item2 = repo.create(sessionId, { type: 'text', content: 'Second to delete' });
+
+        repo.softDelete(item1.id);
+        // Small delay to ensure different timestamps
+        repo.softDelete(item2.id);
+
+        const deletedItems = repo.getDeletedBySessionId(sessionId);
+
+        expect(deletedItems).toHaveLength(2);
+        expect(deletedItems[0].deletedAt).toBeGreaterThanOrEqual(deletedItems[1].deletedAt);
+      });
+    });
+
+    describe('softDelete', () => {
+      it('sets deleted_at timestamp', () => {
+        const item = repo.create(sessionId, { type: 'text', content: 'To delete' });
+        const beforeDelete = Date.now();
+
+        const deletedItem = repo.softDelete(item.id);
+
+        expect(deletedItem.deletedAt).toBeDefined();
+        expect(deletedItem.deletedAt).toBeGreaterThanOrEqual(beforeDelete);
+        expect(deletedItem.deletedAt).toBeLessThanOrEqual(Date.now());
+      });
+
+      it('preserves other item fields', () => {
+        const item = repo.create(sessionId, {
+          type: 'markdown',
+          content: '# Hello',
+          filename: 'readme.md',
+          label: 'Documentation',
+        });
+
+        const deletedItem = repo.softDelete(item.id);
+
+        expect(deletedItem.id).toBe(item.id);
+        expect(deletedItem.type).toBe('markdown');
+        expect(deletedItem.content).toBe('# Hello');
+        expect(deletedItem.filename).toBe('readme.md');
+        expect(deletedItem.label).toBe('Documentation');
+        expect(deletedItem.sessionId).toBe(sessionId);
+        expect(deletedItem.createdAt).toBe(item.createdAt);
+      });
+
+      it('returns the updated item with deletedAt', () => {
+        const item = repo.create(sessionId, { type: 'text', content: 'Test' });
+
+        const deletedItem = repo.softDelete(item.id);
+
+        expect(deletedItem).toHaveProperty('deletedAt');
+        expect(typeof deletedItem.deletedAt).toBe('number');
+      });
+    });
+
+    describe('recover', () => {
+      it('clears deleted_at timestamp', () => {
+        const item = repo.create(sessionId, { type: 'text', content: 'To recover' });
+        repo.softDelete(item.id);
+
+        const recoveredItem = repo.recover(item.id);
+
+        expect(recoveredItem.deletedAt).toBeNull();
+      });
+
+      it('returns the recovered item', () => {
+        const item = repo.create(sessionId, { type: 'text', content: 'Recover me', filename: 'test.txt' });
+        repo.softDelete(item.id);
+
+        const recoveredItem = repo.recover(item.id);
+
+        expect(recoveredItem.id).toBe(item.id);
+        expect(recoveredItem.content).toBe('Recover me');
+        expect(recoveredItem.filename).toBe('test.txt');
+        expect(recoveredItem.deletedAt).toBeNull();
+      });
+
+      it('makes item appear in getBySessionId again', () => {
+        const item = repo.create(sessionId, { type: 'text', content: 'Test' });
+        repo.softDelete(item.id);
+
+        expect(repo.getBySessionId(sessionId)).toHaveLength(0);
+
+        repo.recover(item.id);
+
+        expect(repo.getBySessionId(sessionId)).toHaveLength(1);
+      });
+    });
+
+    describe('recoverByFilename', () => {
+      it('recovers all versions of a file', () => {
+        repo.create(sessionId, { type: 'text', content: 'V1', filename: 'shared.txt' });
+        repo.create(sessionId, { type: 'text', content: 'V2', filename: 'shared.txt' });
+        repo.create(sessionId, { type: 'text', content: 'V3', filename: 'shared.txt' });
+
+        // Soft delete all
+        const allItems = repo.getBySessionId(sessionId);
+        allItems.forEach(item => repo.softDelete(item.id));
+
+        expect(repo.getDeletedBySessionId(sessionId)).toHaveLength(3);
+        expect(repo.getBySessionId(sessionId)).toHaveLength(0);
+
+        repo.recoverByFilename(sessionId, 'shared.txt');
+
+        expect(repo.getBySessionId(sessionId)).toHaveLength(3);
+        expect(repo.getDeletedBySessionId(sessionId)).toHaveLength(0);
+      });
+
+      it('does not affect other files', () => {
+        repo.create(sessionId, { type: 'text', content: 'A1', filename: 'a.txt' });
+        repo.create(sessionId, { type: 'text', content: 'B1', filename: 'b.txt' });
+
+        const allItems = repo.getBySessionId(sessionId);
+        allItems.forEach(item => repo.softDelete(item.id));
+
+        repo.recoverByFilename(sessionId, 'a.txt');
+
+        const activeItems = repo.getBySessionId(sessionId);
+        const deletedItems = repo.getDeletedBySessionId(sessionId);
+
+        expect(activeItems).toHaveLength(1);
+        expect(activeItems[0].filename).toBe('a.txt');
+        expect(deletedItems).toHaveLength(1);
+        expect(deletedItems[0].filename).toBe('b.txt');
+      });
+
+      it('does not affect other sessions', () => {
+        // Create another session
+        const project = projectRepo.create('Another Project', '/tmp/another');
+        const now = Date.now();
+        const otherSessionId = databaseManager.generateId();
+        databaseManager.get().prepare(
+          'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).run(otherSessionId, project.id, 'Other Session', 'running', 'standard', now, now);
+
+        repo.create(sessionId, { type: 'text', content: 'Session 1', filename: 'shared.txt' });
+        repo.create(otherSessionId, { type: 'text', content: 'Session 2', filename: 'shared.txt' });
+
+        // Delete both
+        const session1Items = repo.getBySessionId(sessionId);
+        session1Items.forEach(item => repo.softDelete(item.id));
+        const session2Items = repo.getBySessionId(otherSessionId);
+        session2Items.forEach(item => repo.softDelete(item.id));
+
+        // Recover only from first session
+        repo.recoverByFilename(sessionId, 'shared.txt');
+
+        expect(repo.getBySessionId(sessionId)).toHaveLength(1);
+        expect(repo.getDeletedBySessionId(otherSessionId)).toHaveLength(1);
+      });
+    });
+
+    describe('permanentDelete', () => {
+      it('removes item from database completely', () => {
+        const item = repo.create(sessionId, { type: 'text', content: 'Gone forever' });
+        repo.softDelete(item.id);
+
+        repo.permanentDelete(item.id);
+
+        expect(repo.getById(item.id)).toBeNull();
+        expect(repo.getDeletedBySessionId(sessionId)).toHaveLength(0);
+      });
+
+      it('does not affect other items', () => {
+        const item1 = repo.create(sessionId, { type: 'text', content: 'Keep me' });
+        const item2 = repo.create(sessionId, { type: 'text', content: 'Delete me' });
+        repo.softDelete(item2.id);
+
+        repo.permanentDelete(item2.id);
+
+        expect(repo.getById(item1.id)).not.toBeNull();
+        expect(repo.getBySessionId(sessionId)).toHaveLength(1);
+      });
+    });
+
+    describe('deletedAt field mapping', () => {
+      it('maps deletedAt correctly from database row', () => {
+        const item = repo.create(sessionId, { type: 'text', content: 'Test' });
+
+        // Initially null
+        expect(item.deletedAt).toBeNull();
+
+        const deletedItem = repo.softDelete(item.id);
+        expect(typeof deletedItem.deletedAt).toBe('number');
+
+        const recovered = repo.recover(item.id);
+        expect(recovered.deletedAt).toBeNull();
+      });
+    });
+  });
 });

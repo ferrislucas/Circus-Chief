@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS canvas_items (
   label TEXT,
   width INTEGER,
   height INTEGER,
+  deleted_at INTEGER,     -- null = active, timestamp = soft deleted
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
@@ -228,6 +229,7 @@ CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_id
 CREATE INDEX IF NOT EXISTS idx_messages_session ON conversation_messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
+CREATE INDEX IF NOT EXISTS idx_canvas_deleted ON canvas_items(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_notes_session ON session_notes(session_id);
 CREATE INDEX IF NOT EXISTS idx_project_tools ON project_tool_templates(project_id);
 CREATE INDEX IF NOT EXISTS idx_session_templates_project ON session_templates(project_id);

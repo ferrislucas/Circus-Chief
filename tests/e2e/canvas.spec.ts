@@ -6,6 +6,10 @@ import {
   cleanupAll,
   cleanupCreatedResources,
   getCanvasItems,
+  getCanvasTrash,
+  deleteCanvasItem,
+  recoverCanvasFile,
+  permanentlyDeleteCanvasItem,
   navigateAndWait,
   waitForSessionToExist,
   waitForCanvasItems,
@@ -603,5 +607,245 @@ test.describe('Canvas Management', () => {
     // Verify via API
     const items = await getCanvasItems(session.id);
     expect(items.length).toBe(0);
+  });
+});
+
+test.describe('Canvas Trash & Soft Delete', () => {
+  let project: any;
+  let session: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    project = await seedProject('Trash Test Project', '/tmp/test');
+    session = await seedSession(project.id, { prompt: 'Test', name: 'Trash Test' });
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+  });
+
+  test('deleted items go to trash (soft delete)', async ({ page }) => {
+    const item = await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Will be deleted',
+      label: 'Trash Item',
+    });
+
+    await waitForCanvasItems(session.id, 1);
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
+
+    // Handle confirmation dialog
+    page.on('dialog', (dialog) => dialog.accept());
+
+    // Delete the item
+    await page.locator('.delete-dropdown summary').click();
+    await page.getByText('Delete this version').click();
+
+    // Verify item is gone from canvas via API
+    const items = await getCanvasItems(session.id);
+    expect(items.length).toBe(0);
+
+    // Verify item is in trash via API
+    const trashedItems = await getCanvasTrash(session.id);
+    expect(trashedItems.length).toBe(1);
+    expect(trashedItems[0].id).toBe(item.id);
+    expect(trashedItems[0].deletedAt).toBeDefined();
+  });
+
+  test('trash toggle button appears when trash has items', async ({ page }) => {
+    // Create and delete an item
+    const item = await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Will be trashed',
+      label: 'Trash Test Item',
+    });
+
+    await deleteCanvasItem(session.id, item.id);
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
+
+    // Trash toggle button should be visible
+    await expect(page.locator('.trash-toggle')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.trash-count')).toContainText('1');
+  });
+
+  test('can view trash and see deleted items', async ({ page }) => {
+    // Create and delete items
+    const item1 = await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Deleted 1',
+      label: 'Item One',
+    });
+    const item2 = await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# Deleted 2',
+      label: 'Item Two',
+    });
+
+    await deleteCanvasItem(session.id, item1.id);
+    await deleteCanvasItem(session.id, item2.id);
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
+
+    // Click trash toggle
+    await page.locator('.trash-toggle').click();
+
+    // Should show trash view with both items
+    await expect(page.locator('.trash-header h3')).toContainText('Trash');
+    await expect(page.locator('.trash-row')).toHaveCount(2);
+    await expect(page.getByText('Item One')).toBeVisible();
+    await expect(page.getByText('Item Two')).toBeVisible();
+  });
+
+  test('can recover file from trash', async ({ page }) => {
+    const item = await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Recover me',
+      label: 'Recoverable',
+      filename: 'recover.txt',
+    });
+
+    await deleteCanvasItem(session.id, item.id);
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
+
+    // Click trash toggle
+    await page.locator('.trash-toggle').click();
+    await expect(page.locator('.trash-row')).toHaveCount(1);
+
+    // Click recover button
+    await page.locator('.btn-success').filter({ hasText: 'Recover' }).click();
+
+    // Wait for recovery to complete
+    await page.waitForTimeout(500);
+
+    // Verify item is back via API
+    const items = await getCanvasItems(session.id);
+    expect(items.length).toBe(1);
+    expect(items[0].deletedAt).toBeNull();
+
+    // Verify trash is empty via API
+    const trashedItems = await getCanvasTrash(session.id);
+    expect(trashedItems.length).toBe(0);
+  });
+
+  test('can permanently delete from trash', async ({ page }) => {
+    const item = await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Gone forever',
+      label: 'PermanentDelete',
+      filename: 'permanent.txt',
+    });
+
+    await deleteCanvasItem(session.id, item.id);
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
+
+    // Handle confirmation dialog
+    page.on('dialog', (dialog) => dialog.accept());
+
+    // Click trash toggle
+    await page.locator('.trash-toggle').click();
+    await expect(page.locator('.trash-row')).toHaveCount(1);
+
+    // Click delete forever button
+    await page.locator('.btn-danger').filter({ hasText: 'Delete Forever' }).click();
+
+    // Wait for deletion to complete
+    await page.waitForTimeout(500);
+
+    // Verify trash is empty - should show empty state
+    await expect(page.getByText('Trash is empty')).toBeVisible();
+
+    // Verify via API - item is completely gone
+    const items = await getCanvasItems(session.id);
+    const trashedItems = await getCanvasTrash(session.id);
+    expect(items.length).toBe(0);
+    expect(trashedItems.length).toBe(0);
+  });
+
+  test('back button returns from trash to canvas', async ({ page }) => {
+    const item = await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Test',
+      label: 'BackTest',
+    });
+
+    await deleteCanvasItem(session.id, item.id);
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
+
+    // Go to trash
+    await page.locator('.trash-toggle').click();
+    await expect(page.locator('.trash-header h3')).toContainText('Trash');
+
+    // Click back button
+    await page.locator('.trash-header .btn').filter({ hasText: 'Back to Canvas' }).click();
+
+    // Should be back on canvas (empty state since item is trashed)
+    await expect(page.getByText('No canvas items yet')).toBeVisible();
+  });
+});
+
+test.describe('Canvas Copy Button', () => {
+  let project: any;
+  let session: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    project = await seedProject('Copy Test Project', '/tmp/test');
+    session = await seedSession(project.id, { prompt: 'Test', name: 'Copy Test' });
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+  });
+
+  test('copy button exists in file list', async ({ page }) => {
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Content 1',
+      label: 'File1.txt',
+    });
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Content 2',
+      label: 'File2.txt',
+    });
+
+    await waitForCanvasItems(session.id, 2);
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
+
+    // Each file row should have a copy button
+    const copyButtons = page.locator('.copy-button');
+    await expect(copyButtons).toHaveCount(2);
+  });
+
+  test('copy button exists in viewer header', async ({ page }) => {
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Single file content',
+      label: 'SingleFile.txt',
+    });
+
+    await waitForCanvasItems(session.id, 1);
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
+
+    // Should be in viewer mode (single item)
+    await expect(page.locator('.viewer-header-left .copy-button')).toBeVisible();
+  });
+
+  test('copy button has correct aria-label for accessibility', async ({ page }) => {
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Accessible content',
+      label: 'accessible-file.txt',
+    });
+
+    await waitForCanvasItems(session.id, 1);
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
+
+    const copyButton = page.locator('.viewer-header-left .copy-button');
+    await expect(copyButton).toHaveAttribute('aria-label', /Copy.*accessible-file\.txt/);
   });
 });

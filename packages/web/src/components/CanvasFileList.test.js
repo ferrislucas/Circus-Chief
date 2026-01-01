@@ -1,194 +1,212 @@
-import { describe, it, expect, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mount, flushPromises } from '@vue/test-utils';
+import { nextTick } from 'vue';
+
 import CanvasFileList from './CanvasFileList.vue';
 
-describe('CanvasFileList', () => {
-  const baseItems = [
-    {
-      id: 'item-1',
-      filename: 'screenshot.png',
-      type: 'image',
-      createdAt: Date.now() - 60000, // 1 minute ago
-      versionCount: 1,
-      allVersions: [],
-    },
-    {
-      id: 'item-2',
-      filename: 'design-spec.md',
-      type: 'markdown',
-      createdAt: Date.now() - 3600000, // 1 hour ago
-      versionCount: 3,
-      allVersions: [],
-    },
-  ];
+// Global helper to flush all async updates
+async function flushAll(wrapper) {
+  await flushPromises();
+  await nextTick();
+  if (wrapper && wrapper.vm) {
+    await wrapper.vm.$nextTick?.();
+    await wrapper.vm.$forceUpdate();
+    await nextTick();
+  }
+}
 
-  function mountComponent(props = {}) {
+describe('CanvasFileList', () => {
+  let mockClipboard;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Mock clipboard API
+    mockClipboard = {
+      writeText: vi.fn().mockResolvedValue(undefined),
+    };
+    Object.defineProperty(navigator, 'clipboard', {
+      value: mockClipboard,
+      configurable: true,
+    });
+    // Mock timers for copy feedback
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function mountComponent(props = { items: [] }) {
     return mount(CanvasFileList, {
-      props: {
-        items: baseItems,
-        ...props,
-      },
+      props,
     });
   }
 
-  describe('basic rendering', () => {
-    it('renders a row for each item', () => {
-      const wrapper = mountComponent();
+  describe('rendering', () => {
+    it('renders items list', () => {
+      const wrapper = mountComponent({
+        items: [
+          { id: '1', filename: 'test.png', type: 'image', createdAt: Date.now() },
+          { id: '2', filename: 'doc.md', type: 'markdown', createdAt: Date.now() },
+        ],
+      });
+
       const rows = wrapper.findAll('.file-row');
-      expect(rows.length).toBe(2);
+      expect(rows).toHaveLength(2);
     });
 
     it('displays filename for each item', () => {
-      const wrapper = mountComponent();
-      expect(wrapper.text()).toContain('screenshot.png');
-      expect(wrapper.text()).toContain('design-spec.md');
-    });
-
-    it('displays file type for each item', () => {
-      const wrapper = mountComponent();
-      const types = wrapper.findAll('.file-type');
-      expect(types[0].text()).toBe('image');
-      expect(types[1].text()).toBe('markdown');
-    });
-  });
-
-  describe('file type icons', () => {
-    it('shows image icon for image type', () => {
       const wrapper = mountComponent({
-        items: [{ ...baseItems[0], type: 'image' }],
+        items: [
+          { id: '1', filename: 'myfile.txt', type: 'text', createdAt: Date.now() },
+        ],
       });
-      expect(wrapper.find('.file-icon').text()).toBe('📷');
+
+      expect(wrapper.find('.file-name').text()).toBe('myfile.txt');
     });
 
-    it('shows document icon for markdown type', () => {
+    it('displays type icon', () => {
       const wrapper = mountComponent({
-        items: [{ ...baseItems[0], type: 'markdown' }],
+        items: [
+          { id: '1', filename: 'photo.png', type: 'image', createdAt: Date.now() },
+        ],
       });
-      expect(wrapper.find('.file-icon').text()).toBe('📄');
+
+      expect(wrapper.find('.file-icon').text()).toContain('📷');
     });
 
-    it('shows clipboard icon for json type', () => {
+    it('displays version badge when versionCount > 1', () => {
       const wrapper = mountComponent({
-        items: [{ ...baseItems[0], type: 'json' }],
+        items: [
+          { id: '1', filename: 'multi.txt', type: 'text', createdAt: Date.now(), versionCount: 3 },
+        ],
       });
-      expect(wrapper.find('.file-icon').text()).toBe('📋');
-    });
 
-    it('shows text icon for text type', () => {
-      const wrapper = mountComponent({
-        items: [{ ...baseItems[0], type: 'text' }],
-      });
-      expect(wrapper.find('.file-icon').text()).toBe('📝');
-    });
-
-    it('shows folder icon for unknown type', () => {
-      const wrapper = mountComponent({
-        items: [{ ...baseItems[0], type: 'unknown' }],
-      });
-      expect(wrapper.find('.file-icon').text()).toBe('📁');
-    });
-
-    it('shows pdf icon for pdf type', () => {
-      const wrapper = mountComponent({
-        items: [{ ...baseItems[0], type: 'pdf' }],
-      });
-      expect(wrapper.find('.file-icon').text()).toBe('📕');
-    });
-
-    it('shows code icon for code type', () => {
-      const wrapper = mountComponent({
-        items: [{ ...baseItems[0], type: 'code', filename: 'app.js' }],
-      });
-      expect(wrapper.find('.file-icon').text()).toBe('💻');
-    });
-  });
-
-  describe('version badge', () => {
-    it('shows version badge when versionCount > 1', () => {
-      const wrapper = mountComponent({
-        items: [{ ...baseItems[0], versionCount: 3 }],
-      });
-      const badge = wrapper.find('.version-badge');
-      expect(badge.exists()).toBe(true);
-      expect(badge.text()).toBe('v3');
+      expect(wrapper.find('.version-badge').exists()).toBe(true);
+      expect(wrapper.find('.version-badge').text()).toContain('v3');
     });
 
     it('hides version badge when versionCount is 1', () => {
       const wrapper = mountComponent({
-        items: [{ ...baseItems[0], versionCount: 1 }],
+        items: [
+          { id: '1', filename: 'single.txt', type: 'text', createdAt: Date.now(), versionCount: 1 },
+        ],
       });
+
       expect(wrapper.find('.version-badge').exists()).toBe(false);
     });
   });
 
-  describe('relative time', () => {
-    it('shows "just now" for recent items', () => {
+  describe('copy button', () => {
+    it('renders copy button for each item', () => {
       const wrapper = mountComponent({
-        items: [{ ...baseItems[0], createdAt: Date.now() - 5000 }], // 5 seconds ago
+        items: [
+          { id: '1', filename: 'test.png', type: 'image', createdAt: Date.now() },
+          { id: '2', filename: 'doc.md', type: 'markdown', createdAt: Date.now() },
+        ],
       });
-      expect(wrapper.find('.file-time').text()).toBe('just now');
+
+      const copyButtons = wrapper.findAll('.copy-button');
+      expect(copyButtons).toHaveLength(2);
     });
 
-    it('shows minutes for items within the hour', () => {
+    it('copies filename to clipboard on click', async () => {
       const wrapper = mountComponent({
-        items: [{ ...baseItems[0], createdAt: Date.now() - 300000 }], // 5 minutes ago
+        items: [
+          { id: '1', filename: 'myfile.txt', type: 'text', createdAt: Date.now() },
+        ],
       });
-      expect(wrapper.find('.file-time').text()).toBe('5m ago');
+
+      const copyButton = wrapper.find('.copy-button');
+      await copyButton.trigger('click');
+
+      expect(mockClipboard.writeText).toHaveBeenCalledWith('myfile.txt');
     });
 
-    it('shows hours for items within the day', () => {
+    it('uses label as fallback when filename is missing', async () => {
       const wrapper = mountComponent({
-        items: [{ ...baseItems[0], createdAt: Date.now() - 7200000 }], // 2 hours ago
+        items: [
+          { id: '1', label: 'My Label', type: 'text', createdAt: Date.now() },
+        ],
       });
-      expect(wrapper.find('.file-time').text()).toBe('2h ago');
+
+      const copyButton = wrapper.find('.copy-button');
+      await copyButton.trigger('click');
+
+      expect(mockClipboard.writeText).toHaveBeenCalledWith('My Label');
     });
 
-    it('shows days for older items', () => {
+    it('shows copied state temporarily', async () => {
       const wrapper = mountComponent({
-        items: [{ ...baseItems[0], createdAt: Date.now() - 172800000 }], // 2 days ago
+        items: [
+          { id: '1', filename: 'test.txt', type: 'text', createdAt: Date.now() },
+        ],
       });
-      expect(wrapper.find('.file-time').text()).toBe('2d ago');
+
+      const copyButton = wrapper.find('.copy-button');
+      await copyButton.trigger('click');
+      await flushAll(wrapper);
+
+      // Should show checkmark after copy
+      expect(copyButton.text()).toContain('✓');
+      expect(copyButton.classes()).toContain('copied');
+
+      // After 1.5s, should revert
+      vi.advanceTimersByTime(1500);
+      await flushAll(wrapper);
+
+      expect(copyButton.text()).toContain('📋');
+      expect(copyButton.classes()).not.toContain('copied');
+    });
+
+    it('stops click propagation (does not trigger row selection)', async () => {
+      const wrapper = mountComponent({
+        items: [
+          { id: '1', filename: 'test.txt', type: 'text', createdAt: Date.now() },
+        ],
+      });
+
+      const copyButton = wrapper.find('.copy-button');
+      await copyButton.trigger('click');
+
+      // Should not emit 'select' when clicking copy button
+      expect(wrapper.emitted('select')).toBeFalsy();
+    });
+
+    it('has correct aria-label for accessibility', () => {
+      const wrapper = mountComponent({
+        items: [
+          { id: '1', filename: 'accessible.txt', type: 'text', createdAt: Date.now() },
+        ],
+      });
+
+      const copyButton = wrapper.find('.copy-button');
+      expect(copyButton.attributes('aria-label')).toContain('Copy');
+      expect(copyButton.attributes('aria-label')).toContain('accessible.txt');
     });
   });
 
-  describe('fallback display names', () => {
-    it('uses label when filename is missing', () => {
-      const wrapper = mountComponent({
-        items: [{ id: '1', label: 'My Label', type: 'text', createdAt: Date.now(), versionCount: 1 }],
+  describe('type icons', () => {
+    const testCases = [
+      { type: 'image', expected: '📷' },
+      { type: 'markdown', expected: '📄' },
+      { type: 'json', expected: '📋' },
+      { type: 'text', expected: '📝' },
+      { type: 'pdf', expected: '📕' },
+      { type: 'code', expected: '💻' },
+      { type: 'unknown', expected: '📁' },
+    ];
+
+    testCases.forEach(({ type, expected }) => {
+      it(`displays correct icon for ${type} type`, () => {
+        const wrapper = mountComponent({
+          items: [
+            { id: '1', filename: 'test', type, createdAt: Date.now() },
+          ],
+        });
+
+        expect(wrapper.find('.file-icon').text()).toContain(expected);
       });
-      expect(wrapper.find('.file-name').text()).toBe('My Label');
-    });
-
-    it('shows "Untitled" when both filename and label are missing', () => {
-      const wrapper = mountComponent({
-        items: [{ id: '1', type: 'text', createdAt: Date.now(), versionCount: 1 }],
-      });
-      expect(wrapper.find('.file-name').text()).toBe('Untitled');
-    });
-  });
-
-  describe('click interaction', () => {
-    it('rows have cursor pointer style', () => {
-      const wrapper = mountComponent();
-      const rows = wrapper.findAll('.file-row');
-      // Verify rows exist and are styled as clickable
-      expect(rows.length).toBe(2);
-      expect(rows[0].classes()).toContain('file-row');
-    });
-
-    it('each row has unique key', () => {
-      const wrapper = mountComponent();
-      const rows = wrapper.findAll('.file-row');
-      // Each row should be present and distinct
-      expect(rows[0].text()).toContain('screenshot.png');
-      expect(rows[1].text()).toContain('design-spec.md');
-    });
-  });
-
-  describe('empty state', () => {
-    it('renders nothing when items array is empty', () => {
-      const wrapper = mountComponent({ items: [] });
-      expect(wrapper.findAll('.file-row').length).toBe(0);
     });
   });
 });

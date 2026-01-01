@@ -876,7 +876,288 @@ describe('Canvas API', () => {
         expect(res.status).toBe(400);
         expect(res.body.error).toContain('filePath or');
       });
+    });
 
+    describe('soft delete (DELETE /:id/canvas/:itemId)', () => {
+      it('soft deletes canvas item and returns it with deletedAt', async () => {
+        // Create an item first
+        const createRes = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({
+            type: 'text',
+            content: 'Delete me',
+            filename: 'todelete.txt'
+          });
+
+        expect(createRes.status).toBe(201);
+        const itemId = createRes.body.id;
+
+        const deleteRes = await request(app)
+          .delete(`/api/sessions/${sessionId}/canvas/${itemId}`);
+
+        expect(deleteRes.status).toBe(200);
+        expect(deleteRes.body.deletedAt).toBeDefined();
+        expect(typeof deleteRes.body.deletedAt).toBe('number');
+        expect(deleteRes.body.id).toBe(itemId);
+      });
+
+      it('soft deleted item not returned in GET canvas list', async () => {
+        // Create an item
+        const createRes = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({
+            type: 'text',
+            content: 'Will be deleted',
+            filename: 'hidden.txt'
+          });
+
+        const itemId = createRes.body.id;
+
+        // Verify it appears in the list
+        let listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+        expect(listRes.body.some(i => i.id === itemId)).toBe(true);
+
+        // Soft delete
+        await request(app).delete(`/api/sessions/${sessionId}/canvas/${itemId}`);
+
+        // Verify it's no longer in the list
+        listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+        expect(listRes.body.some(i => i.id === itemId)).toBe(false);
+      });
+
+      it('returns 404 for non-existent item', async () => {
+        const res = await request(app)
+          .delete(`/api/sessions/${sessionId}/canvas/nonexistent-id`);
+
+        expect(res.status).toBe(404);
+        expect(res.body.error).toContain('not found');
+      });
+    });
+
+    describe('list trash (GET /:id/canvas-trash)', () => {
+      it('returns empty array when trash is empty', async () => {
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual([]);
+      });
+
+      it('returns only deleted items for session', async () => {
+        // Create two items
+        const item1 = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({ type: 'text', content: 'Active', filename: 'active.txt' });
+        const item2 = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({ type: 'text', content: 'Deleted', filename: 'deleted.txt' });
+
+        // Delete one
+        await request(app).delete(`/api/sessions/${sessionId}/canvas/${item2.body.id}`);
+
+        const trashRes = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`);
+        const listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+
+        expect(trashRes.status).toBe(200);
+        expect(trashRes.body).toHaveLength(1);
+        expect(trashRes.body[0].id).toBe(item2.body.id);
+
+        expect(listRes.body).toHaveLength(1);
+        expect(listRes.body[0].id).toBe(item1.body.id);
+      });
+
+      it('returns 404 for non-existent session', async () => {
+        const res = await request(app).get('/api/sessions/nonexistent-session/canvas-trash');
+
+        expect(res.status).toBe(404);
+        expect(res.body.error).toContain('Session not found');
+      });
+    });
+
+    describe('recover single item (POST /:id/canvas/:itemId/recover)', () => {
+      it('recovers item and returns it without deletedAt', async () => {
+        // Create and delete an item
+        const createRes = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({ type: 'text', content: 'Recover me', filename: 'recover.txt' });
+        const itemId = createRes.body.id;
+
+        await request(app).delete(`/api/sessions/${sessionId}/canvas/${itemId}`);
+
+        const recoverRes = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas/${itemId}/recover`);
+
+        expect(recoverRes.status).toBe(200);
+        expect(recoverRes.body.id).toBe(itemId);
+        expect(recoverRes.body.deletedAt).toBeNull();
+        expect(recoverRes.body.content).toBe('Recover me');
+      });
+
+      it('recovered item appears in canvas list again', async () => {
+        const createRes = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({ type: 'text', content: 'Test', filename: 'test.txt' });
+        const itemId = createRes.body.id;
+
+        // Delete and verify gone from list
+        await request(app).delete(`/api/sessions/${sessionId}/canvas/${itemId}`);
+        let listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+        expect(listRes.body.some(i => i.id === itemId)).toBe(false);
+
+        // Recover
+        await request(app).post(`/api/sessions/${sessionId}/canvas/${itemId}/recover`);
+
+        listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+        expect(listRes.body.some(i => i.id === itemId)).toBe(true);
+      });
+
+      it('returns 404 for non-existent item', async () => {
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas/nonexistent-id/recover`);
+
+        expect(res.status).toBe(404);
+        expect(res.body.error).toContain('not found');
+      });
+
+      it('returns 400 if item is not deleted', async () => {
+        const createRes = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({ type: 'text', content: 'Not deleted', filename: 'active.txt' });
+        const itemId = createRes.body.id;
+
+        const res = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas/${itemId}/recover`);
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain('not deleted');
+      });
+    });
+
+    describe('recover file (POST /:id/canvas-trash/recover-file/:filename)', () => {
+      it('recovers all versions of a file', async () => {
+        // Create multiple versions
+        await request(app).post(`/api/sessions/${sessionId}/canvas`)
+          .send({ type: 'text', content: 'V1', filename: 'multi.txt' });
+        await request(app).post(`/api/sessions/${sessionId}/canvas`)
+          .send({ type: 'text', content: 'V2', filename: 'multi.txt' });
+        await request(app).post(`/api/sessions/${sessionId}/canvas`)
+          .send({ type: 'text', content: 'V3', filename: 'multi.txt' });
+
+        // Get all items and delete them
+        let listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+        for (const item of listRes.body) {
+          await request(app).delete(`/api/sessions/${sessionId}/canvas/${item.id}`);
+        }
+
+        // Verify trash has 3 items
+        let trashRes = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`);
+        expect(trashRes.body).toHaveLength(3);
+
+        // Recover by filename
+        const recoverRes = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas-trash/recover-file/multi.txt`);
+
+        expect(recoverRes.status).toBe(200);
+        expect(recoverRes.body.recovered).toBe(3);
+
+        // Verify all are back in canvas list
+        listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+        expect(listRes.body).toHaveLength(3);
+
+        // Verify trash is empty
+        trashRes = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`);
+        expect(trashRes.body).toHaveLength(0);
+      });
+
+      it('returns count of recovered items', async () => {
+        await request(app).post(`/api/sessions/${sessionId}/canvas`)
+          .send({ type: 'text', content: 'V1', filename: 'count.txt' });
+        await request(app).post(`/api/sessions/${sessionId}/canvas`)
+          .send({ type: 'text', content: 'V2', filename: 'count.txt' });
+
+        let listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+        for (const item of listRes.body) {
+          await request(app).delete(`/api/sessions/${sessionId}/canvas/${item.id}`);
+        }
+
+        const recoverRes = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas-trash/recover-file/count.txt`);
+
+        expect(recoverRes.body).toHaveProperty('recovered');
+        expect(recoverRes.body.recovered).toBe(2);
+      });
+
+      it('returns 404 for non-existent session', async () => {
+        const res = await request(app)
+          .post('/api/sessions/nonexistent-session/canvas-trash/recover-file/test.txt');
+
+        expect(res.status).toBe(404);
+        expect(res.body.error).toContain('Session not found');
+      });
+    });
+
+    describe('permanent delete (DELETE /:id/canvas/:itemId/permanent)', () => {
+      it('permanently deletes item from database', async () => {
+        const createRes = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({ type: 'text', content: 'Gone forever', filename: 'perm.txt' });
+        const itemId = createRes.body.id;
+
+        // Soft delete first
+        await request(app).delete(`/api/sessions/${sessionId}/canvas/${itemId}`);
+
+        // Permanent delete
+        const permRes = await request(app)
+          .delete(`/api/sessions/${sessionId}/canvas/${itemId}/permanent`);
+
+        expect(permRes.status).toBe(204);
+
+        // Verify not in trash
+        const trashRes = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`);
+        expect(trashRes.body.some(i => i.id === itemId)).toBe(false);
+
+        // Verify not in canvas
+        const listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+        expect(listRes.body.some(i => i.id === itemId)).toBe(false);
+      });
+
+      it('returns 404 for non-existent item', async () => {
+        const res = await request(app)
+          .delete(`/api/sessions/${sessionId}/canvas/nonexistent-id/permanent`);
+
+        expect(res.status).toBe(404);
+        expect(res.body.error).toContain('not found');
+      });
+
+      it('returns 400 if item is not in trash', async () => {
+        const createRes = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({ type: 'text', content: 'Active item', filename: 'active.txt' });
+        const itemId = createRes.body.id;
+
+        const res = await request(app)
+          .delete(`/api/sessions/${sessionId}/canvas/${itemId}/permanent`);
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain('must be in trash');
+      });
+
+      it('returns 204 on success with no content', async () => {
+        const createRes = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({ type: 'text', content: 'Test', filename: 'nocontent.txt' });
+        const itemId = createRes.body.id;
+
+        await request(app).delete(`/api/sessions/${sessionId}/canvas/${itemId}`);
+
+        const res = await request(app)
+          .delete(`/api/sessions/${sessionId}/canvas/${itemId}/permanent`);
+
+        expect(res.status).toBe(204);
+        expect(res.text).toBe('');
+      });
+    });
+
+    describe('error handling continued', () => {
       it('prefers filePath mode when both filePath and inline content provided', async () => {
         // Create a temporary file
         const { writeFileSync } = await import('fs');

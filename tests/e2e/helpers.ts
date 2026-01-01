@@ -194,6 +194,43 @@ export async function getCanvasItems(sessionId: string) {
   return response.json();
 }
 
+export async function getCanvasTrash(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas-trash`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function deleteCanvasItem(sessionId: string, itemId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/${itemId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to delete canvas item');
+  return response.json();
+}
+
+export async function recoverCanvasItem(sessionId: string, itemId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/${itemId}/recover`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error('Failed to recover canvas item');
+  return response.json();
+}
+
+export async function recoverCanvasFile(sessionId: string, filename: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas-trash/recover-file/${encodeURIComponent(filename)}`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error('Failed to recover canvas file');
+  return response.json();
+}
+
+export async function permanentlyDeleteCanvasItem(sessionId: string, itemId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/${itemId}/permanent`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to permanently delete canvas item');
+}
+
 // ============================================================
 // Seeding Helpers
 // ============================================================
