@@ -171,6 +171,10 @@ export class SessionSummaryRepository extends BaseRepository {
 
   /**
    * Duplicates the session summary from one session to another.
+   * Note: PR-related fields (prMerged, prState, hasMergeConflicts, ciStatus, ciFailures)
+   * are NOT copied because the duplicated session is a fresh start and may create
+   * its own PR. Copying prMerged=true would prevent the summary from ever being
+   * regenerated (see summaryService.generateSummary skip logic).
    * @param {string} sourceSessionId - Source session ID
    * @param {string} targetSessionId - Target session ID
    */
@@ -185,11 +189,7 @@ export class SessionSummaryRepository extends BaseRepository {
         filesModified: summary.filesModified,
         outcome: summary.outcome,
         messageCount: summary.messageCount,
-        prMerged: summary.prMerged,
-        prState: summary.prState,
-        hasMergeConflicts: summary.hasMergeConflicts,
-        ciStatus: summary.ciStatus,
-        ciFailures: summary.ciFailures,
+        // PR-related fields intentionally omitted - see note above
       });
     }
   }
