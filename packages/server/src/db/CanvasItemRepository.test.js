@@ -501,11 +501,23 @@ describe('CanvasItemRepository', () => {
     });
 
     describe('duplicateForSession', () => {
+      let targetSessionId;
+      let targetProject;
+
+      const createTargetSession = () => {
+        targetProject = projectRepo.create('Target Project', '/tmp/target');
+        targetSessionId = databaseManager.generateId();
+        const now = Date.now();
+        databaseManager.get().prepare(
+          'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).run(targetSessionId, targetProject.id, 'Target Session', 'running', 'standard', now, now);
+      };
+
       it('should copy all canvas items to new session', () => {
         repo.create(sessionId, { type: 'image', filename: 'pic.png', content: 'base64data' });
         repo.create(sessionId, { type: 'markdown', content: '# Title' });
 
-        const targetSessionId = databaseManager.generateId();
+        createTargetSession();
         repo.duplicateForSession(sessionId, targetSessionId);
 
         const targetItems = repo.getBySessionId(targetSessionId);
@@ -523,7 +535,7 @@ describe('CanvasItemRepository', () => {
           height: 1080,
         });
 
-        const targetSessionId = databaseManager.generateId();
+        createTargetSession();
         repo.duplicateForSession(sessionId, targetSessionId);
 
         const targetItems = repo.getBySessionId(targetSessionId);
@@ -544,7 +556,7 @@ describe('CanvasItemRepository', () => {
           repo.create(sessionId, { type, filename: `file.${type}` });
         });
 
-        const targetSessionId = databaseManager.generateId();
+        createTargetSession();
         repo.duplicateForSession(sessionId, targetSessionId);
 
         const targetItems = repo.getBySessionId(targetSessionId);
@@ -555,7 +567,7 @@ describe('CanvasItemRepository', () => {
       it('should generate new IDs for all items', () => {
         const original = repo.create(sessionId, { type: 'text' });
 
-        const targetSessionId = databaseManager.generateId();
+        createTargetSession();
         repo.duplicateForSession(sessionId, targetSessionId);
 
         const targetItems = repo.getBySessionId(targetSessionId);
@@ -563,7 +575,7 @@ describe('CanvasItemRepository', () => {
       });
 
       it('should handle session with no canvas items', () => {
-        const targetSessionId = databaseManager.generateId();
+        createTargetSession();
         repo.duplicateForSession(sessionId, targetSessionId);
 
         expect(repo.getBySessionId(targetSessionId)).toHaveLength(0);
@@ -575,7 +587,7 @@ describe('CanvasItemRepository', () => {
           data: { key: 'value', nested: { a: 1 } },
         });
 
-        const targetSessionId = databaseManager.generateId();
+        createTargetSession();
         repo.duplicateForSession(sessionId, targetSessionId);
 
         const targetItems = repo.getBySessionId(targetSessionId);
@@ -587,7 +599,7 @@ describe('CanvasItemRepository', () => {
         const deleted = repo.create(sessionId, { type: 'text', content: 'Delete' });
         repo.softDelete(deleted.id);
 
-        const targetSessionId = databaseManager.generateId();
+        createTargetSession();
         repo.duplicateForSession(sessionId, targetSessionId);
 
         const targetItems = repo.getBySessionId(targetSessionId);

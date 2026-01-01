@@ -10,12 +10,22 @@ export class CanvasItemRepository extends BaseRepository {
   }
 
   static #mapCanvasItem(row) {
+    // Parse JSON data for json type
+    let data = row.data;
+    if (row.type === 'json' && typeof data === 'string') {
+      try {
+        data = JSON.parse(data);
+      } catch (e) {
+        // If parsing fails, keep as string
+      }
+    }
+
     return {
       id: row.id,
       sessionId: row.session_id,
       type: row.type,
       content: row.content,
-      data: row.data,
+      data: data,
       mimeType: row.mime_type,
       filename: row.filename,
       label: row.label,
@@ -29,6 +39,13 @@ export class CanvasItemRepository extends BaseRepository {
   create(sessionId, data) {
     const id = databaseManager.generateId();
     const now = Date.now();
+
+    // Serialize data field to JSON if it's an object
+    let dataValue = data.data || null;
+    if (dataValue !== null && typeof dataValue === 'object') {
+      dataValue = JSON.stringify(dataValue);
+    }
+
     this.db
       .prepare(
         `INSERT INTO canvas_items (id, session_id, type, content, data, mime_type, filename, label, width, height, created_at)
@@ -39,7 +56,7 @@ export class CanvasItemRepository extends BaseRepository {
         sessionId,
         data.type,
         data.content || null,
-        data.data || null,
+        dataValue,
         data.mimeType || null,
         data.filename || null,
         data.label || null,
