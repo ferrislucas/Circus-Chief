@@ -1186,6 +1186,229 @@ describe('Sessions Store', () => {
         expect(formatted.cacheRead).toBe('5.0K');
         expect(formatted.cacheCreation).toBe('2.5K');
       });
+
+      // Issue #324 - Improved fallback logic tests
+      describe('conversation/session fallback logic', () => {
+        it('falls back to session when conversation has zero tokens', () => {
+          const store = useSessionsStore();
+          store.activeConversationId = 'conv-1';
+          store.conversations = [
+            {
+              id: 'conv-1',
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheReadInputTokens: 0,
+              cacheCreationInputTokens: 0,
+            },
+          ];
+          store.currentSession = {
+            id: 'session-1',
+            inputTokens: 5000,
+            outputTokens: 2500,
+            cacheReadInputTokens: 500,
+            cacheCreationInputTokens: 250,
+          };
+          store.runningUsage = null;
+
+          const formatted = store.formattedTokens;
+          // Should use session data because conversation has zero tokens
+          expect(formatted.input).toBe('5.0K');
+          expect(formatted.output).toBe('2.5K');
+          expect(formatted.total).toBe('7.5K');
+          expect(formatted.cacheRead).toBe('500');
+          expect(formatted.cacheCreation).toBe('250');
+        });
+
+        it('uses conversation data when it has non-zero tokens', () => {
+          const store = useSessionsStore();
+          store.activeConversationId = 'conv-1';
+          store.conversations = [
+            {
+              id: 'conv-1',
+              inputTokens: 1000,
+              outputTokens: 500,
+              cacheReadInputTokens: 200,
+              cacheCreationInputTokens: 100,
+            },
+          ];
+          store.currentSession = {
+            id: 'session-1',
+            inputTokens: 5000,
+            outputTokens: 2500,
+          };
+          store.runningUsage = null;
+
+          const formatted = store.formattedTokens;
+          // Should use conversation data because it has non-zero tokens
+          expect(formatted.input).toBe('1.0K');
+          expect(formatted.output).toBe('500');
+          expect(formatted.total).toBe('1.5K');
+          expect(formatted.cacheRead).toBe('200');
+          expect(formatted.cacheCreation).toBe('100');
+        });
+
+        it('uses conversation when only inputTokens are non-zero', () => {
+          const store = useSessionsStore();
+          store.activeConversationId = 'conv-1';
+          store.conversations = [
+            {
+              id: 'conv-1',
+              inputTokens: 1000,
+              outputTokens: 0,
+            },
+          ];
+          store.currentSession = {
+            id: 'session-1',
+            inputTokens: 5000,
+            outputTokens: 2500,
+          };
+          store.runningUsage = null;
+
+          const formatted = store.formattedTokens;
+          // Should use conversation data because inputTokens is non-zero
+          expect(formatted.input).toBe('1.0K');
+          expect(formatted.output).toBe('0');
+          expect(formatted.total).toBe('1.0K');
+        });
+
+        it('uses conversation when only outputTokens are non-zero', () => {
+          const store = useSessionsStore();
+          store.activeConversationId = 'conv-1';
+          store.conversations = [
+            {
+              id: 'conv-1',
+              inputTokens: 0,
+              outputTokens: 500,
+            },
+          ];
+          store.currentSession = {
+            id: 'session-1',
+            inputTokens: 5000,
+            outputTokens: 2500,
+          };
+          store.runningUsage = null;
+
+          const formatted = store.formattedTokens;
+          // Should use conversation data because outputTokens is non-zero
+          expect(formatted.input).toBe('0');
+          expect(formatted.output).toBe('500');
+          expect(formatted.total).toBe('500');
+        });
+
+        it('falls back to session when activeConversationId is null', () => {
+          const store = useSessionsStore();
+          store.activeConversationId = null;
+          store.conversations = [
+            {
+              id: 'conv-1',
+              inputTokens: 1000,
+              outputTokens: 500,
+            },
+          ];
+          store.currentSession = {
+            id: 'session-1',
+            inputTokens: 5000,
+            outputTokens: 2500,
+          };
+          store.runningUsage = null;
+
+          const formatted = store.formattedTokens;
+          // Should use session data because activeConversationId is null
+          expect(formatted.input).toBe('5.0K');
+          expect(formatted.output).toBe('2.5K');
+          expect(formatted.total).toBe('7.5K');
+        });
+
+        it('falls back to session when conversations array is empty', () => {
+          const store = useSessionsStore();
+          store.activeConversationId = 'conv-1';
+          store.conversations = [];
+          store.currentSession = {
+            id: 'session-1',
+            inputTokens: 5000,
+            outputTokens: 2500,
+          };
+          store.runningUsage = null;
+
+          const formatted = store.formattedTokens;
+          // Should use session data because conversations array is empty
+          expect(formatted.input).toBe('5.0K');
+          expect(formatted.output).toBe('2.5K');
+          expect(formatted.total).toBe('7.5K');
+        });
+
+        it('falls back to session when active conversation not found', () => {
+          const store = useSessionsStore();
+          store.activeConversationId = 'non-existent-conv';
+          store.conversations = [
+            {
+              id: 'conv-1',
+              inputTokens: 1000,
+              outputTokens: 500,
+            },
+          ];
+          store.currentSession = {
+            id: 'session-1',
+            inputTokens: 5000,
+            outputTokens: 2500,
+          };
+          store.runningUsage = null;
+
+          const formatted = store.formattedTokens;
+          // Should use session data because active conversation not found
+          expect(formatted.input).toBe('5.0K');
+          expect(formatted.output).toBe('2.5K');
+          expect(formatted.total).toBe('7.5K');
+        });
+
+        it('prevents stale conversation data from overwriting session data during streaming', () => {
+          const store = useSessionsStore();
+          // Simulate a race condition where conversation has stale data
+          store.activeConversationId = 'conv-1';
+          store.conversations = [
+            {
+              id: 'conv-1',
+              inputTokens: 0, // Stale - hasn't been updated yet
+              outputTokens: 0,
+            },
+          ];
+          store.currentSession = {
+            id: 'session-1',
+            inputTokens: 10000,
+            outputTokens: 5000,
+          };
+          store.runningUsage = null;
+
+          const formatted = store.formattedTokens;
+          // Should fall back to session because conversation has zero tokens
+          expect(formatted.input).toBe('10.0K');
+          expect(formatted.output).toBe('5.0K');
+          expect(formatted.total).toBe('15.0K');
+
+          // Now simulate streaming updating the usage
+          store.runningUsage = {
+            inputTokens: 10000,
+            outputTokens: 7500,
+          };
+
+          const streamingFormatted = store.formattedTokens;
+          // Should use running usage during streaming
+          expect(streamingFormatted.input).toBe('10.0K');
+          expect(streamingFormatted.output).toBe('7.5K');
+          expect(streamingFormatted.total).toBe('17.5K');
+
+          // After streaming ends, conversation gets updated
+          store.runningUsage = null;
+          store.conversations[0].inputTokens = 10000;
+          store.conversations[0].outputTokens = 7500;
+
+          const finalFormatted = store.formattedTokens;
+          // Should use updated conversation data
+          expect(finalFormatted.input).toBe('10.0K');
+          expect(finalFormatted.output).toBe('7.5K');
+          expect(finalFormatted.total).toBe('17.5K');
+        });
+      });
     });
 
     describe('isUsageUpdating getter', () => {
