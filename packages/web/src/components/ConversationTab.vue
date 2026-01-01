@@ -77,9 +77,9 @@
       Session stopped - send a message to resume
     </div>
 
-    <!-- Quick Responses Panel - shows above the input when not running -->
+    <!-- Quick Responses Panel - shows above the input when not running or for draft sessions -->
     <QuickResponsesPanel
-      v-if="canSendMessage"
+      v-if="canSendMessage || isDraft"
       :show-empty="true"
       @insert="handleQuickResponseInsert"
       @openSettings="quickResponseSettingsOpen = true"
@@ -95,7 +95,7 @@
         @keydown="handleKeydown"
       ></textarea>
       <div class="input-controls">
-        <div class="session-options" v-if="!isDraft">
+        <div class="session-options">
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
           <div class="thinking-toggle">
             <label class="toggle-switch">
@@ -148,12 +148,12 @@
           </button>
         </div>
       </div>
-      <div v-if="!isDraft" class="model-row">
+      <div class="model-row">
         <ModelSelector :sessionId="sessionId" />
       </div>
 
       <!-- Template selector for chaining sessions -->
-      <div v-if="!isDraft" class="template-row">
+      <div class="template-row">
         <TemplateSelector
           :session-id="sessionId"
           :project-id="sessionsStore.currentSession?.projectId"
