@@ -471,7 +471,9 @@ describe('SessionSummaryRepository', () => {
       expect(repo.getBySessionId(targetSessionId)).toBeNull();
     });
 
-    it('should preserve all summary fields including PR and CI data', () => {
+    it('should NOT copy PR and CI data (allows summary regeneration for duplicated sessions)', () => {
+      // See summaryService.generateSummary: if prMerged=true, summary regeneration is skipped.
+      // Duplicated sessions should be able to have their summaries regenerated.
       const targetSessionId = databaseManager.generateId();
       const now = Date.now();
       databaseManager.get().prepare(
@@ -491,11 +493,12 @@ describe('SessionSummaryRepository', () => {
       repo.duplicateForSession(sessionId, targetSessionId);
 
       const targetSummary = repo.getBySessionId(targetSessionId);
-      expect(targetSummary.prMerged).toBe(true);
-      expect(targetSummary.prState).toBe('merged');
-      expect(targetSummary.hasMergeConflicts).toBe(false);
-      expect(targetSummary.ciStatus).toBe('passed');
-      expect(targetSummary.ciFailures).toEqual(['test1']);
+      // PR-related fields should NOT be copied
+      expect(targetSummary.prMerged).toBeNull();
+      expect(targetSummary.prState).toBeNull();
+      expect(targetSummary.hasMergeConflicts).toBeNull();
+      expect(targetSummary.ciStatus).toBeNull();
+      expect(targetSummary.ciFailures).toEqual([]);
     });
   });
 });
