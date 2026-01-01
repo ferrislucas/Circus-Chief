@@ -49,6 +49,10 @@ const uiStore = useUiStore();
 const handleDuplicate = async () => {
   if (isLoading.value) return;
 
+  if (!confirm('Duplicate this session? A new session will be created with all conversations, canvas items, and notes.')) {
+    return;
+  }
+
   isLoading.value = true;
   try {
     // Call the store action to duplicate the session
