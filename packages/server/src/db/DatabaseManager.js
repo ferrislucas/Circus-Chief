@@ -241,6 +241,14 @@ export class DatabaseManager {
       );
       CREATE INDEX IF NOT EXISTS idx_project_defaults_projectId ON project_session_defaults(project_id);
     `);
+
+    // Add show_on_list column to command_buttons table if it doesn't exist
+    const commandButtonsTableInfo = this.#db.prepare('PRAGMA table_info(command_buttons)').all();
+    const commandButtonsColumns = commandButtonsTableInfo.map((col) => col.name);
+
+    if (!commandButtonsColumns.includes('show_on_list')) {
+      this.#db.exec('ALTER TABLE command_buttons ADD COLUMN show_on_list INTEGER NOT NULL DEFAULT 0');
+    }
   }
 
   /**
