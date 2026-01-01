@@ -33,6 +33,7 @@
         <span class="section-label">Project</span>
         <div class="responses-row">
           <button
+            type="button"
             v-for="response in projectResponses"
             :key="response.id"
             @click="handleClick(response)"
@@ -51,6 +52,7 @@
         <span class="section-label">Global</span>
         <div class="responses-row">
           <button
+            type="button"
             v-for="response in globalResponses"
             :key="response.id"
             @click="handleClick(response)"
