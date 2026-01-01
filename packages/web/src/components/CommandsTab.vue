@@ -39,7 +39,7 @@
         v-for="button in commandButtonsStore.buttons"
         :key="button.id"
         :button="button"
-        :run="commandButtonsStore.getRun(currentRunIds[button.id])"
+        :run="commandButtonsStore.getLatestRunForButton(button.id, sessionId)"
         :session-id="sessionId"
         @run="onButtonRun(button.id)"
         @kill="onButtonKill(button.id)"
@@ -234,15 +234,11 @@ onMounted(async () => {
   setupWebSocketHandlers();
 
   // Fetch buttons and active runs in parallel for faster loading
-  const [, activeRuns] = await Promise.all([
+  // This populates the store so that getLatestRunForButton can retrieve them
+  await Promise.all([
     commandButtonsStore.fetchButtons(props.projectId),
     commandButtonsStore.fetchActiveRuns(props.sessionId),
   ]);
-
-  // Map button IDs to their current run IDs
-  for (const run of activeRuns) {
-    currentRunIds[run.buttonId] = run.runId;
-  }
 });
 
 onUnmounted(() => {

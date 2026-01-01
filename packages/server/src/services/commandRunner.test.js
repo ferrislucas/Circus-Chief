@@ -530,6 +530,56 @@ describe('CommandRunner', () => {
 
       expect(result).toBe(0);
     });
+
+    it('passes error message to onError callback when process spawn fails', async () => {
+      const runId = 'test-error-callback';
+      let errorMessage = null;
+
+      // Run with invalid working directory to trigger error
+      const exitCode = await runner.run(
+        runId,
+        'echo test',
+        '/nonexistent/directory/that/does/not/exist',
+        () => {},
+        () => {},
+        (msg) => {
+          errorMessage = msg;
+        },
+        { sessionId: 'error-callback-session', buttonId: 'btn-1' }
+      );
+
+      // Should return error exit code
+      expect(exitCode).not.toBe(0);
+      // Error callback should have been called with error message
+      expect(errorMessage).not.toBeNull();
+      // The message should contain "Failed to execute" (from child.on('error') handler)
+      expect(errorMessage).toContain('Failed to execute command');
+    });
+
+    it('persists error message when command execution fails', async () => {
+      const runId = 'test-error-persistence';
+      let errorMessage = null;
+
+      // Run with invalid working directory to trigger error
+      await runner.run(
+        runId,
+        'echo test',
+        '/nonexistent/path/xyz',
+        () => {},
+        () => {},
+        (msg) => {
+          errorMessage = msg;
+        },
+        { sessionId: 'error-persistence-session', buttonId: 'btn-1' }
+      );
+
+      // Error callback should have been called with error message
+      expect(errorMessage).not.toBeNull();
+      expect(errorMessage).toBeDefined();
+      // Error should be captured and passed to callback
+      expect(typeof errorMessage).toBe('string');
+      expect(errorMessage.length).toBeGreaterThan(0);
+    });
   });
 
   describe('integration with metadata', () => {

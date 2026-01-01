@@ -91,7 +91,40 @@ describe('CommandsTab', () => {
       expect(commandButtonsStore.fetchActiveRuns).toHaveBeenCalledWith('session-1');
     });
 
-    it('maps button IDs to current run IDs after fetch completes', async () => {
+    it('uses getLatestRunForButton to retrieve current run for each button', async () => {
+      // Setup store with multiple runs for same button in same session
+      commandButtonsStore.buttons = [
+        { id: 'btn-1', name: 'Test Button', command: 'npm test', projectId: 'proj-1' },
+      ];
+
+      // Pre-populate runs in store with multiple runs for the same button
+      commandButtonsStore.runs = {
+        'run-1': {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          sessionId: 'session-1',
+          startedAt: Date.now() - 10000,
+          status: 'success',
+          output: 'First run'
+        },
+        'run-2': {
+          runId: 'run-2',
+          buttonId: 'btn-1',
+          sessionId: 'session-1',
+          startedAt: Date.now(),
+          status: 'running',
+          output: 'Latest run'
+        },
+        'run-3': {
+          runId: 'run-3',
+          buttonId: 'btn-1',
+          sessionId: 'session-2', // Different session
+          startedAt: Date.now() - 5000,
+          status: 'success',
+          output: 'Different session run'
+        }
+      };
+
       const wrapper = mount(CommandsTab, {
         props: {
           projectId: 'proj-1',
@@ -108,9 +141,15 @@ describe('CommandsTab', () => {
 
       await flushPromises();
 
-      // Active runs mapping should be set up
-      // (This is internal state, but we verify the component doesn't error)
-      expect(wrapper.exists()).toBe(true);
+      // Verify getLatestRunForButton returns the most recent run for this session
+      const latestRun = commandButtonsStore.getLatestRunForButton('btn-1', 'session-1');
+
+      // Should return the most recent run (run-2) not run-1 (older) or run-3 (different session)
+      expect(latestRun).toBeDefined();
+      expect(latestRun.runId).toBe('run-2');
+      expect(latestRun.sessionId).toBe('session-1');
+      expect(latestRun.status).toBe('running');
+      expect(latestRun.output).toBe('Latest run');
     });
   });
 

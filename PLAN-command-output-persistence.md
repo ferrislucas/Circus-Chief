@@ -1,38 +1,140 @@
-# Plan: Persist Command Button Run Output
+# Plan: Fix Command Button Output Persistence Bug
 
 ## Problem Statement
 
-When navigating away from the Commands tab and returning:
-1. **Running commands** - Output streaming stops and doesn't resume
-2. **Completed commands** - Output is completely lost
+When navigating away from the Commands tab and returning, command output is sometimes gone. The user reports this happens more frequently with failed commands, and the issue is intermittent ("works correctly sometimes").
+
+## Status
+
+**Database persistence was already implemented.** The actual bugs are in the frontend component's run-to-button mapping logic.
+
+---
 
 ## Root Cause Analysis
 
-### Current Architecture Flow
+After tracing the complete data flow, I identified **two bugs** causing this issue:
+
+### Bug 1: Wrong Run Shown for Buttons with Multiple Runs (PRIMARY CAUSE)
+
+**Location:** `packages/web/src/components/CommandsTab.vue` lines 243-245
+
+**Problem:** When mapping button IDs to run IDs after fetching active runs:
+
+```javascript
+for (const run of activeRuns) {
+  currentRunIds[run.buttonId] = run.runId;
+}
 ```
-[User clicks Run] → [API creates runId] → [WebSocket streams output]
-                                                    ↓
-                                      [Component receives via onCommandOutput]
-                                                    ↓
-                                      [Pinia store appends to runs[runId].output]
+
+The runs are returned from the API in `ORDER BY started_at DESC` (newest first), but the loop iterates through ALL of them, **overwriting** the mapping with each iteration. This means for buttons with multiple runs, the mapping ends up pointing to the **oldest** run instead of the most recent one.
+
+**Example Scenario:**
+1. Button A has 3 runs: Run1 (oldest, success), Run2, Run3 (newest, failed)
+2. API returns: [Run3, Run2, Run1] (DESC order - newest first)
+3. Loop iteration 1: `currentRunIds[buttonA] = Run3.id` (correct!)
+4. Loop iteration 2: `currentRunIds[buttonA] = Run2.id` (overwrites!)
+5. Loop iteration 3: `currentRunIds[buttonA] = Run1.id` (overwrites!)
+6. Final result: Button A shows Run1 (oldest success), **not** Run3 (newest failure)
+
+**Why this explains the symptom:** The user sees output "disappear" for failed commands because:
+- They run a command → it fails → they see the failed output
+- They run it again → it succeeds → they see success output
+- They leave and return → they see the OLD successful run (because loop overwrote with oldest)
+
+### Bug 2: Empty Output on Command Spawn Failure
+
+**Location:** `packages/server/src/services/commandRunner.js` lines 167-175
+
+**Problem:** When a command fails to spawn (e.g., command not found), the exception handler saves empty output:
+
+```javascript
+} catch (err) {
+  const msg = `Error running command: ${err.message}`;
+  if (onError) onError(msg);  // Sends error via WebSocket
+  commandRuns.complete(runId, 1, '');  // <-- EMPTY STRING saved to DB!
+  // ...
+}
 ```
 
-### Problems Identified
+The error message is sent via WebSocket but **not persisted to database**. When the user returns to the tab, the database has empty output.
 
-1. **No database persistence** - Command runs exist only in memory:
-   - Server: `commandRunner.processes` Map (deleted when process ends)
-   - Client: `commandButtonsStore.runs` object (survives but loses mapping)
+---
 
-2. **WebSocket handler cleanup** - `CommandsTab.vue` cleans up handlers on unmount:
-   ```javascript
-   onUnmounted(() => {
-     cleanups.forEach((cleanup) => cleanup());  // Disconnects from updates
-   });
-   ```
+## Proposed Fixes
 
-3. **`fetchActiveRuns` only returns running processes** - The API endpoint only queries `commandRunner.getRunsBySession()` which only has running processes
+### Fix 1: Only Map First (Newest) Run Per Button
 
-4. **Component state lost** - `currentRunIds` is local reactive state, not persisted
+**File:** `packages/web/src/components/CommandsTab.vue`
+
+**Option A - Use existing getter (RECOMMENDED):**
+Replace:
+```html
+:run="commandButtonsStore.getRun(currentRunIds[button.id])"
+```
+With:
+```html
+:run="commandButtonsStore.getLatestRunForButton(button.id, sessionId)"
+```
+
+The store already has a `getLatestRunForButton` getter that correctly handles this!
+
+**Option B - Fix the loop:**
+```javascript
+for (const run of activeRuns) {
+  // Only set if not already set (first = newest due to DESC order)
+  if (!currentRunIds[run.buttonId]) {
+    currentRunIds[run.buttonId] = run.runId;
+  }
+}
+```
+
+### Fix 2: Persist Error Message on Spawn Failure
+
+**File:** `packages/server/src/services/commandRunner.js`
+
+Change:
+```javascript
+commandRuns.complete(runId, 1, '');
+```
+To:
+```javascript
+commandRuns.complete(runId, 1, `[Error] ${msg}`);
+```
+
+---
+
+## Files to Modify
+
+| File | Change | Priority |
+|------|--------|----------|
+| `packages/web/src/components/CommandsTab.vue` | Use `getLatestRunForButton` getter | HIGH |
+| `packages/server/src/services/commandRunner.js` | Persist error message on spawn failure | MEDIUM |
+
+---
+
+## Testing Plan
+
+1. **Test multiple runs per button (Bug 1):**
+   - Run a command that succeeds
+   - Leave and return to tab - verify success output shown
+   - Run same command again (fails this time)
+   - Leave and return to tab - verify FAILURE output shown (not old success)
+
+2. **Test failed command spawn (Bug 2):**
+   - Create button with invalid command (`nonexistent-command-xyz`)
+   - Run it
+   - Leave and return to tab - verify error message is shown
+
+3. **Regression tests:**
+   - Single run per button still works
+   - Running command shows live output
+   - Kill button works for running commands
+
+---
+
+## Previous Analysis (Archived)
+
+The following was the original analysis before database persistence was implemented. Keeping for reference.
 
 ## Solution Design
 
