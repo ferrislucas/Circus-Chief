@@ -1,0 +1,30 @@
+{
+  "name": "@claudetools/web",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@claudetools/shared": "1.0.0",
+    "ansi-to-html": "^0.7.2",
+    "dompurify": "^3.3.1",
+    "highlight.js": "^11.11.1",
+    "markdown-it": "^14.1.0",
+    "pinia": "^2.1.7",
+    "vite": "^5.0.12",
+    "vue": "^3.4.15",
+    "vue-router": "^4.2.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.3",
+    "@vue/test-utils": "^2.4.4",
+    "jsdom": "^24.1.3",
+    "vite": "^5.0.12",
+    "vitest": "^1.2.2"
+  }
+}

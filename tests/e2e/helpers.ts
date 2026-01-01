@@ -1,0 +1,679 @@
+import { Page, expect } from '@playwright/test';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+
+function getAPIURL(): string {
+  if (process.env.API_URL) return process.env.API_URL;
+
+  // Look for .server-port file in the project root (relative to cwd)
+  const portFile = join(process.cwd(), '.server-port');
+  if (existsSync(portFile)) {
+    const port = readFileSync(portFile, 'utf-8').trim();
+    return `http://localhost:${port}`;
+  }
+
+  return 'http://localhost:5000';
+}
+
+const API_URL = getAPIURL();
+
+// Generate unique test prefix per test run to avoid race conditions between parallel tests
+const TEST_RUN_ID = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+const TEST_PREFIX = `[TEST-${TEST_RUN_ID}] `;
+
+// ============================================================
+// Resource Tracking for Scoped Cleanup
+// ============================================================
+
+// Track created resources for scoped cleanup per test
+const createdResources = {
+  projects: new Set<string>(),
+  sessions: new Set<string>(),
+};
+
+/**
+ * Clear the resource tracking (called after cleanup)
+ */
+function clearResourceTracking() {
+  createdResources.projects.clear();
+  createdResources.sessions.clear();
+}
+
+/**
+ * Clean up only resources created by the current test
+ */
+export async function cleanupCreatedResources() {
+  // Delete sessions first (they depend on projects)
+  for (const sessionId of createdResources.sessions) {
+    try {
+      await fetch(`${API_URL}/api/sessions/${sessionId}`, { method: 'DELETE' });
+    } catch (e) {
+      // Ignore errors - session may already be deleted
+    }
+  }
+
+  // Then delete projects
+  for (const projectId of createdResources.projects) {
+    try {
+      await fetch(`${API_URL}/api/projects/${projectId}`, { method: 'DELETE' });
+    } catch (e) {
+      // Ignore errors - project may already be deleted
+    }
+  }
+
+  clearResourceTracking();
+}
+
+// ============================================================
+// Wait/Navigation Helpers for DOM Readiness
+// ============================================================
+
+/**
+ * Wait for page to be fully loaded and ready
+ */
+export async function waitForPageReady(page: Page, options: { timeout?: number } = {}) {
+  const timeout = options.timeout || 10000;
+  await page.waitForLoadState('networkidle', { timeout });
+  // Wait for any loading indicators to disappear
+  const loadingIndicators = page.locator('.loading, .spinner, [data-loading="true"]');
+  const count = await loadingIndicators.count();
+  if (count > 0) {
+    await expect(loadingIndicators.first()).not.toBeVisible({ timeout });
+  }
+}
+
+/**
+ * Navigate to a URL and wait for page to be ready
+ */
+export async function navigateAndWait(page: Page, url: string, options: { timeout?: number } = {}) {
+  await page.goto(url);
+  await waitForPageReady(page, options);
+}
+
+/**
+ * Wait for a session to exist in the API
+ */
+export async function waitForSessionToExist(sessionId: string, timeout = 5000): Promise<any> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const session = await getSession(sessionId);
+    if (session) return session;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Session ${sessionId} not found after ${timeout}ms`);
+}
+
+/**
+ * Wait for a project to have a certain number of sessions
+ */
+export async function waitForProjectSessions(
+  projectId: string,
+  minCount: number,
+  timeout = 5000
+): Promise<any[]> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const sessions = await getProjectSessions(projectId);
+    if (sessions.length >= minCount) return sessions;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Expected at least ${minCount} sessions, found less after ${timeout}ms`);
+}
+
+/**
+ * Wait for canvas items to exist
+ */
+export async function waitForCanvasItems(
+  sessionId: string,
+  minCount: number,
+  timeout = 5000
+): Promise<any[]> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const items = await getCanvasItems(sessionId);
+    if (items.length >= minCount) return items;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Expected at least ${minCount} canvas items, found less after ${timeout}ms`);
+}
+
+/**
+ * Wait for an element to be visible with extended timeout
+ */
+export async function waitForElement(
+  page: Page,
+  selector: string,
+  options: { timeout?: number; state?: 'visible' | 'attached' | 'hidden' } = {}
+) {
+  const element = page.locator(selector);
+  await element.waitFor({
+    state: options.state || 'visible',
+    timeout: options.timeout || 10000,
+  });
+  return element;
+}
+
+/**
+ * Wait for text to be visible on the page
+ */
+export async function waitForTextVisible(page: Page, text: string, timeout = 10000) {
+  await expect(page.getByText(text)).toBeVisible({ timeout });
+}
+
+// ============================================================
+// API Verification Helpers
+// ============================================================
+
+export async function getProject(id: string) {
+  const response = await fetch(`${API_URL}/api/projects/${id}`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+export async function getProjects() {
+  const response = await fetch(`${API_URL}/api/projects`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function getSession(id: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${id}`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+export async function getProjectSessions(projectId: string) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function getCanvasItems(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function getCanvasTrash(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas-trash`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function deleteCanvasItem(sessionId: string, itemId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/${itemId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to delete canvas item');
+  return response.json();
+}
+
+export async function recoverCanvasItem(sessionId: string, itemId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/${itemId}/recover`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error('Failed to recover canvas item');
+  return response.json();
+}
+
+export async function recoverCanvasFile(sessionId: string, filename: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas-trash/recover-file/${encodeURIComponent(filename)}`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error('Failed to recover canvas file');
+  return response.json();
+}
+
+export async function permanentlyDeleteCanvasItem(sessionId: string, itemId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/${itemId}/permanent`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to permanently delete canvas item');
+}
+
+// ============================================================
+// Seeding Helpers
+// ============================================================
+
+export async function seedProject(name: string, workingDirectory: string) {
+  const testName = `${TEST_PREFIX}${name}`;
+  const response = await fetch(`${API_URL}/api/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: testName, workingDirectory }),
+  });
+  if (!response.ok) throw new Error('Failed to seed project');
+  const project = await response.json();
+  // Track for scoped cleanup
+  createdResources.projects.add(project.id);
+  return project;
+}
+
+export async function seedSession(
+  projectId: string,
+  data: { prompt: string; name?: string; mode?: string }
+) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to seed session');
+  const session = await response.json();
+  // Track for scoped cleanup
+  createdResources.sessions.add(session.id);
+  return session;
+}
+
+export async function seedCanvasItem(
+  sessionId: string,
+  data: { type: string; content?: string; data?: string; mimeType?: string; label?: string; filePath?: string }
+) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to seed canvas item');
+  return response.json();
+}
+
+export async function cleanupAll() {
+  const projectsResponse = await fetch(`${API_URL}/api/projects`);
+  if (!projectsResponse.ok) return;
+
+  const projects = await projectsResponse.json();
+  for (const project of projects) {
+    // Only delete test projects (prefixed with [TEST])
+    if (project.name.startsWith(TEST_PREFIX)) {
+      await fetch(`${API_URL}/api/projects/${project.id}`, { method: 'DELETE' });
+    }
+  }
+}
+
+export async function waitForWebSocketMessage(
+  page: Page,
+  messageType: string,
+  timeout = 10000
+): Promise<any> {
+  return page.evaluate(
+    ({ messageType, timeout }) => {
+      return new Promise((resolve, reject) => {
+        const ws = (window as any).__testWebSocket;
+        if (!ws) {
+          reject(new Error('WebSocket not available'));
+          return;
+        }
+
+        const timeoutId = setTimeout(() => {
+          reject(new Error(`Timeout waiting for ${messageType}`));
+        }, timeout);
+
+        const handler = (event: MessageEvent) => {
+          const data = JSON.parse(event.data);
+          if (data.type === messageType) {
+            clearTimeout(timeoutId);
+            ws.removeEventListener('message', handler);
+            resolve(data);
+          }
+        };
+
+        ws.addEventListener('message', handler);
+      });
+    },
+    { messageType, timeout }
+  );
+}
+
+export async function waitForSessionStatus(
+  page: Page,
+  sessionId: string,
+  status: string,
+  timeout = 10000
+) {
+  await expect(async () => {
+    const statusBadge = page.locator(`.status-badge.status-${status}`);
+    await expect(statusBadge).toBeVisible();
+  }).toPass({ timeout });
+}
+
+export async function getSessionMessages(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/messages`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function sendSessionMessage(sessionId: string, content: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to send message');
+  }
+  return response.json();
+}
+
+export async function getSessionWorkLogs(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/work-logs`);
+  if (!response.ok) return {};
+  return response.json();
+}
+
+export async function seedWorkLog(
+  sessionId: string,
+  data: { type: string; content: string; toolName?: string; messageId?: string }
+) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/work-logs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to seed work log');
+  return response.json();
+}
+
+export async function updateSessionStatus(sessionId: string, status: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  if (!response.ok) throw new Error('Failed to update session status');
+  return response.json();
+}
+
+export async function updateSessionMode(sessionId: string, mode: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  });
+  if (!response.ok) throw new Error('Failed to update session mode');
+  return response.json();
+}
+
+// ============================================================
+// Template Helpers
+// ============================================================
+
+export async function seedProjectTemplate(
+  projectId: string,
+  data: { name: string; prompt: string; nextTemplateId?: string; thinkingEnabled?: boolean; gitBranch?: string }
+) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/templates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to seed project template');
+  return response.json();
+}
+
+export async function seedGlobalTemplate(data: {
+  name: string;
+  prompt: string;
+  nextTemplateId?: string;
+  thinkingEnabled?: boolean;
+  gitBranch?: string;
+}) {
+  const response = await fetch(`${API_URL}/api/templates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to seed global template');
+  return response.json();
+}
+
+export async function getTemplate(id: string) {
+  const response = await fetch(`${API_URL}/api/templates/${id}`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+export async function getProjectTemplates(projectId: string) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/templates`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function getGlobalTemplates() {
+  const response = await fetch(`${API_URL}/api/templates`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+export async function deleteTemplate(id: string) {
+  const response = await fetch(`${API_URL}/api/templates/${id}`, { method: 'DELETE' });
+  return response.ok;
+}
+
+export async function cleanupTemplates() {
+  // Clean up global templates
+  const globalTemplates = await getGlobalTemplates();
+  for (const template of globalTemplates) {
+    if (template.name.startsWith(TEST_PREFIX)) {
+      await deleteTemplate(template.id);
+    }
+  }
+}
+
+// ============================================================
+// Project Session Defaults Helpers
+// ============================================================
+
+export async function getProjectSessionDefaults(projectId: string) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/session-defaults`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+export async function setProjectSessionDefaults(
+  projectId: string,
+  defaults: {
+    mode?: string;
+    thinkingEnabled?: boolean;
+    startImmediately?: boolean;
+    gitMode?: string | null;
+    gitBranch?: string | null;
+    model?: string | null;
+  }
+) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/session-defaults`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(defaults),
+  });
+  if (!response.ok) throw new Error('Failed to set project session defaults');
+  return response.json();
+}
+
+export async function resetProjectSessionDefaults(projectId: string) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/session-defaults`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to reset project session defaults');
+  return response.json();
+}
+
+// ============================================================
+// File Attachment Helpers
+// ============================================================
+
+/**
+ * Seed a session with file attachments using FormData
+ */
+export async function seedSessionWithFiles(
+  projectId: string,
+  data: { prompt: string; name?: string; mode?: string },
+  files: Array<{ name: string; content: string; type: string }>
+) {
+  const formData = new FormData();
+  formData.append('prompt', data.prompt);
+  if (data.name) formData.append('name', data.name);
+  if (data.mode) formData.append('mode', data.mode);
+
+  // Add files to FormData
+  for (const file of files) {
+    const blob = new Blob([file.content], { type: file.type });
+    formData.append('files', blob, file.name);
+  }
+
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) throw new Error('Failed to seed session with files');
+  const session = await response.json();
+  // Track for scoped cleanup
+  createdResources.sessions.add(session.id);
+  return session;
+}
+
+/**
+ * Send a message with file attachments
+ */
+export async function sendMessageWithFiles(
+  sessionId: string,
+  content: string,
+  files: Array<{ name: string; content: string; type: string }>
+) {
+  const formData = new FormData();
+  formData.append('content', content);
+
+  // Add files to FormData
+  for (const file of files) {
+    const blob = new Blob([file.content], { type: file.type });
+    formData.append('files', blob, file.name);
+  }
+
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/message`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to send message with files');
+  }
+  return response.json();
+}
+
+/**
+ * Get attachments for a session
+ */
+export async function getSessionAttachments(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/messages`);
+  if (!response.ok) return [];
+  const messages = await response.json();
+  // Collect all attachments from all messages
+  const allAttachments: any[] = [];
+  for (const msg of messages) {
+    if (msg.attachments && msg.attachments.length > 0) {
+      allAttachments.push(...msg.attachments);
+    }
+  }
+  return allAttachments;
+}
+
+// ============================================================
+// Command Button Helpers
+// ============================================================
+
+export async function seedCommandButton(
+  projectId: string,
+  data: { label: string; command: string; sortOrder?: number }
+) {
+  const url = `${API_URL}/api/projects/${projectId}/command-buttons`;
+  console.log(`[seedCommandButton] POST ${url}`);
+  console.log(`[seedCommandButton] projectId: ${projectId}`);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  console.log(`[seedCommandButton] response.ok: ${response.ok}, status: ${response.status}`);
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.log(`[seedCommandButton] error response: ${errorText}`);
+    throw new Error(`Failed to seed command button: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Run a command button and return the run ID
+ */
+export async function runCommandButton(sessionId: string, buttonId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/run/${buttonId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to run command button: ${response.status} - ${errorText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Get a specific command run by ID
+ */
+export async function getCommandRun(sessionId: string, runId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/runs/${runId}`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+/**
+ * Get all command runs for a session
+ */
+export async function getCommandRuns(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/runs`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+/**
+ * Wait for a command run to complete (not 'running' status)
+ * Returns the completed run with output and exit code
+ */
+export async function waitForCommandRunComplete(
+  sessionId: string,
+  runId: string,
+  timeout = 30000
+): Promise<{
+  runId: string;
+  buttonId: string;
+  status: 'success' | 'error' | 'killed';
+  output: string;
+  exitCode: number;
+  startedAt: number;
+  completedAt?: number;
+}> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const run = await getCommandRun(sessionId, runId);
+    if (run && run.status !== 'running') {
+      return run;
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`Command run ${runId} did not complete after ${timeout}ms`);
+}
+
+/**
+ * Run a command button and wait for completion
+ * Convenience function that combines runCommandButton + waitForCommandRunComplete
+ */
+export async function runCommandButtonAndWait(
+  sessionId: string,
+  buttonId: string,
+  timeout = 30000
+) {
+  const { runId } = await runCommandButton(sessionId, buttonId);
+  return waitForCommandRunComplete(sessionId, runId, timeout);
+}
