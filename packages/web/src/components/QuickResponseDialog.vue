@@ -8,97 +8,99 @@
         </div>
 
         <form @submit.prevent="handleSubmit" class="dialog-form">
-          <!-- Label field -->
-          <div class="form-group">
-            <label for="qr-label" class="form-label">Label *</label>
-            <input
-              id="qr-label"
-              ref="labelInput"
-              v-model="form.label"
-              type="text"
-              class="form-input"
-              placeholder="e.g., Yes, LGTM, Run tests"
-              maxlength="50"
-              required
-              @blur="form.label = form.label.trim()"
-            />
-            <span class="form-help">Short text shown on the button (max 50 characters)</span>
-            <span v-if="labelError" class="form-error">{{ labelError }}</span>
-          </div>
-
-          <!-- Content field -->
-          <div class="form-group">
-            <label for="qr-content" class="form-label">Content *</label>
-            <textarea
-              id="qr-content"
-              v-model="form.content"
-              class="form-textarea"
-              placeholder="The full message that will be inserted into the prompt"
-              rows="4"
-              maxlength="10000"
-              required
-            ></textarea>
-            <span class="form-help">The full message that will be inserted (max 10,000 characters)</span>
-            <span v-if="contentError" class="form-error">{{ contentError }}</span>
-          </div>
-
-          <!-- Category field (optional) -->
-          <div class="form-group">
-            <label for="qr-category" class="form-label">Category (optional)</label>
-            <input
-              id="qr-category"
-              v-model="form.category"
-              type="text"
-              class="form-input"
-              placeholder="e.g., feedback, commands"
-              maxlength="50"
-            />
-            <span class="form-help">Optional grouping for organization</span>
-          </div>
-
-          <!-- Auto-submit option -->
-          <div class="form-group">
-            <label class="checkbox-label">
+          <div class="dialog-content">
+            <!-- Label field -->
+            <div class="form-group">
+              <label for="qr-label" class="form-label">Label *</label>
               <input
-                type="checkbox"
-                v-model="form.autoSubmit"
-                class="checkbox-input"
+                id="qr-label"
+                ref="labelInput"
+                v-model="form.label"
+                type="text"
+                class="form-input"
+                placeholder="e.g., Yes, LGTM, Run tests"
+                maxlength="50"
+                required
+                @blur="form.label = form.label.trim()"
               />
-              <span class="checkbox-text">Auto-submit</span>
-            </label>
-            <span class="form-help indent">Send immediately when clicked (no confirmation)</span>
-          </div>
-
-          <!-- Scope selection (only for new responses) -->
-          <div v-if="!isEditing" class="form-group">
-            <span class="form-label">Scope</span>
-            <div class="radio-group">
-              <label class="radio-label">
-                <input
-                  type="radio"
-                  v-model="form.isGlobal"
-                  :value="false"
-                  class="radio-input"
-                />
-                <span class="radio-text">Project-specific</span>
-              </label>
-              <label class="radio-label">
-                <input
-                  type="radio"
-                  v-model="form.isGlobal"
-                  :value="true"
-                  class="radio-input"
-                />
-                <span class="radio-text">Global (all projects)</span>
-              </label>
+              <span class="form-help">Short text shown on the button (max 50 characters)</span>
+              <span v-if="labelError" class="form-error">{{ labelError }}</span>
             </div>
+
+            <!-- Content field -->
+            <div class="form-group">
+              <label for="qr-content" class="form-label">Content *</label>
+              <textarea
+                id="qr-content"
+                v-model="form.content"
+                class="form-textarea"
+                placeholder="The full message that will be inserted into the prompt"
+                rows="4"
+                maxlength="10000"
+                required
+              ></textarea>
+              <span class="form-help">The full message that will be inserted (max 10,000 characters)</span>
+              <span v-if="contentError" class="form-error">{{ contentError }}</span>
+            </div>
+
+            <!-- Category field (optional) -->
+            <div class="form-group">
+              <label for="qr-category" class="form-label">Category (optional)</label>
+              <input
+                id="qr-category"
+                v-model="form.category"
+                type="text"
+                class="form-input"
+                placeholder="e.g., feedback, commands"
+                maxlength="50"
+              />
+              <span class="form-help">Optional grouping for organization</span>
+            </div>
+
+            <!-- Auto-submit option -->
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input
+                  type="checkbox"
+                  v-model="form.autoSubmit"
+                  class="checkbox-input"
+                />
+                <span class="checkbox-text">Auto-submit</span>
+              </label>
+              <span class="form-help indent">Send immediately when clicked (no confirmation)</span>
+            </div>
+
+            <!-- Scope selection (only for new responses) -->
+            <div v-if="!isEditing" class="form-group">
+              <span class="form-label">Scope</span>
+              <div class="radio-group">
+                <label class="radio-label">
+                  <input
+                    type="radio"
+                    v-model="form.isGlobal"
+                    :value="false"
+                    class="radio-input"
+                  />
+                  <span class="radio-text">Project-specific</span>
+                </label>
+                <label class="radio-label">
+                  <input
+                    type="radio"
+                    v-model="form.isGlobal"
+                    :value="true"
+                    class="radio-input"
+                  />
+                  <span class="radio-text">Global (all projects)</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Error message -->
+            <div v-if="error" class="error-message">{{ error }}</div>
           </div>
 
-          <!-- Error message -->
-          <div v-if="error" class="error-message">{{ error }}</div>
-
-          <!-- Actions -->
-          <div class="dialog-actions">
+          <!-- Actions - fixed at bottom -->
+          <div class="dialog-footer">
             <button type="button" class="btn btn-secondary" @click="handleCancel">Cancel</button>
             <button type="submit" class="btn btn-primary" :disabled="!isValid || saving">
               {{ saving ? 'Saving...' : (isEditing ? 'Save Changes' : 'Save Quick Response') }}
@@ -273,7 +275,9 @@ async function handleSubmit() {
   width: 100%;
   max-width: 500px;
   max-height: 90vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
 }
 
@@ -283,6 +287,7 @@ async function handleSubmit() {
   justify-content: space-between;
   padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .dialog-title {
@@ -307,6 +312,15 @@ async function handleSubmit() {
 }
 
 .dialog-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.dialog-content {
+  flex: 1;
+  overflow-y: auto;
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
@@ -399,11 +413,13 @@ async function handleSubmit() {
   font-size: 0.875rem;
 }
 
-.dialog-actions {
+.dialog-footer {
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
-  margin-top: 0.5rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .btn {
