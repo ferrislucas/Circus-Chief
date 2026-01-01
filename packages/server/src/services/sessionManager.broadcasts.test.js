@@ -458,6 +458,335 @@ describe('sessionManager broadcasts', () => {
       expect(usageUpdate[2].session.inputTokens).toBe(600);
       expect(usageUpdate[2].session.outputTokens).toBe(300);
     });
+
+    it('broadcasts usage from message_start stream event', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_start',
+            message: {
+              usage: {
+                input_tokens: 150,
+                output_tokens: 1,
+                cache_read_input_tokens: 50,
+                cache_creation_input_tokens: 0,
+              },
+            },
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Find SESSION_USAGE_UPDATE broadcasts
+      const usageUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE
+      );
+
+      // Should have at least one partial update from message_start
+      const partialUpdate = usageUpdateCalls.find((call) => call[2]?.isFinal === false);
+      expect(partialUpdate).toBeDefined();
+      expect(partialUpdate[2].usage.inputTokens).toBe(150);
+      expect(partialUpdate[2].usage.cacheReadInputTokens).toBe(50);
+    });
+
+    it('broadcasts usage from message_delta stream event', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_delta',
+            usage: {
+              output_tokens: 75,
+            },
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Find SESSION_USAGE_UPDATE broadcasts
+      const usageUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE
+      );
+
+      // Should have at least one partial update from message_delta
+      const partialUpdate = usageUpdateCalls.find((call) => call[2]?.isFinal === false);
+      expect(partialUpdate).toBeDefined();
+      expect(partialUpdate[2].usage.outputTokens).toBe(75);
+    });
+
+    it('accumulates usage from message_start and message_delta events', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        // message_start with initial input tokens
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_start',
+            message: {
+              usage: {
+                input_tokens: 200,
+                output_tokens: 1,
+              },
+            },
+          },
+        };
+        // message_delta with streaming output tokens
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_delta',
+            usage: {
+              output_tokens: 50,
+            },
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Find all partial usage updates
+      const usageUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE && call[2]?.isFinal === false
+      );
+
+      // Should have 2 partial updates (message_start + message_delta)
+      expect(usageUpdateCalls.length).toBe(2);
+
+      // First update from message_start
+      expect(usageUpdateCalls[0][2].usage.inputTokens).toBe(200);
+      expect(usageUpdateCalls[0][2].usage.outputTokens).toBe(1);
+
+      // Second update from message_delta (accumulated)
+      expect(usageUpdateCalls[1][2].usage.inputTokens).toBe(200);
+      expect(usageUpdateCalls[1][2].usage.outputTokens).toBe(51); // 1 + 50
+    });
+
+    it('handles message_start without usage gracefully', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_start',
+            message: {}, // No usage field
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      // Should not throw
+      await expect(runSession(sessionId, 'Test prompt', tempDir)).resolves.not.toThrow();
+
+      // Should not broadcast any partial usage updates
+      const usageUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE && call[2]?.isFinal === false
+      );
+      expect(usageUpdateCalls.length).toBe(0);
+    });
+
+    it('handles message_delta without usage gracefully', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_delta',
+            // No usage field
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      // Should not throw
+      await expect(runSession(sessionId, 'Test prompt', tempDir)).resolves.not.toThrow();
+
+      // Should not broadcast any partial usage updates
+      const usageUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE && call[2]?.isFinal === false
+      );
+      expect(usageUpdateCalls.length).toBe(0);
+    });
+
+    it('includes conversationId in message_start usage updates', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_start',
+            message: {
+              usage: { input_tokens: 100, output_tokens: 1 },
+            },
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      const usageUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE && call[2]?.isFinal === false
+      );
+
+      expect(usageUpdateCalls.length).toBe(1);
+      expect(usageUpdateCalls[0][2]).toHaveProperty('conversationId');
+      expect(usageUpdateCalls[0][2].conversationId).not.toBeNull();
+    });
+
+    it('accumulates multiple message_delta events correctly', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_start',
+            message: { usage: { input_tokens: 100, output_tokens: 1 } },
+          },
+        };
+        // Multiple message_delta events simulating streaming
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_delta', usage: { output_tokens: 10 } },
+        };
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_delta', usage: { output_tokens: 25 } },
+        };
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_delta', usage: { output_tokens: 50 } },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      const usageUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE && call[2]?.isFinal === false
+      );
+
+      // Should have 4 partial updates (1 message_start + 3 message_delta)
+      expect(usageUpdateCalls.length).toBe(4);
+
+      // Verify accumulation: 1 + 10 + 25 + 50 = 86
+      expect(usageUpdateCalls[0][2].usage.outputTokens).toBe(1);
+      expect(usageUpdateCalls[1][2].usage.outputTokens).toBe(11);  // 1 + 10
+      expect(usageUpdateCalls[2][2].usage.outputTokens).toBe(36);  // 11 + 25
+      expect(usageUpdateCalls[3][2].usage.outputTokens).toBe(86);  // 36 + 50
+    });
+
+    it('handles realistic full streaming flow with text content', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        // message_start - initial tokens
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_start',
+            message: { usage: { input_tokens: 500, output_tokens: 1 } },
+          },
+        };
+        // content_block_delta - text streaming (no usage)
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: 'Hello ' },
+          },
+        };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            delta: { type: 'text_delta', text: 'world!' },
+          },
+        };
+        // message_delta - final output tokens
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_delta', usage: { output_tokens: 15 } },
+        };
+        // assistant message with complete content
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'Hello world!' }] },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Verify partial text was streamed
+      const partialCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_PARTIAL
+      );
+      expect(partialCalls.length).toBe(2);
+      expect(partialCalls[0][2].text).toBe('Hello ');
+      expect(partialCalls[1][2].text).toBe('world!');
+
+      // Verify usage was streamed
+      const usageUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE && call[2]?.isFinal === false
+      );
+      expect(usageUpdateCalls.length).toBe(2); // message_start + message_delta
+
+      // First from message_start
+      expect(usageUpdateCalls[0][2].usage.inputTokens).toBe(500);
+      expect(usageUpdateCalls[0][2].usage.outputTokens).toBe(1);
+
+      // Second from message_delta (accumulated)
+      expect(usageUpdateCalls[1][2].usage.inputTokens).toBe(500);
+      expect(usageUpdateCalls[1][2].usage.outputTokens).toBe(16); // 1 + 15
+    });
+
+    it('combines stream event usage with assistant message usage', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        // Initial stream events
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_start',
+            message: { usage: { input_tokens: 100, output_tokens: 1 } },
+          },
+        };
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_delta', usage: { output_tokens: 20 } },
+        };
+        // Assistant message with additional usage (e.g., tool use)
+        yield {
+          type: 'assistant',
+          message: {
+            content: [{ type: 'text', text: 'Response 1' }],
+            usage: { input_tokens: 50, output_tokens: 30 },
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      const usageUpdateCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE && call[2]?.isFinal === false
+      );
+
+      // Should have 3 partial updates: message_start, message_delta, assistant
+      expect(usageUpdateCalls.length).toBe(3);
+
+      // Final accumulated values: 100+50=150 input, 1+20+30=51 output
+      const lastUpdate = usageUpdateCalls[usageUpdateCalls.length - 1];
+      expect(lastUpdate[2].usage.inputTokens).toBe(150);
+      expect(lastUpdate[2].usage.outputTokens).toBe(51);
+    });
   });
 
   // Issue #175 - Conversation-level token tracking
