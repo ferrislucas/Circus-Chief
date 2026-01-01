@@ -1,0 +1,267 @@
+import { defineStore } from 'pinia';
+import { api } from '../composables/useApi.js';
+
+export const useCanvasStore = defineStore('canvas', {
+  state: () => ({
+    items: [],
+    trashedItems: [],
+    loading: false,
+    error: null,
+    selectedItemIds: new Set(),
+    bulkOperationInProgress: false,
+  }),
+
+  getters: {
+    selectedItemCount: (state) => state.selectedItemIds.size,
+
+    isAllItemsSelected: (state) => {
+      return state.items.length > 0 && state.selectedItemIds.size === state.items.length;
+    },
+
+    isPartialSelection: (state) => {
+      return state.selectedItemIds.size > 0 && state.selectedItemIds.size < state.items.length;
+    },
+
+    selectedItems: (state) => {
+      return state.items.filter(item => state.selectedItemIds.has(item.id));
+    },
+
+    // Group items by filename, return latest of each with version info
+    groupedItems: (state) => {
+      const groups = {};
+      for (const item of state.items) {
+        const key = item.filename || item.label || item.id;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(item);
+      }
+      return Object.values(groups)
+        .map((versions) => {
+          versions.sort((a, b) => b.createdAt - a.createdAt);
+          return {
+            ...versions[0],
+            versionCount: versions.length,
+            allVersions: versions,
+          };
+        })
+        .sort((a, b) => b.createdAt - a.createdAt);
+    },
+
+    // Group trashed items by filename, return latest of each with version info
+    groupedTrashedItems: (state) => {
+      const groups = {};
+      for (const item of state.trashedItems) {
+        const key = item.filename || item.label || item.id;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(item);
+      }
+      return Object.values(groups)
+        .map((versions) => {
+          versions.sort((a, b) => b.deletedAt - a.deletedAt);
+          return {
+            ...versions[0],
+            versionCount: versions.length,
+            allVersions: versions,
+          };
+        })
+        .sort((a, b) => b.deletedAt - a.deletedAt);
+    },
+  },
+
+  actions: {
+    async fetchItems(sessionId) {
+      this.loading = true;
+      this.error = null;
+      try {
+        this.items = await api.getCanvasItems(sessionId);
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async deleteItem(sessionId, itemId) {
+      this.error = null;
+      try {
+        const deletedItem = await api.deleteCanvasItem(sessionId, itemId);
+        this.items = this.items.filter((i) => i.id !== itemId);
+        this.trashedItems.unshift(deletedItem);
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    async deleteGroup(sessionId, filename) {
+      const toDelete = this.items.filter(
+        (i) => (i.filename || i.label || i.id) === filename
+      );
+      for (const item of toDelete) {
+        await this.deleteItem(sessionId, item.id);
+      }
+    },
+
+    async uploadItem(sessionId, file, label = null) {
+      this.loading = true;
+      this.error = null;
+      try {
+        const item = await api.uploadCanvasItem(sessionId, file, label);
+        this.items.unshift(item);
+        return item;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    addItem(item) {
+      this.items.unshift(item);
+    },
+
+    removeItem(itemId) {
+      this.items = this.items.filter((i) => i.id !== itemId);
+    },
+
+    async fetchTrashedItems(sessionId) {
+      this.error = null;
+      try {
+        this.trashedItems = await api.getCanvasTrash(sessionId);
+      } catch (err) {
+        this.error = err.message;
+      }
+    },
+
+    async recoverItem(sessionId, itemId) {
+      this.error = null;
+      try {
+        const item = await api.recoverCanvasItem(sessionId, itemId);
+        this.trashedItems = this.trashedItems.filter((i) => i.id !== itemId);
+        this.items.unshift(item);
+        return item;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    async recoverFile(sessionId, filename) {
+      this.error = null;
+      try {
+        await api.recoverCanvasFile(sessionId, filename);
+        // Refresh both lists
+        await this.fetchItems(sessionId);
+        await this.fetchTrashedItems(sessionId);
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    async permanentlyDeleteItem(sessionId, itemId) {
+      this.error = null;
+      try {
+        await api.permanentlyDeleteCanvasItem(sessionId, itemId);
+        this.trashedItems = this.trashedItems.filter((i) => i.id !== itemId);
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    // Selection actions
+    toggleItemSelection(itemId) {
+      if (this.selectedItemIds.has(itemId)) {
+        this.selectedItemIds.delete(itemId);
+      } else {
+        this.selectedItemIds.add(itemId);
+      }
+    },
+
+    selectAllItems() {
+      for (const item of this.items) {
+        this.selectedItemIds.add(item.id);
+      }
+    },
+
+    deselectAllItems() {
+      this.selectedItemIds.clear();
+    },
+
+    // Bulk delete items (soft delete - move to trash)
+    async bulkDeleteItems(sessionId, itemIds) {
+      this.bulkOperationInProgress = true;
+      this.error = null;
+      try {
+        const result = await api.bulkDeleteCanvasItems(sessionId, itemIds);
+
+        // Remove from active items
+        const deletedIds = new Set(itemIds);
+        this.items = this.items.filter((i) => !deletedIds.has(i.id));
+
+        // Clear selection
+        this.selectedItemIds.clear();
+
+        return result;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.bulkOperationInProgress = false;
+      }
+    },
+
+    // Bulk recover items from trash
+    async bulkRecoverItems(sessionId, itemIds) {
+      this.bulkOperationInProgress = true;
+      this.error = null;
+      try {
+        const result = await api.bulkRecoverCanvasItems(sessionId, itemIds);
+
+        // Get the items from trash before removing
+        const recoveredIds = new Set(itemIds);
+        const recoveredItems = this.trashedItems.filter((i) => recoveredIds.has(i.id));
+
+        // Remove from trash
+        this.trashedItems = this.trashedItems.filter((i) => !recoveredIds.has(i.id));
+
+        // Add back to active items
+        this.items.unshift(...recoveredItems);
+
+        // Clear selection
+        this.selectedItemIds.clear();
+
+        return result;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.bulkOperationInProgress = false;
+      }
+    },
+
+    // Bulk permanently delete items from trash
+    async bulkPermanentlyDeleteItems(sessionId, itemIds) {
+      this.bulkOperationInProgress = true;
+      this.error = null;
+      try {
+        const result = await api.bulkPermanentlyDeleteCanvasItems(sessionId, itemIds);
+
+        // Remove from trash
+        const deletedIds = new Set(itemIds);
+        this.trashedItems = this.trashedItems.filter((i) => !deletedIds.has(i.id));
+
+        // Clear selection
+        this.selectedItemIds.clear();
+
+        return result;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.bulkOperationInProgress = false;
+      }
+    },
+  },
+});

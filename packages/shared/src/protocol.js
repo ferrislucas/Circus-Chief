@@ -1,0 +1,66 @@
+/**
+ * WebSocket message types
+ */
+
+export const WS_MESSAGE_TYPES = {
+  // Client -> Server
+  SUBSCRIBE_SESSION: 'subscribe:session',
+  UNSUBSCRIBE_SESSION: 'unsubscribe:session',
+  SUBSCRIBE_PROJECT: 'subscribe:project',
+  UNSUBSCRIBE_PROJECT: 'unsubscribe:project',
+
+  // Server -> Client
+  SESSION_CREATED: 'session:created',
+  SESSION_STATUS: 'session:status',
+  SESSION_MESSAGE: 'session:message',
+  SESSION_PARTIAL: 'session:partial',
+  SESSION_ERROR: 'session:error',
+  SESSION_DELETED: 'session:deleted',
+  SESSION_WORK_LOG: 'session:work_log',
+  SESSION_WORK_LOGS_ASSOCIATED: 'session:work_logs_associated',
+  SESSION_THINKING_PARTIAL: 'session:thinking_partial',
+  SESSION_SUMMARY_UPDATED: 'session:summary_updated',
+  SESSION_SUMMARY_GENERATING: 'session:summary_generating',
+  SESSION_UPDATED: 'session:updated',
+  CANVAS_ADD: 'canvas:add',
+  CANVAS_REMOVE: 'canvas:remove',
+  TODOS_UPDATE: 'todos:update',
+  CHANGES_UPDATE: 'changes:update',
+
+  // Conversation events
+  CONVERSATION_CREATED: 'conversation:created',
+  CONVERSATION_UPDATED: 'conversation:updated',
+  CONVERSATION_DELETED: 'conversation:deleted',
+  CONVERSATION_SUMMARY_UPDATED: 'conversation:summary_updated',
+
+  // Usage events
+  SESSION_USAGE_UPDATE: 'session:usage_update',
+
+  // Command button events
+  COMMAND_RUN_OUTPUT: 'command:run:output',
+  COMMAND_RUN_COMPLETE: 'command:run:complete',
+  COMMAND_RUN_ERROR: 'command:run:error',
+};
+
+/**
+ * Create a WebSocket message
+ * @param {string} type
+ * @param {Object} payload
+ * @returns {string}
+ */
+export function createMessage(type, payload) {
+  return JSON.stringify({ type, ...payload });
+}
+
+/**
+ * Parse a WebSocket message
+ * @param {string} data
+ * @returns {{ type: string, [key: string]: any } | null}
+ */
+export function parseMessage(data) {
+  try {
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
+}
