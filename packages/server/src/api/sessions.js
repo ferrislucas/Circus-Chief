@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { readFileSync, existsSync } from 'fs';
+import { extname, resolve, normalize } from 'path';
 import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons, commandRuns } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges, getChangesBranch } from '../services/diffService.js';
@@ -64,6 +66,71 @@ router.get('/:id/changes', async (req, res) => {
     }
 
     res.json(changes);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Image MIME types for the file endpoint
+const IMAGE_MIME_TYPES = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+};
+
+// GET /api/sessions/:id/file - Get a file from the session's working directory
+// Used for displaying images in the diff viewer
+router.get('/:id/file', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const project = projects.getById(session.projectId);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const { path: filePath } = req.query;
+  if (!filePath) {
+    return res.status(400).json({ error: 'path query parameter is required' });
+  }
+
+  // Use gitWorktree if set, otherwise use the project's working directory
+  const directory = session.gitWorktree || project.workingDirectory;
+
+  // Security: ensure the requested path is within the working directory
+  const fullPath = resolve(directory, filePath);
+  const normalizedDir = normalize(directory);
+  if (!fullPath.startsWith(normalizedDir)) {
+    return res.status(403).json({ error: 'Access denied: path outside working directory' });
+  }
+
+  if (!existsSync(fullPath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  try {
+    const ext = extname(fullPath).toLowerCase();
+    const mimeType = IMAGE_MIME_TYPES[ext];
+
+    if (!mimeType) {
+      return res.status(400).json({ error: 'Only image files are supported' });
+    }
+
+    const fileBuffer = readFileSync(fullPath);
+    const base64 = fileBuffer.toString('base64');
+
+    res.json({
+      data: base64,
+      mimeType,
+      filename: filePath,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

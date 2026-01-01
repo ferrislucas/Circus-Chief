@@ -28,6 +28,13 @@ vi.mock('./MarkdownViewer.vue', () => ({
   },
 }));
 
+// Mock API client
+vi.mock('../api/index.js', () => ({
+  api: {
+    getSessionFile: vi.fn(),
+  },
+}));
+
 describe('DiffViewer.vue', () => {
   let wrapper;
 
@@ -511,6 +518,163 @@ index 1234567..abcdefg 100644
       const emittedState = emitSpy.mock.calls[0][0];
       expect(emittedState['file1.js']).toBe(false);
       expect(emittedState['file2.js']).toBe(false);
+    });
+  });
+
+  describe('image file handling', () => {
+    it('renders image preview container for PNG files when expanded', async () => {
+      const imageDiff = `diff --git a/image.png b/image.png
+Binary files a/image.png and b/image.png differ`;
+      const files = parseDiff(imageDiff);
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          sessionId: 'sess-123',
+          externalExpandedState: { 'image.png': true },
+        },
+      });
+
+      await flushAll(wrapper);
+      // Check that image preview container is rendered
+      expect(wrapper.find('.image-preview-container').exists()).toBe(true);
+    });
+
+    it('renders image preview container for JPEG files when expanded', async () => {
+      const jpegDiff = `diff --git a/photo.jpg b/photo.jpg
+Binary files a/photo.jpg and b/photo.jpg differ`;
+      const files = parseDiff(jpegDiff);
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          sessionId: 'sess-123',
+          externalExpandedState: { 'photo.jpg': true },
+        },
+      });
+
+      await flushAll(wrapper);
+      expect(wrapper.find('.image-preview-container').exists()).toBe(true);
+    });
+
+    it('renders image preview container for GIF files when expanded', async () => {
+      const gifDiff = `diff --git a/animation.gif b/animation.gif
+Binary files a/animation.gif and b/animation.gif differ`;
+      const files = parseDiff(gifDiff);
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          sessionId: 'sess-123',
+          externalExpandedState: { 'animation.gif': true },
+        },
+      });
+
+      await flushAll(wrapper);
+      expect(wrapper.find('.image-preview-container').exists()).toBe(true);
+    });
+
+    it('renders image preview container for SVG files when expanded', async () => {
+      const svgDiff = `diff --git a/icon.svg b/icon.svg
+Binary files a/icon.svg and b/icon.svg differ`;
+      const files = parseDiff(svgDiff);
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          sessionId: 'sess-123',
+          externalExpandedState: { 'icon.svg': true },
+        },
+      });
+
+      await flushAll(wrapper);
+      expect(wrapper.find('.image-preview-container').exists()).toBe(true);
+    });
+
+    it('renders image preview container for WebP files when expanded', async () => {
+      const webpDiff = `diff --git a/modern.webp b/modern.webp
+Binary files a/modern.webp and b/modern.webp differ`;
+      const files = parseDiff(webpDiff);
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          sessionId: 'sess-123',
+          externalExpandedState: { 'modern.webp': true },
+        },
+      });
+
+      await flushAll(wrapper);
+      expect(wrapper.find('.image-preview-container').exists()).toBe(true);
+    });
+
+    it('accepts sessionId prop for image loading', () => {
+      const imageDiff = `diff --git a/image.png b/image.png
+Binary files a/image.png and b/image.png differ`;
+      const files = parseDiff(imageDiff);
+
+      // Mount with sessionId
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          sessionId: 'sess-123',
+        },
+      });
+
+      expect(wrapper.exists()).toBe(true);
+      expect(wrapper.props('sessionId')).toBe('sess-123');
+    });
+
+    it('mounts without sessionId prop', () => {
+      const imageDiff = `diff --git a/image.png b/image.png
+Binary files a/image.png and b/image.png differ`;
+      const files = parseDiff(imageDiff);
+
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          sessionId: null,
+        },
+      });
+
+      expect(wrapper.exists()).toBe(true);
+      expect(wrapper.props('sessionId')).toBeNull();
+    });
+
+    it('displays binary file notice for non-image binary files', async () => {
+      const binaryDiff = `diff --git a/archive.zip b/archive.zip
+Binary files a/archive.zip and b/archive.zip differ`;
+      const files = parseDiff(binaryDiff);
+
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          sessionId: 'sess-123',
+          externalExpandedState: { 'archive.zip': true },
+        },
+      });
+
+      await flushAll(wrapper);
+
+      // The component should render a binary file notice
+      const binaryNotice = wrapper.find('.binary-file-notice');
+      expect(binaryNotice.exists()).toBe(true);
+    });
+
+    it('supports image file preview when expanded', async () => {
+      const imageDiff = `diff --git a/screenshot.png b/screenshot.png
+new file mode 100644
+Binary files /dev/null and b/screenshot.png differ`;
+      const files = parseDiff(imageDiff);
+
+      const wrapper = mount(DiffViewer, {
+        props: {
+          files,
+          sessionId: 'sess-123',
+          externalExpandedState: { 'screenshot.png': true },
+        },
+      });
+
+      await flushAll(wrapper);
+
+      // Check that image preview container exists for PNG files
+      const imagePreview = wrapper.find('.image-preview-container');
+      expect(imagePreview.exists()).toBe(true);
     });
   });
 });
