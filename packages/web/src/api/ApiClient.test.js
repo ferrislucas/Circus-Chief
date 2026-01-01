@@ -733,6 +733,83 @@ describe('ApiClient', () => {
         expect(result.thinkingEnabled).toBe(false);
       });
     });
+
+    describe('getSessionFile', () => {
+      it('fetches file from session working directory', async () => {
+        const mockFileData = {
+          data: 'iVBORw0KGgoAAAANSUhEUgAAAAE...',
+          mimeType: 'image/png',
+          filename: 'image.png',
+        };
+        mockFetch.mockReturnValue(mockResponse(mockFileData));
+
+        const result = await client.getSessionFile('sess-123', 'images/screenshot.png');
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/sessions/sess-123/file?path=images%2Fscreenshot.png',
+          expect.any(Object)
+        );
+        expect(result).toEqual(mockFileData);
+      });
+
+      it('properly encodes file path with special characters', async () => {
+        mockFetch.mockReturnValue(mockResponse({ data: 'base64', mimeType: 'image/png', filename: 'test.png' }));
+
+        await client.getSessionFile('sess-123', 'path/with spaces/image.png');
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/sessions/sess-123/file?path=path%2Fwith%20spaces%2Fimage.png',
+          expect.any(Object)
+        );
+      });
+
+      it('handles nested directory paths', async () => {
+        mockFetch.mockReturnValue(mockResponse({ data: 'base64', mimeType: 'image/jpeg', filename: 'photo.jpg' }));
+
+        await client.getSessionFile('sess-123', 'src/assets/images/photo.jpg');
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/sessions/sess-123/file?path=src%2Fassets%2Fimages%2Fphoto.jpg',
+          expect.any(Object)
+        );
+      });
+
+      it('returns file data with correct properties', async () => {
+        const fileData = {
+          data: 'JVBERi0xLjQK...',
+          mimeType: 'application/pdf',
+          filename: 'document.pdf',
+        };
+        mockFetch.mockReturnValue(mockResponse(fileData));
+
+        const result = await client.getSessionFile('sess-123', 'docs/report.pdf');
+
+        expect(result).toHaveProperty('data');
+        expect(result).toHaveProperty('mimeType');
+        expect(result).toHaveProperty('filename');
+        expect(result.mimeType).toBe('application/pdf');
+      });
+
+      it('handles file not found error', async () => {
+        mockFetch.mockReturnValue({
+          ok: false,
+          status: 404,
+          json: async () => ({ error: 'File not found' }),
+        });
+
+        await expect(client.getSessionFile('sess-123', 'nonexistent.png')).rejects.toThrow();
+      });
+
+      it('handles access denied error', async () => {
+        mockFetch.mockReturnValue({
+          ok: false,
+          status: 403,
+          json: async () => ({ error: 'Access denied' }),
+        });
+
+        await expect(client.getSessionFile('sess-123', '../../etc/passwd')).rejects.toThrow();
+      });
+    });
   });
 
   describe('canvas', () => {

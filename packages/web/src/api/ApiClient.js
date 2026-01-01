@@ -275,6 +275,16 @@ export class ApiClient {
   }
 
   /**
+   * Get a file from the session's working directory (for displaying images in diffs)
+   * @param {string} sessionId - Session ID
+   * @param {string} filePath - Relative path to file
+   * @returns {Promise<{data: string, mimeType: string, filename: string}>}
+   */
+  async getSessionFile(sessionId, filePath) {
+    return this.#request('GET', `/sessions/${sessionId}/file?path=${encodeURIComponent(filePath)}`);
+  }
+
+  /**
    * Restart a completed or errored session
    * @param {string} id - Session ID
    * @returns {Promise<Object>}

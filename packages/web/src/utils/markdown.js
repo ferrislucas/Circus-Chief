@@ -129,6 +129,36 @@ export function isMarkdownFile(filename) {
 }
 
 /**
+ * Check if a filename is an image file
+ * @param {string} filename - The filename to check
+ * @returns {boolean} True if the file is an image file
+ */
+export function isImageFile(filename) {
+  if (!filename || typeof filename !== 'string') {
+    return false;
+  }
+  const ext = filename.toLowerCase().split('.').pop();
+  return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(ext);
+}
+
+/**
+ * Check if a filename is a binary file (non-text)
+ * @param {string} filename - The filename to check
+ * @returns {boolean} True if the file is likely binary
+ */
+export function isBinaryFile(filename) {
+  if (!filename || typeof filename !== 'string') {
+    return false;
+  }
+  const ext = filename.toLowerCase().split('.').pop();
+  // Image files
+  const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'tiff', 'ico'];
+  // PDF and other binary formats
+  const binaryExts = ['pdf', 'zip', 'tar', 'gz', 'exe', 'dll', 'so', 'dylib', 'jar', 'class', 'o', 'pyc'];
+  return imageExts.includes(ext) || binaryExts.includes(ext);
+}
+
+/**
  * Extract the final content from a diff file (for preview purposes)
  * This assembles the "new" version of the file from diff hunks
  * @param {object} file - A parsed diff file object

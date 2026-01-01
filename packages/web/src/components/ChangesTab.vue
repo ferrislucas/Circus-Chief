@@ -53,6 +53,7 @@
           :files="branchDiffFiles"
           :external-expanded-state="getExpandedStateForSection('branch')"
           :default-expanded="false"
+          :sessionId="sessionId"
           @update:expanded-state="handleExpandedStateUpdate('branch', $event)"
         />
       </div>
@@ -73,6 +74,7 @@
           :files="stagedFiles"
           :external-expanded-state="getExpandedStateForSection('staged')"
           :default-expanded="false"
+          :sessionId="sessionId"
           @update:expanded-state="handleExpandedStateUpdate('staged', $event)"
         />
       </div>
@@ -84,6 +86,7 @@
           :files="unstagedFiles"
           :external-expanded-state="getExpandedStateForSection('unstaged')"
           :default-expanded="false"
+          :sessionId="sessionId"
           @update:expanded-state="handleExpandedStateUpdate('unstaged', $event)"
         />
       </div>
@@ -95,6 +98,7 @@
           :files="untrackedFiles"
           :external-expanded-state="getExpandedStateForSection('untracked')"
           :default-expanded="false"
+          :sessionId="sessionId"
           @update:expanded-state="handleExpandedStateUpdate('untracked', $event)"
         />
       </div>
