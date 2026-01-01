@@ -804,8 +804,10 @@ router.delete('/:id', async (req, res) => {
   sessions.delete(req.params.id);
 
   // Execute on_session_deleted hook if configured (non-blocking)
+  // Use session's worktree directory if available, otherwise project directory
   if (project?.onSessionDeleted) {
-    executeHookAsync(project.onSessionDeleted, project.workingDirectory, {
+    const hookWorkingDirectory = session.gitWorktree || project.workingDirectory;
+    executeHookAsync(project.onSessionDeleted, hookWorkingDirectory, {
       sessionId: session.id,
       projectId: project.id,
       sessionName: session.name,
