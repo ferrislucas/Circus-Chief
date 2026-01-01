@@ -795,6 +795,11 @@ async function handleTemplateChange(templateId) {
   word-break: break-word;
 }
 
+/* Override pre-wrap for rendered markdown to prevent double line breaks */
+.message-content :deep(.markdown-viewer) {
+  white-space: normal;
+}
+
 .message-tools {
   margin-top: 0.75rem;
 }
