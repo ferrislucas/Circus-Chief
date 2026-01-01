@@ -17,46 +17,69 @@
           style="display: none"
         />
       </label>
+
+      <!-- Trash toggle button -->
+      <button
+        v-if="!showTrash && canvasStore.trashedItems.length > 0"
+        class="btn btn-sm trash-toggle"
+        @click="showTrash = true"
+      >
+        🗑️ Trash
+        <span class="trash-count">{{ canvasStore.trashedItems.length }}</span>
+      </button>
+
       <span v-if="isDragOver" class="drag-hint">Drop file to upload</span>
     </div>
 
-    <div v-if="canvasStore.loading && !uploading" class="loading-state">
-      <span class="loading-spinner"></span>
-      Loading canvas items...
-    </div>
-
-    <div v-else-if="canvasStore.items.length === 0" class="empty-state">
-      <p>No canvas items yet. Upload a file or drag and drop here.</p>
-      <p class="empty-state-hint">Claude can also add images, markdown, and JSON to the canvas.</p>
-    </div>
-
-    <!-- Detail view (single file OR selected file) -->
-    <CanvasFileViewer
-      v-else-if="shouldShowViewer && selectedItem"
-      :item="selectedItem"
-      :versions="selectedVersions"
-      :showBackButton="showBackButton"
-      @back="handleBack"
-      @selectVersion="handleSelectVersion"
-      @delete="handleDelete"
-      @deleteAll="handleDeleteAll"
+    <!-- Trash view -->
+    <CanvasTrash
+      v-if="showTrash"
+      :sessionId="sessionId"
+      @close="showTrash = false"
     />
 
-    <!-- List view (multiple files, none selected) -->
-    <CanvasFileList
-      v-else
-      :items="groupedItems"
-      @select="handleSelect"
-    />
+    <!-- Canvas view -->
+    <template v-else>
+      <div v-if="canvasStore.loading && !uploading" class="loading-state">
+        <span class="loading-spinner"></span>
+        Loading canvas items...
+      </div>
+
+      <div v-else-if="canvasStore.items.length === 0" class="empty-state">
+        <p>No canvas items yet. Upload a file or drag and drop here.</p>
+        <p class="empty-state-hint">Claude can also add images, markdown, and JSON to the canvas.</p>
+      </div>
+
+      <!-- Detail view (single file OR selected file) -->
+      <CanvasFileViewer
+        v-else-if="shouldShowViewer && selectedItem"
+        :item="selectedItem"
+        :versions="selectedVersions"
+        :showBackButton="showBackButton"
+        @back="handleBack"
+        @selectVersion="handleSelectVersion"
+        @delete="handleDelete"
+        @deleteAll="handleDeleteAll"
+      />
+
+      <!-- List view (multiple files, none selected) -->
+      <CanvasFileList
+        v-else
+        :items="groupedItems"
+        @select="handleSelect"
+      />
+    </template>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useUiStore } from '../stores/ui.js';
 import CanvasFileList from './CanvasFileList.vue';
 import CanvasFileViewer from './CanvasFileViewer.vue';
+import CanvasTrash from './CanvasTrash.vue';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -64,55 +87,64 @@ const props = defineProps({
   sessionId: { type: String, required: true },
 });
 
+const route = useRoute();
+const router = useRouter();
 const canvasStore = useCanvasStore();
 const uiStore = useUiStore();
 
 // Fetch canvas items when tab is mounted/navigated to
 onMounted(() => {
   canvasStore.fetchItems(props.sessionId);
+  canvasStore.fetchTrashedItems(props.sessionId);
 });
+
 const isDragOver = ref(false);
 const uploading = ref(false);
+const showTrash = ref(false);
+
+// Get selected item ID from route query parameter
+const selectedItemId = computed(() => route.query.item || null);
 
 // Computed properties for list/detail view logic
 const groupedItems = computed(() => canvasStore.groupedItems);
-const selectedItem = computed(() => canvasStore.selectedItem);
-const selectedVersions = computed(() => canvasStore.selectedItemVersions);
+
+const selectedItem = computed(() => {
+  if (!selectedItemId.value) return null;
+  return canvasStore.items.find((i) => i.id === selectedItemId.value);
+});
+
+const selectedVersions = computed(() => {
+  if (!selectedItem.value) return [];
+  const key = selectedItem.value.filename || selectedItem.value.label || selectedItem.value.id;
+  return canvasStore.items
+    .filter((i) => (i.filename || i.label || i.id) === key)
+    .sort((a, b) => b.createdAt - a.createdAt);
+});
 
 const shouldShowViewer = computed(() => {
-  return groupedItems.value.length === 1 || canvasStore.selectedItemId !== null;
+  return groupedItems.value.length === 1 || selectedItemId.value !== null;
 });
 
 const showBackButton = computed(() => {
   return groupedItems.value.length > 1;
 });
 
-// Auto-select when only one file group exists
-watch(
-  () => groupedItems.value,
-  (groups) => {
-    if (groups.length === 1 && !canvasStore.selectedItemId) {
-      canvasStore.selectItem(groups[0].id);
-    }
-    // Clear selection if the selected item no longer exists
-    if (canvasStore.selectedItemId && !canvasStore.selectedItem) {
-      canvasStore.clearSelection();
-    }
-  },
-  { immediate: true }
-);
-
 // Navigation handlers
 function handleSelect(itemId) {
-  canvasStore.selectItem(itemId);
+  router.push({
+    query: { ...route.query, item: itemId }
+  });
 }
 
 function handleBack() {
-  canvasStore.clearSelection();
+  const { item, ...rest } = route.query;
+  router.push({ query: rest });
 }
 
 function handleSelectVersion(itemId) {
-  canvasStore.selectItem(itemId);
+  router.push({
+    query: { ...route.query, item: itemId }
+  });
 }
 
 // Delete handlers
@@ -134,7 +166,13 @@ async function handleDelete(itemId) {
     await canvasStore.deleteItem(props.sessionId, itemId);
 
     if (nextItemId) {
-      canvasStore.selectItem(nextItemId);
+      router.push({
+        query: { ...route.query, item: nextItemId }
+      });
+    } else {
+      // No more versions, go back to list
+      const { item, ...rest } = route.query;
+      router.push({ query: rest });
     }
 
     uiStore.success('Version deleted');
@@ -148,6 +186,9 @@ async function handleDeleteAll(filename) {
 
   try {
     await canvasStore.deleteGroup(props.sessionId, filename);
+    // Go back to list view
+    const { item, ...rest } = route.query;
+    router.push({ query: rest });
     uiStore.success('All versions deleted');
   } catch (err) {
     uiStore.error(err.message);
@@ -197,7 +238,9 @@ async function uploadFile(file) {
       const selectedFilename = selectedItem.value.filename || selectedItem.value.label || selectedItem.value.id;
       const uploadedFilename = item.filename || item.label || item.id;
       if (selectedFilename === uploadedFilename) {
-        canvasStore.selectItem(item.id);
+        router.push({
+          query: { ...route.query, item: item.id }
+        });
       }
     }
   } catch (err) {
@@ -232,6 +275,38 @@ async function uploadFile(file) {
   opacity: 0.6;
   cursor: not-allowed;
   pointer-events: none;
+}
+
+.trash-toggle {
+  background: var(--color-background-mute);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-soft);
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+  transition: all 0.2s ease-out;
+}
+
+.trash-toggle:hover {
+  color: var(--color-text);
+  background: var(--color-background-soft);
+}
+
+.trash-count {
+  display: inline-block;
+  background: var(--color-error);
+  color: white;
+  border-radius: 9999px;
+  padding: 0.125rem 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  min-width: 1.25rem;
+  text-align: center;
 }
 
 .drag-hint {

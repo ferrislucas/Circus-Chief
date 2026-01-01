@@ -11,6 +11,16 @@
           &#8249; Back
         </button>
         <span class="viewer-filename">{{ item.label || item.filename || 'Untitled' }}</span>
+
+        <!-- Copy button -->
+        <button
+          class="copy-button"
+          :class="{ copied: isCopied }"
+          @click="copyFilename"
+          :title="isCopied ? 'Copied!' : 'Copy filename'"
+        >
+          <span class="copy-button-icon">{{ isCopied ? '✓' : '📋' }}</span>
+        </button>
       </div>
 
       <div class="viewer-header-right">
@@ -160,6 +170,38 @@ const props = defineProps({
 const emit = defineEmits(['back', 'selectVersion', 'delete', 'deleteAll']);
 
 const previewMode = ref(true);
+const isCopied = ref(false);
+
+// Copy filename to clipboard with fallback
+async function copyFilename() {
+  const filename = props.item.label || props.item.filename || 'Untitled';
+  try {
+    await navigator.clipboard.writeText(filename);
+    showCopiedFeedback();
+  } catch (err) {
+    // Fallback for older browsers / mobile
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = filename;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      showCopiedFeedback();
+    } catch (fallbackErr) {
+      console.error('Copy failed:', fallbackErr);
+    }
+  }
+}
+
+function showCopiedFeedback() {
+  isCopied.value = true;
+  setTimeout(() => {
+    isCopied.value = false;
+  }, 1500);
+}
 
 const currentVersionIndex = computed(() => {
   const idx = props.versions.findIndex((v) => v.id === props.item.id);
@@ -275,9 +317,45 @@ function handleDeleteAll() {
 .viewer-filename {
   font-weight: 600;
   font-size: 1rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  word-break: break-word;
+}
+
+/* Copy button styles */
+.copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  padding: 0.25rem;
+  border: none;
+  background-color: transparent;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease-out;
+  flex-shrink: 0;
+}
+
+.copy-button:hover {
+  color: var(--color-text);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.copy-button.copied {
+  color: var(--color-success);
+  animation: copySuccess 0.3s ease-out;
+}
+
+.copy-button-icon {
+  font-size: 1rem;
+}
+
+@keyframes copySuccess {
+  0% { transform: scale(0.8); opacity: 0.7; }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 /* Version dropdown */

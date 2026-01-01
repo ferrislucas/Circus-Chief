@@ -24,7 +24,23 @@ vi.mock('../composables/useApi.js', () => ({
     getCanvasItems: vi.fn().mockResolvedValue([]),
     uploadCanvasItem: vi.fn(),
     deleteCanvasItem: vi.fn(),
+    getCanvasTrash: vi.fn().mockResolvedValue([]),
+    recoverCanvasItem: vi.fn(),
+    recoverCanvasFile: vi.fn(),
+    permanentlyDeleteCanvasItem: vi.fn(),
   },
+}));
+
+// Mock vue-router
+const mockPush = vi.fn();
+const mockRoute = {
+  query: {},
+};
+vi.mock('vue-router', () => ({
+  useRoute: () => mockRoute,
+  useRouter: () => ({
+    push: mockPush,
+  }),
 }));
 
 // Import AFTER mocks are set up
@@ -52,11 +68,21 @@ describe('CanvasTab', () => {
     template: '<div class="canvas-file-viewer-stub">Viewing {{ item?.filename }}</div>',
   });
 
+  const CanvasTrashStub = defineComponent({
+    name: 'CanvasTrash',
+    props: ['sessionId'],
+    emits: ['close'],
+    template: '<div class="canvas-trash-stub">Trash for {{ sessionId }}</div>',
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
     canvasStore = useCanvasStore();
     uiStore = useUiStore();
+    // Reset mock route
+    mockRoute.query = {};
+    mockPush.mockClear();
   });
 
   function mountComponent(props = { sessionId: 'test-session' }) {
@@ -66,8 +92,10 @@ describe('CanvasTab', () => {
         stubs: {
           'canvas-file-list': CanvasFileListStub,
           'canvas-file-viewer': CanvasFileViewerStub,
+          'canvas-trash': CanvasTrashStub,
           CanvasFileList: CanvasFileListStub,
           CanvasFileViewer: CanvasFileViewerStub,
+          CanvasTrash: CanvasTrashStub,
         },
       },
     });
@@ -164,20 +192,6 @@ describe('CanvasTab', () => {
       expect(canvasStore.groupedItems).toHaveLength(2);
     });
 
-    it('auto-selects when only one item exists', async () => {
-      api.getCanvasItems.mockResolvedValue([
-        { id: '1', filename: 'single-file.png', createdAt: 1000 },
-      ]);
-
-      const wrapper = mountComponent();
-
-      await flushAll(wrapper);
-
-      // Verify the store has the item
-      expect(canvasStore.items).toHaveLength(1);
-      // The watcher should auto-select when only one item
-      expect(canvasStore.selectedItemId).toBe('1');
-    });
   });
 
   describe('file upload', () => {
@@ -297,6 +311,30 @@ describe('CanvasTab', () => {
       await flushPromises();
 
       expect(api.getCanvasItems).toHaveBeenCalledWith('different-session');
+    });
+  });
+
+  describe('trash toggle', () => {
+    it('fetches trashed items on mount', async () => {
+      api.getCanvasItems.mockResolvedValue([]);
+      api.getCanvasTrash.mockResolvedValue([]);
+
+      mountComponent();
+      await flushPromises();
+
+      expect(api.getCanvasTrash).toHaveBeenCalledWith('test-session');
+    });
+
+    it('hides trash toggle when trash is empty', async () => {
+      api.getCanvasItems.mockResolvedValue([]);
+      api.getCanvasTrash.mockResolvedValue([]);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // When trashedItems is empty, the button should not exist
+      const trashButton = wrapper.find('.trash-toggle');
+      expect(trashButton.exists()).toBe(false);
     });
   });
 });
