@@ -68,16 +68,22 @@ export class DatabaseManager {
       this.#db.exec('ALTER TABLE projects ADD COLUMN on_session_deleted TEXT');
     }
     if (!projectsColumns.includes('disable_session_summaries')) {
-      this.#db.exec('ALTER TABLE projects ADD COLUMN disable_session_summaries INTEGER NOT NULL DEFAULT 0');
+      this.#db.exec(
+        'ALTER TABLE projects ADD COLUMN disable_session_summaries INTEGER NOT NULL DEFAULT 0'
+      );
     }
     if (!projectsColumns.includes('disable_conversation_summaries')) {
-      this.#db.exec('ALTER TABLE projects ADD COLUMN disable_conversation_summaries INTEGER NOT NULL DEFAULT 0');
+      this.#db.exec(
+        'ALTER TABLE projects ADD COLUMN disable_conversation_summaries INTEGER NOT NULL DEFAULT 0'
+      );
     }
     if (!projectsColumns.includes('repo_url')) {
       this.#db.exec('ALTER TABLE projects ADD COLUMN repo_url TEXT');
     }
     if (!projectsColumns.includes('summary_debounce_ms')) {
-      this.#db.exec('ALTER TABLE projects ADD COLUMN summary_debounce_ms INTEGER NOT NULL DEFAULT 5000');
+      this.#db.exec(
+        'ALTER TABLE projects ADD COLUMN summary_debounce_ms INTEGER NOT NULL DEFAULT 5000'
+      );
     }
     if (!projectsColumns.includes('session_title_prompt')) {
       this.#db.exec('ALTER TABLE projects ADD COLUMN session_title_prompt TEXT');
@@ -113,14 +119,20 @@ export class DatabaseManager {
     const updatedSessionsColumns = updatedSessionsTableInfo.map((col) => col.name);
 
     if (!updatedSessionsColumns.includes('next_template_id')) {
-      this.#db.exec('ALTER TABLE sessions ADD COLUMN next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL');
+      this.#db.exec(
+        'ALTER TABLE sessions ADD COLUMN next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL'
+      );
     }
     if (!updatedSessionsColumns.includes('parent_session_id')) {
-      this.#db.exec('ALTER TABLE sessions ADD COLUMN parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL');
+      this.#db.exec(
+        'ALTER TABLE sessions ADD COLUMN parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL'
+      );
     }
 
     // Create indexes for the template chaining columns (moved from schema.sql for migration compatibility)
-    this.#db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id)');
+    this.#db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id)'
+    );
     this.#db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id)');
 
     // Check if message_attachments table has the file_path column, add it if not
@@ -136,8 +148,12 @@ export class DatabaseManager {
     const messagesColumns = messagesTableInfo.map((col) => col.name);
 
     if (!messagesColumns.includes('conversation_id')) {
-      this.#db.exec('ALTER TABLE conversation_messages ADD COLUMN conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE');
-      this.#db.exec('CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversation_id)');
+      this.#db.exec(
+        'ALTER TABLE conversation_messages ADD COLUMN conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE'
+      );
+      this.#db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversation_id)'
+      );
     }
 
     // Create default conversations for existing sessions that don't have one
@@ -176,10 +192,14 @@ export class DatabaseManager {
       this.#db.exec('ALTER TABLE conversations ADD COLUMN output_tokens INTEGER DEFAULT 0');
     }
     if (!conversationsUsageColumns.includes('cache_read_input_tokens')) {
-      this.#db.exec('ALTER TABLE conversations ADD COLUMN cache_read_input_tokens INTEGER DEFAULT 0');
+      this.#db.exec(
+        'ALTER TABLE conversations ADD COLUMN cache_read_input_tokens INTEGER DEFAULT 0'
+      );
     }
     if (!conversationsUsageColumns.includes('cache_creation_input_tokens')) {
-      this.#db.exec('ALTER TABLE conversations ADD COLUMN cache_creation_input_tokens INTEGER DEFAULT 0');
+      this.#db.exec(
+        'ALTER TABLE conversations ADD COLUMN cache_creation_input_tokens INTEGER DEFAULT 0'
+      );
     }
     if (!conversationsUsageColumns.includes('web_search_requests')) {
       this.#db.exec('ALTER TABLE conversations ADD COLUMN web_search_requests INTEGER DEFAULT 0');
@@ -205,7 +225,9 @@ export class DatabaseManager {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN cache_read_input_tokens INTEGER DEFAULT 0');
     }
     if (!sessionsUsageColumns.includes('cache_creation_input_tokens')) {
-      this.#db.exec('ALTER TABLE sessions ADD COLUMN cache_creation_input_tokens INTEGER DEFAULT 0');
+      this.#db.exec(
+        'ALTER TABLE sessions ADD COLUMN cache_creation_input_tokens INTEGER DEFAULT 0'
+      );
     }
     if (!sessionsUsageColumns.includes('web_search_requests')) {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN web_search_requests INTEGER DEFAULT 0');
@@ -247,7 +269,9 @@ export class DatabaseManager {
     const commandButtonsColumns = commandButtonsTableInfo.map((col) => col.name);
 
     if (!commandButtonsColumns.includes('show_on_list')) {
-      this.#db.exec('ALTER TABLE command_buttons ADD COLUMN show_on_list INTEGER NOT NULL DEFAULT 0');
+      this.#db.exec(
+        'ALTER TABLE command_buttons ADD COLUMN show_on_list INTEGER NOT NULL DEFAULT 0'
+      );
     }
   }
 
@@ -258,27 +282,39 @@ export class DatabaseManager {
    */
   #migrateExistingSessionsToConversations() {
     // Find sessions that have messages but no conversations
-    const sessionsWithoutConversations = this.#db.prepare(`
+    const sessionsWithoutConversations = this.#db
+      .prepare(
+        `
       SELECT DISTINCT s.id FROM sessions s
       LEFT JOIN conversations c ON c.session_id = s.id
       WHERE c.id IS NULL
       AND EXISTS (SELECT 1 FROM conversation_messages m WHERE m.session_id = s.id)
-    `).all();
+    `
+      )
+      .all();
 
     for (const session of sessionsWithoutConversations) {
       // Create a default conversation for this session
       const convId = this.generateId();
       const now = Date.now();
 
-      this.#db.prepare(`
+      this.#db
+        .prepare(
+          `
         INSERT INTO conversations (id, session_id, name, is_active, created_at, updated_at)
         VALUES (?, ?, ?, 1, ?, ?)
-      `).run(convId, session.id, 'Initial', now, now);
+      `
+        )
+        .run(convId, session.id, 'Initial', now, now);
 
       // Associate all existing messages with this conversation
-      this.#db.prepare(`
+      this.#db
+        .prepare(
+          `
         UPDATE conversation_messages SET conversation_id = ? WHERE session_id = ? AND conversation_id IS NULL
-      `).run(convId, session.id);
+      `
+        )
+        .run(convId, session.id);
     }
   }
 
