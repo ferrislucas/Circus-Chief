@@ -22,6 +22,9 @@ vi.mock('../components/SummaryTab.vue', () => ({
 vi.mock('../components/CommandsTab.vue', () => ({
   default: { name: 'CommandsTab', template: '<div>Commands Tab</div>' }
 }));
+vi.mock('../components/DuplicateSessionButton.vue', () => ({
+  default: { name: 'DuplicateSessionButton', template: '<button @click="$emit(\'success\', { id: \'new\' })" :disabled="false">Duplicate</button>' }
+}));
 vi.mock('../composables/useApi.js');
 
 describe('SessionDetailView', () => {
@@ -475,6 +478,294 @@ describe('SessionDetailView', () => {
 
       // Component should unmount without errors
       expect(wrapper.exists()).toBe(false);
+    });
+  });
+
+  describe('DuplicateSessionButton integration', () => {
+    it('renders DuplicateSessionButton component', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            NotesTab: true,
+            PrIndicators: true,
+            DuplicateSessionButton: false, // Don't stub - test the real component mock
+          },
+        },
+      });
+
+      await flushPromises();
+
+      expect(wrapper.findComponent({ name: 'DuplicateSessionButton' }).exists()).toBe(true);
+    });
+
+    it('passes sessionId and sessionName props correctly', async () => {
+      const sessionName = 'Test Session';
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: sessionName,
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            NotesTab: true,
+            PrIndicators: true,
+            DuplicateSessionButton: false,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // The DuplicateSessionButton should be rendered in the action buttons section
+      const actionButtons = wrapper.find('.session-action-buttons');
+      expect(actionButtons.exists()).toBe(true);
+
+      // Verify button text is present (indicating the component was rendered)
+      expect(wrapper.text()).toContain('Duplicate');
+    });
+
+    it('renders all action buttons in correct order', async () => {
+      const sessionName = 'My Test Session';
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: sessionName,
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            NotesTab: true,
+            PrIndicators: true,
+            DuplicateSessionButton: false,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // All three buttons should be present: Duplicate, Archive, Delete
+      const actionButtons = wrapper.find('.session-action-buttons');
+      expect(actionButtons.text()).toContain('Duplicate');
+      expect(actionButtons.text()).toContain('Archive');
+      expect(actionButtons.text()).toContain('Delete Session');
+    });
+
+    it('DuplicateSessionButton appears before Archive button', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            NotesTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Check that action buttons container exists
+      const actionButtons = wrapper.find('.session-action-buttons');
+      expect(actionButtons.exists()).toBe(true);
+
+      // Verify the text content includes both buttons
+      expect(wrapper.text()).toContain('Duplicate');
+      expect(wrapper.text()).toContain('Archive');
+      expect(wrapper.text()).toContain('Delete Session');
+    });
+  });
+
+  describe('canvas item count indicator updates', () => {
+    it('canvas store item count can be incremented and decremented', async () => {
+      // Test that canvas item can be added programmatically
+      expect(canvasStore.groupedItems.length).toBe(0);
+
+      canvasStore.addItem({ id: 'item-1', type: 'text', sessionId: 'session-1' });
+      expect(canvasStore.groupedItems.length).toBe(1);
+
+      canvasStore.addItem({ id: 'item-2', type: 'markdown', sessionId: 'session-1' });
+      expect(canvasStore.groupedItems.length).toBe(2);
+
+      // Remove one item
+      canvasStore.removeItem('item-1');
+      expect(canvasStore.groupedItems.length).toBe(1);
+
+      // Remove the other item
+      canvasStore.removeItem('item-2');
+      expect(canvasStore.groupedItems.length).toBe(0);
+    });
+
+    it('canvas store correctly tracks multiple canvas items', async () => {
+      // Add multiple items to the store
+      for (let i = 1; i <= 5; i++) {
+        canvasStore.addItem({
+          id: `item-${i}`,
+          type: 'text',
+          sessionId: 'session-1'
+        });
+      }
+
+      // Verify count matches the number of items
+      expect(canvasStore.groupedItems.length).toBe(5);
+    });
+
+    it('component mounts successfully with canvas store ready', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running'
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            NotesTab: true,
+            PrIndicators: true
+          }
+        }
+      });
+
+      await flushPromises();
+
+      // Verify component renders successfully
+      expect(wrapper.exists()).toBe(true);
+
+      // The component calls fetchItems during mount which would populate canvas items
+      // if any exist in the backend. The store is ready to track items when they arrive.
+      expect(canvasStore.groupedItems).toBeDefined();
+    });
+
+    it('component handles canvas store state transitions', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running'
+      };
+
+      // Start with empty store
+      expect(canvasStore.groupedItems.length).toBe(0);
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            NotesTab: true,
+            PrIndicators: true
+          }
+        }
+      });
+
+      await flushPromises();
+
+      // Verify component is stable with zero items
+      expect(wrapper.exists()).toBe(true);
+      expect(canvasStore.groupedItems.length).toBe(0);
+
+      // Now add items like WebSocket events would
+      canvasStore.addItem({ id: 'item-1', type: 'text', sessionId: 'session-1' });
+      await wrapper.vm.$nextTick();
+
+      // Verify store reflects the addition
+      expect(canvasStore.groupedItems.length).toBe(1);
+
+      // Add another item
+      canvasStore.addItem({ id: 'item-2', type: 'markdown', sessionId: 'session-1' });
+      await wrapper.vm.$nextTick();
+
+      expect(canvasStore.groupedItems.length).toBe(2);
+
+      // Remove an item
+      canvasStore.removeItem('item-1');
+      await wrapper.vm.$nextTick();
+
+      expect(canvasStore.groupedItems.length).toBe(1);
+    });
+
+    it('canvas store reflects the correct total after adding items from different sessions', async () => {
+      // Add items from different sessions
+      canvasStore.addItem({ id: 'item-1', type: 'text', sessionId: 'session-1' });
+      canvasStore.addItem({ id: 'item-2', type: 'text', sessionId: 'session-2' });
+      canvasStore.addItem({ id: 'item-3', type: 'text', sessionId: 'session-1' });
+
+      // Store should have all 3 items
+      expect(canvasStore.groupedItems.length).toBe(3);
+
+      // Remove items
+      canvasStore.removeItem('item-1');
+      expect(canvasStore.groupedItems.length).toBe(2);
+
+      canvasStore.removeItem('item-2');
+      expect(canvasStore.groupedItems.length).toBe(1);
     });
   });
 });

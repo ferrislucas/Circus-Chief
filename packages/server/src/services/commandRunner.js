@@ -163,10 +163,10 @@ export class CommandRunner {
         const msg = `Error running command: ${err.message}`;
         console.error(`[commandRunner.run] Exception for runId: ${runId}`, err);
         if (onError) onError(msg);
-        // Mark as error in database (if available)
+        // Mark as error in database (if available) and persist the error message
         if (commandRuns && typeof commandRuns.complete === 'function') {
           try {
-            commandRuns.complete(runId, 1, '');
+            commandRuns.complete(runId, 1, `[Error] ${msg}`);
           } catch (dbErr) {
             console.warn(`[commandRunner.run] Warning: Error marking failed run in database for runId: ${runId}`, dbErr.message);
           }

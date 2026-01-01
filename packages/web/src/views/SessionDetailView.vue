@@ -38,6 +38,10 @@
               />
             </div>
             <div class="session-action-buttons">
+              <DuplicateSessionButton
+                :session-id="sessionId"
+                :session-name="sessionsStore.currentSession?.name"
+              />
               <button
                 v-if="canArchive"
                 class="btn btn-outline-secondary btn-archive-session"
@@ -130,6 +134,7 @@ import CanvasTab from '../components/CanvasTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
 import CommandsTab from '../components/CommandsTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
+import DuplicateSessionButton from '../components/DuplicateSessionButton.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
 const route = useRoute();
@@ -234,15 +239,6 @@ watch(
   }
 );
 
-// Watch canvas items and update count
-watch(
-  () => canvasStore.groupedItems.length,
-  (count) => {
-    canvasItemCount.value = count;
-  },
-  { immediate: true }
-);
-
 onMounted(async () => {
   // STEP 1: Ensure subscribed to WebSocket first
   // This waits for the socket to be OPEN and subscription message to be sent
@@ -253,7 +249,13 @@ onMounted(async () => {
     uiStore.error('Failed to subscribe to session updates');
   }
 
-  // STEP 2: Register all handlers IMMEDIATELY (before fetching data)
+  // STEP 1.5: Fetch critical data BEFORE registering handlers
+  // This ensures conversations array is populated when usage updates arrive
+  // and prevents handlers from trying to access empty conversation lists
+  await sessionsStore.fetchSession(sessionId);
+  await sessionsStore.fetchConversations(sessionId);
+
+  // STEP 2: Register all handlers (data is now ready)
   // This ensures we don't miss any updates that arrive while data is being fetched
   cleanups.push(
     onStatus((status) => {
@@ -286,12 +288,18 @@ onMounted(async () => {
   cleanups.push(
     onCanvasAdd((item) => {
       canvasStore.addItem(item);
+      // Update canvas count immediately when WebSocket event arrives
+      // Use groupedItems.length to get the deduplicated count
+      canvasItemCount.value = canvasStore.groupedItems.length;
     })
   );
 
   cleanups.push(
     onCanvasRemove((itemId) => {
       canvasStore.removeItem(itemId);
+      // Update canvas count immediately when item is removed
+      // Use groupedItems.length to get the deduplicated count
+      canvasItemCount.value = canvasStore.groupedItems.length;
     })
   );
 
@@ -349,16 +357,14 @@ onMounted(async () => {
   // This prevents old session's todos from persisting visually
   todosStore.clearTodos();
 
-  // STEP 4: Now fetch data (handlers are ready to receive updates)
-  await sessionsStore.fetchSession(sessionId);
+  // STEP 4: Now fetch remaining data (handlers are ready to receive updates)
   await sessionsStore.fetchMessages(sessionId);
-  // Load conversations proactively so token updates are available immediately
-  // (Issue: conversations were only loaded when ConversationTab became visible)
-  await sessionsStore.fetchConversations(sessionId);
   await sessionsStore.fetchWorkLogs(sessionId);
   // Await canvas fetch to ensure indicator shows correct count immediately.
   // This catches items added before/during WebSocket subscription establishment.
   await canvasStore.fetchItems(sessionId);
+  // Update canvas count after fetch completes to show correct indicator
+  canvasItemCount.value = canvasStore.groupedItems.length;
   todosStore.fetchTodos(sessionId);
 
   // Fetch summary for PR indicators (don't await, not critical)

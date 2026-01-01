@@ -137,9 +137,21 @@ export const useSessionsStore = defineStore('sessions', {
         };
       }
 
-      // FINALIZED: Use active conversation tokens if available, fallback to session
-      const conv = state.conversations.find((c) => c.id === state.activeConversationId);
-      const source = conv || state.currentSession;
+      // FINALIZED: Try conversation first, but fall back to session if conversation has no tokens
+      let source = null;
+
+      if (state.activeConversationId && state.conversations.length > 0) {
+        const conv = state.conversations.find((c) => c.id === state.activeConversationId);
+        // Only use conversation if it actually has token data
+        if (conv && ((conv.inputTokens || 0) > 0 || (conv.outputTokens || 0) > 0)) {
+          source = conv;
+        }
+      }
+
+      // Fall back to session if no valid conversation data
+      if (!source) {
+        source = state.currentSession;
+      }
 
       if (!source) return { input: '0', output: '0', total: '0', cacheRead: '0', cacheCreation: '0' };
 
@@ -372,6 +384,18 @@ export const useSessionsStore = defineStore('sessions', {
           this.currentSession = { ...this.currentSession, archived: false };
         }
         return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    async duplicateSession(id, options = {}) {
+      this.error = null;
+      try {
+        const newSession = await api.duplicateSession(id, options);
+        // New session will be added via WebSocket, but return it immediately for UI feedback
+        return newSession;
       } catch (err) {
         this.error = err.message;
         throw err;

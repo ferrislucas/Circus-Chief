@@ -341,6 +341,19 @@ export class ApiClient {
     return this.#request('POST', `/sessions/${id}/unarchive`);
   }
 
+  /**
+   * Duplicate a session (clone with all data)
+   * @param {string} id - Session ID to duplicate
+   * @param {Object} options - Duplication options
+   * @param {string} [options.name] - Custom name for duplicated session
+   * @param {string} [options.gitMode] - Git mode (none|branch|worktree)
+   * @param {string} [options.gitBranch] - Git branch name (if gitMode is branch)
+   * @returns {Promise<Object>}
+   */
+  async duplicateSession(id, options = {}) {
+    return this.#request('POST', `/sessions/${id}/duplicate`, options);
+  }
+
   // Canvas
 
   /**
@@ -440,6 +453,36 @@ export class ApiClient {
    */
   async permanentlyDeleteCanvasItem(sessionId, itemId) {
     return this.#request('DELETE', `/sessions/${sessionId}/canvas/${itemId}/permanent`);
+  }
+
+  /**
+   * Soft delete multiple canvas items (move to trash)
+   * @param {string} sessionId - Session ID
+   * @param {string[]} itemIds - Array of canvas item IDs
+   * @returns {Promise<Object>} - { deletedCount: number }
+   */
+  async bulkDeleteCanvasItems(sessionId, itemIds) {
+    return this.#request('POST', `/sessions/${sessionId}/canvas/bulk-delete`, { itemIds });
+  }
+
+  /**
+   * Recover multiple canvas items from trash
+   * @param {string} sessionId - Session ID
+   * @param {string[]} itemIds - Array of canvas item IDs
+   * @returns {Promise<Object>} - { recoveredCount: number }
+   */
+  async bulkRecoverCanvasItems(sessionId, itemIds) {
+    return this.#request('POST', `/sessions/${sessionId}/canvas/bulk-recover`, { itemIds });
+  }
+
+  /**
+   * Permanently delete multiple canvas items from trash
+   * @param {string} sessionId - Session ID
+   * @param {string[]} itemIds - Array of canvas item IDs
+   * @returns {Promise<Object>} - { deletedCount: number }
+   */
+  async bulkPermanentlyDeleteCanvasItems(sessionId, itemIds) {
+    return this.#request('DELETE', `/sessions/${sessionId}/canvas/bulk-delete-permanent`, { itemIds });
   }
 
   // Git

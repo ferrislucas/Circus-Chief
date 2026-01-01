@@ -24,6 +24,10 @@ vi.mock('../composables/useWebSocket.js', () => ({
     onWorkLog: vi.fn(() => vi.fn()),
     onWorkLogsAssociated: vi.fn(() => vi.fn()),
     onThinkingPartial: vi.fn(() => vi.fn()),
+    onConversationCreated: vi.fn(() => vi.fn()),
+    onConversationUpdated: vi.fn(() => vi.fn()),
+    onConversationDeleted: vi.fn(() => vi.fn()),
+    onUsageUpdate: vi.fn(() => vi.fn()),
   })),
 }));
 

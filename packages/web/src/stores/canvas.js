@@ -7,9 +7,25 @@ export const useCanvasStore = defineStore('canvas', {
     trashedItems: [],
     loading: false,
     error: null,
+    selectedItemIds: new Set(),
+    bulkOperationInProgress: false,
   }),
 
   getters: {
+    selectedItemCount: (state) => state.selectedItemIds.size,
+
+    isAllItemsSelected: (state) => {
+      return state.items.length > 0 && state.selectedItemIds.size === state.items.length;
+    },
+
+    isPartialSelection: (state) => {
+      return state.selectedItemIds.size > 0 && state.selectedItemIds.size < state.items.length;
+    },
+
+    selectedItems: (state) => {
+      return state.items.filter(item => state.selectedItemIds.has(item.id));
+    },
+
     // Group items by filename, return latest of each with version info
     groupedItems: (state) => {
       const groups = {};
@@ -151,6 +167,100 @@ export const useCanvasStore = defineStore('canvas', {
       } catch (err) {
         this.error = err.message;
         throw err;
+      }
+    },
+
+    // Selection actions
+    toggleItemSelection(itemId) {
+      if (this.selectedItemIds.has(itemId)) {
+        this.selectedItemIds.delete(itemId);
+      } else {
+        this.selectedItemIds.add(itemId);
+      }
+    },
+
+    selectAllItems() {
+      for (const item of this.items) {
+        this.selectedItemIds.add(item.id);
+      }
+    },
+
+    deselectAllItems() {
+      this.selectedItemIds.clear();
+    },
+
+    // Bulk delete items (soft delete - move to trash)
+    async bulkDeleteItems(sessionId, itemIds) {
+      this.bulkOperationInProgress = true;
+      this.error = null;
+      try {
+        const result = await api.bulkDeleteCanvasItems(sessionId, itemIds);
+
+        // Remove from active items
+        const deletedIds = new Set(itemIds);
+        this.items = this.items.filter((i) => !deletedIds.has(i.id));
+
+        // Clear selection
+        this.selectedItemIds.clear();
+
+        return result;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.bulkOperationInProgress = false;
+      }
+    },
+
+    // Bulk recover items from trash
+    async bulkRecoverItems(sessionId, itemIds) {
+      this.bulkOperationInProgress = true;
+      this.error = null;
+      try {
+        const result = await api.bulkRecoverCanvasItems(sessionId, itemIds);
+
+        // Get the items from trash before removing
+        const recoveredIds = new Set(itemIds);
+        const recoveredItems = this.trashedItems.filter((i) => recoveredIds.has(i.id));
+
+        // Remove from trash
+        this.trashedItems = this.trashedItems.filter((i) => !recoveredIds.has(i.id));
+
+        // Add back to active items
+        this.items.unshift(...recoveredItems);
+
+        // Clear selection
+        this.selectedItemIds.clear();
+
+        return result;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.bulkOperationInProgress = false;
+      }
+    },
+
+    // Bulk permanently delete items from trash
+    async bulkPermanentlyDeleteItems(sessionId, itemIds) {
+      this.bulkOperationInProgress = true;
+      this.error = null;
+      try {
+        const result = await api.bulkPermanentlyDeleteCanvasItems(sessionId, itemIds);
+
+        // Remove from trash
+        const deletedIds = new Set(itemIds);
+        this.trashedItems = this.trashedItems.filter((i) => !deletedIds.has(i.id));
+
+        // Clear selection
+        this.selectedItemIds.clear();
+
+        return result;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.bulkOperationInProgress = false;
       }
     },
   },
