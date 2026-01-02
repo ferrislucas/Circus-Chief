@@ -483,12 +483,16 @@ onBeforeUnmount(() => {
   if (renderingFrameId) cancelAnimationFrame(renderingFrameId);
 });
 
-// Expose methods for testing
+// Expose methods and state for testing
 defineExpose({
   handleRun,
   handleKill,
   handleCopy,
   handleCanvas,
+  isRenderingLargeOutput,
+  formattedOutput,
+  showOutput,
+  showRenderingSpinner, // Expose for testing
 });
 
 </script>
