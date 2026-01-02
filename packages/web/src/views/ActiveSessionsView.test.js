@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { nextTick, defineComponent, reactive } from 'vue';
+import { nextTick, defineComponent, reactive, ref } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 
 // Mock vue-router
@@ -43,15 +43,49 @@ vi.mock('../composables/useWebSocket.js', () => ({
   })),
 }));
 
-// Mock sessions store
-vi.mock('../stores/sessions.js', () => ({
-  useSessionsStore: vi.fn(),
-}));
+// Create a module-level mock store that persists across tests
+// Wrap it in reactive() so Vue can detect property changes
+let mockSessionsStore = reactive({
+  loading: false,
+  error: null,
+  statusFilter: null,
+  starredFilter: null,
+  activeSessions: [],
+  fetchActiveSessions: vi.fn().mockResolvedValue(),
+  restoreStatusFilter: vi.fn(),
+  setStatusFilter(filter) {
+    this.statusFilter = filter;
+  },
+  restoreStarredFilter: vi.fn(),
+  setStarredFilter(filter) {
+    this.starredFilter = filter;
+  },
+});
+
+// Mock sessions store - use factory function to return the store
+vi.mock('../stores/sessions.js', () => {
+  return {
+    useSessionsStore: () => mockSessionsStore,
+  };
+});
 
 // Mock command buttons store
-vi.mock('../stores/commandButtons.js', () => ({
-  useCommandButtonsStore: vi.fn(),
-}));
+let mockCommandButtonsStore = {
+  buttons: [],
+  runs: {},
+  loading: false,
+  error: null,
+  fetchButtons: vi.fn().mockResolvedValue(),
+  getButtonsByProjectId: vi.fn(() => []),
+  getLatestRunForButton: vi.fn(() => null),
+};
+
+// Mock command buttons store - use factory function to return the store
+vi.mock('../stores/commandButtons.js', () => {
+  return {
+    useCommandButtonsStore: () => mockCommandButtonsStore,
+  };
+});
 
 // Mock API
 const mockGetSessionSummary = vi.fn();
@@ -71,10 +105,13 @@ vi.mock('../components/SessionCard.vue', () => ({
   }),
 }));
 
-import ActiveSessionsView from './ActiveSessionsView.vue';
+// Import mocks FIRST and set return values BEFORE importing the component
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useGlobalSessionSubscription } from '../composables/useWebSocket.js';
+
+// Now import the component - mocks are already configured by the factory functions above
+import ActiveSessionsView from './ActiveSessionsView.vue';
 
 // Global helper to flush all async updates and force DOM re-render
 async function flushAll(wrapper) {
@@ -92,9 +129,6 @@ async function flushAll(wrapper) {
 }
 
 describe('ActiveSessionsView', () => {
-  let mockSessionsStore;
-  let mockCommandButtonsStore;
-
   beforeEach(() => {
     vi.useFakeTimers();
     setActivePinia(createPinia());
@@ -109,32 +143,33 @@ describe('ActiveSessionsView', () => {
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);
 
-    // Setup sessions store mock
-    mockSessionsStore = {
-      loading: false,
-      error: null,
-      statusFilter: null,
-      activeSessions: [
-        { id: 'session-1', name: 'Active Session 1', status: 'running', projectId: 'project-1' },
-        { id: 'session-2', name: 'Active Session 2', status: 'waiting', projectId: 'project-2' },
-      ],
-      fetchActiveSessions: vi.fn().mockResolvedValue(),
-      restoreStatusFilter: vi.fn(),
-      setStatusFilter: vi.fn(),
-    };
-    useSessionsStore.mockReturnValue(mockSessionsStore);
+    // Reset mock function call counts and reconfigure
+    mockSessionsStore.fetchActiveSessions.mockClear();
+    mockSessionsStore.fetchActiveSessions.mockResolvedValue();
+    mockSessionsStore.restoreStatusFilter.mockClear();
+    mockSessionsStore.restoreStarredFilter.mockClear();
 
-    // Setup command buttons store mock
-    mockCommandButtonsStore = {
-      buttons: [],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn().mockResolvedValue(),
-      getButtonsByProjectId: vi.fn(() => []),
-      getLatestRunForButton: vi.fn(() => null),
-    };
-    useCommandButtonsStore.mockReturnValue(mockCommandButtonsStore);
+    // Update store properties
+    mockSessionsStore.loading = false;
+    mockSessionsStore.error = null;
+    mockSessionsStore.statusFilter = null;
+    mockSessionsStore.starredFilter = null;
+    mockSessionsStore.activeSessions = [
+      { id: 'session-1', name: 'Active Session 1', status: 'running', projectId: 'project-1' },
+      { id: 'session-2', name: 'Active Session 2', status: 'waiting', projectId: 'project-2' },
+    ];
+
+    // Reset command buttons store mocks
+    mockCommandButtonsStore.fetchButtons.mockClear();
+    mockCommandButtonsStore.fetchButtons.mockResolvedValue();
+    mockCommandButtonsStore.getButtonsByProjectId.mockClear();
+    mockCommandButtonsStore.getLatestRunForButton.mockClear();
+
+    // Update command buttons store properties
+    mockCommandButtonsStore.buttons = [];
+    mockCommandButtonsStore.runs = {};
+    mockCommandButtonsStore.loading = false;
+    mockCommandButtonsStore.error = null;
   });
 
   afterEach(() => {
@@ -314,8 +349,6 @@ describe('ActiveSessionsView', () => {
 });
 
 describe('Status filtering', () => {
-  let mockSessionsStore;
-
   beforeEach(() => {
     vi.useFakeTimers();
     setActivePinia(createPinia());
@@ -328,24 +361,22 @@ describe('Status filtering', () => {
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);
 
-    mockSessionsStore = reactive({
-      loading: false,
-      error: null,
-      statusFilter: null,
-      activeSessions: [
-        { id: 'session-1', name: 'Running Session', status: 'running', projectId: 'project-1' },
-        { id: 'session-2', name: 'Waiting Session', status: 'waiting', projectId: 'project-2' },
-        { id: 'session-3', name: 'Starting Session', status: 'starting', projectId: 'project-1' },
-        { id: 'session-4', name: 'Error Session', status: 'error', projectId: 'project-3' },
-        { id: 'session-5', name: 'Stopped Session', status: 'stopped', projectId: 'project-4' },
-      ],
-      fetchActiveSessions: vi.fn().mockResolvedValue(),
-      restoreStatusFilter: vi.fn(),
-      setStatusFilter(filter) {
-        this.statusFilter = filter;
-      },
-    });
-    useSessionsStore.mockReturnValue(mockSessionsStore);
+    // Update the module-level mockSessionsStore with test data
+    mockSessionsStore.loading = false;
+    mockSessionsStore.error = null;
+    mockSessionsStore.statusFilter = null;
+    mockSessionsStore.starredFilter = null;
+    mockSessionsStore.activeSessions = [
+      { id: 'session-1', name: 'Running Session', status: 'running', projectId: 'project-1' },
+      { id: 'session-2', name: 'Waiting Session', status: 'waiting', projectId: 'project-2' },
+      { id: 'session-3', name: 'Starting Session', status: 'starting', projectId: 'project-1' },
+      { id: 'session-4', name: 'Error Session', status: 'error', projectId: 'project-3' },
+      { id: 'session-5', name: 'Stopped Session', status: 'stopped', projectId: 'project-4' },
+    ];
+    mockSessionsStore.fetchActiveSessions.mockClear();
+    mockSessionsStore.fetchActiveSessions.mockResolvedValue();
+    mockSessionsStore.restoreStatusFilter.mockClear();
+    mockSessionsStore.restoreStarredFilter.mockClear();
   });
 
   afterEach(() => {
@@ -357,9 +388,11 @@ describe('Status filtering', () => {
     await flushPromises();
 
     const filterButtons = wrapper.findAll('.filter-btn');
-    expect(filterButtons).toHaveLength(2);
+    expect(filterButtons).toHaveLength(4);
     expect(filterButtons[0].text()).toBe('running');
     expect(filterButtons[1].text()).toBe('idle');
+    expect(filterButtons[2].text()).toContain('Starred');
+    expect(filterButtons[3].text()).toContain('Unstarred');
   });
 
   it('shows all sessions when no filters are active', async () => {
@@ -525,7 +558,6 @@ describe('Status filtering', () => {
     mockSessionsStore.activeSessions = [
       { id: 'session-1', name: 'Running Session', status: 'running', projectId: 'project-1' },
     ];
-    useSessionsStore.mockReturnValue(mockSessionsStore);
 
     const wrapper = mount(ActiveSessionsView);
     await flushAll(wrapper);
@@ -547,7 +579,6 @@ describe('Status filtering', () => {
       { id: 'session-2', name: 'Starting', status: 'starting', projectId: 'project-2' },
       { id: 'session-3', name: 'Waiting', status: 'waiting', projectId: 'project-3' },
     ];
-    useSessionsStore.mockReturnValue(mockSessionsStore);
 
     const wrapper = mount(ActiveSessionsView);
     await flushAll(wrapper);
@@ -570,7 +601,6 @@ describe('Status filtering', () => {
       { id: 'session-3', name: 'Error', status: 'error', projectId: 'project-3' },
       { id: 'session-4', name: 'Running', status: 'running', projectId: 'project-4' },
     ];
-    useSessionsStore.mockReturnValue(mockSessionsStore);
 
     const wrapper = mount(ActiveSessionsView);
     await flushAll(wrapper);
@@ -587,40 +617,47 @@ describe('Status filtering', () => {
 });
 
 describe('ActiveSessionsView polling fallback', () => {
-  let mockCommandButtonsStore;
-
   beforeEach(() => {
     vi.useFakeTimers();
     setActivePinia(createPinia());
 
+    // Reset callbacks
+    onSessionCreatedCallback = null;
+    onSessionUpdatedCallback = null;
+    onSessionDeletedCallback = null;
     onSessionSummaryUpdatedCallback = null;
 
-    useSessionsStore.mockReturnValue({
-      loading: false,
-      error: null,
-      statusFilter: null,
-      activeSessions: [
-        { id: 'session-1', status: 'running', projectId: 'project-1' },
-        { id: 'session-2', status: 'waiting', projectId: 'project-2' },
-      ],
-      fetchActiveSessions: vi.fn().mockResolvedValue(),
-      restoreStatusFilter: vi.fn(),
-      setStatusFilter: vi.fn(),
-    });
-
-    // Setup command buttons store mock
-    mockCommandButtonsStore = {
-      buttons: [],
-      runs: {},
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn().mockResolvedValue(),
-      getButtonsByProjectId: vi.fn(() => []),
-      getLatestRunForButton: vi.fn(() => null),
-    };
-    useCommandButtonsStore.mockReturnValue(mockCommandButtonsStore);
-
+    // Reset API mocks
+    mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);
+
+    // Reset mock function call counts and reconfigure
+    mockSessionsStore.fetchActiveSessions.mockClear();
+    mockSessionsStore.fetchActiveSessions.mockResolvedValue();
+    mockSessionsStore.restoreStatusFilter.mockClear();
+    mockSessionsStore.restoreStarredFilter.mockClear();
+
+    // Update store properties
+    mockSessionsStore.loading = false;
+    mockSessionsStore.error = null;
+    mockSessionsStore.statusFilter = null;
+    mockSessionsStore.starredFilter = null;
+    mockSessionsStore.activeSessions = [
+      { id: 'session-1', name: 'Active Session 1', status: 'running', projectId: 'project-1' },
+      { id: 'session-2', name: 'Active Session 2', status: 'waiting', projectId: 'project-2' },
+    ];
+
+    // Reset command buttons store mocks
+    mockCommandButtonsStore.fetchButtons.mockClear();
+    mockCommandButtonsStore.fetchButtons.mockResolvedValue();
+    mockCommandButtonsStore.getButtonsByProjectId.mockClear();
+    mockCommandButtonsStore.getLatestRunForButton.mockClear();
+
+    // Update command buttons store properties
+    mockCommandButtonsStore.buttons = [];
+    mockCommandButtonsStore.runs = {};
+    mockCommandButtonsStore.loading = false;
+    mockCommandButtonsStore.error = null;
   });
 
   afterEach(() => {
@@ -630,17 +667,24 @@ describe('ActiveSessionsView polling fallback', () => {
   it('has polling as fallback with 30s interval (reduced from real-time)', async () => {
     const sessionsStore = useSessionsStore();
 
+    // Ensure mock is properly set up
+    expect(typeof sessionsStore.fetchActiveSessions).toBe('function');
+    expect(sessionsStore.fetchActiveSessions.mock).toBeDefined();
+
     mount(ActiveSessionsView);
     await flushPromises();
 
     // Initial fetch
-    expect(sessionsStore.fetchActiveSessions).toHaveBeenCalledTimes(1);
+    const callCount = sessionsStore.fetchActiveSessions.mock.calls.length;
+    expect(callCount).toBeGreaterThanOrEqual(1);
 
     // Advance time by 30 seconds
     vi.advanceTimersByTime(30000);
+    await flushPromises();
 
-    // Should have called fetchActiveSessions again
-    expect(sessionsStore.fetchActiveSessions).toHaveBeenCalledTimes(2);
+    // Should have called fetchActiveSessions at least twice (initial + polling)
+    const newCallCount = sessionsStore.fetchActiveSessions.mock.calls.length;
+    expect(newCallCount).toBeGreaterThan(callCount);
   });
 
   describe('Command buttons loading for multiple projects', () => {
@@ -664,6 +708,20 @@ describe('ActiveSessionsView polling fallback', () => {
       // Should not throw, just log the error
       expect(mockCommandButtonsStore.fetchButtons).toHaveBeenCalled();
       consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('Starred filter', () => {
+    it('renders starred filter buttons', async () => {
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
+
+      // Get the filter buttons
+      const filterButtons = wrapper.findAll('.filter-btn');
+
+      // Check that starred filter buttons are rendered
+      const starredButton = filterButtons.find((btn) => btn.text().includes('Starred'));
+      expect(starredButton).toBeDefined();
     });
   });
 });

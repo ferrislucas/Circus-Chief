@@ -822,6 +822,25 @@ router.post('/:id/unarchive', (req, res) => {
   res.json(updated);
 });
 
+// POST /api/sessions/:id/star - Toggle star status for a session
+router.post('/:id/star', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const updated = sessions.update(req.params.id, { starred: !session.starred });
+
+  // Broadcast update to project subscribers
+  broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    projectId: session.projectId,
+    sessionId: req.params.id,
+    session: updated,
+  });
+
+  res.json(updated);
+});
+
 // POST /api/sessions/:id/duplicate - Duplicate a session
 router.post('/:id/duplicate', async (req, res) => {
   const session = sessions.getById(req.params.id);

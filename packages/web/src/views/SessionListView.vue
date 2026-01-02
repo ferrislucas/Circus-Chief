@@ -65,20 +65,56 @@
     </div>
 
     <!-- Status Filters -->
-    <div v-if="activeTab === 'sessions'" class="status-filters">
-      <span class="filter-label">Filter:</span>
-      <button
-        v-for="status in ['running', 'idle']"
-        :key="status"
-        :class="['filter-btn', { active: sessionsStore.statusFilter === status }]"
-        @click="toggleFilter(status)"
-      >
-        {{ status }}
-      </button>
+    <div v-if="activeTab === 'sessions'" class="filters-container">
+      <div class="status-filters">
+        <span class="filter-label">Filter:</span>
+        <button
+          v-for="status in ['running', 'idle']"
+          :key="status"
+          :class="['filter-btn', { active: sessionsStore.statusFilter === status }]"
+          @click="toggleFilter(status)"
+        >
+          {{ status }}
+        </button>
+      </div>
+      <div class="starred-filters">
+        <span class="filter-label">Starred:</span>
+        <button
+          :class="['filter-btn', { active: sessionsStore.starredFilter === 'starred' }]"
+          @click="toggleStarredFilter('starred')"
+        >
+          ⭐ Starred
+        </button>
+        <button
+          :class="['filter-btn', { active: sessionsStore.starredFilter === 'unstarred' }]"
+          @click="toggleStarredFilter('unstarred')"
+        >
+          ☆ Unstarred
+        </button>
+      </div>
     </div>
 
-    <!-- Spacer for archived tab to match sessions tab structure -->
-    <div v-else-if="activeTab === 'archived'" class="tab-spacer"></div>
+    <!-- Status/Starred Filters for Archived Tab -->
+    <div v-else-if="activeTab === 'archived'" class="filters-container">
+      <div class="starred-filters">
+        <span class="filter-label">Starred:</span>
+        <button
+          :class="['filter-btn', { active: sessionsStore.starredFilter === 'starred' }]"
+          @click="toggleStarredFilter('starred')"
+        >
+          ⭐ Starred
+        </button>
+        <button
+          :class="['filter-btn', { active: sessionsStore.starredFilter === 'unstarred' }]"
+          @click="toggleStarredFilter('unstarred')"
+        >
+          ☆ Unstarred
+        </button>
+      </div>
+    </div>
+
+    <!-- Spacer for other tabs to match structure -->
+    <div v-else class="tab-spacer"></div>
 
     <!-- Sessions Tab -->
     <div v-if="activeTab === 'sessions'">
@@ -189,6 +225,16 @@ const toggleFilter = (status) => {
   }
 };
 
+const toggleStarredFilter = (filter) => {
+  // If the clicked filter is already active, clear the filter (show all)
+  if (sessionsStore.starredFilter === filter) {
+    sessionsStore.setStarredFilter(null);
+  } else {
+    // Otherwise, set this filter as the only active one
+    sessionsStore.setStarredFilter(filter);
+  }
+};
+
 // Handle tab change from mobile dropdown
 function handleTabChange(tab) {
   if (tab === 'archived') {
@@ -204,22 +250,32 @@ const IDLE_STATUSES = ['waiting', 'stopped', 'error'];
 const RUNNING_STATUSES = ['running', 'starting'];
 
 const filteredGroupedSessions = computed(() => {
-  const groups = sessionsStore.groupedSessions;
-  if (!sessionsStore.statusFilter) return groups;
+  let groups = sessionsStore.groupedSessions;
 
-  // Filter groups based on parent session status
-  return groups.filter(group => {
-    const parentStatus = group.parent.status;
-    // "idle" filter matches waiting, stopped, or error statuses
-    if (sessionsStore.statusFilter === 'idle' && IDLE_STATUSES.includes(parentStatus)) {
-      return true;
-    }
-    // "running" filter matches running and starting statuses
-    if (sessionsStore.statusFilter === 'running' && RUNNING_STATUSES.includes(parentStatus)) {
-      return true;
-    }
-    return false;
-  });
+  // Apply status filter if set
+  if (sessionsStore.statusFilter) {
+    groups = groups.filter(group => {
+      const parentStatus = group.parent.status;
+      // "idle" filter matches waiting, stopped, or error statuses
+      if (sessionsStore.statusFilter === 'idle' && IDLE_STATUSES.includes(parentStatus)) {
+        return true;
+      }
+      // "running" filter matches running and starting statuses
+      if (sessionsStore.statusFilter === 'running' && RUNNING_STATUSES.includes(parentStatus)) {
+        return true;
+      }
+      return false;
+    });
+  }
+
+  // Apply starred filter if set
+  if (sessionsStore.starredFilter === 'starred') {
+    groups = groups.filter(group => group.parent.starred);
+  } else if (sessionsStore.starredFilter === 'unstarred') {
+    groups = groups.filter(group => !group.parent.starred);
+  }
+
+  return groups;
 });
 
 // Get projectId as computed to handle route changes
@@ -388,6 +444,7 @@ async function handleUnarchive(sessionId) {
 onMounted(() => {
   sessionsStore.restoreExpandedState();
   sessionsStore.restoreStatusFilter();
+  sessionsStore.restoreStarredFilter();
 });
 
 // Save expanded state and cleanup WebSocket listeners on unmount

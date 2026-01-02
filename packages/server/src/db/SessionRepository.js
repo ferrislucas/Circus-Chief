@@ -19,6 +19,7 @@ export class SessionRepository extends BaseRepository {
       mode: row.mode,
       thinkingEnabled: Boolean(row.thinking_enabled),
       archived: Boolean(row.archived),
+      starred: Boolean(row.starred),
       gitBranch: row.git_branch,
       gitWorktree: row.git_worktree,
       prUrl: row.pr_url,
@@ -57,7 +58,7 @@ export class SessionRepository extends BaseRepository {
     return this.getById(id);
   }
 
-  getByProjectId(projectId, { archived = null } = {}) {
+  getByProjectId(projectId, { archived = null, starred = null } = {}) {
     let sql = `SELECT * FROM sessions WHERE project_id = ?`;
     const params = [projectId];
 
@@ -66,7 +67,13 @@ export class SessionRepository extends BaseRepository {
       params.push(archived ? 1 : 0);
     }
 
+    if (starred !== null) {
+      sql += ` AND starred = ?`;
+      params.push(starred ? 1 : 0);
+    }
+
     sql += ` ORDER BY
+      starred DESC,
       updated_at DESC,
       created_at DESC,
       rowid DESC`;
@@ -83,7 +90,7 @@ export class SessionRepository extends BaseRepository {
          JOIN projects p ON s.project_id = p.id
          WHERE s.status IN ('starting', 'running', 'waiting')
            AND s.archived = 0
-         ORDER BY s.updated_at DESC, s.created_at DESC, s.rowid DESC`
+         ORDER BY s.starred DESC, s.updated_at DESC, s.created_at DESC, s.rowid DESC`
       )
       .all();
     return rows.map(row => ({
@@ -168,6 +175,10 @@ export class SessionRepository extends BaseRepository {
     if (data.archived !== undefined) {
       updates.push('archived = ?');
       values.push(data.archived ? 1 : 0);
+    }
+    if (data.starred !== undefined) {
+      updates.push('starred = ?');
+      values.push(data.starred ? 1 : 0);
     }
 
     if (updates.length === 0) return this.getById(id);
