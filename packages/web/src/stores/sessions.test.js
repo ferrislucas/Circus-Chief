@@ -2544,4 +2544,123 @@ describe('Sessions Store', () => {
       expect(localStorage.getItem('sessionStatusFilter')).toBe('idle');
     });
   });
+
+  describe('starredFilter', () => {
+    beforeEach(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+
+    it('should initialize with null starredFilter', () => {
+      const store = useSessionsStore();
+      expect(store.starredFilter).toBe(null);
+    });
+
+    it('setStarredFilter should update state and save to sessionStorage', () => {
+      const store = useSessionsStore();
+      store.setStarredFilter('starred');
+      expect(store.starredFilter).toBe('starred');
+      expect(sessionStorage.getItem('sessionStarredFilter')).toBe('starred');
+    });
+
+    it('setStarredFilter with null should remove from sessionStorage', () => {
+      const store = useSessionsStore();
+      store.setStarredFilter('starred');
+      store.setStarredFilter(null);
+      expect(store.starredFilter).toBe(null);
+      expect(sessionStorage.getItem('sessionStarredFilter')).toBe(null);
+    });
+
+    it('restoreStarredFilter should restore valid starred filter from sessionStorage', () => {
+      sessionStorage.setItem('sessionStarredFilter', 'starred');
+      const store = useSessionsStore();
+      store.restoreStarredFilter();
+      expect(store.starredFilter).toBe('starred');
+    });
+
+    it('restoreStarredFilter should ignore invalid values in sessionStorage', () => {
+      sessionStorage.setItem('sessionStarredFilter', 'invalid');
+      const store = useSessionsStore();
+      store.restoreStarredFilter();
+      expect(store.starredFilter).toBe(null);
+    });
+
+    it('restoreStarredFilter should handle missing sessionStorage gracefully', () => {
+      const store = useSessionsStore();
+      store.restoreStarredFilter();
+      expect(store.starredFilter).toBe(null);
+    });
+
+    it('restoreStarredFilter should handle backward compatibility for legacy "unstarred" value', () => {
+      // Legacy value: 'unstarred' should be treated as null (no filter)
+      sessionStorage.setItem('sessionStarredFilter', 'unstarred');
+      const store = useSessionsStore();
+      store.restoreStarredFilter();
+      expect(store.starredFilter).toBe(null);
+    });
+
+    it('saveStarredFilter should persist starred filter to sessionStorage', () => {
+      const store = useSessionsStore();
+      store.starredFilter = 'starred';
+      store.saveStarredFilter();
+      expect(sessionStorage.getItem('sessionStarredFilter')).toBe('starred');
+    });
+
+    it('saveStarredFilter with null should remove from sessionStorage', () => {
+      sessionStorage.setItem('sessionStarredFilter', 'starred');
+      const store = useSessionsStore();
+      store.starredFilter = null;
+      store.saveStarredFilter();
+      expect(sessionStorage.getItem('sessionStarredFilter')).toBe(null);
+    });
+
+    it('handles sessionStorage errors gracefully when saving', () => {
+      const store = useSessionsStore();
+      // Mock sessionStorage.setItem to throw
+      const originalSetItem = sessionStorage.setItem;
+      sessionStorage.setItem = vi.fn(() => {
+        throw new Error('Storage quota exceeded');
+      });
+
+      expect(() => {
+        store.setStarredFilter('starred');
+      }).not.toThrow();
+
+      // Restore original method
+      sessionStorage.setItem = originalSetItem;
+    });
+
+    it('handles sessionStorage errors gracefully when restoring', () => {
+      sessionStorage.setItem('sessionStarredFilter', 'invalid-json');
+      const store = useSessionsStore();
+
+      expect(() => {
+        store.restoreStarredFilter();
+      }).not.toThrow();
+      expect(store.starredFilter).toBe(null);
+    });
+
+    it('supports toggling between starred and null filters', () => {
+      const store = useSessionsStore();
+
+      store.setStarredFilter('starred');
+      expect(store.starredFilter).toBe('starred');
+
+      store.setStarredFilter(null);
+      expect(store.starredFilter).toBe(null);
+
+      store.setStarredFilter('starred');
+      expect(store.starredFilter).toBe('starred');
+    });
+
+    it('persists starred filter to sessionStorage correctly', () => {
+      const store = useSessionsStore();
+
+      store.setStarredFilter('starred');
+      expect(sessionStorage.getItem('sessionStarredFilter')).toBe('starred');
+
+      store.setStarredFilter(null);
+      expect(sessionStorage.getItem('sessionStarredFilter')).toBe(null);
+    });
+  });
 });

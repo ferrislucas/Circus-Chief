@@ -221,22 +221,15 @@ const toggleStarredFilter = (filter) => {
 };
 
 const toggleStarFilterIcon = () => {
-  if (sessionsStore.starredFilter === null) {
-    sessionsStore.setStarredFilter('starred');
-  } else if (sessionsStore.starredFilter === 'starred') {
-    sessionsStore.setStarredFilter('unstarred');
-  } else {
-    sessionsStore.setStarredFilter(null);
-  }
+  const newValue = sessionsStore.starredFilter === 'starred' ? null : 'starred';
+  sessionsStore.setStarredFilter(newValue);
 };
 
 const starFilterTooltip = computed(() => {
-  if (sessionsStore.starredFilter === null) {
-    return 'Click to filter starred sessions';
-  } else if (sessionsStore.starredFilter === 'starred') {
-    return 'Click to filter unstarred sessions';
+  if (sessionsStore.starredFilter === 'starred') {
+    return 'Show all sessions';
   } else {
-    return 'Click to clear filter and show all';
+    return 'Filter starred sessions';
   }
 });
 
@@ -276,8 +269,6 @@ const filteredGroupedSessions = computed(() => {
   // Apply starred filter if set
   if (sessionsStore.starredFilter === 'starred') {
     groups = groups.filter(group => group.parent.starred);
-  } else if (sessionsStore.starredFilter === 'unstarred') {
-    groups = groups.filter(group => !group.parent.starred);
   }
 
   return groups;
