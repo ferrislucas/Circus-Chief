@@ -287,10 +287,13 @@ describe('Canvas API', () => {
   describe('Canvas File Retrieval by Filename', () => {
     let sessionId;
     let tempDir;
+    let app;
+    let projectId;
 
     beforeEach(() => {
       // Create a project and session for testing
       const project = projects.create('Test Project', '/tmp/test');
+      projectId = project.id;
       const now = Date.now();
       const id = databaseManager.generateId();
       databaseManager.get().prepare(
@@ -298,6 +301,13 @@ describe('Canvas API', () => {
       ).run(id, project.id, 'Test Session', 'running', 'standard', now, now);
       sessionId = id;
       tempDir = `/tmp/canvas-${sessionId}`;
+
+      // Setup Express app for HTTP tests
+      app = express();
+      app.use(express.json());
+      const upload = multer({ storage: multer.memoryStorage() });
+      app.use(upload.single('file'));
+      app.use('/api/sessions', canvasRouter);
     });
 
     afterEach(() => {
@@ -401,6 +411,123 @@ describe('Canvas API', () => {
 
       expect(item.content).toBe('# Heading\n\nParagraph text.');
       expect(item.type).toBe('markdown');
+    });
+
+    describe('GET file endpoint with fileSize', () => {
+      it('returns fileSize field in response for text content', async () => {
+        const content = 'Hello, World!';
+        canvasItems.create(sessionId, { type: 'text', content, filename: 'test.txt' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/test.txt`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('fileSize');
+        expect(typeof res.body.fileSize).toBe('number');
+        expect(res.body.fileSize).toBeGreaterThan(0);
+      });
+
+      it('fileSize matches actual text content length', async () => {
+        const content = 'The quick brown fox jumps over the lazy dog';
+        canvasItems.create(sessionId, { type: 'code', content, filename: 'code.js' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/code.js`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.fileSize).toBe(Buffer.byteLength(content, 'utf-8'));
+        expect(res.body.fileSize).toBe(43);
+      });
+
+      it('fileSize is correct for markdown content', async () => {
+        const content = '# Heading\n\nParagraph text\n';
+        canvasItems.create(sessionId, { type: 'markdown', content, filename: 'doc.md' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/doc.md`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.fileSize).toBe(Buffer.byteLength(content, 'utf-8'));
+        expect(res.body.type).toBe('markdown');
+      });
+
+      it('fileSize is correct for base64-decoded image', async () => {
+        const pngBuffer = Buffer.from([
+          0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+          0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52
+        ]);
+        const base64 = pngBuffer.toString('base64');
+        canvasItems.create(sessionId, { type: 'image', data: base64, mimeType: 'image/png', filename: 'pixel.png' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/pixel.png`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.fileSize).toBe(pngBuffer.length);
+        expect(res.body.fileSize).toBe(16);
+        expect(res.body.type).toBe('image');
+      });
+
+      it('fileSize is correct for PDF file', async () => {
+        const pdfContent = '%PDF-1.4\n';
+        const pdfBase64 = Buffer.from(pdfContent).toString('base64');
+        canvasItems.create(sessionId, { type: 'pdf', data: pdfBase64, mimeType: 'application/pdf', filename: 'doc.pdf' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/doc.pdf`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.fileSize).toBe(Buffer.byteLength(pdfContent, 'utf-8'));
+        expect(res.body.type).toBe('pdf');
+      });
+
+      it('fileSize is correct for JSON content', async () => {
+        const jsonObject = { key: 'value', nested: { a: 1 } };
+        const jsonString = JSON.stringify(jsonObject);
+        canvasItems.create(sessionId, { type: 'json', content: jsonString, filename: 'data.json' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/data.json`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.fileSize).toBeGreaterThan(0);
+        expect(res.body.type).toBe('json');
+      });
+
+      it('fileSize is correct for empty text file', async () => {
+        canvasItems.create(sessionId, { type: 'text', content: '', filename: 'empty.txt' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/empty.txt`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.fileSize).toBe(0);
+        expect(res.body.type).toBe('text');
+      });
+
+      it('fileSize is returned for all versions of a file', async () => {
+        canvasItems.create(sessionId, { type: 'text', content: 'v1', filename: 'multiversion.txt' });
+        canvasItems.create(sessionId, { type: 'text', content: 'version2longer', filename: 'multiversion.txt' });
+
+        const latestRes = await request(app).get(`/api/sessions/${sessionId}/canvas/file/multiversion.txt`);
+
+        expect(latestRes.status).toBe(200);
+        expect(latestRes.body).toHaveProperty('fileSize');
+        expect(typeof latestRes.body.fileSize).toBe('number');
+        expect(latestRes.body.fileSize).toBeGreaterThan(0);
+        expect(latestRes.body).toHaveProperty('version');
+        expect(latestRes.body).toHaveProperty('totalVersions');
+        expect(latestRes.body.totalVersions).toBe(2);
+      });
+
+      it('fileSize is included in all response fields', async () => {
+        const content = 'Test content for full response check';
+        canvasItems.create(sessionId, { type: 'text', content, filename: 'fulltest.txt' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/fulltest.txt`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('filePath');
+        expect(res.body).toHaveProperty('type');
+        expect(res.body).toHaveProperty('mimeType');
+        expect(res.body).toHaveProperty('fileSize');
+        expect(res.body).toHaveProperty('createdAt');
+        expect(res.body).toHaveProperty('version');
+        expect(res.body).toHaveProperty('totalVersions');
+      });
     });
   });
 
