@@ -346,18 +346,17 @@ watch(
 );
 
 /**
- * Watch for run status changes to start/stop the timer and auto-expand output
+ * Watch for run status changes to start/stop the timer
  *
- * When status changes to 'running', start the timer and expand the output pane
- * so users can see the live output immediately.
+ * When status changes to 'running', start the elapsed time timer.
  * When status changes away from 'running', stop the timer.
+ * Note: Output pane remains collapsed by default; user can expand manually.
  */
 watch(
   () => props.run?.status,
   (newStatus) => {
     if (newStatus === 'running') {
       startTimer();
-      showOutput.value = true;
     } else {
       stopTimer();
     }
