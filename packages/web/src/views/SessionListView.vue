@@ -67,7 +67,6 @@
     <!-- Status Filters -->
     <div v-if="activeTab === 'sessions'" class="filters-container">
       <div class="status-filters">
-        <span class="filter-label">Filter:</span>
         <button
           v-for="status in ['running', 'idle']"
           :key="status"
@@ -76,39 +75,25 @@
         >
           {{ status }}
         </button>
-      </div>
-      <div class="starred-filters">
-        <span class="filter-label">Starred:</span>
         <button
-          :class="['filter-btn', { active: sessionsStore.starredFilter === 'starred' }]"
-          @click="toggleStarredFilter('starred')"
+          :class="['filter-btn star-btn', { active: sessionsStore.starredFilter }]"
+          :title="starFilterTooltip"
+          @click="toggleStarFilterIcon"
         >
-          ⭐ Starred
-        </button>
-        <button
-          :class="['filter-btn', { active: sessionsStore.starredFilter === 'unstarred' }]"
-          @click="toggleStarredFilter('unstarred')"
-        >
-          ☆ Unstarred
+          {{ sessionsStore.starredFilter === 'starred' ? '⭐' : '☆' }}
         </button>
       </div>
     </div>
 
     <!-- Status/Starred Filters for Archived Tab -->
     <div v-else-if="activeTab === 'archived'" class="filters-container">
-      <div class="starred-filters">
-        <span class="filter-label">Starred:</span>
+      <div class="status-filters">
         <button
-          :class="['filter-btn', { active: sessionsStore.starredFilter === 'starred' }]"
-          @click="toggleStarredFilter('starred')"
+          :class="['filter-btn star-btn', { active: sessionsStore.starredFilter }]"
+          :title="starFilterTooltip"
+          @click="toggleStarFilterIcon"
         >
-          ⭐ Starred
-        </button>
-        <button
-          :class="['filter-btn', { active: sessionsStore.starredFilter === 'unstarred' }]"
-          @click="toggleStarredFilter('unstarred')"
-        >
-          ☆ Unstarred
+          {{ sessionsStore.starredFilter === 'starred' ? '⭐' : '☆' }}
         </button>
       </div>
     </div>
@@ -234,6 +219,26 @@ const toggleStarredFilter = (filter) => {
     sessionsStore.setStarredFilter(filter);
   }
 };
+
+const toggleStarFilterIcon = () => {
+  if (sessionsStore.starredFilter === null) {
+    sessionsStore.setStarredFilter('starred');
+  } else if (sessionsStore.starredFilter === 'starred') {
+    sessionsStore.setStarredFilter('unstarred');
+  } else {
+    sessionsStore.setStarredFilter(null);
+  }
+};
+
+const starFilterTooltip = computed(() => {
+  if (sessionsStore.starredFilter === null) {
+    return 'Click to filter starred sessions';
+  } else if (sessionsStore.starredFilter === 'starred') {
+    return 'Click to filter unstarred sessions';
+  } else {
+    return 'Click to clear filter and show all';
+  }
+});
 
 // Handle tab change from mobile dropdown
 function handleTabChange(tab) {
