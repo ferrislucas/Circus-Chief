@@ -109,6 +109,7 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
     sessions,
     archivedSessions: [],
     statusFilter: null,
+    starredFilter: null,
     get groupedSessions() {
       // Derive groupedSessions from sessions like the real store does
       const grouped = [];
@@ -136,10 +137,15 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
     restoreExpandedState: vi.fn(),
     saveExpandedState: vi.fn(),
     restoreStatusFilter: vi.fn(),
-    setStatusFilter(filter) {
+    setStatusFilter: vi.fn(function(filter) {
       this.statusFilter = filter;
-    },
+    }),
     saveStatusFilter: vi.fn(),
+    restoreStarredFilter: vi.fn(),
+    setStarredFilter: vi.fn(function(filter) {
+      this.starredFilter = filter;
+    }),
+    saveStarredFilter: vi.fn(),
     ...overrides,
   });
   return baseStore;
@@ -406,9 +412,11 @@ describe('Status filtering', () => {
       await flushAll(wrapper);
 
       const filterButtons = wrapper.findAll('.filter-btn');
-      expect(filterButtons).toHaveLength(2);
+      expect(filterButtons).toHaveLength(4);
       expect(filterButtons[0].text()).toBe('running');
       expect(filterButtons[1].text()).toBe('idle');
+      expect(filterButtons[2].text()).toContain('Starred');
+      expect(filterButtons[3].text()).toContain('Unstarred');
     });
 
     it('only shows filter buttons on sessions tab', async () => {
@@ -1179,6 +1187,112 @@ describe('SessionListView Archived Tab', () => {
       // Verify both sessions and buttons are fetched
       expect(mockSessionsStore.fetchSessions).toHaveBeenCalledWith('test-project-id');
       expect(mockCommandButtonsStore.fetchButtons).toHaveBeenCalledWith('test-project-id');
+    });
+  });
+
+  describe('Starred filter', () => {
+    it('restores starred filter on mount', async () => {
+      mount(SessionListView);
+      await flushAll();
+
+      expect(mockSessionsStore.restoreStarredFilter).toHaveBeenCalled();
+    });
+
+    it('filters sessions by starred status when filter is set', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Starred Session', status: 'completed', starred: true },
+        { id: 'session-2', name: 'Regular Session', status: 'completed', starred: false },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Set starred filter
+      mockSessionsStore.starredFilter = 'starred';
+      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
+
+      // Should show only the starred session
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(1);
+      expect(sessionCards[0].attributes('data-session-id')).toBe('session-1');
+    });
+
+    it('shows all sessions when starred filter is cleared', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Starred Session', status: 'completed', starred: true },
+        { id: 'session-2', name: 'Regular Session', status: 'completed', starred: false },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Clear the filter (set to null)
+      mockSessionsStore.starredFilter = null;
+      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
+
+      // Should show all sessions
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(2);
+    });
+
+    it('calls setStarredFilter when starred button is clicked', async () => {
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Get the starred filter button (⭐ Starred)
+      const filterButtons = wrapper.findAll('.filter-btn');
+      const starredButton = filterButtons.find((btn) => btn.text().includes('Starred'));
+
+      await starredButton.trigger('click');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith('starred');
+    });
+
+    it('toggles starred filter when button is clicked again', async () => {
+      mockSessionsStore.starredFilter = 'starred';
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Find and click the starred filter button
+      const filterButtons = wrapper.findAll('.filter-btn');
+      const starredButton = filterButtons.find((btn) => btn.text().includes('Starred'));
+
+      await starredButton.trigger('click');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith(null);
+    });
+
+    it('filter works independently of status and archive state', async () => {
+      // Set up sessions with both starred and unstarred
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed', starred: true },
+        { id: 'session-2', name: 'Session 2', status: 'completed', starred: false },
+        { id: 'session-3', name: 'Session 3', status: 'running', starred: true },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Set starred filter
+      mockSessionsStore.starredFilter = 'starred';
+      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
+
+      // Should show only the starred sessions
+      const sessionCards = wrapper.findAll('.session-card');
+      expect(sessionCards).toHaveLength(2);
+      const ids = sessionCards.map((card) => card.attributes('data-session-id'));
+      expect(ids).toContain('session-1');
+      expect(ids).toContain('session-3');
     });
   });
 });
