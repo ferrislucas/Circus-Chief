@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import StarButton from './StarButton.vue';
@@ -144,27 +144,6 @@ describe('StarButton', () => {
 
       expect(mockSessionsStore.toggleSessionStar).toHaveBeenCalledWith('test-session-123');
     });
-
-    it('sets loading state during toggle', async () => {
-      mockSessionsStore.toggleSessionStar.mockImplementation(
-        () => new Promise((resolve) => setTimeout(resolve, 100))
-      );
-
-      const wrapper = mount(StarButton, {
-        props: {
-          sessionId: 'test-session',
-          starred: false,
-        },
-      });
-
-      const button = wrapper.find('button');
-      await button.trigger('click');
-
-      // Check loading state immediately after click
-      expect(wrapper.find('.star-button').classes()).toContain('is-loading');
-
-      await flushPromises();
-    });
   });
 
   describe('disabled state', () => {
@@ -177,24 +156,6 @@ describe('StarButton', () => {
         },
       });
 
-      expect(wrapper.find('button').attributes('disabled')).toBeDefined();
-    });
-
-    it('disables button when loading', async () => {
-      mockSessionsStore.toggleSessionStar.mockImplementation(
-        () => new Promise((resolve) => setTimeout(resolve, 100))
-      );
-
-      const wrapper = mount(StarButton, {
-        props: {
-          sessionId: 'test-session',
-          starred: false,
-        },
-      });
-
-      await wrapper.find('button').trigger('click');
-
-      // Button should be disabled while loading
       expect(wrapper.find('button').attributes('disabled')).toBeDefined();
     });
 

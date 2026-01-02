@@ -1,8 +1,21 @@
 <template>
   <div class="quick-responses-panel" v-if="hasResponses || showEmpty">
-    <!-- Header with settings button -->
+    <!-- Header with toggle and settings button -->
     <div class="panel-header">
-      <span class="panel-title">Quick Responses</span>
+      <div class="header-left">
+        <button
+          class="toggle-button"
+          @click="toggleExpanded"
+          :aria-expanded="isExpanded"
+          title="Toggle quick responses panel"
+          aria-label="Toggle quick responses panel"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="chevron-icon">
+            <path fill-rule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 1 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+          </svg>
+        </button>
+        <span class="panel-title">Quick Responses</span>
+      </div>
       <button
         class="settings-button"
         @click="$emit('openSettings')"
@@ -15,19 +28,19 @@
       </button>
     </div>
 
-    <!-- Loading state -->
-    <div v-if="loading" class="loading-state">
+    <!-- Loading state (shown when expanded) -->
+    <div v-if="loading && isExpanded" class="loading-state">
       <span class="loading-text">Loading...</span>
     </div>
 
-    <!-- Empty state -->
-    <div v-else-if="!hasResponses" class="empty-state">
+    <!-- Empty state (shown when expanded) -->
+    <div v-else-if="!hasResponses && isExpanded" class="empty-state">
       <span class="empty-text">No quick responses yet</span>
       <button class="add-button" @click="$emit('openSettings')">+ Add Quick Response</button>
     </div>
 
-    <!-- Responses content -->
-    <div v-else class="responses-content">
+    <!-- Responses content (collapsible) -->
+    <div v-if="isExpanded && hasResponses && !loading" class="responses-content">
       <!-- Project responses -->
       <div v-if="projectResponses.length > 0" class="response-section">
         <span class="section-label">Project</span>
@@ -70,7 +83,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 defineProps({
@@ -83,17 +96,24 @@ defineProps({
 const emit = defineEmits(['insert', 'openSettings']);
 
 const store = useQuickResponsesStore();
+const isExpanded = ref(false);
 
 const loading = computed(() => store.loading);
 const projectResponses = computed(() => store.projectResponses);
 const globalResponses = computed(() => store.globalResponses);
 const hasResponses = computed(() => store.hasResponses);
 
+function toggleExpanded() {
+  isExpanded.value = !isExpanded.value;
+}
+
 function handleClick(response) {
   emit('insert', {
     content: response.content,
     autoSubmit: response.autoSubmit,
   });
+  // Auto-collapse panel after selecting a response
+  isExpanded.value = false;
 }
 </script>
 
@@ -110,7 +130,44 @@ function handleClick(response) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0;
+  gap: 0.5rem;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.toggle-button {
+  background: none;
+  border: none;
+  padding: 0.25rem;
+  cursor: pointer;
+  color: var(--color-text-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s, transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.toggle-button:hover {
+  color: var(--color-text);
+  background: var(--color-background-mute);
+}
+
+.chevron-icon {
+  width: 1rem;
+  height: 1rem;
+  transition: transform 0.2s ease;
+}
+
+.toggle-button[aria-expanded="true"] .chevron-icon {
+  transform: rotate(180deg);
 }
 
 .panel-title {
@@ -152,6 +209,7 @@ function handleClick(response) {
   justify-content: center;
   padding: 1rem;
   gap: 0.5rem;
+  margin-top: 0.5rem;
 }
 
 .loading-text,
@@ -179,6 +237,7 @@ function handleClick(response) {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  margin-top: 0.5rem;
 }
 
 .response-section {
