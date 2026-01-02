@@ -1,23 +1,21 @@
 <template>
-  <div class="conversation-selector">
+  <div v-if="!isSessionRunning" class="conversation-selector">
     <div class="selector-row">
       <!-- Dropdown -->
       <div v-if="conversations.length > 1" class="dropdown-container">
         <button
           type="button"
           class="dropdown-trigger"
-          :disabled="isDisabled"
           @click.stop="toggleDropdown"
-          :title="isDisabled ? 'Stop the session to switch conversations' : 'Switch conversation'"
+          title="Switch conversation"
         >
           <span class="dropdown-label">
             {{ activeConversationDisplayName }}
           </span>
-          <span v-if="isDisabled" class="lock-icon">🔒</span>
-          <span v-else class="dropdown-arrow">▼</span>
+          <span class="dropdown-arrow">▼</span>
         </button>
 
-        <div v-if="isOpen && !isDisabled" class="dropdown-menu">
+        <div v-if="isOpen" class="dropdown-menu">
           <div
             v-for="(conv, index) in conversations"
             :key="conv.id"
@@ -48,19 +46,12 @@
       <button
         type="button"
         class="btn btn-new"
-        :disabled="isDisabled"
         @click="handleCreate"
-        :title="isDisabled ? 'Stop the session to create new conversation' : 'Start a new conversation'"
+        title="Start a new conversation"
       >
-        <span v-if="isDisabled" class="lock-icon">🔒</span>
-        <span v-else>+</span>
+        <span>+</span>
         new conversation
       </button>
-    </div>
-
-    <!-- Warning message when disabled -->
-    <div v-if="isDisabled && showWarning" class="warning-message">
-      Stop the session to switch or create conversations
     </div>
   </div>
 </template>
@@ -78,11 +69,16 @@ const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 
 const isOpen = ref(false);
-const showWarning = ref(false);
 
 const conversations = computed(() => sessionsStore.conversations);
 const activeConversationId = computed(() => sessionsStore.activeConversationId);
 const activeConversation = computed(() => sessionsStore.activeConversation);
+
+// Check if session is currently running or starting
+const isSessionRunning = computed(() => {
+  const status = sessionsStore.currentSession?.status;
+  return status === 'running' || status === 'starting';
+});
 
 // Convert number to ordinal (1→"1st", 2→"2nd", 3→"3rd", 4→"4th", etc.)
 function toOrdinal(num) {
@@ -119,17 +115,7 @@ const activeConversationDisplayName = computed(() => {
   return getConversationDisplayName(activeConversation.value, index >= 0 ? index : 0);
 });
 
-// Disable switching while session is running
-const isDisabled = computed(() => {
-  return sessionsStore.currentSession?.status === 'running';
-});
-
 function toggleDropdown() {
-  if (isDisabled.value) {
-    showWarning.value = true;
-    setTimeout(() => { showWarning.value = false; }, 3000);
-    return;
-  }
   isOpen.value = !isOpen.value;
 }
 
@@ -156,12 +142,6 @@ async function selectConversation(conversationId) {
 }
 
 async function handleCreate() {
-  if (isDisabled.value) {
-    showWarning.value = true;
-    setTimeout(() => { showWarning.value = false; }, 3000);
-    return;
-  }
-
   try {
     await sessionsStore.createConversation(props.sessionId);
     uiStore.success('New conversation created');
@@ -232,14 +212,8 @@ defineExpose({
   transition: border-color 0.15s, background-color 0.15s;
 }
 
-.dropdown-trigger:hover:not(:disabled) {
+.dropdown-trigger:hover {
   border-color: var(--color-primary);
-}
-
-.dropdown-trigger:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  background: var(--color-background-soft);
 }
 
 .dropdown-label {
@@ -253,11 +227,6 @@ defineExpose({
 .dropdown-arrow {
   font-size: 0.625rem;
   color: var(--color-text-soft);
-  margin-left: 0.5rem;
-}
-
-.lock-icon {
-  font-size: 0.75rem;
   margin-left: 0.5rem;
 }
 
@@ -349,23 +318,8 @@ defineExpose({
   white-space: nowrap;
 }
 
-.btn-new:hover:not(:disabled) {
+.btn-new:hover {
   border-color: var(--color-primary);
   background: var(--color-background-soft);
-}
-
-.btn-new:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.warning-message {
-  margin-top: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  background: rgba(245, 158, 11, 0.1);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  border-radius: var(--border-radius);
-  color: var(--color-warning, #f59e0b);
-  font-size: 0.75rem;
 }
 </style>
