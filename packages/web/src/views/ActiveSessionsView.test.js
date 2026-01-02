@@ -752,20 +752,8 @@ describe('ActiveSessionsView polling fallback', () => {
       expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith('starred');
     });
 
-    it('toggles from starred filter to unstarred filter on second click', async () => {
+    it('toggles from starred filter to null on second click', async () => {
       mockSessionsStore.starredFilter = 'starred';
-      const wrapper = mount(ActiveSessionsView);
-      await flushAll(wrapper);
-
-      const starButton = wrapper.find('.star-btn');
-      await starButton.trigger('click');
-      await flushAll(wrapper);
-
-      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith('unstarred');
-    });
-
-    it('toggles from unstarred filter back to no filter on third click', async () => {
-      mockSessionsStore.starredFilter = 'unstarred';
       const wrapper = mount(ActiveSessionsView);
       await flushAll(wrapper);
 
@@ -782,7 +770,7 @@ describe('ActiveSessionsView polling fallback', () => {
       await flushAll(wrapper);
 
       const starButton = wrapper.find('.star-btn');
-      expect(starButton.attributes('title')).toBe('Click to filter starred sessions');
+      expect(starButton.attributes('title')).toBe('Filter starred sessions');
     });
 
     it('displays correct tooltip for filled star (starred filter)', async () => {
@@ -791,16 +779,7 @@ describe('ActiveSessionsView polling fallback', () => {
       await flushAll(wrapper);
 
       const starButton = wrapper.find('.star-btn');
-      expect(starButton.attributes('title')).toBe('Click to filter unstarred sessions');
-    });
-
-    it('displays correct tooltip for unstarred filter', async () => {
-      mockSessionsStore.starredFilter = 'unstarred';
-      const wrapper = mount(ActiveSessionsView);
-      await flushAll(wrapper);
-
-      const starButton = wrapper.find('.star-btn');
-      expect(starButton.attributes('title')).toBe('Click to clear filter and show all');
+      expect(starButton.attributes('title')).toBe('Show all sessions');
     });
 
     it('filter button has active class when filter is applied', async () => {

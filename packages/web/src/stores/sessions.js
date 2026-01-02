@@ -1130,12 +1130,16 @@ export const useSessionsStore = defineStore('sessions', {
 
     /**
      * Restore starred filter from sessionStorage
+     * Handles backward compatibility: 'unstarred' is treated as null (no filter)
      */
     restoreStarredFilter() {
       try {
         const filter = sessionStorage.getItem('sessionStarredFilter');
-        if (filter === 'starred' || filter === 'unstarred') {
+        if (filter === 'starred') {
           this.starredFilter = filter;
+        } else if (filter === 'unstarred') {
+          // Legacy: treat 'unstarred' as null (no filter)
+          this.starredFilter = null;
         }
       } catch (error) {
         console.warn('Failed to restore starred filter:', error);

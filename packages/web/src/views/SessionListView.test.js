@@ -1251,7 +1251,7 @@ describe('SessionListView Archived Tab', () => {
       expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith('starred');
     });
 
-    it('toggles starred filter when button is clicked again', async () => {
+    it('toggles starred filter to null when button is clicked again', async () => {
       mockSessionsStore.starredFilter = 'starred';
       useSessionsStore.mockReturnValue(mockSessionsStore);
 
@@ -1264,7 +1264,7 @@ describe('SessionListView Archived Tab', () => {
       await starredButton.trigger('click');
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith('unstarred');
+      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith(null);
     });
 
     it('filter works independently of status and archive state', async () => {
@@ -1310,27 +1310,13 @@ describe('SessionListView Archived Tab', () => {
       expect(starButton.text()).toContain('⭐');
     });
 
-    it('toggles from unstarred filter back to no filter on click when already unstarred', async () => {
-      mockSessionsStore.starredFilter = 'unstarred';
-      useSessionsStore.mockReturnValue(mockSessionsStore);
-
-      const wrapper = mount(SessionListView);
-      await flushAll(wrapper);
-
-      const starButton = wrapper.find('.star-btn');
-      await starButton.trigger('click');
-      await flushAll(wrapper);
-
-      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith(null);
-    });
-
     it('displays correct tooltip for empty star (no filter)', async () => {
       mockSessionsStore.starredFilter = null;
       const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
       const starButton = wrapper.find('.star-btn');
-      expect(starButton.attributes('title')).toBe('Click to filter starred sessions');
+      expect(starButton.attributes('title')).toBe('Filter starred sessions');
     });
 
     it('displays correct tooltip for filled star (starred filter)', async () => {
@@ -1339,16 +1325,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       const starButton = wrapper.find('.star-btn');
-      expect(starButton.attributes('title')).toBe('Click to filter unstarred sessions');
-    });
-
-    it('displays correct tooltip for unstarred filter', async () => {
-      mockSessionsStore.starredFilter = 'unstarred';
-      const wrapper = mount(SessionListView);
-      await flushAll(wrapper);
-
-      const starButton = wrapper.find('.star-btn');
-      expect(starButton.attributes('title')).toBe('Click to clear filter and show all');
+      expect(starButton.attributes('title')).toBe('Show all sessions');
     });
 
     it('filter button has active class when any filter is applied', async () => {
@@ -1369,7 +1346,7 @@ describe('SessionListView Archived Tab', () => {
       expect(starButton.classes()).not.toContain('active');
     });
 
-    it('cycles through all filter states: null -> starred -> unstarred -> null', async () => {
+    it('cycles through binary filter states: null -> starred -> null', async () => {
       const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
@@ -1383,15 +1360,6 @@ describe('SessionListView Archived Tab', () => {
       // Clear mock and set to 'starred'
       mockSessionsStore.setStarredFilter.mockClear();
       mockSessionsStore.starredFilter = 'starred';
-      await wrapper.vm.$nextTick();
-
-      // Click to go to 'unstarred'
-      await starButton.trigger('click');
-      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith('unstarred');
-
-      // Clear mock and set to 'unstarred'
-      mockSessionsStore.setStarredFilter.mockClear();
-      mockSessionsStore.starredFilter = 'unstarred';
       await wrapper.vm.$nextTick();
 
       // Click to go back to null
