@@ -159,6 +159,7 @@ describe('StarButton', () => {
 
       const button = wrapper.find('button');
       await button.trigger('click');
+      await wrapper.vm.$nextTick();
 
       // Check loading state immediately after click
       expect(wrapper.find('.star-button').classes()).toContain('is-loading');
@@ -193,6 +194,7 @@ describe('StarButton', () => {
       });
 
       await wrapper.find('button').trigger('click');
+      await wrapper.vm.$nextTick();
 
       // Button should be disabled while loading
       expect(wrapper.find('button').attributes('disabled')).toBeDefined();
