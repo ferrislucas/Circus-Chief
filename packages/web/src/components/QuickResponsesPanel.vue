@@ -4,6 +4,7 @@
     <div class="panel-header">
       <div class="header-left">
         <button
+          type="button"
           class="toggle-button"
           @click="toggleExpanded"
           :aria-expanded="isExpanded"
@@ -17,6 +18,7 @@
         <span class="panel-title">Quick Responses</span>
       </div>
       <button
+        type="button"
         class="settings-button"
         @click="$emit('openSettings')"
         title="Manage quick responses"
@@ -36,7 +38,7 @@
     <!-- Empty state (shown when expanded) -->
     <div v-else-if="!hasResponses && isExpanded" class="empty-state">
       <span class="empty-text">No quick responses yet</span>
-      <button class="add-button" @click="$emit('openSettings')">+ Add Quick Response</button>
+      <button type="button" class="add-button" @click="$emit('openSettings')">+ Add Quick Response</button>
     </div>
 
     <!-- Responses content (collapsible) -->
