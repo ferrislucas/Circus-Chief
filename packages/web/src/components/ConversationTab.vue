@@ -13,6 +13,7 @@
         v-for="message in sessionsStore.messages"
         :key="message.id"
         :class="['message', `message-${message.role}`]"
+        :data-message-id="message.id"
       >
         <div class="message-header">
           <span class="message-role">{{ message.role }}</span>
@@ -58,6 +59,17 @@
           <MarkdownViewer :content="partialText" />
         </div>
       </div>
+
+      <!-- Jump to Claude's turn button -->
+      <button
+        v-if="!viewingLatestTurn && hasNewTurn"
+        class="scroll-to-claude-btn"
+        @click="scrollToClaudesTurn"
+        title="Jump to Claude's response"
+        aria-label="Scroll to Claude's latest response"
+      >
+        ↑ Claude's response
+      </button>
 
       <!-- Jump to latest button -->
       <button
@@ -262,6 +274,8 @@ const modes = [
 const partialText = ref('');
 const isNearBottom = ref(true);
 const hasNewMessages = ref(false);
+const viewingLatestTurn = ref(true); // Track if user is viewing Claude's latest turn
+const hasNewTurn = ref(false); // Track if there's a newer turn below
 let debounceTimer = null;
 let partialThrottleTimer = null;
 let pendingPartialText = null;
@@ -325,6 +339,30 @@ function handleScroll() {
   // Clear new messages indicator when user scrolls to bottom
   if (isNearBottom.value && !wasNearBottom) {
     hasNewMessages.value = false;
+  }
+
+  // Track if user is viewing Claude's latest turn
+  // Find the last assistant message to determine if we're near it
+  const lastAssistantIndex = sessionsStore.messages.findLastIndex(msg => msg.role === 'assistant');
+  if (lastAssistantIndex >= 0) {
+    const lastAssistantMsg = sessionsStore.messages[lastAssistantIndex];
+    const msgElement = document.querySelector(`[data-message-id="${lastAssistantMsg.id}"]`);
+
+    if (msgElement) {
+      const rect = msgElement.getBoundingClientRect();
+      const containerRect = messagesContainer.value.getBoundingClientRect();
+      const msgTop = rect.top - containerRect.top + scrollTop;
+      const distanceFromCurrentView = msgTop - scrollTop;
+
+      // User is viewing latest turn if the message is near the current view
+      const wasViewingLatest = viewingLatestTurn.value;
+      viewingLatestTurn.value = distanceFromCurrentView < clientHeight;
+
+      // Update hasNewTurn indicator
+      if (viewingLatestTurn.value && !wasViewingLatest) {
+        hasNewTurn.value = false;
+      }
+    }
   }
 }
 
@@ -535,13 +573,43 @@ function scrollToBottom(force = false) {
   });
 }
 
+function scrollToClaudesTurn() {
+  nextTick(() => {
+    if (!messagesContainer.value) return;
+
+    // Find the last assistant message
+    const lastAssistantIndex = sessionsStore.messages.findLastIndex(msg => msg.role === 'assistant');
+    if (lastAssistantIndex < 0) return;
+
+    const lastAssistantMsg = sessionsStore.messages[lastAssistantIndex];
+    const msgElement = document.querySelector(`[data-message-id="${lastAssistantMsg.id}"]`);
+
+    if (msgElement) {
+      // Scroll to the beginning of Claude's turn
+      msgElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      viewingLatestTurn.value = true;
+      hasNewTurn.value = false;
+    }
+  });
+}
+
 watch(
   () => sessionsStore.messages.length,
   (newLen, oldLen) => {
     // Force scroll when messages first load, conditional scroll otherwise
     if (oldLen === 0 && newLen > 0) {
       scrollToBottom(true);
+      viewingLatestTurn.value = true;
+      hasNewTurn.value = false;
     } else {
+      // Check if a new assistant message was added
+      if (newLen > oldLen) {
+        const lastMsg = sessionsStore.messages[newLen - 1];
+        if (lastMsg?.role === 'assistant' && !viewingLatestTurn.value) {
+          // New Claude response while user has scrolled away
+          hasNewTurn.value = true;
+        }
+      }
       scrollToBottom();
     }
   }
@@ -760,6 +828,7 @@ async function handleTemplateChange(templateId) {
   padding: 1rem 0;
   position: relative;
   overflow-anchor: none; /* Prevent browser scroll anchoring issues during streaming */
+  scroll-behavior: smooth;
 }
 
 .message {
@@ -1156,6 +1225,39 @@ async function handleTemplateChange(templateId) {
   font-size: 1rem;
 }
 
+.scroll-to-claude-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  width: 32px;
+  height: 32px;
+  background: rgba(31, 41, 55, 0.85);
+  border: 1px solid rgba(75, 85, 99, 0.5);
+  border-radius: 6px;
+  color: rgba(156, 163, 175, 0.9);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  padding: 0;
+  line-height: 1;
+  font-weight: 500;
+}
+
+.scroll-to-claude-btn:hover {
+  background: rgba(55, 65, 81, 0.95);
+  color: rgba(209, 213, 219, 1);
+}
+
+.scroll-to-claude-btn:active {
+  transform: scale(0.95);
+}
+
 .jump-to-latest {
   position: sticky;
   bottom: 0.5rem;
@@ -1240,6 +1342,14 @@ async function handleTemplateChange(templateId) {
   .input-actions {
     width: 100%;
     justify-content: flex-end;
+  }
+
+  /* Mobile adjustments for scroll-to-claude button */
+  .scroll-to-claude-btn {
+    width: 28px;
+    height: 28px;
+    top: 6px;
+    right: 6px;
   }
 }
 

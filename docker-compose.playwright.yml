@@ -53,6 +53,8 @@ services:
       - CI=${CI:-true}
       # Playwright specific
       - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+      # Screenshot mode (for running screenshot capture tests)
+      - SCREENSHOT_MODE=${SCREENSHOT_MODE:-}
     # Working directory
     working_dir: /app
     # Health check
