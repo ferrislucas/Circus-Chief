@@ -121,32 +121,46 @@
         <div class="session-date">
           {{ formatDate(dateToShow) }}
         </div>
-        <div v-if="showArchive || showUnarchive" class="archive-actions">
+        <div class="session-action-buttons-group">
           <button
-            v-if="showArchive && canArchive"
-            class="archive-btn"
-            title="Archive session"
-            @click.stop.prevent="onArchiveClick"
+            class="star-btn"
+            :title="session.starred ? 'Unstar session' : 'Star session'"
+            @click.stop.prevent="onStarClick"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="4" width="20" height="5" rx="1" ry="1"></rect>
-              <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path>
-              <path d="M10 13h4"></path>
+            <svg v-if="session.starred" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
             </svg>
           </button>
-          <button
-            v-if="showUnarchive"
-            class="archive-btn"
-            title="Unarchive session"
-            @click.stop.prevent="onUnarchiveClick"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="4" width="20" height="5" rx="1" ry="1"></rect>
-              <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path>
-              <path d="M12 11v6"></path>
-              <path d="M9 14l3-3 3 3"></path>
-            </svg>
-          </button>
+          <div v-if="showArchive || showUnarchive" class="archive-actions">
+            <button
+              v-if="showArchive && canArchive"
+              class="archive-btn"
+              title="Archive session"
+              @click.stop.prevent="onArchiveClick"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="4" width="20" height="5" rx="1" ry="1"></rect>
+                <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path>
+                <path d="M10 13h4"></path>
+              </svg>
+            </button>
+            <button
+              v-if="showUnarchive"
+              class="archive-btn"
+              title="Unarchive session"
+              @click.stop.prevent="onUnarchiveClick"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="4" width="20" height="5" rx="1" ry="1"></rect>
+                <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path>
+                <path d="M12 11v6"></path>
+                <path d="M9 14l3-3 3 3"></path>
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -346,6 +360,10 @@ const onUnarchiveClick = () => {
     emit('unarchive', props.session.id);
   }
 };
+
+const onStarClick = () => {
+  sessionsStore.toggleSessionStar(props.session.id);
+};
 </script>
 
 <style scoped>
@@ -489,6 +507,29 @@ const onUnarchiveClick = () => {
 .session-date {
   font-size: 0.875rem;
   color: var(--color-text-soft);
+}
+
+.session-action-buttons-group {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.star-btn {
+  background: none;
+  border: none;
+  padding: 0.25rem;
+  cursor: pointer;
+  color: var(--color-text-soft);
+  border-radius: var(--border-radius);
+  transition: color 0.15s, background-color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.star-btn:hover {
+  color: var(--color-primary);
+  background-color: var(--color-bg-soft);
 }
 
 .archive-actions {

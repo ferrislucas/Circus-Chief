@@ -33,6 +33,18 @@
                 :session-name="sessionsStore.currentSession?.name"
               />
               <button
+                class="btn btn-outline-secondary btn-star-session"
+                :title="sessionsStore.currentSession?.starred ? 'Unstar session' : 'Star session'"
+                @click="handleStar"
+              >
+                <svg v-if="sessionsStore.currentSession?.starred" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
+                </svg>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
+                </svg>
+              </button>
+              <button
                 v-if="canArchive"
                 class="btn btn-outline-secondary btn-archive-session"
                 @click="handleArchive"
@@ -458,6 +470,16 @@ async function handleArchive() {
   }
 }
 
+async function handleStar() {
+  try {
+    await sessionsStore.toggleSessionStar(sessionId);
+    const isNowStarred = sessionsStore.currentSession?.starred;
+    uiStore.success(isNowStarred ? 'Session starred' : 'Session unstarred');
+  } catch (err) {
+    uiStore.error(err.message);
+  }
+}
+
 function getTemplateName(templateId) {
   const template = templatesStore.getTemplateById(templateId);
   return template?.name || 'Unknown template';
@@ -513,6 +535,16 @@ function getTemplateName(templateId) {
   align-items: center;
   gap: 0.5rem;
   margin-left: auto;
+  flex-shrink: 0;
+}
+
+.btn-star-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.btn-star-session svg {
   flex-shrink: 0;
 }
 
