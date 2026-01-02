@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
+import { nextTick } from 'vue';
 import StarButton from './StarButton.vue';
 
 // Mock the sessions store
@@ -146,9 +147,12 @@ describe('StarButton', () => {
     });
 
     it('sets loading state during toggle', async () => {
-      mockSessionsStore.toggleSessionStar.mockImplementation(
-        () => new Promise((resolve) => setTimeout(resolve, 100))
-      );
+      // Use a promise that we can control
+      let resolvePromise;
+      const pendingPromise = new Promise((resolve) => {
+        resolvePromise = resolve;
+      });
+      mockSessionsStore.toggleSessionStar.mockReturnValue(pendingPromise);
 
       const wrapper = mount(StarButton, {
         props: {
@@ -158,12 +162,16 @@ describe('StarButton', () => {
       });
 
       const button = wrapper.find('button');
-      await button.trigger('click');
-      await wrapper.vm.$nextTick();
+      button.trigger('click');
+      wrapper.vm.$forceUpdate();
+      await nextTick();
+      await flushPromises();
 
-      // Check loading state immediately after click
+      // Check loading state while the promise is still pending
       expect(wrapper.find('.star-button').classes()).toContain('is-loading');
 
+      // Resolve the promise to clean up
+      resolvePromise();
       await flushPromises();
     });
   });
@@ -182,9 +190,12 @@ describe('StarButton', () => {
     });
 
     it('disables button when loading', async () => {
-      mockSessionsStore.toggleSessionStar.mockImplementation(
-        () => new Promise((resolve) => setTimeout(resolve, 100))
-      );
+      // Use a promise that we can control
+      let resolvePromise;
+      const pendingPromise = new Promise((resolve) => {
+        resolvePromise = resolve;
+      });
+      mockSessionsStore.toggleSessionStar.mockReturnValue(pendingPromise);
 
       const wrapper = mount(StarButton, {
         props: {
@@ -193,11 +204,17 @@ describe('StarButton', () => {
         },
       });
 
-      await wrapper.find('button').trigger('click');
-      await wrapper.vm.$nextTick();
+      wrapper.find('button').trigger('click');
+      wrapper.vm.$forceUpdate();
+      await nextTick();
+      await flushPromises();
 
       // Button should be disabled while loading
       expect(wrapper.find('button').attributes('disabled')).toBeDefined();
+
+      // Resolve the promise to clean up
+      resolvePromise();
+      await flushPromises();
     });
 
     it('does not call toggle when disabled', async () => {
