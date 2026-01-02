@@ -18,6 +18,7 @@ vi.mock('../composables/useApi.js', () => ({
     updateSession: vi.fn(),
     archiveSession: vi.fn(),
     unarchiveSession: vi.fn(),
+    toggleSessionStar: vi.fn(),
     duplicateSession: vi.fn(),
     // Conversation API methods
     getConversations: vi.fn(),
@@ -1985,6 +1986,84 @@ describe('Sessions Store', () => {
       });
     });
 
+    describe('toggleSessionStar', () => {
+      it('toggles starred status in sessions array', async () => {
+        const store = useSessionsStore();
+
+        store.sessions = [
+          { id: 'session-1', starred: false },
+          { id: 'session-2', starred: true },
+        ];
+
+        api.toggleSessionStar.mockResolvedValue({ id: 'session-1', starred: true });
+
+        await store.toggleSessionStar('session-1');
+
+        expect(store.sessions[0].starred).toBe(true);
+      });
+
+      it('toggles starred status in archivedSessions array', async () => {
+        const store = useSessionsStore();
+
+        store.archivedSessions = [{ id: 'session-1', starred: false }];
+
+        api.toggleSessionStar.mockResolvedValue({ id: 'session-1', starred: true });
+
+        await store.toggleSessionStar('session-1');
+
+        expect(store.archivedSessions[0].starred).toBe(true);
+      });
+
+      it('toggles starred status in activeSessions array', async () => {
+        const store = useSessionsStore();
+
+        store.activeSessions = [{ id: 'session-1', starred: false }];
+
+        api.toggleSessionStar.mockResolvedValue({ id: 'session-1', starred: true });
+
+        await store.toggleSessionStar('session-1');
+
+        expect(store.activeSessions[0].starred).toBe(true);
+      });
+
+      it('updates currentSession starred flag when toggling current session', async () => {
+        const store = useSessionsStore();
+
+        store.currentSession = { id: 'session-1', starred: false };
+        store.sessions = [];
+
+        api.toggleSessionStar.mockResolvedValue({ id: 'session-1', starred: true });
+
+        await store.toggleSessionStar('session-1');
+
+        expect(store.currentSession.starred).toBe(true);
+      });
+
+      it('returns the updated session object', async () => {
+        const store = useSessionsStore();
+
+        store.sessions = [{ id: 'session-1', starred: false }];
+
+        const mockUpdated = { id: 'session-1', starred: true };
+        api.toggleSessionStar.mockResolvedValue(mockUpdated);
+
+        const result = await store.toggleSessionStar('session-1');
+
+        expect(result).toEqual(mockUpdated);
+      });
+
+      it('throws error and sets store error on API failure', async () => {
+        const store = useSessionsStore();
+
+        store.sessions = [{ id: 'session-1', starred: false }];
+
+        api.toggleSessionStar.mockRejectedValue(new Error('Toggle failed'));
+
+        await expect(store.toggleSessionStar('session-1')).rejects.toThrow('Toggle failed');
+        expect(store.error).toBe('Toggle failed');
+      });
+    });
+
     describe('duplicateSession', () => {
       it('calls api.duplicateSession with correct session ID', async () => {
         const store = useSessionsStore();
@@ -2063,7 +2142,7 @@ describe('Sessions Store', () => {
 
         await store.fetchArchivedSessions('project-1');
 
-        expect(api.getProjectSessions).toHaveBeenCalledWith('project-1', true);
+        expect(api.getProjectSessions).toHaveBeenCalledWith('project-1', true, null);
         expect(store.archivedSessions).toEqual(mockSessions);
       });
 

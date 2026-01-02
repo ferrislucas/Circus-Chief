@@ -6,16 +6,33 @@
       </div>
     </div>
 
-    <div class="status-filters">
-      <span class="filter-label">Filter:</span>
-      <button
-        v-for="status in ['running', 'idle']"
-        :key="status"
-        :class="['filter-btn', { active: sessionsStore.statusFilter === status }]"
-        @click="toggleFilter(status)"
-      >
-        {{ status }}
-      </button>
+    <div class="filters-container">
+      <div class="status-filters">
+        <span class="filter-label">Filter:</span>
+        <button
+          v-for="status in ['running', 'idle']"
+          :key="status"
+          :class="['filter-btn', { active: sessionsStore.statusFilter === status }]"
+          @click="toggleFilter(status)"
+        >
+          {{ status }}
+        </button>
+      </div>
+      <div class="starred-filters">
+        <span class="filter-label">Starred:</span>
+        <button
+          :class="['filter-btn', { active: sessionsStore.starredFilter === 'starred' }]"
+          @click="toggleStarredFilter('starred')"
+        >
+          ⭐ Starred
+        </button>
+        <button
+          :class="['filter-btn', { active: sessionsStore.starredFilter === 'unstarred' }]"
+          @click="toggleStarredFilter('unstarred')"
+        >
+          ☆ Unstarred
+        </button>
+      </div>
     </div>
 
     <div v-if="sessionsStore.loading" class="skeleton-list">
@@ -80,22 +97,43 @@ const toggleFilter = (status) => {
   }
 };
 
-const filteredSessions = computed(() => {
-  const sessions = sessionsStore.activeSessions;
-  if (!sessionsStore.statusFilter) return sessions;
+const toggleStarredFilter = (filter) => {
+  // If the clicked filter is already active, clear the filter (show all)
+  if (sessionsStore.starredFilter === filter) {
+    sessionsStore.setStarredFilter(null);
+  } else {
+    // Otherwise, set this filter as the only active one
+    sessionsStore.setStarredFilter(filter);
+  }
+};
 
-  return sessions.filter(session => {
-    const status = session.status;
-    // "idle" filter matches waiting, stopped, or error statuses
-    if (sessionsStore.statusFilter === 'idle' && IDLE_STATUSES.includes(status)) {
-      return true;
-    }
-    // "running" filter matches running and starting statuses
-    if (sessionsStore.statusFilter === 'running' && RUNNING_STATUSES.includes(status)) {
-      return true;
-    }
-    return false;
-  });
+const filteredSessions = computed(() => {
+  let sessions = sessionsStore.activeSessions;
+
+  // Apply status filter if set
+  if (sessionsStore.statusFilter) {
+    sessions = sessions.filter(session => {
+      const status = session.status;
+      // "idle" filter matches waiting, stopped, or error statuses
+      if (sessionsStore.statusFilter === 'idle' && IDLE_STATUSES.includes(status)) {
+        return true;
+      }
+      // "running" filter matches running and starting statuses
+      if (sessionsStore.statusFilter === 'running' && RUNNING_STATUSES.includes(status)) {
+        return true;
+      }
+      return false;
+    });
+  }
+
+  // Apply starred filter if set
+  if (sessionsStore.starredFilter === 'starred') {
+    sessions = sessions.filter(session => session.starred);
+  } else if (sessionsStore.starredFilter === 'unstarred') {
+    sessions = sessions.filter(session => !session.starred);
+  }
+
+  return sessions;
 });
 
 // Store summaries keyed by session ID
@@ -134,6 +172,7 @@ async function ensureButtonsLoadedForSessions() {
 
 onMounted(async () => {
   sessionsStore.restoreStatusFilter();
+  sessionsStore.restoreStarredFilter();
   await sessionsStore.fetchActiveSessions();
 
   // Fetch buttons for projects with active sessions

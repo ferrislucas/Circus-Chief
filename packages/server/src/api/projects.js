@@ -94,6 +94,7 @@ router.delete('/:id', (req, res) => {
 
 // GET /api/projects/:id/sessions - List project sessions
 // Supports ?archived=true|false to filter by archive status
+// Supports ?starred=true|false to filter by starred status
 router.get('/:id/sessions', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
@@ -101,12 +102,16 @@ router.get('/:id/sessions', (req, res) => {
   }
 
   // Parse archived query param: undefined = all, 'true' = archived only, 'false' = non-archived only
-  const { archived } = req.query;
+  const { archived, starred } = req.query;
   let archivedFilter = null;
   if (archived === 'true') archivedFilter = true;
   else if (archived === 'false') archivedFilter = false;
 
-  const projectSessions = sessions.getByProjectId(req.params.id, { archived: archivedFilter });
+  let starredFilter = null;
+  if (starred === 'true') starredFilter = true;
+  else if (starred === 'false') starredFilter = false;
+
+  const projectSessions = sessions.getByProjectId(req.params.id, { archived: archivedFilter, starred: starredFilter });
   res.json(projectSessions);
 });
 
