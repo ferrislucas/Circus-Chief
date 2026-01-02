@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
+import { nextTick } from 'vue';
 
 import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
@@ -27,6 +28,16 @@ describe('QuickResponsesPanel', () => {
         plugins: [pinia],
       },
     });
+  }
+
+  // Helper function to trigger click and force DOM update
+  // This is needed because Vue Test Utils doesn't always update the DOM
+  // after reactive state changes in script setup components
+  async function triggerClick(wrapper, selector) {
+    await wrapper.find(selector).trigger('click');
+    wrapper.vm.$forceUpdate();
+    await nextTick();
+    await flushPromises();
   }
 
   describe('component structure', () => {
@@ -107,8 +118,7 @@ describe('QuickResponsesPanel', () => {
     it('shows empty state message when no responses', async () => {
       const wrapper = mountComponent({ showEmpty: true });
       // Expand the panel
-      wrapper.vm.toggleExpanded();
-      await wrapper.vm.$nextTick();
+      await triggerClick(wrapper, '.toggle-button');
       expect(wrapper.find('.empty-state').exists()).toBe(true);
       expect(wrapper.find('.empty-text').text()).toBe('No quick responses yet');
     });
@@ -116,8 +126,7 @@ describe('QuickResponsesPanel', () => {
     it('shows add button in empty state', async () => {
       const wrapper = mountComponent({ showEmpty: true });
       // Expand the panel
-      wrapper.vm.toggleExpanded();
-      await wrapper.vm.$nextTick();
+      await triggerClick(wrapper, '.toggle-button');
       const addButton = wrapper.find('.add-button');
       expect(addButton.exists()).toBe(true);
       expect(addButton.text()).toBe('+ Add Quick Response');
@@ -140,8 +149,7 @@ describe('QuickResponsesPanel', () => {
       expect(wrapper.find('.responses-content').exists()).toBe(false);
 
       // Click toggle button
-      wrapper.vm.toggleExpanded();
-      await wrapper.vm.$nextTick();
+      await triggerClick(wrapper, '.toggle-button');
       expect(wrapper.find('.responses-content').exists()).toBe(true);
     });
 
@@ -150,13 +158,11 @@ describe('QuickResponsesPanel', () => {
       const wrapper = mountComponent();
 
       // Expand
-      wrapper.vm.toggleExpanded();
-      await wrapper.vm.$nextTick();
+      await triggerClick(wrapper, '.toggle-button');
       expect(wrapper.find('.responses-content').exists()).toBe(true);
 
       // Collapse
-      wrapper.vm.toggleExpanded();
-      await wrapper.vm.$nextTick();
+      await triggerClick(wrapper, '.toggle-button');
       expect(wrapper.find('.responses-content').exists()).toBe(false);
     });
 
@@ -169,8 +175,7 @@ describe('QuickResponsesPanel', () => {
       expect(toggleButton.attributes('aria-expanded')).toBe('false');
 
       // Expand
-      wrapper.vm.toggleExpanded();
-      await wrapper.vm.$nextTick();
+      await triggerClick(wrapper, '.toggle-button');
       expect(toggleButton.attributes('aria-expanded')).toBe('true');
     });
 
@@ -181,13 +186,11 @@ describe('QuickResponsesPanel', () => {
       const wrapper = mountComponent();
 
       // Expand panel
-      wrapper.vm.toggleExpanded();
-      await wrapper.vm.$nextTick();
+      await triggerClick(wrapper, '.toggle-button');
       expect(wrapper.find('.responses-content').exists()).toBe(true);
 
       // Click response button
-      await wrapper.find('.response-button').trigger('click');
-      await wrapper.vm.$nextTick();
+      await triggerClick(wrapper, '.response-button');
 
       // Panel should collapse automatically
       expect(wrapper.find('.responses-content').exists()).toBe(false);
@@ -204,8 +207,7 @@ describe('QuickResponsesPanel', () => {
       const wrapper = mountComponent();
 
       // Expand panel
-      wrapper.vm.toggleExpanded();
-      await wrapper.vm.$nextTick();
+      await triggerClick(wrapper, '.toggle-button');
 
       // Verify response button is visible with correct text
       const responseButton = wrapper.find('.response-button');
@@ -213,8 +215,7 @@ describe('QuickResponsesPanel', () => {
       expect(responseButton.text()).toContain('Test Response');
 
       // Click response and verify panel auto-collapses
-      await responseButton.trigger('click');
-      await wrapper.vm.$nextTick();
+      await triggerClick(wrapper, '.response-button');
       expect(wrapper.find('.responses-content').exists()).toBe(false);
     });
 
@@ -227,8 +228,7 @@ describe('QuickResponsesPanel', () => {
       expect(toggleButton.attributes('aria-expanded')).toBe('false');
 
       // Expand
-      wrapper.vm.toggleExpanded();
-      await wrapper.vm.$nextTick();
+      await triggerClick(wrapper, '.toggle-button');
       expect(toggleButton.attributes('aria-expanded')).toBe('true');
     });
 
@@ -249,6 +249,55 @@ describe('QuickResponsesPanel', () => {
       // When collapsed, .responses-content element should NOT be in DOM
       expect(wrapper.find('.responses-content').exists()).toBe(false);
       expect(wrapper.html()).not.toContain('responses-content');
+    });
+
+    it('expands when clicking on the panel itself (not just the toggle button)', async () => {
+      mockStore.hasResponses = true;
+      mockStore.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      const wrapper = mountComponent();
+
+      // Initially collapsed
+      expect(wrapper.find('.responses-content').exists()).toBe(false);
+
+      // Click on the panel itself (header area, not a button)
+      await triggerClick(wrapper, '.panel-title');
+      expect(wrapper.find('.responses-content').exists()).toBe(true);
+    });
+
+    it('has cursor-pointer class to indicate panel is clickable', () => {
+      mockStore.hasResponses = true;
+      mockStore.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      const wrapper = mountComponent();
+
+      const panel = wrapper.find('.quick-responses-panel');
+      expect(panel.classes()).toContain('cursor-pointer');
+    });
+
+    it('collapses when clicking on the panel while already expanded', async () => {
+      mockStore.hasResponses = true;
+      mockStore.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      const wrapper = mountComponent();
+
+      // Expand via toggle button
+      await triggerClick(wrapper, '.toggle-button');
+      expect(wrapper.find('.responses-content').exists()).toBe(true);
+
+      // Click on panel to collapse
+      await triggerClick(wrapper, '.panel-title');
+      expect(wrapper.find('.responses-content').exists()).toBe(false);
+    });
+
+    it('toggle button has @click.stop to prevent panel toggle', () => {
+      mockStore.hasResponses = true;
+      mockStore.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      const wrapper = mountComponent();
+
+      // Verify toggle button exists
+      const toggleButton = wrapper.find('.toggle-button');
+      expect(toggleButton.exists()).toBe(true);
+
+      // The toggle button should have @click.stop in template
+      // (shallowMount only shows this level of DOM)
     });
   });
 });

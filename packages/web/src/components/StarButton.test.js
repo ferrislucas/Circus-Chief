@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
+import { nextTick } from 'vue';
 import StarButton from './StarButton.vue';
 
 // Mock the sessions store
@@ -144,6 +145,35 @@ describe('StarButton', () => {
 
       expect(mockSessionsStore.toggleSessionStar).toHaveBeenCalledWith('test-session-123');
     });
+
+    it('sets loading state during toggle', async () => {
+      // Use a promise that we can control
+      let resolvePromise;
+      const pendingPromise = new Promise((resolve) => {
+        resolvePromise = resolve;
+      });
+      mockSessionsStore.toggleSessionStar.mockReturnValue(pendingPromise);
+
+      const wrapper = mount(StarButton, {
+        props: {
+          sessionId: 'test-session',
+          starred: false,
+        },
+      });
+
+      const button = wrapper.find('button');
+      button.trigger('click');
+      wrapper.vm.$forceUpdate();
+      await nextTick();
+      await flushPromises();
+
+      // Check loading state while the promise is still pending
+      expect(wrapper.find('.star-button').classes()).toContain('is-loading');
+
+      // Resolve the promise to clean up
+      resolvePromise();
+      await flushPromises();
+    });
   });
 
   describe('disabled state', () => {
@@ -157,6 +187,34 @@ describe('StarButton', () => {
       });
 
       expect(wrapper.find('button').attributes('disabled')).toBeDefined();
+    });
+
+    it('disables button when loading', async () => {
+      // Use a promise that we can control
+      let resolvePromise;
+      const pendingPromise = new Promise((resolve) => {
+        resolvePromise = resolve;
+      });
+      mockSessionsStore.toggleSessionStar.mockReturnValue(pendingPromise);
+
+      const wrapper = mount(StarButton, {
+        props: {
+          sessionId: 'test-session',
+          starred: false,
+        },
+      });
+
+      wrapper.find('button').trigger('click');
+      wrapper.vm.$forceUpdate();
+      await nextTick();
+      await flushPromises();
+
+      // Button should be disabled while loading
+      expect(wrapper.find('button').attributes('disabled')).toBeDefined();
+
+      // Resolve the promise to clean up
+      resolvePromise();
+      await flushPromises();
     });
 
     it('does not call toggle when disabled', async () => {

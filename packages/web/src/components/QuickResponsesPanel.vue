@@ -1,11 +1,12 @@
 <template>
-  <div class="quick-responses-panel" v-if="hasResponses || showEmpty">
+  <div v-if="hasResponses || showEmpty" class="quick-responses-panel cursor-pointer" @click="toggle">
     <!-- Header with toggle and settings button -->
     <div class="panel-header">
       <div class="header-left">
         <button
+          type="button"
           class="toggle-button"
-          @click="toggleExpanded"
+          @click.stop="toggle"
           :aria-expanded="isExpanded"
           title="Toggle quick responses panel"
           aria-label="Toggle quick responses panel"
@@ -17,8 +18,9 @@
         <span class="panel-title">Quick Responses</span>
       </div>
       <button
+        type="button"
         class="settings-button"
-        @click="$emit('openSettings')"
+        @click.stop="$emit('openSettings')"
         title="Manage quick responses"
         aria-label="Manage quick responses"
       >
@@ -36,7 +38,7 @@
     <!-- Empty state (shown when expanded) -->
     <div v-else-if="!hasResponses && isExpanded" class="empty-state">
       <span class="empty-text">No quick responses yet</span>
-      <button class="add-button" @click="$emit('openSettings')">+ Add Quick Response</button>
+      <button type="button" class="add-button" @click="$emit('openSettings')">+ Add Quick Response</button>
     </div>
 
     <!-- Responses content (collapsible) -->
@@ -49,7 +51,7 @@
             type="button"
             v-for="response in projectResponses"
             :key="response.id"
-            @click="handleClick(response)"
+            @click.stop="handleClick(response)"
             class="response-button project-response"
             :class="{ 'auto-submit': response.autoSubmit }"
             :title="response.content"
@@ -68,7 +70,7 @@
             type="button"
             v-for="response in globalResponses"
             :key="response.id"
-            @click="handleClick(response)"
+            @click.stop="handleClick(response)"
             class="response-button global-response"
             :class="{ 'auto-submit': response.autoSubmit }"
             :title="response.content"
@@ -82,54 +84,39 @@
   </div>
 </template>
 
-<script>
+<script setup>
+import { ref, computed } from 'vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
-export default {
-  name: 'QuickResponsesPanel',
-  props: {
-    showEmpty: {
-      type: Boolean,
-      default: true,
-    },
+const props = defineProps({
+  showEmpty: {
+    type: Boolean,
+    default: true,
   },
-  emits: ['insert', 'openSettings'],
-  data() {
-    return {
-      isExpanded: false,
-    };
-  },
-  computed: {
-    store() {
-      return useQuickResponsesStore();
-    },
-    loading() {
-      return this.store.loading;
-    },
-    projectResponses() {
-      return this.store.projectResponses;
-    },
-    globalResponses() {
-      return this.store.globalResponses;
-    },
-    hasResponses() {
-      return this.store.hasResponses;
-    },
-  },
-  methods: {
-    toggleExpanded() {
-      this.isExpanded = !this.isExpanded;
-    },
-    handleClick(response) {
-      this.$emit('insert', {
-        content: response.content,
-        autoSubmit: response.autoSubmit,
-      });
-      // Auto-collapse panel after selecting a response
-      this.isExpanded = false;
-    },
-  },
-};
+});
+
+const emit = defineEmits(['insert', 'openSettings']);
+
+const store = useQuickResponsesStore();
+const isExpanded = ref(false);
+
+const loading = computed(() => store.loading);
+const projectResponses = computed(() => store.projectResponses);
+const globalResponses = computed(() => store.globalResponses);
+const hasResponses = computed(() => store.hasResponses);
+
+function toggle() {
+  isExpanded.value = !isExpanded.value;
+}
+
+function handleClick(response) {
+  emit('insert', {
+    content: response.content,
+    autoSubmit: response.autoSubmit,
+  });
+  // Auto-collapse panel after selecting a response
+  isExpanded.value = false;
+}
 </script>
 
 <style scoped>
@@ -139,6 +126,10 @@ export default {
   border-radius: var(--border-radius);
   padding: 0.5rem 0.75rem;
   margin-bottom: 0.5rem;
+}
+
+.quick-responses-panel.cursor-pointer {
+  cursor: pointer;
 }
 
 .panel-header {

@@ -57,9 +57,9 @@ let mockSessionsStore = reactive({
     this.statusFilter = filter;
   },
   restoreStarredFilter: vi.fn(),
-  setStarredFilter(filter) {
+  setStarredFilter: vi.fn(function(filter) {
     this.starredFilter = filter;
-  },
+  }),
 });
 
 // Mock sessions store - use factory function to return the store
@@ -388,11 +388,10 @@ describe('Status filtering', () => {
     await flushPromises();
 
     const filterButtons = wrapper.findAll('.filter-btn');
-    expect(filterButtons).toHaveLength(4);
+    expect(filterButtons).toHaveLength(3);
     expect(filterButtons[0].text()).toBe('running');
     expect(filterButtons[1].text()).toBe('idle');
-    expect(filterButtons[2].text()).toContain('Starred');
-    expect(filterButtons[3].text()).toContain('Unstarred');
+    expect(filterButtons[2].classes()).toContain('star-btn');
   });
 
   it('shows all sessions when no filters are active', async () => {
@@ -716,12 +715,110 @@ describe('ActiveSessionsView polling fallback', () => {
       const wrapper = mount(ActiveSessionsView);
       await flushAll(wrapper);
 
-      // Get the filter buttons
-      const filterButtons = wrapper.findAll('.filter-btn');
+      // Get the star filter button by class
+      const starredButton = wrapper.find('.star-btn');
 
-      // Check that starred filter buttons are rendered
-      const starredButton = filterButtons.find((btn) => btn.text().includes('Starred'));
-      expect(starredButton).toBeDefined();
+      // Check that star filter button is rendered
+      expect(starredButton.exists()).toBe(true);
+    });
+
+    it('star filter button shows empty star when no filter is active', async () => {
+      mockSessionsStore.starredFilter = null;
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
+
+      const starButton = wrapper.find('.star-btn');
+      expect(starButton.text()).toContain('☆');
+    });
+
+    it('star filter button shows filled star when starred filter is active', async () => {
+      mockSessionsStore.starredFilter = 'starred';
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
+
+      const starButton = wrapper.find('.star-btn');
+      expect(starButton.text()).toContain('⭐');
+    });
+
+    it('toggles from no filter to starred filter on first click', async () => {
+      mockSessionsStore.starredFilter = null;
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
+
+      const starButton = wrapper.find('.star-btn');
+      await starButton.trigger('click');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith('starred');
+    });
+
+    it('toggles from starred filter to unstarred filter on second click', async () => {
+      mockSessionsStore.starredFilter = 'starred';
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
+
+      const starButton = wrapper.find('.star-btn');
+      await starButton.trigger('click');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith('unstarred');
+    });
+
+    it('toggles from unstarred filter back to no filter on third click', async () => {
+      mockSessionsStore.starredFilter = 'unstarred';
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
+
+      const starButton = wrapper.find('.star-btn');
+      await starButton.trigger('click');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith(null);
+    });
+
+    it('displays correct tooltip for empty star (no filter)', async () => {
+      mockSessionsStore.starredFilter = null;
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
+
+      const starButton = wrapper.find('.star-btn');
+      expect(starButton.attributes('title')).toBe('Click to filter starred sessions');
+    });
+
+    it('displays correct tooltip for filled star (starred filter)', async () => {
+      mockSessionsStore.starredFilter = 'starred';
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
+
+      const starButton = wrapper.find('.star-btn');
+      expect(starButton.attributes('title')).toBe('Click to filter unstarred sessions');
+    });
+
+    it('displays correct tooltip for unstarred filter', async () => {
+      mockSessionsStore.starredFilter = 'unstarred';
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
+
+      const starButton = wrapper.find('.star-btn');
+      expect(starButton.attributes('title')).toBe('Click to clear filter and show all');
+    });
+
+    it('filter button has active class when filter is applied', async () => {
+      mockSessionsStore.starredFilter = 'starred';
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
+
+      const starButton = wrapper.find('.star-btn');
+      expect(starButton.classes()).toContain('active');
+    });
+
+    it('filter button does not have active class when no filter is applied', async () => {
+      mockSessionsStore.starredFilter = null;
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
+
+      const starButton = wrapper.find('.star-btn');
+      expect(starButton.classes()).not.toContain('active');
     });
   });
 });
