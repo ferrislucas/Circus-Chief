@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, statSync } from 'fs';
 import { mkdir, writeFile } from 'fs/promises';
 import { extname, join, basename } from 'path';
 import { sessions, canvasItems } from '../database.js';
@@ -347,10 +347,15 @@ router.get('/:id/canvas/file/:filename', async (req, res) => {
       await writeFile(filePath, item.content || '');
     }
 
+    // Get file size
+    const stats = statSync(filePath);
+    const fileSize = stats.size;
+
     res.json({
       filePath,
       type: item.type,
       mimeType: item.mimeType,
+      fileSize,
       createdAt: item.createdAt,
       version: versionIndex + 1,
       totalVersions: allVersions.length
