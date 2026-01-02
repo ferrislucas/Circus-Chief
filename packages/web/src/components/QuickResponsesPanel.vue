@@ -82,39 +82,54 @@
   </div>
 </template>
 
-<script setup>
-import { computed, ref } from 'vue';
+<script>
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
-defineProps({
-  showEmpty: {
-    type: Boolean,
-    default: true,
+export default {
+  name: 'QuickResponsesPanel',
+  props: {
+    showEmpty: {
+      type: Boolean,
+      default: true,
+    },
   },
-});
-
-const emit = defineEmits(['insert', 'openSettings']);
-
-const store = useQuickResponsesStore();
-const isExpanded = ref(false);
-
-const loading = computed(() => store.loading);
-const projectResponses = computed(() => store.projectResponses);
-const globalResponses = computed(() => store.globalResponses);
-const hasResponses = computed(() => store.hasResponses);
-
-function toggleExpanded() {
-  isExpanded.value = !isExpanded.value;
-}
-
-function handleClick(response) {
-  emit('insert', {
-    content: response.content,
-    autoSubmit: response.autoSubmit,
-  });
-  // Auto-collapse panel after selecting a response
-  isExpanded.value = false;
-}
+  emits: ['insert', 'openSettings'],
+  data() {
+    return {
+      isExpanded: false,
+    };
+  },
+  computed: {
+    store() {
+      return useQuickResponsesStore();
+    },
+    loading() {
+      return this.store.loading;
+    },
+    projectResponses() {
+      return this.store.projectResponses;
+    },
+    globalResponses() {
+      return this.store.globalResponses;
+    },
+    hasResponses() {
+      return this.store.hasResponses;
+    },
+  },
+  methods: {
+    toggleExpanded() {
+      this.isExpanded = !this.isExpanded;
+    },
+    handleClick(response) {
+      this.$emit('insert', {
+        content: response.content,
+        autoSubmit: response.autoSubmit,
+      });
+      // Auto-collapse panel after selecting a response
+      this.isExpanded = false;
+    },
+  },
+};
 </script>
 
 <style scoped>
