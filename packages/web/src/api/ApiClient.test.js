@@ -182,6 +182,38 @@ describe('ApiClient', () => {
       });
     });
 
+    describe('toggleSessionStar', () => {
+      it('posts to star endpoint', async () => {
+        const mockData = { id: 'sess-123', starred: true };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.toggleSessionStar('sess-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/star', expect.objectContaining({
+          method: 'POST',
+        }));
+        expect(result.starred).toBe(true);
+      });
+
+      it('toggles starred status from false to true', async () => {
+        const mockData = { id: 'sess-123', starred: true };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.toggleSessionStar('sess-123');
+
+        expect(result.starred).toBe(true);
+      });
+
+      it('toggles starred status from true to false', async () => {
+        const mockData = { id: 'sess-123', starred: false };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.toggleSessionStar('sess-123');
+
+        expect(result.starred).toBe(false);
+      });
+    });
+
     describe('duplicateSession', () => {
       it('posts to duplicate endpoint with session ID', async () => {
         const mockData = { id: 'new-sess-123', name: 'Copy of original' };
