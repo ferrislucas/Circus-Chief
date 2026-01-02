@@ -361,6 +361,94 @@ describe('Projects API', () => {
     });
   });
 
+  describe('GET /api/projects/:id/sessions with starred filter', () => {
+    let session1Id;
+    let session2Id;
+    let session3Id;
+
+    beforeEach(async () => {
+      // Create multiple sessions with different starred states
+      const session1 = sessions.create(projectId, 'Session 1', 'completed');
+      const session2 = sessions.create(projectId, 'Session 2', 'completed');
+      const session3 = sessions.create(projectId, 'Session 3', 'running');
+
+      session1Id = session1.id;
+      session2Id = session2.id;
+      session3Id = session3.id;
+
+      // Star session1
+      sessions.update(session1Id, { starred: true });
+    });
+
+    it('returns all sessions when no starred filter is provided', async () => {
+      const res = await request(app).get(`/api/projects/${projectId}/sessions`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBe(3);
+
+      const sessionIds = res.body.map((s) => s.id);
+      expect(sessionIds).toContain(session1Id);
+      expect(sessionIds).toContain(session2Id);
+      expect(sessionIds).toContain(session3Id);
+    });
+
+    it('returns only starred sessions when starred=true', async () => {
+      const res = await request(app).get(`/api/projects/${projectId}/sessions?starred=true`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBe(1);
+      expect(res.body[0].id).toBe(session1Id);
+      expect(res.body[0].starred).toBe(true);
+    });
+
+    it('returns only non-starred sessions when starred=false', async () => {
+      const res = await request(app).get(`/api/projects/${projectId}/sessions?starred=false`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBe(2);
+
+      const sessionIds = res.body.map((s) => s.id);
+      expect(sessionIds).toContain(session2Id);
+      expect(sessionIds).toContain(session3Id);
+      expect(sessionIds).not.toContain(session1Id);
+
+      // Verify all returned sessions are not starred
+      res.body.forEach((s) => {
+        expect(s.starred).toBe(false);
+      });
+    });
+
+    it('combines archived and starred filters', async () => {
+      // Create additional archived starred session
+      const archivedStarred = sessions.create(projectId, 'Archived Starred', 'prompt');
+      sessions.update(archivedStarred.id, { archived: true, starred: true });
+
+      // Get non-archived starred sessions
+      const res = await request(app).get(`/api/projects/${projectId}/sessions?archived=false&starred=true`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBe(1);
+      expect(res.body[0].id).toBe(session1Id);
+      expect(res.body[0].archived).toBe(false);
+      expect(res.body[0].starred).toBe(true);
+    });
+
+    it('starred sessions come first in result ordering', async () => {
+      const res = await request(app).get(`/api/projects/${projectId}/sessions?archived=false`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBe(3);
+
+      // First session should be the starred one
+      expect(res.body[0].starred).toBe(true);
+    });
+  });
+
   describe('GET /api/projects/:id/session-defaults', () => {
     it('returns null when project has no defaults set', async () => {
       const res = await request(app).get(`/api/projects/${projectId}/session-defaults`);

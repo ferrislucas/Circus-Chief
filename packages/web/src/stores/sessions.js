@@ -14,6 +14,7 @@ export const useSessionsStore = defineStore('sessions', {
     partialThinking: null, // Current streaming thinking content
     expandedSessions: new Set(), // Track which parent sessions are expanded
     statusFilter: null, // 'running' | 'idle' | null (null = show all)
+    starredFilter: null, // 'starred' | 'unstarred' | null (null = show all)
     runningUsage: null, // Partial usage during a turn
     loading: false,
     error: null,
@@ -202,7 +203,7 @@ export const useSessionsStore = defineStore('sessions', {
       this.loading = true;
       this.error = null;
       try {
-        this.sessions = await api.getProjectSessions(projectId, false);
+        this.sessions = await api.getProjectSessions(projectId, false, this.starredFilter);
       } catch (err) {
         this.error = err.message;
       } finally {
@@ -214,7 +215,7 @@ export const useSessionsStore = defineStore('sessions', {
       this.loading = true;
       this.error = null;
       try {
-        this.archivedSessions = await api.getProjectSessions(projectId, true);
+        this.archivedSessions = await api.getProjectSessions(projectId, true, this.starredFilter);
       } catch (err) {
         this.error = err.message;
       } finally {
@@ -396,6 +397,32 @@ export const useSessionsStore = defineStore('sessions', {
         const newSession = await api.duplicateSession(id, options);
         // New session will be added via WebSocket, but return it immediately for UI feedback
         return newSession;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    async toggleSessionStar(sessionId) {
+      this.error = null;
+      try {
+        const updated = await api.toggleSessionStar(sessionId);
+
+        // Update all session arrays
+        const updateInArray = (arr) => {
+          const session = arr.find(s => s.id === sessionId);
+          if (session) session.starred = updated.starred;
+        };
+
+        updateInArray(this.sessions);
+        updateInArray(this.archivedSessions);
+        updateInArray(this.activeSessions);
+
+        if (this.currentSession?.id === sessionId) {
+          this.currentSession.starred = updated.starred;
+        }
+
+        return updated;
       } catch (err) {
         this.error = err.message;
         throw err;
@@ -1053,6 +1080,44 @@ export const useSessionsStore = defineStore('sessions', {
         }
       } catch (error) {
         console.warn('Failed to restore status filter:', error);
+      }
+    },
+
+    /**
+     * Set starred filter and persist to sessionStorage
+     * @param {string|null} filter - 'starred' | 'unstarred' | null (null = show all)
+     */
+    setStarredFilter(filter) {
+      this.starredFilter = filter;
+      this.saveStarredFilter();
+    },
+
+    /**
+     * Save starred filter to sessionStorage
+     */
+    saveStarredFilter() {
+      try {
+        if (this.starredFilter) {
+          sessionStorage.setItem('sessionStarredFilter', this.starredFilter);
+        } else {
+          sessionStorage.removeItem('sessionStarredFilter');
+        }
+      } catch (error) {
+        console.warn('Failed to save starred filter:', error);
+      }
+    },
+
+    /**
+     * Restore starred filter from sessionStorage
+     */
+    restoreStarredFilter() {
+      try {
+        const filter = sessionStorage.getItem('sessionStarredFilter');
+        if (filter === 'starred' || filter === 'unstarred') {
+          this.starredFilter = filter;
+        }
+      } catch (error) {
+        console.warn('Failed to restore starred filter:', error);
       }
     },
   },

@@ -116,6 +116,11 @@ describe('SessionRepository', () => {
       expect(session.archived).toBe(false);
     });
 
+    it('creates session with starred set to false by default', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      expect(session.starred).toBe(false);
+    });
+
     it('creates session with model', () => {
       const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, 'claude-opus-4-5-20251101');
       expect(session.model).toBe('claude-opus-4-5-20251101');
@@ -287,6 +292,69 @@ describe('SessionRepository', () => {
       const sessions = repo.getByProjectId(projectId);
 
       expect(sessions).toHaveLength(2);
+    });
+
+    it('filters by starred=false', () => {
+      const session1 = repo.create(projectId, 'Regular Session', 'Prompt');
+      const session2 = repo.create(projectId, 'Starred Session', 'Prompt');
+      repo.update(session2.id, { starred: true });
+
+      const sessions = repo.getByProjectId(projectId, { starred: false });
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].id).toBe(session1.id);
+    });
+
+    it('filters by starred=true', () => {
+      repo.create(projectId, 'Regular Session', 'Prompt');
+      const session2 = repo.create(projectId, 'Starred Session', 'Prompt');
+      repo.update(session2.id, { starred: true });
+
+      const sessions = repo.getByProjectId(projectId, { starred: true });
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].id).toBe(session2.id);
+      expect(sessions[0].starred).toBe(true);
+    });
+
+    it('returns all sessions when starred filter is null', () => {
+      repo.create(projectId, 'Regular Session', 'Prompt');
+      const session2 = repo.create(projectId, 'Starred Session', 'Prompt');
+      repo.update(session2.id, { starred: true });
+
+      const sessions = repo.getByProjectId(projectId, { starred: null });
+
+      expect(sessions).toHaveLength(2);
+    });
+
+    it('combines archived and starred filters', () => {
+      const starred = repo.create(projectId, 'Starred', 'Prompt');
+      repo.update(starred.id, { starred: true });
+
+      const archivedRegular = repo.create(projectId, 'Archived Regular', 'Prompt');
+      repo.update(archivedRegular.id, { archived: true });
+
+      const archivedStarred = repo.create(projectId, 'Archived Starred', 'Prompt');
+      repo.update(archivedStarred.id, { archived: true, starred: true });
+
+      // Non-archived, starred
+      const sessions = repo.getByProjectId(projectId, { archived: false, starred: true });
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].id).toBe(starred.id);
+    });
+
+    it('sorts starred sessions first within the same status', () => {
+      const regular = repo.create(projectId, 'Regular Session', 'Prompt');
+      const starred = repo.create(projectId, 'Starred Session', 'Prompt');
+      repo.update(starred.id, { starred: true });
+
+      const sessions = repo.getByProjectId(projectId);
+
+      expect(sessions).toHaveLength(2);
+      // Starred session should come first
+      expect(sessions[0].id).toBe(starred.id);
+      expect(sessions[1].id).toBe(regular.id);
     });
   });
 
@@ -510,6 +578,24 @@ describe('SessionRepository', () => {
       const updated = repo.update(session.id, { archived: false });
 
       expect(updated.archived).toBe(false);
+    });
+
+    it('updates starred to true', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      expect(session.starred).toBe(false);
+
+      const updated = repo.update(session.id, { starred: true });
+
+      expect(updated.starred).toBe(true);
+    });
+
+    it('updates starred to false', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { starred: true });
+
+      const updated = repo.update(session.id, { starred: false });
+
+      expect(updated.starred).toBe(false);
     });
   });
 
