@@ -252,8 +252,7 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('expands when clicking on the panel itself (not just the toggle button)', async () => {
-      mockStore.hasResponses = true;
-      mockStore.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
       const wrapper = mountComponent();
 
       // Initially collapsed
@@ -265,8 +264,7 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('has cursor-pointer class to indicate panel is clickable', () => {
-      mockStore.hasResponses = true;
-      mockStore.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
       const wrapper = mountComponent();
 
       const panel = wrapper.find('.quick-responses-panel');
@@ -274,8 +272,7 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('collapses when clicking on the panel while already expanded', async () => {
-      mockStore.hasResponses = true;
-      mockStore.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
       const wrapper = mountComponent();
 
       // Expand via toggle button
@@ -288,8 +285,7 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('toggle button has @click.stop to prevent panel toggle', () => {
-      mockStore.hasResponses = true;
-      mockStore.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
       const wrapper = mountComponent();
 
       // Verify toggle button exists

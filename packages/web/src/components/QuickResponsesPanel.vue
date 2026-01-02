@@ -86,7 +86,12 @@
 
 <script setup>
 import { ref, computed } from 'vue';
+import { defineOptions } from 'vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
+
+defineOptions({
+  name: 'QuickResponsesPanel',
+});
 
 const props = defineProps({
   showEmpty: {
