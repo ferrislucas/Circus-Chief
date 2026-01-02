@@ -72,11 +72,6 @@
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
 
-    <div v-if="isStopped && !isDraft" class="status-message status-stopped">
-      <span class="stopped-icon">⏸</span>
-      Session stopped - send a message to resume
-    </div>
-
     <!-- Quick Responses Panel - shows above the input when not running or for draft sessions -->
     <QuickResponsesPanel
       v-if="canSendMessage || isDraft"
@@ -89,7 +84,7 @@
       <textarea
         ref="textareaRef"
         class="form-input form-textarea"
-        :placeholder="isDraft ? 'Edit your prompt...' : (isStopped ? 'Send a message to resume session...' : 'Send a follow-up message...')"
+        :placeholder="isDraft ? 'Edit your prompt...' : 'Send a follow-up message...'"
         rows="3"
         @input="handleInput"
         @keydown="handleKeydown"
@@ -274,10 +269,6 @@ const STORAGE_KEY = `session-draft-${props.sessionId}`;
 const canSendMessage = computed(() => {
   const status = sessionsStore.currentSession?.status;
   return status === 'waiting' || status === 'stopped';
-});
-
-const isStopped = computed(() => {
-  return sessionsStore.currentSession?.status === 'stopped';
 });
 
 const isDraft = computed(() => {
@@ -1143,17 +1134,6 @@ async function handleTemplateChange(templateId) {
 
 .btn-restart {
   min-width: 140px;
-}
-
-.status-stopped {
-  color: var(--color-warning, #f59e0b);
-  background-color: rgba(245, 158, 11, 0.1);
-  border-radius: var(--border-radius);
-  margin-bottom: 0.5rem;
-}
-
-.stopped-icon {
-  font-size: 1rem;
 }
 
 .jump-to-latest {
