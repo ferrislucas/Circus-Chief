@@ -328,7 +328,6 @@ describe('SessionRepository', () => {
     });
 
     it('combines archived and starred filters', () => {
-      const regular = repo.create(projectId, 'Regular', 'Prompt');
       const starred = repo.create(projectId, 'Starred', 'Prompt');
       repo.update(starred.id, { starred: true });
 
