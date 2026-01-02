@@ -59,6 +59,13 @@
         <div v-if="isLoadingOutput" class="output-skeleton">
           <div class="skeleton-line" v-for="i in 5" :key="i"></div>
         </div>
+        <!-- Prominent rendering spinner overlay for large outputs -->
+        <div v-if="isRenderingLargeOutput" class="output-rendering-overlay">
+          <div class="spinner-container">
+            <div class="spinner-large"></div>
+            <p class="rendering-text">Processing large output...</p>
+          </div>
+        </div>
         <div
           v-else
           class="output-text"
@@ -236,6 +243,49 @@ const isLoadingOutput = computed(() => {
 });
 
 /**
+ * Track if we're rendering a large output (for prominent spinner overlay)
+ * Stays true while formatting and DOM rendering, then fades out
+ * Only shown for outputs > 1000 lines to avoid visual clutter on small outputs
+ */
+const isRenderingLargeOutput = ref(false);
+let renderingTimeoutId = null;
+let renderingFrameId = null;
+
+/**
+ * Show prominent spinner overlay while processing large outputs
+ * @param {string} output - The raw output text
+ */
+const showRenderingSpinner = (output) => {
+  // Only show spinner for large outputs (>1000 lines is ~50KB typically)
+  const lineCount = (output || '').split('\n').length;
+  if (lineCount < 1000) {
+    return;
+  }
+
+  // Show the spinner
+  isRenderingLargeOutput.value = true;
+
+  // Clear existing timeouts
+  if (renderingTimeoutId) clearTimeout(renderingTimeoutId);
+  if (renderingFrameId) cancelAnimationFrame(renderingFrameId);
+
+  // Keep spinner visible for minimum 500ms to avoid flash
+  renderingTimeoutId = setTimeout(() => {
+    // Schedule checking when rendering actually completes
+    const checkRenderingComplete = () => {
+      // If formatted output is ready, we can hide the spinner
+      if (formattedOutput.value) {
+        isRenderingLargeOutput.value = false;
+      } else {
+        // Keep checking - DOM might still be rendering
+        renderingFrameId = requestAnimationFrame(checkRenderingComplete);
+      }
+    };
+    checkRenderingComplete();
+  }, 500);
+};
+
+/**
  * Debounced function to update formatted output
  * First call is immediate for responsive UI, subsequent calls debounced every 250ms
  */
@@ -246,16 +296,20 @@ const updateFormattedOutput = debounceLeading((output) => {
 /**
  * Watch for output changes and update formatted output (debounced)
  * Only processes when output section is expanded (lazy loading)
+ * For large outputs (>1000 lines), show a prominent rendering spinner
  */
 watch(
   () => [props.run?.output, showOutput.value],
   ([newOutput, isVisible]) => {
     if (!newOutput) {
       formattedOutput.value = '';
+      isRenderingLargeOutput.value = false;
       return;
     }
     // Only process ANSI conversion when output is visible (lazy load)
     if (isVisible) {
+      // Show spinner for large outputs before starting formatting
+      showRenderingSpinner(newOutput);
       updateFormattedOutput(newOutput);
     }
   },
@@ -420,10 +474,13 @@ onMounted(() => {
 /**
  * Lifecycle hook: Before component unmount
  *
- * Clean up the timer to prevent memory leaks.
+ * Clean up the timer and rendering state to prevent memory leaks.
  */
 onBeforeUnmount(() => {
   stopTimer();
+  // Clean up rendering timeouts
+  if (renderingTimeoutId) clearTimeout(renderingTimeoutId);
+  if (renderingFrameId) cancelAnimationFrame(renderingFrameId);
 });
 
 // Expose methods for testing
@@ -552,6 +609,7 @@ defineExpose({
   background-color: var(--color-background);
   border: 1px solid var(--color-border);
   border-radius: 4px;
+  position: relative;
 }
 
 .output-truncated-warning {
@@ -677,6 +735,54 @@ defineExpose({
   }
   100% {
     background-position: -200% 0;
+  }
+}
+
+/* Rendering Overlay for Large Outputs */
+.output-rendering-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(2px);
+  border-radius: 4px;
+  z-index: 10;
+  animation: fade-in 0.2s ease-in-out;
+}
+
+.spinner-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.spinner-large {
+  display: inline-block;
+  width: 3rem;
+  height: 3rem;
+  border: 3px solid rgba(88, 166, 255, 0.2);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.rendering-text {
+  color: var(--color-text-soft);
+  font-size: 0.95rem;
+  text-align: center;
+  margin: 0;
+  font-weight: 500;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 
