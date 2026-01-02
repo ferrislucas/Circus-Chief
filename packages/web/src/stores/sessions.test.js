@@ -1086,8 +1086,9 @@ describe('Sessions Store', () => {
           cacheCreationInputTokens: 25,
         };
 
-        // During streaming, use running usage
+        // During streaming, use running usage (with conversationId matching active conversation)
         store.runningUsage = {
+          conversationId: 'conv-1',
           inputTokens: 2000,
           outputTokens: 1000,
           cacheReadInputTokens: 200,
@@ -1385,8 +1386,9 @@ describe('Sessions Store', () => {
           expect(formatted.output).toBe('5.0K');
           expect(formatted.total).toBe('15.0K');
 
-          // Now simulate streaming updating the usage
+          // Now simulate streaming updating the usage (with conversationId matching active conversation)
           store.runningUsage = {
+            conversationId: 'conv-1',
             inputTokens: 10000,
             outputTokens: 7500,
           };
@@ -1690,8 +1692,9 @@ describe('Sessions Store', () => {
         ];
         // Without streaming: (10000 + 5000) / 200000 = 7.5% ≈ 8%
 
-        // During streaming with partial tokens
+        // During streaming with partial tokens (with conversationId matching active conversation)
         store.runningUsage = {
+          conversationId: 'conv-1',
           inputTokens: 10000,
           outputTokens: 50000, // Much higher
           contextWindow: 200000,
@@ -1736,8 +1739,9 @@ describe('Sessions Store', () => {
           contextWindow: 200000,
         };
 
-        // All three have data, but runningUsage should be used
+        // All three have data, but runningUsage should be used (with conversationId matching active conversation)
         store.runningUsage = {
+          conversationId: 'conv-1',
           inputTokens: 100000,
           outputTokens: 50000,
           contextWindow: 200000,

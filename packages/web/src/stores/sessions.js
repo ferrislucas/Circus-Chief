@@ -125,16 +125,23 @@ export const useSessionsStore = defineStore('sessions', {
         return String(n);
       };
 
-      // STREAMING: Use running usage if available (shows live updates during response)
+      // STREAMING: Use running usage if available, but only if it matches the active conversation
+      // (prevent displaying stale data from a different conversation)
       if (state.runningUsage) {
-        const usage = state.runningUsage;
-        return {
-          input: format(usage.inputTokens || 0),
-          output: format(usage.outputTokens || 0),
-          total: format((usage.inputTokens || 0) + (usage.outputTokens || 0)),
-          cacheRead: format(usage.cacheReadInputTokens || 0),
-          cacheCreation: format(usage.cacheCreationInputTokens || 0),
-        };
+        // If there's an active conversation, only use runningUsage if it belongs to that conversation
+        if (state.activeConversationId && state.runningUsage.conversationId !== state.activeConversationId) {
+          // Stale runningUsage from a different conversation - skip it
+        } else {
+          // Either no active conversation, or runningUsage is for the active conversation
+          const usage = state.runningUsage;
+          return {
+            input: format(usage.inputTokens || 0),
+            output: format(usage.outputTokens || 0),
+            total: format((usage.inputTokens || 0) + (usage.outputTokens || 0)),
+            cacheRead: format(usage.cacheReadInputTokens || 0),
+            cacheCreation: format(usage.cacheCreationInputTokens || 0),
+          };
+        }
       }
 
       // FINALIZED: Try conversation first, but fall back to session if conversation has no tokens
@@ -164,11 +171,14 @@ export const useSessionsStore = defineStore('sessions', {
       };
     },
     contextPercentage: (state) => {
-      // STREAMING: Use running usage context if available (animates context bar)
+      // STREAMING: Use running usage context if available, but only if it matches the active conversation
       if (state.runningUsage) {
-        const total = (state.runningUsage.inputTokens || 0) + (state.runningUsage.outputTokens || 0);
-        const contextWindow = state.runningUsage.contextWindow || 200000;
-        return Math.min(100, Math.round((total / contextWindow) * 100));
+        // If there's an active conversation, only use runningUsage if it belongs to that conversation
+        if (!state.activeConversationId || state.runningUsage.conversationId === state.activeConversationId) {
+          const total = (state.runningUsage.inputTokens || 0) + (state.runningUsage.outputTokens || 0);
+          const contextWindow = state.runningUsage.contextWindow || 200000;
+          return Math.min(100, Math.round((total / contextWindow) * 100));
+        }
       }
 
       // FINALIZED: Use conversation/session context
@@ -181,7 +191,13 @@ export const useSessionsStore = defineStore('sessions', {
       return Math.min(100, Math.round((totalTokens / contextWindow) * 100));
     },
     isUsageUpdating: (state) => {
-      return state.runningUsage !== null;
+      // Only show updating indicator if runningUsage is for current conversation
+      if (!state.runningUsage) return false;
+      // If there's an active conversation, only show if runningUsage is for that conversation
+      if (state.activeConversationId && state.runningUsage.conversationId !== state.activeConversationId) {
+        return false;
+      }
+      return true;
     },
   },
 
@@ -806,6 +822,8 @@ export const useSessionsStore = defineStore('sessions', {
         this.activeConversationId = conversation.id;
         // Clear messages for new conversation
         this.messages = [];
+        // Clear any streaming data since new conversation starts fresh
+        this.runningUsage = null;
         return conversation;
       } catch (err) {
         this.error = err.message;
@@ -823,6 +841,9 @@ export const useSessionsStore = defineStore('sessions', {
 
       this.error = null;
       try {
+        // Clear stale streaming data from previous conversation
+        this.runningUsage = null;
+
         // Update on server
         await api.updateConversation(sessionId, conversationId, { isActive: true });
 
