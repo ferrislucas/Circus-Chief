@@ -1,0 +1,102 @@
+# Playwright Browser Container
+# Usage: docker compose -f docker-compose.playwright.yml run --rm playwright <command>
+#
+# Commands:
+#   test [args]           - Run Playwright tests
+#   screenshot <url> [f]  - Capture screenshot
+#   codegen [url]         - Interactive test generator
+#   shell                 - Bash shell access
+#
+# Examples:
+#   docker compose -f docker-compose.playwright.yml run --rm playwright test
+#   docker compose -f docker-compose.playwright.yml run --rm playwright screenshot http://localhost:5000 home.png
+#   docker compose -f docker-compose.playwright.yml run --rm -e DEVICE="iPhone 14" playwright screenshot http://localhost:5000 mobile.png
+
+services:
+  playwright:
+    build:
+      context: ./docker/playwright
+      dockerfile: Dockerfile
+    # Use host network to access localhost services
+    network_mode: host
+    # Volume mounts
+    volumes:
+      # Test files (read-only)
+      - ./tests:/tests:ro
+      # Screenshot output
+      - ./screenshots:/screenshots
+      # Test reports and traces
+      - ./playwright-report:/reports
+      # Playwright configuration (optional, read-only)
+      - ./playwright.config.docker.ts:/app/playwright.config.ts:ro
+      # Server port file for test server detection
+      - ./.server-port:/app/.server-port:ro
+    # Environment configuration
+    environment:
+      # Read from .server-port file and default to 5000
+      - API_URL=${API_URL:-http://localhost:5000}
+      # Base URL for tests (frontend dev server)
+      - BASE_URL=${BASE_URL:-http://localhost:5000}
+      # Browser selection: chromium, firefox, webkit
+      - BROWSER=${BROWSER:-chromium}
+      # Run in headless mode
+      - HEADLESS=${HEADLESS:-true}
+      # Screenshot options
+      - FULL_PAGE=${FULL_PAGE:-false}
+      - VIEWPORT_WIDTH=${VIEWPORT_WIDTH:-1280}
+      - VIEWPORT_HEIGHT=${VIEWPORT_HEIGHT:-720}
+      # Device emulation (optional)
+      - DEVICE=${DEVICE:-}
+      # Timeouts
+      - TIMEOUT=${TIMEOUT:-30000}
+      # CI mode for better output
+      - CI=${CI:-true}
+      # Playwright specific
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+      # Screenshot mode (for running screenshot capture tests)
+      - SCREENSHOT_MODE=${SCREENSHOT_MODE:-}
+    # Working directory
+    working_dir: /app
+    # Health check
+    healthcheck:
+      test: ["CMD", "node", "/tools/health-check.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # Profile for running with headed browser (requires X11)
+  playwright-headed:
+    extends:
+      service: playwright
+    environment:
+      - HEADLESS=false
+      - DISPLAY=${DISPLAY:-:0}
+    volumes:
+      - ./tests:/tests:ro
+      - ./screenshots:/screenshots
+      - ./playwright-report:/reports
+      - ./playwright.config.docker.ts:/app/playwright.config.ts:ro
+      # Server port file for test server detection
+      - ./.server-port:/app/.server-port:ro
+      # X11 socket for headed mode
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+    profiles:
+      - headed
+
+  # Profile for interactive shell access
+  playwright-shell:
+    extends:
+      service: playwright
+    stdin_open: true
+    tty: true
+    command: shell
+    profiles:
+      - shell
