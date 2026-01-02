@@ -288,12 +288,12 @@ describe('Canvas API', () => {
     let sessionId;
     let tempDir;
     let app;
-    let projectId;
+    let _projectId;
 
     beforeEach(() => {
       // Create a project and session for testing
       const project = projects.create('Test Project', '/tmp/test');
-      projectId = project.id;
+      _projectId = project.id;
       const now = Date.now();
       const id = databaseManager.generateId();
       databaseManager.get().prepare(
