@@ -14,7 +14,6 @@
       />
 
       <div class="form-group">
-        <label class="form-label" for="prompt">Initial Prompt</label>
         <textarea
           id="prompt"
           ref="textareaRef"
@@ -225,6 +224,7 @@ const prompt = ref('');
 const promptHasContent = ref(false); // Tracks if textarea has content (for button disabled state)
 const textareaRef = ref(null);
 let inputSyncTimer = null;
+let debounceTimer = null;
 const mode = ref('yolo');
 const model = ref(DEFAULT_MODEL);
 const loading = ref(false);
@@ -258,6 +258,8 @@ const startImmediately = ref(true);
 const projectTemplates = computed(() => templatesStore.projectTemplates);
 const globalTemplates = computed(() => templatesStore.globalTemplates);
 const allTemplates = computed(() => [...projectTemplates.value, ...globalTemplates.value]);
+
+const storageKey = computed(() => `new-session-draft-${route.params.id}`);
 
 // Get available sessions that can be parents (completed sessions only)
 const availableSessions = computed(() => {
@@ -358,14 +360,33 @@ watch(quickWorktreeBranch, () => {
   usingDefaults.value.quickWorktreeBranch = false;
 });
 
+// Watch prompt for localStorage persistence with debouncing
+watch(prompt, (newValue) => {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    if (newValue.trim()) {
+      localStorage.setItem(storageKey.value, newValue);
+    } else {
+      localStorage.removeItem(storageKey.value);
+    }
+  }, 500); // 500ms debounce to avoid excessive writes
+});
+
 // Cleanup timers on unmount
 onUnmounted(() => {
   if (branchDebounceTimer) clearTimeout(branchDebounceTimer);
   if (inputSyncTimer) clearTimeout(inputSyncTimer);
+  if (debounceTimer) clearTimeout(debounceTimer);
 });
 
 onMounted(async () => {
   const projectId = route.params.id;
+
+  // Restore draft from localStorage if it exists
+  const saved = localStorage.getItem(storageKey.value);
+  if (saved) {
+    prompt.value = saved;
+  }
 
   // Fetch project defaults
   try {
@@ -557,6 +578,8 @@ async function handleSubmit() {
     const message = startImmediately.value ? 'Session started' : 'Draft session created';
     uiStore.success(message);
     fileAttachment.value?.clear();
+    // Clear the draft from localStorage after successful submission
+    localStorage.removeItem(storageKey.value);
     router.push(`/sessions/${session.id}`);
   } catch (err) {
     error.value = err.message;
