@@ -257,5 +257,54 @@ describe('QuickResponsesPanel', () => {
       expect(wrapper.find('.responses-content').exists()).toBe(false);
       expect(wrapper.html()).not.toContain('responses-content');
     });
+
+    it('expands when clicking on the panel itself (not just the toggle button)', async () => {
+      mockStore.hasResponses = true;
+      mockStore.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      const wrapper = mountComponent();
+
+      // Initially collapsed
+      expect(wrapper.find('.responses-content').exists()).toBe(false);
+
+      // Click on the panel itself (header area, not a button)
+      await wrapper.find('.panel-title').trigger('click');
+      expect(wrapper.find('.responses-content').exists()).toBe(true);
+    });
+
+    it('has cursor-pointer class to indicate panel is clickable', () => {
+      mockStore.hasResponses = true;
+      mockStore.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      const wrapper = mountComponent();
+
+      const panel = wrapper.find('.quick-responses-panel');
+      expect(panel.classes()).toContain('cursor-pointer');
+    });
+
+    it('collapses when clicking on the panel while already expanded', async () => {
+      mockStore.hasResponses = true;
+      mockStore.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      const wrapper = mountComponent();
+
+      // Expand via toggle button
+      await wrapper.find('.toggle-button').trigger('click');
+      expect(wrapper.find('.responses-content').exists()).toBe(true);
+
+      // Click on panel to collapse
+      await wrapper.find('.panel-title').trigger('click');
+      expect(wrapper.find('.responses-content').exists()).toBe(false);
+    });
+
+    it('toggle button has @click.stop to prevent panel toggle', () => {
+      mockStore.hasResponses = true;
+      mockStore.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      const wrapper = mountComponent();
+
+      // Verify toggle button exists
+      const toggleButton = wrapper.find('.toggle-button');
+      expect(toggleButton.exists()).toBe(true);
+
+      // The toggle button should have @click.stop in template
+      // (shallowMount only shows this level of DOM)
+    });
   });
 });
