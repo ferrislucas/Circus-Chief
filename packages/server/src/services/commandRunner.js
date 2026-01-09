@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { commandRuns } from '../database.js';
+import { createRobustEnv } from './nodeSpawnHelper.js';
 
 /**
  * Service for running commands and managing their execution
@@ -53,6 +54,7 @@ export class CommandRunner {
           cwd: workingDirectory,
           stdio: ['pipe', 'pipe', 'pipe'],
           detached: true, // Create a new process group for proper signal handling
+          env: createRobustEnv(), // Ensure node is in PATH for npx users with nvm/fnm
         });
 
         // Store process with metadata and output buffer
