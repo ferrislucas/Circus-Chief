@@ -258,7 +258,7 @@ let renderingFrameId = null;
 const showRenderingSpinner = (output) => {
   // Only show spinner for large outputs (>1000 lines is ~50KB typically)
   const lineCount = (output || '').split('\n').length;
-  if (lineCount < 1000) {
+  if (lineCount <= 1000) {
     return;
   }
 
