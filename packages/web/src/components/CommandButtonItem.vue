@@ -69,8 +69,13 @@
 
         <!-- Output Actions (success/error states) -->
         <div v-if="run.status !== 'running'" class="output-actions">
-          <button class="btn btn-sm btn-outline-secondary" @click="handleCopy">
-            📋 Copy
+          <button
+            class="btn btn-sm btn-outline-secondary"
+            :class="{ copied: isCopied }"
+            @click="handleCopy"
+            :title="isCopied ? 'Copied!' : 'Copy to clipboard'"
+          >
+            {{ isCopied ? '✓' : '📋' }} {{ isCopied ? 'Copied!' : 'Copy' }}
           </button>
           <button class="btn btn-sm btn-outline-secondary" @click="handleCanvas">
             🎨 Send to Canvas
@@ -89,7 +94,7 @@
 
 <script setup>
 import { defineProps, defineEmits, ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
-import { ansiToHtml } from '../utils/ansi.js';
+import { ansiToHtml, stripAnsi } from '../utils/ansi.js';
 
 /**
  * Debounce with leading edge - first call is immediate, subsequent calls are debounced
@@ -141,6 +146,9 @@ const showOutput = ref(props.run?.status === 'running');
 
 // Track if button click is in flight (prevents double-clicks)
 const isSubmitting = ref(false);
+
+// Track if copy button was recently clicked (for visual feedback)
+const isCopied = ref(false);
 
 // NEW: Track if user has manually scrolled up from the bottom
 const userHasScrolledUp = ref(false);
@@ -398,8 +406,50 @@ const handleKill = () => {
   emit('kill');
 };
 
-const handleCopy = () => {
-  emit('copy-output', props.run.output);
+const handleCopy = async () => {
+  if (!props.run?.output) {
+    return;
+  }
+
+  const textToCopy = stripAnsi(props.run.output);
+  let copySucceeded = false;
+
+  // Try modern Clipboard API first
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      copySucceeded = true;
+    } catch (err) {
+      console.error('Clipboard API failed:', err);
+    }
+  }
+
+  // Fallback for older browsers
+  if (!copySucceeded) {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = textToCopy;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      copySucceeded = true;
+    } catch (fallbackErr) {
+      console.error('Fallback copy failed:', fallbackErr);
+    }
+  }
+
+  // Show visual feedback if copy succeeded
+  if (copySucceeded) {
+    isCopied.value = true;
+    setTimeout(() => {
+      isCopied.value = false;
+    }, 1500);
+    // Keep parent emit for potential analytics/logging
+    emit('copy-output', props.run.output);
+  }
 };
 
 const handleCanvas = () => {
@@ -581,6 +631,12 @@ defineExpose({
   justify-content: flex-end;
   border-top: 1px solid var(--color-border);
   padding-top: 0.75rem;
+}
+
+.output-actions .btn.copied {
+  background-color: rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 0.4);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 /* Running Indicator */
