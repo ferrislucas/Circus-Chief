@@ -227,8 +227,8 @@ describe('File Upload Endpoints', () => {
     });
 
     it('should handle oversized files gracefully without "unexpected field" error', async () => {
-      // Create a large buffer (larger than 10MB limit)
-      const largeBuffer = Buffer.alloc(11 * 1024 * 1024); // 11MB
+      // Create a buffer just over the 10MB limit - smaller is faster and more reliable
+      const largeBuffer = Buffer.alloc(10 * 1024 * 1024 + 1024); // 10MB + 1KB
 
       const response = await request(app)
         .post(`/api/sessions/${sessionId}/message`)
