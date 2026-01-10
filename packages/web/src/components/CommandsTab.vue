@@ -4,7 +4,7 @@
     <div class="tab-header">
       <h3>Command Buttons</h3>
       <router-link
-        :to="`/projects/${projectId}/sessions`"
+        :to="`/projects/${projectId}/commands`"
         class="btn btn-sm btn-outline-secondary"
       >
         ⚙️ Configure
@@ -26,7 +26,7 @@
     <div v-else-if="commandButtonsStore.buttons.length === 0" class="empty-state">
       <p>No command buttons configured for this project.</p>
       <router-link
-        :to="`/projects/${projectId}/sessions`"
+        :to="`/projects/${projectId}/commands`"
         class="btn btn-primary"
       >
         Configure Command Buttons

@@ -26,28 +26,28 @@
         <button
           class="tab"
           :class="{ active: activeTab === 'sessions' }"
-          @click="activeTab = 'sessions'"
+          @click="router.push(`/projects/${route.params.id}/sessions`)"
         >
           Sessions
         </button>
         <button
           class="tab"
           :class="{ active: activeTab === 'archived' }"
-          @click="handleArchivedTabClick"
+          @click="router.push(`/projects/${route.params.id}/archived`)"
         >
           Archived
         </button>
         <button
           class="tab"
           :class="{ active: activeTab === 'templates' }"
-          @click="activeTab = 'templates'"
+          @click="router.push(`/projects/${route.params.id}/templates`)"
         >
           Templates
         </button>
         <button
           class="tab"
           :class="{ active: activeTab === 'commands' }"
-          @click="activeTab = 'commands'"
+          @click="router.push(`/projects/${route.params.id}/commands`)"
         >
           Commands
         </button>
@@ -184,7 +184,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, reactive, watch, computed } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
@@ -195,10 +195,21 @@ import TemplatesPanel from '../components/TemplatesPanel.vue';
 import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
 
 const route = useRoute();
-const activeTab = ref('sessions');
+const router = useRouter();
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
+
+// Compute activeTab from route name
+const activeTab = computed(() => {
+  const routeName = route.name;
+  switch (routeName) {
+    case 'ArchivedSessions': return 'archived';
+    case 'ProjectTemplates': return 'templates';
+    case 'ProjectCommands': return 'commands';
+    default: return 'sessions';
+  }
+});
 
 const toggleFilter = (status) => {
   // If the clicked filter is already active, clear all filters (show all)
@@ -235,11 +246,14 @@ const starFilterTooltip = computed(() => {
 
 // Handle tab change from mobile dropdown
 function handleTabChange(tab) {
-  if (tab === 'archived') {
-    handleArchivedTabClick();
-  } else {
-    activeTab.value = tab;
-  }
+  const projectId = route.params.id;
+  const routes = {
+    sessions: `/projects/${projectId}/sessions`,
+    archived: `/projects/${projectId}/archived`,
+    templates: `/projects/${projectId}/templates`,
+    commands: `/projects/${projectId}/commands`,
+  };
+  router.push(routes[tab]);
 }
 
 // Statuses that count as "idle" (not actively running)
@@ -296,6 +310,9 @@ watch(
   projectId,
   async (newProjectId) => {
     if (!newProjectId) return;
+
+    // Reset archived sessions loaded flag when changing projects
+    archivedLoaded.value = false;
 
     // Clean up previous subscription handlers
     cleanups.forEach((cleanup) => cleanup());
@@ -408,6 +425,17 @@ watch(
   }
 );
 
+// Watch for route changes to load archived sessions when needed
+watch(
+  () => route.name,
+  async (newRouteName) => {
+    if (newRouteName === 'ArchivedSessions') {
+      await loadArchivedSessions();
+    }
+  },
+  { immediate: true }
+);
+
 async function fetchSummaries() {
   // Fetch summaries for all sessions (in parallel, but with some rate limiting)
   const sessions = sessionsStore.sessions;
@@ -443,8 +471,7 @@ async function retryFetchSummary(sessionId) {
   await fetchSummary(sessionId);
 }
 
-async function handleArchivedTabClick() {
-  activeTab.value = 'archived';
+async function loadArchivedSessions() {
   if (!archivedLoaded.value) {
     await sessionsStore.fetchArchivedSessions(projectId.value);
     archivedLoaded.value = true;

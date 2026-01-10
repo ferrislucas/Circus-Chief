@@ -58,6 +58,9 @@ describe('SessionDetailView', () => {
     vi.spyOn(sessionsStore, 'fetchWorkLogs').mockResolvedValue(undefined);
     vi.spyOn(canvasStore, 'fetchItems').mockResolvedValue(undefined);
     vi.spyOn(todosStore, 'fetchTodos').mockResolvedValue(undefined);
+
+    // Mock window.confirm
+    window.confirm = vi.fn(() => true);
   });
 
   describe('tabs configuration', () => {
