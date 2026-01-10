@@ -71,13 +71,16 @@
         ↑ Claude's response
       </button>
 
-      <!-- Jump to latest button -->
+      <!-- Jump to latest button (Slack-style) -->
       <button
         v-if="!isNearBottom && hasNewMessages"
         class="jump-to-latest"
         @click="scrollToBottom(true)"
       >
-        New messages below
+        <svg class="jump-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>New messages</span>
       </button>
     </div>
 
@@ -1238,29 +1241,57 @@ async function handleTemplateChange(templateId) {
   transform: scale(0.95);
 }
 
+/* Slack-style new messages button */
 .jump-to-latest {
   position: sticky;
-  bottom: 0.5rem;
+  bottom: 0.75rem;
   left: 50%;
   transform: translateX(-50%);
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
   margin: 0 auto;
-  padding: 0.5rem 1rem;
-  background-color: var(--color-accent);
-  color: white;
-  border: none;
-  border-radius: 1rem;
+  padding: 0.5rem 0.875rem;
+  background: #1a1d21;
+  color: #e8e8e8;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 500;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  transition: background-color 0.2s, transform 0.2s;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.3),
+    0 4px 12px rgba(0, 0, 0, 0.25);
   z-index: 10;
+  animation: slideUp 0.15s ease-out;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .jump-to-latest:hover {
-  background-color: var(--color-accent-hover, var(--color-accent));
-  transform: translateX(-50%) scale(1.05);
+  background: #222529;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.35),
+    0 6px 16px rgba(0, 0, 0, 0.3);
+}
+
+.jump-to-latest:active {
+  transform: translateX(-50%) scale(0.98);
+}
+
+.jump-arrow {
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateX(-50%) translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
 }
 
 /* Streaming indicator animation */
