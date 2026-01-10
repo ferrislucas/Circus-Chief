@@ -5,11 +5,27 @@ import { createPinia, setActivePinia } from 'pinia';
 
 // Create mutable route params
 const mockRouteParams = { id: 'test-project-id' };
+const mockRoute = reactive({
+  params: mockRouteParams,
+  name: 'SessionList',
+});
 
 // Mock vue-router
 vi.mock('vue-router', () => ({
-  useRoute: vi.fn(() => ({
-    params: mockRouteParams,
+  useRoute: vi.fn(() => mockRoute),
+  useRouter: vi.fn(() => ({
+    push: vi.fn((path) => {
+      // Update the mock route based on the path
+      if (path.includes('/archived')) {
+        mockRoute.name = 'ArchivedSessions';
+      } else if (path.includes('/templates')) {
+        mockRoute.name = 'ProjectTemplates';
+      } else if (path.includes('/commands')) {
+        mockRoute.name = 'ProjectCommands';
+      } else {
+        mockRoute.name = 'SessionList';
+      }
+    }),
   })),
   RouterLink: defineComponent({
     name: 'RouterLink',
@@ -175,8 +191,11 @@ describe('SessionListView', () => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
 
-    // Reset route params
-    mockRouteParams.id = 'test-project-id';
+    // Reset route params and name - recreate the reactive object to ensure clean state
+    Object.assign(mockRoute, {
+      params: { id: 'test-project-id' },
+      name: 'SessionList',
+    });
 
     // Reset callbacks
     onSessionCreatedCallback = null;
@@ -371,12 +390,17 @@ describe('SessionListView', () => {
 describe('Status filtering', () => {
   let mockProjectsStore;
   let mockSessionsStore;
+  let mockCommandButtonsStore;
 
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
 
-    mockRouteParams.id = 'test-project-id';
+    // Reset route params and name
+    Object.assign(mockRoute, {
+      params: { id: 'test-project-id' },
+      name: 'SessionList',
+    });
 
     onSessionCreatedCallback = null;
     onSessionUpdatedCallback = null;
@@ -400,6 +424,17 @@ describe('Status filtering', () => {
       { id: 'session-5', name: 'Starting Session', status: 'starting' },
     ]);
     useSessionsStore.mockReturnValue(mockSessionsStore);
+
+    mockCommandButtonsStore = {
+      buttons: [],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn().mockResolvedValue(),
+      getButtonsByProjectId: vi.fn(() => []),
+      getLatestRunForButton: vi.fn(() => null),
+    };
+    useCommandButtonsStore.mockReturnValue(mockCommandButtonsStore);
   });
 
   afterEach(() => {
@@ -951,7 +986,12 @@ describe('SessionListView integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
-    mockRouteParams.id = 'test-project-id';
+
+    // Reset route params and name
+    Object.assign(mockRoute, {
+      params: { id: 'test-project-id' },
+      name: 'SessionList',
+    });
 
     // Reset callbacks
     onSessionSummaryUpdatedCallback = null;
@@ -964,6 +1004,16 @@ describe('SessionListView integration', () => {
     useSessionsStore.mockReturnValue(createSessionsStoreMock([
       { id: 'session-1', name: 'Session 1', status: 'running' },
     ]));
+
+    useCommandButtonsStore.mockReturnValue({
+      buttons: [],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn().mockResolvedValue(),
+      getButtonsByProjectId: vi.fn(() => []),
+      getLatestRunForButton: vi.fn(() => null),
+    });
 
     mockGetSessionSummary.mockResolvedValue(null);
   });
@@ -997,7 +1047,12 @@ describe('SessionListView Archived Tab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
-    mockRouteParams.id = 'test-project-id';
+
+    // Reset route params and name (start on Sessions tab by default)
+    Object.assign(mockRoute, {
+      params: { id: 'test-project-id' },
+      name: 'SessionList',
+    });
 
     // Reset callbacks
     onSessionSummaryUpdatedCallback = null;
@@ -1380,6 +1435,46 @@ describe('SessionListView Archived Tab', () => {
       // Click to go back to null
       await starButton.trigger('click');
       expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith(null);
+    });
+  });
+
+  describe('Archived sessions across projects', () => {
+    it('loads archived sessions when first clicking archived tab', async () => {
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      mockRoute.name = 'ArchivedSessions';
+      mockSessionsStore.archivedSessions = [
+        { id: 'session-1', archived: true, name: 'Archived 1' },
+      ];
+
+      await wrapper.vm.$nextTick();
+
+      // Verify fetchArchivedSessions was called for the current project
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id');
+    });
+
+    it('loads archived sessions on page refresh (when mounted directly on archived route)', async () => {
+      // Simulate page refresh while on /projects/:id/archived route
+      // The route.name is already 'ArchivedSessions' when component mounts
+      mockRoute.name = 'ArchivedSessions';
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      mockSessionsStore.archivedSessions = [
+        { id: 'session-1', archived: true, name: 'Archived Session 1' },
+        { id: 'session-2', archived: true, name: 'Archived Session 2' },
+      ];
+
+      await wrapper.vm.$nextTick();
+
+      // With { immediate: true } on the route.name watch, fetchArchivedSessions
+      // should be called even though route.name didn't change from component mount
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id');
+
+      // Verify archived sessions are displayed
+      expect(mockSessionsStore.archivedSessions).toHaveLength(2);
     });
   });
 });
