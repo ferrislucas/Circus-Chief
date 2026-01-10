@@ -32,11 +32,6 @@
       <div class="form-group">
         <label class="form-label">Options</label>
 
-        <!-- Defaults indicator -->
-        <div v-if="Object.values(usingDefaults).some(v => v)" class="defaults-indicator">
-          <span class="defaults-badge">Using project defaults</span>
-        </div>
-
         <div class="options-row">
           <div class="thinking-toggle">
             <div class="field-with-badge">
@@ -48,7 +43,6 @@
                 <span class="toggle-slider"></span>
               </label>
               <span class="toggle-label">Enable Thinking</span>
-              <span v-if="usingDefaults.thinkingEnabled" class="default-badge">default</span>
             </div>
           </div>
 
@@ -62,7 +56,6 @@
                 <span class="toggle-slider"></span>
               </label>
               <span class="toggle-label">Start Immediately</span>
-              <span v-if="usingDefaults.startImmediately" class="default-badge">default</span>
             </div>
           </div>
 
@@ -81,13 +74,11 @@
                   {{ m.label }}
                 </button>
               </div>
-              <span v-if="usingDefaults.mode" class="default-badge">default</span>
             </div>
           </div>
 
           <div class="model-selector-wrapper">
             <ModelSelector v-model="model" />
-            <span v-if="usingDefaults.model" class="default-badge">default</span>
           </div>
         </div>
       </div>
@@ -98,15 +89,6 @@
         <button type="submit" class="btn btn-primary btn-full-width" :disabled="loading">
           <span v-if="loading" class="loading-spinner"></span>
           {{ startImmediately ? 'Start Session' : 'Create Draft' }}
-        </button>
-        <button
-          v-if="Object.values(usingDefaults).some(v => v)"
-          type="button"
-          class="btn btn-secondary btn-full-width"
-          @click="handleResetToProjectDefaults"
-          :disabled="loading"
-        >
-          Reset to Project Defaults
         </button>
       </div>
 
@@ -484,72 +466,6 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
   }
 }
 
-async function handleResetToProjectDefaults() {
-  const projectId = route.params.id;
-
-  try {
-    // Re-fetch defaults from store
-    await defaultsStore.fetchDefaults(projectId);
-    const defaults = defaultsStore.getDefaultsForProject(projectId);
-
-    if (defaults) {
-      // Reset all fields to defaults
-      if (defaults.mode) {
-        mode.value = defaults.mode;
-        usingDefaults.value.mode = true;
-      } else {
-        mode.value = 'yolo'; // Fall back to system default
-        usingDefaults.value.mode = false;
-      }
-
-      if (defaults.model) {
-        model.value = defaults.model;
-        usingDefaults.value.model = true;
-      } else {
-        model.value = DEFAULT_MODEL;
-        usingDefaults.value.model = false;
-      }
-
-      if (defaults.thinkingEnabled !== null && defaults.thinkingEnabled !== undefined) {
-        thinkingEnabled.value = defaults.thinkingEnabled;
-        usingDefaults.value.thinkingEnabled = true;
-      } else {
-        thinkingEnabled.value = false; // System default
-        usingDefaults.value.thinkingEnabled = false;
-      }
-
-      if (defaults.startImmediately !== null && defaults.startImmediately !== undefined) {
-        startImmediately.value = defaults.startImmediately;
-        usingDefaults.value.startImmediately = true;
-      } else {
-        startImmediately.value = true; // System default
-        usingDefaults.value.startImmediately = false;
-      }
-
-      if (defaults.gitMode) {
-        quickGitMode.value = defaults.gitMode;
-        usingDefaults.value.quickGitMode = true;
-      } else {
-        quickGitMode.value = 'worktree'; // System default
-        usingDefaults.value.quickGitMode = false;
-      }
-
-      if (defaults.gitBranch) {
-        quickWorktreeBranch.value = defaults.gitBranch;
-        usingDefaults.value.quickWorktreeBranch = true;
-      } else {
-        quickWorktreeBranch.value = autoBranchName.value;
-        usingDefaults.value.quickWorktreeBranch = false;
-      }
-
-      uiStore.success('Reset to project defaults');
-    }
-  } catch (err) {
-    error.value = 'Failed to reset to project defaults';
-    console.error('Reset error:', err);
-  }
-}
-
 async function handleSubmit() {
   // Read directly from textarea in case debounce timer hasn't fired
   const currentPrompt = textareaRef.value?.value || prompt.value;
@@ -709,35 +625,6 @@ h1 {
 .btn-small {
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
-}
-
-/* Defaults indicator */
-.defaults-indicator {
-  margin-bottom: 1rem;
-  padding: 0.5rem 0.75rem;
-  background-color: var(--color-accent-bg);
-  border: 1px solid var(--color-accent);
-  border-radius: 0.375rem;
-  display: inline-block;
-}
-
-.defaults-badge {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--color-accent);
-}
-
-.default-badge {
-  display: inline-block;
-  margin-left: 0.5rem;
-  padding: 0.125rem 0.375rem;
-  background-color: var(--color-accent);
-  color: white;
-  border-radius: 0.25rem;
-  font-size: 0.65rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  white-space: nowrap;
 }
 
 /* Field with badge */
