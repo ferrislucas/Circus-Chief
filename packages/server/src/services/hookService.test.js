@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { executeHook, executeHookAsync } from './hookService.js';
-import { mkdtemp, rm, readFile } from 'fs/promises';
+import { mkdtemp, rm, readFile, realpath } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -8,7 +8,8 @@ describe('hookService', () => {
   let tempDir;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'hookservice-test-'));
+    // Use realpath to resolve symlinks (e.g., macOS /var -> /private/var)
+    tempDir = await realpath(await mkdtemp(join(tmpdir(), 'hookservice-test-')));
   });
 
   afterEach(async () => {

@@ -194,18 +194,27 @@ describe('gitService', () => {
     });
 
     it('returns origin/master when only origin/master exists', async () => {
-      // Create a new bare repo with master as default
+      // Create a new bare repo
       const masterBareDir = await mkdtemp(join(tmpdir(), 'git-bare-master-'));
-      execSync('git init --bare --initial-branch=master', { cwd: masterBareDir });
+      execSync('git init --bare', { cwd: masterBareDir });
 
       // Create a repo that uses this as origin
       const masterTestDir = await mkdtemp(join(tmpdir(), 'git-test-master-'));
-      execSync('git init --initial-branch=master', { cwd: masterTestDir });
+      execSync('git init', { cwd: masterTestDir });
       execSync('git config user.email "test@test.com"', { cwd: masterTestDir });
       execSync('git config user.name "Test"', { cwd: masterTestDir });
       await writeFile(join(masterTestDir, 'README.md'), '# Test');
       execSync('git add .', { cwd: masterTestDir });
       execSync('git commit -m "Initial commit"', { cwd: masterTestDir });
+
+      // Rename current branch to master if it's not already named master
+      const currentBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: masterTestDir })
+        .toString()
+        .trim();
+      if (currentBranch !== 'master') {
+        execSync('git branch -m master', { cwd: masterTestDir });
+      }
+
       execSync(`git remote add origin "${masterBareDir}"`, { cwd: masterTestDir });
       execSync('git push -u origin master', { cwd: masterTestDir });
 
