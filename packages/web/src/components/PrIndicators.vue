@@ -17,21 +17,34 @@
       {{ formatPrState(summary.prState) }}
     </span>
     <span v-if="summary?.hasMergeConflicts" class="conflict-indicator" title="Merge conflicts detected">
+      <!-- Git merge conflict icon - two branches with alert -->
       <svg viewBox="0 0 16 16" fill="currentColor" class="conflict-icon">
-        <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8z"/>
-        <path d="M7.25 4.5a.75.75 0 011.5 0v3.25a.75.75 0 01-1.5 0V4.5zM8 10a1 1 0 100 2 1 1 0 000-2z"/>
+        <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z"/>
+        <path d="M10.5 1.5l2 2-2 2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M12.5 3.5H10" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
       </svg>
     </span>
-    <span v-if="summary?.ciStatus" :class="['ci-indicator', `ci-${summary.ciStatus}`]" :title="ciStatusTitle">
-      {{ ciStatusIcon }}
+    <!-- CI Status with SVG icons -->
+    <span v-if="summary?.ciStatus === 'success'" class="ci-indicator ci-success" title="CI passing">
+      <svg viewBox="0 0 16 16" fill="currentColor" class="ci-icon">
+        <path d="M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16Zm3.78-9.72a.751.751 0 0 0-.018-1.042.751.751 0 0 0-1.042-.018L6.75 9.19 5.28 7.72a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042l2 2a.75.75 0 0 0 1.06 0l4.5-4.5Z"/>
+      </svg>
+    </span>
+    <span v-else-if="summary?.ciStatus === 'failure'" class="ci-indicator ci-failure" title="CI failing">
+      <svg viewBox="0 0 16 16" fill="currentColor" class="ci-icon">
+        <path d="M2.343 13.657A8 8 0 1 1 13.658 2.343 8 8 0 0 1 2.343 13.657ZM6.03 4.97a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042L6.94 8 4.97 9.97a.749.749 0 0 0 .326 1.275.749.749 0 0 0 .734-.215L8 9.06l1.97 1.97a.749.749 0 0 0 1.275-.326.749.749 0 0 0-.215-.734L9.06 8l1.97-1.97a.749.749 0 0 0-.326-1.275.749.749 0 0 0-.734.215L8 6.94 6.03 4.97Z"/>
+      </svg>
+    </span>
+    <span v-else-if="summary?.ciStatus === 'pending'" class="ci-indicator ci-pending" title="CI pending">
+      <svg viewBox="0 0 16 16" fill="currentColor" class="ci-icon">
+        <path d="M8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/>
+      </svg>
     </span>
   </span>
 </template>
 
 <script setup>
-import { computed } from 'vue';
-
-const props = defineProps({
+defineProps({
   prUrl: {
     type: String,
     default: null,
@@ -40,24 +53,6 @@ const props = defineProps({
     type: Object,
     default: null,
   },
-});
-
-const ciStatusIcon = computed(() => {
-  const icons = {
-    success: '✓',
-    failure: '✗',
-    pending: '○',
-  };
-  return icons[props.summary?.ciStatus] || '';
-});
-
-const ciStatusTitle = computed(() => {
-  const titles = {
-    success: 'CI passing',
-    failure: 'CI failing',
-    pending: 'CI pending',
-  };
-  return titles[props.summary?.ciStatus] || '';
 });
 
 function extractPrNumber(url) {
@@ -148,8 +143,8 @@ function formatPrState(state) {
 }
 
 .conflict-icon {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 }
 
 /* CI Status Indicators */
@@ -157,25 +152,22 @@ function formatPrState(state) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  border-radius: 50%;
+}
+
+.ci-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .ci-success {
-  background: rgba(46, 160, 67, 0.15);
   color: #2ea043;
 }
 
 .ci-failure {
-  background: rgba(207, 34, 46, 0.15);
   color: #cf222e;
 }
 
 .ci-pending {
-  background: rgba(210, 153, 34, 0.15);
   color: #9a6700;
 }
 </style>
