@@ -5,11 +5,27 @@ import { createPinia, setActivePinia } from 'pinia';
 
 // Create mutable route params
 const mockRouteParams = { id: 'test-project-id' };
+const mockRoute = reactive({
+  params: mockRouteParams,
+  name: 'SessionList',
+});
 
 // Mock vue-router
 vi.mock('vue-router', () => ({
-  useRoute: vi.fn(() => ({
-    params: mockRouteParams,
+  useRoute: vi.fn(() => mockRoute),
+  useRouter: vi.fn(() => ({
+    push: vi.fn((path) => {
+      // Update the mock route based on the path
+      if (path.includes('/archived')) {
+        mockRoute.name = 'ArchivedSessions';
+      } else if (path.includes('/templates')) {
+        mockRoute.name = 'ProjectTemplates';
+      } else if (path.includes('/commands')) {
+        mockRoute.name = 'ProjectCommands';
+      } else {
+        mockRoute.name = 'SessionList';
+      }
+    }),
   })),
   RouterLink: defineComponent({
     name: 'RouterLink',
@@ -175,8 +191,11 @@ describe('SessionListView', () => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
 
-    // Reset route params
-    mockRouteParams.id = 'test-project-id';
+    // Reset route params and name - recreate the reactive object to ensure clean state
+    Object.assign(mockRoute, {
+      params: { id: 'test-project-id' },
+      name: 'SessionList',
+    });
 
     // Reset callbacks
     onSessionCreatedCallback = null;
