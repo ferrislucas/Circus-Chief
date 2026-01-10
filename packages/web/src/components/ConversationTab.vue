@@ -62,7 +62,7 @@
 
       <!-- Jump to Claude's turn button -->
       <button
-        v-if="!viewingLatestTurn && hasNewTurn"
+        v-if="hasAssistantMessages"
         class="scroll-to-claude-btn"
         @click="scrollToClaudesTurn"
         title="Jump to Claude's response"
@@ -272,8 +272,6 @@ const modes = [
 const partialText = ref('');
 const isNearBottom = ref(true);
 const hasNewMessages = ref(false);
-const viewingLatestTurn = ref(true); // Track if user is viewing Claude's latest turn
-const hasNewTurn = ref(false); // Track if there's a newer turn below
 let debounceTimer = null;
 let partialThrottleTimer = null;
 let pendingPartialText = null;
@@ -300,6 +298,11 @@ const unassociatedWorkLogs = computed(() => {
 // Computed for send button disabled state - avoids re-evaluating on every render
 const isSendDisabled = computed(() => {
   return !inputHasContent.value || sending.value;
+});
+
+// Check if there are any assistant messages for the scroll-to-claude button
+const hasAssistantMessages = computed(() => {
+  return sessionsStore.messages.some(msg => msg.role === 'assistant');
 });
 
 // Subscribe to partial messages for streaming, work logs, and conversation events
@@ -333,30 +336,6 @@ function handleScroll() {
   // Clear new messages indicator when user scrolls to bottom
   if (isNearBottom.value && !wasNearBottom) {
     hasNewMessages.value = false;
-  }
-
-  // Track if user is viewing Claude's latest turn
-  // Find the last assistant message to determine if we're near it
-  const lastAssistantIndex = sessionsStore.messages.findLastIndex(msg => msg.role === 'assistant');
-  if (lastAssistantIndex >= 0) {
-    const lastAssistantMsg = sessionsStore.messages[lastAssistantIndex];
-    const msgElement = document.querySelector(`[data-message-id="${lastAssistantMsg.id}"]`);
-
-    if (msgElement) {
-      const rect = msgElement.getBoundingClientRect();
-      const containerRect = messagesContainer.value.getBoundingClientRect();
-      const msgTop = rect.top - containerRect.top + scrollTop;
-      const distanceFromCurrentView = msgTop - scrollTop;
-
-      // User is viewing latest turn if the message is near the current view
-      const wasViewingLatest = viewingLatestTurn.value;
-      viewingLatestTurn.value = distanceFromCurrentView < clientHeight;
-
-      // Update hasNewTurn indicator
-      if (viewingLatestTurn.value && !wasViewingLatest) {
-        hasNewTurn.value = false;
-      }
-    }
   }
 }
 
@@ -581,8 +560,6 @@ function scrollToClaudesTurn() {
     if (msgElement) {
       // Scroll to the beginning of Claude's turn
       msgElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      viewingLatestTurn.value = true;
-      hasNewTurn.value = false;
     }
   });
 }
@@ -593,17 +570,7 @@ watch(
     // Force scroll when messages first load, conditional scroll otherwise
     if (oldLen === 0 && newLen > 0) {
       scrollToBottom(true);
-      viewingLatestTurn.value = true;
-      hasNewTurn.value = false;
     } else {
-      // Check if a new assistant message was added
-      if (newLen > oldLen) {
-        const lastMsg = sessionsStore.messages[newLen - 1];
-        if (lastMsg?.role === 'assistant' && !viewingLatestTurn.value) {
-          // New Claude response while user has scrolled away
-          hasNewTurn.value = true;
-        }
-      }
       scrollToBottom();
     }
   }
