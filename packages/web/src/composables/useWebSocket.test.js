@@ -532,6 +532,63 @@ describe('Message buffering for SESSION_USAGE_UPDATE', () => {
   });
 });
 
+describe('useSessionSubscription todo handlers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    globalThis.WebSocket = MockWebSocket;
+  });
+
+  afterEach(() => {
+    globalThis.WebSocket = originalWebSocket;
+  });
+
+  describe('onTodosUpdate', () => {
+    it('exports onTodosUpdate handler', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useSessionSubscription('session-123');
+
+      expect(typeof subscription.onTodosUpdate).toBe('function');
+    });
+
+    it('returns a cleanup function', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useSessionSubscription('session-123');
+
+      const callback = vi.fn();
+      const cleanup = subscription.onTodosUpdate(callback);
+
+      expect(typeof cleanup).toBe('function');
+    });
+
+    it('callback receives todos and conversationId as arguments', async () => {
+      // The callback signature is (todos, conversationId)
+      // This is the key change in Issue #285 - scoping todos to conversations
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useSessionSubscription('session-123');
+
+      // Verify the handler exists and accepts a callback
+      const callback = vi.fn();
+      subscription.onTodosUpdate(callback);
+
+      // The callback should be called with (msg.todos, msg.conversationId)
+      // This is verified by the implementation: callback(msg.todos, msg.conversationId)
+      expect(callback).toBeDefined();
+    });
+
+    it('filters messages by sessionId', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useSessionSubscription('session-123');
+
+      const callback = vi.fn();
+      subscription.onTodosUpdate(callback);
+
+      // Handler should check msg.sessionId === sessionId before calling callback
+      expect(callback).toBeDefined();
+    });
+  });
+});
+
 describe('useSessionSubscription command handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks();

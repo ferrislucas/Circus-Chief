@@ -230,20 +230,14 @@ describe('File Upload Endpoints', () => {
       // Create a large buffer (larger than 10MB limit)
       const largeBuffer = Buffer.alloc(11 * 1024 * 1024); // 11MB
 
-      try {
-        const response = await request(app)
-          .post(`/api/sessions/${sessionId}/message`)
-          .field('content', 'Large file test')
-          .attach('files', largeBuffer, 'large.bin');
+      const response = await request(app)
+        .post(`/api/sessions/${sessionId}/message`)
+        .field('content', 'Large file test')
+        .attach('files', largeBuffer, 'large.bin');
 
-        // Should get a file size error, not "unexpected field"
-        if (response.status >= 400) {
-          expect(response.body.error).not.toMatch(/unexpected field/i);
-        }
-      } catch (err) {
-        // EPIPE/ECONNRESET errors are expected when server rejects large files early
-        // The server closes the connection before the entire file is sent
-        expect(['EPIPE', 'ECONNRESET', 'ECONNABORTED']).toContain(err.code);
+      // Should get a file size error, not "unexpected field"
+      if (response.status >= 400) {
+        expect(response.body.error).not.toMatch(/unexpected field/i);
       }
     });
   });
