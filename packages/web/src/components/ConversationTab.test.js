@@ -16,6 +16,13 @@ vi.mock('../stores/ui.js', () => ({
   })),
 }));
 
+// Mock the quick responses store
+vi.mock('../stores/quickResponses.js', () => ({
+  useQuickResponsesStore: vi.fn(() => ({
+    fetchForProject: vi.fn(),
+  })),
+}));
+
 // Mock WebSocket composable
 vi.mock('../composables/useWebSocket.js', () => ({
   useSessionSubscription: vi.fn(() => ({
@@ -34,6 +41,7 @@ vi.mock('../composables/useWebSocket.js', () => ({
 import ConversationTab from './ConversationTab.vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
+import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 vi.mock('./LiveWorkLogPanel.vue', () => ({
   default: {
@@ -653,6 +661,384 @@ describe.skip('ConversationTab', () => {
       await flushAll(wrapper);
 
       expect(mockSessionsStore.sendMessage).not.toHaveBeenCalled();
+    });
+  });
+});
+
+/**
+ * Error Handling UX Tests
+ *
+ * These tests validate the improved error handling when a Claude session encounters an error.
+ * Instead of showing a blocking "Session error" message with a required restart button,
+ * the new UX displays:
+ * 1. The actual error message
+ * 2. An input form that allows continuing the conversation
+ * 3. A copy-to-clipboard button for the error
+ */
+describe('ConversationTab - Error Handling Improvements', () => {
+  let mockSessionsStore;
+  let mockUiStore;
+  let consoleError;
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+
+    mockSessionsStore = {
+      messages: [],
+      currentSession: { id: 'sess-123', status: 'error', thinkingEnabled: false, mode: 'standard', error: 'Test error' },
+      activeConversation: { id: 'conv-1', name: 'Test Conv' },
+      conversations: [{ id: 'conv-1', name: 'Test Conv', isActive: true }],
+      getWorkLogsForMessage: vi.fn().mockReturnValue([]),
+      getUnassociatedWorkLogs: [],
+      partialThinking: null,
+      isDraftSession: vi.fn().mockReturnValue(false),
+      fetchConversations: vi.fn().mockResolvedValue([]),
+      fetchWorkLogs: vi.fn().mockResolvedValue([]),
+      fetchMessages: vi.fn().mockResolvedValue([]),
+      sendMessage: vi.fn().mockResolvedValue(),
+      stopSession: vi.fn().mockResolvedValue(),
+      restartSession: vi.fn().mockResolvedValue(),
+      startSession: vi.fn().mockResolvedValue(),
+      updateSessionThinking: vi.fn().mockResolvedValue(),
+      updateSessionMode: vi.fn().mockResolvedValue(),
+      updateNextTemplate: vi.fn().mockResolvedValue(),
+      addWorkLog: vi.fn(),
+      associateWorkLogs: vi.fn(),
+      clearWorkLogs: vi.fn(),
+      clearConversations: vi.fn(),
+      addConversation: vi.fn(),
+      updateConversation: vi.fn(),
+      removeConversation: vi.fn(),
+      setPartialThinking: vi.fn(),
+      clearPartialThinking: vi.fn(),
+      finalizeUsage: vi.fn(),
+      updateRunningUsage: vi.fn(),
+    };
+
+    mockUiStore = {
+      error: vi.fn(),
+      success: vi.fn(),
+    };
+
+    vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    consoleError = console.error;
+    console.error = vi.fn();
+
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn().mockReturnValue(null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    console.error = consoleError;
+    vi.unstubAllGlobals();
+  });
+
+  function mountComponent(props = { sessionId: 'sess-123' }) {
+    return mount(ConversationTab, {
+      props,
+      global: {
+        stubs: {
+          ConversationSelector: { template: '<div class="conversation-selector-stub"></div>' },
+          TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
+          WorkLogPanel: { template: '<div class="work-log-panel-stub"></div>' },
+          LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
+          MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+          FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
+          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
+          QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
+          QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
+          ModelSelector: { template: '<div class="model-selector-stub"></div>' },
+          TemplateSelector: { template: '<div class="template-selector-stub"></div>' },
+        },
+      },
+    });
+  }
+
+  async function flushAll(wrapper) {
+    await flushPromises();
+    await nextTick();
+    await wrapper.vm.$nextTick?.();
+  }
+
+  describe('Error banner display', () => {
+    it('displays error banner when session has error status', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: 'API rate limit exceeded',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.error-banner').exists()).toBe(true);
+    });
+
+    it('displays the actual error message from session.error', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: 'Connection timeout after 30 seconds',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.error-message').text()).toBe('Connection timeout after 30 seconds');
+    });
+
+    it('displays "Unknown error" when session.error is null', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: null,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.error-message').text()).toBe('Unknown error');
+    });
+
+    it('displays copy error button in error banner', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: 'Test error',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.btn-copy-error').exists()).toBe(true);
+    });
+
+    it('displays hint about continuing conversation in error banner', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: 'Some error',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.error-hint').text()).toContain('continue');
+    });
+  });
+
+  describe('Error banner styling and structure', () => {
+    it('error banner has expected child elements', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: 'Styled error',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.error-banner').exists()).toBe(true);
+      expect(wrapper.find('.error-header').exists()).toBe(true);
+      expect(wrapper.find('.error-icon').exists()).toBe(true);
+      expect(wrapper.find('.error-title').exists()).toBe(true);
+      expect(wrapper.find('.error-content').exists()).toBe(true);
+      expect(wrapper.find('.error-message').exists()).toBe(true);
+      expect(wrapper.find('.error-hint').exists()).toBe(true);
+    });
+
+    it('error content container exists for long messages', async () => {
+      const longError = 'Error: '.repeat(100) + 'This is a very long error message';
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: longError,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const errorContent = wrapper.find('.error-content');
+      expect(errorContent.exists()).toBe(true);
+      expect(wrapper.find('.error-message').text()).toBe(longError);
+    });
+  });
+
+  describe('Input form availability in error state', () => {
+    it('renders input form when session status is error', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: 'Some error',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.input-form').exists()).toBe(true);
+    });
+
+    it('displays send button when session status is error', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: 'Some error',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.btn-send').exists()).toBe(true);
+    });
+
+    it('allows typing in textarea when session status is error', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: 'Some error',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      await textarea.setValue('Retry message');
+
+      expect(textarea.element.value).toBe('Retry message');
+    });
+
+    it('calls sendMessage when form submitted in error state', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: 'Some error',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Retry message');
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Retry message', []);
+    });
+  });
+
+  describe('Old error UI removed', () => {
+    it('does not show old blocking status-error message', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: 'Some error',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.status-message.status-error').exists()).toBe(false);
+    });
+  });
+
+  describe('Copy error button functionality', () => {
+    it('copies error message to clipboard when copy button clicked', async () => {
+      const clipboardWriteMock = vi.fn().mockResolvedValue();
+      vi.stubGlobal('navigator', { clipboard: { writeText: clipboardWriteMock } });
+
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: 'Error to copy',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('.btn-copy-error').trigger('click');
+      await flushAll(wrapper);
+
+      expect(clipboardWriteMock).toHaveBeenCalledWith('Error to copy');
+      expect(mockUiStore.success).toHaveBeenCalledWith('Error copied to clipboard');
+    });
+
+    it('shows error toast when clipboard write fails', async () => {
+      const clipboardWriteMock = vi.fn().mockRejectedValue(new Error('Clipboard blocked'));
+      vi.stubGlobal('navigator', { clipboard: { writeText: clipboardWriteMock } });
+
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: 'Error to copy',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('.btn-copy-error').trigger('click');
+      await flushAll(wrapper);
+
+      expect(mockUiStore.error).toHaveBeenCalledWith('Failed to copy error');
+    });
+  });
+
+  describe('Regression tests - error banner not shown for non-error states', () => {
+    it('does not display error banner when session status is waiting', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.error-banner').exists()).toBe(false);
+    });
+
+    it('does not display error banner when session status is running', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'running',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.error-banner').exists()).toBe(false);
+    });
+
+    it('does not display error banner when session status is stopped', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'stopped',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.error-banner').exists()).toBe(false);
     });
   });
 });
