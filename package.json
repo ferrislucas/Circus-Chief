@@ -10,7 +10,7 @@
     "start": "NODE_ENV=production node packages/server/src/index.js -p 5000",
     "test": "yarn workspaces foreach -A run test",
     "test:e2e": "./scripts/pw.sh test",
-    "lint": "eslint packages/*/src"
+    "lint": "npx eslint packages/*/src"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",
