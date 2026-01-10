@@ -121,20 +121,7 @@
           </div>
 
           <div class="mode-switcher">
-            <span class="mode-label">Mode:</span>
-            <div class="mode-buttons">
-              <button
-                v-for="m in modes"
-                :key="m.value"
-                type="button"
-                :class="['mode-btn', { active: sessionsStore.currentSession?.mode === m.value }]"
-                @click="handleModeChange(m.value)"
-                :disabled="togglingMode"
-                :title="m.description"
-              >
-                {{ m.label }}
-              </button>
-            </div>
+            <ModeSelector :sessionId="sessionId" />
           </div>
         </div>
         <div class="input-actions">
@@ -225,6 +212,7 @@ import ConversationSelector from './ConversationSelector.vue';
 import TokenUsagePanel from './TokenUsagePanel.vue';
 import FileAttachment from './FileAttachment.vue';
 import ModelSelector from './ModelSelector.vue';
+import ModeSelector from './ModeSelector.vue';
 import TemplateSelector from './TemplateSelector.vue';
 import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
@@ -258,17 +246,11 @@ const sending = ref(false);
 const stopping = ref(false);
 const restarting = ref(false);
 const togglingThinking = ref(false);
-const togglingMode = ref(false);
 const messagesContainer = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
 let draftSaveTimer = null;
 
-const modes = [
-  { value: 'plan', label: 'Plan', description: 'Agent plans before implementing' },
-  { value: 'standard', label: 'Standard', description: 'Balanced approach' },
-  { value: 'yolo', label: 'YOLO', description: 'Auto-approve mode' },
-];
 const partialText = ref('');
 const isNearBottom = ref(true);
 const hasNewMessages = ref(false);
@@ -748,20 +730,6 @@ async function handleThinkingToggle(event) {
   }
 }
 
-async function handleModeChange(newMode) {
-  if (togglingMode.value) return;
-  if (sessionsStore.currentSession?.mode === newMode) return;
-
-  togglingMode.value = true;
-  try {
-    await sessionsStore.updateSessionMode(props.sessionId, newMode);
-  } catch (err) {
-    uiStore.error(err.message);
-  } finally {
-    togglingMode.value = false;
-  }
-}
-
 async function handleTemplateChange(templateId) {
   try {
     await sessionsStore.updateNextTemplate(props.sessionId, templateId);
@@ -943,52 +911,6 @@ async function handleTemplateChange(templateId) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.mode-label {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-}
-
-.mode-buttons {
-  display: flex;
-  border: 1px solid var(--color-border);
-  border-radius: 0.375rem;
-  overflow: hidden;
-}
-
-.mode-btn {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 500;
-  background: var(--color-background);
-  border: none;
-  border-right: 1px solid var(--color-border);
-  color: var(--color-text-soft);
-  cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.mode-btn:last-child {
-  border-right: none;
-}
-
-.mode-btn:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-}
-
-.mode-btn.active,
-.mode-btn.active:focus {
-  background: var(--color-primary);
-  color: white;
-  outline: none;
-}
-
-.mode-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .toggle-switch {
