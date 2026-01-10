@@ -60,7 +60,7 @@ describe('SessionDetailView', () => {
     vi.spyOn(todosStore, 'fetchTodos').mockResolvedValue(undefined);
 
     // Mock window.confirm
-    global.confirm = vi.fn(() => true);
+    window.confirm = vi.fn(() => true);
   });
 
   describe('tabs configuration', () => {
