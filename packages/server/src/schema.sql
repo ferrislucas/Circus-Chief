@@ -128,10 +128,11 @@ CREATE TABLE IF NOT EXISTS project_tool_templates (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
--- Session todos (Claude's task list)
+-- Session todos (Claude's task list, scoped to conversations)
 CREATE TABLE IF NOT EXISTS session_todos (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'in_progress', 'completed')),
@@ -237,6 +238,7 @@ CREATE INDEX IF NOT EXISTS idx_session_templates_project ON session_templates(pr
 -- Note: idx_sessions_next_template and idx_sessions_parent are created in migrations
 -- to handle existing databases that may not have these columns yet
 CREATE INDEX IF NOT EXISTS idx_todos_session ON session_todos(session_id);
+CREATE INDEX IF NOT EXISTS idx_todos_conversation ON session_todos(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_session ON work_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_message ON work_logs(message_id);
 CREATE INDEX IF NOT EXISTS idx_summaries_session ON session_summaries(session_id);
