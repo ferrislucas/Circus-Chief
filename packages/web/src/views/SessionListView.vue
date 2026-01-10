@@ -311,6 +311,9 @@ watch(
   async (newProjectId) => {
     if (!newProjectId) return;
 
+    // Reset archived sessions loaded flag when changing projects
+    archivedLoaded.value = false;
+
     // Clean up previous subscription handlers
     cleanups.forEach((cleanup) => cleanup());
     cleanups.length = 0;
@@ -429,7 +432,8 @@ watch(
     if (newRouteName === 'ArchivedSessions') {
       await loadArchivedSessions();
     }
-  }
+  },
+  { immediate: true }
 );
 
 async function fetchSummaries() {
