@@ -150,18 +150,18 @@ export class ApiClient {
     if (files && files.length > 0) {
       const formData = new FormData();
       formData.append('prompt', jsonData.prompt);
-      if (jsonData.name) formData.append('name', jsonData.name);
-      if (jsonData.mode) formData.append('mode', jsonData.mode);
-      if (jsonData.model) formData.append('model', jsonData.model);
+      if (jsonData.name !== undefined) formData.append('name', jsonData.name);
+      if (jsonData.mode !== undefined) formData.append('mode', jsonData.mode);
+      if (jsonData.model !== undefined) formData.append('model', jsonData.model);
       if (jsonData.thinkingEnabled !== undefined) {
         formData.append('thinkingEnabled', String(jsonData.thinkingEnabled));
       }
       if (jsonData.startImmediately !== undefined) {
         formData.append('startImmediately', String(jsonData.startImmediately));
       }
-      if (jsonData.gitBranch) formData.append('gitBranch', jsonData.gitBranch);
-      if (jsonData.gitMode) formData.append('gitMode', jsonData.gitMode);
-      if (jsonData.templateId) formData.append('templateId', jsonData.templateId);
+      if (jsonData.gitBranch !== undefined) formData.append('gitBranch', jsonData.gitBranch);
+      if (jsonData.gitMode !== undefined) formData.append('gitMode', jsonData.gitMode);
+      if (jsonData.templateId !== undefined) formData.append('templateId', jsonData.templateId);
 
       for (const file of files) {
         formData.append('files', file);
@@ -540,12 +540,14 @@ export class ApiClient {
   // Todos
 
   /**
-   * Get all todos for a session
+   * Get all todos for a session (or specific conversation)
    * @param {string} sessionId - Session ID
+   * @param {string} [conversationId] - Optional conversation ID to fetch todos for
    * @returns {Promise<Array>}
    */
-  async getSessionTodos(sessionId) {
-    return this.#request('GET', `/sessions/${sessionId}/todos`);
+  async getSessionTodos(sessionId, conversationId = null) {
+    const params = conversationId ? `?conversation_id=${conversationId}` : '';
+    return this.#request('GET', `/sessions/${sessionId}/todos${params}`);
   }
 
   // Summaries
