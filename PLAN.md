@@ -1,254 +1,290 @@
-# Diagnosis: iPad Heat & Lag in Session Detail View
+# Claude Code Integration Plan
 
-## Problem
-- iPad gets **hot** when viewing session details
-- Typing is laggy in both session detail and new session views
-- iPhone and macOS don't have this issue
+## Overview
 
-## Root Cause: Streaming Updates + Expensive Markdown Rendering
+Replace the mock `sessionManager.js` implementation with the official **`@anthropic-ai/claude-agent-sdk`** which provides proper JS bindings.
 
-### The Performance Disaster Chain
+## SDK API
 
-When a session is streaming (or even when just typing), here's what happens:
+The SDK exports a `query()` function:
 
-```
-WebSocket message arrives (partialText)
-    ↓
-partialText.value = text  (Vue reactivity triggers)
-    ↓
-MarkdownViewer re-renders
-    ↓
-renderMarkdown() computed runs
-    ↓
-markdown-it parses the content
-    ↓
-highlight.js runs on EVERY code block
-    ↓
-hljs.highlightAuto() - EXTREMELY EXPENSIVE! 🔥
-    ↓
-DOMPurify sanitizes HTML
-    ↓
-Vue diffs and updates DOM
-    ↓
-CSS animations run (dots pulsing, borders pulsing)
+```typescript
+import { query } from '@anthropic-ai/claude-agent-sdk';
+
+function query(params: {
+  prompt: string | AsyncIterable<SDKUserMessage>;
+  options?: Options;
+}): Query;  // extends AsyncGenerator<SDKMessage, void>
 ```
 
-**This happens 10-30+ times per second during streaming.**
+### Key Options
 
----
+| Option | Type | Description |
+|--------|------|-------------|
+| `cwd` | `string` | Working directory for the session |
+| `abortController` | `AbortController` | Cancel the query |
+| `permissionMode` | `'default' \| 'acceptEdits' \| 'bypassPermissions'` | Permission handling |
+| `model` | `string` | Model to use (e.g., `'claude-sonnet-4-5-20250929'`) |
+| `includePartialMessages` | `boolean` | Stream partial responses for real-time UI |
+| `systemPrompt` | `string` | Custom system prompt |
+| `env` | `Record<string, string>` | Environment variables |
 
-## Culprit #1: `hljs.highlightAuto()` (MAIN ISSUE)
+### Event Types (SDKMessage)
 
-In `packages/web/src/utils/markdown.js`:
+| Type | Description |
+|------|-------------|
+| `SDKSystemMessage` | Session init with `session_id`, `model`, `tools` |
+| `SDKAssistantMessage` | Claude's response with `message.content` |
+| `SDKUserMessage` | User input (for replay) |
+| `SDKPartialAssistantMessage` | Streaming chunks (when `includePartialMessages: true`) |
+| `SDKResultMessage` | Final result with `total_cost_usd`, `usage` |
+
+### Multi-Turn Conversations
+
+Pass an `AsyncIterable<SDKUserMessage>` as the prompt for multi-turn:
 
 ```javascript
-// Use auto-detection for unknown languages
-try {
-  const result = hljs.highlightAuto(str);  // ← 🔥 EXTREMELY EXPENSIVE
-  return `<pre class="hljs"><code>${result.value}</code></pre>`;
-}
-```
+async function* userMessages(initialPrompt) {
+  yield { role: 'user', content: initialPrompt };
 
-`highlightAuto()` tests the code against **every registered language grammar** to guess the language. This is CPU-intensive even on desktop, but devastating on iPad.
-
-During streaming:
-- Partial code blocks are sent frequently
-- Each update triggers full markdown re-parse
-- `highlightAuto()` runs on every code block, every time
-
----
-
-## Culprit #2: No Throttling on Streaming Updates
-
-In `ConversationTab.vue`:
-```javascript
-unsubPartial = onPartial((text) => {
-  partialText.value = text;  // ← Direct update, no throttle
-  scrollToBottom();
-});
-```
-
-WebSocket partial updates can come in **multiple times per second**. Each one triggers the full render chain.
-
----
-
-## Culprit #3: CSS Animations During High-Load
-
-In `ThinkingBlock.vue`:
-```css
-.thinking-streaming {
-  animation: streamPulse 2s ease-in-out infinite;
-}
-
-.streaming-dots .dot {
-  animation: pulse 1.4s ease-in-out infinite;
-}
-```
-
-In `LiveWorkLogPanel.vue`:
-```css
-.live-log-item {
-  animation: slideIn 0.2s ease;
-}
-```
-
-These animations run **constantly** and use GPU/compositor resources while the CPU is already overwhelmed.
-
----
-
-## Culprit #4: Sync Watchers Force Immediate Execution
-
-In `LiveWorkLogPanel.vue`:
-```javascript
-watch(() => props.partialThinking, () => {
-  scrollToBottom();
-}, { flush: 'sync' });  // ← Forces immediate, synchronous execution
-```
-
-Sync watchers bypass Vue's batching optimizations.
-
----
-
-## Why iPad is More Affected
-
-1. **Single-thread JS performance** - iPad's A-series chips prioritize efficiency over single-thread speed
-2. **Safari's JS engine** - Less optimized than V8
-3. **Thermal throttling** - Once it heats up, performance drops further (death spiral)
-4. **Lower memory bandwidth** - More GC pressure from all the string allocations
-
----
-
-## Proposed Fixes (Priority Order)
-
-### Fix 1: DISABLE `highlightAuto()` - Critical
-
-Replace auto-detection with a fast fallback:
-
-```javascript
-// Before
-try {
-  const result = hljs.highlightAuto(str);
-  return `<pre class="hljs"><code>${result.value}</code></pre>`;
-}
-
-// After - just escape and display, skip auto-detection
-return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`;
-```
-
-Or better: only highlight when language is explicitly specified:
-```javascript
-highlight: function (str, lang) {
-  if (lang && hljs.getLanguage(lang)) {
-    try {
-      return `<pre class="hljs"><code class="language-${lang}">${
-        hljs.highlight(str, { language: lang, ignoreIllegals: true }).value
-      }</code></pre>`;
-    } catch { /* fall through */ }
+  while (true) {
+    const input = await waitForUserInput();  // your logic
+    yield { role: 'user', content: input };
   }
-  // NO auto-detection - just escape
-  return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`;
+}
+
+for await (const event of query({
+  prompt: userMessages("Hello"),
+  options: { cwd: '/path/to/project' }
+})) {
+  // handle events
 }
 ```
 
-### Fix 2: Throttle Streaming Updates
+## Implementation Steps
 
-Add throttling to partial message updates:
+### Step 1: Install SDK
+
+```bash
+cd packages/server
+npm install @anthropic-ai/claude-agent-sdk zod
+```
+
+Note: `zod` is a peer dependency.
+
+### Step 2: Update Session Manager
+
+**File:** `packages/server/src/services/sessionManager.js`
 
 ```javascript
-import { throttle } from 'lodash-es';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 
-// Throttle to max 5 updates per second (200ms)
-const throttledSetPartial = throttle((text) => {
-  partialText.value = text;
-}, 200, { leading: true, trailing: true });
+export async function runSession(sessionId, prompt, workingDirectory) {
+  const controller = new AbortController();
+  activeSessions.set(sessionId, { controller, inputResolve: null });
 
-unsubPartial = onPartial((text) => {
-  throttledSetPartial(text);
-  // Don't auto-scroll on every update
-});
-```
+  try {
+    sessions.update(sessionId, { status: 'running' });
+    broadcastSessionStatus(sessionId, 'running');
 
-### Fix 3: Disable CSS Animations During Streaming
+    const inputGenerator = createInputGenerator(sessionId, prompt);
 
-Add a class to disable animations when streaming:
+    for await (const event of query({
+      prompt: inputGenerator,
+      options: {
+        cwd: workingDirectory,
+        abortController: controller,
+        includePartialMessages: true,  // For real-time streaming
+        permissionMode: 'bypassPermissions',  // Or make configurable
+        systemPrompt: `When you generate artifacts that should be displayed on
+the canvas (images, markdown documents, code snippets, data visualizations),
+POST them to: ${process.env.CLAUDETOOLS_API_URL}/api/sessions/${sessionId}/canvas
+Body: {"type": "image|markdown|text|json", "content": "...", "title": "..."}`,
+      },
+    })) {
+      if (controller.signal.aborted) break;
+      await handleStreamEvent(sessionId, event);
+    }
 
-```css
-/* Reduce motion when streaming to save resources */
-.streaming-active .thinking-streaming,
-.streaming-active .streaming-dots .dot {
-  animation: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .thinking-streaming,
-  .streaming-dots .dot,
-  .live-log-item {
-    animation: none;
+    // Session completed
+    sessions.update(sessionId, { status: 'completed' });
+    broadcastSessionStatus(sessionId, 'completed');
+  } catch (error) {
+    // ... error handling
   }
 }
 ```
 
-### Fix 4: Change Sync Watchers to Post
+### Step 3: Update Event Handler
 
 ```javascript
-// Before
-watch(() => props.partialThinking, () => {
-  scrollToBottom();
-}, { flush: 'sync' });
+async function handleStreamEvent(sessionId, event) {
+  switch (event.type) {
+    case 'system': {
+      // Store Claude's session_id, model info
+      sessions.update(sessionId, {
+        claudeSessionId: event.session_id,
+        model: event.model
+      });
+      break;
+    }
 
-// After
-watch(() => props.partialThinking, () => {
-  scrollToBottom();
-}, { flush: 'post' });  // Let Vue batch updates
+    case 'assistant': {
+      const textContent = event.message?.content
+        ?.filter(c => c.type === 'text')
+        ?.map(c => c.text)
+        ?.join('\n');
+
+      if (textContent) {
+        const toolUse = event.message?.content?.filter(c => c.type === 'tool_use');
+        const message = messages.create(sessionId, 'assistant', textContent, toolUse);
+        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
+      }
+      break;
+    }
+
+    case 'partial': {
+      // Real-time streaming - broadcast partial text
+      const partialText = event.message?.content
+        ?.filter(c => c.type === 'text')
+        ?.map(c => c.text)
+        ?.join('');
+
+      if (partialText) {
+        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
+          sessionId,
+          text: partialText
+        });
+      }
+      break;
+    }
+
+    case 'result': {
+      if (event.subtype === 'error') {
+        sessions.update(sessionId, { status: 'error', error: event.error });
+        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { error: event.error });
+      } else {
+        // Store cost info
+        sessions.update(sessionId, { costUsd: event.total_cost_usd });
+      }
+      break;
+    }
+  }
+}
 ```
 
-### Fix 5: Use Simpler Streaming Display
+### Step 4: Update Input Generator
 
-For the streaming message, skip markdown rendering entirely and use plain text:
+```javascript
+async function* createInputGenerator(sessionId, initialPrompt) {
+  // Yield initial prompt
+  yield { role: 'user', content: initialPrompt };
 
-```html
-<!-- During streaming, show plain text (fast) -->
-<div v-if="partialText" class="message message-assistant message-streaming">
-  <div class="message-content">
-    <pre class="streaming-text">{{ partialText }}</pre>
-  </div>
-</div>
+  // Store initial message
+  const userMsg = messages.create(sessionId, 'user', initialPrompt);
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message: userMsg });
 
-<!-- Only render markdown for completed messages -->
-<div v-for="message in sessionsStore.messages" ...>
-  <MarkdownViewer v-if="message.role === 'assistant'" :content="message.content" />
-</div>
+  while (true) {
+    const sessionData = activeSessions.get(sessionId);
+    if (!sessionData || sessionData.controller.signal.aborted) {
+      return;
+    }
+
+    // Signal waiting for input
+    sessions.update(sessionId, { status: 'waiting' });
+    broadcastSessionStatus(sessionId, 'waiting');
+
+    // Wait for user input
+    const input = await new Promise(resolve => {
+      const session = activeSessions.get(sessionId);
+      if (session) session.inputResolve = resolve;
+    });
+
+    yield { role: 'user', content: input };
+  }
+}
 ```
 
----
+### Step 5: Add Canvas POST Endpoint
 
-## Implementation Plan
+**File:** `packages/server/src/api/canvas.js`
 
-1. **Immediate** - Fix 1: Remove `highlightAuto()` (~5 min, biggest impact)
-2. **High Priority** - Fix 2: Add throttling to streaming (~10 min)
-3. **Medium** - Fix 5: Plain text during streaming (~15 min)
-4. **Low** - Fixes 3 & 4: Animation and watcher cleanup (~10 min)
+```javascript
+// POST /api/sessions/:id/canvas - For Claude to POST artifacts
+router.post('/sessions/:id/canvas', async (req, res) => {
+  const { id } = req.params;
+  const { type, content, title } = req.body;
 
----
+  const item = canvasItems.create({
+    sessionId: id,
+    type,
+    content,
+    title: title || `Canvas item ${Date.now()}`,
+  });
+
+  broadcastToSession(id, WS_MESSAGE_TYPES.CANVAS_ADD, { item });
+  res.json({ success: true, item });
+});
+```
+
+### Step 6: Add Partial Message WebSocket Type
+
+**File:** `packages/shared/src/protocol.js`
+
+```javascript
+export const WS_MESSAGE_TYPES = {
+  // ... existing
+  SESSION_PARTIAL: 'session:partial',  // NEW - for streaming
+};
+```
+
+### Step 7: Update Frontend for Streaming
+
+**File:** `packages/web/src/components/ConversationTab.vue`
+
+- Add `partialText` ref for current streaming content
+- Listen for `session:partial` WebSocket events
+- Show typing indicator + partial text while streaming
+- Clear partial text when full `assistant` message arrives
+
+### Step 8: Add Cost Column to Sessions
+
+**File:** `packages/server/src/schema.sql`
+
+```sql
+ALTER TABLE sessions ADD COLUMN cost_usd REAL DEFAULT 0;
+```
 
 ## Files to Modify
 
-| File | Change |
-|------|--------|
-| `packages/web/src/utils/markdown.js` | Remove `highlightAuto()` |
-| `packages/web/src/components/ConversationTab.vue` | Throttle streaming, plain text streaming |
-| `packages/web/src/components/LiveWorkLogPanel.vue` | Remove sync watchers, reduce animations |
-| `packages/web/src/components/ThinkingBlock.vue` | Reduce/disable animations |
+| File | Changes |
+|------|---------|
+| `packages/server/package.json` | Add `@anthropic-ai/claude-agent-sdk`, `zod` |
+| `packages/server/src/services/sessionManager.js` | Use SDK `query()` function |
+| `packages/server/src/api/canvas.js` | Add POST endpoint |
+| `packages/shared/src/protocol.js` | Add `SESSION_PARTIAL` message type |
+| `packages/web/src/components/ConversationTab.vue` | Handle streaming |
+| `packages/web/src/composables/useWebSocket.js` | Handle `session:partial` |
+| `packages/server/src/schema.sql` | Add `cost_usd` column |
 
----
+## Environment Setup
 
-## Expected Impact
+The SDK uses the same auth as Claude CLI. Ensure:
+- User is logged in via `claude` CLI, OR
+- `ANTHROPIC_API_KEY` environment variable is set
 
-| Fix | CPU Reduction | Heat Reduction |
-|-----|---------------|----------------|
-| Remove highlightAuto | ~60-70% | Major |
-| Throttle streaming | ~20-30% | Moderate |
-| Plain text streaming | ~10-15% | Minor |
-| Animation cleanup | ~5-10% | Minor |
+## Testing
 
-**Combined: Should eliminate the heat issue and make iPad usable.**
+1. Start server with `yarn dev`
+2. Create a new session with a simple prompt
+3. Verify real-time streaming in UI
+4. Test multi-turn conversation (send follow-up)
+5. Test canvas artifact posting
+6. Verify cost tracking
+
+## Future Enhancements
+
+- MCP server for canvas (replace HTTP endpoint)
+- Session resume via `--resume` / SDK options
+- Model selection in UI
+- Permission mode selection in UI
