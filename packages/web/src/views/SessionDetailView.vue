@@ -563,9 +563,33 @@ function getTemplateName(templateId) {
 }
 
 @media (max-width: 768px) {
+  .branch-line {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .branch-pr-indicators {
+    order: 2;
+  }
+
   .session-action-buttons {
+    order: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    width: 100%;
     margin-left: 0;
-    flex-wrap: wrap;
+  }
+
+  .session-action-buttons .btn {
+    font-size: 0.8125rem;
+    padding: 0.5rem 0.75rem;
+    justify-content: center;
+  }
+
+  .btn-delete-session {
+    grid-column: span 2;
   }
 }
 
