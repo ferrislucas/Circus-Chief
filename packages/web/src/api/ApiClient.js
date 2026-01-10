@@ -150,18 +150,18 @@ export class ApiClient {
     if (files && files.length > 0) {
       const formData = new FormData();
       formData.append('prompt', jsonData.prompt);
-      if (jsonData.name) formData.append('name', jsonData.name);
-      if (jsonData.mode) formData.append('mode', jsonData.mode);
-      if (jsonData.model) formData.append('model', jsonData.model);
+      if (jsonData.name !== undefined) formData.append('name', jsonData.name);
+      if (jsonData.mode !== undefined) formData.append('mode', jsonData.mode);
+      if (jsonData.model !== undefined) formData.append('model', jsonData.model);
       if (jsonData.thinkingEnabled !== undefined) {
         formData.append('thinkingEnabled', String(jsonData.thinkingEnabled));
       }
       if (jsonData.startImmediately !== undefined) {
         formData.append('startImmediately', String(jsonData.startImmediately));
       }
-      if (jsonData.gitBranch) formData.append('gitBranch', jsonData.gitBranch);
-      if (jsonData.gitMode) formData.append('gitMode', jsonData.gitMode);
-      if (jsonData.templateId) formData.append('templateId', jsonData.templateId);
+      if (jsonData.gitBranch !== undefined) formData.append('gitBranch', jsonData.gitBranch);
+      if (jsonData.gitMode !== undefined) formData.append('gitMode', jsonData.gitMode);
+      if (jsonData.templateId !== undefined) formData.append('templateId', jsonData.templateId);
 
       for (const file of files) {
         formData.append('files', file);
