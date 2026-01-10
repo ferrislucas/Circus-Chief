@@ -390,12 +390,17 @@ describe('SessionListView', () => {
 describe('Status filtering', () => {
   let mockProjectsStore;
   let mockSessionsStore;
+  let mockCommandButtonsStore;
 
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
 
-    mockRouteParams.id = 'test-project-id';
+    // Reset route params and name
+    Object.assign(mockRoute, {
+      params: { id: 'test-project-id' },
+      name: 'SessionList',
+    });
 
     onSessionCreatedCallback = null;
     onSessionUpdatedCallback = null;
@@ -419,6 +424,17 @@ describe('Status filtering', () => {
       { id: 'session-5', name: 'Starting Session', status: 'starting' },
     ]);
     useSessionsStore.mockReturnValue(mockSessionsStore);
+
+    mockCommandButtonsStore = {
+      buttons: [],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn().mockResolvedValue(),
+      getButtonsByProjectId: vi.fn(() => []),
+      getLatestRunForButton: vi.fn(() => null),
+    };
+    useCommandButtonsStore.mockReturnValue(mockCommandButtonsStore);
   });
 
   afterEach(() => {
@@ -970,7 +986,12 @@ describe('SessionListView integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
-    mockRouteParams.id = 'test-project-id';
+
+    // Reset route params and name
+    Object.assign(mockRoute, {
+      params: { id: 'test-project-id' },
+      name: 'SessionList',
+    });
 
     // Reset callbacks
     onSessionSummaryUpdatedCallback = null;
@@ -983,6 +1004,16 @@ describe('SessionListView integration', () => {
     useSessionsStore.mockReturnValue(createSessionsStoreMock([
       { id: 'session-1', name: 'Session 1', status: 'running' },
     ]));
+
+    useCommandButtonsStore.mockReturnValue({
+      buttons: [],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn().mockResolvedValue(),
+      getButtonsByProjectId: vi.fn(() => []),
+      getLatestRunForButton: vi.fn(() => null),
+    });
 
     mockGetSessionSummary.mockResolvedValue(null);
   });
@@ -1016,7 +1047,12 @@ describe('SessionListView Archived Tab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
-    mockRouteParams.id = 'test-project-id';
+
+    // Reset route params and name (start on Sessions tab by default)
+    Object.assign(mockRoute, {
+      params: { id: 'test-project-id' },
+      name: 'SessionList',
+    });
 
     // Reset callbacks
     onSessionSummaryUpdatedCallback = null;
