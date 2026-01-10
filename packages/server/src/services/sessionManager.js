@@ -6,6 +6,7 @@ import { updateTodos } from './todoStore.js';
 import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import * as diffService from './diffService.js';
+import { createClaudeCodeSpawner, createRobustEnv } from './nodeSpawnHelper.js';
 
 /** @type {Map<string, string|null>} Track last message ID for end-of-turn work log association */
 const lastMessageIds = new Map();
@@ -466,17 +467,18 @@ curl -X POST ${apiUrl}/api/sessions/<session_id>/summary
 }
 
 /**
- * Build environment variables for Claude SDK based on session settings
+ * Build environment variables for Claude SDK based on session settings.
+ * Always returns a robust env with Node in PATH to prevent ENOENT errors.
  * @param {Object} session
- * @returns {Object|undefined}
+ * @returns {Object}
  */
 function buildSessionEnv(session) {
+  const baseEnv = createRobustEnv(process.env);
   if (!session.thinkingEnabled) {
-    return undefined; // Let SDK use process.env by default
+    return baseEnv;
   }
-  // Merge with process.env to preserve PATH and other essential env vars
   return {
-    ...process.env,
+    ...baseEnv,
     MAX_THINKING_TOKENS: '10240',
   };
 }
@@ -585,7 +587,8 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
             includePartialMessages: true,
             permissionMode: getPermissionModeForSession(session.mode),
             settingSources: ['project'],
-            ...(sessionEnv && { env: sessionEnv }),
+            env: sessionEnv,
+            spawnClaudeCodeProcess: createClaudeCodeSpawner(),
             ...(sessionModel && { model: sessionModel }),
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
@@ -706,7 +709,8 @@ export async function continueSession(sessionId, content, workingDirectory, syst
             // Use conversation's claudeSessionId for context isolation
             // Only pass resume if the conversation has an existing Claude session
             ...(activeConversation.claudeSessionId && { resume: activeConversation.claudeSessionId }),
-            ...(sessionEnv && { env: sessionEnv }),
+            env: sessionEnv,
+            spawnClaudeCodeProcess: createClaudeCodeSpawner(),
             ...(session.model && { model: session.model }),
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
