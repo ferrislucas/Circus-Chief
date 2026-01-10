@@ -212,10 +212,9 @@ export async function getBranches(directory) {
  */
 export async function getCurrentBranch(directory) {
   try {
-    // Use rev-parse for compatibility with older git versions (pre-2.22)
-    // git branch --show-current was added in git 2.22
+    // Use rev-parse which works in older git versions (--show-current was added in 2.22)
     const branch = await git(directory, 'rev-parse --abbrev-ref HEAD');
-    // rev-parse returns 'HEAD' when in detached HEAD state
+    // Returns 'HEAD' when in detached HEAD state
     return branch === 'HEAD' ? null : branch;
   } catch {
     return null;
