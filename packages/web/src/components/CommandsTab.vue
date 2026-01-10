@@ -43,7 +43,6 @@
         :session-id="sessionId"
         @run="onButtonRun(button.id)"
         @kill="onButtonKill(button.id)"
-        @copy-output="onCopyOutput"
         @send-to-canvas="onSendToCanvas"
       />
     </div>
@@ -120,42 +119,6 @@ const onButtonKill = async (buttonId) => {
     await commandButtonsStore.killRun(props.sessionId, runId);
   } catch (err) {
     uiStore.error(`Failed to kill command: ${err.message}`);
-  }
-};
-
-/**
- * Handle copy output event
- */
-const onCopyOutput = async (output) => {
-  // Validate output
-  if (!output) {
-    uiStore.error('No output to copy');
-    return;
-  }
-
-  if (typeof output !== 'string') {
-    uiStore.error('Output is not text');
-    return;
-  }
-
-  // Check for clipboard API availability
-  if (!navigator.clipboard) {
-    uiStore.error('Clipboard API not available in this browser');
-    return;
-  }
-
-  try {
-    await navigator.clipboard.writeText(stripAnsi(output));
-    uiStore.success('Output copied to clipboard');
-  } catch (err) {
-    // Provide more specific error messages
-    if (err.name === 'NotAllowedError') {
-      uiStore.error('Clipboard access denied - check browser permissions');
-    } else if (err.name === 'NotFoundError') {
-      uiStore.error('Clipboard API not available');
-    } else {
-      uiStore.error(`Failed to copy output: ${err.message}`);
-    }
   }
 };
 
