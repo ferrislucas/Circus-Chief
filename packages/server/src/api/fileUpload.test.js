@@ -1,10 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import express from 'express';
 import request from 'supertest';
 import { createApp } from '../app.js';
-import { projects, sessions, messages, conversations } from '../database.js';
+import { projects, messages, conversations } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
-import { Readable } from 'stream';
 
 // Mock websocket and services
 vi.mock('../websocket.js', () => ({
@@ -40,7 +38,6 @@ vi.mock('../services/sessionDuplicator.js', () => ({
 describe('File Upload Endpoints', () => {
   let app;
   let testProject;
-  let testSession;
   let sessionId;
 
   beforeEach(async () => {
@@ -58,8 +55,6 @@ describe('File Upload Endpoints', () => {
     // Create initial conversation for the session
     const conv = conversations.create(sessionId, 'Initial', true);
     messages.create(sessionId, 'user', 'Initial prompt', null, conv.id);
-
-    testSession = sessions.getById(sessionId);
   });
 
   afterEach(() => {
