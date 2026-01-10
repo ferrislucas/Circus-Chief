@@ -32,6 +32,21 @@ const routes = [
     component: () => import('./views/SessionListView.vue'),
   },
   {
+    path: '/projects/:id/archived',
+    name: 'ArchivedSessions',
+    component: () => import('./views/SessionListView.vue'),
+  },
+  {
+    path: '/projects/:id/templates',
+    name: 'ProjectTemplates',
+    component: () => import('./views/SessionListView.vue'),
+  },
+  {
+    path: '/projects/:id/commands',
+    name: 'ProjectCommands',
+    component: () => import('./views/SessionListView.vue'),
+  },
+  {
     path: '/projects/:id/sessions/new',
     name: 'NewSession',
     component: () => import('./views/NewSessionView.vue'),
