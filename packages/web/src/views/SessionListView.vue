@@ -314,8 +314,17 @@ watch(
     fetchSummaries();
 
     // Create new subscription for new project
-    const { subscribe, unsubscribe, onSessionCreated, onSessionUpdated, onSessionDeleted, onSessionSummaryUpdated } =
-      useProjectSubscription(newProjectId);
+    const {
+      subscribe,
+      unsubscribe,
+      onSessionCreated,
+      onSessionUpdated,
+      onSessionDeleted,
+      onSessionSummaryUpdated,
+      onCommandRunOutput,
+      onCommandRunComplete,
+      onCommandRunError,
+    } = useProjectSubscription(newProjectId);
 
     currentUnsubscribe = unsubscribe;
     subscribe();
@@ -351,6 +360,40 @@ watch(
         summaries[sessionId] = summary;
         loadingSummaries[sessionId] = false;
         summaryErrors[sessionId] = false;
+      })
+    );
+
+    // Handle command run output (for real-time status icon updates)
+    cleanups.push(
+      onCommandRunOutput((runId, sessionId, buttonId, output) => {
+        // Ensure run exists in store, create if needed
+        if (!commandButtonsStore.runs[runId]) {
+          commandButtonsStore.runs[runId] = {
+            runId,
+            buttonId,
+            sessionId,
+            status: 'running',
+            output: '',
+            exitCode: null,
+            startedAt: Date.now(),
+            outputTruncated: false,
+          };
+        }
+        commandButtonsStore.appendOutput(runId, output);
+      })
+    );
+
+    // Handle command run complete
+    cleanups.push(
+      onCommandRunComplete((runId, sessionId, buttonId, exitCode, output) => {
+        commandButtonsStore.completeRun(runId, exitCode, output);
+      })
+    );
+
+    // Handle command run error
+    cleanups.push(
+      onCommandRunError((runId, sessionId, buttonId, error) => {
+        commandButtonsStore.errorRun(runId, error);
       })
     );
   },
