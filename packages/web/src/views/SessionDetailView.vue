@@ -175,7 +175,7 @@ function navigateToTab(tabId) {
   router.push(`/sessions/${route.params.id}/${tabId}`);
 }
 
-const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onUsageUpdate, onConversationUpdated, onChangesUpdate } =
+const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onConversationUpdated, onChangesUpdate } =
   useSessionSubscription(sessionId);
 
 let cleanups = [];
@@ -323,18 +323,8 @@ onMounted(async () => {
     })
   );
 
-  cleanups.push(
-    onUsageUpdate((msg) => {
-      if (msg.isFinal) {
-        // Pass conversationId for conversation-level usage tracking (Issue #175)
-        sessionsStore.finalizeUsage(msg.usage, msg.conversationId);
-      } else {
-        sessionsStore.updateRunningUsage(msg.usage, msg.conversationId);
-      }
-    })
-  );
-
   // Handle conversation updates for usage tracking (Issue #175)
+  // Note: onUsageUpdate is handled by ConversationTab to avoid duplicate registrations
   cleanups.push(
     onConversationUpdated((conversation) => {
       sessionsStore.updateConversation(conversation);
