@@ -952,13 +952,16 @@ describe('Sessions Store', () => {
 
       it('formats small numbers as-is', () => {
         const store = useSessionsStore();
-        store.currentSession = {
-          id: 'session-1',
-          inputTokens: 500,
-          outputTokens: 250,
-          cacheReadInputTokens: 100,
-          cacheCreationInputTokens: 50,
-        };
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 500,
+            outputTokens: 250,
+            cacheReadInputTokens: 100,
+            cacheCreationInputTokens: 50,
+          },
+        ];
 
         const formatted = store.formattedTokens;
         expect(formatted.input).toBe('500');
@@ -970,11 +973,10 @@ describe('Sessions Store', () => {
 
       it('formats thousands with K suffix', () => {
         const store = useSessionsStore();
-        store.currentSession = {
-          id: 'session-1',
-          inputTokens: 5500,
-          outputTokens: 2500,
-        };
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          { id: 'conv-1', inputTokens: 5500, outputTokens: 2500 },
+        ];
 
         const formatted = store.formattedTokens;
         expect(formatted.input).toBe('5.5K');
@@ -984,11 +986,10 @@ describe('Sessions Store', () => {
 
       it('formats millions with M suffix', () => {
         const store = useSessionsStore();
-        store.currentSession = {
-          id: 'session-1',
-          inputTokens: 1500000,
-          outputTokens: 500000,
-        };
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          { id: 'conv-1', inputTokens: 1500000, outputTokens: 500000 },
+        ];
 
         const formatted = store.formattedTokens;
         expect(formatted.input).toBe('1.5M');
@@ -998,11 +999,10 @@ describe('Sessions Store', () => {
 
       it('handles exactly 1000 tokens', () => {
         const store = useSessionsStore();
-        store.currentSession = {
-          id: 'session-1',
-          inputTokens: 1000,
-          outputTokens: 0,
-        };
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          { id: 'conv-1', inputTokens: 1000, outputTokens: 0 },
+        ];
 
         const formatted = store.formattedTokens;
         expect(formatted.input).toBe('1.0K');
@@ -1010,11 +1010,10 @@ describe('Sessions Store', () => {
 
       it('handles exactly 1000000 tokens', () => {
         const store = useSessionsStore();
-        store.currentSession = {
-          id: 'session-1',
-          inputTokens: 1000000,
-          outputTokens: 0,
-        };
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          { id: 'conv-1', inputTokens: 1000000, outputTokens: 0 },
+        ];
 
         const formatted = store.formattedTokens;
         expect(formatted.input).toBe('1.0M');
@@ -1048,15 +1047,18 @@ describe('Sessions Store', () => {
         expect(formatted.cacheCreation).toBe('100');
       });
 
-      it('falls back to session tokens when runningUsage is null', () => {
+      it('uses conversation tokens when runningUsage is null', () => {
         const store = useSessionsStore();
-        store.currentSession = {
-          id: 'session-1',
-          inputTokens: 5500,
-          outputTokens: 2500,
-          cacheReadInputTokens: 100,
-          cacheCreationInputTokens: 50,
-        };
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 5500,
+            outputTokens: 2500,
+            cacheReadInputTokens: 100,
+            cacheCreationInputTokens: 50,
+          },
+        ];
         store.runningUsage = null;
 
         const formatted = store.formattedTokens;
@@ -1189,9 +1191,10 @@ describe('Sessions Store', () => {
         expect(formatted.cacheCreation).toBe('2.5K');
       });
 
-      // Issue #324 - Improved fallback logic tests
-      describe('conversation/session fallback logic', () => {
-        it('falls back to session when conversation has zero tokens', () => {
+      // Issue #324 - No session fallback behavior (shows conversation data only)
+      // Bug fix: Don't fall back to session aggregate - that shows sum of ALL conversations which is confusing
+      describe('conversation-only display logic (no session fallback)', () => {
+        it('shows conversation zeros when conversation has zero tokens (no session fallback)', () => {
           const store = useSessionsStore();
           store.activeConversationId = 'conv-1';
           store.conversations = [
@@ -1213,12 +1216,12 @@ describe('Sessions Store', () => {
           store.runningUsage = null;
 
           const formatted = store.formattedTokens;
-          // Should use session data because conversation has zero tokens
-          expect(formatted.input).toBe('5.0K');
-          expect(formatted.output).toBe('2.5K');
-          expect(formatted.total).toBe('7.5K');
-          expect(formatted.cacheRead).toBe('500');
-          expect(formatted.cacheCreation).toBe('250');
+          // Should show conversation zeros, NOT session aggregate (that would be confusing)
+          expect(formatted.input).toBe('0');
+          expect(formatted.output).toBe('0');
+          expect(formatted.total).toBe('0');
+          expect(formatted.cacheRead).toBe('0');
+          expect(formatted.cacheCreation).toBe('0');
         });
 
         it('uses conversation data when it has non-zero tokens', () => {
@@ -1297,7 +1300,7 @@ describe('Sessions Store', () => {
           expect(formatted.total).toBe('500');
         });
 
-        it('falls back to session when activeConversationId is null', () => {
+        it('returns zeros when activeConversationId is null (no session fallback)', () => {
           const store = useSessionsStore();
           store.activeConversationId = null;
           store.conversations = [
@@ -1315,13 +1318,13 @@ describe('Sessions Store', () => {
           store.runningUsage = null;
 
           const formatted = store.formattedTokens;
-          // Should use session data because activeConversationId is null
-          expect(formatted.input).toBe('5.0K');
-          expect(formatted.output).toBe('2.5K');
-          expect(formatted.total).toBe('7.5K');
+          // Should return zeros, NOT session aggregate (that would show sum of ALL conversations)
+          expect(formatted.input).toBe('0');
+          expect(formatted.output).toBe('0');
+          expect(formatted.total).toBe('0');
         });
 
-        it('falls back to session when conversations array is empty', () => {
+        it('returns zeros when conversations array is empty (no session fallback)', () => {
           const store = useSessionsStore();
           store.activeConversationId = 'conv-1';
           store.conversations = [];
@@ -1333,13 +1336,13 @@ describe('Sessions Store', () => {
           store.runningUsage = null;
 
           const formatted = store.formattedTokens;
-          // Should use session data because conversations array is empty
-          expect(formatted.input).toBe('5.0K');
-          expect(formatted.output).toBe('2.5K');
-          expect(formatted.total).toBe('7.5K');
+          // Should return zeros, NOT session aggregate (that would show sum of ALL conversations)
+          expect(formatted.input).toBe('0');
+          expect(formatted.output).toBe('0');
+          expect(formatted.total).toBe('0');
         });
 
-        it('falls back to session when active conversation not found', () => {
+        it('returns zeros when active conversation not found (no session fallback)', () => {
           const store = useSessionsStore();
           store.activeConversationId = 'non-existent-conv';
           store.conversations = [
@@ -1357,20 +1360,20 @@ describe('Sessions Store', () => {
           store.runningUsage = null;
 
           const formatted = store.formattedTokens;
-          // Should use session data because active conversation not found
-          expect(formatted.input).toBe('5.0K');
-          expect(formatted.output).toBe('2.5K');
-          expect(formatted.total).toBe('7.5K');
+          // Should return zeros, NOT session aggregate (that would show sum of ALL conversations)
+          expect(formatted.input).toBe('0');
+          expect(formatted.output).toBe('0');
+          expect(formatted.total).toBe('0');
         });
 
-        it('prevents stale conversation data from overwriting session data during streaming', () => {
+        it('handles conversation with zero tokens before streaming starts', () => {
           const store = useSessionsStore();
-          // Simulate a race condition where conversation has stale data
+          // Simulate a new conversation that has no tokens yet
           store.activeConversationId = 'conv-1';
           store.conversations = [
             {
               id: 'conv-1',
-              inputTokens: 0, // Stale - hasn't been updated yet
+              inputTokens: 0, // New conversation - no usage yet
               outputTokens: 0,
             },
           ];
@@ -1382,10 +1385,10 @@ describe('Sessions Store', () => {
           store.runningUsage = null;
 
           const formatted = store.formattedTokens;
-          // Should fall back to session because conversation has zero tokens
-          expect(formatted.input).toBe('10.0K');
-          expect(formatted.output).toBe('5.0K');
-          expect(formatted.total).toBe('15.0K');
+          // Should show conversation zeros (no session fallback - that would be confusing)
+          expect(formatted.input).toBe('0');
+          expect(formatted.output).toBe('0');
+          expect(formatted.total).toBe('0');
 
           // Now simulate streaming updating the usage (with conversationId matching active conversation)
           store.runningUsage = {
@@ -1427,6 +1430,82 @@ describe('Sessions Store', () => {
         store.runningUsage = { inputTokens: 100, outputTokens: 50 };
 
         expect(store.isUsageUpdating).toBe(true);
+      });
+    });
+
+    describe('getConversationDisplayTokens getter', () => {
+      it('returns runningUsage data when conversation has active streaming', () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1', inputTokens: 1000, outputTokens: 500 },
+        ];
+        store.runningUsage = {
+          conversationId: 'conv-1',
+          inputTokens: 5000,
+          outputTokens: 2500,
+        };
+
+        const tokens = store.getConversationDisplayTokens('conv-1');
+        expect(tokens.inputTokens).toBe(5000);
+        expect(tokens.outputTokens).toBe(2500);
+        expect(tokens.total).toBe(7500);
+      });
+
+      it('returns stored conversation data when no runningUsage', () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1', inputTokens: 1000, outputTokens: 500 },
+        ];
+        store.runningUsage = null;
+
+        const tokens = store.getConversationDisplayTokens('conv-1');
+        expect(tokens.inputTokens).toBe(1000);
+        expect(tokens.outputTokens).toBe(500);
+        expect(tokens.total).toBe(1500);
+      });
+
+      it('returns stored conversation data when runningUsage is for different conversation', () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1', inputTokens: 1000, outputTokens: 500 },
+          { id: 'conv-2', inputTokens: 2000, outputTokens: 1000 },
+        ];
+        store.runningUsage = {
+          conversationId: 'conv-2',
+          inputTokens: 5000,
+          outputTokens: 2500,
+        };
+
+        const tokens = store.getConversationDisplayTokens('conv-1');
+        expect(tokens.inputTokens).toBe(1000);
+        expect(tokens.outputTokens).toBe(500);
+        expect(tokens.total).toBe(1500);
+      });
+
+      it('returns zeros for non-existent conversation', () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1', inputTokens: 1000, outputTokens: 500 },
+        ];
+        store.runningUsage = null;
+
+        const tokens = store.getConversationDisplayTokens('non-existent');
+        expect(tokens.inputTokens).toBe(0);
+        expect(tokens.outputTokens).toBe(0);
+        expect(tokens.total).toBe(0);
+      });
+
+      it('handles conversation with undefined token values', () => {
+        const store = useSessionsStore();
+        store.conversations = [
+          { id: 'conv-1' }, // No token fields
+        ];
+        store.runningUsage = null;
+
+        const tokens = store.getConversationDisplayTokens('conv-1');
+        expect(tokens.inputTokens).toBe(0);
+        expect(tokens.outputTokens).toBe(0);
+        expect(tokens.total).toBe(0);
       });
     });
 
