@@ -13,6 +13,27 @@
           {{ statusIcon }}
         </div>
 
+        <!-- Copy Button (in header for quick access) -->
+        <button
+          v-if="run?.output && run.status !== 'running'"
+          class="btn btn-sm btn-icon"
+          :class="{ copied: isCopied }"
+          @click="handleCopy"
+          :title="isCopied ? 'Copied!' : 'Copy output to clipboard'"
+        >
+          {{ isCopied ? '✓' : '📋' }}
+        </button>
+
+        <!-- Canvas Button (in header for quick access) -->
+        <button
+          v-if="run?.output && run.status !== 'running'"
+          class="btn btn-sm btn-icon"
+          @click="handleCanvas"
+          title="Send output to canvas"
+        >
+          🎨
+        </button>
+
         <!-- Run Button (idle state) -->
         <button
           v-if="!run || run.status !== 'running'"
@@ -51,43 +72,19 @@
 
       <!-- Output Content (when expanded) -->
       <div v-if="showOutput" class="output-content">
-        <!-- Truncation warning -->
+        <!-- Store truncation warning (2000 lines) -->
         <div v-if="run.outputTruncated" class="output-truncated-warning">
           ⚠️ Output truncated (showing last 2000 lines)
         </div>
-        <!-- Loading skeleton while output is being processed -->
-        <div v-if="isLoadingOutput" class="output-skeleton">
-          <div class="skeleton-line" v-for="i in 5" :key="i"></div>
-        </div>
-        <!-- Prominent rendering spinner overlay for large outputs -->
-        <div v-if="isRenderingLargeOutput" class="output-rendering-overlay">
-          <div class="spinner-container">
-            <div class="spinner-large"></div>
-            <p class="rendering-text">Processing large output...</p>
-          </div>
+        <!-- Display truncation indicator (200 lines for performance) -->
+        <div v-if="outputIsTruncatedForDisplay" class="output-display-truncated">
+          ↑ Showing last 200 lines. Use Copy to get full output.
         </div>
         <div
-          v-else
+          ref="outputContainerRef"
           class="output-text"
-          @scroll="onScroll"
           v-html="formattedOutput || '(no output)'"
-          data-output-container
         ></div>
-
-        <!-- Output Actions (success/error states) -->
-        <div v-if="run.status !== 'running'" class="output-actions">
-          <button
-            class="btn btn-sm btn-outline-secondary"
-            :class="{ copied: isCopied }"
-            @click="handleCopy"
-            :title="isCopied ? 'Copied!' : 'Copy to clipboard'"
-          >
-            {{ isCopied ? '✓' : '📋' }} {{ isCopied ? 'Copied!' : 'Copy' }}
-          </button>
-          <button class="btn btn-sm btn-outline-secondary" @click="handleCanvas">
-            🎨 Send to Canvas
-          </button>
-        </div>
       </div>
     </div>
 
@@ -131,6 +128,10 @@ const debounceLeading = (fn, delay) => {
   };
 };
 
+// Display limit: only render last 200 lines in DOM for performance
+// Full output is still available via props.run.output for copy/canvas
+const DISPLAY_LINE_LIMIT = 200;
+
 const props = defineProps({
   button: {
     type: Object,
@@ -157,19 +158,8 @@ const isSubmitting = ref(false);
 // Track if copy button was recently clicked (for visual feedback)
 const isCopied = ref(false);
 
-// NEW: Track if user has manually scrolled up from the bottom
-const userHasScrolledUp = ref(false);
-
-// NEW: Flag to prevent onScroll from firing during programmatic scrolls
-const isProgrammaticScroll = ref(false);
-
-/**
- * Get the output container element from the DOM
- * Uses querySelector instead of template ref to avoid Vue ref setup issues in tests
- */
-const getOutputContainer = () => {
-  return document.querySelector('[data-output-container]');
-};
+// Template ref for output container (used for auto-scroll)
+const outputContainerRef = ref(null);
 
 // NEW: Elapsed time for running commands
 const elapsedTime = ref('0:00');
@@ -243,81 +233,43 @@ const stopTimer = () => {
 const formattedOutput = ref('');
 
 /**
- * Track if output is being processed (for loading skeleton)
- * True when there's raw output but formatted output is not yet ready
+ * Track if the display output is truncated (different from store truncation)
+ * True when we have more than DISPLAY_LINE_LIMIT lines
  */
-const isLoadingOutput = computed(() => {
-  return showOutput.value && !!props.run?.output && !formattedOutput.value;
-});
-
-/**
- * Track if we're rendering a large output (for prominent spinner overlay)
- * Stays true while formatting and DOM rendering, then fades out
- * Only shown for outputs > 1000 lines to avoid visual clutter on small outputs
- */
-const isRenderingLargeOutput = ref(false);
-let renderingTimeoutId = null;
-let renderingFrameId = null;
-
-/**
- * Show prominent spinner overlay while processing large outputs
- * @param {string} output - The raw output text
- */
-const showRenderingSpinner = (output) => {
-  // Only show spinner for large outputs (>1000 lines is ~50KB typically)
-  const lineCount = (output || '').split('\n').length;
-  if (lineCount <= 1000) {
-    return;
-  }
-
-  // Show the spinner
-  isRenderingLargeOutput.value = true;
-
-  // Clear existing timeouts
-  if (renderingTimeoutId) clearTimeout(renderingTimeoutId);
-  if (renderingFrameId) cancelAnimationFrame(renderingFrameId);
-
-  // Keep spinner visible for minimum 500ms to avoid flash
-  renderingTimeoutId = setTimeout(() => {
-    // Schedule checking when rendering actually completes
-    const checkRenderingComplete = () => {
-      // If formatted output is ready, we can hide the spinner
-      if (formattedOutput.value) {
-        isRenderingLargeOutput.value = false;
-      } else {
-        // Keep checking - DOM might still be rendering
-        renderingFrameId = requestAnimationFrame(checkRenderingComplete);
-      }
-    };
-    checkRenderingComplete();
-  }, 500);
-};
+const outputIsTruncatedForDisplay = ref(false);
 
 /**
  * Debounced function to update formatted output
- * First call is immediate for responsive UI, subsequent calls debounced every 250ms
+ * Only formats last DISPLAY_LINE_LIMIT lines for performance
+ * Full output is still in props.run.output for copy/canvas
  */
 const updateFormattedOutput = debounceLeading((output) => {
-  formattedOutput.value = ansiToHtml(output);
+  const lines = output.split('\n');
+  if (lines.length > DISPLAY_LINE_LIMIT) {
+    outputIsTruncatedForDisplay.value = true;
+    const displayOutput = lines.slice(-DISPLAY_LINE_LIMIT).join('\n');
+    formattedOutput.value = ansiToHtml(displayOutput);
+  } else {
+    outputIsTruncatedForDisplay.value = false;
+    formattedOutput.value = ansiToHtml(output);
+  }
 }, 250);
 
 /**
  * Watch for output changes and update formatted output (debounced)
  * Only processes when output section is expanded (lazy loading)
- * For large outputs (>1000 lines), show a prominent rendering spinner
+ * Simplified - no spinner logic needed
  */
 watch(
   () => [props.run?.output, showOutput.value],
   ([newOutput, isVisible]) => {
     if (!newOutput) {
       formattedOutput.value = '';
-      isRenderingLargeOutput.value = false;
+      outputIsTruncatedForDisplay.value = false;
       return;
     }
     // Only process ANSI conversion when output is visible (lazy load)
     if (isVisible) {
-      // Show spinner for large outputs before starting formatting
-      showRenderingSpinner(newOutput);
       updateFormattedOutput(newOutput);
     }
   },
@@ -325,86 +277,59 @@ watch(
 );
 
 /**
- * Detect scroll position: has user scrolled up from the bottom?
- *
- * If scrollTop is more than 50px from bottom, user has scrolled up.
- * This allows auto-scroll to pause while user reads earlier output.
- * Threshold of 50px is forgiving for trackpad/mouse wheel jumps.
- *
- * FIX: Ignore scroll events that we triggered programmatically to prevent
- * race conditions where auto-scroll causes onScroll to fire and incorrectly
- * set userHasScrolledUp to true.
+ * Scroll to bottom of output container
+ * Uses requestAnimationFrame after nextTick for reliable timing
  */
-const onScroll = () => {
-  // Ignore scroll events triggered by our own programmatic scrolling
-  if (isProgrammaticScroll.value) {
-    isProgrammaticScroll.value = false;
-    return;
-  }
+const scrollToBottom = () => {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      const el = outputContainerRef.value;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+  });
+};
 
-  const element = getOutputContainer();
-  if (!element) return;
-
-  const { scrollTop, scrollHeight, clientHeight } = element;
-
-  // Calculate how far from bottom (pixels)
-  const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-
-  // Consider "at bottom" if within 50px threshold
-  const isAtBottom = distanceFromBottom < 50;
-
-  // Update state: true = user scrolled up, false = at/near bottom
-  userHasScrolledUp.value = !isAtBottom;
+/**
+ * Check if user is near the bottom of the output container
+ * Returns true if within 100px of bottom
+ */
+const isNearBottom = () => {
+  const el = outputContainerRef.value;
+  if (!el) return true; // Default to true if element not mounted
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 100;
 };
 
 /**
  * Watch for output changes and auto-scroll to bottom
- *
- * Triggers when run.output property changes (when new text arrives).
- * Only auto-scrolls if user hasn't manually scrolled up.
- * Uses nextTick to ensure DOM has updated before scrolling.
- *
- * FIX: Set isProgrammaticScroll flag before scrolling so the scroll event
- * handler knows not to treat this as a user-initiated scroll.
+ * Only auto-scrolls if user is near the bottom (not scrolled up)
  */
 watch(
   () => props.run?.output,
   () => {
-    // Skip auto-scroll if user has scrolled up to read earlier output
-    if (userHasScrolledUp.value) {
-      return;
-    }
-
-    // Wait for DOM to update with new content, then scroll to bottom
+    // Only auto-scroll if user hasn't scrolled up to read earlier output
+    // Check on next tick when DOM is ready
     nextTick(() => {
-      const element = getOutputContainer();
-      if (element && element.scrollHeight !== undefined) {
-        try {
-          // Mark this scroll as programmatic so onScroll handler ignores it
-          isProgrammaticScroll.value = true;
-          element.scrollTop = element.scrollHeight;
-        } catch (e) {
-          // Silently fail if element no longer exists (component cleanup)
-          // This can happen during test teardown
-        }
+      if (showOutput.value && isNearBottom()) {
+        scrollToBottom();
       }
     });
   },
-  { immediate: false } // Don't fire on component mount, only on prop changes
+  { immediate: false }
 );
 
 /**
- * Watch for new run ID and reset scroll tracking
- *
- * When a new command starts, reset the "user scrolled up" flag
- * so auto-scroll works for the fresh output.
+ * Watch for new run ID and scroll to bottom for fresh output
  */
 watch(
   () => props.run?.runId,
   () => {
-    userHasScrolledUp.value = false;
+    if (showOutput.value) {
+      scrollToBottom();
+    }
   },
-  { immediate: false } // Don't fire on component mount
+  { immediate: false }
 );
 
 /**
@@ -523,13 +448,10 @@ onMounted(() => {
 /**
  * Lifecycle hook: Before component unmount
  *
- * Clean up the timer and rendering state to prevent memory leaks.
+ * Clean up the timer to prevent memory leaks.
  */
 onBeforeUnmount(() => {
   stopTimer();
-  // Clean up rendering timeouts
-  if (renderingTimeoutId) clearTimeout(renderingTimeoutId);
-  if (renderingFrameId) cancelAnimationFrame(renderingFrameId);
 });
 
 // Expose methods and state for testing
@@ -538,10 +460,9 @@ defineExpose({
   handleKill,
   handleCopy,
   handleCanvas,
-  isRenderingLargeOutput,
   formattedOutput,
   showOutput,
-  showRenderingSpinner, // Expose for testing
+  outputIsTruncatedForDisplay,
 });
 
 </script>
@@ -588,6 +509,31 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+/* Icon Buttons (Copy/Canvas in header) */
+.btn-icon {
+  padding: 0.35rem 0.5rem;
+  min-width: auto;
+  font-size: 0.9rem;
+  background-color: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-soft);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-icon:hover {
+  background-color: rgba(88, 166, 255, 0.1);
+  border-color: var(--color-primary);
+  color: var(--color-text);
+}
+
+.btn-icon.copied {
+  background-color: rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: var(--color-success);
 }
 
 /* Status Indicator */
@@ -672,7 +618,15 @@ defineExpose({
   padding: 0.5rem 0.75rem;
   border-radius: 4px;
   font-size: 0.8rem;
-  margin-bottom: 0.5rem;
+}
+
+.output-display-truncated {
+  background-color: rgba(88, 166, 255, 0.1);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  color: var(--color-text-soft);
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
 }
 
 .output-text {
@@ -684,20 +638,6 @@ defineExpose({
   max-height: 300px;
   overflow-y: auto;
   line-height: 1.4;
-}
-
-.output-actions {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
-  border-top: 1px solid var(--color-border);
-  padding-top: 0.75rem;
-}
-
-.output-actions .btn.copied {
-  background-color: rgba(34, 197, 94, 0.2);
-  border-color: rgba(34, 197, 94, 0.4);
-  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 /* Running Indicator */
@@ -761,90 +701,6 @@ defineExpose({
   }
 }
 
-/* Loading Skeleton */
-.output-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem 0;
-}
-
-.skeleton-line {
-  height: 0.9rem;
-  background: linear-gradient(
-    90deg,
-    var(--color-border) 0%,
-    rgba(88, 166, 255, 0.15) 50%,
-    var(--color-border) 100%
-  );
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.5s infinite;
-  border-radius: 4px;
-}
-
-.skeleton-line:nth-child(1) { width: 80%; }
-.skeleton-line:nth-child(2) { width: 95%; }
-.skeleton-line:nth-child(3) { width: 70%; }
-.skeleton-line:nth-child(4) { width: 85%; }
-.skeleton-line:nth-child(5) { width: 60%; }
-
-@keyframes skeleton-shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-/* Rendering Overlay for Large Outputs */
-.output-rendering-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(2px);
-  border-radius: 4px;
-  z-index: 10;
-  animation: fade-in 0.2s ease-in-out;
-}
-
-.spinner-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-}
-
-.spinner-large {
-  display: inline-block;
-  width: 3rem;
-  height: 3rem;
-  border: 3px solid rgba(88, 166, 255, 0.2);
-  border-top-color: var(--color-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-.rendering-text {
-  color: var(--color-text-soft);
-  font-size: 0.95rem;
-  text-align: center;
-  margin: 0;
-  font-weight: 500;
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 /* Responsive Design */
 @media (max-width: 640px) {
   .button-header {
@@ -859,14 +715,6 @@ defineExpose({
 
   .button-actions button {
     flex: 1;
-  }
-
-  .output-actions {
-    flex-direction: column;
-  }
-
-  .output-actions button {
-    width: 100%;
   }
 }
 </style>
