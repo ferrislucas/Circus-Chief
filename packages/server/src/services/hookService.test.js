@@ -8,7 +8,8 @@ describe('hookService', () => {
   let tempDir;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'hookservice-test-'));
+    // Use realpath to resolve symlinks (e.g., macOS /var -> /private/var)
+    tempDir = await realpath(await mkdtemp(join(tmpdir(), 'hookservice-test-')));
   });
 
   afterEach(async () => {
