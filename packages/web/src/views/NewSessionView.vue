@@ -188,6 +188,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
+import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { api } from '../composables/useApi.js';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import { generateWorktreeBranch, DEFAULT_MODEL } from '@claudetools/shared';
@@ -201,6 +202,7 @@ const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();
+const quickResponsesStore = useQuickResponsesStore();
 
 const prompt = ref('');
 const promptHasContent = ref(false); // Tracks if textarea has content (for button disabled state)
@@ -418,6 +420,9 @@ onMounted(async () => {
 
   // Fetch templates for this project
   templatesStore.fetchProjectTemplates(projectId);
+
+  // Fetch quick responses for this project
+  quickResponsesStore.fetchForProject(projectId);
 
   // Pre-populate parent session ID if provided in route query
   if (route.query.parentSessionId) {
