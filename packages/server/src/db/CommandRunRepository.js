@@ -135,4 +135,26 @@ export class CommandRunRepository extends BaseRepository {
       .run(sessionId);
     return result.changes;
   }
+
+  /**
+   * Get the latest run for each (session_id, button_id) combination within a project
+   * Returns the most recent run per button per session regardless of age
+   */
+  getLatestRunsForProject(projectId) {
+    const rows = this.db
+      .prepare(
+        `SELECT *
+         FROM (
+           SELECT cr.*,
+             ROW_NUMBER() OVER (PARTITION BY cr.session_id, cr.button_id ORDER BY cr.started_at DESC) as rn
+           FROM command_runs cr
+           INNER JOIN sessions s ON cr.session_id = s.id
+           WHERE s.project_id = ?
+         )
+         WHERE rn = 1
+         ORDER BY started_at DESC`
+      )
+      .all(projectId);
+    return this.mapAll(rows);
+  }
 }

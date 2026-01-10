@@ -148,6 +148,43 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       }
     },
 
+    async fetchLatestRunsForProject(projectId) {
+      this.error = null;
+      try {
+        const runs = await api.getLatestRunsForProject(projectId);
+        // Populate state with historical run data
+        // Preserve any already-running commands (don't overwrite with stale data)
+        for (const run of runs) {
+          const runId = run.id || run.runId;
+
+          // Skip if we already have a running command with this ID
+          // (keep the version with accumulated output)
+          if (this.runs[runId] && this.runs[runId].status === 'running') {
+            continue;
+          }
+
+          // Add or update the run
+          const { output, truncated } = this._truncateOutput(run.output || '');
+          this.runs[runId] = {
+            runId,
+            buttonId: run.buttonId,
+            sessionId: run.sessionId,
+            status: run.status || 'running',
+            output,
+            exitCode: run.exitCode !== undefined ? run.exitCode : null,
+            startedAt: run.startedAt,
+            completedAt: run.completedAt,
+            outputTruncated: truncated,
+          };
+        }
+        return runs;
+      } catch (err) {
+        this.error = `Failed to fetch latest runs: ${err.message}`;
+        console.error(this.error, err);
+        return [];
+      }
+    },
+
     /**
      * Truncate output to MAX_OUTPUT_LINES, keeping only the most recent lines.
      * Returns { output: string, truncated: boolean }
