@@ -1,10 +1,28 @@
 import { createServer } from 'http';
 import { parseArgs } from 'node:util';
+import { execSync } from 'child_process';
 import { createApp } from './app.js';
 import { initDatabase } from './database.js';
 import { initWebSocket } from './websocket.js';
 import { DEFAULT_SERVER_PORT } from '@claudetools/shared';
 import * as prStatusService from './services/prStatusService.js';
+
+/**
+ * Validate Node.js environment at startup.
+ * Warns if 'node' is not in PATH (common with nvm/fnm version managers).
+ */
+function validateNodeEnvironment() {
+  try {
+    execSync('node --version', { stdio: 'ignore' });
+  } catch {
+    console.warn('');
+    console.warn('[Warning] "node" is not found in PATH.');
+    console.warn('If using nvm/fnm/volta, ensure your shell is properly configured.');
+    console.warn(`Current Node binary: ${process.execPath}`);
+    console.warn('This will be used for child processes (Claude Code sessions).');
+    console.warn('');
+  }
+}
 
 const { values } = parseArgs({
   options: {
@@ -27,6 +45,9 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
+
+// Validate Node.js environment
+validateNodeEnvironment();
 
 // Initialize database
 initDatabase(dbPath);
