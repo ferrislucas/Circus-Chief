@@ -1,6 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import multer from 'multer';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import apiRouter from './api/index.js';
@@ -8,9 +7,6 @@ import { MAX_JSON_SIZE } from '@claudetools/shared';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-// Configure multer for file uploads (use memory storage for canvas uploads)
-const upload = multer({ storage: multer.memoryStorage() });
 
 /**
  * Create Express application
@@ -28,8 +24,8 @@ export function createApp(options = {}) {
   app.use(express.json({ limit: MAX_JSON_SIZE }));
   app.use(express.urlencoded({ extended: true, limit: MAX_JSON_SIZE }));
 
-  // Multipart form data parsing for file uploads
-  app.use(upload.single('file'));
+  // Multipart form data parsing is handled per-route with specific middleware
+  // to avoid conflicts between upload.single() and upload.array() across different endpoints
 
   // API routes
   app.use('/api', apiRouter);

@@ -85,38 +85,35 @@ describe('ConversationSelector', () => {
       expect(wrapper.find('.btn-new').text()).toContain('new conversation');
     });
 
-    it('shows dropdown arrow when not disabled', () => {
+    it('shows dropdown arrow', () => {
       const wrapper = mountComponent();
       expect(wrapper.find('.dropdown-arrow').exists()).toBe(true);
     });
   });
 
-  describe('disabled state', () => {
-    beforeEach(() => {
+  describe('hidden state when session running', () => {
+    it('hides component when session is running', () => {
       sessionsStore.currentSession = { id: 'session-123', status: 'running' };
+      const wrapper = mountComponent();
+      expect(wrapper.find('.conversation-selector').exists()).toBe(false);
     });
 
-    it('disables dropdown when session is running', () => {
+    it('shows component when session is not running', () => {
+      sessionsStore.currentSession = { id: 'session-123', status: 'waiting' };
       const wrapper = mountComponent();
-      expect(wrapper.find('.dropdown-trigger').attributes('disabled')).toBeDefined();
+      expect(wrapper.find('.conversation-selector').exists()).toBe(true);
     });
 
-    it('disables new conversation button when session is running', () => {
+    it('hides component when session is starting', () => {
+      sessionsStore.currentSession = { id: 'session-123', status: 'starting' };
       const wrapper = mountComponent();
-      expect(wrapper.find('.btn-new').attributes('disabled')).toBeDefined();
+      expect(wrapper.find('.conversation-selector').exists()).toBe(false);
     });
 
-    it('shows lock icon when disabled', () => {
+    it('shows component when session is completed', () => {
+      sessionsStore.currentSession = { id: 'session-123', status: 'completed' };
       const wrapper = mountComponent();
-      expect(wrapper.findAll('.lock-icon').length).toBeGreaterThan(0);
-    });
-
-    it('does not open dropdown when clicking disabled trigger', async () => {
-      const wrapper = mountComponent();
-      await wrapper.find('.dropdown-trigger').trigger('click');
-      await nextTick();
-
-      expect(wrapper.find('.dropdown-menu').exists()).toBe(false);
+      expect(wrapper.find('.conversation-selector').exists()).toBe(true);
     });
   });
 
