@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import path from 'path';
 import { getNodeBinDir, createRobustEnv, createClaudeCodeSpawner } from './nodeSpawnHelper.js';
 
@@ -72,12 +72,6 @@ describe('nodeSpawnHelper', () => {
   });
 
   describe('createClaudeCodeSpawner', () => {
-    let mockSpawn;
-
-    beforeEach(() => {
-      // We can't easily mock spawn in ESM, so we test the returned function's behavior
-    });
-
     it('returns a function', () => {
       const spawner = createClaudeCodeSpawner();
       expect(typeof spawner).toBe('function');
