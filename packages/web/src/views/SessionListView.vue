@@ -328,6 +328,7 @@ watch(
     projectsStore.fetchProject(newProjectId);
     await sessionsStore.fetchSessions(newProjectId);
     await commandButtonsStore.fetchButtons(newProjectId);
+    await commandButtonsStore.fetchLatestRunsForProject(newProjectId);
     fetchSummaries();
 
     // Create new subscription for new project
@@ -403,6 +404,19 @@ watch(
     // Handle command run complete
     cleanups.push(
       onCommandRunComplete((runId, sessionId, buttonId, exitCode, output) => {
+        // Create run if it doesn't exist (handles edge case of no output before completion)
+        if (!commandButtonsStore.runs[runId]) {
+          commandButtonsStore.runs[runId] = {
+            runId,
+            buttonId,
+            sessionId,
+            status: 'running',
+            output: '',
+            exitCode: null,
+            startedAt: Date.now(),
+            outputTruncated: false,
+          };
+        }
         commandButtonsStore.completeRun(runId, exitCode, output);
       })
     );
@@ -410,6 +424,19 @@ watch(
     // Handle command run error
     cleanups.push(
       onCommandRunError((runId, sessionId, buttonId, error) => {
+        // Create run if it doesn't exist (handles edge case of no output before error)
+        if (!commandButtonsStore.runs[runId]) {
+          commandButtonsStore.runs[runId] = {
+            runId,
+            buttonId,
+            sessionId,
+            status: 'running',
+            output: '',
+            exitCode: null,
+            startedAt: Date.now(),
+            outputTruncated: false,
+          };
+        }
         commandButtonsStore.errorRun(runId, error);
       })
     );
