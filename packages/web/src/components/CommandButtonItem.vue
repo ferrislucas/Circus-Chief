@@ -146,7 +146,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['run', 'kill', 'copy-output', 'send-to-canvas']);
+const emit = defineEmits(['run', 'kill', 'send-to-canvas']);
 
 // Default to true only if command is running, false otherwise
 const showOutput = ref(props.run?.status === 'running');
@@ -501,8 +501,7 @@ const handleCopy = async () => {
     setTimeout(() => {
       isCopied.value = false;
     }, 1500);
-    // Keep parent emit for potential analytics/logging
-    emit('copy-output', props.run.output);
+    // Copy handling is complete - visual feedback shown to user
   }
 };
 
