@@ -28,8 +28,8 @@ export function createApp(options = {}) {
   app.use(express.json({ limit: MAX_JSON_SIZE }));
   app.use(express.urlencoded({ extended: true, limit: MAX_JSON_SIZE }));
 
-  // Multipart form data parsing for file uploads
-  app.use(upload.single('file'));
+  // Multipart form data parsing is handled per-route with specific middleware
+  // to avoid conflicts between upload.single() and upload.array() across different endpoints
 
   // API routes
   app.use('/api', apiRouter);
