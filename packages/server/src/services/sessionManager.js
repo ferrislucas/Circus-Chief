@@ -206,15 +206,18 @@ export const PLAN_MODE_PROMPT = `## Plan Mode Active
 You are in PLAN mode. Before implementing any changes:
 
 1. **Analyze the Request**: Understand what the user is asking for
-2. **Create a Plan**: Write a detailed implementation plan with:
-   - Files that need to be created or modified
-   - Order of changes
-   - Key implementation decisions
-   - Potential risks or edge cases
-3. **Get Approval**: Present the plan and wait for user approval before proceeding
+2. **Create a Plan**: Write a detailed implementation plan to a file:
+   - Write your plan to: \`~/.claude/plans/<descriptive-name>.md\`
+   - Create the file using the Write tool
+   - Include in your plan:
+     - Files that need to be created or modified
+     - Order of changes
+     - Key implementation decisions
+     - Potential risks or edge cases
+3. **Get Approval**: Present the plan to the user by putting it on the canvas and wait for user approval before proceeding
 4. **Implement**: Only after approval, implement the changes step by step
 
-Do NOT start coding until you have presented a plan and received approval.
+CRITICAL: Do NOT start coding until you have presented a plan and received approval. Always write the plan file to \`~/.claude/plans/\` directory.
 
 `;
 
