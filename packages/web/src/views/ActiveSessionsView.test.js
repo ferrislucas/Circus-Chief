@@ -21,7 +21,7 @@ let onSessionUpdatedCallback = null;
 let onSessionDeletedCallback = null;
 let onSessionSummaryUpdatedCallback = null;
 
-// Mock WebSocket composable - global subscription
+// Mock WebSocket composable - global subscription and regular WebSocket
 vi.mock('../composables/useWebSocket.js', () => ({
   useGlobalSessionSubscription: vi.fn(() => ({
     onSessionCreated: vi.fn((cb) => {
@@ -40,6 +40,10 @@ vi.mock('../composables/useWebSocket.js', () => ({
       onSessionSummaryUpdatedCallback = cb;
       return vi.fn();
     }),
+  })),
+  useWebSocket: vi.fn(() => ({
+    on: vi.fn(),
+    off: vi.fn(),
   })),
 }));
 
@@ -76,6 +80,7 @@ let mockCommandButtonsStore = {
   loading: false,
   error: null,
   fetchButtons: vi.fn().mockResolvedValue(),
+  fetchLatestRunsForProject: vi.fn().mockResolvedValue(),
   getButtonsByProjectId: vi.fn(() => []),
   getLatestRunForButton: vi.fn(() => null),
 };

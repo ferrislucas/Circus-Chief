@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { commandButtons, sessions, commandRuns } from '../database.js';
+import { commandButtons, sessions, commandRuns, projects } from '../database.js';
 import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@claudetools/shared/contracts/commandButtons';
 import { commandRunner } from '../services/commandRunner.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -13,6 +13,20 @@ router.get('/', (req, res) => {
   const { projectId } = req.params;
   const buttons = commandButtons.getByProjectId(projectId);
   res.json(buttons);
+});
+
+// GET /api/projects/:projectId/command-buttons/latest-runs - Get latest run for each button per session in project
+router.get('/latest-runs', (req, res) => {
+  const { projectId } = req.params;
+
+  // Verify project exists
+  const project = projects.getById(projectId);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const latestRuns = commandRuns.getLatestRunsForProject(projectId);
+  res.json(latestRuns);
 });
 
 // POST /api/projects/:projectId/command-buttons - Create new command button
