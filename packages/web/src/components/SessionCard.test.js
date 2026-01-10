@@ -56,15 +56,6 @@ vi.mock('./PrIndicators.vue', () => ({
         return labels[state] || state;
       };
 
-      const ciStatusIcon = () => {
-        const icons = {
-          success: '✓',
-          failure: '✗',
-          pending: '○',
-        };
-        return icons[props.summary?.ciStatus] || '';
-      };
-
       const ciStatusTitle = () => {
         const titles = {
           success: 'CI passing',
@@ -102,17 +93,21 @@ vi.mock('./PrIndicators.vue', () => ({
             h('span', {
               class: 'conflict-indicator',
               title: 'Merge conflicts detected',
-            })
+            }, [
+              h('svg', { class: 'ci-icon', viewBox: '0 0 16 16' })
+            ])
           );
         }
 
-        // CI indicator
+        // CI indicator with SVG icons
         if (props.summary?.ciStatus) {
           children.push(
             h('span', {
               class: ['ci-indicator', `ci-${props.summary.ciStatus}`],
               title: ciStatusTitle(),
-            }, ciStatusIcon())
+            }, [
+              h('svg', { class: 'ci-icon', viewBox: '0 0 16 16' })
+            ])
           );
         }
 
@@ -577,7 +572,7 @@ describe('SessionCard', () => {
         });
         const indicator = wrapper.find('.ci-indicator');
         expect(indicator.exists()).toBe(true);
-        expect(indicator.text()).toBe('✓');
+        expect(indicator.find('svg.ci-icon').exists()).toBe(true);
         expect(indicator.classes()).toContain('ci-success');
         expect(indicator.attributes('title')).toBe('CI passing');
       });
@@ -589,7 +584,7 @@ describe('SessionCard', () => {
         });
         const indicator = wrapper.find('.ci-indicator');
         expect(indicator.exists()).toBe(true);
-        expect(indicator.text()).toBe('✗');
+        expect(indicator.find('svg.ci-icon').exists()).toBe(true);
         expect(indicator.classes()).toContain('ci-failure');
         expect(indicator.attributes('title')).toBe('CI failing');
       });
@@ -601,7 +596,7 @@ describe('SessionCard', () => {
         });
         const indicator = wrapper.find('.ci-indicator');
         expect(indicator.exists()).toBe(true);
-        expect(indicator.text()).toBe('○');
+        expect(indicator.find('svg.ci-icon').exists()).toBe(true);
         expect(indicator.classes()).toContain('ci-pending');
         expect(indicator.attributes('title')).toBe('CI pending');
       });
