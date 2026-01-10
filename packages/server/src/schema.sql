@@ -228,7 +228,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived);
 CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON conversation_messages(session_id);
-CREATE INDEX IF NOT EXISTS idx_messages_conversation ON conversation_messages(conversation_id);
+-- Note: idx_messages_conversation is created in migrations to handle existing databases
+-- that may not have the conversation_id column yet
 CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
 -- Note: idx_canvas_deleted is created in migrations to handle existing databases
 -- that may not have the deleted_at column yet
@@ -238,7 +239,8 @@ CREATE INDEX IF NOT EXISTS idx_session_templates_project ON session_templates(pr
 -- Note: idx_sessions_next_template and idx_sessions_parent are created in migrations
 -- to handle existing databases that may not have these columns yet
 CREATE INDEX IF NOT EXISTS idx_todos_session ON session_todos(session_id);
-CREATE INDEX IF NOT EXISTS idx_todos_conversation ON session_todos(conversation_id);
+-- Note: idx_todos_conversation is created in migrations to handle existing databases
+-- that may not have the conversation_id column yet
 CREATE INDEX IF NOT EXISTS idx_work_logs_session ON work_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_message ON work_logs(message_id);
 CREATE INDEX IF NOT EXISTS idx_summaries_session ON session_summaries(session_id);
