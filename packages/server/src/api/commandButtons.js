@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { commandButtons, sessions, commandRuns } from '../database.js';
 import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@claudetools/shared/contracts/commandButtons';
 import { commandRunner } from '../services/commandRunner.js';
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { databaseManager } from '../db/DatabaseManager.js';
 
@@ -109,8 +109,16 @@ router.post('/run/:buttonId', (req, res) => {
         button.command,
         workingDirectory,
         (text) => {
-          // Broadcast output via WebSocket
+          // Broadcast output via WebSocket to session subscribers
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
+            sessionId,
+            runId,
+            buttonId,
+            output: text,
+          });
+          // Also broadcast to project subscribers for session list updates
+          broadcastToProject(session.projectId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
+            projectId: session.projectId,
             sessionId,
             runId,
             buttonId,
@@ -118,7 +126,7 @@ router.post('/run/:buttonId', (req, res) => {
           });
         },
         (exitCode, output) => {
-          // Broadcast completion via WebSocket
+          // Broadcast completion via WebSocket to session subscribers
           const status = exitCode === 0 ? 'success' : 'error';
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, {
             sessionId,
@@ -128,10 +136,28 @@ router.post('/run/:buttonId', (req, res) => {
             exitCode,
             output,
           });
+          // Also broadcast to project subscribers for session list updates
+          broadcastToProject(session.projectId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, {
+            projectId: session.projectId,
+            sessionId,
+            runId,
+            buttonId,
+            status,
+            exitCode,
+            output,
+          });
         },
         (message) => {
-          // Broadcast error via WebSocket
+          // Broadcast error via WebSocket to session subscribers
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
+            sessionId,
+            runId,
+            buttonId,
+            error: message,
+          });
+          // Also broadcast to project subscribers for session list updates
+          broadcastToProject(session.projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
+            projectId: session.projectId,
             sessionId,
             runId,
             buttonId,
@@ -143,6 +169,14 @@ router.post('/run/:buttonId', (req, res) => {
     } catch (error) {
       console.error(`Error running command button ${buttonId}:`, error);
       broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
+        sessionId,
+        runId,
+        buttonId,
+        error: error.message,
+      });
+      // Also broadcast to project subscribers for session list updates
+      broadcastToProject(session.projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
+        projectId: session.projectId,
         sessionId,
         runId,
         buttonId,

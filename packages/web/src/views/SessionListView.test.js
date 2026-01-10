@@ -23,6 +23,9 @@ let onSessionCreatedCallback = null;
 let onSessionUpdatedCallback = null;
 let onSessionDeletedCallback = null;
 let onSessionSummaryUpdatedCallback = null;
+let onCommandRunOutputCallback = null;
+let onCommandRunCompleteCallback = null;
+let onCommandRunErrorCallback = null;
 
 // Mock WebSocket composable
 vi.mock('../composables/useWebSocket.js', () => ({
@@ -43,6 +46,18 @@ vi.mock('../composables/useWebSocket.js', () => ({
     }),
     onSessionSummaryUpdated: vi.fn((cb) => {
       onSessionSummaryUpdatedCallback = cb;
+      return vi.fn();
+    }),
+    onCommandRunOutput: vi.fn((cb) => {
+      onCommandRunOutputCallback = cb;
+      return vi.fn();
+    }),
+    onCommandRunComplete: vi.fn((cb) => {
+      onCommandRunCompleteCallback = cb;
+      return vi.fn();
+    }),
+    onCommandRunError: vi.fn((cb) => {
+      onCommandRunErrorCallback = cb;
       return vi.fn();
     }),
   })),
