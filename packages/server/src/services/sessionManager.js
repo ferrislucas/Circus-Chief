@@ -924,7 +924,11 @@ async function handleStreamEvent(sessionId, event) {
       if (toolUseBlocks.length > 0) {
         const todoWrite = toolUseBlocks.find((t) => t.name === 'TodoWrite');
         if (todoWrite?.input?.todos) {
-          updateTodos(sessionId, todoWrite.input.todos);
+          // Get active conversation to scope todos to it
+          const activeConv = conversations.getActiveBySessionId(sessionId);
+          if (activeConv) {
+            updateTodos(sessionId, activeConv.id, todoWrite.input.todos);
+          }
         }
       }
 

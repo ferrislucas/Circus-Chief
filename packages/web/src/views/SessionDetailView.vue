@@ -306,8 +306,8 @@ onMounted(async () => {
   );
 
   cleanups.push(
-    onTodosUpdate((todos) => {
-      todosStore.updateTodos(todos);
+    onTodosUpdate((todos, conversationId) => {
+      todosStore.updateTodos(todos, conversationId);
     })
   );
 
@@ -367,7 +367,8 @@ onMounted(async () => {
   await canvasStore.fetchItems(sessionId);
   // Update canvas count after fetch completes to show correct indicator
   canvasItemCount.value = canvasStore.groupedItems.length;
-  todosStore.fetchTodos(sessionId);
+  // Fetch todos for the active conversation (scoped to conversation, not session)
+  todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
 
   // Fetch summary for PR indicators (don't await, not critical)
   api.getSessionSummary(sessionId).then((s) => {
@@ -401,8 +402,21 @@ watch(
     if (newSessionId && newSessionId !== oldSessionId) {
       // Clear todos before switching to the new session
       todosStore.clearTodos();
-      // Fetch the new session's todos
-      todosStore.fetchTodos(newSessionId);
+      // Fetch the new session's todos for the active conversation
+      todosStore.fetchTodos(newSessionId, sessionsStore.activeConversationId);
+    }
+  }
+);
+
+// Watch for conversation changes to refetch todos (scoped to conversation)
+watch(
+  () => sessionsStore.activeConversationId,
+  async (newConvId, oldConvId) => {
+    // Only refetch if conversation changed and we have a valid conversation
+    if (newConvId && newConvId !== oldConvId) {
+      // Clear and refetch todos for the new conversation
+      todosStore.clearTodos();
+      todosStore.fetchTodos(sessionId, newConvId);
     }
   }
 );

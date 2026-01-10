@@ -660,13 +660,29 @@ router.post('/:id/conversations/:convId/summary', async (req, res) => {
 });
 
 // GET /api/sessions/:id/todos - Get session todos
+// Supports ?conversation_id=xxx to fetch todos for a specific conversation
 router.get('/:id/todos', (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const sessionTodos = todos.getBySessionId(req.params.id);
+  const { conversation_id } = req.query;
+
+  let sessionTodos;
+  if (conversation_id) {
+    // Get todos for specific conversation
+    const conv = conversations.getById(conversation_id);
+    if (!conv || conv.sessionId !== req.params.id) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+    sessionTodos = todos.getByConversationId(conversation_id);
+  } else {
+    // Get todos for active conversation, or empty array if no active conversation
+    const activeConv = conversations.getActiveBySessionId(req.params.id);
+    sessionTodos = activeConv ? todos.getByConversationId(activeConv.id) : [];
+  }
+
   res.json(sessionTodos);
 });
 

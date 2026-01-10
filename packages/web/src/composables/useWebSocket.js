@@ -229,7 +229,7 @@ export function useSessionSubscription(sessionId) {
   const onTodosUpdate = (callback) => {
     const handler = (msg) => {
       if (msg.sessionId === sessionId) {
-        callback(msg.todos);
+        callback(msg.todos, msg.conversationId);
       }
     };
     on(WS_MESSAGE_TYPES.TODOS_UPDATE, handler);
