@@ -7,6 +7,7 @@ import { databaseManager } from '../db/DatabaseManager.js';
 import { existsSync, rmSync } from 'fs';
 import { isBinaryContent, getTypeFromExtension } from './canvas.js';
 import canvasRouter from './canvas.js';
+import { upload } from '../middleware/upload.js';
 
 /**
  * Extracts mimeType and base64 data from request body for canvas image items.
@@ -305,8 +306,7 @@ describe('Canvas API', () => {
       // Setup Express app for HTTP tests
       app = express();
       app.use(express.json());
-      const upload = multer({ storage: multer.memoryStorage() });
-      app.use(upload.single('file'));
+      // Note: upload middleware is now per-route in canvas.js, not global
       app.use('/api/sessions', canvasRouter);
     });
 
@@ -852,9 +852,7 @@ describe('Canvas API', () => {
     beforeEach(() => {
       app = express();
       app.use(express.json());
-      // Add multer for file uploads
-      const upload = multer({ storage: multer.memoryStorage() });
-      app.use(upload.single('file'));
+      // Note: upload middleware is now per-route in canvas.js, not global
       app.use('/api/sessions', canvasRouter);
 
       // Create project and session
