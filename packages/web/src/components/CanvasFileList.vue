@@ -345,7 +345,14 @@ function formatRelativeTime(timestamp) {
 @media (max-width: 640px) {
   .file-row {
     padding: 0.875rem 1rem;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+  }
+
+  .file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 150px;
   }
 
   .file-type {
@@ -353,8 +360,8 @@ function formatRelativeTime(timestamp) {
   }
 
   .copy-button {
-    min-width: 2.75rem;
-    min-height: 2.75rem;
+    min-width: 2.25rem;
+    min-height: 2.25rem;
   }
 
   .item-checkbox {
