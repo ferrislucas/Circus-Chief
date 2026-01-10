@@ -1361,7 +1361,8 @@ describe('sessionManager broadcasts', () => {
       await runSession(sessionId, 'Test prompt', tempDir);
 
       // Verify updateTodos was called with the correct arguments
-      expect(updateTodos).toHaveBeenCalledWith(sessionId, testTodos);
+      // Now includes conversationId (scoped to conversation per Issue #285)
+      expect(updateTodos).toHaveBeenCalledWith(sessionId, expect.any(String), testTodos);
     });
 
     it('detects TodoWrite when message has both text AND tool_use content', async () => {
@@ -1392,8 +1393,8 @@ describe('sessionManager broadcasts', () => {
 
       await runSession(sessionId, 'Test prompt', tempDir);
 
-      // Verify updateTodos was called
-      expect(updateTodos).toHaveBeenCalledWith(sessionId, testTodos);
+      // Verify updateTodos was called (now includes conversationId per Issue #285)
+      expect(updateTodos).toHaveBeenCalledWith(sessionId, expect.any(String), testTodos);
     });
 
     it('does not call updateTodos when no TodoWrite tool is used', async () => {
@@ -1443,8 +1444,8 @@ describe('sessionManager broadcasts', () => {
 
       await runSession(sessionId, 'Test prompt', tempDir);
 
-      // Empty array should still trigger updateTodos
-      expect(updateTodos).toHaveBeenCalledWith(sessionId, []);
+      // Empty array should still trigger updateTodos (now includes conversationId per Issue #285)
+      expect(updateTodos).toHaveBeenCalledWith(sessionId, expect.any(String), []);
     });
   });
 });

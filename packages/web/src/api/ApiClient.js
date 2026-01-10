@@ -540,12 +540,14 @@ export class ApiClient {
   // Todos
 
   /**
-   * Get all todos for a session
+   * Get all todos for a session (or specific conversation)
    * @param {string} sessionId - Session ID
+   * @param {string} [conversationId] - Optional conversation ID to fetch todos for
    * @returns {Promise<Array>}
    */
-  async getSessionTodos(sessionId) {
-    return this.#request('GET', `/sessions/${sessionId}/todos`);
+  async getSessionTodos(sessionId, conversationId = null) {
+    const params = conversationId ? `?conversation_id=${conversationId}` : '';
+    return this.#request('GET', `/sessions/${sessionId}/todos${params}`);
   }
 
   // Summaries

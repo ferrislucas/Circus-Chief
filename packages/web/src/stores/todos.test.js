@@ -34,6 +34,10 @@ describe('useTodosStore', () => {
     it('initializes with expanded false', () => {
       expect(store.expanded).toBe(false);
     });
+
+    it('initializes with currentConversationId null', () => {
+      expect(store.currentConversationId).toBe(null);
+    });
   });
 
   describe('getters', () => {
@@ -119,6 +123,12 @@ describe('useTodosStore', () => {
         expect(store.loading).toBe(false);
         expect(store.error).toBe(null);
       });
+
+      it('clears currentConversationId', () => {
+        store.currentConversationId = 'conv-123';
+        store.clearTodos();
+        expect(store.currentConversationId).toBe(null);
+      });
     });
 
     describe('updateTodos', () => {
@@ -136,6 +146,35 @@ describe('useTodosStore', () => {
         const newTodos = [{ id: '2', status: 'completed' }];
         store.updateTodos(newTodos);
         expect(store.items).toEqual(newTodos);
+      });
+
+      it('updates when conversationId matches currentConversationId', () => {
+        store.currentConversationId = 'conv-123';
+        const todos = [{ id: '1', status: 'pending' }];
+        store.updateTodos(todos, 'conv-123');
+        expect(store.items).toEqual(todos);
+      });
+
+      it('does not update when conversationId does not match currentConversationId', () => {
+        store.currentConversationId = 'conv-123';
+        store.items = [{ id: 'old', status: 'pending' }];
+        const newTodos = [{ id: 'new', status: 'pending' }];
+        store.updateTodos(newTodos, 'conv-456');
+        expect(store.items).toEqual([{ id: 'old', status: 'pending' }]);
+      });
+
+      it('updates when currentConversationId is null (no tracking)', () => {
+        store.currentConversationId = null;
+        const todos = [{ id: '1', status: 'pending' }];
+        store.updateTodos(todos, 'conv-123');
+        expect(store.items).toEqual(todos);
+      });
+
+      it('updates when conversationId is null (legacy behavior)', () => {
+        store.currentConversationId = 'conv-123';
+        const todos = [{ id: '1', status: 'pending' }];
+        store.updateTodos(todos, null);
+        expect(store.items).toEqual(todos);
       });
     });
 
@@ -250,7 +289,32 @@ describe('useTodosStore', () => {
         api.getSessionTodos.mockResolvedValue([]);
 
         await store.fetchTodos('my-session-id');
-        expect(api.getSessionTodos).toHaveBeenCalledWith('my-session-id');
+        expect(api.getSessionTodos).toHaveBeenCalledWith('my-session-id', null);
+      });
+
+      it('calls API with conversationId when provided', async () => {
+        const { api } = await import('../composables/useApi.js');
+        api.getSessionTodos.mockResolvedValue([]);
+
+        await store.fetchTodos('my-session-id', 'conv-123');
+        expect(api.getSessionTodos).toHaveBeenCalledWith('my-session-id', 'conv-123');
+      });
+
+      it('sets currentConversationId when fetching with conversationId', async () => {
+        const { api } = await import('../composables/useApi.js');
+        api.getSessionTodos.mockResolvedValue([]);
+
+        await store.fetchTodos('session-1', 'conv-123');
+        expect(store.currentConversationId).toBe('conv-123');
+      });
+
+      it('sets currentConversationId to null when fetching without conversationId', async () => {
+        const { api } = await import('../composables/useApi.js');
+        api.getSessionTodos.mockResolvedValue([]);
+        store.currentConversationId = 'old-conv';
+
+        await store.fetchTodos('session-1');
+        expect(store.currentConversationId).toBe(null);
       });
     });
   });
@@ -284,6 +348,41 @@ describe('useTodosStore', () => {
       store.items = [{ id: '2', status: 'completed' }];
       expect(store.items.length).toBe(1);
       expect(store.items[0].id).toBe('2');
+    });
+
+    it('handles conversation switching correctly', async () => {
+      const { api } = await import('../composables/useApi.js');
+      const conv1Todos = [{ id: 'conv1-todo', status: 'pending' }];
+      const conv2Todos = [{ id: 'conv2-todo', status: 'completed' }];
+
+      // Fetch todos for conversation 1
+      api.getSessionTodos.mockResolvedValue(conv1Todos);
+      await store.fetchTodos('session-1', 'conv-1');
+      expect(store.items).toEqual(conv1Todos);
+      expect(store.currentConversationId).toBe('conv-1');
+
+      // Switch to conversation 2
+      store.clearTodos();
+      api.getSessionTodos.mockResolvedValue(conv2Todos);
+      await store.fetchTodos('session-1', 'conv-2');
+      expect(store.items).toEqual(conv2Todos);
+      expect(store.currentConversationId).toBe('conv-2');
+    });
+
+    it('ignores WebSocket updates for different conversation', async () => {
+      const { api } = await import('../composables/useApi.js');
+      const conv1Todos = [{ id: 'conv1-todo', status: 'pending' }];
+
+      // Fetch todos for conversation 1
+      api.getSessionTodos.mockResolvedValue(conv1Todos);
+      await store.fetchTodos('session-1', 'conv-1');
+      expect(store.currentConversationId).toBe('conv-1');
+
+      // Simulate WebSocket update for different conversation
+      store.updateTodos([{ id: 'conv2-todo', status: 'pending' }], 'conv-2');
+
+      // Store should still have conv1 todos
+      expect(store.items).toEqual(conv1Todos);
     });
   });
 });
