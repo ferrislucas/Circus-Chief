@@ -195,7 +195,6 @@ describe.skip('ConversationTab', () => {
       await flushAll(wrapper);
 
       expect(wrapper.find('.input-form').exists()).toBe(true);
-      expect(wrapper.find('.status-stopped').exists()).toBe(true);
     });
 
     it('renders file attachment component', async () => {
@@ -356,14 +355,14 @@ describe.skip('ConversationTab', () => {
       expect(wrapper.find('.btn-restart').text()).toContain('Restart');
     });
 
-    it('shows stopped message and input form', async () => {
+    it('allows sending message when session is stopped', async () => {
       mockSessionsStore.currentSession = { id: 'sess-123', status: 'stopped', mode: 'standard' };
 
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.find('.status-stopped').exists()).toBe(true);
-      expect(wrapper.text()).toContain('send a message to resume');
+      expect(wrapper.find('.input-form').exists()).toBe(true);
+      expect(wrapper.find('.btn-send').exists()).toBe(true);
     });
   });
 
