@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
-import multer from 'multer';
 import request from 'supertest';
 import { canvasItems, projects } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
@@ -305,8 +304,7 @@ describe('Canvas API', () => {
       // Setup Express app for HTTP tests
       app = express();
       app.use(express.json());
-      const upload = multer({ storage: multer.memoryStorage() });
-      app.use(upload.single('file'));
+      // Note: upload middleware is now per-route in canvas.js, not global
       app.use('/api/sessions', canvasRouter);
     });
 
@@ -852,9 +850,7 @@ describe('Canvas API', () => {
     beforeEach(() => {
       app = express();
       app.use(express.json());
-      // Add multer for file uploads
-      const upload = multer({ storage: multer.memoryStorage() });
-      app.use(upload.single('file'));
+      // Note: upload middleware is now per-route in canvas.js, not global
       app.use('/api/sessions', canvasRouter);
 
       // Create project and session
