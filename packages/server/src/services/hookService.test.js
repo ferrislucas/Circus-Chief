@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { executeHook, executeHookAsync } from './hookService.js';
-import { mkdtemp, rm, readFile } from 'fs/promises';
+import { mkdtemp, rm, readFile, realpath } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -35,7 +35,9 @@ describe('hookService', () => {
     it('executes command in specified working directory', async () => {
       const result = await executeHook('pwd', tempDir, {});
       expect(result.success).toBe(true);
-      expect(result.stdout).toBe(tempDir);
+      // On macOS, /var is a symlink to /private/var, so we compare real paths
+      const expectedPath = await realpath(tempDir);
+      expect(result.stdout).toBe(expectedPath);
     });
 
     it('passes context as environment variables', async () => {

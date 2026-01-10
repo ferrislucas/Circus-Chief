@@ -282,6 +282,19 @@ export class DatabaseManager {
         'ALTER TABLE command_buttons ADD COLUMN show_on_list INTEGER NOT NULL DEFAULT 0'
       );
     }
+
+    // Add conversation_id column to session_todos table (Issue #285 - scope todos to conversations)
+    const todosTableInfo = this.#db.prepare('PRAGMA table_info(session_todos)').all();
+    const todosColumns = todosTableInfo.map((col) => col.name);
+
+    if (!todosColumns.includes('conversation_id')) {
+      this.#db.exec(
+        'ALTER TABLE session_todos ADD COLUMN conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE'
+      );
+      this.#db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_todos_conversation ON session_todos(conversation_id)'
+      );
+    }
   }
 
   /**

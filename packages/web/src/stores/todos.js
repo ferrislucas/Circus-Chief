@@ -7,6 +7,7 @@ export const useTodosStore = defineStore('todos', {
     loading: false,
     error: null,
     expanded: false,
+    currentConversationId: null, // Track which conversation's todos we're showing
   }),
 
   getters: {
@@ -17,11 +18,12 @@ export const useTodosStore = defineStore('todos', {
   },
 
   actions: {
-    async fetchTodos(sessionId) {
+    async fetchTodos(sessionId, conversationId = null) {
       this.loading = true;
       this.error = null;
+      this.currentConversationId = conversationId;
       try {
-        this.items = await api.getSessionTodos(sessionId);
+        this.items = await api.getSessionTodos(sessionId, conversationId);
       } catch (err) {
         this.error = err.message;
       } finally {
@@ -29,14 +31,18 @@ export const useTodosStore = defineStore('todos', {
       }
     },
 
-    updateTodos(todos) {
-      this.items = todos;
+    updateTodos(todos, conversationId = null) {
+      // Only update if the conversation matches (or no tracking yet)
+      if (conversationId === null || this.currentConversationId === null || conversationId === this.currentConversationId) {
+        this.items = todos;
+      }
     },
 
     clearTodos() {
       this.items = [];
       this.loading = false;
       this.error = null;
+      this.currentConversationId = null;
     },
 
     toggleExpanded() {

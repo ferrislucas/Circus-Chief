@@ -196,11 +196,23 @@ describe('gitService', () => {
     it('returns origin/master when only origin/master exists', async () => {
       // Create a new bare repo with master as default
       const masterBareDir = await mkdtemp(join(tmpdir(), 'git-bare-master-'));
-      execSync('git init --bare --initial-branch=master', { cwd: masterBareDir });
+      execSync('git init --bare', { cwd: masterBareDir });
+      // Rename the default branch to master (for git versions that default to main)
+      try {
+        execSync('git symbolic-ref HEAD refs/heads/master', { cwd: masterBareDir });
+      } catch {
+        // Ignore if already using master as default
+      }
 
       // Create a repo that uses this as origin
       const masterTestDir = await mkdtemp(join(tmpdir(), 'git-test-master-'));
-      execSync('git init --initial-branch=master', { cwd: masterTestDir });
+      execSync('git init', { cwd: masterTestDir });
+      // Rename initial branch to master (for compatibility with all git versions)
+      try {
+        execSync('git checkout -b master', { cwd: masterTestDir, stdio: 'ignore' });
+      } catch {
+        // Already on master or branch exists
+      }
       execSync('git config user.email "test@test.com"', { cwd: masterTestDir });
       execSync('git config user.name "Test"', { cwd: masterTestDir });
       await writeFile(join(masterTestDir, 'README.md'), '# Test');
