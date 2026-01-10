@@ -2159,6 +2159,64 @@ describe('Sessions Store', () => {
 
         expect(store.error).toBe('Fetch failed');
       });
+
+      it('refreshes archived sessions with starred filter applied', async () => {
+        const store = useSessionsStore();
+
+        // Initial load - no filter
+        const mockArchivedSessions = [
+          { id: 'session-1', archived: true, starred: false },
+          { id: 'session-2', archived: true, starred: true },
+          { id: 'session-3', archived: true, starred: false },
+        ];
+        api.getProjectSessions.mockResolvedValue(mockArchivedSessions);
+
+        await store.fetchArchivedSessions('project-1');
+        expect(store.archivedSessions).toEqual(mockArchivedSessions);
+
+        // Now apply starred filter
+        store.setStarredFilter('starred');
+
+        // Refresh archived sessions - should still get results
+        // (not zero sessions like the bug would show)
+        const starredSessions = [
+          { id: 'session-2', archived: true, starred: true },
+        ];
+        api.getProjectSessions.mockResolvedValue(starredSessions);
+
+        await store.fetchArchivedSessions('project-1');
+
+        // Should have called API with the correct starred filter
+        expect(api.getProjectSessions).toHaveBeenLastCalledWith('project-1', true, 'starred');
+        // Should have the starred sessions
+        expect(store.archivedSessions).toHaveLength(1);
+        expect(store.archivedSessions[0].starred).toBe(true);
+      });
+
+      it('refreshes archived sessions and clears zero-result condition', async () => {
+        const store = useSessionsStore();
+
+        // Start with archived sessions
+        const mockArchivedSessions = [
+          { id: 'session-1', archived: true, starred: true },
+        ];
+        api.getProjectSessions.mockResolvedValue(mockArchivedSessions);
+
+        store.setStarredFilter('starred');
+        await store.fetchArchivedSessions('project-1');
+
+        expect(store.archivedSessions).toHaveLength(1);
+
+        // Now when user refreshes the archived tab, it should properly fetch again
+        // and not return zero sessions (bug: would show empty list)
+        api.getProjectSessions.mockResolvedValue(mockArchivedSessions);
+
+        await store.fetchArchivedSessions('project-1');
+
+        expect(api.getProjectSessions).toHaveBeenLastCalledWith('project-1', true, 'starred');
+        expect(store.archivedSessions).toHaveLength(1);
+        expect(store.archivedSessions).toEqual(mockArchivedSessions);
+      });
     });
 
     describe('updateSession with archive changes', () => {
