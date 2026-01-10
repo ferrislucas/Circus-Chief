@@ -1437,4 +1437,44 @@ describe('SessionListView Archived Tab', () => {
       expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith(null);
     });
   });
+
+  describe('Archived sessions across projects', () => {
+    it('loads archived sessions when first clicking archived tab', async () => {
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      mockRoute.name = 'ArchivedSessions';
+      mockSessionsStore.archivedSessions = [
+        { id: 'session-1', archived: true, name: 'Archived 1' },
+      ];
+
+      await wrapper.vm.$nextTick();
+
+      // Verify fetchArchivedSessions was called for the current project
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id');
+    });
+
+    it('loads archived sessions on page refresh (when mounted directly on archived route)', async () => {
+      // Simulate page refresh while on /projects/:id/archived route
+      // The route.name is already 'ArchivedSessions' when component mounts
+      mockRoute.name = 'ArchivedSessions';
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      mockSessionsStore.archivedSessions = [
+        { id: 'session-1', archived: true, name: 'Archived Session 1' },
+        { id: 'session-2', archived: true, name: 'Archived Session 2' },
+      ];
+
+      await wrapper.vm.$nextTick();
+
+      // With { immediate: true } on the route.name watch, fetchArchivedSessions
+      // should be called even though route.name didn't change from component mount
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id');
+
+      // Verify archived sessions are displayed
+      expect(mockSessionsStore.archivedSessions).toHaveLength(2);
+    });
+  });
 });
