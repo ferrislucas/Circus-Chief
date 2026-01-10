@@ -228,6 +228,7 @@ describe('SessionListView', () => {
       loading: false,
       error: null,
       fetchButtons: vi.fn().mockResolvedValue(),
+      fetchLatestRunsForProject: vi.fn().mockResolvedValue(),
       getButtonsByProjectId: vi.fn(() => []),
       getLatestRunForButton: vi.fn(() => null),
     };
@@ -431,6 +432,7 @@ describe('Status filtering', () => {
       loading: false,
       error: null,
       fetchButtons: vi.fn().mockResolvedValue(),
+      fetchLatestRunsForProject: vi.fn().mockResolvedValue(),
       getButtonsByProjectId: vi.fn(() => []),
       getLatestRunForButton: vi.fn(() => null),
     };
@@ -1011,6 +1013,7 @@ describe('SessionListView integration', () => {
       loading: false,
       error: null,
       fetchButtons: vi.fn().mockResolvedValue(),
+      fetchLatestRunsForProject: vi.fn().mockResolvedValue(),
       getButtonsByProjectId: vi.fn(() => []),
       getLatestRunForButton: vi.fn(() => null),
     });
@@ -1076,6 +1079,7 @@ describe('SessionListView Archived Tab', () => {
       loading: false,
       error: null,
       fetchButtons: vi.fn().mockResolvedValue(),
+      fetchLatestRunsForProject: vi.fn().mockResolvedValue(),
       getButtonsByProjectId: vi.fn(() => []),
       getLatestRunForButton: vi.fn(() => null),
     };

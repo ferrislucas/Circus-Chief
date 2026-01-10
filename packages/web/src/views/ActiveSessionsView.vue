@@ -63,7 +63,8 @@
 import { onMounted, onUnmounted, reactive, watch, ref, computed } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
-import { useGlobalSessionSubscription } from '../composables/useWebSocket.js';
+import { useGlobalSessionSubscription, useWebSocket } from '../composables/useWebSocket.js';
+import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { api } from '../composables/useApi.js';
 import SessionCard from '../components/SessionCard.vue';
 
@@ -165,6 +166,7 @@ async function ensureButtonsLoadedForSessions() {
   for (const projectId of uniqueProjectIds) {
     try {
       await commandButtonsStore.fetchButtons(projectId);
+      await commandButtonsStore.fetchLatestRunsForProject(projectId);
       fetchedProjectIds.value.add(projectId);
     } catch (error) {
       console.error(`Failed to fetch buttons for project ${projectId}:`, error);
@@ -247,6 +249,71 @@ onMounted(async () => {
       summaryErrors[sessionId] = false;
     })
   );
+
+  // Set up global WebSocket handlers for command run events (for all projects)
+  const { on, off } = useWebSocket();
+
+  // Handle command run output (for real-time status icon updates)
+  const commandOutputHandler = (msg) => {
+    const { runId, sessionId, buttonId, output } = msg;
+    if (!commandButtonsStore.runs[runId]) {
+      commandButtonsStore.runs[runId] = {
+        runId,
+        buttonId,
+        sessionId,
+        status: 'running',
+        output: '',
+        exitCode: null,
+        startedAt: Date.now(),
+        outputTruncated: false,
+      };
+    }
+    commandButtonsStore.appendOutput(runId, output);
+  };
+  on(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, commandOutputHandler);
+  cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, commandOutputHandler));
+
+  // Handle command run complete
+  const commandCompleteHandler = (msg) => {
+    const { runId, sessionId, buttonId, exitCode, output } = msg;
+    // Create run if it doesn't exist (handles edge case of no output before completion)
+    if (!commandButtonsStore.runs[runId]) {
+      commandButtonsStore.runs[runId] = {
+        runId,
+        buttonId,
+        sessionId,
+        status: 'running',
+        output: '',
+        exitCode: null,
+        startedAt: Date.now(),
+        outputTruncated: false,
+      };
+    }
+    commandButtonsStore.completeRun(runId, exitCode, output);
+  };
+  on(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, commandCompleteHandler);
+  cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, commandCompleteHandler));
+
+  // Handle command run error
+  const commandErrorHandler = (msg) => {
+    const { runId, sessionId, buttonId, error } = msg;
+    // Create run if it doesn't exist (handles edge case of no output before error)
+    if (!commandButtonsStore.runs[runId]) {
+      commandButtonsStore.runs[runId] = {
+        runId,
+        buttonId,
+        sessionId,
+        status: 'running',
+        output: '',
+        exitCode: null,
+        startedAt: Date.now(),
+        outputTruncated: false,
+      };
+    }
+    commandButtonsStore.errorRun(runId, error);
+  };
+  on(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, commandErrorHandler);
+  cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, commandErrorHandler));
 
   // Keep polling as a fallback (increased to 30s since we have real-time updates)
   refreshInterval = setInterval(() => {
