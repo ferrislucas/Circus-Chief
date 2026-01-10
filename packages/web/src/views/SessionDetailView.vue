@@ -396,7 +396,7 @@ onMounted(async () => {
 // Watch for session changes within the same component (e.g., navigating between sessions)
 // This handles the case where the route changes but the component doesn't unmount/remount
 watch(
-  () => route.params.sessionId,
+  () => route.params.id,
   async (newSessionId, oldSessionId) => {
     // Only proceed if the session ID actually changed
     if (newSessionId && newSessionId !== oldSessionId) {
