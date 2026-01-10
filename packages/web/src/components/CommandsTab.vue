@@ -212,7 +212,6 @@ onUnmounted(() => {
 
 // Expose methods for testing
 defineExpose({
-  onCopyOutput,
   onSendToCanvas,
   onButtonRun,
   onButtonKill,
