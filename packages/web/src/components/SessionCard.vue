@@ -449,11 +449,15 @@ const onStarClick = () => {
 
 .session-info {
   flex: 1;
+  min-width: 0; /* Allows text truncation to work in flexbox */
 }
 
 .session-name {
   margin: 0 0 0.5rem;
   font-size: 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-meta {
@@ -485,6 +489,10 @@ const onStarClick = () => {
   font-size: 0.75rem;
   color: var(--color-text-soft);
   font-family: var(--font-mono);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-project {
@@ -735,14 +743,57 @@ const onStarClick = () => {
 }
 
 @media (max-width: 480px) {
+  /* Keep header row horizontal but allow wrapping */
   .session-header-row {
-    flex-direction: column;
+    flex-wrap: wrap;
     gap: 0.5rem;
   }
 
+  /* Reduce card padding for compact display */
+  .session-card {
+    padding: 0.75rem;
+    gap: 0.5rem;
+  }
+
+  /* Compact metadata row with wrapping */
+  .session-meta {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  /* Smaller badges on mobile */
+  .status-badge,
+  .session-mode,
+  .session-model {
+    font-size: 0.7rem;
+  }
+
+  /* More aggressive branch name truncation on mobile */
+  .session-branch {
+    max-width: 150px;
+  }
+
+  /* Compact date display */
   .session-date {
-    flex-shrink: 1;
-    align-self: flex-start;
+    font-size: 0.75rem;
+  }
+
+  /* Session info takes full width, date wraps below */
+  .session-info {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  .session-header-actions {
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  /* Limit summary to 1 line on very small screens */
+  .summary-text {
+    -webkit-line-clamp: 1;
   }
 
   .session-card.is-child {
@@ -750,8 +801,8 @@ const onStarClick = () => {
   }
 
   .children-container {
-    margin-left: -1rem;
-    margin-right: -1rem;
+    margin-left: -0.75rem;
+    margin-right: -0.75rem;
     border-left: none;
     border-radius: 0;
     padding: 0.5rem;
