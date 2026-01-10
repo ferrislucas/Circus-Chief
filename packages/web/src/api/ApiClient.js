@@ -854,6 +854,15 @@ export class ApiClient {
   }
 
   /**
+   * Get the latest run for each button per session within a project
+   * @param {string} projectId - Project ID
+   * @returns {Promise<Array>}
+   */
+  async getLatestRunsForProject(projectId) {
+    return this.#request('GET', `/projects/${projectId}/command-buttons/latest-runs`);
+  }
+
+  /**
    * Kill a running command
    * @param {string} sessionId - Session ID
    * @param {string} runId - Run ID
