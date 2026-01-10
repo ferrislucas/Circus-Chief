@@ -5,6 +5,7 @@ import { extname, join, basename } from 'path';
 import { sessions, canvasItems } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { upload, handleUploadError } from '../middleware/upload.js';
 
 const router = Router();
 
@@ -148,7 +149,7 @@ function getMimeTypeForType(type) {
 // 1. Multipart mode: FormData with 'file' field - from browser file uploads
 // 2. File mode: { filePath, label? } - reads file from disk
 // 3. Inline mode: { type, content, filename, label? } - uses provided content directly
-router.post('/:id/canvas', (req, res) => {
+router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
