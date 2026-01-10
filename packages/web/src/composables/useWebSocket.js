@@ -505,6 +505,37 @@ export function useProjectSubscription(projectId) {
     return () => off(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, handler);
   };
 
+  // Command run handlers for real-time status icon updates on session lists
+  const onCommandRunOutput = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) {
+        callback(msg.runId, msg.sessionId, msg.buttonId, msg.output);
+      }
+    };
+    on(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, handler);
+    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, handler);
+  };
+
+  const onCommandRunComplete = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) {
+        callback(msg.runId, msg.sessionId, msg.buttonId, msg.exitCode, msg.output, msg.status);
+      }
+    };
+    on(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, handler);
+    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, handler);
+  };
+
+  const onCommandRunError = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) {
+        callback(msg.runId, msg.sessionId, msg.buttonId, msg.error);
+      }
+    };
+    on(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);
+    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -517,6 +548,9 @@ export function useProjectSubscription(projectId) {
     onSessionUpdated,
     onSessionDeleted,
     onSessionSummaryUpdated,
+    onCommandRunOutput,
+    onCommandRunComplete,
+    onCommandRunError,
   };
 }
 
