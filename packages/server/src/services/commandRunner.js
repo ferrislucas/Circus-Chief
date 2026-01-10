@@ -1,5 +1,7 @@
 import { spawn } from 'child_process';
+import { platform } from 'os';
 import { commandRuns } from '../database.js';
+import { createRobustEnv } from './nodeSpawnHelper.js';
 
 /**
  * Service for running commands and managing their execution
@@ -43,16 +45,33 @@ export class CommandRunner {
         // Wrap command with 'script' to allocate a pseudo-TTY
         // This ensures line-buffered output like a normal terminal, so output
         // streams in real-time instead of being block-buffered
-        // -q = quiet mode (no header/footer messages)
-        // -e = return exit code of the child process (Linux)
-        // -c = run command
-        // /dev/null = don't save to file
-        const wrappedCommand = `script -q -e -c ${JSON.stringify(command)} /dev/null`;
+        //
+        // Platform-specific syntax (script command differs significantly between Linux and macOS):
+        // - Linux: script -q -e -c "command" /dev/null
+        //   * -q = quiet mode (no header/footer messages)
+        //   * -e = return exit code of the child process (Linux only)
+        //   * -c = run command
+        //   * /dev/null = don't save to file
+        // - macOS: script -q /dev/null sh -c "command"
+        //   * -q = quiet mode
+        //   * /dev/null = don't save to file
+        //   * sh -c = execute command via shell (macOS doesn't support -c flag on script itself)
+        const osType = platform();
+        const isLinux = osType === 'linux';
+        let wrappedCommand;
+
+        if (isLinux) {
+          wrappedCommand = `script -q -e -c ${JSON.stringify(command)} /dev/null`;
+        } else {
+          // macOS and other Unix-like systems use different script syntax
+          wrappedCommand = `script -q /dev/null sh -c ${JSON.stringify(command)}`;
+        }
 
         const child = spawn('sh', ['-c', wrappedCommand], {
           cwd: workingDirectory,
           stdio: ['pipe', 'pipe', 'pipe'],
           detached: true, // Create a new process group for proper signal handling
+          env: createRobustEnv(), // Ensure node is in PATH for npx users with nvm/fnm
         });
 
         // Store process with metadata and output buffer
