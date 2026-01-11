@@ -152,20 +152,7 @@
           </div>
 
           <div class="mode-switcher">
-            <span class="mode-label">Mode:</span>
-            <div class="mode-buttons">
-              <button
-                v-for="m in modes"
-                :key="m.value"
-                type="button"
-                :class="['mode-btn', { active: sessionsStore.currentSession?.mode === m.value }]"
-                @click="handleModeChange(m.value)"
-                :disabled="togglingMode"
-                :title="m.description"
-              >
-                {{ m.label }}
-              </button>
-            </div>
+            <ModeSelector :sessionId="sessionId" />
           </div>
         </div>
         <div class="input-actions">
@@ -224,12 +211,24 @@
       </div>
     </div>
 
-    <div v-else-if="sessionsStore.currentSession?.status === 'error'" class="status-message status-error">
-      <span>Session error</span>
-      <button type="button" class="btn btn-primary btn-restart" @click="handleRestart" :disabled="restarting">
-        <span v-if="restarting" class="loading-spinner"></span>
-        Restart Session
-      </button>
+    <!-- Error banner - shown above input form when session has error -->
+    <div v-if="sessionsStore.currentSession?.status === 'error'" class="error-banner">
+      <div class="error-header">
+        <span class="error-icon">⚠️</span>
+        <span class="error-title">Session Error</span>
+        <button
+          type="button"
+          class="btn-icon btn-copy-error"
+          @click="copyError"
+          title="Copy error message"
+        >
+          📋
+        </button>
+      </div>
+      <div class="error-content">
+        <pre class="error-message">{{ sessionsStore.currentSession.error || 'Unknown error' }}</pre>
+      </div>
+      <p class="error-hint">You can continue the conversation below, or try a different approach.</p>
     </div>
 
     <!-- Quick Response Settings Modal -->
@@ -256,6 +255,7 @@ import ConversationSelector from './ConversationSelector.vue';
 import TokenUsagePanel from './TokenUsagePanel.vue';
 import FileAttachment from './FileAttachment.vue';
 import ModelSelector from './ModelSelector.vue';
+import ModeSelector from './ModeSelector.vue';
 import TemplateSelector from './TemplateSelector.vue';
 import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
@@ -290,7 +290,6 @@ const sending = ref(false);
 const stopping = ref(false);
 const restarting = ref(false);
 const togglingThinking = ref(false);
-const togglingMode = ref(false);
 const messagesContainer = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
@@ -298,11 +297,6 @@ const branchingMessageId = ref(null); // Message ID currently being branched fro
 const branchEditorRef = ref(null);
 let draftSaveTimer = null;
 
-const modes = [
-  { value: 'plan', label: 'Plan', description: 'Agent plans before implementing' },
-  { value: 'standard', label: 'Standard', description: 'Balanced approach' },
-  { value: 'yolo', label: 'YOLO', description: 'Auto-approve mode' },
-];
 const partialText = ref('');
 const isNearBottom = ref(true);
 const hasNewMessages = ref(false);
@@ -317,7 +311,7 @@ const STORAGE_KEY = `session-draft-${props.sessionId}`;
 
 const canSendMessage = computed(() => {
   const status = sessionsStore.currentSession?.status;
-  return status === 'waiting' || status === 'stopped';
+  return status === 'waiting' || status === 'stopped' || status === 'error';
 });
 
 const canBranch = computed(() => {
@@ -747,6 +741,16 @@ async function handleRestart() {
   }
 }
 
+async function copyError() {
+  const error = sessionsStore.currentSession?.error || 'Unknown error';
+  try {
+    await navigator.clipboard.writeText(error);
+    uiStore.success('Error copied to clipboard');
+  } catch (err) {
+    uiStore.error('Failed to copy error');
+  }
+}
+
 async function saveDraftPrompt(prompt) {
   try {
     saveStatus.value = 'saving';
@@ -800,20 +804,6 @@ async function handleThinkingToggle(event) {
     uiStore.error(err.message);
   } finally {
     togglingThinking.value = false;
-  }
-}
-
-async function handleModeChange(newMode) {
-  if (togglingMode.value) return;
-  if (sessionsStore.currentSession?.mode === newMode) return;
-
-  togglingMode.value = true;
-  try {
-    await sessionsStore.updateSessionMode(props.sessionId, newMode);
-  } catch (err) {
-    uiStore.error(err.message);
-  } finally {
-    togglingMode.value = false;
   }
 }
 
@@ -1106,52 +1096,6 @@ async function handleBranchCreate({ messageId, name, prompt }) {
   gap: 0.5rem;
 }
 
-.mode-label {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-}
-
-.mode-buttons {
-  display: flex;
-  border: 1px solid var(--color-border);
-  border-radius: 0.375rem;
-  overflow: hidden;
-}
-
-.mode-btn {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 500;
-  background: var(--color-background);
-  border: none;
-  border-right: 1px solid var(--color-border);
-  color: var(--color-text-soft);
-  cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.mode-btn:last-child {
-  border-right: none;
-}
-
-.mode-btn:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-}
-
-.mode-btn.active,
-.mode-btn.active:focus {
-  background: var(--color-primary);
-  color: white;
-  outline: none;
-}
-
-.mode-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .toggle-switch {
   position: relative;
   display: inline-block;
@@ -1334,6 +1278,85 @@ async function handleBranchCreate({ messageId, name, prompt }) {
 
 .btn-restart {
   min-width: 140px;
+}
+
+/* Error banner styles */
+.error-banner {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--border-radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
+  margin-top: 1rem;
+}
+
+.error-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.error-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.error-title {
+  font-weight: 600;
+  color: var(--color-danger, #ef4444);
+  flex: 1;
+}
+
+.btn-copy-error {
+  padding: 0.25rem 0.5rem;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+}
+
+.btn-copy-error:hover {
+  opacity: 1;
+  background: var(--color-bg-hover);
+}
+
+.btn-copy-error:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error-content {
+  background: var(--color-background);
+  border-radius: 4px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.error-message {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, monospace;
+  line-height: 1.4;
+}
+
+.error-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-soft);
 }
 
 .scroll-to-claude-btn {
