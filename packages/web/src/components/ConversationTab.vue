@@ -7,6 +7,17 @@
     <TokenUsagePanel class="conversation-usage" />
 
     <div class="messages" ref="messagesContainer">
+      <!-- Jump to Claude's turn button - at top so sticky works -->
+      <button
+        v-if="hasAssistantMessages"
+        class="scroll-to-claude-btn"
+        @click="scrollToClaudesTurn"
+        title="Jump to Claude's response"
+        aria-label="Scroll to Claude's latest response"
+      >
+        ↑ Claude's response
+      </button>
+
       <!-- Hide messages for draft sessions (only show in input field) -->
       <template v-if="!isDraft">
       <div
@@ -59,17 +70,6 @@
           <MarkdownViewer :content="partialText" />
         </div>
       </div>
-
-      <!-- Jump to Claude's turn button -->
-      <button
-        v-if="hasAssistantMessages"
-        class="scroll-to-claude-btn"
-        @click="scrollToClaudesTurn"
-        title="Jump to Claude's response"
-        aria-label="Scroll to Claude's latest response"
-      >
-        ↑ Claude's response
-      </button>
 
       <!-- Jump to latest button (Slack-style) -->
       <button
