@@ -100,4 +100,12 @@ const ariaLabel = computed(() => {
 .status-text {
   font-weight: 500;
 }
+
+/* Mobile sizing - more compact */
+@media (max-width: 768px) {
+  .status-indicator {
+    padding: 0.125rem 0.375rem;
+    font-size: 0.625rem;
+  }
+}
 </style>
