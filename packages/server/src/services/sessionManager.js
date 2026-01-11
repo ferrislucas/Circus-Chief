@@ -766,6 +766,131 @@ export async function continueSession(sessionId, content, workingDirectory, syst
 }
 
 /**
+ * Continue a session when the user message is already stored (e.g., from branching)
+ * This triggers Claude's response without creating a new user message
+ * @param {string} sessionId
+ * @param {string} conversationId - The conversation to continue (must have an existing user message)
+ * @param {string} workingDirectory
+ * @param {string|null} systemPrompt - Custom system prompt from project settings
+ */
+export async function continueSessionWithExistingMessage(sessionId, conversationId, workingDirectory, systemPrompt = null) {
+  // Check if session is already running
+  if (activeSessions.has(sessionId)) {
+    throw new Error('Session is already processing');
+  }
+
+  // Get the session to retrieve settings
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    throw new Error('Session not found');
+  }
+
+  // Get the conversation
+  const conversation = conversations.getById(conversationId);
+  if (!conversation || conversation.sessionId !== sessionId) {
+    throw new Error('Conversation not found');
+  }
+
+  // Get the last user message from the conversation to use as the prompt
+  const conversationMessages = messages.getByConversationId(conversationId);
+  const lastUserMessage = [...conversationMessages].reverse().find(m => m.role === 'user');
+  if (!lastUserMessage) {
+    throw new Error('No user message found in conversation');
+  }
+
+  const controller = new AbortController();
+  activeSessions.set(sessionId, { controller });
+
+  try {
+    // Make sure this conversation is active
+    if (!conversation.isActive) {
+      conversations.update(conversationId, { isActive: true });
+    }
+    activeConversationIds.set(sessionId, conversationId);
+
+    // Reset usage accumulator for this conversation turn
+    resetUsageAccumulator(conversationId);
+
+    // Update status to running
+    sessions.update(sessionId, { status: 'running' });
+    broadcastSessionStatus(sessionId, 'running');
+
+    // Use the existing user message content as the prompt
+    // Note: We do NOT create a new user message here - it already exists
+
+    // Choose between mock and real query based on environment
+    const queryFn = isMockMode() ? mockQuery : query;
+
+    // Build environment variables for thinking mode
+    const sessionEnv = buildSessionEnv(session);
+
+    const queryParams = isMockMode()
+      ? { prompt: lastUserMessage.content }
+      : {
+          prompt: lastUserMessage.content,
+          options: {
+            cwd: workingDirectory,
+            abortController: controller,
+            includePartialMessages: true,
+            permissionMode: getPermissionModeForSession(session.mode),
+            settingSources: ['project'],
+            // Use conversation's claudeSessionId for context isolation
+            // For new branches, this will be null (fresh session)
+            ...(conversation.claudeSessionId && { resume: conversation.claudeSessionId }),
+            env: sessionEnv,
+            spawnClaudeCodeProcess: createClaudeCodeSpawner(),
+            ...(session.model && { model: session.model }),
+            systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+          },
+        };
+
+    // Run the query
+    for await (const event of queryFn(queryParams)) {
+      if (controller.signal.aborted) break;
+
+      await handleStreamEvent(sessionId, event);
+    }
+
+    // Associate work logs with the last message now that the turn is complete
+    const lastMessageId = lastMessageIds.get(sessionId);
+    if (lastMessageId) {
+      associateAndBroadcastWorkLogs(sessionId, lastMessageId);
+      lastMessageIds.delete(sessionId);
+    }
+
+    // Session ready for more follow-ups
+    const activeSession = activeSessions.get(sessionId);
+    if (activeSession && !controller.signal.aborted) {
+      sessions.update(sessionId, { status: 'waiting' });
+      broadcastSessionStatus(sessionId, 'waiting');
+      // Trigger summary generation when session completes a turn
+      summaryService.onSessionActivity(sessionId);
+
+      // Broadcast changes update when turn completes (real-time indicator)
+      const currentSession = sessions.getById(sessionId);
+      if (currentSession) {
+        await broadcastChangesUpdate(sessionId, currentSession.projectId, workingDirectory);
+      }
+
+      // Check if template should be triggered after turn completion
+      await handleTemplateTriggerIfNeeded(sessionId);
+    }
+  } catch (error) {
+    console.error('Continue session with existing message error:', error);
+    console.error('Error stack:', error.stack);
+    if (!controller.signal.aborted) {
+      sessions.update(sessionId, { status: 'error', error: error.message });
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
+      // Trigger summary generation on error
+      summaryService.onSessionComplete(sessionId);
+    }
+    throw error;
+  } finally {
+    activeSessions.delete(sessionId);
+  }
+}
+
+/**
  * Stop a running or waiting session
  * @param {string} sessionId
  */

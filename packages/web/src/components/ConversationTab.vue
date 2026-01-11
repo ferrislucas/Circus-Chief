@@ -7,6 +7,17 @@
     <TokenUsagePanel class="conversation-usage" />
 
     <div class="messages" ref="messagesContainer">
+      <!-- Jump to Claude's turn button - at top so sticky works, only shows when at bottom -->
+      <button
+        v-if="hasAssistantMessages && isNearBottom"
+        class="scroll-to-claude-btn"
+        @click="scrollToClaudesTurn"
+        title="Jump to Claude's response"
+        aria-label="Scroll to Claude's latest response"
+      >
+        ↑ Claude's response
+      </button>
+
       <!-- Hide messages for draft sessions (only show in input field) -->
       <template v-if="!isDraft">
       <div
@@ -18,6 +29,19 @@
         <div class="message-header">
           <span class="message-role">{{ message.role }}</span>
           <span class="message-time">{{ formatTime(message.timestamp) }}</span>
+          <!-- Branch button for user messages -->
+          <button
+            v-if="message.role === 'user' && canBranch && branchingMessageId !== message.id"
+            type="button"
+            class="branch-btn"
+            @click="openBranchEditor(message.id)"
+            title="Create a branch from this message"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 2v8M4 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM12 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM4 6c0 2 2 4 4 4h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="branch-btn-text">Branch</span>
+          </button>
         </div>
         <div class="message-content">
           <MarkdownViewer v-if="message.role === 'assistant'" :content="message.content" />
@@ -42,6 +66,14 @@
           v-if="message.role === 'assistant'"
           :work-logs="sessionsStore.getWorkLogsForMessage(message.id)"
         />
+        <!-- Branch Editor for user messages -->
+        <BranchEditor
+          v-if="message.role === 'user' && branchingMessageId === message.id"
+          ref="branchEditorRef"
+          :message-id="message.id"
+          @create="handleBranchCreate"
+          @cancel="closeBranchEditor"
+        />
       </div>
       </template>
 
@@ -59,17 +91,6 @@
           <MarkdownViewer :content="partialText" />
         </div>
       </div>
-
-      <!-- Jump to Claude's turn button -->
-      <button
-        v-if="hasAssistantMessages"
-        class="scroll-to-claude-btn"
-        @click="scrollToClaudesTurn"
-        title="Jump to Claude's response"
-        aria-label="Scroll to Claude's latest response"
-      >
-        ↑ Claude's response
-      </button>
 
       <!-- Jump to latest button (Slack-style) -->
       <button
@@ -228,6 +249,7 @@ import ModeSelector from './ModeSelector.vue';
 import TemplateSelector from './TemplateSelector.vue';
 import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
+import BranchEditor from './BranchEditor.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 const props = defineProps({
@@ -261,6 +283,8 @@ const togglingThinking = ref(false);
 const messagesContainer = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
+const branchingMessageId = ref(null); // Message ID currently being branched from
+const branchEditorRef = ref(null);
 let draftSaveTimer = null;
 
 const partialText = ref('');
@@ -278,6 +302,12 @@ const STORAGE_KEY = `session-draft-${props.sessionId}`;
 const canSendMessage = computed(() => {
   const status = sessionsStore.currentSession?.status;
   return status === 'waiting' || status === 'stopped' || status === 'error';
+});
+
+const canBranch = computed(() => {
+  const status = sessionsStore.currentSession?.status;
+  // Can only branch when session is not running
+  return status !== 'running' && status !== 'starting';
 });
 
 const isDraft = computed(() => {
@@ -552,8 +582,16 @@ function scrollToClaudesTurn() {
     const msgElement = document.querySelector(`[data-message-id="${lastAssistantMsg.id}"]`);
 
     if (msgElement) {
-      // Scroll to the beginning of Claude's turn
-      msgElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Calculate offset within the container and scroll directly
+      // This avoids scrollIntoView which scrolls parent containers too
+      const containerRect = messagesContainer.value.getBoundingClientRect();
+      const elementRect = msgElement.getBoundingClientRect();
+      const offsetTop = elementRect.top - containerRect.top + messagesContainer.value.scrollTop;
+
+      messagesContainer.value.scrollTo({
+        top: offsetTop,
+        behavior: 'smooth'
+      });
     }
   });
 }
@@ -759,6 +797,48 @@ async function handleTemplateChange(templateId) {
     uiStore.error(err.message);
   }
 }
+
+// Branching methods
+function openBranchEditor(messageId) {
+  branchingMessageId.value = messageId;
+}
+
+function closeBranchEditor() {
+  branchingMessageId.value = null;
+}
+
+async function handleBranchCreate({ messageId, prompt }) {
+  try {
+    const activeConv = sessionsStore.activeConversation;
+    if (!activeConv) {
+      throw new Error('No active conversation');
+    }
+
+    if (!prompt) {
+      throw new Error('A prompt is required');
+    }
+
+    await sessionsStore.branchConversation(
+      props.sessionId,
+      activeConv.id,
+      messageId,
+      null, // name auto-generated from prompt
+      prompt
+    );
+
+    closeBranchEditor();
+    uiStore.success('Branch created - Claude is responding');
+
+    // Scroll to show the new content
+    scrollToBottom(true);
+  } catch (err) {
+    uiStore.error(err.message);
+    // Reset the creating state in the editor
+    if (branchEditorRef.value) {
+      branchEditorRef.value.resetCreating();
+    }
+  }
+}
 </script>
 
 <style scoped>
@@ -824,6 +904,46 @@ async function handleTemplateChange(templateId) {
 .message-time {
   font-size: 0.75rem;
   color: var(--color-text-soft);
+}
+
+/* Branch button - always visible for user messages */
+.branch-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  margin-left: 0.5rem;
+  padding: 0.5rem;
+  min-width: 44px;
+  min-height: 44px;
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: 0.375rem;
+  color: rgba(139, 92, 246, 0.8);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.branch-btn:hover {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.4);
+  color: rgba(139, 92, 246, 0.95);
+}
+
+.branch-btn:active {
+  transform: scale(0.97);
+}
+
+.branch-btn-text {
+  display: none;
+}
+
+@media (min-width: 480px) {
+  .branch-btn-text {
+    display: inline;
+  }
 }
 
 .message-content {
@@ -1199,12 +1319,12 @@ async function handleTemplateChange(templateId) {
 }
 
 .scroll-to-claude-btn {
-  position: absolute;
-  top: 8px;
-  right: 8px;
+  position: sticky;
+  top: 0.5rem;
   z-index: 10;
-  width: 32px;
-  height: 32px;
+  margin-left: auto;
+  margin-bottom: 0.5rem;
+  padding: 0.375rem 0.75rem;
   background: rgba(31, 41, 55, 0.85);
   border: 1px solid rgba(75, 85, 99, 0.5);
   border-radius: 6px;
@@ -1217,9 +1337,10 @@ async function handleTemplateChange(templateId) {
   align-items: center;
   justify-content: center;
   font-size: 0.875rem;
-  padding: 0;
+  white-space: nowrap;
   line-height: 1;
   font-weight: 500;
+  width: fit-content;
 }
 
 .scroll-to-claude-btn:hover {
@@ -1347,10 +1468,8 @@ async function handleTemplateChange(templateId) {
 
   /* Mobile adjustments for scroll-to-claude button */
   .scroll-to-claude-btn {
-    width: 28px;
-    height: 28px;
-    top: 6px;
-    right: 6px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
   }
 }
 
