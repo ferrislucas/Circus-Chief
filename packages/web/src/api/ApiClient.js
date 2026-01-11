@@ -763,6 +763,20 @@ export class ApiClient {
   }
 
   /**
+   * Create a branch from a conversation at a specific message
+   * @param {string} sessionId - Session ID
+   * @param {string} conversationId - Source conversation ID
+   * @param {Object} data - Branch data
+   * @param {string} data.messageId - Message ID to branch from
+   * @param {string} [data.name] - Optional name for the branch
+   * @param {string} [data.prompt] - Optional initial prompt for the branch
+   * @returns {Promise<Object>} The created branch conversation
+   */
+  async branchConversation(sessionId, conversationId, data) {
+    return this.#request('POST', `/sessions/${sessionId}/conversations/${conversationId}/branch`, data);
+  }
+
+  /**
    * Get messages for a specific conversation
    * @param {string} sessionId - Session ID
    * @param {string} conversationId - Conversation ID
