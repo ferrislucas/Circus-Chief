@@ -6,18 +6,41 @@
     <!-- Token Usage Panel - shows conversation-level usage (Issue #175) -->
     <TokenUsagePanel class="conversation-usage" />
 
+    <!-- Branch origin indicator for branched conversations -->
+    <div v-if="branchOrigin" class="branch-origin-indicator">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4 2v8M4 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM12 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM4 6c0 2 2 4 4 4h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="branch-origin-text">
+        Branched from <strong>{{ branchOrigin.parentName }}</strong>
+      </span>
+    </div>
+
     <div class="messages" ref="messagesContainer">
       <!-- Hide messages for draft sessions (only show in input field) -->
       <template v-if="!isDraft">
       <div
         v-for="message in sessionsStore.messages"
         :key="message.id"
-        :class="['message', `message-${message.role}`]"
+        :class="['message', `message-${message.role}`, { 'message-branchable': message.role === 'user' && canBranch }]"
         :data-message-id="message.id"
       >
         <div class="message-header">
           <span class="message-role">{{ message.role }}</span>
           <span class="message-time">{{ formatTime(message.timestamp) }}</span>
+          <!-- Branch button for user messages -->
+          <button
+            v-if="message.role === 'user' && canBranch && branchingMessageId !== message.id"
+            type="button"
+            class="branch-btn"
+            @click="openBranchEditor(message.id)"
+            title="Create a branch from this message"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 2v8M4 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM12 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM4 6c0 2 2 4 4 4h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="branch-btn-text">Branch</span>
+          </button>
         </div>
         <div class="message-content">
           <MarkdownViewer v-if="message.role === 'assistant'" :content="message.content" />
@@ -41,6 +64,14 @@
         <WorkLogPanel
           v-if="message.role === 'assistant'"
           :work-logs="sessionsStore.getWorkLogsForMessage(message.id)"
+        />
+        <!-- Branch Editor for user messages -->
+        <BranchEditor
+          v-if="message.role === 'user' && branchingMessageId === message.id"
+          ref="branchEditorRef"
+          :message-id="message.id"
+          @create="handleBranchCreate"
+          @cancel="closeBranchEditor"
         />
       </div>
       </template>
@@ -228,6 +259,7 @@ import ModelSelector from './ModelSelector.vue';
 import TemplateSelector from './TemplateSelector.vue';
 import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
+import BranchEditor from './BranchEditor.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 const props = defineProps({
@@ -262,6 +294,8 @@ const togglingMode = ref(false);
 const messagesContainer = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
+const branchingMessageId = ref(null); // Message ID currently being branched from
+const branchEditorRef = ref(null);
 let draftSaveTimer = null;
 
 const modes = [
@@ -284,6 +318,27 @@ const STORAGE_KEY = `session-draft-${props.sessionId}`;
 const canSendMessage = computed(() => {
   const status = sessionsStore.currentSession?.status;
   return status === 'waiting' || status === 'stopped';
+});
+
+const canBranch = computed(() => {
+  const status = sessionsStore.currentSession?.status;
+  // Can only branch when session is not running
+  return status !== 'running' && status !== 'starting';
+});
+
+// Branch origin information for current conversation
+const branchOrigin = computed(() => {
+  const activeConv = sessionsStore.activeConversation;
+  if (!activeConv?.parentConversationId) return null;
+
+  const parentConv = sessionsStore.getConversationById(activeConv.parentConversationId);
+  const parentName = parentConv?.name || 'Parent conversation';
+
+  return {
+    parentId: activeConv.parentConversationId,
+    parentName,
+    branchFromMessageId: activeConv.branchFromMessageId,
+  };
 });
 
 const isDraft = computed(() => {
@@ -769,6 +824,44 @@ async function handleTemplateChange(templateId) {
     uiStore.error(err.message);
   }
 }
+
+// Branching methods
+function openBranchEditor(messageId) {
+  branchingMessageId.value = messageId;
+}
+
+function closeBranchEditor() {
+  branchingMessageId.value = null;
+}
+
+async function handleBranchCreate({ messageId, name, prompt }) {
+  try {
+    const activeConv = sessionsStore.activeConversation;
+    if (!activeConv) {
+      throw new Error('No active conversation');
+    }
+
+    await sessionsStore.branchConversation(
+      props.sessionId,
+      activeConv.id,
+      messageId,
+      name,
+      prompt
+    );
+
+    closeBranchEditor();
+    uiStore.success('Branch created successfully');
+
+    // Scroll to show the new content
+    scrollToBottom(true);
+  } catch (err) {
+    uiStore.error(err.message);
+    // Reset the creating state in the editor
+    if (branchEditorRef.value) {
+      branchEditorRef.value.resetCreating();
+    }
+  }
+}
 </script>
 
 <style scoped>
@@ -780,6 +873,32 @@ async function handleTemplateChange(templateId) {
 
 .conversation-usage {
   margin-bottom: 1rem;
+}
+
+.branch-origin-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: 0.375rem;
+  color: rgba(139, 92, 246, 0.9);
+  font-size: 0.8125rem;
+}
+
+.branch-origin-indicator svg {
+  flex-shrink: 0;
+}
+
+.branch-origin-text {
+  color: var(--color-text-soft);
+}
+
+.branch-origin-text strong {
+  color: var(--color-text);
+  font-weight: 600;
 }
 
 .messages {
@@ -834,6 +953,48 @@ async function handleTemplateChange(templateId) {
 .message-time {
   font-size: 0.75rem;
   color: var(--color-text-soft);
+}
+
+/* Branch button - shows on hover for user messages */
+.branch-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+  padding: 0.25rem 0.5rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 500;
+  opacity: 0;
+  transition: opacity 0.15s, background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.message-branchable:hover .branch-btn {
+  opacity: 1;
+}
+
+.branch-btn:hover {
+  background: rgba(139, 92, 246, 0.1);
+  border-color: rgba(139, 92, 246, 0.3);
+  color: rgba(139, 92, 246, 0.9);
+}
+
+.branch-btn:active {
+  transform: scale(0.97);
+}
+
+.branch-btn-text {
+  display: none;
+}
+
+@media (min-width: 480px) {
+  .branch-btn-text {
+    display: inline;
+  }
 }
 
 .message-content {

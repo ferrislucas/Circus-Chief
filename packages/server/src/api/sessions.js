@@ -514,7 +514,8 @@ router.get('/:id/conversations', (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const sessionConversations = conversations.getBySessionIdWithMessageCount(req.params.id);
+  // Use getBySessionIdWithBranchInfo to include branching metadata
+  const sessionConversations = conversations.getBySessionIdWithBranchInfo(req.params.id);
   res.json(sessionConversations);
 });
 
@@ -656,6 +657,53 @@ router.post('/:id/conversations/:convId/summary', async (req, res) => {
     res.json({ summary });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/sessions/:id/conversations/:convId/branch - Create a branch from a conversation
+router.post('/:id/conversations/:convId/branch', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Block branching while session is running
+  if (session.status === 'running') {
+    return res.status(400).json({ error: 'Cannot branch conversation while session is running' });
+  }
+
+  const conversation = conversations.getById(req.params.convId);
+  if (!conversation || conversation.sessionId !== req.params.id) {
+    return res.status(404).json({ error: 'Conversation not found' });
+  }
+
+  const { messageId, name, prompt } = req.body;
+
+  if (!messageId) {
+    return res.status(400).json({ error: 'messageId is required' });
+  }
+
+  try {
+    // Create the branch
+    const branchConversation = conversations.branch(
+      req.params.convId,
+      messageId,
+      name || null,
+      prompt || null
+    );
+
+    // Broadcast the new conversation to session subscribers
+    broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CONVERSATION_CREATED, {
+      sessionId: req.params.id,
+      conversation: branchConversation,
+    });
+
+    // If a prompt was provided, we may want to start the session automatically
+    // For now, just return the created conversation
+    res.status(201).json(branchConversation);
+  } catch (error) {
+    console.error('Branch conversation error:', error);
+    res.status(400).json({ error: error.message });
   }
 });
 

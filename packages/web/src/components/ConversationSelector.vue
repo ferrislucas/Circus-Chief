@@ -16,29 +16,18 @@
         </button>
 
         <div v-if="isOpen" class="dropdown-menu">
-          <div
-            v-for="(conv, index) in conversations"
+          <!-- Tree view of conversations -->
+          <ConversationTreeItem
+            v-for="(conv, index) in rootConversations"
             :key="conv.id"
-            :class="['dropdown-item', { active: conv.id === activeConversationId }]"
-            @click="selectConversation(conv.id)"
-          >
-            <span class="conv-name">{{ getConversationDisplayName(conv, index) }}</span>
-            <span class="conv-meta">
-              {{ conv.messageCount || 0 }} msgs
-              <span v-if="getConversationTokens(conv)" class="conv-tokens">
-                · {{ getConversationTokens(conv) }}
-              </span>
-            </span>
-            <button
-              v-if="conversations.length > 1 && conv.id !== activeConversationId"
-              type="button"
-              class="delete-btn"
-              @click.stop="handleDelete(conv.id)"
-              title="Delete conversation"
-            >
-              ×
-            </button>
-          </div>
+            :conversation="conv"
+            :index="index"
+            :depth="0"
+            :all-conversations="conversations"
+            :active-conversation-id="activeConversationId"
+            @select="selectConversation"
+            @delete="handleDelete"
+          />
         </div>
       </div>
 
@@ -60,6 +49,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
+import ConversationTreeItem from './ConversationTreeItem.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -73,6 +63,11 @@ const isOpen = ref(false);
 const conversations = computed(() => sessionsStore.conversations);
 const activeConversationId = computed(() => sessionsStore.activeConversationId);
 const activeConversation = computed(() => sessionsStore.activeConversation);
+
+// Root conversations are those without a parent (top-level)
+const rootConversations = computed(() => {
+  return conversations.value.filter(c => !c.parentConversationId);
+});
 
 // Check if session is currently running or starting
 const isSessionRunning = computed(() => {
@@ -194,7 +189,7 @@ defineExpose({
 .dropdown-container {
   position: relative;
   flex: 1;
-  max-width: 300px;
+  max-width: 350px;
 }
 
 .dropdown-trigger {
@@ -234,72 +229,18 @@ defineExpose({
   position: absolute;
   top: 100%;
   left: 0;
-  right: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: 450px;
   margin-top: 0.25rem;
   background: var(--color-background);
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 100;
-  max-height: 250px;
+  max-height: 350px;
   overflow-y: auto;
-}
-
-.dropdown-item {
-  display: flex;
-  align-items: center;
-  padding: 0.625rem 0.75rem;
-  cursor: pointer;
-  transition: background-color 0.15s;
-  gap: 0.5rem;
-}
-
-.dropdown-item:hover {
-  background: var(--color-background-soft);
-}
-
-.dropdown-item.active {
-  background: rgba(88, 166, 255, 0.1);
-  border-left: 3px solid var(--color-primary);
-}
-
-.conv-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.875rem;
-}
-
-.conv-meta {
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
-  white-space: nowrap;
-}
-
-.conv-tokens {
-  font-family: var(--font-mono);
-}
-
-.delete-btn {
-  padding: 0.125rem 0.375rem;
-  background: transparent;
-  border: none;
-  color: var(--color-text-soft);
-  font-size: 1rem;
-  cursor: pointer;
-  border-radius: 0.25rem;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s, background-color 0.15s;
-}
-
-.dropdown-item:hover .delete-btn {
-  opacity: 1;
-}
-
-.delete-btn:hover {
-  background: var(--color-danger, #ef4444);
-  color: white;
+  padding: 0.25rem;
 }
 
 .btn-new {
