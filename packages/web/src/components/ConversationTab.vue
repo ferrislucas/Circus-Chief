@@ -62,7 +62,7 @@
 
       <!-- Jump to Claude's turn button -->
       <button
-        v-if="hasAssistantMessages && !isNearBottom"
+        v-if="hasAssistantMessages"
         class="scroll-to-claude-btn"
         @click="scrollToClaudesTurn"
         title="Jump to Claude's response"
