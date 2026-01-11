@@ -1011,9 +1011,9 @@ export const useSessionsStore = defineStore('sessions', {
     async branchConversation(sessionId, conversationId, messageId, name = null, prompt = null) {
       this.error = null;
       try {
+        // Note: name is auto-generated from prompt on the server side
         const branchConversation = await api.branchConversation(sessionId, conversationId, {
           messageId,
-          name,
           prompt,
         });
 
