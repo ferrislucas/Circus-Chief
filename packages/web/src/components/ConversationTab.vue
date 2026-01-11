@@ -62,7 +62,7 @@
 
       <!-- Jump to Claude's turn button -->
       <button
-        v-if="hasAssistantMessages"
+        v-if="hasAssistantMessages && isNearBottom"
         class="scroll-to-claude-btn"
         @click="scrollToClaudesTurn"
         title="Jump to Claude's response"
@@ -1203,8 +1203,7 @@ async function handleTemplateChange(templateId) {
   top: 8px;
   right: 8px;
   z-index: 10;
-  width: 32px;
-  height: 32px;
+  padding: 0.375rem 0.75rem;
   background: rgba(31, 41, 55, 0.85);
   border: 1px solid rgba(75, 85, 99, 0.5);
   border-radius: 6px;
@@ -1217,7 +1216,7 @@ async function handleTemplateChange(templateId) {
   align-items: center;
   justify-content: center;
   font-size: 0.875rem;
-  padding: 0;
+  white-space: nowrap;
   line-height: 1;
   font-weight: 500;
 }
