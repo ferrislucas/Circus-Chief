@@ -59,22 +59,8 @@
             </div>
           </div>
 
-          <div class="mode-selector">
-            <span class="mode-label">Mode:</span>
-            <div class="mode-buttons-container">
-              <div class="mode-buttons">
-                <button
-                  type="button"
-                  v-for="m in modes"
-                  :key="m.value"
-                  :class="['mode-btn', { active: mode === m.value }]"
-                  @click="mode = m.value"
-                  :title="m.description"
-                >
-                  {{ m.label }}
-                </button>
-              </div>
-            </div>
+          <div class="mode-selector-wrapper">
+            <ModeSelector v-model="mode" />
           </div>
 
           <div class="model-selector-wrapper">
@@ -194,6 +180,7 @@ import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import { generateWorktreeBranch, DEFAULT_MODEL } from '@claudetools/shared';
 import FileAttachment from '../components/FileAttachment.vue';
 import ModelSelector from '../components/ModelSelector.vue';
+import ModeSelector from '../components/ModeSelector.vue';
 import QuickResponsesPanel from '../components/QuickResponsesPanel.vue';
 
 const route = useRoute();
@@ -252,11 +239,6 @@ const availableSessions = computed(() => {
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 });
 
-const modes = [
-  { value: 'plan', label: 'Plan', description: 'Agent plans before implementing - good for complex tasks' },
-  { value: 'standard', label: 'Standard', description: 'Balanced approach - asks for approval when needed' },
-  { value: 'yolo', label: 'YOLO', description: 'Auto-approve mode - agent acts autonomously' },
-];
 const loadingGit = ref(false);
 const error = ref(null);
 const thinkingEnabled = ref(true);
@@ -659,14 +641,8 @@ h1 {
   color: var(--color-text-soft);
 }
 
-/* Mode selector */
-.mode-selector {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-}
-
-.mode-buttons-container {
+/* Mode and model selector wrappers */
+.mode-selector-wrapper {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -676,47 +652,6 @@ h1 {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.mode-label {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-}
-
-.mode-buttons {
-  display: flex;
-  border: 1px solid var(--color-border);
-  border-radius: 0.375rem;
-  overflow: hidden;
-}
-
-.mode-btn {
-  padding: 0.375rem 0.75rem;
-  font-size: 0.75rem;
-  font-weight: 500;
-  background: var(--color-background);
-  border: none;
-  border-right: 1px solid var(--color-border);
-  color: var(--color-text-soft);
-  cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.mode-btn:last-child {
-  border-right: none;
-}
-
-.mode-btn:hover {
-  background: var(--color-bg-hover);
-}
-
-.mode-btn.active,
-.mode-btn.active:focus {
-  background: var(--color-primary);
-  color: white;
-  outline: none;
 }
 
 .toggle-switch {
