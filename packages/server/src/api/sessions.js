@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { readFileSync, existsSync } from 'fs';
 import { extname, resolve, normalize } from 'path';
 import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons, commandRuns } from '../database.js';
-import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
+import { continueSession, stopSession, restartSession, cleanupActiveSession, continueSessionWithExistingMessage } from '../services/sessionManager.js';
 import { getChanges, getChangesBranch } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
@@ -514,7 +514,8 @@ router.get('/:id/conversations', (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const sessionConversations = conversations.getBySessionIdWithMessageCount(req.params.id);
+  // Use getBySessionIdWithBranchInfo to include branching metadata
+  const sessionConversations = conversations.getBySessionIdWithBranchInfo(req.params.id);
   res.json(sessionConversations);
 });
 
@@ -656,6 +657,76 @@ router.post('/:id/conversations/:convId/summary', async (req, res) => {
     res.json({ summary });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/sessions/:id/conversations/:convId/branch - Create a branch from a conversation
+router.post('/:id/conversations/:convId/branch', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Block branching while session is running
+  if (session.status === 'running') {
+    return res.status(400).json({ error: 'Cannot branch conversation while session is running' });
+  }
+
+  const conversation = conversations.getById(req.params.convId);
+  if (!conversation || conversation.sessionId !== req.params.id) {
+    return res.status(404).json({ error: 'Conversation not found' });
+  }
+
+  const { messageId, prompt } = req.body;
+
+  if (!messageId) {
+    return res.status(400).json({ error: 'messageId is required' });
+  }
+
+  if (!prompt || !prompt.trim()) {
+    return res.status(400).json({ error: 'prompt is required' });
+  }
+
+  try {
+    // Create the branch
+    // Note: name is auto-generated from the prompt in ConversationRepository.branch()
+    const branchConversation = conversations.branch(
+      req.params.convId,
+      messageId,
+      null, // name is auto-generated from prompt
+      prompt
+    );
+
+    // Broadcast the new conversation to session subscribers
+    broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CONVERSATION_CREATED, {
+      sessionId: req.params.id,
+      conversation: branchConversation,
+    });
+
+    // Auto-submit to Claude: Start the session with the new prompt
+    // The branch already has the user message, so we use continueSessionWithExistingMessage
+    // which triggers Claude's response WITHOUT creating a duplicate user message
+    try {
+      const project = projects.getById(session.projectId);
+      const workingDirectory = session.gitWorktree || project?.workingDirectory;
+      if (workingDirectory) {
+        await continueSessionWithExistingMessage(
+          req.params.id,
+          branchConversation.id,
+          workingDirectory,
+          project?.systemPrompt
+        );
+      }
+    } catch (err) {
+      console.error('Failed to auto-start branched conversation:', err);
+      // Don't fail the whole request if auto-start fails
+      // User can manually trigger from the UI
+    }
+
+    res.status(201).json(branchConversation);
+  } catch (error) {
+    console.error('Branch conversation error:', error);
+    res.status(400).json({ error: error.message });
   }
 });
 
