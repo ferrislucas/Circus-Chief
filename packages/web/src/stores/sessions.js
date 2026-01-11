@@ -173,23 +173,21 @@ export const useSessionsStore = defineStore('sessions', {
         }
       }
 
-      // FINALIZED: Try conversation first, but fall back to session if conversation has no tokens
+      // FINALIZED: Use conversation tokens if available, otherwise show zeros
+      // Don't fall back to session aggregate - that shows sum of ALL conversations which is confusing
       let source = null;
 
       if (state.activeConversationId && state.conversations.length > 0) {
         const conv = state.conversations.find((c) => c.id === state.activeConversationId);
-        // Only use conversation if it actually has token data
-        if (conv && ((conv.inputTokens || 0) > 0 || (conv.outputTokens || 0) > 0)) {
+        if (conv) {
           source = conv;
         }
       }
 
-      // Fall back to session if no valid conversation data
+      // If no conversation data, return zeros instead of session aggregate
       if (!source) {
-        source = state.currentSession;
+        return { input: '0', output: '0', total: '0', cacheRead: '0', cacheCreation: '0' };
       }
-
-      if (!source) return { input: '0', output: '0', total: '0', cacheRead: '0', cacheCreation: '0' };
 
       return {
         input: format(source.inputTokens || 0),
@@ -227,6 +225,29 @@ export const useSessionsStore = defineStore('sessions', {
         return false;
       }
       return true;
+    },
+
+    /**
+     * Get tokens for a specific conversation, considering runningUsage if active
+     * Used by ConversationSelector to show real-time token updates in dropdown
+     */
+    getConversationDisplayTokens: (state) => (conversationId) => {
+      // If this conversation has active runningUsage, use that for real-time display
+      if (state.runningUsage && state.runningUsage.conversationId === conversationId) {
+        return {
+          inputTokens: state.runningUsage.inputTokens || 0,
+          outputTokens: state.runningUsage.outputTokens || 0,
+          total: (state.runningUsage.inputTokens || 0) + (state.runningUsage.outputTokens || 0),
+        };
+      }
+      // Otherwise use stored conversation data
+      const conv = state.conversations.find((c) => c.id === conversationId);
+      if (!conv) return { inputTokens: 0, outputTokens: 0, total: 0 };
+      return {
+        inputTokens: conv.inputTokens || 0,
+        outputTokens: conv.outputTokens || 0,
+        total: (conv.inputTokens || 0) + (conv.outputTokens || 0),
+      };
     },
   },
 
