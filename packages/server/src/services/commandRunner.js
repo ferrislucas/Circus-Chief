@@ -4,6 +4,26 @@ import { commandRuns } from '../database.js';
 import { createRobustEnv } from './nodeSpawnHelper.js';
 
 /**
+ * Strip ANSI escape codes from text
+ * Removes all CSI (Control Sequence Introducer) sequences:
+ * - SGR codes: \x1b[...m (colors, bold, italic, etc.)
+ * - Cursor movement: \x1b[1A, \x1b[2B, etc.
+ * - Line/screen clearing: \x1b[2K, \x1b[0J, etc.
+ * - Other CSI sequences: \x1b[...H, \x1b[...J, etc.
+ *
+ * @param {string} text - Text potentially containing ANSI codes
+ * @returns {string} Text with all ANSI codes removed
+ */
+export function stripAnsiCodes(text) {
+  if (!text || typeof text !== 'string') {
+    return text;
+  }
+  // Match all CSI sequences: ESC [ <params> <final-char>
+  // This covers colors, cursor movement, line clearing, and other terminal control sequences
+  return text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+}
+
+/**
  * Service for running commands and managing their execution
  */
 export class CommandRunner {
@@ -115,14 +135,16 @@ export class CommandRunner {
         setupBufferTimer();
 
         child.stdout.on('data', (data) => {
-          const text = data.toString();
+          const rawText = data.toString();
+          const text = stripAnsiCodes(rawText);
           entry.output += text;
           entry.outputBuffer += text;
           if (onOutput) onOutput(text);
         });
 
         child.stderr.on('data', (data) => {
-          const text = data.toString();
+          const rawText = data.toString();
+          const text = stripAnsiCodes(rawText);
           entry.output += text;
           entry.outputBuffer += text;
           if (onOutput) onOutput(text);
