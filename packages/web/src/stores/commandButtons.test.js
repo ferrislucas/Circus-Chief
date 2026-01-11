@@ -943,4 +943,139 @@ describe('CommandButtons Store', () => {
       expect(store.runs['run-1'].completedAt).toBeUndefined();
     });
   });
+
+  describe('killRun', () => {
+    it('calls killCommandRun API with correct parameters', async () => {
+      const store = useCommandButtonsStore();
+      api.killCommandRun.mockResolvedValue({});
+
+      await store.killRun('session-123', 'run-456');
+
+      expect(api.killCommandRun).toHaveBeenCalledWith('session-123', 'run-456');
+      expect(api.killCommandRun).toHaveBeenCalledTimes(1);
+    });
+
+    it('sets error on API failure', async () => {
+      const store = useCommandButtonsStore();
+      const error = new Error('Kill failed: process not found');
+      api.killCommandRun.mockRejectedValue(error);
+
+      try {
+        await store.killRun('session-123', 'run-456');
+      } catch (e) {
+        // Expected to throw
+      }
+
+      expect(store.error).toBe('Kill failed: process not found');
+    });
+
+    it('throws error on API failure', async () => {
+      const store = useCommandButtonsStore();
+      const error = new Error('Process already dead');
+      api.killCommandRun.mockRejectedValue(error);
+
+      await expect(store.killRun('session-123', 'run-456')).rejects.toThrow('Process already dead');
+    });
+
+    it('updates run status to error when process is already dead', async () => {
+      const store = useCommandButtonsStore();
+      const runId = 'run-456';
+
+      // Pre-populate store with a running command
+      store.runs = {
+        [runId]: {
+          runId,
+          buttonId: 'btn-1',
+          sessionId: 'session-123',
+          status: 'running',
+          output: 'Still running\n',
+          exitCode: null,
+        },
+      };
+
+      // API call fails because process is already dead
+      api.killCommandRun.mockRejectedValue(new Error('Run not found or already completed'));
+
+      try {
+        await store.killRun('session-123', runId);
+      } catch (e) {
+        // Expected to throw
+      }
+
+      // Run status should be updated to error so UI can show Run button again
+      expect(store.runs[runId].status).toBe('error');
+      expect(store.runs[runId].exitCode).toBe(-1);
+    });
+
+    it('does not update status if run is not in state', async () => {
+      const store = useCommandButtonsStore();
+      api.killCommandRun.mockRejectedValue(new Error('Process already dead'));
+
+      try {
+        await store.killRun('session-123', 'nonexistent-run');
+      } catch (e) {
+        // Expected to throw
+      }
+
+      // Store should still set error
+      expect(store.error).toBe('Process already dead');
+
+      // But no run should be created
+      expect(Object.keys(store.runs).length).toBe(0);
+    });
+
+    it('does not update status if run is not in running state', async () => {
+      const store = useCommandButtonsStore();
+      const runId = 'run-456';
+
+      // Pre-populate with a completed run
+      store.runs = {
+        [runId]: {
+          runId,
+          buttonId: 'btn-1',
+          sessionId: 'session-123',
+          status: 'success',
+          output: 'Command completed\n',
+          exitCode: 0,
+        },
+      };
+
+      api.killCommandRun.mockRejectedValue(new Error('Process already dead'));
+
+      try {
+        await store.killRun('session-123', runId);
+      } catch (e) {
+        // Expected to throw
+      }
+
+      // Run status should remain success (not changed)
+      expect(store.runs[runId].status).toBe('success');
+      expect(store.runs[runId].exitCode).toBe(0);
+    });
+
+    it('succeeds silently when kill is successful', async () => {
+      const store = useCommandButtonsStore();
+      const runId = 'run-456';
+
+      store.runs = {
+        [runId]: {
+          runId,
+          buttonId: 'btn-1',
+          sessionId: 'session-123',
+          status: 'running',
+          output: 'Running\n',
+          exitCode: null,
+        },
+      };
+
+      api.killCommandRun.mockResolvedValue({});
+
+      // Should not throw
+      await store.killRun('session-123', runId);
+
+      // Run status should remain running (will be updated by server response)
+      expect(store.runs[runId].status).toBe('running');
+      expect(store.error).toBeNull();
+    });
+  });
 });
