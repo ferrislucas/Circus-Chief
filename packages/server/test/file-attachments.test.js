@@ -558,6 +558,21 @@ describe('File Attachments API', () => {
       expect(response.body.success).toBe(true);
     });
 
+    it('accepts message when session is in error state', async () => {
+      sessions.update(session.id, { status: 'error' });
+
+      const response = await request(app)
+        .post(`/api/sessions/${session.id}/message`)
+        .field('content', 'Continuing from error')
+        .attach('files', Buffer.from('content'), {
+          filename: 'test.txt',
+          contentType: 'text/plain',
+        })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+    });
+
     it('sends multiple files in a single message', async () => {
       const response = await request(app)
         .post(`/api/sessions/${session.id}/message`)
