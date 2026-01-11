@@ -328,14 +328,20 @@ export class ConversationRepository extends BaseRepository {
 
   /**
    * Create a branch from an existing conversation at a specific message
-   * Copies all messages up to and including the specified message to a new conversation
+   * Copies all messages BEFORE the specified message to a new conversation,
+   * then adds the initialPrompt as a replacement for that message
    * @param {string} conversationId - The source conversation ID
-   * @param {string} messageId - The message ID to branch from (include this message and all before)
-   * @param {string} [name] - Optional name for the new conversation
-   * @param {string} [initialPrompt] - Optional initial prompt to add after the branch point
+   * @param {string} messageId - The message ID to branch from (messages before this are copied, this message is replaced)
+   * @param {string} [name] - Optional name for the new conversation (if not provided, auto-generated from prompt)
+   * @param {string} initialPrompt - Required: the new prompt that replaces the branch point message
    * @returns {Object} The created branch conversation
    */
   branch(conversationId, messageId, name = null, initialPrompt = null) {
+    // Prompt is now required for branching
+    if (!initialPrompt || !initialPrompt.trim()) {
+      throw new Error('A prompt is required when branching');
+    }
+
     const sourceConv = this.getById(conversationId);
     if (!sourceConv) {
       throw new Error('Source conversation not found');
@@ -353,8 +359,11 @@ export class ConversationRepository extends BaseRepository {
     const id = databaseManager.generateId();
     const now = Date.now();
 
-    // Generate name if not provided
-    const branchName = name || `Branch from "${sourceConv.name || 'conversation'}"`;
+    // Auto-generate name from the prompt (first 40 chars)
+    const promptPreview = initialPrompt.length > 40
+      ? initialPrompt.substring(0, 40) + '...'
+      : initialPrompt;
+    const branchName = name || promptPreview;
 
     // Deactivate all other conversations
     this.db
@@ -369,11 +378,11 @@ export class ConversationRepository extends BaseRepository {
       )
       .run(id, sourceConv.sessionId, branchName, conversationId, messageId, now, now);
 
-    // Copy all messages up to and including the branch point message
+    // Copy all messages BEFORE the branch point (NOT including it)
     const messagesToCopy = this.db
       .prepare(
         `SELECT * FROM conversation_messages
-         WHERE conversation_id = ? AND timestamp <= ?
+         WHERE conversation_id = ? AND timestamp < ?
          ORDER BY timestamp ASC`
       )
       .all(conversationId, branchMessage.timestamp);
@@ -388,16 +397,14 @@ export class ConversationRepository extends BaseRepository {
         .run(newMsgId, sourceConv.sessionId, id, msg.role, msg.content, msg.tool_use, msg.timestamp);
     }
 
-    // If initial prompt is provided, add it as a new user message
-    if (initialPrompt) {
-      const promptMsgId = databaseManager.generateId();
-      this.db
-        .prepare(
-          `INSERT INTO conversation_messages (id, session_id, conversation_id, role, content, timestamp)
-           VALUES (?, ?, ?, 'user', ?, ?)`
-        )
-        .run(promptMsgId, sourceConv.sessionId, id, initialPrompt, now);
-    }
+    // Add the new prompt as the replacement for the original user message
+    const promptMsgId = databaseManager.generateId();
+    this.db
+      .prepare(
+        `INSERT INTO conversation_messages (id, session_id, conversation_id, role, content, timestamp)
+         VALUES (?, ?, ?, 'user', ?, ?)`
+      )
+      .run(promptMsgId, sourceConv.sessionId, id, initialPrompt.trim(), now);
 
     return this.getById(id);
   }

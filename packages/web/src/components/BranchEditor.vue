@@ -10,32 +10,18 @@
     </div>
 
     <div class="branch-editor-body">
-      <div class="branch-name-row">
-        <label class="branch-label">Branch name (optional)</label>
-        <input
-          ref="nameInput"
-          v-model="branchName"
-          type="text"
-          class="form-input branch-name-input"
-          placeholder="e.g., Try different approach..."
-          @keydown.enter.prevent="handleCreate"
-          @keydown.escape="handleCancel"
-        />
-      </div>
-
       <div class="branch-prompt-row">
-        <label class="branch-label">Initial prompt (optional)</label>
+        <label class="branch-label">New prompt (replaces original)</label>
         <textarea
           ref="promptInput"
           v-model="initialPrompt"
           class="form-input branch-prompt-input"
-          placeholder="Enter a new prompt to start the branch with..."
+          placeholder="Enter your new prompt..."
           rows="3"
           @keydown.ctrl.enter="handleCreate"
           @keydown.meta.enter="handleCreate"
           @keydown.escape="handleCancel"
         ></textarea>
-        <div class="prompt-hint">Leave empty to just create the branch without a new message</div>
       </div>
     </div>
 
@@ -52,10 +38,10 @@
         type="button"
         class="btn btn-primary"
         @click="handleCreate"
-        :disabled="creating"
+        :disabled="creating || !initialPrompt.trim()"
       >
         <span v-if="creating" class="loading-spinner"></span>
-        {{ creating ? 'Creating...' : 'Create Branch' }}
+        {{ creating ? 'Creating...' : 'Branch & Submit' }}
       </button>
     </div>
   </div>
@@ -70,27 +56,24 @@ const props = defineProps({
 
 const emit = defineEmits(['create', 'cancel']);
 
-const branchName = ref('');
 const initialPrompt = ref('');
 const creating = ref(false);
-const nameInput = ref(null);
 const promptInput = ref(null);
 
 onMounted(() => {
-  // Focus the name input when the component mounts
-  if (nameInput.value) {
-    nameInput.value.focus();
+  // Focus the prompt textarea when the component mounts
+  if (promptInput.value) {
+    promptInput.value.focus();
   }
 });
 
 function handleCreate() {
-  if (creating.value) return;
+  if (creating.value || !initialPrompt.value.trim()) return;
 
   creating.value = true;
   emit('create', {
     messageId: props.messageId,
-    name: branchName.value.trim() || null,
-    prompt: initialPrompt.value.trim() || null,
+    prompt: initialPrompt.value.trim(),
   });
 }
 
@@ -103,7 +86,13 @@ function resetCreating() {
   creating.value = false;
 }
 
-defineExpose({ resetCreating });
+defineExpose({
+  resetCreating,
+  // Exposed for testing
+  handleCreate,
+  handleCancel,
+  initialPrompt,
+});
 </script>
 
 <style scoped>
@@ -152,7 +141,6 @@ defineExpose({ resetCreating });
   gap: 0.75rem;
 }
 
-.branch-name-row,
 .branch-prompt-row {
   display: flex;
   flex-direction: column;
@@ -165,22 +153,11 @@ defineExpose({ resetCreating });
   color: var(--color-text-soft);
 }
 
-.branch-name-input {
-  padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
-}
-
 .branch-prompt-input {
   padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
   resize: vertical;
   min-height: 60px;
-}
-
-.prompt-hint {
-  font-size: 0.6875rem;
-  color: var(--color-text-soft);
-  font-style: italic;
 }
 
 .branch-editor-footer {
