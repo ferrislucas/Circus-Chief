@@ -241,6 +241,7 @@ input, textarea, select {
 /* Tabs */
 .tabs {
   display: flex;
+  align-items: center;
   border-bottom: 1px solid var(--color-border);
   margin-bottom: 1rem;
   /* Sticky positioning - top value accounts for sticky header height */
@@ -248,7 +249,16 @@ input, textarea, select {
   top: var(--header-height, 3rem);
   background-color: var(--color-background);
   z-index: 99;
-  padding-top: 0.5rem;
+  padding: 0.5rem 0.5rem 0 0.5rem; /* Add horizontal padding to prevent cut-off */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+  /* Hide scrollbar but keep functionality */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {

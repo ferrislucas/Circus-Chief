@@ -7,63 +7,45 @@
 
     <template v-else-if="sessionsStore.currentSession">
       <div class="session-header">
-        <div>
+        <!-- Main header row with star, status, name, and menu -->
+        <div class="session-header-row">
+          <!-- Star button (icon only) -->
+          <button
+            class="btn-icon btn-star"
+            :title="sessionsStore.currentSession?.starred ? 'Unstar session' : 'Star session'"
+            :class="{ 'is-starred': sessionsStore.currentSession?.starred }"
+            @click="handleStar"
+          >
+            <svg v-if="sessionsStore.currentSession?.starred" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
+            </svg>
+          </button>
+
+          <!-- Status indicator -->
+          <StatusIndicator :status="sessionsStore.currentSession.status" />
+
+          <!-- Session name -->
           <h3 class="session-name">{{ sessionsStore.currentSession.name }}</h3>
-          <div class="session-meta">
-            <span :class="['status-badge', `status-${sessionsStore.currentSession.status}`]">
-              {{ sessionsStore.currentSession.status }}
-            </span>
-            <span class="session-mode">{{ formatMode(sessionsStore.currentSession.mode) }}</span>
-            <span class="session-model">{{ formatModel(sessionsStore.currentSession.model) }}</span>
-            <span v-if="sessionsStore.currentSession.nextTemplateId" class="template-badge">
-              🔗 Next: {{ getTemplateName(sessionsStore.currentSession.nextTemplateId) }}
-            </span>
-          </div>
-          <div class="branch-line">
-            <div class="branch-pr-indicators">
-              <PrIndicators
-                v-if="sessionsStore.currentSession.prUrl"
-                :pr-url="sessionsStore.currentSession.prUrl"
-                :summary="summary"
-              />
-            </div>
-            <div class="session-action-buttons">
-              <DuplicateSessionButton
-                :session-id="sessionId"
-                :session-name="sessionsStore.currentSession?.name"
-              />
-              <button
-                class="btn btn-outline-secondary btn-star-session"
-                :title="sessionsStore.currentSession?.starred ? 'Unstar session' : 'Star session'"
-                @click="handleStar"
-              >
-                <svg v-if="sessionsStore.currentSession?.starred" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
-                </svg>
-                <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
-                </svg>
-              </button>
-              <button
-                v-if="canArchive"
-                class="btn btn-outline-secondary btn-archive-session"
-                @click="handleArchive"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="2" y="4" width="20" height="5" rx="1" ry="1"></rect>
-                  <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path>
-                  <path d="M10 13h4"></path>
-                </svg>
-                {{ sessionsStore.currentSession?.archived ? 'Unarchive' : 'Archive' }}
-              </button>
-              <button
-                class="btn btn-outline-danger btn-delete-session"
-                @click="handleDelete"
-              >
-                Delete Session
-              </button>
-            </div>
-          </div>
+
+          <!-- Overflow menu with secondary actions -->
+          <OverflowMenu
+            aria-label="Session actions"
+            :is-archived="sessionsStore.currentSession.archived"
+            @duplicate="handleDuplicate"
+            @archive="handleArchive"
+            @delete="handleDelete"
+          />
+        </div>
+
+        <!-- PR indicators below main header -->
+        <div v-if="sessionsStore.currentSession.prUrl" class="branch-pr-indicators">
+          <PrIndicators
+            :pr-url="sessionsStore.currentSession.prUrl"
+            :summary="summary"
+          />
         </div>
       </div>
 
@@ -137,6 +119,8 @@ import SummaryTab from '../components/SummaryTab.vue';
 import CommandsTab from '../components/CommandsTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
 import DuplicateSessionButton from '../components/DuplicateSessionButton.vue';
+import StatusIndicator from '../components/StatusIndicator.vue';
+import OverflowMenu from '../components/OverflowMenu.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
 const route = useRoute();
@@ -418,14 +402,19 @@ onUnmounted(() => {
   sessionsStore.clearRunningUsage();
 });
 
-function formatMode(mode) {
-  if (!mode) return 'Standard';
-  if (mode === 'yolo') return 'YOLO';
-  return mode.charAt(0).toUpperCase() + mode.slice(1);
-}
-
-function formatModel(modelId) {
-  return getModelDisplayName(modelId);
+async function handleDuplicate() {
+  // This delegates to the DuplicateSessionButton's logic
+  // The overflow menu emits the event, and we handle it here
+  // For now, we'll trigger the duplicate action on the store or API
+  try {
+    // Get the current session ID to duplicate
+    const newSessionId = await sessionsStore.duplicateSession(sessionId);
+    uiStore.success('Session duplicated');
+    // Optionally navigate to the new session
+    router.push(`/sessions/${newSessionId}/conversation`);
+  } catch (err) {
+    uiStore.error(err.message);
+  }
 }
 
 async function handleDelete() {
@@ -501,30 +490,66 @@ function getTemplateName(templateId) {
 
 .session-header {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 1.5rem;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0 0.5rem; /* Ensure content doesn't touch screen edges */
+}
+
+.session-header-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-soft, #888);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.btn-icon:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text, #ccc);
+}
+
+.btn-icon:active {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.btn-star {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.btn-star svg {
+  flex-shrink: 0;
+}
+
+.btn-star.is-starred {
+  color: var(--color-warning, #f0ad4e);
 }
 
 .session-name {
-  margin: 0 0 0.5rem;
+  flex: 1;
+  min-width: 0; /* Critical: allows text-overflow to work in flexbox */
+  margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
-}
-
-.session-meta {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.branch-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-  flex-wrap: wrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .branch-pr-indicators {
@@ -534,94 +559,15 @@ function getTemplateName(templateId) {
   flex-wrap: wrap;
 }
 
-.session-action-buttons {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
-.btn-star-session {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-}
-
-.btn-star-session svg {
-  flex-shrink: 0;
-}
-
-.btn-archive-session {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-}
-
-.btn-archive-session svg {
-  flex-shrink: 0;
-}
-
-.btn-delete-session {
-  flex-shrink: 0;
-}
-
 @media (max-width: 768px) {
-  .branch-line {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.75rem;
+  .session-header-row {
+    /* Keep everything on one line - don't wrap */
+    min-height: 44px; /* Touch target minimum */
   }
 
-  .branch-pr-indicators {
-    order: 2;
+  .session-name {
+    font-size: 1rem; /* Slightly smaller on mobile */
   }
-
-  .session-action-buttons {
-    order: 1;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.5rem;
-    width: 100%;
-    margin-left: 0;
-  }
-
-  .session-action-buttons .btn {
-    font-size: 0.8125rem;
-    padding: 0.5rem 0.75rem;
-    justify-content: center;
-  }
-
-  .btn-delete-session {
-    grid-column: span 2;
-  }
-}
-
-.session-mode {
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
-}
-
-.session-model {
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
-}
-
-.session-usage {
-  margin-top: 0.75rem;
-}
-
-.template-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.2rem 0.5rem;
-  font-size: 0.7rem;
-  font-weight: 500;
-  color: #333;
-  background: var(--color-warning, #f0ad4e);
-  border-radius: 4px;
-  white-space: nowrap;
 }
 
 .tab-content {
