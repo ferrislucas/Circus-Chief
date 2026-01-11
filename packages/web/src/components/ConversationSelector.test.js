@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { nextTick } from 'vue';
 import ConversationSelector from './ConversationSelector.vue';
+import ConversationTreeItem from './ConversationTreeItem.vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 
@@ -59,6 +60,9 @@ describe('ConversationSelector', () => {
         ...props,
       },
       global: {
+        components: {
+          ConversationTreeItem,
+        },
         stubs: {
           transition: false,
         },
@@ -139,7 +143,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       expect(items.length).toBe(3);
     });
 
@@ -149,7 +153,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const activeItem = wrapper.find('.dropdown-item.active');
+      const activeItem = wrapper.find('.tree-item-row.active');
       expect(activeItem.exists()).toBe(true);
       expect(activeItem.find('.conv-name').text()).toBe('Second Conversation');
     });
@@ -160,7 +164,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       expect(items[0].find('.conv-meta').text()).toContain('5 msgs');
       expect(items[1].find('.conv-meta').text()).toContain('10 msgs');
     });
@@ -171,7 +175,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       expect(items[0].find('.delete-btn').exists()).toBe(true);
       expect(items[1].find('.delete-btn').exists()).toBe(false);
     });
@@ -183,7 +187,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       await items[0].trigger('click');
       await flushPromises();
 
@@ -196,7 +200,7 @@ describe('ConversationSelector', () => {
       await flushAll(wrapper);
       expect(wrapper.find('.dropdown-menu').exists()).toBe(true);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       await items[0].trigger('click');
       await flushPromises();
       await flushAll(wrapper);
@@ -209,7 +213,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       await items[1].trigger('click');
       await flushPromises();
 
@@ -223,7 +227,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       await items[0].trigger('click');
       await flushPromises();
 
@@ -381,7 +385,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       expect(items[0].find('.conv-name').text()).toBe('1st conversation');
       expect(items[1].find('.conv-name').text()).toBe('2nd conversation');
       expect(items[2].find('.conv-name').text()).toBe('3rd conversation');
@@ -404,7 +408,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       expect(items[0].find('.conv-name').text()).toBe('1st conversation');
       expect(items[1].find('.conv-name').text()).toBe('2nd conversation');
       expect(items[2].find('.conv-name').text()).toBe('3rd conversation');
@@ -428,7 +432,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       expect(items[10].find('.conv-name').text()).toBe('11th conversation');
       expect(items[11].find('.conv-name').text()).toBe('12th conversation');
       expect(items[12].find('.conv-name').text()).toBe('13th conversation');
@@ -449,7 +453,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       expect(items[0].find('.conv-name').text()).toBe('My Custom Name');
       expect(items[1].find('.conv-name').text()).toBe('Another Custom');
       expect(items[2].find('.conv-name').text()).toBe('3rd conversation');
@@ -469,7 +473,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       expect(items[0].text()).toContain('1.5K');
       expect(items[1].text()).toContain('7.5K');
     });
@@ -486,7 +490,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       expect(items[0].find('.conv-meta').text()).toContain('0 msgs');
     });
 
@@ -502,7 +506,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       expect(items[0].text()).toContain('75.0K');
     });
 
@@ -518,7 +522,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       expect(items[0].text()).toContain('2.0M');
     });
 
@@ -534,7 +538,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       expect(items[0].exists()).toBe(true);
     });
 
@@ -550,7 +554,7 @@ describe('ConversationSelector', () => {
       wrapper.vm.isOpen = true;
       await flushAll(wrapper);
 
-      const items = wrapper.findAll('.dropdown-item');
+      const items = wrapper.findAll('.tree-item-row');
       const meta = items[0].find('.conv-meta');
       expect(meta.exists()).toBe(true);
       expect(meta.text()).toContain('3.0K');
