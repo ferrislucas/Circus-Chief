@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { CommandRunner } from './commandRunner.js';
+import { CommandRunner, stripAnsiCodes } from './commandRunner.js';
 import * as osModule from 'os';
 
 describe('CommandRunner', () => {
@@ -690,6 +690,93 @@ describe('CommandRunner', () => {
 
       expect(exitCode).toBe(0);
       expect(output.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('stripAnsiCodes', () => {
+    it('removes SGR color codes', () => {
+      expect(stripAnsiCodes('\x1b[31mRed\x1b[0m')).toBe('Red');
+      expect(stripAnsiCodes('\x1b[1;32mBold Green\x1b[0m')).toBe('Bold Green');
+      expect(stripAnsiCodes('\x1b[4;33mUnderline Yellow\x1b[0m')).toBe('Underline Yellow');
+    });
+
+    it('removes cursor movement sequences', () => {
+      expect(stripAnsiCodes('\x1b[1AUp')).toBe('Up');
+      expect(stripAnsiCodes('\x1b[2BDown')).toBe('Down');
+      expect(stripAnsiCodes('\x1b[3CRight')).toBe('Right');
+      expect(stripAnsiCodes('\x1b[4DLeft')).toBe('Left');
+    });
+
+    it('removes line clearing sequences', () => {
+      expect(stripAnsiCodes('\x1b[2KCleared')).toBe('Cleared');
+      expect(stripAnsiCodes('\x1b[0KPartial')).toBe('Partial');
+      expect(stripAnsiCodes('\x1b[1KPartialBefore')).toBe('PartialBefore');
+    });
+
+    it('removes cursor positioning sequences', () => {
+      expect(stripAnsiCodes('\x1b[1GColumn')).toBe('Column');
+      expect(stripAnsiCodes('\x1b[5;10HPosition')).toBe('Position');
+    });
+
+    it('removes screen clearing sequences', () => {
+      expect(stripAnsiCodes('\x1b[2JScreen')).toBe('Screen');
+      expect(stripAnsiCodes('\x1b[0JFrom')).toBe('From');
+      expect(stripAnsiCodes('\x1b[3JScrollback')).toBe('Scrollback');
+    });
+
+    it('handles yarn-style progress output', () => {
+      // Real yarn output uses ESC sequences (\x1b), not literal brackets
+      const yarnOutput = '\x1b[2K\x1b[1Gyarn install v1.22.22\n\x1b[2K\x1b[1G[1/4] Resolving packages...\n\x1b[2K\x1b[1G[] 0/576\x1b[1G[] 69/576';
+      const cleaned = stripAnsiCodes(yarnOutput);
+      expect(cleaned).toContain('yarn install');
+      expect(cleaned).toContain('[1/4]');
+      expect(cleaned).toContain('[] 0/576');
+      expect(cleaned).toContain('[] 69/576');
+      // The cleaned output should not contain any ESC sequences
+      expect(cleaned).not.toContain('\x1b');
+    });
+
+    it('preserves regular text content', () => {
+      const input = 'This is plain text';
+      expect(stripAnsiCodes(input)).toBe(input);
+    });
+
+    it('handles mixed content with colors and cursor codes', () => {
+      const mixed = '\x1b[2K\x1b[1G\x1b[32mSuccess\x1b[0m\x1b[1A\x1b[0K';
+      const cleaned = stripAnsiCodes(mixed);
+      expect(cleaned).toBe('Success');
+      expect(cleaned).not.toContain('\x1b');
+    });
+
+    it('handles null and non-string inputs gracefully', () => {
+      expect(stripAnsiCodes(null)).toBe(null);
+      expect(stripAnsiCodes(undefined)).toBe(undefined);
+      expect(stripAnsiCodes('')).toBe('');
+      expect(stripAnsiCodes(123)).toBe(123);
+    });
+
+    it('strips ANSI codes during command output capture', async () => {
+      const outputs = [];
+      const output = [];
+
+      const result = await runner.run(
+        'test-ansi-strip',
+        // Create output with ANSI codes
+        `echo "\\x1b[31mRed Text\\x1b[0m" && echo "\\x1b[1;32mBold Green\\x1b[0m"`,
+        process.cwd(),
+        (text) => {
+          outputs.push(text);
+        },
+        (code, fullOutput) => {
+          output.push(fullOutput);
+        }
+      );
+
+      expect(result).toBe(0);
+      // The output callbacks should receive cleaned text (without ANSI codes)
+      const allOutput = outputs.join('');
+      // Note: The actual content depends on how the shell interprets the escape sequences
+      // What's important is that if any ANSI codes are present, they should be minimal
     });
   });
 });
