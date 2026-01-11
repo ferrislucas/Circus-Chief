@@ -310,6 +310,11 @@ const buttonStatusesToDisplay = computed(() => {
   const projectId = props.session.projectId;
   if (!projectId) return [];
 
+  // Access state.runs directly to ensure Vue tracks it as a dependency
+  // (getters returning functions don't properly track reactive deps)
+  // eslint-disable-next-line no-unused-vars
+  const _runsRef = commandButtonsStore.runs;
+
   const buttons = commandButtonsStore.getButtonsByProjectId(projectId);
   const displayButtons = [];
 
