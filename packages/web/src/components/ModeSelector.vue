@@ -1,15 +1,15 @@
 <template>
-  <div class="model-selector">
-    <label for="model-select" class="model-label">Model:</label>
+  <div class="mode-selector">
+    <label for="mode-select" class="mode-label">Mode:</label>
     <select
-      id="model-select"
-      :value="selectedModel"
-      @change="handleModelChange($event.target.value)"
-      :disabled="disabled || togglingModel"
-      class="model-select"
+      id="mode-select"
+      :value="selectedMode"
+      @change="handleModeChange($event.target.value)"
+      :disabled="disabled || togglingMode"
+      class="mode-select"
     >
-      <option v-for="m in models" :key="m.id" :value="m.id">
-        {{ m.name }}
+      <option v-for="m in modes" :key="m.value" :value="m.value">
+        {{ m.label }}
       </option>
     </select>
   </div>
@@ -17,7 +17,6 @@
 
 <script setup>
 import { ref, computed, watch, toRef } from 'vue';
-import { CLAUDE_MODELS } from '@claudetools/shared';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 
@@ -40,68 +39,73 @@ const emit = defineEmits(['update:modelValue']);
 
 const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
-const models = CLAUDE_MODELS;
-const togglingModel = ref(false);
+const togglingMode = ref(false);
+
+const modes = [
+  { value: 'plan', label: 'Plan', description: 'Agent plans before implementing' },
+  { value: 'standard', label: 'Standard', description: 'Balanced approach' },
+  { value: 'yolo', label: 'YOLO', description: 'Auto-approve mode' },
+];
 
 // Use store state when sessionId provided, otherwise use modelValue prop
-const currentModel = computed(() => {
+const currentMode = computed(() => {
   if (props.sessionId) {
-    return sessionsStore.currentSession?.model;
+    return sessionsStore.currentSession?.mode;
   }
   return props.modelValue;
 });
 
 // Local state for optimistic UI updates - provides immediate visual feedback
-const selectedModel = ref(currentModel.value);
+const selectedMode = ref(currentMode.value);
 
 // Watch for external changes to keep local selection in sync
 // Create a ref from the modelValue prop for reliable reactivity tracking
 const modelValueRef = toRef(props, 'modelValue');
 
 // Watch both the computed and the prop ref to ensure we catch all changes
-watch([currentModel, modelValueRef], ([newCurrentModel]) => {
-  selectedModel.value = newCurrentModel;
+watch([currentMode, modelValueRef], ([newCurrentMode]) => {
+  selectedMode.value = newCurrentMode;
 }, { flush: 'sync' });
 
-async function handleModelChange(id) {
-  if (togglingModel.value) return;
-  if (selectedModel.value === id) return;
+async function handleModeChange(value) {
+  if (togglingMode.value) return;
+  if (selectedMode.value === value) return;
 
   // Immediate visual feedback - update UI right away
-  selectedModel.value = id;
+  selectedMode.value = value;
 
   if (props.sessionId) {
     // Session context: update store asynchronously
-    togglingModel.value = true;
+    togglingMode.value = true;
     try {
-      await sessionsStore.updateSessionModel(props.sessionId, id);
+      await sessionsStore.updateSessionMode(props.sessionId, value);
     } catch (err) {
       // Revert selection on error
-      selectedModel.value = currentModel.value;
+      selectedMode.value = currentMode.value;
       uiStore.error(err.message);
     } finally {
-      togglingModel.value = false;
+      togglingMode.value = false;
     }
   } else {
     // Form context: emit for v-model
-    emit('update:modelValue', id);
+    emit('update:modelValue', value);
   }
 }
 </script>
 
 <style scoped>
-.model-selector {
+.mode-selector {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-.model-label {
+.mode-label {
   font-size: 0.875rem;
   color: var(--color-text-soft);
 }
 
-.model-select {
+.mode-select {
   appearance: none;
   padding: 0.375rem 2rem 0.375rem 0.5rem;
   font-size: 0.75rem;
@@ -119,23 +123,23 @@ async function handleModelChange(id) {
   padding-right: 2rem;
 }
 
-.model-select:hover:not(:disabled) {
+.mode-select:hover:not(:disabled) {
   border-color: var(--color-border-hover);
   background-color: var(--color-bg-hover);
 }
 
-.model-select:focus {
+.mode-select:focus {
   outline: none;
   border-color: var(--color-primary);
   box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.1);
 }
 
-.model-select:disabled {
+.mode-select:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.model-select option {
+.mode-select option {
   background-color: var(--color-background);
   color: var(--color-text);
 }
