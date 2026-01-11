@@ -75,7 +75,11 @@ const props = defineProps({
   },
   archiveText: {
     type: String,
-    default: 'Archive'
+    default: null
+  },
+  isArchived: {
+    type: Boolean,
+    default: false
   },
   deleteText: {
     type: String,
@@ -91,9 +95,17 @@ const isOpen = ref(false);
 const containerRef = ref(null);
 const highlightedIndex = ref(null);
 
+const archiveText = computed(() => {
+  if (props.archiveText !== null) {
+    return props.archiveText;
+  }
+  // Default behavior: show "Archive" or "Unarchive" based on archived state
+  return props.isArchived ? 'Unarchive' : 'Archive';
+});
+
 const items = computed(() => [
   { text: props.duplicateText, icon: '⟳', isDanger: false },
-  { text: props.archiveText, icon: '📦', isDanger: false }
+  { text: archiveText.value, icon: '📦', isDanger: false }
 ]);
 
 function toggleMenu() {
@@ -108,17 +120,17 @@ function closeMenu() {
   highlightedIndex.value = null;
 }
 
-function handleOutsideClick(event) {
-  // Only close if click is outside the menu
-  if (containerRef.value && !containerRef.value.contains(event.target)) {
-    closeMenu();
-  }
+function handleOutsideClick() {
+  // Overlay was clicked - close the menu
+  closeMenu();
 }
 
 function handleItemClick(item, index) {
-  if (item.text === props.duplicateText) {
+  if (index === 0) {
+    // First item is always Duplicate
     emit('duplicate');
-  } else if (item.text === props.archiveText) {
+  } else if (index === 1) {
+    // Second item is always Archive/Unarchive
     emit('archive');
   }
   closeMenu();
@@ -182,29 +194,35 @@ onUnmounted(() => {
 .overflow-menu-container {
   position: relative;
   display: inline-block;
+  margin-left: auto; /* Push to right side of flex container */
+  flex-shrink: 0;
 }
 
 .btn-kebab {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   padding: 0;
-  border-radius: 6px;
-  border: 1px solid transparent;
+  border-radius: 8px;
+  border: none;
   background: transparent;
   color: var(--color-text-soft, #888);
   cursor: pointer;
-  transition: all 0.15s ease;
-  font-size: 1rem;
+  transition: background 0.15s ease, color 0.15s ease;
+  font-size: 1.25rem;
   line-height: 1;
   flex-shrink: 0;
 }
 
 .btn-kebab:hover {
-  background: var(--color-bg-hover, #555);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--color-text, #ccc);
+}
+
+.btn-kebab:active {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .menu-overlay {
