@@ -295,6 +295,25 @@ export class DatabaseManager {
         'CREATE INDEX IF NOT EXISTS idx_todos_conversation ON session_todos(conversation_id)'
       );
     }
+
+    // Add conversation branching columns (parent_conversation_id, branch_from_message_id)
+    // Re-fetch column info to get latest state
+    const convBranchingTableInfo = this.#db.prepare('PRAGMA table_info(conversations)').all();
+    const convBranchingColumns = convBranchingTableInfo.map((col) => col.name);
+
+    if (!convBranchingColumns.includes('parent_conversation_id')) {
+      this.#db.exec(
+        'ALTER TABLE conversations ADD COLUMN parent_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL'
+      );
+      this.#db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations(parent_conversation_id)'
+      );
+    }
+    if (!convBranchingColumns.includes('branch_from_message_id')) {
+      this.#db.exec(
+        'ALTER TABLE conversations ADD COLUMN branch_from_message_id TEXT REFERENCES conversation_messages(id) ON DELETE SET NULL'
+      );
+    }
   }
 
   /**

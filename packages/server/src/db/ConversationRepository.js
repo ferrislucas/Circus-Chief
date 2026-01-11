@@ -18,6 +18,9 @@ export class ConversationRepository extends BaseRepository {
       summaryGeneratedAt: row.summary_generated_at,
       isActive: row.is_active === 1,
       claudeSessionId: row.claude_session_id,
+      // Branching fields
+      parentConversationId: row.parent_conversation_id || null,
+      branchFromMessageId: row.branch_from_message_id || null,
       // Token usage fields
       inputTokens: row.input_tokens || 0,
       outputTokens: row.output_tokens || 0,
@@ -321,5 +324,152 @@ export class ConversationRepository extends BaseRepository {
     }
 
     return idMapping;
+  }
+
+  /**
+   * Create a branch from an existing conversation at a specific message
+   * Copies all messages BEFORE the specified message to a new conversation,
+   * then adds the initialPrompt as a replacement for that message
+   * @param {string} conversationId - The source conversation ID
+   * @param {string} messageId - The message ID to branch from (messages before this are copied, this message is replaced)
+   * @param {string} [name] - Optional name for the new conversation (if not provided, auto-generated from prompt)
+   * @param {string} initialPrompt - Required: the new prompt that replaces the branch point message
+   * @returns {Object} The created branch conversation
+   */
+  branch(conversationId, messageId, name = null, initialPrompt = null) {
+    // Prompt is now required for branching
+    if (!initialPrompt || !initialPrompt.trim()) {
+      throw new Error('A prompt is required when branching');
+    }
+
+    const sourceConv = this.getById(conversationId);
+    if (!sourceConv) {
+      throw new Error('Source conversation not found');
+    }
+
+    // Get the branch point message to verify it exists and get its timestamp
+    const branchMessage = this.db
+      .prepare('SELECT * FROM conversation_messages WHERE id = ? AND conversation_id = ?')
+      .get(messageId, conversationId);
+
+    if (!branchMessage) {
+      throw new Error('Branch point message not found in conversation');
+    }
+
+    const id = databaseManager.generateId();
+    const now = Date.now();
+
+    // Auto-generate name from the prompt (first 40 chars)
+    const promptPreview = initialPrompt.length > 40
+      ? initialPrompt.substring(0, 40) + '...'
+      : initialPrompt;
+    const branchName = name || promptPreview;
+
+    // Deactivate all other conversations
+    this.db
+      .prepare('UPDATE conversations SET is_active = 0, updated_at = ? WHERE session_id = ?')
+      .run(now, sourceConv.sessionId);
+
+    // Create the new branch conversation
+    this.db
+      .prepare(
+        `INSERT INTO conversations (id, session_id, name, is_active, parent_conversation_id, branch_from_message_id, created_at, updated_at)
+         VALUES (?, ?, ?, 1, ?, ?, ?, ?)`
+      )
+      .run(id, sourceConv.sessionId, branchName, conversationId, messageId, now, now);
+
+    // Copy all messages BEFORE the branch point (NOT including it)
+    const messagesToCopy = this.db
+      .prepare(
+        `SELECT * FROM conversation_messages
+         WHERE conversation_id = ? AND timestamp < ?
+         ORDER BY timestamp ASC`
+      )
+      .all(conversationId, branchMessage.timestamp);
+
+    for (const msg of messagesToCopy) {
+      const newMsgId = databaseManager.generateId();
+      this.db
+        .prepare(
+          `INSERT INTO conversation_messages (id, session_id, conversation_id, role, content, tool_use, timestamp)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(newMsgId, sourceConv.sessionId, id, msg.role, msg.content, msg.tool_use, msg.timestamp);
+    }
+
+    // Add the new prompt as the replacement for the original user message
+    const promptMsgId = databaseManager.generateId();
+    this.db
+      .prepare(
+        `INSERT INTO conversation_messages (id, session_id, conversation_id, role, content, timestamp)
+         VALUES (?, ?, ?, 'user', ?, ?)`
+      )
+      .run(promptMsgId, sourceConv.sessionId, id, initialPrompt.trim(), now);
+
+    return this.getById(id);
+  }
+
+  /**
+   * Get conversations for a session with branch hierarchy info
+   * @param {string} sessionId - The session ID
+   * @returns {Array} Conversations with childCount property
+   */
+  getBySessionIdWithBranchInfo(sessionId) {
+    const rows = this.db
+      .prepare(`
+        SELECT c.*,
+          (SELECT COUNT(*) FROM conversations child WHERE child.parent_conversation_id = c.id) as child_count,
+          (SELECT COUNT(*) FROM conversation_messages m WHERE m.conversation_id = c.id) as message_count
+        FROM conversations c
+        WHERE c.session_id = ?
+        ORDER BY c.created_at ASC
+      `)
+      .all(sessionId);
+
+    return rows.map((row) => ({
+      ...ConversationRepository.#mapConversation(row),
+      childCount: row.child_count || 0,
+      messageCount: row.message_count || 0,
+    }));
+  }
+
+  /**
+   * Get child conversations (branches) of a conversation
+   * @param {string} parentConversationId - The parent conversation ID
+   * @returns {Array} Child conversations
+   */
+  getChildren(parentConversationId) {
+    const rows = this.db
+      .prepare('SELECT * FROM conversations WHERE parent_conversation_id = ? ORDER BY created_at ASC')
+      .all(parentConversationId);
+    return this.mapAll(rows);
+  }
+
+  /**
+   * Get the branch point message for a conversation
+   * @param {string} conversationId - The conversation ID
+   * @returns {Object|null} The branch point message or null if not a branch
+   */
+  getBranchPointMessage(conversationId) {
+    const conv = this.getById(conversationId);
+    if (!conv || !conv.branchFromMessageId) {
+      return null;
+    }
+
+    const row = this.db
+      .prepare('SELECT * FROM conversation_messages WHERE id = ?')
+      .get(conv.branchFromMessageId);
+
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      sessionId: row.session_id,
+      conversationId: row.conversation_id,
+      role: row.role,
+      content: row.content,
+      toolUse: row.tool_use ? JSON.parse(row.tool_use) : null,
+      timestamp: row.timestamp,
+    };
   }
 }

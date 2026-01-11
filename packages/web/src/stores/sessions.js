@@ -37,6 +37,34 @@ export const useSessionsStore = defineStore('sessions', {
       return state.conversations.find((c) => c.id === id);
     },
 
+    // Conversation tree getters (for branching feature)
+    rootConversations: (state) => {
+      return state.conversations.filter((c) => !c.parentConversationId);
+    },
+
+    conversationTree: (state) => {
+      // Build a tree structure from flat conversations list
+      const buildTree = (parentId = null) => {
+        return state.conversations
+          .filter((c) => c.parentConversationId === parentId)
+          .map((conv) => ({
+            ...conv,
+            children: buildTree(conv.id),
+          }));
+      };
+      return buildTree(null);
+    },
+
+    getConversationChildren: (state) => (conversationId) => {
+      return state.conversations.filter((c) => c.parentConversationId === conversationId);
+    },
+
+    getConversationParent: (state) => (conversationId) => {
+      const conv = state.conversations.find((c) => c.id === conversationId);
+      if (!conv?.parentConversationId) return null;
+      return state.conversations.find((c) => c.id === conv.parentConversationId);
+    },
+
     // Parent-child relationship getters
     getChildSessions: (state) => (parentId) => {
       return state.sessions.filter((s) => s.parentSessionId === parentId);
@@ -965,6 +993,53 @@ export const useSessionsStore = defineStore('sessions', {
             this.messages = [];
           }
         }
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    /**
+     * Create a branch from a conversation at a specific message
+     * @param {string} sessionId - Session ID
+     * @param {string} conversationId - Source conversation ID
+     * @param {string} messageId - Message ID to branch from
+     * @param {string|null} name - Optional name for the branch
+     * @param {string|null} prompt - Optional initial prompt for the branch
+     * @returns {Promise<Object>} The created branch conversation
+     */
+    async branchConversation(sessionId, conversationId, messageId, name = null, prompt = null) {
+      this.error = null;
+      try {
+        // Note: name is auto-generated from prompt on the server side
+        const branchConversation = await api.branchConversation(sessionId, conversationId, {
+          messageId,
+          prompt,
+        });
+
+        // Add the new branch to the list (will also be added via WebSocket, but add here for immediate feedback)
+        const exists = this.conversations.some((c) => c.id === branchConversation.id);
+        if (!exists) {
+          this.conversations.push(branchConversation);
+        }
+
+        // Update active state - the new branch is now active
+        this.conversations = this.conversations.map((c) => ({
+          ...c,
+          isActive: c.id === branchConversation.id,
+        }));
+        this.activeConversationId = branchConversation.id;
+
+        // Fetch messages for the new branch
+        const messages = await api.getConversationMessages(sessionId, branchConversation.id);
+        this.messages = messages;
+
+        // Clear work logs and re-fetch for new context
+        this.workLogs = {};
+        this.partialThinking = null;
+        await this.fetchWorkLogs(sessionId);
+
+        return branchConversation;
       } catch (err) {
         this.error = err.message;
         throw err;

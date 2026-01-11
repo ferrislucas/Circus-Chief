@@ -513,4 +513,148 @@ describe('ConversationRepository', () => {
       expect(newIds).not.toContain(conv2.id);
     });
   });
+
+  describe('branch', () => {
+    let conv;
+    let msg1, msg2, msg3;
+
+    beforeEach(() => {
+      conv = repo.create(sessionId, 'Original Conversation');
+      // Create a conversation with 3 messages
+      msg1 = messageRepo.create(sessionId, 'user', 'First user message', null, conv.id);
+      msg2 = messageRepo.create(sessionId, 'assistant', 'First assistant response', null, conv.id);
+      msg3 = messageRepo.create(sessionId, 'user', 'Second user message', null, conv.id);
+
+      // Update timestamps to ensure proper ordering (messages created rapidly might have same timestamp)
+      const db = databaseManager.get();
+      const ts1 = msg1.timestamp;
+      const ts2 = ts1 + 10;
+      const ts3 = ts2 + 10;
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE id = ?').run(ts2, msg2.id);
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE id = ?').run(ts3, msg3.id);
+
+      // Refresh messages from db to get updated timestamps
+      msg1 = messageRepo.getById(msg1.id);
+      msg2 = messageRepo.getById(msg2.id);
+      msg3 = messageRepo.getById(msg3.id);
+    });
+
+    it('throws error when prompt is not provided', () => {
+      expect(() => repo.branch(conv.id, msg3.id, null, null))
+        .toThrow('A prompt is required when branching');
+    });
+
+    it('throws error when prompt is empty string', () => {
+      expect(() => repo.branch(conv.id, msg3.id, null, ''))
+        .toThrow('A prompt is required when branching');
+    });
+
+    it('throws error when prompt is only whitespace', () => {
+      expect(() => repo.branch(conv.id, msg3.id, null, '   '))
+        .toThrow('A prompt is required when branching');
+    });
+
+    it('throws error for non-existent conversation', () => {
+      expect(() => repo.branch('non-existent', msg3.id, null, 'New prompt'))
+        .toThrow('Source conversation not found');
+    });
+
+    it('throws error for non-existent message', () => {
+      expect(() => repo.branch(conv.id, 'non-existent', null, 'New prompt'))
+        .toThrow('Branch point message not found in conversation');
+    });
+
+    it('creates a new conversation with parent reference', () => {
+      const branch = repo.branch(conv.id, msg3.id, null, 'My new prompt');
+
+      expect(branch.id).toBeDefined();
+      expect(branch.id).not.toBe(conv.id);
+      expect(branch.parentConversationId).toBe(conv.id);
+      expect(branch.branchFromMessageId).toBe(msg3.id);
+      expect(branch.isActive).toBe(true);
+    });
+
+    it('auto-generates name from prompt when name not provided', () => {
+      const branch = repo.branch(conv.id, msg3.id, null, 'Help me refactor this function');
+
+      expect(branch.name).toBe('Help me refactor this function');
+    });
+
+    it('truncates long prompts for auto-generated name', () => {
+      const longPrompt = 'This is a very long prompt that exceeds forty characters in length';
+      const branch = repo.branch(conv.id, msg3.id, null, longPrompt);
+
+      expect(branch.name).toBe('This is a very long prompt that exceeds ...');
+    });
+
+    it('does not include original branch point message in new conversation', () => {
+      const branch = repo.branch(conv.id, msg3.id, null, 'New approach');
+
+      const branchMessages = messageRepo.getByConversationId(branch.id);
+
+      // Should NOT contain the original msg3 (the branch point message)
+      const hasMsg3 = branchMessages.some(m => m.content === 'Second user message');
+      expect(hasMsg3).toBe(false);
+
+      // Should contain msg1 (before the branch point)
+      const hasMsg1 = branchMessages.some(m => m.content === 'First user message');
+      expect(hasMsg1).toBe(true);
+
+      // Should contain the new prompt
+      const hasNewPrompt = branchMessages.some(m => m.content === 'New approach');
+      expect(hasNewPrompt).toBe(true);
+    });
+
+    it('deactivates original conversation when branch is created', () => {
+      repo.branch(conv.id, msg3.id, null, 'New prompt');
+
+      const original = repo.getById(conv.id);
+      expect(original.isActive).toBe(false);
+    });
+
+    it('sets new branch as active', () => {
+      const branch = repo.branch(conv.id, msg3.id, null, 'New prompt');
+
+      expect(branch.isActive).toBe(true);
+    });
+
+    it('preserves message order in branch', () => {
+      const branch = repo.branch(conv.id, msg3.id, null, 'New prompt');
+
+      const branchMessages = messageRepo.getByConversationId(branch.id);
+
+      // Verify timestamps are in order
+      for (let i = 1; i < branchMessages.length; i++) {
+        expect(branchMessages[i].timestamp).toBeGreaterThanOrEqual(branchMessages[i - 1].timestamp);
+      }
+    });
+
+    it('can branch from first user message', () => {
+      // Branch from the very first message - should copy nothing, just add new prompt
+      const branch = repo.branch(conv.id, msg1.id, null, 'Start over completely');
+
+      const branchMessages = messageRepo.getByConversationId(branch.id);
+
+      // Only the new user message should exist
+      expect(branchMessages).toHaveLength(1);
+      expect(branchMessages[0].content).toBe('Start over completely');
+      expect(branchMessages[0].role).toBe('user');
+    });
+
+    it('trims whitespace from prompt', () => {
+      const branch = repo.branch(conv.id, msg3.id, null, '  My prompt with spaces  ');
+
+      const branchMessages = messageRepo.getByConversationId(branch.id);
+
+      // Should contain the trimmed prompt
+      const hasNewPrompt = branchMessages.some(m => m.content === 'My prompt with spaces');
+      expect(hasNewPrompt).toBe(true);
+    });
+
+    it('uses provided name if given', () => {
+      const branch = repo.branch(conv.id, msg3.id, 'Custom Branch Name', 'New prompt');
+
+      expect(branch.name).toBe('Custom Branch Name');
+    });
+  });
 });
