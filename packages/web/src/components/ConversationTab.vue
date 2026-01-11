@@ -7,9 +7,9 @@
     <TokenUsagePanel class="conversation-usage" />
 
     <div class="messages" ref="messagesContainer">
-      <!-- Jump to Claude's turn button - at top so sticky works -->
+      <!-- Jump to Claude's turn button - at top so sticky works, only shows when at bottom -->
       <button
-        v-if="hasAssistantMessages"
+        v-if="hasAssistantMessages && isNearBottom"
         class="scroll-to-claude-btn"
         @click="scrollToClaudesTurn"
         title="Jump to Claude's response"
@@ -552,8 +552,16 @@ function scrollToClaudesTurn() {
     const msgElement = document.querySelector(`[data-message-id="${lastAssistantMsg.id}"]`);
 
     if (msgElement) {
-      // Scroll to the beginning of Claude's turn
-      msgElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Calculate offset within the container and scroll directly
+      // This avoids scrollIntoView which scrolls parent containers too
+      const containerRect = messagesContainer.value.getBoundingClientRect();
+      const elementRect = msgElement.getBoundingClientRect();
+      const offsetTop = elementRect.top - containerRect.top + messagesContainer.value.scrollTop;
+
+      messagesContainer.value.scrollTo({
+        top: offsetTop,
+        behavior: 'smooth'
+      });
     }
   });
 }
