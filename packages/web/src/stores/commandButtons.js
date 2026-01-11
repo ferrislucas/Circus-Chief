@@ -116,6 +116,19 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       try {
         await api.killCommandRun(sessionId, runId);
       } catch (err) {
+        // If the process is already dead, update the run status so the UI
+        // shows the Run button instead of being stuck on the Kill button
+        if (this.runs[runId] && this.runs[runId].status === 'running') {
+          this.$patch({
+            runs: {
+              [runId]: {
+                ...this.runs[runId],
+                status: 'error',
+                exitCode: -1, // Indicate abnormal termination
+              },
+            },
+          });
+        }
         this.error = err.message;
         throw err;
       }
