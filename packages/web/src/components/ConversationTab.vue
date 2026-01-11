@@ -7,6 +7,17 @@
     <TokenUsagePanel class="conversation-usage" />
 
     <div class="messages" ref="messagesContainer">
+      <!-- Jump to Claude's turn button - at top so sticky works, only shows when at bottom -->
+      <button
+        v-if="hasAssistantMessages && isNearBottom"
+        class="scroll-to-claude-btn"
+        @click="scrollToClaudesTurn"
+        title="Jump to Claude's response"
+        aria-label="Scroll to Claude's latest response"
+      >
+        ↑ Claude's response
+      </button>
+
       <!-- Hide messages for draft sessions (only show in input field) -->
       <template v-if="!isDraft">
       <div
@@ -80,17 +91,6 @@
           <MarkdownViewer :content="partialText" />
         </div>
       </div>
-
-      <!-- Jump to Claude's turn button -->
-      <button
-        v-if="hasAssistantMessages"
-        class="scroll-to-claude-btn"
-        @click="scrollToClaudesTurn"
-        title="Jump to Claude's response"
-        aria-label="Scroll to Claude's latest response"
-      >
-        ↑ Claude's response
-      </button>
 
       <!-- Jump to latest button (Slack-style) -->
       <button
@@ -582,8 +582,16 @@ function scrollToClaudesTurn() {
     const msgElement = document.querySelector(`[data-message-id="${lastAssistantMsg.id}"]`);
 
     if (msgElement) {
-      // Scroll to the beginning of Claude's turn
-      msgElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Calculate offset within the container and scroll directly
+      // This avoids scrollIntoView which scrolls parent containers too
+      const containerRect = messagesContainer.value.getBoundingClientRect();
+      const elementRect = msgElement.getBoundingClientRect();
+      const offsetTop = elementRect.top - containerRect.top + messagesContainer.value.scrollTop;
+
+      messagesContainer.value.scrollTo({
+        top: offsetTop,
+        behavior: 'smooth'
+      });
     }
   });
 }
@@ -1311,12 +1319,12 @@ async function handleBranchCreate({ messageId, prompt }) {
 }
 
 .scroll-to-claude-btn {
-  position: absolute;
-  top: 8px;
-  right: 8px;
+  position: sticky;
+  top: 0.5rem;
   z-index: 10;
-  width: 32px;
-  height: 32px;
+  margin-left: auto;
+  margin-bottom: 0.5rem;
+  padding: 0.375rem 0.75rem;
   background: rgba(31, 41, 55, 0.85);
   border: 1px solid rgba(75, 85, 99, 0.5);
   border-radius: 6px;
@@ -1329,9 +1337,10 @@ async function handleBranchCreate({ messageId, prompt }) {
   align-items: center;
   justify-content: center;
   font-size: 0.875rem;
-  padding: 0;
+  white-space: nowrap;
   line-height: 1;
   font-weight: 500;
+  width: fit-content;
 }
 
 .scroll-to-claude-btn:hover {
@@ -1459,10 +1468,8 @@ async function handleBranchCreate({ messageId, prompt }) {
 
   /* Mobile adjustments for scroll-to-claude button */
   .scroll-to-claude-btn {
-    width: 28px;
-    height: 28px;
-    top: 6px;
-    right: 6px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
   }
 }
 
