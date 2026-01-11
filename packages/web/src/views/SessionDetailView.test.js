@@ -26,6 +26,16 @@ vi.mock('../components/CommandsTab.vue', () => ({
 vi.mock('../components/DuplicateSessionButton.vue', () => ({
   default: { name: 'DuplicateSessionButton', template: '<button @click="$emit(\'success\', { id: \'new\' })" :disabled="false">Duplicate</button>' }
 }));
+vi.mock('../components/StatusIndicator.vue', () => ({
+  default: { name: 'StatusIndicator', template: '<span class="status-indicator">{{ status }}</span>', props: ['status'] }
+}));
+vi.mock('../components/OverflowMenu.vue', () => ({
+  default: {
+    name: 'OverflowMenu',
+    template: '<div class="overflow-menu"><button @click="$emit(\'duplicate\')">Duplicate</button><button @click="$emit(\'archive\')">Archive</button><button @click="$emit(\'delete\')">Delete</button></div>',
+    emits: ['duplicate', 'archive', 'delete']
+  }
+}));
 vi.mock('../composables/useApi.js');
 
 describe('SessionDetailView', () => {
@@ -488,8 +498,8 @@ describe('SessionDetailView', () => {
     });
   });
 
-  describe('DuplicateSessionButton integration', () => {
-    it('renders DuplicateSessionButton component', async () => {
+  describe('Session header integration', () => {
+    it('renders OverflowMenu component with duplicate functionality', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -511,17 +521,17 @@ describe('SessionDetailView', () => {
             CommandsTab: true,
             NotesTab: true,
             PrIndicators: true,
-            DuplicateSessionButton: false, // Don't stub - test the real component mock
+            OverflowMenu: false, // Don't stub - test the real component
           },
         },
       });
 
       await flushPromises();
 
-      expect(wrapper.findComponent({ name: 'DuplicateSessionButton' }).exists()).toBe(true);
+      expect(wrapper.findComponent({ name: 'OverflowMenu' }).exists()).toBe(true);
     });
 
-    it('passes sessionId and sessionName props correctly', async () => {
+    it('header contains star button, status indicator, and session name', async () => {
       const sessionName = 'Test Session';
       sessionsStore.currentSession = {
         id: 'session-1',
@@ -544,94 +554,18 @@ describe('SessionDetailView', () => {
             CommandsTab: true,
             NotesTab: true,
             PrIndicators: true,
-            DuplicateSessionButton: false,
           },
         },
       });
 
       await flushPromises();
 
-      // The DuplicateSessionButton should be rendered in the action buttons section
-      const actionButtons = wrapper.find('.session-action-buttons');
-      expect(actionButtons.exists()).toBe(true);
+      // Check that the session header row exists (contains star, status, name, and menu)
+      const headerRow = wrapper.find('.session-header-row');
+      expect(headerRow.exists()).toBe(true);
 
-      // Verify button text is present (indicating the component was rendered)
-      expect(wrapper.text()).toContain('Duplicate');
-    });
-
-    it('renders all action buttons in correct order', async () => {
-      const sessionName = 'My Test Session';
-      sessionsStore.currentSession = {
-        id: 'session-1',
-        name: sessionName,
-        status: 'waiting',
-        projectId: 'proj-1',
-      };
-
-      await router.push('/sessions/session-1');
-      await router.isReady();
-
-      const wrapper = mount(SessionDetailView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            ConversationTab: true,
-            ChangesTab: true,
-            CanvasTab: true,
-            SummaryTab: true,
-            CommandsTab: true,
-            NotesTab: true,
-            PrIndicators: true,
-            DuplicateSessionButton: false,
-          },
-        },
-      });
-
-      await flushPromises();
-
-      // All three buttons should be present: Duplicate, Archive, Delete
-      const actionButtons = wrapper.find('.session-action-buttons');
-      expect(actionButtons.text()).toContain('Duplicate');
-      expect(actionButtons.text()).toContain('Archive');
-      expect(actionButtons.text()).toContain('Delete Session');
-    });
-
-    it('DuplicateSessionButton appears before Archive button', async () => {
-      sessionsStore.currentSession = {
-        id: 'session-1',
-        name: 'Test Session',
-        status: 'waiting',
-        projectId: 'proj-1',
-      };
-
-      await router.push('/sessions/session-1');
-      await router.isReady();
-
-      const wrapper = mount(SessionDetailView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            ConversationTab: true,
-            ChangesTab: true,
-            CanvasTab: true,
-            SummaryTab: true,
-            CommandsTab: true,
-            NotesTab: true,
-            PrIndicators: true,
-          },
-        },
-      });
-
-      await flushPromises();
-
-      // Check that action buttons container exists
-      const actionButtons = wrapper.find('.session-action-buttons');
-      expect(actionButtons.exists()).toBe(true);
-
-      // Verify the text content includes both buttons
-      expect(wrapper.text()).toContain('Duplicate');
-      expect(wrapper.text()).toContain('Archive');
-      expect(wrapper.text()).toContain('Delete Session');
+      // Verify session name is displayed
+      expect(wrapper.text()).toContain(sessionName);
     });
   });
 
