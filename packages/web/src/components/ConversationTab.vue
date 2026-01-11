@@ -1199,10 +1199,11 @@ async function handleTemplateChange(templateId) {
 }
 
 .scroll-to-claude-btn {
-  position: absolute;
-  top: 8px;
-  right: 8px;
+  position: sticky;
+  top: 0.5rem;
   z-index: 10;
+  margin-left: auto;
+  margin-bottom: 0.5rem;
   padding: 0.375rem 0.75rem;
   background: rgba(31, 41, 55, 0.85);
   border: 1px solid rgba(75, 85, 99, 0.5);
@@ -1219,6 +1220,7 @@ async function handleTemplateChange(templateId) {
   white-space: nowrap;
   line-height: 1;
   font-weight: 500;
+  width: fit-content;
 }
 
 .scroll-to-claude-btn:hover {
@@ -1346,10 +1348,8 @@ async function handleTemplateChange(templateId) {
 
   /* Mobile adjustments for scroll-to-claude button */
   .scroll-to-claude-btn {
-    width: 28px;
-    height: 28px;
-    top: 6px;
-    right: 6px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
   }
 }
 
