@@ -33,6 +33,7 @@
           <!-- Overflow menu with secondary actions -->
           <OverflowMenu
             aria-label="Session actions"
+            :is-archived="sessionsStore.currentSession.archived"
             @duplicate="handleDuplicate"
             @archive="handleArchive"
             @delete="handleDelete"
@@ -491,7 +492,8 @@ function getTemplateName(templateId) {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
+  padding: 0 0.5rem; /* Ensure content doesn't touch screen edges */
 }
 
 .session-header-row {
@@ -504,21 +506,25 @@ function getTemplateName(templateId) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   padding: 0;
-  border-radius: 6px;
-  border: 1px solid transparent;
+  border-radius: 8px;
+  border: none;
   background: transparent;
   color: var(--color-text-soft, #888);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
   flex-shrink: 0;
 }
 
 .btn-icon:hover {
-  background: var(--color-bg-hover, #555);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--color-text, #ccc);
+}
+
+.btn-icon:active {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .btn-star {
@@ -537,6 +543,7 @@ function getTemplateName(templateId) {
 
 .session-name {
   flex: 1;
+  min-width: 0; /* Critical: allows text-overflow to work in flexbox */
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
@@ -554,13 +561,12 @@ function getTemplateName(templateId) {
 
 @media (max-width: 768px) {
   .session-header-row {
-    flex-wrap: wrap;
-    align-items: center;
+    /* Keep everything on one line - don't wrap */
+    min-height: 44px; /* Touch target minimum */
   }
 
   .session-name {
-    flex-basis: 100%;
-    margin-top: 0.25rem;
+    font-size: 1rem; /* Slightly smaller on mobile */
   }
 }
 
