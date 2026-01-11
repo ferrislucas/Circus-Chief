@@ -20,6 +20,7 @@ export function stripAnsiCodes(text) {
   }
   // Match all CSI sequences: ESC [ <params> <final-char>
   // This covers colors, cursor movement, line clearing, and other terminal control sequences
+  // eslint-disable-next-line no-control-regex
   return text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
 }
 
