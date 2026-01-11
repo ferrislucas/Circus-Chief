@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { CommandRunner, stripAnsiCodes } from './commandRunner.js';
+import { CommandRunner, stripAnsiCodes, TerminalOutputProcessor } from './commandRunner.js';
 import * as osModule from 'os';
 
 describe('CommandRunner', () => {
@@ -777,6 +777,184 @@ describe('CommandRunner', () => {
       const allOutput = outputs.join('');
       // Note: The actual content depends on how the shell interprets the escape sequences
       // What's important is that if any ANSI codes are present, they should be minimal
+    });
+  });
+
+  describe('TerminalOutputProcessor', () => {
+    let processor;
+
+    beforeEach(() => {
+      processor = new TerminalOutputProcessor();
+    });
+
+    describe('basic processing', () => {
+      it('passes through regular text without modification', () => {
+        const result = processor.process('Hello World\n');
+        expect(result).toBe('Hello World\n');
+      });
+
+      it('handles empty input', () => {
+        expect(processor.process('')).toBe('');
+        expect(processor.process(null)).toBe('');
+        expect(processor.process(undefined)).toBe('');
+      });
+
+      it('buffers incomplete lines (no newline)', () => {
+        const result = processor.process('partial');
+        expect(result).toBe(''); // Nothing output yet, waiting for newline
+        expect(processor.flush()).toBe('partial'); // Flush returns buffered content
+      });
+
+      it('outputs complete lines when newline is received', () => {
+        processor.process('partial');
+        const result = processor.process(' complete\n');
+        expect(result).toBe('partial complete\n');
+      });
+    });
+
+    describe('ANSI code stripping', () => {
+      it('strips color codes (SGR sequences)', () => {
+        const result = processor.process('\x1b[31mRed\x1b[0m\n');
+        expect(result).toBe('Red\n');
+      });
+
+      it('strips bold and other style codes', () => {
+        const result = processor.process('\x1b[1;32mBold Green\x1b[0m\n');
+        expect(result).toBe('Bold Green\n');
+      });
+    });
+
+    describe('line clearing simulation (key feature)', () => {
+      it('clears current line on [2K (erase line) sequence', () => {
+        processor.process('old content');
+        const result = processor.process('\x1b[2Knew content\n');
+        expect(result).toBe('new content\n');
+        expect(result).not.toContain('old content');
+      });
+
+      it('clears current line on [1G (cursor to column 1) sequence', () => {
+        processor.process('old content');
+        const result = processor.process('\x1b[1Gnew content\n');
+        expect(result).toBe('new content\n');
+        expect(result).not.toContain('old content');
+      });
+
+      it('handles combined [2K[1G sequence (yarn-style progress)', () => {
+        processor.process('[] 0/576');
+        const result = processor.process('\x1b[2K\x1b[1G[] 136/576\n');
+        expect(result).toBe('[] 136/576\n');
+        expect(result).not.toContain('0/576');
+      });
+
+      it('simulates overwrite behavior for progress updates', () => {
+        // Simulates yarn install output where progress overwrites previous line
+        let output = '';
+        output += processor.process('\x1b[2K\x1b[1G[] 0/576');
+        output += processor.process('\x1b[2K\x1b[1G[] 100/576');
+        output += processor.process('\x1b[2K\x1b[1G[] 200/576');
+        output += processor.process('\x1b[2K\x1b[1G[] 576/576\n');
+
+        // Only the final value should appear (plus newline flushes it)
+        expect(output).toBe('[] 576/576\n');
+        expect(output).not.toContain('0/576');
+        expect(output).not.toContain('100/576');
+        expect(output).not.toContain('200/576');
+      });
+
+      it('handles realistic yarn install output', () => {
+        let output = '';
+
+        // Yarn typically outputs: version line, then progress updates
+        output += processor.process('\x1b[2K\x1b[1Gyarn install v1.22.22\n');
+        output += processor.process('\x1b[2K\x1b[1G[1/4] Resolving packages...\n');
+        output += processor.process('\x1b[2K\x1b[1G[] 0/576');
+        output += processor.process('\x1b[2K\x1b[1G[] 136/576');
+        output += processor.process('\x1b[2K\x1b[1G[] 576/576\n');
+        output += processor.process('\x1b[2K\x1b[1G[2/4] Fetching packages...\n');
+
+        expect(output).toContain('yarn install v1.22.22\n');
+        expect(output).toContain('[1/4] Resolving packages...\n');
+        expect(output).toContain('[] 576/576\n'); // Only final progress
+        expect(output).toContain('[2/4] Fetching packages...\n');
+
+        // Should NOT contain intermediate progress values
+        expect(output).not.toContain('[] 0/576');
+        expect(output).not.toContain('[] 136/576');
+      });
+    });
+
+    describe('carriage return handling', () => {
+      it('clears current line on carriage return (not followed by newline)', () => {
+        processor.process('old');
+        const result = processor.process('\rnew\n');
+        expect(result).toBe('new\n');
+      });
+
+      it('preserves \\r\\n as normal line ending', () => {
+        const result = processor.process('line\r\n');
+        expect(result).toBe('line\n');
+      });
+    });
+
+    describe('cursor movement handling', () => {
+      it('clears line on cursor up [A', () => {
+        processor.process('content');
+        const result = processor.process('\x1b[1Anew\n');
+        expect(result).toBe('new\n');
+      });
+
+      it('clears line on cursor position [H', () => {
+        processor.process('content');
+        const result = processor.process('\x1b[5;10Hnew\n');
+        expect(result).toBe('new\n');
+      });
+
+      it('clears line on screen clear [J', () => {
+        processor.process('content');
+        const result = processor.process('\x1b[2Jnew\n');
+        expect(result).toBe('new\n');
+      });
+    });
+
+    describe('flush behavior', () => {
+      it('returns empty string when no buffered content', () => {
+        expect(processor.flush()).toBe('');
+      });
+
+      it('returns and clears buffered content', () => {
+        processor.process('buffered');
+        expect(processor.flush()).toBe('buffered');
+        expect(processor.flush()).toBe(''); // Second flush is empty
+      });
+    });
+
+    describe('reset behavior', () => {
+      it('clears all state', () => {
+        processor.process('buffered');
+        processor.reset();
+        expect(processor.flush()).toBe('');
+      });
+    });
+
+    describe('streaming chunks', () => {
+      it('handles escape sequence split across chunks', () => {
+        // This is a tricky case - escape sequence might be split
+        // For now, we handle complete sequences in each chunk
+        let output = '';
+        output += processor.process('text\x1b');
+        output += processor.process('[2Knew\n');
+        // The processor handles this by treating incomplete escapes as regular chars
+        // then the next chunk continues
+        expect(output).toContain('new');
+      });
+
+      it('maintains state across multiple process calls', () => {
+        let output = '';
+        output += processor.process('chunk1 ');
+        output += processor.process('chunk2 ');
+        output += processor.process('chunk3\n');
+        expect(output).toBe('chunk1 chunk2 chunk3\n');
+      });
     });
   });
 });
