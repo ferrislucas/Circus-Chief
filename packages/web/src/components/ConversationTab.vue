@@ -9,7 +9,7 @@
     <div class="messages" ref="messagesContainer">
       <!-- Jump to Claude's turn button - at top so sticky works, only shows when at bottom -->
       <button
-        v-if="hasAssistantMessages && isNearBottom"
+        v-if="hasAssistantMessages && isNearBottom && isUsersTurn"
         class="scroll-to-claude-btn"
         @click="scrollToClaudesTurn"
         title="Jump to Claude's response"
@@ -308,6 +308,11 @@ const canBranch = computed(() => {
   const status = sessionsStore.currentSession?.status;
   // Can only branch when session is not running
   return status !== 'running' && status !== 'starting';
+});
+
+const isUsersTurn = computed(() => {
+  const status = sessionsStore.currentSession?.status;
+  return status === 'waiting' || status === 'stopped' || status === 'error';
 });
 
 const isDraft = computed(() => {
