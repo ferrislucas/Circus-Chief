@@ -2,13 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
-import ModelSelector from './ModelSelector.vue';
+import ModeSelector from './ModeSelector.vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
-import { CLAUDE_MODELS } from '@claudetools/shared';
 
-// Use actual model data from the shared package
-const [sonnet, opus, haiku] = CLAUDE_MODELS;
+const modes = [
+  { value: 'plan', label: 'Plan' },
+  { value: 'standard', label: 'Standard' },
+  { value: 'yolo', label: 'YOLO' },
+];
 
 // Global helper to flush all async updates and force DOM re-render
 async function flushAll(wrapper) {
@@ -19,15 +21,15 @@ async function flushAll(wrapper) {
   }
 }
 
-describe('ModelSelector', () => {
+describe('ModeSelector', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
   });
 
   const mountComponent = (props = {}, attrs = {}) => {
-    return mount(ModelSelector, {
+    return mount(ModeSelector, {
       props: {
-        modelValue: sonnet.id,
+        modelValue: 'yolo',
         ...props,
       },
       attrs,
@@ -35,9 +37,9 @@ describe('ModelSelector', () => {
   };
 
   describe('rendering', () => {
-    it('renders model label', () => {
+    it('renders mode label', () => {
       const wrapper = mountComponent();
-      expect(wrapper.find('.model-label').text()).toBe('Model:');
+      expect(wrapper.find('.mode-label').text()).toBe('Mode:');
     });
 
     it('renders a select dropdown', () => {
@@ -45,46 +47,46 @@ describe('ModelSelector', () => {
       expect(wrapper.find('select').exists()).toBe(true);
     });
 
-    it('renders all three model options', () => {
+    it('renders all three mode options', () => {
       const wrapper = mountComponent();
       const options = wrapper.findAll('option');
       expect(options).toHaveLength(3);
     });
 
-    it('displays model names in options', () => {
+    it('displays mode labels in options', () => {
       const wrapper = mountComponent();
       const options = wrapper.findAll('option');
-      expect(options[0].text()).toBe(sonnet.name);
-      expect(options[1].text()).toBe(opus.name);
-      expect(options[2].text()).toBe(haiku.name);
+      expect(options[0].text()).toBe('Plan');
+      expect(options[1].text()).toBe('Standard');
+      expect(options[2].text()).toBe('YOLO');
     });
 
     it('sets correct values for options', () => {
       const wrapper = mountComponent();
       const options = wrapper.findAll('option');
-      expect(options[0].element.value).toBe(sonnet.id);
-      expect(options[1].element.value).toBe(opus.id);
-      expect(options[2].element.value).toBe(haiku.id);
+      expect(options[0].element.value).toBe('plan');
+      expect(options[1].element.value).toBe('standard');
+      expect(options[2].element.value).toBe('yolo');
     });
   });
 
   describe('selected state', () => {
-    it('marks sonnet as selected when modelValue is sonnet', () => {
-      const wrapper = mountComponent({ modelValue: sonnet.id });
+    it('marks plan as selected when modelValue is plan', () => {
+      const wrapper = mountComponent({ modelValue: 'plan' });
       const select = wrapper.find('select');
-      expect(select.element.value).toBe(sonnet.id);
+      expect(select.element.value).toBe('plan');
     });
 
-    it('marks opus as selected when modelValue is opus', () => {
-      const wrapper = mountComponent({ modelValue: opus.id });
+    it('marks standard as selected when modelValue is standard', () => {
+      const wrapper = mountComponent({ modelValue: 'standard' });
       const select = wrapper.find('select');
-      expect(select.element.value).toBe(opus.id);
+      expect(select.element.value).toBe('standard');
     });
 
-    it('marks haiku as selected when modelValue is haiku', () => {
-      const wrapper = mountComponent({ modelValue: haiku.id });
+    it('marks yolo as selected when modelValue is yolo', () => {
+      const wrapper = mountComponent({ modelValue: 'yolo' });
       const select = wrapper.find('select');
-      expect(select.element.value).toBe(haiku.id);
+      expect(select.element.value).toBe('yolo');
     });
   });
 
@@ -92,47 +94,47 @@ describe('ModelSelector', () => {
     it('emits update:modelValue when selection changes', async () => {
       const onUpdateModelValue = vi.fn();
       const wrapper = mountComponent(
-        { modelValue: sonnet.id },
+        { modelValue: 'yolo' },
         { 'onUpdate:modelValue': onUpdateModelValue }
       );
       const select = wrapper.find('select');
 
-      await select.setValue(opus.id);
+      await select.setValue('plan');
       await flushAll(wrapper);
 
-      expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
+      expect(onUpdateModelValue).toHaveBeenCalledWith('plan');
     });
 
-    it('emits correct model id for each option', async () => {
+    it('emits correct mode value for each option', async () => {
       const onUpdateModelValue = vi.fn();
       const wrapper = mountComponent(
-        { modelValue: sonnet.id },
+        { modelValue: 'yolo' },
         { 'onUpdate:modelValue': onUpdateModelValue }
       );
       const select = wrapper.find('select');
 
-      // Changing to opus
-      await select.setValue(opus.id);
+      // Change to plan
+      await select.setValue('plan');
       await flushAll(wrapper);
-      expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
+      expect(onUpdateModelValue).toHaveBeenCalledWith('plan');
 
-      // Changing to haiku
-      await select.setValue(haiku.id);
+      // Change to standard
+      await select.setValue('standard');
       await flushAll(wrapper);
-      expect(onUpdateModelValue).toHaveBeenCalledWith(haiku.id);
+      expect(onUpdateModelValue).toHaveBeenCalledWith('standard');
 
       expect(onUpdateModelValue).toHaveBeenCalledTimes(2);
     });
 
-    it('does not emit when selecting the same model', async () => {
+    it('does not emit when selecting the same mode', async () => {
       const onUpdateModelValue = vi.fn();
       const wrapper = mountComponent(
-        { modelValue: sonnet.id },
+        { modelValue: 'yolo' },
         { 'onUpdate:modelValue': onUpdateModelValue }
       );
       const select = wrapper.find('select');
 
-      await select.setValue(sonnet.id);
+      await select.setValue('yolo');
       await flushAll(wrapper);
 
       expect(onUpdateModelValue).not.toHaveBeenCalled();
@@ -155,32 +157,32 @@ describe('ModelSelector', () => {
 
   describe('optimistic UI updates', () => {
     it('updates selection immediately on change (before async operation)', async () => {
-      const wrapper = mountComponent({ modelValue: sonnet.id });
+      const wrapper = mountComponent({ modelValue: 'yolo' });
       let select = wrapper.find('select');
 
       // Initial value
-      expect(select.element.value).toBe(sonnet.id);
+      expect(select.element.value).toBe('yolo');
 
-      // Change to opus
-      await select.setValue(opus.id);
+      // Change to plan
+      await select.setValue('plan');
       await nextTick();
 
       select = wrapper.find('select');
-      expect(select.element.value).toBe(opus.id);
+      expect(select.element.value).toBe('plan');
     });
 
     it('emits update:modelValue immediately in form context', async () => {
       const onUpdateModelValue = vi.fn();
       const wrapper = mountComponent(
-        { modelValue: sonnet.id },
+        { modelValue: 'yolo' },
         { 'onUpdate:modelValue': onUpdateModelValue }
       );
       const select = wrapper.find('select');
 
-      await select.setValue(opus.id);
+      await select.setValue('standard');
       await flushAll(wrapper);
 
-      expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
+      expect(onUpdateModelValue).toHaveBeenCalledWith('standard');
       expect(onUpdateModelValue).toHaveBeenCalledTimes(1);
     });
   });
@@ -188,68 +190,68 @@ describe('ModelSelector', () => {
   describe('session context with store updates', () => {
     it('updates store and maintains selection on success', async () => {
       const sessionsStore = useSessionsStore();
-      const updateSessionModelSpy = vi.spyOn(sessionsStore, 'updateSessionModel').mockResolvedValue(undefined);
+      const updateSessionModeSpy = vi.spyOn(sessionsStore, 'updateSessionMode').mockResolvedValue(undefined);
 
       // Set up the session store BEFORE creating the component
       sessionsStore.currentSession = {
         id: 'test-session',
-        model: sonnet.id,
+        mode: 'yolo',
       };
 
       const wrapper = mountComponent({
         sessionId: 'test-session',
-        modelValue: sonnet.id,
+        modelValue: 'yolo',
       });
 
       await flushAll(wrapper);
 
       let select = wrapper.find('select');
-      expect(select.element.value).toBe(sonnet.id);
+      expect(select.element.value).toBe('yolo');
 
-      // Change to opus
-      await select.setValue(opus.id);
+      // Change to plan
+      await select.setValue('plan');
       await flushAll(wrapper);
 
       // Selection should be updated
       select = wrapper.find('select');
-      expect(select.element.value).toBe(opus.id);
+      expect(select.element.value).toBe('plan');
 
       // Wait for the store update to complete
       await flushAll(wrapper);
 
-      // Store should have been called with the new model
-      expect(updateSessionModelSpy).toHaveBeenCalledWith('test-session', opus.id);
+      // Store should have been called with the new mode
+      expect(updateSessionModeSpy).toHaveBeenCalledWith('test-session', 'plan');
 
-      updateSessionModelSpy.mockRestore();
+      updateSessionModeSpy.mockRestore();
     });
 
     it('calls store method with correct parameters on update', async () => {
       const sessionsStore = useSessionsStore();
-      const updateSessionModelSpy = vi.spyOn(sessionsStore, 'updateSessionModel').mockResolvedValue(undefined);
+      const updateSessionModeSpy = vi.spyOn(sessionsStore, 'updateSessionMode').mockResolvedValue(undefined);
 
       // Set up the session store BEFORE creating the component
       sessionsStore.currentSession = {
         id: 'test-session',
-        model: sonnet.id,
+        mode: 'yolo',
       };
 
       const wrapper = mountComponent({
         sessionId: 'test-session',
-        modelValue: sonnet.id,
+        modelValue: 'yolo',
       });
 
       await flushAll(wrapper);
 
       const select = wrapper.find('select');
 
-      // Change to opus
-      await select.setValue(opus.id);
+      // Change to standard
+      await select.setValue('standard');
       await flushAll(wrapper);
 
       // Store method should have been called
-      expect(updateSessionModelSpy).toHaveBeenCalledWith('test-session', opus.id);
+      expect(updateSessionModeSpy).toHaveBeenCalledWith('test-session', 'standard');
 
-      updateSessionModelSpy.mockRestore();
+      updateSessionModeSpy.mockRestore();
     });
 
     it('disables select while store update is in progress', async () => {
@@ -259,19 +261,19 @@ describe('ModelSelector', () => {
         resolveUpdate = resolve;
       });
 
-      const updateSessionModelSpy = vi
-        .spyOn(sessionsStore, 'updateSessionModel')
+      const updateSessionModeSpy = vi
+        .spyOn(sessionsStore, 'updateSessionMode')
         .mockReturnValue(updatePromise);
 
       // Set up the session store BEFORE creating the component
       sessionsStore.currentSession = {
         id: 'test-session',
-        model: sonnet.id,
+        mode: 'yolo',
       };
 
       const wrapper = mountComponent({
         sessionId: 'test-session',
-        modelValue: sonnet.id,
+        modelValue: 'yolo',
       });
 
       await flushAll(wrapper);
@@ -279,8 +281,8 @@ describe('ModelSelector', () => {
       let select = wrapper.find('select');
       expect(select.element.disabled).toBe(false);
 
-      // Change to opus
-      await select.setValue(opus.id);
+      // Change to plan
+      await select.setValue('plan');
       await flushAll(wrapper);
 
       // Re-query select to check disabled state
@@ -299,31 +301,31 @@ describe('ModelSelector', () => {
       // Select should be enabled again
       expect(select.element.disabled).toBe(false);
 
-      updateSessionModelSpy.mockRestore();
+      updateSessionModeSpy.mockRestore();
     });
   });
 
   describe('watch observer for external changes', () => {
     it('renders correct selected state when mounted with different modelValue props', async () => {
-      // Test mounting with sonnet
-      const wrapper1 = mountComponent({ modelValue: sonnet.id });
+      // Test mounting with plan
+      const wrapper1 = mountComponent({ modelValue: 'plan' });
       await flushAll(wrapper1);
       let select = wrapper1.find('select');
-      expect(select.element.value).toBe(sonnet.id);
+      expect(select.element.value).toBe('plan');
       wrapper1.unmount();
 
-      // Test mounting with opus
-      const wrapper2 = mountComponent({ modelValue: opus.id });
+      // Test mounting with standard
+      const wrapper2 = mountComponent({ modelValue: 'standard' });
       await flushAll(wrapper2);
       select = wrapper2.find('select');
-      expect(select.element.value).toBe(opus.id);
+      expect(select.element.value).toBe('standard');
       wrapper2.unmount();
 
-      // Test mounting with haiku
-      const wrapper3 = mountComponent({ modelValue: haiku.id });
+      // Test mounting with yolo
+      const wrapper3 = mountComponent({ modelValue: 'yolo' });
       await flushAll(wrapper3);
       select = wrapper3.find('select');
-      expect(select.element.value).toBe(haiku.id);
+      expect(select.element.value).toBe('yolo');
       wrapper3.unmount();
     });
 
@@ -337,22 +339,22 @@ describe('ModelSelector', () => {
 
       sessionsStore.currentSession = {
         id: 'test-session',
-        model: sonnet.id,
+        mode: 'yolo',
       };
 
       await flushAll(wrapper);
 
       let select = wrapper.find('select');
-      expect(select.element.value).toBe(sonnet.id);
+      expect(select.element.value).toBe('yolo');
 
-      // Simulate session model being updated in the store
-      sessionsStore.currentSession.model = opus.id;
+      // Simulate session mode being updated in the store
+      sessionsStore.currentSession.mode = 'plan';
       await flushAll(wrapper);
 
       select = wrapper.find('select');
 
       // Selection should sync with store change
-      expect(select.element.value).toBe(opus.id);
+      expect(select.element.value).toBe('plan');
     });
   });
 
@@ -360,47 +362,47 @@ describe('ModelSelector', () => {
     it('works correctly with v-model in form context', async () => {
       const onUpdateModelValue = vi.fn();
       const wrapper = mountComponent(
-        { modelValue: sonnet.id },
+        { modelValue: 'yolo' },
         { 'onUpdate:modelValue': onUpdateModelValue }
       );
 
       let select = wrapper.find('select');
 
       // Initial state
-      expect(select.element.value).toBe(sonnet.id);
+      expect(select.element.value).toBe('yolo');
 
-      // Change to haiku
-      await select.setValue(haiku.id);
+      // Change to standard
+      await select.setValue('standard');
       await flushAll(wrapper);
 
       // Should emit immediately
-      expect(onUpdateModelValue).toHaveBeenCalledWith(haiku.id);
+      expect(onUpdateModelValue).toHaveBeenCalledWith('standard');
 
       // Visual feedback should be immediate
       select = wrapper.find('select');
-      expect(select.element.value).toBe(haiku.id);
+      expect(select.element.value).toBe('standard');
     });
 
     it('updates visual state and emits when user selects different options', async () => {
       const onUpdateModelValue = vi.fn();
       const wrapper = mountComponent(
-        { modelValue: sonnet.id },
+        { modelValue: 'yolo' },
         { 'onUpdate:modelValue': onUpdateModelValue }
       );
       await flushAll(wrapper);
 
       let select = wrapper.find('select');
-      expect(select.element.value).toBe(sonnet.id);
+      expect(select.element.value).toBe('yolo');
 
-      // Change to haiku - visual state should update immediately
-      await select.setValue(haiku.id);
+      // Change to plan - visual state should update immediately
+      await select.setValue('plan');
       await flushAll(wrapper);
 
       select = wrapper.find('select');
-      expect(select.element.value).toBe(haiku.id);
+      expect(select.element.value).toBe('plan');
 
       // Emit should have been called
-      expect(onUpdateModelValue).toHaveBeenCalledWith(haiku.id);
+      expect(onUpdateModelValue).toHaveBeenCalledWith('plan');
     });
   });
 });

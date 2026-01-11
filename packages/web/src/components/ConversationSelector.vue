@@ -99,8 +99,9 @@ function formatTokens(n) {
 }
 
 function getConversationTokens(conv) {
-  const total = (conv.inputTokens || 0) + (conv.outputTokens || 0);
-  return formatTokens(total);
+  // Use the store getter for real-time token updates during streaming
+  const tokens = sessionsStore.getConversationDisplayTokens(conv.id);
+  return formatTokens(tokens.total);
 }
 
 // Get display name for the active conversation
