@@ -774,7 +774,7 @@ describe('CommandRunner', () => {
 
       expect(result).toBe(0);
       // The output callbacks should receive cleaned text (without ANSI codes)
-      const allOutput = outputs.join('');
+      const _allOutput = outputs.join('');
       // Note: The actual content depends on how the shell interprets the escape sequences
       // What's important is that if any ANSI codes are present, they should be minimal
     });
