@@ -131,16 +131,18 @@ function handleDelete() {
 
 function handleKeyDown(event) {
   switch (event.key) {
-    case 'ArrowDown':
+    case 'ArrowDown': {
       event.preventDefault();
       const totalItems = items.value.length + 1; // +1 for delete button
       highlightedIndex.value = highlightedIndex.value === null ? 0 : (highlightedIndex.value + 1) % totalItems;
       break;
-    case 'ArrowUp':
+    }
+    case 'ArrowUp': {
       event.preventDefault();
       const totalItemsUp = items.value.length + 1;
       highlightedIndex.value = highlightedIndex.value === null ? totalItemsUp - 1 : (highlightedIndex.value - 1 + totalItemsUp) % totalItemsUp;
       break;
+    }
     case 'Enter':
       event.preventDefault();
       if (highlightedIndex.value !== null) {
