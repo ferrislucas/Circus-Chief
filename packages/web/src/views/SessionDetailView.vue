@@ -543,13 +543,13 @@ function getTemplateName(templateId) {
 
 .session-name {
   flex: 1;
-  min-width: 0; /* Critical: allows text-overflow to work in flexbox */
+  min-width: 0; /* Critical: allows wrapping to work in flexbox */
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-word;
+  line-height: 1.4;
 }
 
 .branch-pr-indicators {
@@ -561,8 +561,10 @@ function getTemplateName(templateId) {
 
 @media (max-width: 768px) {
   .session-header-row {
-    /* Keep everything on one line - don't wrap */
-    min-height: 44px; /* Touch target minimum */
+    /* Allow flexbox to accommodate multi-line session names */
+    align-items: flex-start;
+    min-height: auto;
+    padding-top: 0.25rem; /* Align star button with first line of text */
   }
 
   .session-name {
