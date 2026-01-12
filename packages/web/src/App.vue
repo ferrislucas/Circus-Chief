@@ -2,7 +2,9 @@
   <div class="app">
     <header class="app-header">
       <div class="container">
-        <router-link to="/" class="logo">ClaudeTools.io</router-link>
+        <router-link to="/" class="logo">
+          <img src="/logo.png" alt="ClaudeTools.io Logo" class="logo-image" />
+        </router-link>
         <nav class="nav">
           <router-link to="/" class="nav-link">Projects</router-link>
           <router-link to="/sessions/active" class="nav-link">Sessions</router-link>
@@ -32,7 +34,8 @@ import ToastContainer from './components/ToastContainer.vue';
 .app-header {
   background-color: var(--color-background-soft);
   border-bottom: 1px solid var(--color-border);
-  height: var(--header-height);
+  padding: 5px 0 !important;
+  margin: 0 !important;
   display: flex;
   align-items: center;
   position: sticky;
@@ -44,18 +47,30 @@ import ToastContainer from './components/ToastContainer.vue';
 .app-header .container {
   display: flex;
   align-items: center;
-  gap: 2rem;
+  gap: 1rem;
+  padding: 0 1rem !important;
+  margin: 0 !important;
 }
 
 .logo {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--color-text);
+  display: block;
+  padding: 0 !important;
+  margin: 0 !important;
+  line-height: 0;
 }
 
-.logo:hover {
-  text-decoration: none;
-  color: var(--color-primary);
+.logo-image {
+  height: 40px;
+  width: auto;
+  max-width: 200px;
+  display: block;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.logo:hover .logo-image {
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
 }
 
 .nav {
@@ -73,7 +88,7 @@ import ToastContainer from './components/ToastContainer.vue';
 }
 
 .app-main {
-  flex: 1;
-  padding: 2rem 0;
+  flex: 1 0 auto;
+  padding: 0;
 }
 </style>
