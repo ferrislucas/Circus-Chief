@@ -133,7 +133,7 @@ input, textarea, select {
 
 /* Forms */
 .form-group {
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
 }
 
 .form-label {
