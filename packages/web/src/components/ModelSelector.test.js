@@ -8,7 +8,7 @@ import { useUiStore } from '../stores/ui.js';
 import { CLAUDE_MODELS } from '@claudetools/shared';
 
 // Use actual model data from the shared package
-const [sonnet, opus, haiku] = CLAUDE_MODELS;
+const [haiku, sonnet, opus] = CLAUDE_MODELS;
 
 // Global helper to flush all async updates and force DOM re-render
 async function flushAll(wrapper) {
@@ -54,17 +54,17 @@ describe('ModelSelector', () => {
     it('displays model names in options', () => {
       const wrapper = mountComponent();
       const options = wrapper.findAll('option');
-      expect(options[0].text()).toBe(sonnet.name);
-      expect(options[1].text()).toBe(opus.name);
-      expect(options[2].text()).toBe(haiku.name);
+      expect(options[0].text()).toBe(haiku.name);
+      expect(options[1].text()).toBe(sonnet.name);
+      expect(options[2].text()).toBe(opus.name);
     });
 
     it('sets correct values for options', () => {
       const wrapper = mountComponent();
       const options = wrapper.findAll('option');
-      expect(options[0].element.value).toBe(sonnet.id);
-      expect(options[1].element.value).toBe(opus.id);
-      expect(options[2].element.value).toBe(haiku.id);
+      expect(options[0].element.value).toBe(haiku.id);
+      expect(options[1].element.value).toBe(sonnet.id);
+      expect(options[2].element.value).toBe(opus.id);
     });
   });
 
