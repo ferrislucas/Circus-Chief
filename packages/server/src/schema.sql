@@ -163,9 +163,6 @@ CREATE TABLE IF NOT EXISTS session_summaries (
   message_count INTEGER,            -- Track what was summarized (staleness detection)
   pr_merged INTEGER,                -- 0/1 boolean - whether PR is merged
   pr_state TEXT,                    -- 'open' | 'closed' | 'merged' | 'draft'
-  pr_owner TEXT,                    -- GitHub owner/org (parsed from PR URL)
-  pr_repo TEXT,                     -- GitHub repo name (parsed from PR URL)
-  pr_number INTEGER,                -- PR number (parsed from PR URL)
   has_merge_conflicts INTEGER,      -- 0/1 boolean - whether PR has merge conflicts
   ci_status TEXT,                   -- 'success' | 'failure' | 'pending' | null
   ci_failures TEXT,                 -- JSON array of failed check names

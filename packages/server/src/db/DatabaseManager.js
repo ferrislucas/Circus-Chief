@@ -113,21 +113,6 @@ export class DatabaseManager {
       this.#db.exec('ALTER TABLE session_summaries ADD COLUMN ci_failures TEXT');
     }
 
-    // Add parsed PR component columns for better validation and display
-    // Re-fetch column info since we may have added columns
-    const prComponentsTableInfo = this.#db.prepare('PRAGMA table_info(session_summaries)').all();
-    const prComponentsColumns = prComponentsTableInfo.map((col) => col.name);
-
-    if (!prComponentsColumns.includes('pr_owner')) {
-      this.#db.exec('ALTER TABLE session_summaries ADD COLUMN pr_owner TEXT');
-    }
-    if (!prComponentsColumns.includes('pr_repo')) {
-      this.#db.exec('ALTER TABLE session_summaries ADD COLUMN pr_repo TEXT');
-    }
-    if (!prComponentsColumns.includes('pr_number')) {
-      this.#db.exec('ALTER TABLE session_summaries ADD COLUMN pr_number INTEGER');
-    }
-
     // Check if sessions table has the template chaining columns, add them if not
     // Re-fetch column info since table may have been recreated
     const updatedSessionsTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
