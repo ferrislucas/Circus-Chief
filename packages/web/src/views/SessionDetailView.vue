@@ -466,8 +466,6 @@ async function handleArchive() {
 async function handleStar() {
   try {
     await sessionsStore.toggleSessionStar(sessionId);
-    const isNowStarred = sessionsStore.currentSession?.starred;
-    uiStore.success(isNowStarred ? 'Session starred' : 'Session unstarred');
   } catch (err) {
     uiStore.error(err.message);
   }
