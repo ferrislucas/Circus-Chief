@@ -57,40 +57,52 @@ defineProps({
 });
 
 /**
- * Display PR text using parsed components from summary when available
- * Falls back to URL parsing for backward compatibility
+ * Extract PR number and repo from URL for display
+ */
+function extractPrDisplay() {
+  if (!prUrl) return { number: null, repo: null };
+
+  const match = prUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/);
+  if (!match) return { number: null, repo: null };
+
+  return {
+    number: match[3],
+    owner: match[1],
+    repo: match[2],
+  };
+}
+
+/**
+ * Display PR text with repository context from URL
  */
 function displayPrText() {
-  if (!prUrl && !summary) return 'PR';
+  if (!prUrl) return 'PR';
 
-  // Prefer parsed components from summary if available
-  if (summary?.prNumber) {
-    const repo = summary.prRepo ? ` (${summary.prOwner}/${summary.prRepo})` : '';
-    return `PR ${summary.prNumber}${repo}`;
-  }
+  const pr = extractPrDisplay();
+  if (!pr.number) return 'PR';
 
-  // Fallback to URL parsing for backward compatibility
-  const match = prUrl?.match(/\/pull\/(\d+)/);
-  return match ? `PR ${match[1]}` : 'PR';
+  const repo = pr.repo ? ` (${pr.owner}/${pr.repo})` : '';
+  return `PR ${pr.number}${repo}`;
 }
 
 /**
  * Get tooltip with PR repository information
  */
 function getPrTooltip() {
-  if (!summary) return '';
+  if (!prUrl) return '';
 
+  const pr = extractPrDisplay();
   const parts = [];
 
-  if (summary.prNumber) {
-    parts.push(`PR #${summary.prNumber}`);
+  if (pr.number) {
+    parts.push(`PR #${pr.number}`);
   }
 
-  if (summary.prOwner && summary.prRepo) {
-    parts.push(`Repository: ${summary.prOwner}/${summary.prRepo}`);
+  if (pr.owner && pr.repo) {
+    parts.push(`Repository: ${pr.owner}/${pr.repo}`);
   }
 
-  if (summary.prState) {
+  if (summary?.prState) {
     parts.push(`State: ${formatPrState(summary.prState)}`);
   }
 
