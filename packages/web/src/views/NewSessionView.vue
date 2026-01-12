@@ -497,11 +497,13 @@ async function handleSubmit() {
   font-size: 0.875rem;
   color: var(--color-text-soft);
   display: inline-block;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
+  margin-top: 0;
 }
 
 h1 {
-  margin-bottom: 2rem;
+  margin-bottom: 0.5rem;
+  margin-top: 0;
 }
 
 .form {
@@ -705,7 +707,7 @@ h1 {
 /* Mobile responsive styles */
 @media (max-width: 480px) {
   h1 {
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
     font-size: 1.5rem;
   }
 
