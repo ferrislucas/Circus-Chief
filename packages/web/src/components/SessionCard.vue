@@ -27,14 +27,6 @@
               @click.stop.prevent="selectedButtonForModal = indicator"
             >{{ getStatusIcon(indicator.status) }}</span>
           </p>
-          <div v-if="session.gitBranch || session.prUrl" class="branch-row">
-            <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
-            <PrIndicators
-              v-if="session.prUrl"
-              :pr-url="session.prUrl"
-              :summary="summary"
-            />
-          </div>
           <p v-if="showProject && session.projectName" class="session-project">
             <span class="project-name">{{ session.projectName }}</span>
           </p>
@@ -105,14 +97,6 @@
             @click.stop.prevent="selectedButtonForModal = indicator"
           >{{ getStatusIcon(indicator.status) }}</span>
         </p>
-        <div v-if="session.gitBranch || session.prUrl" class="branch-row">
-          <span v-if="session.gitBranch" class="session-branch">{{ session.gitBranch }}</span>
-          <PrIndicators
-            v-if="session.prUrl"
-            :pr-url="session.prUrl"
-            :summary="summary"
-          />
-        </div>
         <p v-if="showProject && session.projectName" class="session-project">
           <span class="project-name">{{ session.projectName }}</span>
         </p>
@@ -202,7 +186,6 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { formatDate } from '../utils/formatters.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
-import PrIndicators from './PrIndicators.vue';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 
 const router = useRouter();
@@ -482,24 +465,6 @@ const onStarClick = () => {
   color: var(--color-text-soft);
 }
 
-.branch-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.375rem;
-}
-
-.session-branch {
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
-  font-family: var(--font-mono);
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .session-project {
   margin: 0.5rem 0 0;
 }
@@ -771,11 +736,6 @@ const onStarClick = () => {
   .session-mode,
   .session-model {
     font-size: 0.7rem;
-  }
-
-  /* More aggressive branch name truncation on mobile */
-  .session-branch {
-    max-width: 150px;
   }
 
   /* Compact date display */
