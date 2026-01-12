@@ -247,7 +247,7 @@ router.post('/:id/message', upload.array('files', 10), handleUploadError, async 
     return res.status(400).json({ error: 'Content is required' });
   }
 
-  if (session.status !== 'waiting' && session.status !== 'stopped') {
+  if (session.status !== 'waiting' && session.status !== 'stopped' && session.status !== 'error') {
     return res.status(400).json({ error: 'Session is not waiting for input' });
   }
 
