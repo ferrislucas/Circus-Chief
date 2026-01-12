@@ -460,10 +460,6 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
         // Don't save the invalid PR URL
         summaryData.prUrl = null;
       } else if (validation.prComponents) {
-        // Store parsed PR components for display and validation
-        summaryData.prOwner = validation.prComponents.owner;
-        summaryData.prRepo = validation.prComponents.repo;
-        summaryData.prNumber = validation.prComponents.number;
 
         // Enrich with GitHub PR status if validation passed
         try {
