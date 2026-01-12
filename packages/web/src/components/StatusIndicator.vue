@@ -1,5 +1,7 @@
 <template>
+  <!-- Do not display indicator for waiting status -->
   <span
+    v-if="status !== 'waiting'"
     :class="['status-indicator', `status-${status}`, { 'status-animated': isAnimated }]"
     :role="isAnimated ? 'progressbar' : 'status'"
     :aria-label="ariaLabel"
@@ -23,7 +25,6 @@ const props = defineProps({
 const statusTexts = {
   running: 'Running',
   starting: 'Starting...',
-  waiting: 'Waiting',
   completed: 'Completed',
   error: 'Error'
 };
@@ -31,7 +32,6 @@ const statusTexts = {
 const statusIcons = {
   running: '●',
   starting: '○',
-  waiting: '◐',
   completed: '✓',
   error: '!'
 };
@@ -65,11 +65,6 @@ const ariaLabel = computed(() => {
 .status-starting {
   background: rgba(34, 211, 238, 0.1);
   color: rgb(34, 211, 238);
-}
-
-.status-waiting {
-  background: rgba(251, 191, 36, 0.1);
-  color: rgb(251, 191, 36);
 }
 
 .status-completed {
