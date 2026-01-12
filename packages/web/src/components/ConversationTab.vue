@@ -769,7 +769,6 @@ async function handleStart() {
     // Pass the current prompt to the start method via the store
     // This ensures the UI updates immediately via Vue reactivity
     await sessionsStore.startSession(props.sessionId, currentValue);
-    uiStore.success('Session started');
     // Clear localStorage draft on successful start
     localStorage.removeItem(STORAGE_KEY);
   } catch (err) {
