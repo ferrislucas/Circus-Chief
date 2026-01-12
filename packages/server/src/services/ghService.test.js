@@ -7,7 +7,7 @@ vi.mock('child_process', () => ({
 }));
 
 // Import after mocking
-import { isGhAvailable, getPrInfo, resetGhAvailableCache } from './ghService.js';
+import { isGhAvailable, getPrInfo, resetGhAvailableCache, extractPrInfo, validatePrRepository } from './ghService.js';
 
 describe('ghService', () => {
   beforeEach(() => {
@@ -354,6 +354,123 @@ describe('ghService', () => {
       const result = await getPrInfo('https://github.com/org/repo/pull/123');
       expect(result.ciStatus).toBe(null);
       expect(result.ciFailures).toEqual([]);
+    });
+  });
+
+  describe('extractPrInfo', () => {
+    it('extracts PR info from valid GitHub URL', () => {
+      const result = extractPrInfo('https://github.com/anthropics/claudetools.io/pull/123');
+      expect(result).toEqual({
+        owner: 'anthropics',
+        repo: 'claudetools.io',
+        number: 123,
+      });
+    });
+
+    it('extracts PR info with different owner and repo names', () => {
+      const result = extractPrInfo('https://github.com/user-name/repo-name/pull/456');
+      expect(result).toEqual({
+        owner: 'user-name',
+        repo: 'repo-name',
+        number: 456,
+      });
+    });
+
+    it('returns null for invalid URL format', () => {
+      expect(extractPrInfo('https://github.com/user/repo')).toBe(null);
+      expect(extractPrInfo('https://github.com/user/repo/issues/123')).toBe(null);
+      expect(extractPrInfo('https://gitlab.com/user/repo/merge_requests/123')).toBe(null);
+    });
+
+    it('returns null for null or empty URL', () => {
+      expect(extractPrInfo(null)).toBe(null);
+      expect(extractPrInfo('')).toBe(null);
+      expect(extractPrInfo(undefined)).toBe(null);
+    });
+
+    it('parses PR number as integer', () => {
+      const result = extractPrInfo('https://github.com/org/repo/pull/999');
+      expect(result?.number).toBe(999);
+      expect(typeof result?.number).toBe('number');
+    });
+  });
+
+  describe('validatePrRepository', () => {
+    it('validates PR from expected repository', () => {
+      const result = validatePrRepository(
+        'https://github.com/anthropics/claudetools.io/pull/123',
+        'https://github.com/anthropics/claudetools.io'
+      );
+      expect(result).toEqual({ valid: true, mismatch: false, error: null });
+    });
+
+    it('detects PR from different owner', () => {
+      const result = validatePrRepository(
+        'https://github.com/user/claudetools.io/pull/123',
+        'https://github.com/anthropics/claudetools.io'
+      );
+      expect(result.valid).toBe(false);
+      expect(result.mismatch).toBe(true);
+      expect(result.error).toContain('user/claudetools.io');
+      expect(result.error).toContain('anthropics/claudetools.io');
+    });
+
+    it('detects PR from different repo', () => {
+      const result = validatePrRepository(
+        'https://github.com/anthropics/different-repo/pull/123',
+        'https://github.com/anthropics/claudetools.io'
+      );
+      expect(result.valid).toBe(false);
+      expect(result.mismatch).toBe(true);
+      expect(result.error).toContain('anthropics/different-repo');
+      expect(result.error).toContain('anthropics/claudetools.io');
+    });
+
+    it('handles trailing slash in expected repo URL', () => {
+      const result = validatePrRepository(
+        'https://github.com/org/repo/pull/123',
+        'https://github.com/org/repo/'
+      );
+      expect(result.valid).toBe(true);
+      expect(result.mismatch).toBe(false);
+    });
+
+    it('accepts PR when no expected repo URL provided', () => {
+      const result = validatePrRepository(
+        'https://github.com/user/repo/pull/123',
+        null
+      );
+      expect(result.valid).toBe(true);
+      expect(result.mismatch).toBe(false);
+    });
+
+    it('rejects invalid PR URL format', () => {
+      const result = validatePrRepository(
+        'https://github.com/org/repo',
+        'https://github.com/org/repo'
+      );
+      expect(result.valid).toBe(false);
+      expect(result.mismatch).toBe(false);
+      expect(result.error).toContain('Invalid PR URL format');
+    });
+
+    it('rejects null or empty PR URL', () => {
+      const result = validatePrRepository(
+        null,
+        'https://github.com/org/repo'
+      );
+      expect(result.valid).toBe(false);
+      expect(result.mismatch).toBe(false);
+      expect(result.error).toContain('No PR URL provided');
+    });
+
+    it('accepts invalid expected repo URL format', () => {
+      const result = validatePrRepository(
+        'https://github.com/org/repo/pull/123',
+        'invalid-url'
+      );
+      expect(result.valid).toBe(true);
+      expect(result.mismatch).toBe(false);
     });
   });
 });
