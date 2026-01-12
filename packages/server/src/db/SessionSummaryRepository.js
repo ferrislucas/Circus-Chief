@@ -21,6 +21,9 @@ export class SessionSummaryRepository extends BaseRepository {
       messageCount: row.message_count,
       prMerged: row.pr_merged !== null ? Boolean(row.pr_merged) : null,
       prState: row.pr_state,
+      prOwner: row.pr_owner,
+      prRepo: row.pr_repo,
+      prNumber: row.pr_number,
       hasMergeConflicts: row.has_merge_conflicts !== null ? Boolean(row.has_merge_conflicts) : null,
       ciStatus: row.ci_status,
       ciFailures: row.ci_failures ? JSON.parse(row.ci_failures) : [],
@@ -54,8 +57,8 @@ export class SessionSummaryRepository extends BaseRepository {
     this.db
       .prepare(
         `INSERT INTO session_summaries
-         (id, session_id, short_summary, full_summary, key_actions, files_modified, outcome, message_count, pr_merged, pr_state, has_merge_conflicts, ci_status, ci_failures, generated_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, session_id, short_summary, full_summary, key_actions, files_modified, outcome, message_count, pr_merged, pr_state, pr_owner, pr_repo, pr_number, has_merge_conflicts, ci_status, ci_failures, generated_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -68,6 +71,9 @@ export class SessionSummaryRepository extends BaseRepository {
         data.messageCount || 0,
         data.prMerged !== undefined ? (data.prMerged ? 1 : 0) : null,
         data.prState || null,
+        data.prOwner || null,
+        data.prRepo || null,
+        data.prNumber || null,
         data.hasMergeConflicts !== undefined ? (data.hasMergeConflicts ? 1 : 0) : null,
         data.ciStatus || null,
         data.ciFailures ? JSON.stringify(data.ciFailures) : null,
@@ -119,6 +125,18 @@ export class SessionSummaryRepository extends BaseRepository {
     if (data.prState !== undefined) {
       updates.push('pr_state = ?');
       values.push(data.prState);
+    }
+    if (data.prOwner !== undefined) {
+      updates.push('pr_owner = ?');
+      values.push(data.prOwner);
+    }
+    if (data.prRepo !== undefined) {
+      updates.push('pr_repo = ?');
+      values.push(data.prRepo);
+    }
+    if (data.prNumber !== undefined) {
+      updates.push('pr_number = ?');
+      values.push(data.prNumber);
     }
     if (data.hasMergeConflicts !== undefined) {
       updates.push('has_merge_conflicts = ?');
