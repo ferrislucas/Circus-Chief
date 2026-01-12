@@ -6,12 +6,13 @@
       target="_blank"
       rel="noopener noreferrer"
       class="pr-link"
+      :title="getPrTooltip()"
       @click.stop
     >
       <svg class="pr-icon" viewBox="0 0 16 16" fill="currentColor">
         <path fill-rule="evenodd" d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z"/>
       </svg>
-      {{ extractPrNumber(prUrl) }}
+      {{ displayPrText() }}
     </a>
     <span v-if="summary?.prState" :class="['pr-state-badge', `pr-state-${summary.prState}`]">
       {{ formatPrState(summary.prState) }}
@@ -44,7 +45,7 @@
 </template>
 
 <script setup>
-defineProps({
+const props = defineProps({
   prUrl: {
     type: String,
     default: null,
@@ -55,10 +56,57 @@ defineProps({
   },
 });
 
-function extractPrNumber(url) {
-  if (!url) return 'PR';
-  const match = url.match(/\/pull\/(\d+)/);
-  return match ? `PR ${match[1]}` : 'PR';
+/**
+ * Extract PR number and repo from URL for display
+ */
+function extractPrDisplay() {
+  if (!props.prUrl) return { number: null, repo: null };
+
+  const match = props.prUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/);
+  if (!match) return { number: null, repo: null };
+
+  return {
+    number: match[3],
+    owner: match[1],
+    repo: match[2],
+  };
+}
+
+/**
+ * Display PR text with repository context from URL
+ */
+function displayPrText() {
+  if (!props.prUrl) return 'PR';
+
+  const pr = extractPrDisplay();
+  if (!pr.number) return 'PR';
+
+  const repo = pr.repo ? ` (${pr.owner}/${pr.repo})` : '';
+  return `PR ${pr.number}${repo}`;
+}
+
+/**
+ * Get tooltip with PR repository information
+ */
+function getPrTooltip() {
+  if (!props.prUrl) return '';
+
+  const pr = extractPrDisplay();
+  const parts = [];
+
+  if (pr.number) {
+    parts.push(`PR #${pr.number}`);
+  }
+
+  if (pr.owner && pr.repo) {
+    parts.push(`Repository: ${pr.owner}/${pr.repo}`);
+  }
+
+  if (props.summary?.prState) {
+    parts.push(`State: ${formatPrState(props.summary.prState)}`);
+  }
+
+  return parts.join(' • ');
 }
 
 function formatPrState(state) {

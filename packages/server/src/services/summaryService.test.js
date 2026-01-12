@@ -19,6 +19,8 @@ import {
   buildIncrementalPrompt,
   parseSummaryResponse,
   callClaude,
+  parsePrUrl,
+  validatePrUrl,
 } from './summaryService.js';
 
 describe('summaryService', () => {
@@ -1654,6 +1656,136 @@ describe('summaryService', () => {
       // Both should return valid summaries (same session, updated)
       expect(result1.sessionId).toBe(sessionId);
       expect(result2.sessionId).toBe(sessionId);
+    });
+  });
+
+  describe('parsePrUrl', () => {
+    it('parses valid GitHub PR URL', () => {
+      const result = parsePrUrl('https://github.com/anthropics/claudetools.io/pull/123');
+      expect(result).toEqual({
+        owner: 'anthropics',
+        repo: 'claudetools.io',
+        number: 123,
+      });
+    });
+
+    it('parses PR URL with hyphens in names', () => {
+      const result = parsePrUrl('https://github.com/user-name/repo-name/pull/456');
+      expect(result).toEqual({
+        owner: 'user-name',
+        repo: 'repo-name',
+        number: 456,
+      });
+    });
+
+    it('returns null for invalid URL format', () => {
+      expect(parsePrUrl('https://github.com/user/repo')).toBeNull();
+      expect(parsePrUrl('https://github.com/user/repo/issues/123')).toBeNull();
+      expect(parsePrUrl('https://gitlab.com/user/repo/merge_requests/123')).toBeNull();
+    });
+
+    it('returns null for null or empty input', () => {
+      expect(parsePrUrl(null)).toBeNull();
+      expect(parsePrUrl('')).toBeNull();
+      expect(parsePrUrl(undefined)).toBeNull();
+    });
+
+    it('parses PR number as integer', () => {
+      const result = parsePrUrl('https://github.com/org/repo/pull/999');
+      expect(result?.number).toBe(999);
+      expect(typeof result?.number).toBe('number');
+    });
+
+    it('handles large PR numbers', () => {
+      const result = parsePrUrl('https://github.com/org/repo/pull/9999999');
+      expect(result?.number).toBe(9999999);
+    });
+  });
+
+  describe('validatePrUrl', () => {
+    it('validates PR from expected repository', () => {
+      const result = validatePrUrl(
+        'https://github.com/anthropics/claudetools.io/pull/123',
+        'https://github.com/anthropics/claudetools.io'
+      );
+      expect(result.valid).toBe(true);
+      expect(result.mismatch).toBe(false);
+      expect(result.error).toBeNull();
+      expect(result.prComponents).toEqual({
+        owner: 'anthropics',
+        repo: 'claudetools.io',
+        number: 123,
+      });
+    });
+
+    it('detects PR from different owner', () => {
+      const result = validatePrUrl(
+        'https://github.com/user/claudetools.io/pull/123',
+        'https://github.com/anthropics/claudetools.io'
+      );
+      expect(result.valid).toBe(false);
+      expect(result.mismatch).toBe(true);
+      expect(result.error).toContain('user/claudetools.io');
+      expect(result.error).toContain('anthropics/claudetools.io');
+    });
+
+    it('detects PR from different repo', () => {
+      const result = validatePrUrl(
+        'https://github.com/anthropics/different-repo/pull/123',
+        'https://github.com/anthropics/claudetools.io'
+      );
+      expect(result.valid).toBe(false);
+      expect(result.mismatch).toBe(true);
+      expect(result.error).toContain('anthropics/different-repo');
+      expect(result.error).toContain('anthropics/claudetools.io');
+    });
+
+    it('accepts PR when no expected repo URL provided', () => {
+      const result = validatePrUrl(
+        'https://github.com/user/repo/pull/123',
+        null
+      );
+      expect(result.valid).toBe(true);
+      expect(result.mismatch).toBe(false);
+      expect(result.error).toBeNull();
+    });
+
+    it('rejects invalid PR URL format', () => {
+      const result = validatePrUrl(
+        'https://github.com/org/repo',
+        'https://github.com/org/repo'
+      );
+      expect(result.valid).toBe(false);
+      expect(result.mismatch).toBe(false);
+      expect(result.error).toContain('Invalid PR URL format');
+    });
+
+    it('rejects null or empty PR URL', () => {
+      const result = validatePrUrl(
+        null,
+        'https://github.com/org/repo'
+      );
+      expect(result.valid).toBe(false);
+      expect(result.mismatch).toBe(false);
+      expect(result.error).toContain('No PR URL provided');
+    });
+
+    it('handles trailing slash in expected repo URL', () => {
+      const result = validatePrUrl(
+        'https://github.com/org/repo/pull/123',
+        'https://github.com/org/repo/'
+      );
+      expect(result.valid).toBe(true);
+      expect(result.mismatch).toBe(false);
+    });
+
+    it('accepts invalid expected repo URL format gracefully', () => {
+      const result = validatePrUrl(
+        'https://github.com/org/repo/pull/123',
+        'invalid-url'
+      );
+      expect(result.valid).toBe(true);
+      expect(result.mismatch).toBe(false);
     });
   });
 });
