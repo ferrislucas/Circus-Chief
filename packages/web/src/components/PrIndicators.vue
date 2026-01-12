@@ -45,7 +45,7 @@
 </template>
 
 <script setup>
-defineProps({
+const props = defineProps({
   prUrl: {
     type: String,
     default: null,
@@ -60,9 +60,9 @@ defineProps({
  * Extract PR number and repo from URL for display
  */
 function extractPrDisplay() {
-  if (!prUrl) return { number: null, repo: null };
+  if (!props.prUrl) return { number: null, repo: null };
 
-  const match = prUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/);
+  const match = props.prUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/);
   if (!match) return { number: null, repo: null };
 
   return {
@@ -76,7 +76,7 @@ function extractPrDisplay() {
  * Display PR text with repository context from URL
  */
 function displayPrText() {
-  if (!prUrl) return 'PR';
+  if (!props.prUrl) return 'PR';
 
   const pr = extractPrDisplay();
   if (!pr.number) return 'PR';
@@ -89,7 +89,7 @@ function displayPrText() {
  * Get tooltip with PR repository information
  */
 function getPrTooltip() {
-  if (!prUrl) return '';
+  if (!props.prUrl) return '';
 
   const pr = extractPrDisplay();
   const parts = [];
@@ -102,8 +102,8 @@ function getPrTooltip() {
     parts.push(`Repository: ${pr.owner}/${pr.repo}`);
   }
 
-  if (summary?.prState) {
-    parts.push(`State: ${formatPrState(summary.prState)}`);
+  if (props.summary?.prState) {
+    parts.push(`State: ${formatPrState(props.summary.prState)}`);
   }
 
   return parts.join(' • ');
