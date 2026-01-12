@@ -30,6 +30,71 @@ export function resetGhAvailableCache() {
 }
 
 /**
+ * Extract repository information from a PR URL
+ * @param {string} prUrl - GitHub PR URL
+ * @returns {Object|null} - { owner, repo, number } or null if invalid
+ */
+export function extractPrInfo(prUrl) {
+  if (!prUrl) return null;
+
+  try {
+    // Match GitHub PR URL pattern: https://github.com/{owner}/{repo}/pull/{number}
+    const match = prUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/);
+    if (!match) return null;
+
+    return {
+      owner: match[1],
+      repo: match[2],
+      number: parseInt(match[3], 10),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Validate that a PR URL belongs to the expected repository
+ * @param {string} prUrl - GitHub PR URL
+ * @param {string} expectedRepoUrl - Expected repository URL (https://github.com/owner/repo)
+ * @returns {Object} - { valid: boolean, mismatch: boolean, error: string|null }
+ */
+export function validatePrRepository(prUrl, expectedRepoUrl) {
+  if (!prUrl) {
+    return { valid: false, mismatch: false, error: 'No PR URL provided' };
+  }
+
+  const prInfo = extractPrInfo(prUrl);
+  if (!prInfo) {
+    return { valid: false, mismatch: false, error: 'Invalid PR URL format' };
+  }
+
+  // If no expected repo URL, we can't validate - accept it
+  if (!expectedRepoUrl) {
+    return { valid: true, mismatch: false, error: null };
+  }
+
+  // Extract owner/repo from expected repo URL
+  const expectedMatch = expectedRepoUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/?$/);
+  if (!expectedMatch) {
+    return { valid: true, mismatch: false, error: null };
+  }
+
+  const expectedOwner = expectedMatch[1];
+  const expectedRepo = expectedMatch[2];
+
+  // Check if PR belongs to expected repository
+  if (prInfo.owner !== expectedOwner || prInfo.repo !== expectedRepo) {
+    return {
+      valid: false,
+      mismatch: true,
+      error: `PR from ${prInfo.owner}/${prInfo.repo} does not match expected ${expectedOwner}/${expectedRepo}`
+    };
+  }
+
+  return { valid: true, mismatch: false, error: null };
+}
+
+/**
  * Get comprehensive PR info including state, merge conflicts, and CI status
  * @param {string} prUrl - GitHub PR URL
  * @returns {Promise<Object|null>} PR info or null if unavailable
