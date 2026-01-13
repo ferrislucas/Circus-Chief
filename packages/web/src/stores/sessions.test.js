@@ -940,14 +940,16 @@ describe('Sessions Store', () => {
     });
 
     describe('formattedTokens getter', () => {
-      it('returns zeros when no current session', () => {
+      it('returns dashes when no current session or conversation', () => {
         const store = useSessionsStore();
         store.currentSession = null;
+        store.activeConversationId = null;
+        store.conversations = [];
 
         const formatted = store.formattedTokens;
-        expect(formatted.input).toBe('0');
-        expect(formatted.output).toBe('0');
-        expect(formatted.total).toBe('0');
+        expect(formatted.input).toBe('-');
+        expect(formatted.output).toBe('-');
+        expect(formatted.total).toBe('-');
       });
 
       it('formats small numbers as-is', () => {
@@ -1069,7 +1071,7 @@ describe('Sessions Store', () => {
         expect(formatted.cacheCreation).toBe('50');
       });
 
-      it('prioritizes runningUsage over conversation and session tokens', () => {
+      it('adds runningUsage to conversation base tokens during streaming', () => {
         const store = useSessionsStore();
         store.activeConversationId = 'conv-1';
         store.conversations = [
@@ -1089,7 +1091,7 @@ describe('Sessions Store', () => {
           cacheCreationInputTokens: 25,
         };
 
-        // During streaming, use running usage (with conversationId matching active conversation)
+        // During streaming, add running usage to conversation base (not replace)
         store.runningUsage = {
           conversationId: 'conv-1',
           inputTokens: 2000,
@@ -1099,11 +1101,15 @@ describe('Sessions Store', () => {
         };
 
         const formatted = store.formattedTokens;
-        expect(formatted.input).toBe('2.0K');
-        expect(formatted.output).toBe('1.0K');
-        expect(formatted.total).toBe('3.0K');
-        expect(formatted.cacheRead).toBe('200');
-        expect(formatted.cacheCreation).toBe('100');
+        // Should show: conversation base + running usage
+        // Input: 1000 + 2000 = 3000 = 3.0K
+        // Output: 500 + 1000 = 1500 = 1.5K
+        // Total: 3000 + 1500 = 4500 = 4.5K
+        expect(formatted.input).toBe('3.0K');
+        expect(formatted.output).toBe('1.5K');
+        expect(formatted.total).toBe('4.5K');
+        expect(formatted.cacheRead).toBe('300');  // 100 + 200
+        expect(formatted.cacheCreation).toBe('150');  // 50 + 100
       });
 
       it('handles runningUsage with missing fields', () => {
@@ -1131,14 +1137,19 @@ describe('Sessions Store', () => {
 
       it('updates in real-time when runningUsage changes', () => {
         const store = useSessionsStore();
-        store.currentSession = {
-          id: 'session-1',
-          inputTokens: 0,
-          outputTokens: 0,
-        };
+        // Setup conversation to track tokens
+        store.activeConversationId = 'conv-1';
+        store.conversations = [
+          {
+            id: 'conv-1',
+            inputTokens: 0,
+            outputTokens: 0,
+          },
+        ];
 
         // Start of streaming
         store.runningUsage = {
+          conversationId: 'conv-1',
           inputTokens: 0,
           outputTokens: 250,
         };
@@ -1148,6 +1159,7 @@ describe('Sessions Store', () => {
 
         // Streaming continues
         store.runningUsage = {
+          conversationId: 'conv-1',
           inputTokens: 0,
           outputTokens: 1500,
         };
@@ -1157,6 +1169,7 @@ describe('Sessions Store', () => {
 
         // Streaming continues
         store.runningUsage = {
+          conversationId: 'conv-1',
           inputTokens: 0,
           outputTokens: 3500,
         };
@@ -1167,7 +1180,7 @@ describe('Sessions Store', () => {
         // Streaming ends
         store.runningUsage = null;
         formatted = store.formattedTokens;
-        expect(formatted.output).toBe('0'); // Falls back to session (0)
+        expect(formatted.output).toBe('0'); // Falls back to conversation (0)
       });
 
       it('displays cache tokens during streaming', () => {
@@ -1300,7 +1313,7 @@ describe('Sessions Store', () => {
           expect(formatted.total).toBe('500');
         });
 
-        it('returns zeros when activeConversationId is null (no session fallback)', () => {
+        it('returns dashes when activeConversationId is null (no session fallback)', () => {
           const store = useSessionsStore();
           store.activeConversationId = null;
           store.conversations = [
@@ -1318,13 +1331,13 @@ describe('Sessions Store', () => {
           store.runningUsage = null;
 
           const formatted = store.formattedTokens;
-          // Should return zeros, NOT session aggregate (that would show sum of ALL conversations)
-          expect(formatted.input).toBe('0');
-          expect(formatted.output).toBe('0');
-          expect(formatted.total).toBe('0');
+          // Should return dashes (not loaded), NOT session aggregate (that would show sum of ALL conversations)
+          expect(formatted.input).toBe('-');
+          expect(formatted.output).toBe('-');
+          expect(formatted.total).toBe('-');
         });
 
-        it('returns zeros when conversations array is empty (no session fallback)', () => {
+        it('returns dashes when conversations array is empty (no session fallback)', () => {
           const store = useSessionsStore();
           store.activeConversationId = 'conv-1';
           store.conversations = [];
@@ -1336,13 +1349,13 @@ describe('Sessions Store', () => {
           store.runningUsage = null;
 
           const formatted = store.formattedTokens;
-          // Should return zeros, NOT session aggregate (that would show sum of ALL conversations)
-          expect(formatted.input).toBe('0');
-          expect(formatted.output).toBe('0');
-          expect(formatted.total).toBe('0');
+          // Should return dashes (not loaded), NOT session aggregate (that would show sum of ALL conversations)
+          expect(formatted.input).toBe('-');
+          expect(formatted.output).toBe('-');
+          expect(formatted.total).toBe('-');
         });
 
-        it('returns zeros when active conversation not found (no session fallback)', () => {
+        it('returns dashes when active conversation not found (no session fallback)', () => {
           const store = useSessionsStore();
           store.activeConversationId = 'non-existent-conv';
           store.conversations = [
@@ -1360,10 +1373,10 @@ describe('Sessions Store', () => {
           store.runningUsage = null;
 
           const formatted = store.formattedTokens;
-          // Should return zeros, NOT session aggregate (that would show sum of ALL conversations)
-          expect(formatted.input).toBe('0');
-          expect(formatted.output).toBe('0');
-          expect(formatted.total).toBe('0');
+          // Should return dashes (not loaded), NOT session aggregate (that would show sum of ALL conversations)
+          expect(formatted.input).toBe('-');
+          expect(formatted.output).toBe('-');
+          expect(formatted.total).toBe('-');
         });
 
         it('handles conversation with zero tokens before streaming starts', () => {
@@ -1413,6 +1426,231 @@ describe('Sessions Store', () => {
           expect(finalFormatted.input).toBe('10.0K');
           expect(finalFormatted.output).toBe('7.5K');
           expect(finalFormatted.total).toBe('17.5K');
+        });
+      });
+
+      // Issue #175 - Fix double-counting: running usage should be ADDED to conversation base
+      describe('running usage combined with conversation base tokens (no double-counting)', () => {
+        it('adds current turn running usage to conversation base tokens during streaming', () => {
+          const store = useSessionsStore();
+
+          // Conversation has existing tokens from previous turns
+          store.activeConversationId = 'conv-1';
+          store.conversations = [
+            {
+              id: 'conv-1',
+              inputTokens: 5000,  // Base tokens from previous turns
+              outputTokens: 2000,
+              cacheReadInputTokens: 500,
+              cacheCreationInputTokens: 250,
+            },
+          ];
+
+          // Current turn is streaming - these are ADDITIONAL tokens for THIS turn only
+          store.runningUsage = {
+            conversationId: 'conv-1',
+            inputTokens: 1000,  // Current turn input
+            outputTokens: 500,  // Current turn output (streaming)
+            cacheReadInputTokens: 100,
+            cacheCreationInputTokens: 50,
+          };
+
+          const formatted = store.formattedTokens;
+
+          // Should show: base + current turn
+          // Input: 5000 + 1000 = 6000 = 6.0K
+          // Output: 2000 + 500 = 2500 = 2.5K
+          // Total: 6000 + 2500 = 8500 = 8.5K
+          expect(formatted.input).toBe('6.0K');
+          expect(formatted.output).toBe('2.5K');
+          expect(formatted.total).toBe('8.5K');
+          expect(formatted.cacheRead).toBe('600');  // 500 + 100
+          expect(formatted.cacheCreation).toBe('300');  // 250 + 50
+        });
+
+        it('shows only conversation base when no running usage', () => {
+          const store = useSessionsStore();
+
+          store.activeConversationId = 'conv-1';
+          store.conversations = [
+            {
+              id: 'conv-1',
+              inputTokens: 5000,
+              outputTokens: 2000,
+              cacheReadInputTokens: 500,
+              cacheCreationInputTokens: 250,
+            },
+          ];
+          store.runningUsage = null;
+
+          const formatted = store.formattedTokens;
+
+          // Should show only conversation base (no current turn)
+          expect(formatted.input).toBe('5.0K');
+          expect(formatted.output).toBe('2.0K');
+          expect(formatted.total).toBe('7.0K');
+          expect(formatted.cacheRead).toBe('500');
+          expect(formatted.cacheCreation).toBe('250');
+        });
+
+        it('ignores running usage when it belongs to different conversation', () => {
+          const store = useSessionsStore();
+
+          store.activeConversationId = 'conv-1';
+          store.conversations = [
+            {
+              id: 'conv-1',
+              inputTokens: 5000,
+              outputTokens: 2000,
+            },
+          ];
+
+          // Running usage is for a DIFFERENT conversation - should be ignored
+          store.runningUsage = {
+            conversationId: 'conv-2',
+            inputTokens: 1000,
+            outputTokens: 500,
+          };
+
+          const formatted = store.formattedTokens;
+
+          // Should show only conv-1's base tokens (ignore conv-2's running usage)
+          expect(formatted.input).toBe('5.0K');
+          expect(formatted.output).toBe('2.0K');
+          expect(formatted.total).toBe('7.0K');
+        });
+
+        it('handles conversation with zero base tokens and running usage', () => {
+          const store = useSessionsStore();
+
+          // New conversation with no previous turns
+          store.activeConversationId = 'conv-new';
+          store.conversations = [
+            {
+              id: 'conv-new',
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheReadInputTokens: 0,
+              cacheCreationInputTokens: 0,
+            },
+          ];
+
+          // First turn is streaming
+          store.runningUsage = {
+            conversationId: 'conv-new',
+            inputTokens: 1000,
+            outputTokens: 500,
+            cacheReadInputTokens: 100,
+            cacheCreationInputTokens: 50,
+          };
+
+          const formatted = store.formattedTokens;
+
+          // Should show: 0 + running = running
+          expect(formatted.input).toBe('1.0K');
+          expect(formatted.output).toBe('500');
+          expect(formatted.total).toBe('1.5K');
+          expect(formatted.cacheRead).toBe('100');
+          expect(formatted.cacheCreation).toBe('50');
+        });
+
+        it('simulates streaming progress with increasing output tokens', () => {
+          const store = useSessionsStore();
+
+          // Conversation with existing tokens
+          store.activeConversationId = 'conv-1';
+          store.conversations = [
+            {
+              id: 'conv-1',
+              inputTokens: 10000,  // Previous turns
+              outputTokens: 5000,
+            },
+          ];
+
+          // Streaming starts - message_start gives input tokens
+          store.runningUsage = {
+            conversationId: 'conv-1',
+            inputTokens: 2000,  // Current turn input (from message_start)
+            outputTokens: 1,    // Initial output (from message_start)
+          };
+
+          let formatted = store.formattedTokens;
+          expect(formatted.input).toBe('12.0K');  // 10000 + 2000
+          expect(formatted.output).toBe('5.0K');  // 5000 + 1 = 5001 rounds to 5.0K
+
+          // message_delta with cumulative output tokens
+          store.runningUsage = {
+            conversationId: 'conv-1',
+            inputTokens: 2000,
+            outputTokens: 100,   // Cumulative (not incremental!)
+          };
+
+          formatted = store.formattedTokens;
+          expect(formatted.output).toBe('5.1K');  // 5000 + 100 = 5100 = 5.1K
+
+          // message_delta continues
+          store.runningUsage = {
+            conversationId: 'conv-1',
+            inputTokens: 2000,
+            outputTokens: 200,  // Cumulative
+          };
+
+          formatted = store.formattedTokens;
+          expect(formatted.output).toBe('5.2K');  // 5000 + 200 = 5200 = 5.2K
+
+          // Streaming ends - usage finalized
+          store.runningUsage = null;
+          store.conversations[0].inputTokens = 12000;  // Updated by finalizeUsage
+          store.conversations[0].outputTokens = 5200;
+
+          formatted = store.formattedTokens;
+          expect(formatted.input).toBe('12.0K');
+          expect(formatted.output).toBe('5.2K');
+        });
+
+        it('prevents double-counting when multiple turns happen in sequence', () => {
+          const store = useSessionsStore();
+
+          store.activeConversationId = 'conv-1';
+          store.conversations = [
+            {
+              id: 'conv-1',
+              inputTokens: 1000,
+              outputTokens: 500,
+            },
+          ];
+
+          // TURN 1: User message + streaming response
+          store.runningUsage = {
+            conversationId: 'conv-1',
+            inputTokens: 200,
+            outputTokens: 100,
+          };
+
+          let formatted = store.formattedTokens;
+          expect(formatted.input).toBe('1.2K');  // 1000 + 200
+          expect(formatted.output).toBe('600');  // 500 + 100
+
+          // Turn 1 ends - usage finalized (added to conversation base)
+          store.runningUsage = null;
+          store.conversations[0].inputTokens = 1200;
+          store.conversations[0].outputTokens = 600;
+
+          formatted = store.formattedTokens;
+          expect(formatted.input).toBe('1.2K');
+          expect(formatted.output).toBe('600');
+
+          // TURN 2: Another user message + streaming response
+          store.runningUsage = {
+            conversationId: 'conv-1',
+            inputTokens: 300,  // New turn input
+            outputTokens: 150,  // New turn output
+          };
+
+          formatted = store.formattedTokens;
+          // Should add to UPDATED base, not double-count turn 1
+          expect(formatted.input).toBe('1.5K');  // 1200 + 300 (NOT 1000 + 200 + 300)
+          expect(formatted.output).toBe('750');  // 600 + 150 (NOT 500 + 100 + 150)
         });
       });
     });
