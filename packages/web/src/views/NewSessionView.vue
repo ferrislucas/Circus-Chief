@@ -478,8 +478,6 @@ async function handleSubmit() {
       templateId: selectedTemplateId.value,
       parentSessionId: parentSessionId.value || null,
     });
-    const message = startImmediately.value ? 'Session started' : 'Draft session created';
-    uiStore.success(message);
     fileAttachment.value?.clear();
     // Clear the draft from localStorage after successful submission
     localStorage.removeItem(storageKey.value);
