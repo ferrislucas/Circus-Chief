@@ -95,6 +95,7 @@
 <script setup>
 import { defineProps, defineEmits, ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { ansiToHtml, stripAnsi } from '../utils/ansi.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 
 /**
  * Debounce with leading edge - first call is immediate, subsequent calls are debounced
@@ -145,8 +146,24 @@ const props = defineProps({
 
 const emit = defineEmits(['run', 'kill', 'send-to-canvas']);
 
-// Default to true only if command is running, false otherwise
-const showOutput = ref(props.run?.status === 'running');
+// Initialize store
+const commandButtonsStore = useCommandButtonsStore();
+
+// Use store to persist collapse state across tab navigation
+// Computed property syncs with store: get returns !isCollapsed, set updates store
+const showOutput = computed({
+  get() {
+    if (!props.run?.runId) {
+      return false;
+    }
+    return !commandButtonsStore.isOutputCollapsed(props.run.runId);
+  },
+  set(value) {
+    if (props.run?.runId) {
+      commandButtonsStore.setOutputCollapsed(props.run.runId, !value);
+    }
+  }
+});
 
 // Track if button click is in flight (prevents double-clicks)
 const isSubmitting = ref(false);

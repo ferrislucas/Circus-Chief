@@ -2,9 +2,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { ref, nextTick } from 'vue';
+import { createPinia, setActivePinia } from 'pinia';
 import CommandButtonItem from './CommandButtonItem.vue';
 
 describe('CommandButtonItem', () => {
+  // Set up a fresh Pinia instance before each test
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
   const mockButton = {
     id: 'btn-1',
     projectId: 'proj-1',
@@ -14,7 +20,7 @@ describe('CommandButtonItem', () => {
   };
 
   const mockRun = {
-    id: 'run-1',
+    runId: 'run-1',
     buttonId: 'btn-1',
     status: 'success',
     output: 'Tests passed\n✓ 42 tests completed',
