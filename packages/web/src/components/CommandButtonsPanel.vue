@@ -78,7 +78,7 @@
 </template>
 
 <script setup>
-import { defineProps, ref, onMounted } from 'vue';
+import { defineProps, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 
@@ -119,10 +119,6 @@ const confirmDelete = async () => {
     }
   }
 };
-
-onMounted(async () => {
-  await commandButtonsStore.fetchButtons(props.projectId);
-});
 </script>
 
 <style scoped>
