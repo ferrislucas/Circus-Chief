@@ -38,7 +38,13 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       this.loading = true;
       this.error = null;
       try {
-        this.buttons = await api.getCommandButtons(projectId);
+        const newButtons = await api.getCommandButtons(projectId);
+
+        // Remove old buttons for this project to avoid duplicates
+        this.buttons = this.buttons.filter(b => b.projectId !== projectId);
+
+        // Add new buttons
+        this.buttons.push(...newButtons);
       } catch (err) {
         this.error = err.message;
       } finally {
