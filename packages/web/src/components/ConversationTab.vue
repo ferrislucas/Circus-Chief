@@ -344,7 +344,6 @@ const {
   onConversationCreated,
   onConversationUpdated,
   onConversationDeleted,
-  onUsageUpdate,
 } = useSessionSubscription(props.sessionId);
 let unsubPartial = null;
 let unsubMessage = null;
@@ -354,7 +353,6 @@ let unsubThinkingPartial = null;
 let unsubConvCreated = null;
 let unsubConvUpdated = null;
 let unsubConvDeleted = null;
-let unsubUsage = null;
 
 function handleScroll() {
   if (!messagesContainer.value) return;
@@ -485,14 +483,8 @@ onMounted(async () => {
     }
   });
 
-  // Subscribe to usage updates - Critical fix for token count display during streaming
-  unsubUsage = onUsageUpdate((msg) => {
-    if (msg.isFinal) {
-      sessionsStore.finalizeUsage(msg.usage, msg.conversationId);
-    } else {
-      sessionsStore.updateRunningUsage(msg.usage, msg.conversationId);
-    }
-  });
+  // NOTE: onUsageUpdate subscription moved to SessionDetailView.onMounted to ensure
+  // conversations are loaded before usage updates arrive (avoids race conditions)
 
   // Fetch initial work logs
   await sessionsStore.fetchWorkLogs(props.sessionId);
@@ -510,7 +502,7 @@ onUnmounted(() => {
   if (unsubConvCreated) unsubConvCreated();
   if (unsubConvUpdated) unsubConvUpdated();
   if (unsubConvDeleted) unsubConvDeleted();
-  if (unsubUsage) unsubUsage();
+  // NOTE: unsubUsage removed - subscription moved to SessionDetailView
   if (debounceTimer) clearTimeout(debounceTimer);
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
   if (inputSyncTimer) clearTimeout(inputSyncTimer);
