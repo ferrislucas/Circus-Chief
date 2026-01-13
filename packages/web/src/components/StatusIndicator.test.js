@@ -18,11 +18,12 @@ describe('StatusIndicator.vue', () => {
       expect(wrapper.text()).toContain('Starting...');
     });
 
-    it('renders with correct status text for waiting status', () => {
+    it('does NOT render any indicator for waiting status', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'waiting' }
       });
-      expect(wrapper.text()).toContain('Waiting');
+      expect(wrapper.find('.status-indicator').exists()).toBe(false);
+      expect(wrapper.text()).toBe('');
     });
 
     it('renders with correct status text for completed status', () => {
@@ -55,14 +56,6 @@ describe('StatusIndicator.vue', () => {
       expect(icon.text()).toBe('○');
     });
 
-    it('displays correct icon for waiting status', () => {
-      const wrapper = mount(StatusIndicator, {
-        props: { status: 'waiting' }
-      });
-      const icon = wrapper.find('.status-icon');
-      expect(icon.text()).toBe('◐');
-    });
-
     it('displays correct icon for completed status', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'completed' }
@@ -79,14 +72,21 @@ describe('StatusIndicator.vue', () => {
       expect(icon.text()).toBe('!');
     });
 
-    it('applies correct CSS class for status', () => {
-      const statuses = ['running', 'starting', 'waiting', 'completed', 'error'];
+    it('applies correct CSS class for status (except waiting)', () => {
+      const statuses = ['running', 'starting', 'completed', 'error'];
       statuses.forEach((status) => {
         const wrapper = mount(StatusIndicator, {
           props: { status }
         });
-        expect(wrapper.classes()).toContain(`status-${status}`);
+        const element = wrapper.find('.status-indicator');
+        expect(element.exists()).toBe(true);
+        expect(element.classes()).toContain(`status-${status}`);
       });
+      // Waiting status should not render any classes
+      const waitingWrapper = mount(StatusIndicator, {
+        props: { status: 'waiting' }
+      });
+      expect(waitingWrapper.find('.status-indicator').exists()).toBe(false);
     });
   });
 
@@ -95,35 +95,43 @@ describe('StatusIndicator.vue', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'running' }
       });
-      expect(wrapper.classes()).toContain('status-animated');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.classes()).toContain('status-animated');
     });
 
     it('applies animate-pulse class for starting status', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'starting' }
       });
-      expect(wrapper.classes()).toContain('status-animated');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.classes()).toContain('status-animated');
     });
 
-    it('does NOT apply animate-pulse class for waiting status', () => {
+    it('does NOT apply animation class for waiting status (not rendered)', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'waiting' }
       });
-      expect(wrapper.classes()).not.toContain('status-animated');
+      expect(wrapper.find('.status-indicator').exists()).toBe(false);
     });
 
     it('does NOT apply animate-pulse class for completed status', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'completed' }
       });
-      expect(wrapper.classes()).not.toContain('status-animated');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.classes()).not.toContain('status-animated');
     });
 
     it('does NOT apply animate-pulse class for error status', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'error' }
       });
-      expect(wrapper.classes()).not.toContain('status-animated');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.classes()).not.toContain('status-animated');
     });
   });
 
@@ -151,58 +159,77 @@ describe('StatusIndicator.vue', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'running' }
       });
-      expect(wrapper.attributes('aria-label')).toBe('Session is running');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.attributes('aria-label')).toBe('Session is running');
     });
 
     it('has aria-label for starting status', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'starting' }
       });
-      expect(wrapper.attributes('aria-label')).toContain('starting');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.attributes('aria-label')).toContain('starting');
     });
 
-    it('has aria-label for waiting status', () => {
+    it('has no aria-label for waiting status (not rendered)', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'waiting' }
       });
-      expect(wrapper.attributes('aria-label')).toContain('waiting');
+      expect(wrapper.find('.status-indicator').exists()).toBe(false);
     });
 
     it('has aria-label for completed status', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'completed' }
       });
-      expect(wrapper.attributes('aria-label')).toContain('completed');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.attributes('aria-label')).toContain('completed');
     });
 
     it('has aria-label for error status', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'error' }
       });
-      expect(wrapper.attributes('aria-label')).toContain('error');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.attributes('aria-label')).toContain('error');
     });
 
     it('has appropriate role for running status', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'running' }
       });
-      expect(wrapper.attributes('role')).toBe('progressbar');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.attributes('role')).toBe('progressbar');
     });
 
     it('has appropriate role for starting status', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'starting' }
       });
-      expect(wrapper.attributes('role')).toBe('progressbar');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.attributes('role')).toBe('progressbar');
     });
 
     it('has appropriate role for other statuses', () => {
-      ['waiting', 'completed', 'error'].forEach((status) => {
+      ['completed', 'error'].forEach((status) => {
         const wrapper = mount(StatusIndicator, {
           props: { status }
         });
-        expect(wrapper.attributes('role')).toBe('status');
+        const element = wrapper.find('.status-indicator');
+        expect(element.exists()).toBe(true);
+        expect(element.attributes('role')).toBe('status');
       });
+      // Waiting status is not rendered, so no role attribute
+      const waitingWrapper = mount(StatusIndicator, {
+        props: { status: 'waiting' }
+      });
+      expect(waitingWrapper.find('.status-indicator').exists()).toBe(false);
     });
   });
 
@@ -221,31 +248,50 @@ describe('StatusIndicator.vue', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'running' }
       });
-      expect(wrapper.classes()).toContain('status-running');
+      let element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.classes()).toContain('status-running');
 
       await wrapper.setProps({ status: 'error' });
-      expect(wrapper.classes()).toContain('status-error');
-      expect(wrapper.classes()).not.toContain('status-running');
+      element = wrapper.find('.status-indicator');
+      expect(element.classes()).toContain('status-error');
+      expect(element.classes()).not.toContain('status-running');
     });
 
-    it('updates animation when status prop changes to animated', async () => {
+    it('updates rendering when status prop changes from waiting to animated', async () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'waiting' }
       });
-      expect(wrapper.classes()).not.toContain('status-animated');
+      expect(wrapper.find('.status-indicator').exists()).toBe(false);
 
       await wrapper.setProps({ status: 'running' });
-      expect(wrapper.classes()).toContain('status-animated');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.classes()).toContain('status-animated');
     });
 
     it('removes animation when status prop changes from animated', async () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'running' }
       });
-      expect(wrapper.classes()).toContain('status-animated');
+      let element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.classes()).toContain('status-animated');
 
       await wrapper.setProps({ status: 'completed' });
-      expect(wrapper.classes()).not.toContain('status-animated');
+      element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.classes()).not.toContain('status-animated');
+    });
+
+    it('hides indicator when status prop changes to waiting', async () => {
+      const wrapper = mount(StatusIndicator, {
+        props: { status: 'running' }
+      });
+      expect(wrapper.find('.status-indicator').exists()).toBe(true);
+
+      await wrapper.setProps({ status: 'waiting' });
+      expect(wrapper.find('.status-indicator').exists()).toBe(false);
     });
   });
 
