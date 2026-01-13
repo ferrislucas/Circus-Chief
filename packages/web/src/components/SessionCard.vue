@@ -19,6 +19,7 @@
           <p class="session-meta">
             <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
             <span class="session-mode">{{ formattedMode }}</span>
+            <PrIndicators v-if="prUrl" :pr-url="prUrl" :summary="prSummary" />
             <span
               v-for="indicator in buttonStatusesToDisplay"
               :key="indicator.buttonId"
@@ -66,6 +67,8 @@
           :is-child="true"
           :children="getChildrenForSession(child.id)"
           :summaries="summaries"
+          :pr-url="child.prUrl"
+          :pr-summary="summaries[child.id]"
           @retry-summary="$emit('retrySummary', child.id)"
         />
       </div>
@@ -89,6 +92,7 @@
           <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
           <span class="session-mode">{{ formattedMode }}</span>
           <span class="session-model">{{ formattedModel }}</span>
+          <PrIndicators v-if="prUrl" :pr-url="prUrl" :summary="prSummary" />
           <span
             v-for="indicator in buttonStatusesToDisplay"
             :key="indicator.buttonId"
@@ -187,6 +191,7 @@ import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { formatDate } from '../utils/formatters.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
+import PrIndicators from './PrIndicators.vue';
 
 const router = useRouter();
 const sessionsStore = useSessionsStore();
@@ -237,6 +242,14 @@ const props = defineProps({
   showUnarchive: {
     type: Boolean,
     default: false,
+  },
+  prUrl: {
+    type: String,
+    default: null,
+  },
+  prSummary: {
+    type: Object,
+    default: null,
   },
 });
 

@@ -133,6 +133,8 @@
             :children="group.children"
             :summaries="summaries"
             :show-archive="true"
+            :pr-url="group.parent.prUrl"
+            :pr-summary="summaries[group.parent.id]"
             @retry-summary="retryFetchSummary"
             @archive="handleArchive"
           />
@@ -164,6 +166,8 @@
           :summary-loading="loadingSummaries[session.id]"
           :summary-error="summaryErrors[session.id]"
           :show-unarchive="true"
+          :pr-url="session.prUrl"
+          :pr-summary="summaries[session.id]"
           @retry-summary="retryFetchSummary"
           @unarchive="handleUnarchive"
         />
