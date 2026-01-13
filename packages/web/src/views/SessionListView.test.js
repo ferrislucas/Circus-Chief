@@ -104,9 +104,9 @@ vi.mock('../composables/useApi.js', () => ({
 vi.mock('../components/SessionCard.vue', () => ({
   default: defineComponent({
     name: 'SessionCard',
-    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'children', 'summaries', 'showArchive', 'showUnarchive'],
+    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'children', 'summaries', 'showArchive', 'showUnarchive', 'prUrl', 'prSummary'],
     emits: ['retrySummary', 'archive', 'unarchive'],
-    template: '<div class="session-card" :data-session-id="session.id" :data-summary="JSON.stringify(summary)"><slot /></div>',
+    template: '<div class="session-card" :data-session-id="session.id" :data-summary="JSON.stringify(summary)" :data-pr-url="prUrl" :data-pr-summary="JSON.stringify(prSummary)"><slot /></div>',
   }),
 }));
 
@@ -1479,6 +1479,129 @@ describe('SessionListView Archived Tab', () => {
 
       // Verify archived sessions are displayed
       expect(mockSessionsStore.archivedSessions).toHaveLength(2);
+    });
+  });
+
+  describe('PR data passing to SessionCard', () => {
+    it('passes prUrl to parent SessionCard in grouped sessions', async () => {
+      const pinia = createPinia();
+      setActivePinia(pinia);
+
+      const mockSessionsStore = createSessionsStoreMock([
+        {
+          id: 'parent-1',
+          name: 'Parent Session',
+          status: 'completed',
+          prUrl: 'https://github.com/owner/repo/pull/123',
+        },
+        {
+          id: 'child-1',
+          name: 'Child Session 1',
+          status: 'completed',
+          parentSessionId: 'parent-1',
+        },
+      ]);
+
+      vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+      vi.mocked(useProjectsStore).mockReturnValue({
+        currentProject: { id: 'test-project-id' },
+        projects: [{ id: 'test-project-id' }],
+        fetchProjects: vi.fn(),
+        fetchProject: vi.fn(),
+      });
+      vi.mocked(useCommandButtonsStore).mockReturnValue({
+        buttons: [],
+        runs: {},
+        loading: false,
+        error: null,
+        fetchButtons: vi.fn().mockResolvedValue(),
+        fetchLatestRunsForProject: vi.fn().mockResolvedValue(),
+        getButtonsByProjectId: vi.fn(() => []),
+        getLatestRunForButton: vi.fn(() => null),
+      });
+
+      const wrapper = mount(SessionListView, {
+        global: {
+          plugins: [pinia],
+          stubs: {
+            TemplatesPanel: true,
+            CommandButtonsPanel: true,
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            DuplicateSessionButton: true,
+            StatusIndicator: true,
+            OverflowMenu: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Find the parent SessionCard and verify prUrl prop is passed
+      const parentCard = wrapper.findComponent({ name: 'SessionCard' });
+      expect(parentCard.exists()).toBe(true);
+      expect(parentCard.props('prUrl')).toBe('https://github.com/owner/repo/pull/123');
+    });
+
+    it('passes prUrl to unarchived sessions', async () => {
+      const pinia = createPinia();
+      setActivePinia(pinia);
+
+      const mockSessionsStore = createSessionsStoreMock([
+        {
+          id: 'session-1',
+          name: 'Session 1',
+          status: 'completed',
+          prUrl: 'https://github.com/owner/repo/pull/789',
+        },
+      ]);
+
+      vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+      vi.mocked(useProjectsStore).mockReturnValue({
+        currentProject: { id: 'test-project-id' },
+        projects: [{ id: 'test-project-id' }],
+        fetchProjects: vi.fn(),
+        fetchProject: vi.fn(),
+      });
+      vi.mocked(useCommandButtonsStore).mockReturnValue({
+        buttons: [],
+        runs: {},
+        loading: false,
+        error: null,
+        fetchButtons: vi.fn().mockResolvedValue(),
+        fetchLatestRunsForProject: vi.fn().mockResolvedValue(),
+        getButtonsByProjectId: vi.fn(() => []),
+        getLatestRunForButton: vi.fn(() => null),
+      });
+
+      const wrapper = mount(SessionListView, {
+        global: {
+          plugins: [pinia],
+          stubs: {
+            TemplatesPanel: true,
+            CommandButtonsPanel: true,
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            DuplicateSessionButton: true,
+            StatusIndicator: true,
+            OverflowMenu: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      expect(sessionCard.exists()).toBe(true);
+      expect(sessionCard.props('prUrl')).toBe('https://github.com/owner/repo/pull/789');
     });
   });
 });

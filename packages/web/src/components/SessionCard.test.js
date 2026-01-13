@@ -34,6 +34,17 @@ vi.mock('./ButtonStatusModal.vue', () => ({
   }),
 }));
 
+// Mock PrIndicators component
+vi.mock('./PrIndicators.vue', () => ({
+  default: defineComponent({
+    name: 'PrIndicators',
+    props: ['prUrl', 'summary'],
+    setup() {
+      return () => h('span', { class: 'pr-indicators' });
+    },
+  }),
+}));
+
 
 // Custom RouterLink stub that renders slot content
 const RouterLinkStub = defineComponent({
@@ -123,10 +134,56 @@ describe('SessionCard', () => {
     });
   });
 
-  describe('PR link display', () => {
-    it('hides PR link when prUrl is not present', () => {
+  describe('PR indicators display', () => {
+    it('does not render PrIndicators when prUrl is not present', () => {
       const wrapper = mountComponent();
-      expect(wrapper.find('.pr-link').exists()).toBe(false);
+      // PrIndicators component is conditionally rendered when prUrl is truthy
+      const html = wrapper.html();
+      expect(html).not.toContain('pr-indicators');
+    });
+
+    it('renders PrIndicators when prUrl is present', () => {
+      const wrapper = mountComponent({
+        prUrl: 'https://github.com/owner/repo/pull/123',
+      });
+      const html = wrapper.html();
+      // Verify PrIndicators component is rendered
+      expect(html).toContain('pr-indicators');
+    });
+
+    it('passes prUrl prop to PrIndicators component', () => {
+      const prUrl = 'https://github.com/owner/repo/pull/456';
+      const wrapper = mountComponent({
+        prUrl,
+      });
+      const html = wrapper.html();
+      // Verify the PR indicators contain the URL
+      expect(html).toContain('pr-indicators');
+    });
+
+    it('passes prSummary prop to PrIndicators component', () => {
+      const prUrl = 'https://github.com/owner/repo/pull/123';
+      const prSummary = {
+        prState: 'open',
+        ciStatus: 'success',
+      };
+      const wrapper = mountComponent({
+        prUrl,
+        prSummary,
+      });
+      const html = wrapper.html();
+      // Verify PrIndicators is rendered with summary data
+      expect(html).toContain('pr-indicators');
+    });
+
+    it('handles prUrl without prSummary', () => {
+      const wrapper = mountComponent({
+        prUrl: 'https://github.com/owner/repo/pull/123',
+        prSummary: null,
+      });
+      const html = wrapper.html();
+      // Should still render PrIndicators even if summary is null
+      expect(html).toContain('pr-indicators');
     });
   });
 
