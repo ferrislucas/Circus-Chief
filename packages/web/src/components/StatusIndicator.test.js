@@ -78,7 +78,9 @@ describe('StatusIndicator.vue', () => {
         const wrapper = mount(StatusIndicator, {
           props: { status }
         });
-        expect(wrapper.classes()).toContain(`status-${status}`);
+        const element = wrapper.find('.status-indicator');
+        expect(element.exists()).toBe(true);
+        expect(element.classes()).toContain(`status-${status}`);
       });
       // Waiting status should not render any classes
       const waitingWrapper = mount(StatusIndicator, {
@@ -93,14 +95,18 @@ describe('StatusIndicator.vue', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'running' }
       });
-      expect(wrapper.classes()).toContain('status-animated');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.classes()).toContain('status-animated');
     });
 
     it('applies animate-pulse class for starting status', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'starting' }
       });
-      expect(wrapper.classes()).toContain('status-animated');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.classes()).toContain('status-animated');
     });
 
     it('does NOT apply animation class for waiting status (not rendered)', () => {
@@ -114,14 +120,18 @@ describe('StatusIndicator.vue', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'completed' }
       });
-      expect(wrapper.classes()).not.toContain('status-animated');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.classes()).not.toContain('status-animated');
     });
 
     it('does NOT apply animate-pulse class for error status', () => {
       const wrapper = mount(StatusIndicator, {
         props: { status: 'error' }
       });
-      expect(wrapper.classes()).not.toContain('status-animated');
+      const element = wrapper.find('.status-indicator');
+      expect(element.exists()).toBe(true);
+      expect(element.classes()).not.toContain('status-animated');
     });
   });
 
