@@ -149,53 +149,52 @@ export const useSessionsStore = defineStore('sessions', {
     },
     formattedTokens: (state) => {
       const format = (n) => {
+        if (n === null || n === undefined) return '-';
         if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
         if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
         return String(n);
       };
 
-      // STREAMING: Use running usage if available, but only if it matches the active conversation
-      // (prevent displaying stale data from a different conversation)
+      // STREAMING: During active turn, show turn usage + conversation base
       if (state.runningUsage) {
-        // If there's an active conversation, only use runningUsage if it belongs to that conversation
-        if (state.activeConversationId && state.runningUsage.conversationId !== state.activeConversationId) {
-          // Stale runningUsage from a different conversation - skip it
-        } else {
-          // Either no active conversation, or runningUsage is for the active conversation
-          const usage = state.runningUsage;
+        const isRelevant = !state.activeConversationId ||
+                           state.runningUsage.conversationId === state.activeConversationId;
+        if (isRelevant) {
+          // Get conversation's existing tokens (from previous turns)
+          const conv = state.conversations.find(c => c.id === state.activeConversationId);
+          const baseInput = conv?.inputTokens || 0;
+          const baseOutput = conv?.outputTokens || 0;
+
+          // Add current turn's streaming usage
+          const totalInput = baseInput + (state.runningUsage.inputTokens || 0);
+          const totalOutput = baseOutput + (state.runningUsage.outputTokens || 0);
+
           return {
-            input: format(usage.inputTokens || 0),
-            output: format(usage.outputTokens || 0),
-            total: format((usage.inputTokens || 0) + (usage.outputTokens || 0)),
-            cacheRead: format(usage.cacheReadInputTokens || 0),
-            cacheCreation: format(usage.cacheCreationInputTokens || 0),
+            input: format(totalInput),
+            output: format(totalOutput),
+            total: format(totalInput + totalOutput),
+            cacheRead: format((conv?.cacheReadInputTokens || 0) + (state.runningUsage.cacheReadInputTokens || 0)),
+            cacheCreation: format((conv?.cacheCreationInputTokens || 0) + (state.runningUsage.cacheCreationInputTokens || 0)),
           };
         }
       }
 
-      // FINALIZED: Use conversation tokens if available, otherwise show zeros
-      // Don't fall back to session aggregate - that shows sum of ALL conversations which is confusing
-      let source = null;
-
+      // PERSISTED: Show conversation totals
       if (state.activeConversationId && state.conversations.length > 0) {
         const conv = state.conversations.find((c) => c.id === state.activeConversationId);
         if (conv) {
-          source = conv;
+          return {
+            input: format(conv.inputTokens),
+            output: format(conv.outputTokens),
+            total: format((conv.inputTokens || 0) + (conv.outputTokens || 0)),
+            cacheRead: format(conv.cacheReadInputTokens),
+            cacheCreation: format(conv.cacheCreationInputTokens),
+          };
         }
       }
 
-      // If no conversation data, return zeros instead of session aggregate
-      if (!source) {
-        return { input: '0', output: '0', total: '0', cacheRead: '0', cacheCreation: '0' };
-      }
-
-      return {
-        input: format(source.inputTokens || 0),
-        output: format(source.outputTokens || 0),
-        total: format((source.inputTokens || 0) + (source.outputTokens || 0)),
-        cacheRead: format(source.cacheReadInputTokens || 0),
-        cacheCreation: format(source.cacheCreationInputTokens || 0),
-      };
+      // FALLBACK: Show dashes instead of zeros (indicates "not loaded")
+      return { input: '-', output: '-', total: '-', cacheRead: '-', cacheCreation: '-' };
     },
     contextPercentage: (state) => {
       // STREAMING: Use running usage context if available, but only if it matches the active conversation

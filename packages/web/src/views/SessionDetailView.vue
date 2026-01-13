@@ -99,7 +99,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, onActivated, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCanvasStore } from '../stores/canvas.js';
@@ -155,7 +155,7 @@ function navigateToTab(tabId) {
   router.push(`/sessions/${route.params.id}/${tabId}`);
 }
 
-const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onConversationUpdated, onChangesUpdate } =
+const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onConversationUpdated, onUsageUpdate, onChangesUpdate } =
   useSessionSubscription(sessionId);
 
 let cleanups = [];
@@ -304,10 +304,20 @@ onMounted(async () => {
   );
 
   // Handle conversation updates for usage tracking (Issue #175)
-  // Note: onUsageUpdate is handled by ConversationTab to avoid duplicate registrations
   cleanups.push(
     onConversationUpdated((conversation) => {
       sessionsStore.updateConversation(conversation);
+    })
+  );
+
+  // Handle usage updates for real-time token display (Issue #175)
+  cleanups.push(
+    onUsageUpdate((msg) => {
+      if (msg.isFinal) {
+        sessionsStore.finalizeUsage(msg.usage, msg.conversationId);
+      } else {
+        sessionsStore.updateRunningUsage(msg.usage, msg.conversationId);
+      }
     })
   );
 
@@ -390,6 +400,15 @@ watch(
     }
   }
 );
+
+// Handle component reactivation (keep-alive) - refresh data when view becomes active again
+// This ensures fresh token counts and other data when returning from another tab/session
+onActivated(() => {
+  if (sessionId) {
+    // Refetch conversations to get latest token counts and other updated data
+    sessionsStore.fetchConversations(sessionId);
+  }
+});
 
 onUnmounted(() => {
   stopPolling();
