@@ -26,9 +26,6 @@ vi.mock('../components/CommandsTab.vue', () => ({
 vi.mock('../components/DuplicateSessionButton.vue', () => ({
   default: { name: 'DuplicateSessionButton', template: '<button @click="$emit(\'success\', { id: \'new\' })" :disabled="false">Duplicate</button>' }
 }));
-vi.mock('../components/StatusIndicator.vue', () => ({
-  default: { name: 'StatusIndicator', template: '<span class="status-indicator">{{ status }}</span>', props: ['status'] }
-}));
 vi.mock('../components/OverflowMenu.vue', () => ({
   default: {
     name: 'OverflowMenu',
@@ -531,7 +528,7 @@ describe('SessionDetailView', () => {
       expect(wrapper.findComponent({ name: 'OverflowMenu' }).exists()).toBe(true);
     });
 
-    it('header contains star button, status indicator, and session name', async () => {
+    it('header contains star button and session name', async () => {
       const sessionName = 'Test Session';
       sessionsStore.currentSession = {
         id: 'session-1',
@@ -560,7 +557,7 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Check that the session header row exists (contains star, status, name, and menu)
+      // Check that the session header row exists (contains star, name, and menu)
       const headerRow = wrapper.find('.session-header-row');
       expect(headerRow.exists()).toBe(true);
 

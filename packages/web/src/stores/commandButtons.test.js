@@ -28,6 +28,140 @@ describe('CommandButtons Store', () => {
     });
   });
 
+  describe('fetchButtons', () => {
+    it('merges buttons for different projects instead of replacing', async () => {
+      const store = useCommandButtonsStore();
+      // Setup: store has buttons for project A
+      store.buttons = [{ id: 'btn-a', projectId: 'proj-a', label: 'A' }];
+
+      // Mock API to return buttons for project B
+      api.getCommandButtons.mockResolvedValue([
+        { id: 'btn-b', projectId: 'proj-b', label: 'B' }
+      ]);
+
+      await store.fetchButtons('proj-b');
+
+      // Both projects' buttons should exist
+      expect(store.buttons).toHaveLength(2);
+      expect(store.buttons.find(b => b.projectId === 'proj-a')).toBeTruthy();
+      expect(store.buttons.find(b => b.projectId === 'proj-b')).toBeTruthy();
+    });
+
+    it('replaces buttons when fetching same project', async () => {
+      const store = useCommandButtonsStore();
+      // Setup: store has old buttons for project A
+      store.buttons = [{ id: 'btn-old', projectId: 'proj-a', label: 'Old' }];
+
+      // Mock API to return new buttons for project A
+      api.getCommandButtons.mockResolvedValue([
+        { id: 'btn-new', projectId: 'proj-a', label: 'New' }
+      ]);
+
+      await store.fetchButtons('proj-a');
+
+      // Only new buttons should exist
+      expect(store.buttons).toHaveLength(1);
+      expect(store.buttons[0].id).toBe('btn-new');
+    });
+
+    it('preserves buttons from multiple projects when fetching one', async () => {
+      const store = useCommandButtonsStore();
+      // Setup: store has buttons from two projects
+      store.buttons = [
+        { id: 'btn-a1', projectId: 'proj-a', label: 'A1' },
+        { id: 'btn-a2', projectId: 'proj-a', label: 'A2' },
+        { id: 'btn-b1', projectId: 'proj-b', label: 'B1' },
+      ];
+
+      // Mock API to return updated buttons for project A
+      api.getCommandButtons.mockResolvedValue([
+        { id: 'btn-a-updated', projectId: 'proj-a', label: 'Updated' }
+      ]);
+
+      await store.fetchButtons('proj-a');
+
+      // Should have 2 buttons: 1 from proj-a (updated) and 1 from proj-b (unchanged)
+      expect(store.buttons).toHaveLength(2);
+      expect(store.buttons.find(b => b.projectId === 'proj-a').id).toBe('btn-a-updated');
+      expect(store.buttons.find(b => b.projectId === 'proj-b').id).toBe('btn-b1');
+    });
+
+    it('sets loading state during fetch', async () => {
+      const store = useCommandButtonsStore();
+      api.getCommandButtons.mockImplementation(() =>
+        new Promise(resolve => setTimeout(() => resolve([]), 50))
+      );
+
+      const fetchPromise = store.fetchButtons('proj-1');
+      expect(store.loading).toBe(true);
+
+      await fetchPromise;
+      expect(store.loading).toBe(false);
+    });
+
+    it('clears error state on successful fetch', async () => {
+      const store = useCommandButtonsStore();
+      store.error = 'Previous error';
+
+      api.getCommandButtons.mockResolvedValue([
+        { id: 'btn-1', projectId: 'proj-1', label: 'Test' }
+      ]);
+
+      await store.fetchButtons('proj-1');
+      expect(store.error).toBeNull();
+    });
+
+    it('sets error state on API failure', async () => {
+      const store = useCommandButtonsStore();
+      const errorMessage = 'Failed to fetch buttons';
+      api.getCommandButtons.mockRejectedValue(new Error(errorMessage));
+
+      await store.fetchButtons('proj-1');
+      expect(store.error).toBe(errorMessage);
+      expect(store.loading).toBe(false);
+    });
+
+    it('handles empty button list from API', async () => {
+      const store = useCommandButtonsStore();
+      store.buttons = [{ id: 'btn-1', projectId: 'proj-a', label: 'A' }];
+
+      api.getCommandButtons.mockResolvedValue([]);
+
+      await store.fetchButtons('proj-b');
+
+      // proj-a button remains, proj-b has no buttons
+      expect(store.buttons).toHaveLength(1);
+      expect(store.buttons[0].projectId).toBe('proj-a');
+    });
+
+    it('correctly filters out all buttons from target project before adding new ones', async () => {
+      const store = useCommandButtonsStore();
+      // Setup with multiple buttons from proj-a
+      store.buttons = [
+        { id: 'btn-a1', projectId: 'proj-a', label: 'A1' },
+        { id: 'btn-b1', projectId: 'proj-b', label: 'B1' },
+        { id: 'btn-a2', projectId: 'proj-a', label: 'A2' },
+      ];
+
+      // Mock API to return single button for proj-a
+      api.getCommandButtons.mockResolvedValue([
+        { id: 'btn-a-new', projectId: 'proj-a', label: 'New' }
+      ]);
+
+      await store.fetchButtons('proj-a');
+
+      // Should have 2 buttons: proj-b unchanged, proj-a replaced with single new button
+      expect(store.buttons).toHaveLength(2);
+      const projAButtons = store.buttons.filter(b => b.projectId === 'proj-a');
+      const projBButtons = store.buttons.filter(b => b.projectId === 'proj-b');
+
+      expect(projAButtons).toHaveLength(1);
+      expect(projAButtons[0].id).toBe('btn-a-new');
+      expect(projBButtons).toHaveLength(1);
+      expect(projBButtons[0].id).toBe('btn-b1');
+    });
+  });
+
   describe('getters', () => {
     it('getButtonById returns button by id', () => {
       const store = useCommandButtonsStore();

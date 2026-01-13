@@ -24,9 +24,6 @@
             </svg>
           </button>
 
-          <!-- Status indicator -->
-          <StatusIndicator :status="sessionsStore.currentSession.status" />
-
           <!-- Session name -->
           <h3 class="session-name">{{ sessionsStore.currentSession.name }}</h3>
 
@@ -119,7 +116,6 @@ import SummaryTab from '../components/SummaryTab.vue';
 import CommandsTab from '../components/CommandsTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
 import DuplicateSessionButton from '../components/DuplicateSessionButton.vue';
-import StatusIndicator from '../components/StatusIndicator.vue';
 import OverflowMenu from '../components/OverflowMenu.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
