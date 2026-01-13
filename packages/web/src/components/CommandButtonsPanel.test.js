@@ -304,17 +304,21 @@ describe('CommandButtonsPanel', () => {
     expect(deleteButtonFn).toHaveBeenCalledWith('test-project', '1');
   });
 
-  it('fetches buttons on mount', async () => {
+  it('does not fetch buttons on mount (parent handles fetching)', async () => {
+    // The parent SessionListView handles fetching buttons, so the component
+    // should not fetch on mount. Instead, it should display data from the store.
     const fetchButtons = vi.fn().mockResolvedValue(undefined);
     const mockStore = {
-      buttons: [],
+      buttons: [
+        { id: '1', label: 'Test', command: 'npm test', sortOrder: 1 },
+      ],
       loading: false,
       error: null,
       fetchButtons,
     };
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
 
-    mount(CommandButtonsPanel, {
+    const wrapper = mount(CommandButtonsPanel, {
       props: { projectId: 'test-project' },
       global: {
         stubs: {
@@ -324,6 +328,9 @@ describe('CommandButtonsPanel', () => {
     });
 
     await flushPromises();
-    expect(fetchButtons).toHaveBeenCalledWith('test-project');
+    // fetchButtons should NOT be called by the component
+    expect(fetchButtons).not.toHaveBeenCalled();
+    // But it should display the data from the store
+    expect(wrapper.text()).toContain('Test');
   });
 });
