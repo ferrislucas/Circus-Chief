@@ -109,8 +109,8 @@ export const CANVAS_ITEM_TYPES = ['image', 'markdown', 'text', 'json'];
 export const TOOL_TEMPLATE_PAYLOAD_TYPES = ['command', 'prompt'];
 
 export const CLAUDE_MODELS = [
+  { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', description: 'Fast & lightweight' },
   { id: 'claude-sonnet-4-5-20250929', name: 'Sonnet 4.5', description: 'Balanced' },
   { id: 'claude-opus-4-5-20251101', name: 'Opus 4.5', description: 'Most capable (default)' },
-  { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', description: 'Fast & lightweight' },
 ];
 export const DEFAULT_MODEL = 'claude-opus-4-5-20251101';
