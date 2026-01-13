@@ -7,17 +7,6 @@
     <TokenUsagePanel class="conversation-usage" />
 
     <div class="messages" ref="messagesContainer">
-      <!-- Jump to Claude's turn button - at top so sticky works, only shows when at bottom -->
-      <button
-        v-if="hasAssistantMessages && isNearBottom && isUsersTurn"
-        class="scroll-to-claude-btn"
-        @click="scrollToClaudesTurn"
-        title="Jump to Claude's response"
-        aria-label="Scroll to Claude's latest response"
-      >
-        ↑ Claude's response
-      </button>
-
       <!-- Hide messages for draft sessions (only show in input field) -->
       <template v-if="!isDraft">
       <div
@@ -91,6 +80,17 @@
           <MarkdownViewer :content="partialText" />
         </div>
       </div>
+
+      <!-- Jump to Claude's turn button - at bottom, only shows when at bottom and it's user's turn -->
+      <button
+        v-if="hasAssistantMessages && isNearBottom && isUsersTurn"
+        class="scroll-to-claude-btn"
+        @click="scrollToClaudesTurn"
+        title="Jump to Claude's response"
+        aria-label="Scroll to Claude's latest response"
+      >
+        ↑↑
+      </button>
 
       <!-- Jump to latest button (Slack-style) -->
       <button
@@ -1325,9 +1325,10 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 .scroll-to-claude-btn {
   position: sticky;
-  top: 0.5rem;
+  bottom: 0.5rem;
   z-index: 10;
   margin-left: auto;
+  margin-right: 0.5rem;
   margin-bottom: 0.5rem;
   padding: 0.375rem 0.75rem;
   background: rgba(31, 41, 55, 0.85);
@@ -1475,6 +1476,7 @@ async function handleBranchCreate({ messageId, prompt }) {
   .scroll-to-claude-btn {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
+    margin-right: 0.25rem;
   }
 }
 
