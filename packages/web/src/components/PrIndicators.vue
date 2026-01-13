@@ -73,7 +73,7 @@ function extractPrDisplay() {
 }
 
 /**
- * Display PR text with repository context from URL
+ * Display PR text - just show the number
  */
 function displayPrText() {
   if (!props.prUrl) return 'PR';
@@ -81,8 +81,7 @@ function displayPrText() {
   const pr = extractPrDisplay();
   if (!pr.number) return 'PR';
 
-  const repo = pr.repo ? ` (${pr.owner}/${pr.repo})` : '';
-  return `PR ${pr.number}${repo}`;
+  return `PR ${pr.number}`;
 }
 
 /**

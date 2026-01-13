@@ -104,8 +104,8 @@ const archiveText = computed(() => {
 });
 
 const items = computed(() => [
-  { text: props.duplicateText, icon: '⟳', isDanger: false },
-  { text: archiveText.value, icon: '📦', isDanger: false }
+  { text: archiveText.value, icon: '📦', isDanger: false },
+  { text: props.duplicateText, icon: '⟳', isDanger: false }
 ]);
 
 function toggleMenu() {
@@ -127,11 +127,11 @@ function handleOutsideClick() {
 
 function handleItemClick(item, index) {
   if (index === 0) {
-    // First item is always Duplicate
-    emit('duplicate');
-  } else if (index === 1) {
-    // Second item is always Archive/Unarchive
+    // First item is always Archive/Unarchive
     emit('archive');
+  } else if (index === 1) {
+    // Second item is always Duplicate
+    emit('duplicate');
   }
   closeMenu();
 }
