@@ -18,58 +18,43 @@ const thinkingAccumulators = new Map();
 const activeSessions = new Map();
 
 /** @type {Map<string, {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, cacheCreationInputTokens: number}>}
- * Usage accumulators keyed by conversationId (Issue #175)
+ * Current turn usage - NOT accumulated, just latest values from stream events
+ * Keyed by conversationId (Issue #175)
  */
-const usageAccumulators = new Map();
+const currentTurnUsage = new Map();
 
 /** @type {Map<string, string>} Map sessionId -> conversationId for current turn */
 const activeConversationIds = new Map();
 
 /**
- * Initialize or reset usage accumulator for a conversation turn
+ * Update current turn usage from stream events
+ * message_start provides input_tokens (total for request)
+ * message_delta provides output_tokens (cumulative)
  * @param {string} conversationId
+ * @param {Object} usage - Usage from stream event (snake_case)
+ * @param {string} eventType - 'message_start' or 'message_delta'
+ * @returns {Object} Current turn usage (NOT accumulated)
  */
-function resetUsageAccumulator(conversationId) {
-  usageAccumulators.set(conversationId, {
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheReadInputTokens: 0,
-    cacheCreationInputTokens: 0,
-  });
-}
-
-/**
- * Accumulate usage from an assistant message
- * @param {string} conversationId
- * @param {Object} usage - Usage data from SDK (snake_case)
- * @returns {Object} Accumulated usage
- */
-function accumulateUsage(conversationId, usage) {
-  const current = usageAccumulators.get(conversationId) || {
+function updateTurnUsage(conversationId, usage, eventType) {
+  const current = currentTurnUsage.get(conversationId) || {
     inputTokens: 0,
     outputTokens: 0,
     cacheReadInputTokens: 0,
     cacheCreationInputTokens: 0,
   };
 
-  const accumulated = {
-    inputTokens: current.inputTokens + (usage.input_tokens || 0),
-    outputTokens: current.outputTokens + (usage.output_tokens || 0),
-    cacheReadInputTokens: current.cacheReadInputTokens + (usage.cache_read_input_tokens || 0),
-    cacheCreationInputTokens: current.cacheCreationInputTokens + (usage.cache_creation_input_tokens || 0),
-  };
+  if (eventType === 'message_start') {
+    // message_start has TOTAL input tokens - store directly
+    current.inputTokens = usage.input_tokens || 0;
+    current.cacheReadInputTokens = usage.cache_read_input_tokens || 0;
+    current.cacheCreationInputTokens = usage.cache_creation_input_tokens || 0;
+  } else if (eventType === 'message_delta') {
+    // message_delta has CUMULATIVE output tokens - store directly (don't add)
+    current.outputTokens = usage.output_tokens || 0;
+  }
 
-  usageAccumulators.set(conversationId, accumulated);
-  return accumulated;
-}
-
-/**
- * Get current accumulated usage for a conversation
- * @param {string} conversationId
- * @returns {Object|undefined}
- */
-function _getAccumulatedUsage(conversationId) {
-  return usageAccumulators.get(conversationId);
+  currentTurnUsage.set(conversationId, current);
+  return current;
 }
 
 /** Check if mock mode is enabled (for E2E testing) */
@@ -554,9 +539,6 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     const activeConversation = conversations.ensureActiveConversation(sessionId);
     activeConversationIds.set(sessionId, activeConversation.id);
 
-    // Reset usage accumulator for this conversation turn
-    resetUsageAccumulator(activeConversation.id);
-
     // Update status to running
     sessions.update(sessionId, { status: 'running' });
     broadcastSessionStatus(sessionId, 'running');
@@ -670,9 +652,6 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     // Ensure there's an active conversation for this session
     const activeConversation = conversations.ensureActiveConversation(sessionId);
     activeConversationIds.set(sessionId, activeConversation.id);
-
-    // Reset usage accumulator for this conversation turn
-    resetUsageAccumulator(activeConversation.id);
 
     // Each conversation has its own Claude session context
     // If null, Claude will start a fresh session (no resume)
@@ -807,9 +786,6 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
       conversations.update(conversationId, { isActive: true });
     }
     activeConversationIds.set(sessionId, conversationId);
-
-    // Reset usage accumulator for this conversation turn
-    resetUsageAccumulator(conversationId);
 
     // Update status to running
     sessions.update(sessionId, { status: 'running' });
@@ -1011,20 +987,9 @@ async function handleStreamEvent(sessionId, event) {
       // Extract tool use for logging
       const toolUseBlocks = event.message?.content?.filter((c) => c.type === 'tool_use') || [];
 
-      // Extract and broadcast usage from assistant message
-      const messageUsage = event.message?.usage;
-      if (messageUsage) {
-        const conversationId = activeConversationIds.get(sessionId);
-        const accumulated = accumulateUsage(conversationId, messageUsage);
-
-        // Broadcast partial usage update with conversationId
-        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
-          sessionId,
-          conversationId,
-          usage: accumulated,
-          isFinal: false,
-        });
-      }
+      // NOTE: Do NOT use assistant event usage for broadcasting
+      // The stream events already provide real-time usage updates via message_start and message_delta
+      // Using assistant event would double-count the usage
 
       if (textContent) {
         const toolUse = toolUseBlocks.length > 0 ? toolUseBlocks : null;
@@ -1100,11 +1065,11 @@ async function handleStreamEvent(sessionId, event) {
         const usage = event.event?.message?.usage;
         if (usage) {
           const conversationId = activeConversationIds.get(sessionId);
-          const accumulated = accumulateUsage(conversationId, usage);
+          const turnUsage = updateTurnUsage(conversationId, usage, 'message_start');
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
             sessionId,
             conversationId,
-            usage: accumulated,
+            usage: turnUsage,
             isFinal: false,
           });
         }
@@ -1115,11 +1080,11 @@ async function handleStreamEvent(sessionId, event) {
         const usage = event.event?.usage;
         if (usage) {
           const conversationId = activeConversationIds.get(sessionId);
-          const accumulated = accumulateUsage(conversationId, usage);
+          const turnUsage = updateTurnUsage(conversationId, usage, 'message_delta');
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
             sessionId,
             conversationId,
-            usage: accumulated,
+            usage: turnUsage,
             isFinal: false,
           });
         }
@@ -1263,8 +1228,8 @@ async function handleStreamEvent(sessionId, event) {
             });
           }
 
-          // Clean up accumulators
-          usageAccumulators.delete(conversationId);
+          // Clean up turn usage
+          currentTurnUsage.delete(conversationId);
           activeConversationIds.delete(sessionId);
         }
       }
