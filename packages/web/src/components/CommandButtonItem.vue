@@ -72,10 +72,6 @@
 
       <!-- Output Content (when expanded) -->
       <div v-if="showOutput" class="output-content">
-        <!-- Store truncation warning (2000 lines) -->
-        <div v-if="run.outputTruncated" class="output-truncated-warning">
-          ⚠️ Output truncated (showing last 2000 lines)
-        </div>
         <!-- Display truncation indicator (200 lines for performance) -->
         <div v-if="outputIsTruncatedForDisplay" class="output-display-truncated">
           ↑ Showing last 200 lines. Use Copy to get full output.
@@ -609,15 +605,6 @@ defineExpose({
   border: 1px solid var(--color-border);
   border-radius: 4px;
   position: relative;
-}
-
-.output-truncated-warning {
-  background-color: rgba(251, 191, 36, 0.15);
-  border: 1px solid rgba(251, 191, 36, 0.3);
-  color: var(--color-warning, #fbbf24);
-  padding: 0.5rem 0.75rem;
-  border-radius: 4px;
-  font-size: 0.8rem;
 }
 
 .output-display-truncated {
