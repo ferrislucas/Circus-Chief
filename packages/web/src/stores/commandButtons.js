@@ -10,6 +10,7 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
   state: () => ({
     buttons: [],
     runs: {}, // runId -> { runId, buttonId, status, output, exitCode, outputTruncated }
+    collapsedStates: {}, // runId -> boolean (true = collapsed, false = expanded)
     loading: false,
     error: null,
     // Internal buffering state (not reactive to avoid extra renders)
@@ -30,6 +31,15 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
 
       // Return the first one (most recent)
       return runsForButton.length > 0 ? runsForButton[0] : null;
+    },
+    isOutputCollapsed: (state) => (runId) => {
+      // If user has set a preference, use it
+      if (state.collapsedStates[runId] !== undefined) {
+        return state.collapsedStates[runId];
+      }
+      // Otherwise, default based on status: collapsed for completed, expanded for running
+      const run = state.runs[runId];
+      return run?.status !== 'running';
     },
   },
 
@@ -333,6 +343,10 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       }
     },
 
+    setOutputCollapsed(runId, isCollapsed) {
+      this.collapsedStates[runId] = isCollapsed;
+    },
+
     clearRun(runId) {
       // Clean up any pending timers/buffers
       if (this._flushTimers[runId]) {
@@ -341,6 +355,7 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       }
       delete this._outputBuffers[runId];
       delete this.runs[runId];
+      delete this.collapsedStates[runId];
     },
 
     clearAllRuns() {
@@ -351,6 +366,7 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       this._flushTimers = {};
       this._outputBuffers = {};
       this.runs = {};
+      this.collapsedStates = {};
     },
   },
 });
