@@ -306,35 +306,23 @@ const buttonStatusesToDisplay = computed(() => {
   const projectId = props.session.projectId;
   if (!projectId) return [];
 
-  // Access state directly to ensure Vue tracks dependencies
-  // (getters returning functions don't properly track reactive deps)
+  // Access buttons state directly to ensure Vue tracks dependencies
   // eslint-disable-next-line no-unused-vars
   const _buttonsRef = commandButtonsStore.buttons;
-  // eslint-disable-next-line no-unused-vars
-  const _runsRef = commandButtonsStore.runs;
 
   const buttons = commandButtonsStore.getButtonsByProjectId(projectId);
-  const displayButtons = [];
+  const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
 
-  for (const button of buttons) {
-    // Only include buttons marked to show on list
-    if (!button.showOnList) continue;
-
-    // Get latest run for this button in this session
-    const latestRun = commandButtonsStore.getLatestRunForButton(button.id, props.session.id);
-
-    // Only show if button has been run (never-run buttons are hidden)
-    if (!latestRun) continue;
-
-    displayButtons.push({
-      buttonId: button.id,
-      label: button.label,
-      status: latestRun.status,
-      latestRun: latestRun,
-    });
-  }
-
-  return displayButtons;
+  // Read directly from session object (pre-joined by server, includes running commands)
+  // This eliminates client-side O(buttons × runs) filtering
+  return (props.session.latestCommandRuns || [])
+    .filter(run => buttonMap[run.buttonId]?.showOnList)
+    .map(run => ({
+      buttonId: run.buttonId,
+      label: buttonMap[run.buttonId].label,
+      status: run.status,
+      latestRun: run,
+    }));
 });
 
 const getStatusIcon = (status) => {
