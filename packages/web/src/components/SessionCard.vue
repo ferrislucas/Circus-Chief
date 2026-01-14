@@ -458,9 +458,9 @@ const onStarClick = () => {
 .session-name {
   margin: 0 0 0.5rem;
   font-size: 1rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: auto;
+  word-break: break-word;
+  line-height: 1.4;
 }
 
 .session-meta {
