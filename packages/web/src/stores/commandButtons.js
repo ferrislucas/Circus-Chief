@@ -37,9 +37,8 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       if (state.collapsedStates[runId] !== undefined) {
         return state.collapsedStates[runId];
       }
-      // Otherwise, default based on status: collapsed for completed, expanded for running
-      const run = state.runs[runId];
-      return run?.status !== 'running';
+      // Otherwise, default to collapsed (output pane stays collapsed by default)
+      return true;
     },
   },
 
