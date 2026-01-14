@@ -583,7 +583,18 @@ export const useSessionsStore = defineStore('sessions', {
      * @param {string} [conversationId] - Conversation ID (Issue #175)
      */
     updateRunningUsage(usage, conversationId = null) {
+      // ========== DIAGNOSTIC LOGGING ==========
+      console.log(`🟠 [Store] updateRunningUsage called`, {
+        usage,
+        conversationId,
+        activeConversationId: this.activeConversationId,
+        willMatch: !this.activeConversationId || conversationId === this.activeConversationId,
+      });
+      // ========================================
       this.runningUsage = { ...usage, conversationId };
+      // ========== DIAGNOSTIC LOGGING ==========
+      console.log(`🟠 [Store] runningUsage set to:`, this.runningUsage);
+      // ========================================
     },
 
     /**
@@ -1238,6 +1249,47 @@ export const useSessionsStore = defineStore('sessions', {
         }
       } catch (error) {
         console.warn('Failed to restore starred filter:', error);
+      }
+    },
+
+    /**
+     * Update a session's latestCommandRuns when command status changes via WebSocket
+     * Used to keep session list command status indicators in sync with running/completed commands
+     * @param {string} sessionId - Session ID
+     * @param {string} buttonId - Command button ID
+     * @param {Object} runData - Run data (buttonId, status, runId, startedAt/completedAt, exitCode)
+     */
+    updateSessionCommandRun(sessionId, buttonId, runData) {
+      // Helper to update a session's latestCommandRuns
+      const updateSession = (session) => {
+        if (!session) return;
+
+        const runs = [...(session.latestCommandRuns || [])];
+        const existingIdx = runs.findIndex(r => r.buttonId === buttonId);
+
+        if (existingIdx >= 0) {
+          runs[existingIdx] = runData;
+        } else {
+          runs.push(runData);
+        }
+        session.latestCommandRuns = runs;
+      };
+
+      // Update in sessions list
+      const session = this.sessions.find(s => s.id === sessionId);
+      updateSession(session);
+
+      // Update in archived sessions list
+      const archivedSession = this.archivedSessions.find(s => s.id === sessionId);
+      updateSession(archivedSession);
+
+      // Update in active sessions list
+      const activeSession = this.activeSessions.find(s => s.id === sessionId);
+      updateSession(activeSession);
+
+      // Update current session if it matches
+      if (this.currentSession?.id === sessionId) {
+        updateSession(this.currentSession);
       }
     },
   },
