@@ -459,6 +459,34 @@ export class CommandRunner {
   }
 
   /**
+   * Get all running commands for a project
+   * Used for merging in-memory running commands with completed runs from the database
+   * @param {string} projectId
+   * @param {Function} getSessionById - Function to look up session by ID
+   * @returns {Array} Running command runs
+   */
+  getRunningByProjectId(projectId, getSessionById) {
+    const results = [];
+    for (const [runId, entry] of this.processes.entries()) {
+      // Look up session to check projectId
+      const session = getSessionById(entry.sessionId);
+      if (session?.projectId === projectId) {
+        results.push({
+          id: runId,
+          runId: runId,
+          buttonId: entry.buttonId,
+          sessionId: entry.sessionId,
+          status: 'running',
+          output: entry.output,
+          exitCode: null,
+          startedAt: entry.startTime,
+        });
+      }
+    }
+    return results;
+  }
+
+  /**
    * Get all active runs for a specific session (both running and recent completed)
    * @param {string} sessionId
    * @returns {Array} Array of run info objects
