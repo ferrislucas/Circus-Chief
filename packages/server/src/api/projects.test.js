@@ -5,7 +5,8 @@ import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
-import { projects, sessions, sessionTemplates } from '../database.js';
+import crypto from 'crypto';
+import { projects, sessions, sessionTemplates, commandButtons, commandRuns } from '../database.js';
 
 // Mock websocket and sessionManager before importing the router
 vi.mock('../websocket.js', () => ({
@@ -759,6 +760,191 @@ describe('Projects API', () => {
       expect(session.mode).toBe('standard'); // System default
       expect(session.thinkingEnabled).toBe(false); // System default
       expect(session.status).toBe('starting'); // startImmediately default is true
+    });
+  });
+
+  describe('GET /api/projects/:id/sessions with latestCommandRuns', () => {
+    let session1Id;
+    let session2Id;
+    let buttonId;
+
+    beforeEach(async () => {
+      // Create sessions
+      const session1 = sessions.create(projectId, 'Session 1', 'completed');
+      const session2 = sessions.create(projectId, 'Session 2', 'completed');
+      session1Id = session1.id;
+      session2Id = session2.id;
+
+      // Create a command button
+      const button = commandButtons.create({
+        projectId,
+        label: 'Test Button',
+        command: 'echo test',
+        showOnList: true,
+      });
+      buttonId = button.id;
+    });
+
+    it('returns latestCommandRuns array in each session', async () => {
+      const res = await request(app).get(`/api/projects/${projectId}/sessions`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBe(2);
+
+      // Each session should have latestCommandRuns property
+      res.body.forEach((session) => {
+        expect(Array.isArray(session.latestCommandRuns)).toBe(true);
+      });
+    });
+
+    it('includes database runs in latestCommandRuns', async () => {
+      // Create a completed run in the database
+      const runId = crypto.randomUUID();
+      commandRuns.create({ id: runId, sessionId: session1Id, buttonId });
+      commandRuns.complete(runId, 0, 'output');
+
+      const res = await request(app).get(`/api/projects/${projectId}/sessions`);
+
+      expect(res.status).toBe(200);
+      const session1Response = res.body.find((s) => s.id === session1Id);
+      expect(session1Response.latestCommandRuns).toBeDefined();
+      expect(session1Response.latestCommandRuns.length).toBe(1);
+
+      const run = session1Response.latestCommandRuns[0];
+      expect(run.buttonId).toBe(buttonId);
+      expect(run.status).toBe('success');
+      expect(run.exitCode).toBe(0);
+      expect(run.runId).toBeDefined();
+    });
+
+    it('returns empty latestCommandRuns for sessions without runs', async () => {
+      const res = await request(app).get(`/api/projects/${projectId}/sessions`);
+
+      expect(res.status).toBe(200);
+      const session2Response = res.body.find((s) => s.id === session2Id);
+      expect(session2Response.latestCommandRuns).toEqual([]);
+    });
+
+    it('includes only latest run per button per session', async () => {
+      // Create multiple runs for the same button and session
+      const run1Id = crypto.randomUUID();
+      commandRuns.create({ id: run1Id, sessionId: session1Id, buttonId });
+      commandRuns.complete(run1Id, 0, 'output1');
+
+      const run2Id = crypto.randomUUID();
+      commandRuns.create({ id: run2Id, sessionId: session1Id, buttonId });
+      commandRuns.complete(run2Id, 1, 'output2');
+
+      const res = await request(app).get(`/api/projects/${projectId}/sessions`);
+
+      expect(res.status).toBe(200);
+      const session1Response = res.body.find((s) => s.id === session1Id);
+
+      // Should only include the latest run
+      expect(session1Response.latestCommandRuns.length).toBe(1);
+      expect(session1Response.latestCommandRuns[0].status).toBe('error');
+      expect(session1Response.latestCommandRuns[0].exitCode).toBe(1);
+    });
+
+    it('merges runs from multiple buttons', async () => {
+      // Create second button
+      const button2 = commandButtons.create({
+        projectId,
+        label: 'Button 2',
+        command: 'echo test2',
+        showOnList: true,
+      });
+
+      // Create runs for both buttons
+      const run1Id = crypto.randomUUID();
+      commandRuns.create({ id: run1Id, sessionId: session1Id, buttonId });
+      commandRuns.complete(run1Id, 0, 'output');
+
+      const run2Id = crypto.randomUUID();
+      commandRuns.create({ id: run2Id, sessionId: session1Id, buttonId: button2.id });
+      commandRuns.complete(run2Id, 1, 'output');
+
+      const res = await request(app).get(`/api/projects/${projectId}/sessions`);
+
+      expect(res.status).toBe(200);
+      const session1Response = res.body.find((s) => s.id === session1Id);
+
+      // Should include runs from both buttons
+      expect(session1Response.latestCommandRuns.length).toBe(2);
+
+      const buttonIds = session1Response.latestCommandRuns.map((r) => r.buttonId);
+      expect(buttonIds).toContain(buttonId);
+      expect(buttonIds).toContain(button2.id);
+    });
+
+    it('isolates runs by session', async () => {
+      // Create runs for both sessions
+      const run1Id = crypto.randomUUID();
+      commandRuns.create({ id: run1Id, sessionId: session1Id, buttonId });
+      commandRuns.complete(run1Id, 0, 'output1');
+
+      const run2Id = crypto.randomUUID();
+      commandRuns.create({ id: run2Id, sessionId: session2Id, buttonId });
+      commandRuns.complete(run2Id, 1, 'output2');
+
+      const res = await request(app).get(`/api/projects/${projectId}/sessions`);
+
+      expect(res.status).toBe(200);
+      const session1Response = res.body.find((s) => s.id === session1Id);
+      const session2Response = res.body.find((s) => s.id === session2Id);
+
+      // Session 1 should have success run
+      expect(session1Response.latestCommandRuns.length).toBe(1);
+      expect(session1Response.latestCommandRuns[0].status).toBe('success');
+
+      // Session 2 should have error run
+      expect(session2Response.latestCommandRuns.length).toBe(1);
+      expect(session2Response.latestCommandRuns[0].status).toBe('error');
+    });
+
+    it('includes required fields in latestCommandRuns', async () => {
+      // Create a run
+      const runId = crypto.randomUUID();
+      commandRuns.create({ id: runId, sessionId: session1Id, buttonId });
+      commandRuns.complete(runId, 0, 'output');
+
+      const res = await request(app).get(`/api/projects/${projectId}/sessions`);
+
+      expect(res.status).toBe(200);
+      const session1Response = res.body.find((s) => s.id === session1Id);
+      const run = session1Response.latestCommandRuns[0];
+
+      // Verify required fields are present
+      expect(run.buttonId).toBeDefined();
+      expect(run.status).toBeDefined();
+      expect(run.exitCode).toBeDefined();
+      expect(run.runId).toBeDefined();
+      expect(run.completedAt).toBeDefined();
+    });
+
+    it('respects archived filter with latestCommandRuns', async () => {
+      // Archive one session
+      sessions.update(session1Id, { archived: true });
+
+      // Create a run for both sessions
+      const run1Id = crypto.randomUUID();
+      commandRuns.create({ id: run1Id, sessionId: session1Id, buttonId });
+      commandRuns.complete(run1Id, 0, 'output');
+
+      const run2Id = crypto.randomUUID();
+      commandRuns.create({ id: run2Id, sessionId: session2Id, buttonId });
+      commandRuns.complete(run2Id, 1, 'output');
+
+      const res = await request(app).get(`/api/projects/${projectId}/sessions?archived=false`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.length).toBe(1);
+      expect(res.body[0].id).toBe(session2Id);
+
+      // Should include the latestCommandRuns even with filter
+      expect(res.body[0].latestCommandRuns).toBeDefined();
+      expect(res.body[0].latestCommandRuns.length).toBe(1);
     });
   });
 });
