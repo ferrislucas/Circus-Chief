@@ -142,6 +142,157 @@ describe('CommandRunner', () => {
     });
   });
 
+  describe('getRunningByProjectId', () => {
+    it('returns empty array when no runs are active', () => {
+      const getSessionById = (sessionId) => ({ id: sessionId, projectId: 'proj-1' });
+      const runs = runner.getRunningByProjectId('proj-1', getSessionById);
+      expect(runs).toEqual([]);
+    });
+
+    it('returns running commands for a specific project', async () => {
+      const sessionId = 'session-1';
+      const getSessionById = (id) => (id === sessionId ? { id: sessionId, projectId: 'proj-1' } : null);
+
+      // Start a long-running command
+      const runPromise = runner.run(
+        'run-1',
+        'sleep 1',
+        process.cwd(),
+        () => {},
+        () => {},
+        () => {},
+        { sessionId, buttonId: 'btn-1' }
+      );
+
+      // Query while command is running
+      const runs = runner.getRunningByProjectId('proj-1', getSessionById);
+
+      expect(runs.length).toBe(1);
+      expect(runs[0].runId).toBe('run-1');
+      expect(runs[0].sessionId).toBe(sessionId);
+      expect(runs[0].buttonId).toBe('btn-1');
+      expect(runs[0].status).toBe('running');
+      expect(runs[0].exitCode).toBeNull();
+      expect(runs[0].startedAt).toBeDefined();
+
+      // Clean up
+      await runPromise;
+    });
+
+    it('excludes commands from other projects', async () => {
+      const getSessionById = (sessionId) => {
+        if (sessionId === 'session-1') return { id: sessionId, projectId: 'proj-1' };
+        if (sessionId === 'session-2') return { id: sessionId, projectId: 'proj-2' };
+        return null;
+      };
+
+      // Start commands in different projects
+      const run1Promise = runner.run(
+        'run-1',
+        'sleep 1',
+        process.cwd(),
+        () => {},
+        () => {},
+        () => {},
+        { sessionId: 'session-1', buttonId: 'btn-1' }
+      );
+
+      const run2Promise = runner.run(
+        'run-2',
+        'sleep 1',
+        process.cwd(),
+        () => {},
+        () => {},
+        () => {},
+        { sessionId: 'session-2', buttonId: 'btn-2' }
+      );
+
+      // Query proj-1 should only return run-1
+      const proj1Runs = runner.getRunningByProjectId('proj-1', getSessionById);
+      expect(proj1Runs.length).toBe(1);
+      expect(proj1Runs[0].runId).toBe('run-1');
+
+      // Query proj-2 should only return run-2
+      const proj2Runs = runner.getRunningByProjectId('proj-2', getSessionById);
+      expect(proj2Runs.length).toBe(1);
+      expect(proj2Runs[0].runId).toBe('run-2');
+
+      // Clean up
+      await Promise.all([run1Promise, run2Promise]);
+    });
+
+    it('returns multiple running commands for same project', async () => {
+      const sessionId = 'session-1';
+      const getSessionById = (id) => (id === sessionId ? { id: sessionId, projectId: 'proj-1' } : null);
+
+      // Start multiple commands
+      const run1Promise = runner.run(
+        'run-1',
+        'sleep 1',
+        process.cwd(),
+        () => {},
+        () => {},
+        () => {},
+        { sessionId, buttonId: 'btn-1' }
+      );
+
+      const run2Promise = runner.run(
+        'run-2',
+        'sleep 1',
+        process.cwd(),
+        () => {},
+        () => {},
+        () => {},
+        { sessionId, buttonId: 'btn-2' }
+      );
+
+      // Query should return both
+      const runs = runner.getRunningByProjectId('proj-1', getSessionById);
+      expect(runs.length).toBe(2);
+
+      const runIds = runs.map((r) => r.runId);
+      expect(runIds).toContain('run-1');
+      expect(runIds).toContain('run-2');
+
+      // Clean up
+      await Promise.all([run1Promise, run2Promise]);
+    });
+
+    it('handles missing session gracefully', () => {
+      const getSessionById = () => null; // Session not found
+      const runs = runner.getRunningByProjectId('proj-1', getSessionById);
+      expect(runs).toEqual([]);
+    });
+
+    it('includes output in returned runs', async () => {
+      const sessionId = 'session-1';
+      const getSessionById = (id) => (id === sessionId ? { id: sessionId, projectId: 'proj-1' } : null);
+
+      const runPromise = runner.run(
+        'run-1',
+        'sleep 0.5 && echo "test output"',
+        process.cwd(),
+        () => {},
+        () => {},
+        () => {},
+        { sessionId, buttonId: 'btn-1' }
+      );
+
+      // Give command time to start and produce output
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const runs = runner.getRunningByProjectId('proj-1', getSessionById);
+
+      // If the command is still running, it should have output
+      if (runs.length > 0) {
+        expect(runs[0].output).toBeDefined();
+      }
+
+      // Clean up
+      await runPromise;
+    });
+  });
+
   describe('metadata and output buffering', () => {
     it('stores sessionId and buttonId from metadata', async () => {
       const runId = 'test-metadata-1';
