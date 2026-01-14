@@ -331,8 +331,9 @@ watch(
     // Fetch new project data
     projectsStore.fetchProject(newProjectId);
     await sessionsStore.fetchSessions(newProjectId);
-    await commandButtonsStore.fetchButtons(newProjectId);
-    await commandButtonsStore.fetchLatestRunsForProject(newProjectId);
+    await commandButtonsStore.fetchButtons(newProjectId); // Still needed for button labels/config
+    // Note: fetchLatestRunsForProject() is no longer needed - latestCommandRuns are now
+    // included in the sessions API response (merged from DB + in-memory running commands)
     fetchSummaries();
 
     // Create new subscription for new project
@@ -388,7 +389,7 @@ watch(
     // Handle command run output (for real-time status icon updates)
     cleanups.push(
       onCommandRunOutput((runId, sessionId, buttonId, output) => {
-        // Ensure run exists in store, create if needed
+        // Ensure run exists in commandButtonsStore (still needed for SessionDetailView output display)
         if (!commandButtonsStore.runs[runId]) {
           commandButtonsStore.runs[runId] = {
             runId,
@@ -402,6 +403,14 @@ watch(
           };
         }
         commandButtonsStore.appendOutput(runId, output);
+
+        // Update session's latestCommandRuns for session list display
+        sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+          buttonId,
+          status: 'running',
+          runId,
+          startedAt: Date.now(),
+        });
       })
     );
 
@@ -422,6 +431,16 @@ watch(
           };
         }
         commandButtonsStore.completeRun(runId, exitCode, output);
+
+        // Update session's latestCommandRuns for session list display
+        const status = exitCode === 0 ? 'success' : 'error';
+        sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+          buttonId,
+          status,
+          exitCode,
+          runId,
+          completedAt: Date.now(),
+        });
       })
     );
 
@@ -442,6 +461,14 @@ watch(
           };
         }
         commandButtonsStore.errorRun(runId, error);
+
+        // Update session's latestCommandRuns for session list display
+        sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+          buttonId,
+          status: 'error',
+          runId,
+          completedAt: Date.now(),
+        });
       })
     );
   },
