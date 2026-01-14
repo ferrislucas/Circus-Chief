@@ -118,22 +118,24 @@ function send(type, payload) {
   }
 }
 
-function on(type, callback) {
+function on(type, callback, sessionId = null) {
   if (!listeners.has(type)) {
     listeners.set(type, new Set());
   }
   listeners.get(type).add(callback);
 
-  // If registering a SESSION_USAGE_UPDATE handler, replay any buffered messages
-  if (type === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE) {
-    // We need to get sessionId from the callback context, but callbacks are stateless
-    // So we replay buffered messages for all sessions that have them
-    for (const [sessionId, bufferedMessages] of messageBuffer.entries()) {
-      // Replay all buffered messages for this session
+  // If registering a SESSION_USAGE_UPDATE handler with a sessionId, replay buffered messages only for that session
+  if (type === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE && sessionId) {
+    // Only replay messages for the specific session
+    const bufferedMessages = messageBuffer.get(sessionId);
+    if (bufferedMessages && bufferedMessages.length > 0) {
+      // ========== DIAGNOSTIC LOGGING ==========
+      console.log(`🟡 [WS] Replaying ${bufferedMessages.length} buffered SESSION_USAGE_UPDATE messages for session ${sessionId}`);
+      // ========================================
       for (const message of bufferedMessages) {
         callback(message);
       }
-      // Clear the buffer after replay
+      // Only clear THIS session's buffer
       messageBuffer.delete(sessionId);
     }
   }
@@ -356,7 +358,8 @@ export function useSessionSubscription(sessionId) {
         callback(msg);
       }
     };
-    on(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, handler);
+    // Pass sessionId to on() so only this session's buffered messages are replayed
+    on(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, handler, sessionId);
     return () => off(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, handler);
   };
 
