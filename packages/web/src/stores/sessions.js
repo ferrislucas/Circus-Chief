@@ -583,7 +583,18 @@ export const useSessionsStore = defineStore('sessions', {
      * @param {string} [conversationId] - Conversation ID (Issue #175)
      */
     updateRunningUsage(usage, conversationId = null) {
+      // ========== DIAGNOSTIC LOGGING ==========
+      console.log(`🟠 [Store] updateRunningUsage called`, {
+        usage,
+        conversationId,
+        activeConversationId: this.activeConversationId,
+        willMatch: !this.activeConversationId || conversationId === this.activeConversationId,
+      });
+      // ========================================
       this.runningUsage = { ...usage, conversationId };
+      // ========== DIAGNOSTIC LOGGING ==========
+      console.log(`🟠 [Store] runningUsage set to:`, this.runningUsage);
+      // ========================================
     },
 
     /**
