@@ -70,6 +70,9 @@ export class WebSocketManager {
           this.#sessionSubscriptions.set(sessionId, new Set());
         }
         this.#sessionSubscriptions.get(sessionId).add(ws);
+        // ========== DIAGNOSTIC LOGGING ==========
+        console.log(`🔶 [WS Manager] Client subscribed to session ${sessionId}, total subscribers: ${this.#sessionSubscriptions.get(sessionId).size}`);
+        // ========================================
         break;
       }
 
@@ -131,6 +134,16 @@ export class WebSocketManager {
    */
   broadcastToSession(sessionId, type, payload) {
     const subscribers = this.#sessionSubscriptions.get(sessionId);
+    // ========== DIAGNOSTIC LOGGING ==========
+    if (type === 'session:usage_update') {
+      console.log(`🟤 [WS Manager] broadcastToSession`, {
+        sessionId,
+        type,
+        subscriberCount: subscribers?.size || 0,
+        willDrop: !subscribers || subscribers.size === 0,
+      });
+    }
+    // ========================================
     if (!subscribers || subscribers.size === 0) {
       return;
     }
