@@ -313,9 +313,15 @@ const buttonStatusesToDisplay = computed(() => {
   const buttons = commandButtonsStore.getButtonsByProjectId(projectId);
   const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
 
-  // Read directly from session object (pre-joined by server, includes running commands)
-  // This eliminates client-side O(buttons × runs) filtering
-  return (props.session.latestCommandRuns || [])
+  // Read latestCommandRuns directly from the store to ensure reactivity.
+  // Props may not maintain the reactive chain when passed through computed
+  // properties that don't access latestCommandRuns. By reading from the store,
+  // we ensure Vue tracks our dependency on the actual reactive data.
+  const sessionId = props.session.id;
+  const storeSession = sessionsStore.getSessionById(sessionId);
+  const latestRuns = storeSession?.latestCommandRuns || props.session.latestCommandRuns || [];
+
+  return latestRuns
     .filter(run => buttonMap[run.buttonId]?.showOnList)
     .map(run => ({
       buttonId: run.buttonId,
