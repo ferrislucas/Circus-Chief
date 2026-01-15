@@ -147,6 +147,10 @@ export function useWebSocket() {
   };
 }
 
+// Reference counting for session subscriptions
+// Prevents premature unsubscription when multiple components use the same session
+const sessionSubscriptionCounts = new Map();
+
 /**
  * Subscribe to session updates
  * @param {string} sessionId
@@ -154,14 +158,36 @@ export function useWebSocket() {
 export function useSessionSubscription(sessionId) {
   const { send, on, off, clearSessionBuffer } = useWebSocket();
 
+  // Track whether THIS instance called subscribe
+  let thisInstanceSubscribed = false;
+
   const subscribe = () => {
-    send(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId });
+    if (thisInstanceSubscribed) return; // Already subscribed from this instance
+    thisInstanceSubscribed = true;
+
+    const count = sessionSubscriptionCounts.get(sessionId) || 0;
+    sessionSubscriptionCounts.set(sessionId, count + 1);
+    // Only send subscribe message on first subscription
+    if (count === 0) {
+      send(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId });
+    }
   };
 
   const unsubscribe = () => {
-    send(WS_MESSAGE_TYPES.UNSUBSCRIBE_SESSION, { sessionId });
-    // Clear any buffered messages for this session
-    clearSessionBuffer(sessionId);
+    if (!thisInstanceSubscribed) return; // Never subscribed, don't unsubscribe
+    thisInstanceSubscribed = false;
+
+    const count = sessionSubscriptionCounts.get(sessionId) || 0;
+    if (count <= 1) {
+      // Last subscriber - actually unsubscribe
+      sessionSubscriptionCounts.delete(sessionId);
+      send(WS_MESSAGE_TYPES.UNSUBSCRIBE_SESSION, { sessionId });
+      // Clear any buffered messages for this session
+      clearSessionBuffer(sessionId);
+    } else {
+      // Decrement count but don't unsubscribe yet
+      sessionSubscriptionCounts.set(sessionId, count - 1);
+    }
   };
 
   const onStatus = (callback) => {
