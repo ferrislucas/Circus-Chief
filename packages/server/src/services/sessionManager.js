@@ -17,44 +17,75 @@ const thinkingAccumulators = new Map();
 /** @type {Map<string, { controller: AbortController }>} */
 const activeSessions = new Map();
 
-/** @type {Map<string, {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, cacheCreationInputTokens: number}>}
- * Current turn usage - NOT accumulated, just latest values from stream events
+/** @type {Map<string, {inputTokens: number, outputTokens: number, lastMessageOutput: number, cacheReadInputTokens: number, cacheCreationInputTokens: number}>}
+ * Current turn usage - accumulates across multiple messages within a turn
  * Keyed by conversationId (Issue #175)
+ * - inputTokens: MAX seen across all messages (larger context with tool results)
+ * - outputTokens: ACCUMULATED across all messages
+ * - lastMessageOutput: Current message's output (to detect resets on message_start)
  */
 const currentTurnUsage = new Map();
 
 /** @type {Map<string, string>} Map sessionId -> conversationId for current turn */
 const activeConversationIds = new Map();
 
+/** @type {Map<string, number>} Estimated output tokens from streamed content (for real-time updates) */
+const estimatedOutputTokens = new Map();
+
+/**
+ * Rough token estimation: ~4 characters per token (standard for English text)
+ * @param {string} text
+ * @returns {number} Estimated token count
+ */
+function estimateTokens(text) {
+  return Math.ceil(text.length / 4);
+}
+
 /**
  * Update current turn usage from stream events
- * message_start provides input_tokens (total for request)
- * message_delta provides output_tokens (cumulative)
+ * Accumulates across multiple messages within a single turn
  * @param {string} conversationId
  * @param {Object} usage - Usage from stream event (snake_case)
  * @param {string} eventType - 'message_start' or 'message_delta'
- * @returns {Object} Current turn usage (NOT accumulated)
+ * @returns {Object} Total turn usage (accumulated + current message)
  */
 function updateTurnUsage(conversationId, usage, eventType) {
   const current = currentTurnUsage.get(conversationId) || {
     inputTokens: 0,
     outputTokens: 0,
+    lastMessageOutput: 0,
     cacheReadInputTokens: 0,
     cacheCreationInputTokens: 0,
   };
 
   if (eventType === 'message_start') {
-    // message_start has TOTAL input tokens - store directly
-    current.inputTokens = usage.input_tokens || 0;
-    current.cacheReadInputTokens = usage.cache_read_input_tokens || 0;
-    current.cacheCreationInputTokens = usage.cache_creation_input_tokens || 0;
+    // NEW MESSAGE STARTING
+    // 1. Finalize previous message's output
+    current.outputTokens += current.lastMessageOutput;
+    // 2. Reset tracker for new message
+    current.lastMessageOutput = 0;
+    // 3. Reset estimated output when actual message starts
+    estimatedOutputTokens.delete(conversationId);
+    // 4. For input tokens, keep the MAX (larger context with tool results)
+    current.inputTokens = Math.max(current.inputTokens, usage.input_tokens || 0);
+    current.cacheReadInputTokens = Math.max(current.cacheReadInputTokens, usage.cache_read_input_tokens || 0);
+    current.cacheCreationInputTokens = Math.max(current.cacheCreationInputTokens, usage.cache_creation_input_tokens || 0);
   } else if (eventType === 'message_delta') {
-    // message_delta has CUMULATIVE output tokens - store directly (don't add)
-    current.outputTokens = usage.output_tokens || 0;
+    // OUTPUT STREAMING - output_tokens is cumulative within this message
+    current.lastMessageOutput = usage.output_tokens || 0;
+    // Clear estimate when actual output tokens arrive
+    estimatedOutputTokens.delete(conversationId);
   }
 
   currentTurnUsage.set(conversationId, current);
-  return current;
+
+  // Return the TOTAL (accumulated + current message's output)
+  return {
+    inputTokens: current.inputTokens,
+    outputTokens: current.outputTokens + current.lastMessageOutput,
+    cacheReadInputTokens: current.cacheReadInputTokens,
+    cacheCreationInputTokens: current.cacheCreationInputTokens,
+  };
 }
 
 /** Check if mock mode is enabled (for E2E testing) */
@@ -224,6 +255,20 @@ async function* mockQuery({ prompt }) {
   // Small delay to simulate processing
   await new Promise((resolve) => setTimeout(resolve, 100));
 
+  // Yield message_start event with initial usage (enables real-time token updates)
+  yield {
+    type: 'stream_event',
+    event: {
+      type: 'message_start',
+      message: {
+        usage: {
+          input_tokens: prompt.split(' ').length, // Simple estimate: one token per word
+          output_tokens: 0,
+        },
+      },
+    },
+  };
+
   // Simulate thinking (creates a work log)
   yield {
     type: 'stream_event',
@@ -264,6 +309,24 @@ async function* mockQuery({ prompt }) {
 
   // Generate a mock response based on the user's message
   const responseText = `Mock response to: "${prompt}"`;
+
+  // Yield message_delta events to simulate streaming output tokens (enables real-time token updates)
+  // Send multiple deltas to simulate streaming
+  const words = responseText.split(' ');
+  let outputTokens = 0;
+  for (const word of words) {
+    outputTokens += 2; // Simulate 2 tokens per word
+    yield {
+      type: 'stream_event',
+      event: {
+        type: 'message_delta',
+        delta: { type: 'text_delta', text: word + ' ' },
+        usage: { output_tokens: outputTokens },
+      },
+    };
+    // Small delay to simulate streaming
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 
   // Yield assistant message with text
   yield {
@@ -1066,13 +1129,6 @@ async function handleStreamEvent(sessionId, event) {
         if (usage) {
           const conversationId = activeConversationIds.get(sessionId);
           const turnUsage = updateTurnUsage(conversationId, usage, 'message_start');
-          // ========== DIAGNOSTIC LOGGING ==========
-          console.log(`🔴 [Server] Broadcasting SESSION_USAGE_UPDATE (message_start)`, {
-            sessionId,
-            conversationId,
-            usage: turnUsage,
-          });
-          // ========================================
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
             sessionId,
             conversationId,
@@ -1088,13 +1144,6 @@ async function handleStreamEvent(sessionId, event) {
         if (usage) {
           const conversationId = activeConversationIds.get(sessionId);
           const turnUsage = updateTurnUsage(conversationId, usage, 'message_delta');
-          // ========== DIAGNOSTIC LOGGING ==========
-          console.log(`🔴 [Server] Broadcasting SESSION_USAGE_UPDATE (message_delta)`, {
-            sessionId,
-            conversationId,
-            usage: turnUsage,
-          });
-          // ========================================
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
             sessionId,
             conversationId,
@@ -1113,6 +1162,39 @@ async function handleStreamEvent(sessionId, event) {
             sessionId,
             text: delta.text,
           });
+
+          // ISSUE 2: Estimate tokens from streamed content for real-time output token updates
+          const conversationId = activeConversationIds.get(sessionId);
+          if (conversationId) {
+            const currentEstimate = estimatedOutputTokens.get(conversationId) || 0;
+            const newEstimate = currentEstimate + estimateTokens(delta.text);
+            estimatedOutputTokens.set(conversationId, newEstimate);
+
+            // Get current turn usage and add estimated output
+            const turnData = currentTurnUsage.get(conversationId) || {
+              inputTokens: 0,
+              outputTokens: 0,
+              lastMessageOutput: 0,
+              cacheReadInputTokens: 0,
+              cacheCreationInputTokens: 0,
+            };
+
+            // Broadcast usage update with estimated tokens
+            const broadcastUsage = {
+              inputTokens: turnData.inputTokens,
+              outputTokens: turnData.outputTokens + Math.max(turnData.lastMessageOutput, newEstimate),
+              cacheReadInputTokens: turnData.cacheReadInputTokens,
+              cacheCreationInputTokens: turnData.cacheCreationInputTokens,
+            };
+
+            broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
+              sessionId,
+              conversationId,
+              usage: broadcastUsage,
+              isFinal: false,
+              isEstimate: true,  // Flag so UI can show "~" prefix if desired
+            });
+          }
         }
 
         // Handle thinking delta - accumulate and broadcast partial (don't create work log yet)
@@ -1242,8 +1324,9 @@ async function handleStreamEvent(sessionId, event) {
             });
           }
 
-          // Clean up turn usage
+          // Clean up turn usage and estimated tokens
           currentTurnUsage.delete(conversationId);
+          estimatedOutputTokens.delete(conversationId);
           activeConversationIds.delete(sessionId);
         }
       }
