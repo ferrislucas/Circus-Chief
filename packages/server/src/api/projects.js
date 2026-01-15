@@ -371,6 +371,7 @@ router.post('/:id/command-buttons', (req, res) => {
     label: result.data.label,
     command: result.data.command,
     sortOrder: result.data.sortOrder,
+    showOnList: result.data.showOnList,
   });
 
   res.status(201).json(button);

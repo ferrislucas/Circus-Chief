@@ -9,6 +9,8 @@ const isConnected = ref(false);
 // Buffer for messages that arrive before handlers are registered
 // Specifically buffers SESSION_USAGE_UPDATE messages to prevent loss during subscription lag
 const messageBuffer = new Map(); // Map of sessionId -> array of buffered messages
+// Queue for outbound messages to send once connected
+const outboundQueue = [];
 
 function getWebSocketUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -24,6 +26,12 @@ function connect() {
     console.log('WebSocket connected');
     isConnected.value = true;
     reconnectDelay = WS_RECONNECT_BASE_DELAY;
+
+    // Flush queued outbound messages
+    while (outboundQueue.length > 0) {
+      const msg = outboundQueue.shift();
+      socket.send(msg);
+    }
   };
 
   socket.onmessage = (event) => {
@@ -102,6 +110,8 @@ function disconnect() {
   }
   // Clear all message buffers on disconnect
   messageBuffer.clear();
+  // Clear outbound queue on disconnect
+  outboundQueue.length = 0;
 }
 
 /**
@@ -113,8 +123,16 @@ function clearSessionBuffer(sessionId) {
 }
 
 function send(type, payload) {
+  const message = createMessage(type, payload);
   if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(createMessage(type, payload));
+    socket.send(message);
+  } else {
+    // Queue message to send when socket connects
+    outboundQueue.push(message);
+    // Ensure we're trying to connect
+    if (!socket) {
+      connect();
+    }
   }
 }
 
