@@ -9,6 +9,8 @@ const isConnected = ref(false);
 // Buffer for messages that arrive before handlers are registered
 // Specifically buffers SESSION_USAGE_UPDATE messages to prevent loss during subscription lag
 const messageBuffer = new Map(); // Map of sessionId -> array of buffered messages
+// Queue for outbound messages to send once connected
+const outboundQueue = [];
 
 function getWebSocketUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -24,17 +26,35 @@ function connect() {
     console.log('WebSocket connected');
     isConnected.value = true;
     reconnectDelay = WS_RECONNECT_BASE_DELAY;
+
+    // Flush queued outbound messages
+    while (outboundQueue.length > 0) {
+      const msg = outboundQueue.shift();
+      socket.send(msg);
+    }
   };
 
   socket.onmessage = (event) => {
     const message = parseMessage(event.data);
     if (!message) return;
 
+    // ========== DIAGNOSTIC LOGGING ==========
+    if (message.type === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE) {
+      console.log(`🔵 [WS] Received SESSION_USAGE_UPDATE`, {
+        sessionId: message.sessionId,
+        conversationId: message.conversationId,
+        isFinal: message.isFinal,
+        usage: message.usage,
+      });
+    }
+    // ========================================
+
     const typeListeners = listeners.get(message.type);
 
     // Buffer SESSION_USAGE_UPDATE messages if no handlers are registered yet
     // This prevents message loss during subscription lag
     if (message.type === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE && (!typeListeners || typeListeners.size === 0)) {
+      console.log(`🟡 [WS] Buffering SESSION_USAGE_UPDATE - no handlers registered yet`);
       const sessionId = message.sessionId;
       if (!messageBuffer.has(sessionId)) {
         messageBuffer.set(sessionId, []);
@@ -48,6 +68,11 @@ function connect() {
     }
 
     if (typeListeners) {
+      // ========== DIAGNOSTIC LOGGING ==========
+      if (message.type === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE) {
+        console.log(`🟢 [WS] Dispatching SESSION_USAGE_UPDATE to ${typeListeners.size} handler(s)`);
+      }
+      // ========================================
       for (const callback of typeListeners) {
         callback(message);
       }
@@ -85,6 +110,8 @@ function disconnect() {
   }
   // Clear all message buffers on disconnect
   messageBuffer.clear();
+  // Clear outbound queue on disconnect
+  outboundQueue.length = 0;
 }
 
 /**
@@ -96,27 +123,37 @@ function clearSessionBuffer(sessionId) {
 }
 
 function send(type, payload) {
+  const message = createMessage(type, payload);
   if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(createMessage(type, payload));
+    socket.send(message);
+  } else {
+    // Queue message to send when socket connects
+    outboundQueue.push(message);
+    // Ensure we're trying to connect
+    if (!socket) {
+      connect();
+    }
   }
 }
 
-function on(type, callback) {
+function on(type, callback, sessionId = null) {
   if (!listeners.has(type)) {
     listeners.set(type, new Set());
   }
   listeners.get(type).add(callback);
 
-  // If registering a SESSION_USAGE_UPDATE handler, replay any buffered messages
-  if (type === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE) {
-    // We need to get sessionId from the callback context, but callbacks are stateless
-    // So we replay buffered messages for all sessions that have them
-    for (const [sessionId, bufferedMessages] of messageBuffer.entries()) {
-      // Replay all buffered messages for this session
+  // If registering a SESSION_USAGE_UPDATE handler with a sessionId, replay buffered messages only for that session
+  if (type === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE && sessionId) {
+    // Only replay messages for the specific session
+    const bufferedMessages = messageBuffer.get(sessionId);
+    if (bufferedMessages && bufferedMessages.length > 0) {
+      // ========== DIAGNOSTIC LOGGING ==========
+      console.log(`🟡 [WS] Replaying ${bufferedMessages.length} buffered SESSION_USAGE_UPDATE messages for session ${sessionId}`);
+      // ========================================
       for (const message of bufferedMessages) {
         callback(message);
       }
-      // Clear the buffer after replay
+      // Only clear THIS session's buffer
       messageBuffer.delete(sessionId);
     }
   }
@@ -328,11 +365,19 @@ export function useSessionSubscription(sessionId) {
 
   const onUsageUpdate = (callback) => {
     const handler = (msg) => {
+      // ========== DIAGNOSTIC LOGGING ==========
+      console.log(`🔷 [WS Handler] onUsageUpdate filter check`, {
+        msgSessionId: msg.sessionId,
+        handlerSessionId: sessionId,
+        matches: msg.sessionId === sessionId,
+      });
+      // ========================================
       if (msg.sessionId === sessionId) {
         callback(msg);
       }
     };
-    on(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, handler);
+    // Pass sessionId to on() so only this session's buffered messages are replayed
+    on(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, handler, sessionId);
     return () => off(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, handler);
   };
 
@@ -425,6 +470,9 @@ export async function ensureSubscribed(sessionId) {
 
     // Helper to send subscription and resolve
     const sendSubscription = () => {
+      // ========== DIAGNOSTIC LOGGING ==========
+      console.log(`🔶 [ensureSubscribed] Sending SUBSCRIBE_SESSION for ${sessionId}`);
+      // ========================================
       send(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId });
       clearTimeout(timeout);
       resolve();

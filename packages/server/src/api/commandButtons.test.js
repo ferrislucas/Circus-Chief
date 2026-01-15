@@ -37,7 +37,7 @@ vi.mock('../services/commandRunner.js', () => ({
 // Import after mocks are set up
 import commandButtonsRouter from './commandButtons.js';
 import sessionsRouter from './sessions.js';
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
@@ -494,6 +494,161 @@ describe('Command Buttons API', () => {
 
       expect(errorBroadcasts.length).toBeGreaterThan(0);
       expect(errorBroadcasts[0][2].error).toBe('Something went wrong');
+    });
+
+    it('broadcasts initial running status to project immediately', async () => {
+      await request(app).post(
+        `/api/sessions/${sessionId}/command-buttons/${buttonId}/run`
+      );
+
+      // Wait a bit for async execution to start
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Verify broadcastToProject was called for initial running status
+      const projectBroadcasts = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT
+      );
+
+      expect(projectBroadcasts.length).toBeGreaterThan(0);
+      expect(projectBroadcasts[0][0]).toBe(projects.getById(projectId).id); // projectId
+      expect(projectBroadcasts[0][2]).toEqual({
+        projectId: projects.getById(projectId).id,
+        sessionId,
+        runId: expect.any(String),
+        buttonId,
+        output: '',
+      });
+    });
+
+    it('broadcasts command output to project when commandRunner calls onOutput', async () => {
+      commandRunner.run.mockImplementation(async (_runId, _command, _wd, onOutput, _onComplete, _onError) => {
+        // Simulate command output
+        onOutput('Project-visible output\n');
+      });
+
+      await request(app).post(
+        `/api/sessions/${sessionId}/command-buttons/${buttonId}/run`
+      );
+
+      // Wait for async execution
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Verify broadcastToProject was called for output
+      const projectOutputBroadcasts = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT
+      );
+
+      expect(projectOutputBroadcasts.length).toBeGreaterThan(0);
+      // Find the broadcast with the project-visible output
+      const broadcastWithOutput = projectOutputBroadcasts.find(
+        (call) => call[2].output === 'Project-visible output\n'
+      );
+      expect(broadcastWithOutput).toBeDefined();
+      expect(broadcastWithOutput[2].projectId).toBe(projects.getById(projectId).id);
+    });
+
+    it('broadcasts completion to project when command exits successfully', async () => {
+      commandRunner.run.mockImplementation(async (_runId, _command, _wd, _onOutput, onComplete, _onError) => {
+        onComplete(0, 'output');
+      });
+
+      await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+
+      // Wait for async execution
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Verify completion broadcast to project
+      const projectCompleteBroadcasts = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE
+      );
+
+      expect(projectCompleteBroadcasts.length).toBeGreaterThan(0);
+      expect(projectCompleteBroadcasts[0][2]).toEqual({
+        projectId: projects.getById(projectId).id,
+        sessionId,
+        runId: expect.any(String),
+        buttonId,
+        status: 'success',
+        exitCode: 0,
+        output: 'output',
+      });
+    });
+
+    it('broadcasts error to project when command fails', async () => {
+      commandRunner.run.mockImplementation(async (_runId, _command, _wd, _onOutput, onComplete, _onError) => {
+        onComplete(1, 'error output');
+      });
+
+      await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+
+      // Wait for async execution
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Verify error broadcast to project
+      const projectErrorBroadcasts = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE
+      );
+
+      expect(projectErrorBroadcasts.length).toBeGreaterThan(0);
+      const errorBroadcast = projectErrorBroadcasts.find((call) => call[2].status === 'error');
+      expect(errorBroadcast).toBeDefined();
+      expect(errorBroadcast[2]).toEqual({
+        projectId: projects.getById(projectId).id,
+        sessionId,
+        runId: expect.any(String),
+        buttonId,
+        status: 'error',
+        exitCode: 1,
+        output: 'error output',
+      });
+    });
+
+    it('broadcasts error to project when commandRunner throws', async () => {
+      commandRunner.run.mockRejectedValue(new Error('Command execution failed'));
+
+      await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+
+      // Wait for async execution
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Verify error broadcast to project
+      const projectErrorBroadcasts = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_ERROR
+      );
+
+      expect(projectErrorBroadcasts.length).toBeGreaterThan(0);
+      expect(projectErrorBroadcasts[0][2]).toEqual({
+        projectId: projects.getById(projectId).id,
+        sessionId,
+        runId: expect.any(String),
+        buttonId,
+        error: 'Command execution failed',
+      });
+    });
+
+    it('broadcasts error to project when onError callback is invoked', async () => {
+      commandRunner.run.mockImplementation(async (runId, command, wd, onOutput, onComplete, onError) => {
+        onError('Command runner error');
+      });
+
+      await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+
+      // Wait for async execution
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Verify error broadcast to project
+      const projectErrorBroadcasts = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_ERROR
+      );
+
+      expect(projectErrorBroadcasts.length).toBeGreaterThan(0);
+      expect(projectErrorBroadcasts[0][2]).toEqual({
+        projectId: projects.getById(projectId).id,
+        sessionId,
+        runId: expect.any(String),
+        buttonId,
+        error: 'Command runner error',
+      });
     });
   });
 

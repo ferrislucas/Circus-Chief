@@ -3038,4 +3038,314 @@ describe('Sessions Store', () => {
       expect(sessionStorage.getItem('sessionStarredFilter')).toBe(null);
     });
   });
+
+  describe('updateSessionCommandRun', () => {
+    it('adds latestCommandRuns array if not present', () => {
+      const store = useSessionsStore();
+      const session = { id: 'session-1', name: 'Test' };
+      store.sessions = [session];
+
+      const runData = {
+        buttonId: 'btn-1',
+        status: 'running',
+        runId: 'run-1',
+        startedAt: Date.now(),
+      };
+
+      store.updateSessionCommandRun('session-1', 'btn-1', runData);
+
+      expect(store.sessions[0].latestCommandRuns).toBeDefined();
+      expect(store.sessions[0].latestCommandRuns.length).toBe(1);
+      expect(store.sessions[0].latestCommandRuns[0]).toEqual(runData);
+    });
+
+    it('appends new command run to latestCommandRuns', () => {
+      const store = useSessionsStore();
+      const existingRun = {
+        buttonId: 'btn-1',
+        status: 'success',
+        runId: 'run-1',
+        completedAt: Date.now() - 1000,
+      };
+      const session = {
+        id: 'session-1',
+        name: 'Test',
+        latestCommandRuns: [existingRun],
+      };
+      store.sessions = [session];
+
+      const newRunData = {
+        buttonId: 'btn-2',
+        status: 'running',
+        runId: 'run-2',
+        startedAt: Date.now(),
+      };
+
+      store.updateSessionCommandRun('session-1', 'btn-2', newRunData);
+
+      expect(store.sessions[0].latestCommandRuns.length).toBe(2);
+      expect(store.sessions[0].latestCommandRuns[1]).toEqual(newRunData);
+    });
+
+    it('updates existing run in latestCommandRuns', () => {
+      const store = useSessionsStore();
+      const existingRun = {
+        buttonId: 'btn-1',
+        status: 'running',
+        runId: 'run-1',
+        startedAt: Date.now() - 1000,
+      };
+      const session = {
+        id: 'session-1',
+        name: 'Test',
+        latestCommandRuns: [existingRun],
+      };
+      store.sessions = [session];
+
+      const updatedRunData = {
+        buttonId: 'btn-1',
+        status: 'success',
+        exitCode: 0,
+        runId: 'run-1',
+        completedAt: Date.now(),
+      };
+
+      store.updateSessionCommandRun('session-1', 'btn-1', updatedRunData);
+
+      expect(store.sessions[0].latestCommandRuns.length).toBe(1);
+      expect(store.sessions[0].latestCommandRuns[0]).toEqual(updatedRunData);
+      expect(store.sessions[0].latestCommandRuns[0].status).toBe('success');
+      expect(store.sessions[0].latestCommandRuns[0].exitCode).toBe(0);
+    });
+
+    it('updates run in sessions list', () => {
+      const store = useSessionsStore();
+      const session = {
+        id: 'session-1',
+        name: 'Test',
+        latestCommandRuns: [],
+      };
+      store.sessions = [session];
+
+      const runData = {
+        buttonId: 'btn-1',
+        status: 'running',
+        runId: 'run-1',
+        startedAt: Date.now(),
+      };
+
+      store.updateSessionCommandRun('session-1', 'btn-1', runData);
+
+      expect(store.sessions[0].latestCommandRuns[0]).toEqual(runData);
+    });
+
+    it('updates run in archivedSessions list', () => {
+      const store = useSessionsStore();
+      const session = {
+        id: 'session-1',
+        name: 'Test',
+        archived: true,
+        latestCommandRuns: [],
+      };
+      store.archivedSessions = [session];
+
+      const runData = {
+        buttonId: 'btn-1',
+        status: 'running',
+        runId: 'run-1',
+        startedAt: Date.now(),
+      };
+
+      store.updateSessionCommandRun('session-1', 'btn-1', runData);
+
+      expect(store.archivedSessions[0].latestCommandRuns[0]).toEqual(runData);
+    });
+
+    it('updates run in activeSessions list', () => {
+      const store = useSessionsStore();
+      const session = {
+        id: 'session-1',
+        name: 'Test',
+        status: 'running',
+        latestCommandRuns: [],
+      };
+      store.activeSessions = [session];
+
+      const runData = {
+        buttonId: 'btn-1',
+        status: 'running',
+        runId: 'run-1',
+        startedAt: Date.now(),
+      };
+
+      store.updateSessionCommandRun('session-1', 'btn-1', runData);
+
+      expect(store.activeSessions[0].latestCommandRuns[0]).toEqual(runData);
+    });
+
+    it('updates run in currentSession', () => {
+      const store = useSessionsStore();
+      const session = {
+        id: 'session-1',
+        name: 'Test',
+        latestCommandRuns: [],
+      };
+      store.currentSession = session;
+
+      const runData = {
+        buttonId: 'btn-1',
+        status: 'success',
+        exitCode: 0,
+        runId: 'run-1',
+        completedAt: Date.now(),
+      };
+
+      store.updateSessionCommandRun('session-1', 'btn-1', runData);
+
+      expect(store.currentSession.latestCommandRuns[0]).toEqual(runData);
+    });
+
+    it('updates run in currentSession when it matches', () => {
+      const store = useSessionsStore();
+      const session = {
+        id: 'session-1',
+        name: 'Test',
+        latestCommandRuns: [
+          {
+            buttonId: 'btn-1',
+            status: 'running',
+            runId: 'run-1',
+            startedAt: Date.now() - 1000,
+          },
+        ],
+      };
+      store.currentSession = session;
+      store.sessions = [{ ...session }];
+
+      const updatedRunData = {
+        buttonId: 'btn-1',
+        status: 'success',
+        exitCode: 0,
+        runId: 'run-1',
+        completedAt: Date.now(),
+      };
+
+      store.updateSessionCommandRun('session-1', 'btn-1', updatedRunData);
+
+      expect(store.currentSession.latestCommandRuns[0]).toEqual(updatedRunData);
+      expect(store.sessions[0].latestCommandRuns[0]).toEqual(updatedRunData);
+    });
+
+    it('does not update run if session not found', () => {
+      const store = useSessionsStore();
+      const session = {
+        id: 'session-1',
+        name: 'Test',
+        latestCommandRuns: [],
+      };
+      store.sessions = [session];
+
+      const runData = {
+        buttonId: 'btn-1',
+        status: 'running',
+        runId: 'run-1',
+        startedAt: Date.now(),
+      };
+
+      // Update for non-existent session
+      store.updateSessionCommandRun('session-999', 'btn-1', runData);
+
+      // Original session should be unchanged
+      expect(store.sessions[0].latestCommandRuns).toEqual([]);
+    });
+
+    it('preserves other properties when updating latestCommandRuns', () => {
+      const store = useSessionsStore();
+      const session = {
+        id: 'session-1',
+        name: 'Test',
+        status: 'running',
+        projectId: 'proj-1',
+        latestCommandRuns: [],
+      };
+      store.sessions = [session];
+
+      const runData = {
+        buttonId: 'btn-1',
+        status: 'running',
+        runId: 'run-1',
+        startedAt: Date.now(),
+      };
+
+      store.updateSessionCommandRun('session-1', 'btn-1', runData);
+
+      expect(store.sessions[0].name).toBe('Test');
+      expect(store.sessions[0].status).toBe('running');
+      expect(store.sessions[0].projectId).toBe('proj-1');
+      expect(store.sessions[0].latestCommandRuns[0]).toEqual(runData);
+    });
+
+    it('handles multiple runs for different buttons', () => {
+      const store = useSessionsStore();
+      const session = {
+        id: 'session-1',
+        name: 'Test',
+        latestCommandRuns: [],
+      };
+      store.sessions = [session];
+
+      const run1 = {
+        buttonId: 'btn-1',
+        status: 'success',
+        exitCode: 0,
+        runId: 'run-1',
+        completedAt: Date.now(),
+      };
+
+      const run2 = {
+        buttonId: 'btn-2',
+        status: 'error',
+        exitCode: 1,
+        runId: 'run-2',
+        completedAt: Date.now(),
+      };
+
+      store.updateSessionCommandRun('session-1', 'btn-1', run1);
+      store.updateSessionCommandRun('session-1', 'btn-2', run2);
+
+      expect(store.sessions[0].latestCommandRuns.length).toBe(2);
+      expect(store.sessions[0].latestCommandRuns.find((r) => r.buttonId === 'btn-1')).toEqual(run1);
+      expect(store.sessions[0].latestCommandRuns.find((r) => r.buttonId === 'btn-2')).toEqual(run2);
+    });
+
+    it('only updates matching buttonId when multiple runs exist', () => {
+      const store = useSessionsStore();
+      const run1 = {
+        buttonId: 'btn-1',
+        status: 'success',
+        exitCode: 0,
+        runId: 'run-1',
+        completedAt: Date.now() - 1000,
+      };
+      const session = {
+        id: 'session-1',
+        name: 'Test',
+        latestCommandRuns: [run1],
+      };
+      store.sessions = [session];
+
+      const updatedRun2 = {
+        buttonId: 'btn-2',
+        status: 'running',
+        runId: 'run-2',
+        startedAt: Date.now(),
+      };
+
+      store.updateSessionCommandRun('session-1', 'btn-2', updatedRun2);
+
+      expect(store.sessions[0].latestCommandRuns.length).toBe(2);
+      expect(store.sessions[0].latestCommandRuns[0]).toEqual(run1); // btn-1 unchanged
+      expect(store.sessions[0].latestCommandRuns[1]).toEqual(updatedRun2); // btn-2 added
+    });
+  });
 });

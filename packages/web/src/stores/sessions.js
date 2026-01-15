@@ -18,6 +18,9 @@ export const useSessionsStore = defineStore('sessions', {
     runningUsage: null, // Partial usage during a turn
     loading: false,
     error: null,
+    // Version counter for command run updates - used to force Vue reactivity
+    // in computed properties that depend on latestCommandRuns
+    commandRunVersion: 0,
   }),
 
   getters: {
@@ -583,7 +586,18 @@ export const useSessionsStore = defineStore('sessions', {
      * @param {string} [conversationId] - Conversation ID (Issue #175)
      */
     updateRunningUsage(usage, conversationId = null) {
+      // ========== DIAGNOSTIC LOGGING ==========
+      console.log(`🟠 [Store] updateRunningUsage called`, {
+        usage,
+        conversationId,
+        activeConversationId: this.activeConversationId,
+        willMatch: !this.activeConversationId || conversationId === this.activeConversationId,
+      });
+      // ========================================
       this.runningUsage = { ...usage, conversationId };
+      // ========== DIAGNOSTIC LOGGING ==========
+      console.log(`🟠 [Store] runningUsage set to:`, this.runningUsage);
+      // ========================================
     },
 
     /**
@@ -1239,6 +1253,73 @@ export const useSessionsStore = defineStore('sessions', {
       } catch (error) {
         console.warn('Failed to restore starred filter:', error);
       }
+    },
+
+    /**
+     * Update a session's latestCommandRuns when command status changes via WebSocket
+     * Used to keep session list command status indicators in sync with running/completed commands
+     * @param {string} sessionId - Session ID
+     * @param {string} buttonId - Command button ID
+     * @param {Object} runData - Run data (buttonId, status, runId, startedAt/completedAt, exitCode)
+     */
+    updateSessionCommandRun(sessionId, buttonId, runData) {
+      // Helper to create updated latestCommandRuns array
+      const getUpdatedRuns = (session) => {
+        if (!session) return null;
+
+        const runs = [...(session.latestCommandRuns || [])];
+        const existingIdx = runs.findIndex(r => r.buttonId === buttonId);
+
+        if (existingIdx >= 0) {
+          runs[existingIdx] = runData;
+        } else {
+          runs.push(runData);
+        }
+        return runs;
+      };
+
+      // Update in sessions list - replace the entire object to trigger Vue reactivity
+      const sessionIndex = this.sessions.findIndex(s => s.id === sessionId);
+      if (sessionIndex !== -1) {
+        const updatedRuns = getUpdatedRuns(this.sessions[sessionIndex]);
+        this.sessions[sessionIndex] = {
+          ...this.sessions[sessionIndex],
+          latestCommandRuns: updatedRuns,
+        };
+      }
+
+      // Update in archived sessions list
+      const archivedIndex = this.archivedSessions.findIndex(s => s.id === sessionId);
+      if (archivedIndex !== -1) {
+        const updatedRuns = getUpdatedRuns(this.archivedSessions[archivedIndex]);
+        this.archivedSessions[archivedIndex] = {
+          ...this.archivedSessions[archivedIndex],
+          latestCommandRuns: updatedRuns,
+        };
+      }
+
+      // Update in active sessions list
+      const activeIndex = this.activeSessions.findIndex(s => s.id === sessionId);
+      if (activeIndex !== -1) {
+        const updatedRuns = getUpdatedRuns(this.activeSessions[activeIndex]);
+        this.activeSessions[activeIndex] = {
+          ...this.activeSessions[activeIndex],
+          latestCommandRuns: updatedRuns,
+        };
+      }
+
+      // Update current session if it matches
+      if (this.currentSession?.id === sessionId) {
+        const updatedRuns = getUpdatedRuns(this.currentSession);
+        this.currentSession = {
+          ...this.currentSession,
+          latestCommandRuns: updatedRuns,
+        };
+      }
+
+      // Increment version counter to force Vue reactivity in computed properties
+      // that depend on latestCommandRuns (e.g., buttonStatusesToDisplay in SessionCard)
+      this.commandRunVersion++;
     },
   },
 });

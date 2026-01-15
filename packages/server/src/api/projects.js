@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { projects, sessions, sessionTemplates, attachments, commandButtons, projectDefaults } from '../database.js';
+import { projects, sessions, sessionTemplates, attachments, commandButtons, projectDefaults, commandRuns } from '../database.js';
+import { commandRunner } from '../services/commandRunner.js';
 import { CreateProjectRequest, UpdateProjectRequest, ProjectSessionDefaultsRequest } from '@claudetools/shared/contracts/projects';
 import { ProjectDefaultsRepository } from '../db/ProjectDefaultsRepository.js';
 import { CreateSessionTemplateRequest } from '@claudetools/shared/contracts/templates';
@@ -95,6 +96,7 @@ router.delete('/:id', (req, res) => {
 // GET /api/projects/:id/sessions - List project sessions
 // Supports ?archived=true|false to filter by archive status
 // Supports ?starred=true|false to filter by starred status
+// Each session includes latestCommandRuns (merged from DB completed runs + in-memory running commands)
 router.get('/:id/sessions', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
@@ -112,7 +114,53 @@ router.get('/:id/sessions', (req, res) => {
   else if (starred === 'false') starredFilter = false;
 
   const projectSessions = sessions.getByProjectId(req.params.id, { archived: archivedFilter, starred: starredFilter });
-  res.json(projectSessions);
+
+  // Get completed runs from DATABASE (latest run per button per session)
+  const dbRuns = commandRuns.getLatestRunsForProject(req.params.id);
+
+  // Get currently RUNNING commands from MEMORY
+  // (These may not yet be persisted to DB or are in 'running' state)
+  const runningRuns = commandRunner.getRunningByProjectId(req.params.id, (sessionId) => sessions.getById(sessionId));
+
+  // Build index: sessionId -> { buttonId -> run }
+  // Running commands take precedence over completed ones (more current state)
+  const runsBySession = {};
+
+  // First add DB runs (completed)
+  for (const run of dbRuns) {
+    if (!runsBySession[run.sessionId]) {
+      runsBySession[run.sessionId] = {};
+    }
+    runsBySession[run.sessionId][run.buttonId] = {
+      buttonId: run.buttonId,
+      status: run.status,
+      exitCode: run.exitCode,
+      runId: run.id,
+      completedAt: run.completedAt,
+    };
+  }
+
+  // Then overlay running commands (takes precedence - they're more current)
+  for (const run of runningRuns) {
+    if (!runsBySession[run.sessionId]) {
+      runsBySession[run.sessionId] = {};
+    }
+    runsBySession[run.sessionId][run.buttonId] = {
+      buttonId: run.buttonId,
+      status: 'running',
+      exitCode: null,
+      runId: run.runId,
+      startedAt: run.startedAt,
+    };
+  }
+
+  // Attach latestCommandRuns to each session as array
+  const sessionsWithRuns = projectSessions.map(session => ({
+    ...session,
+    latestCommandRuns: Object.values(runsBySession[session.id] || {}),
+  }));
+
+  res.json(sessionsWithRuns);
 });
 
 // POST /api/projects/:id/sessions - Create session
@@ -323,6 +371,7 @@ router.post('/:id/command-buttons', (req, res) => {
     label: result.data.label,
     command: result.data.command,
     sortOrder: result.data.sortOrder,
+    showOnList: result.data.showOnList,
   });
 
   res.status(201).json(button);
