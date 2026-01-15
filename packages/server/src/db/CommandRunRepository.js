@@ -146,13 +146,13 @@ export class CommandRunRepository extends BaseRepository {
         `SELECT *
          FROM (
            SELECT cr.*,
-             ROW_NUMBER() OVER (PARTITION BY cr.session_id, cr.button_id ORDER BY cr.started_at DESC) as rn
+             ROW_NUMBER() OVER (PARTITION BY cr.session_id, cr.button_id ORDER BY COALESCE(cr.completed_at, cr.started_at) DESC, cr.id DESC) as rn
            FROM command_runs cr
            INNER JOIN sessions s ON cr.session_id = s.id
            WHERE s.project_id = ?
          )
          WHERE rn = 1
-         ORDER BY started_at DESC`
+         ORDER BY COALESCE(completed_at, started_at) DESC, id DESC`
       )
       .all(projectId);
     return this.mapAll(rows);
