@@ -306,19 +306,19 @@ const buttonStatusesToDisplay = computed(() => {
   const projectId = props.session.projectId;
   if (!projectId) return [];
 
-  // Access buttons state directly to ensure Vue tracks dependencies
+  // Access commandRunVersion to establish Vue dependency tracking.
+  // This forces the computed to re-evaluate whenever updateSessionCommandRun is called,
+  // ensuring real-time updates on the session list view.
   // eslint-disable-next-line no-unused-vars
-  const _buttonsRef = commandButtonsStore.buttons;
+  const _version = sessionsStore.commandRunVersion;
 
   const buttons = commandButtonsStore.getButtonsByProjectId(projectId);
   const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
 
-  // Read latestCommandRuns directly from the store to ensure reactivity.
-  // Props may not maintain the reactive chain when passed through computed
-  // properties that don't access latestCommandRuns. By reading from the store,
-  // we ensure Vue tracks our dependency on the actual reactive data.
+  // Get latestCommandRuns from the store session.
   const sessionId = props.session.id;
-  const storeSession = sessionsStore.getSessionById(sessionId);
+  const sessions = sessionsStore.sessions;
+  const storeSession = sessions.find(s => s.id === sessionId);
   const latestRuns = storeSession?.latestCommandRuns || props.session.latestCommandRuns || [];
 
   return latestRuns
