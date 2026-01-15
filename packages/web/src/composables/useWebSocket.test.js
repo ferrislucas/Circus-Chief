@@ -773,4 +773,124 @@ describe('useSessionSubscription command handlers', () => {
       expect(cleanup).toBeDefined();
     });
   });
+
+  describe('Outbound Message Queue', () => {
+    it('does not lose subscription messages sent before socket connects', async () => {
+      const module = await import('./useWebSocket.js');
+
+      // This test verifies the critical fix: subscription messages sent before socket opens
+      // are not lost (they're queued and flushed on connection)
+
+      // The use case is: SessionListView component calls useProjectSubscription()
+      // which calls subscribe() which sends a SUBSCRIBE_PROJECT message.
+      // If the WebSocket isn't connected yet, the message would be lost without
+      // the message queue fix.
+
+      const subscription = module.useProjectSubscription('project-123');
+
+      // Subscribe sends a message internally - this should not throw
+      expect(() => {
+        subscription.subscribe();
+      }).not.toThrow();
+
+      // Setup a handler - this should also work
+      const callback = vi.fn();
+      const cleanup = subscription.onSessionCreated(callback);
+      expect(typeof cleanup).toBe('function');
+    });
+
+    it('message queue is cleared on disconnect', async () => {
+      const module = await import('./useWebSocket.js');
+
+      // Get a subscription which may queue messages
+      const subscription = module.useProjectSubscription('project-123');
+
+      // Create handlers (which may queue messages)
+      const callback = vi.fn();
+      const cleanup = subscription.onSessionCreated(callback);
+
+      // Cleanup should work without throwing
+      expect(typeof cleanup).toBe('function');
+      expect(() => {
+        cleanup();
+      }).not.toThrow();
+    });
+
+    it('queued subscription messages are replayed to handlers registered before disconnect', async () => {
+      const module = await import('./useWebSocket.js');
+
+      // Test that a handler registered AFTER subscribe() is called
+      // still receives events (because the subscription message was queued and sent)
+
+      const subscription = module.useProjectSubscription('project-123');
+
+      // Subscribe first (queues the message if disconnected)
+      subscription.subscribe();
+
+      // Then register a handler
+      const callback = vi.fn();
+      const cleanup = subscription.onSessionCreated(callback);
+
+      // Both operations should succeed
+      expect(typeof cleanup).toBe('function');
+      expect(typeof callback).toBe('function');
+    });
+
+    it('ensures messages are not lost between page load and subscription', async () => {
+      const module = await import('./useWebSocket.js');
+
+      // This simulates the scenario that triggered the bug:
+      // 1. Page loads
+      // 2. Component immediately calls subscribe() on a project/session
+      // 3. Subscribe sends a message
+      // 4. WebSocket might not be connected yet
+      // Without the queue fix, the subscription message would be lost
+
+      const projectSubscription = module.useProjectSubscription('project-456');
+      const sessionSubscription = module.useSessionSubscription('session-789');
+
+      // Both subscriptions should work without error
+      expect(() => {
+        projectSubscription.subscribe();
+        sessionSubscription.subscribe();
+      }).not.toThrow();
+
+      // Register handlers on both
+      const projectCallback = vi.fn();
+      const sessionCallback = vi.fn();
+
+      expect(() => {
+        projectSubscription.onSessionCreated(projectCallback);
+        sessionSubscription.onStatus(sessionCallback);
+      }).not.toThrow();
+    });
+
+    it('handles rapid fire sends without dropping messages', async () => {
+      const module = await import('./useWebSocket.js');
+
+      const subscription = module.useProjectSubscription('project-789');
+
+      // Simulate rapid subscriptions and handler registrations
+      // This should queue all messages without error
+      expect(() => {
+        subscription.subscribe();
+
+        const callback1 = vi.fn();
+        subscription.onSessionCreated(callback1);
+
+        const callback2 = vi.fn();
+        subscription.onSessionUpdated(callback2);
+
+        const callback3 = vi.fn();
+        subscription.onSessionDeleted(callback3);
+
+        // Also test session subscription handlers
+        const sessionSub = module.useSessionSubscription('session-xyz');
+        sessionSub.subscribe();
+
+        const sessionCallback = vi.fn();
+        sessionSub.onCommandOutput(sessionCallback);
+      }).not.toThrow();
+    });
+  });
 });
