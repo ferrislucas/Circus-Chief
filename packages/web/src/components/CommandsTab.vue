@@ -169,21 +169,21 @@ const setupWebSocketHandlers = () => {
 
   // Handle command output updates
   cleanups.push(
-    onCommandOutput((runId, text) => {
+    onCommandOutput((runId, buttonId, text) => {
       commandButtonsStore.appendOutput(runId, text);
     })
   );
 
   // Handle command completion
   cleanups.push(
-    onCommandComplete((runId, exitCode, output) => {
+    onCommandComplete((runId, buttonId, exitCode, output) => {
       commandButtonsStore.completeRun(runId, exitCode, output);
     })
   );
 
   // Handle command errors
   cleanups.push(
-    onCommandError((runId, error) => {
+    onCommandError((runId, buttonId, error) => {
       commandButtonsStore.errorRun(runId, error);
     })
   );

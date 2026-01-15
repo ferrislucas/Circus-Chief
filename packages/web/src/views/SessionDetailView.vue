@@ -44,6 +44,9 @@
             :summary="summary"
           />
         </div>
+
+        <!-- Command button status indicators for real-time status updates -->
+        <CommandButtonStatusBar :button-statuses="buttonStatusesToDisplay" />
       </div>
 
       <div class="tabs">
@@ -117,6 +120,7 @@ import CommandsTab from '../components/CommandsTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
 import DuplicateSessionButton from '../components/DuplicateSessionButton.vue';
 import OverflowMenu from '../components/OverflowMenu.vue';
+import CommandButtonStatusBar from '../components/CommandButtonStatusBar.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
 const route = useRoute();
@@ -137,6 +141,23 @@ const activeTab = computed(() => route.params.tab || 'conversation');
 const changesFileCount = ref(0);
 const canvasItemCount = ref(0);
 
+// Command button status indicators for real-time updates (mirrors SessionCard behavior)
+const buttonStatusesToDisplay = computed(() => {
+  // Access commandRunVersion to establish Vue dependency tracking.
+  // This forces the computed to re-evaluate whenever updateSessionCommandRun is called,
+  // ensuring real-time updates on the session detail view.
+  // eslint-disable-next-line no-unused-vars
+  const _version = sessionsStore.commandRunVersion;
+
+  if (!sessionsStore.currentSession?.latestCommandRuns) return [];
+  return sessionsStore.currentSession.latestCommandRuns.map(run => ({
+    buttonId: run.buttonId,
+    label: run.label,
+    status: run.status,
+    latestRun: run,
+  }));
+});
+
 // Allow archiving any session that isn't running
 const canArchive = computed(() => {
   const status = sessionsStore.currentSession?.status;
@@ -155,7 +176,7 @@ function navigateToTab(tabId) {
   router.push(`/sessions/${route.params.id}/${tabId}`);
 }
 
-const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onConversationUpdated, onUsageUpdate, onChangesUpdate } =
+const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onConversationUpdated, onUsageUpdate, onChangesUpdate, onCommandOutput, onCommandComplete, onCommandError } =
   useSessionSubscription(sessionId);
 
 let cleanups = [];
@@ -341,6 +362,47 @@ onMounted(async () => {
         // Fallback: determine from file count if hasChanges is not explicitly provided
         hasChanges.value = changeCount > 0;
       }
+    })
+  );
+
+  // Handle command run output (for real-time status icon updates)
+  cleanups.push(
+    onCommandOutput((runId, buttonId, output) => {
+      // Update session's latestCommandRuns for session detail display
+      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+        buttonId,
+        status: 'running',
+        runId,
+        startedAt: Date.now(),
+      });
+    })
+  );
+
+  // Handle command run complete
+  cleanups.push(
+    onCommandComplete((runId, buttonId, exitCode, output) => {
+      // Update session's latestCommandRuns for session detail display
+      const status = exitCode === 0 ? 'success' : 'error';
+      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+        buttonId,
+        status,
+        exitCode,
+        runId,
+        completedAt: Date.now(),
+      });
+    })
+  );
+
+  // Handle command run error
+  cleanups.push(
+    onCommandError((runId, buttonId, error) => {
+      // Update session's latestCommandRuns for session detail display
+      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+        buttonId,
+        status: 'error',
+        runId,
+        completedAt: Date.now(),
+      });
     })
   );
 
