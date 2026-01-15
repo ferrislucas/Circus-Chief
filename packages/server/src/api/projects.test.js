@@ -832,6 +832,9 @@ describe('Projects API', () => {
       commandRuns.create({ id: run1Id, sessionId: session1Id, buttonId });
       commandRuns.complete(run1Id, 0, 'output1');
 
+      // Add a small delay to ensure different timestamps
+      await new Promise(resolve => setTimeout(resolve, 10));
+
       const run2Id = crypto.randomUUID();
       commandRuns.create({ id: run2Id, sessionId: session1Id, buttonId });
       commandRuns.complete(run2Id, 1, 'output2');
