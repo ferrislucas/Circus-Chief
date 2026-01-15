@@ -1066,6 +1066,13 @@ async function handleStreamEvent(sessionId, event) {
         if (usage) {
           const conversationId = activeConversationIds.get(sessionId);
           const turnUsage = updateTurnUsage(conversationId, usage, 'message_start');
+          // ========== DIAGNOSTIC LOGGING ==========
+          console.log(`🔴 [Server] Broadcasting SESSION_USAGE_UPDATE (message_start)`, {
+            sessionId,
+            conversationId,
+            usage: turnUsage,
+          });
+          // ========================================
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
             sessionId,
             conversationId,
@@ -1081,6 +1088,13 @@ async function handleStreamEvent(sessionId, event) {
         if (usage) {
           const conversationId = activeConversationIds.get(sessionId);
           const turnUsage = updateTurnUsage(conversationId, usage, 'message_delta');
+          // ========== DIAGNOSTIC LOGGING ==========
+          console.log(`🔴 [Server] Broadcasting SESSION_USAGE_UPDATE (message_delta)`, {
+            sessionId,
+            conversationId,
+            usage: turnUsage,
+          });
+          // ========================================
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
             sessionId,
             conversationId,
