@@ -38,23 +38,11 @@ function connect() {
     const message = parseMessage(event.data);
     if (!message) return;
 
-    // ========== DIAGNOSTIC LOGGING ==========
-    if (message.type === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE) {
-      console.log(`🔵 [WS] Received SESSION_USAGE_UPDATE`, {
-        sessionId: message.sessionId,
-        conversationId: message.conversationId,
-        isFinal: message.isFinal,
-        usage: message.usage,
-      });
-    }
-    // ========================================
-
     const typeListeners = listeners.get(message.type);
 
     // Buffer SESSION_USAGE_UPDATE messages if no handlers are registered yet
     // This prevents message loss during subscription lag
     if (message.type === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE && (!typeListeners || typeListeners.size === 0)) {
-      console.log(`🟡 [WS] Buffering SESSION_USAGE_UPDATE - no handlers registered yet`);
       const sessionId = message.sessionId;
       if (!messageBuffer.has(sessionId)) {
         messageBuffer.set(sessionId, []);
@@ -68,11 +56,6 @@ function connect() {
     }
 
     if (typeListeners) {
-      // ========== DIAGNOSTIC LOGGING ==========
-      if (message.type === WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE) {
-        console.log(`🟢 [WS] Dispatching SESSION_USAGE_UPDATE to ${typeListeners.size} handler(s)`);
-      }
-      // ========================================
       for (const callback of typeListeners) {
         callback(message);
       }
@@ -147,9 +130,6 @@ function on(type, callback, sessionId = null) {
     // Only replay messages for the specific session
     const bufferedMessages = messageBuffer.get(sessionId);
     if (bufferedMessages && bufferedMessages.length > 0) {
-      // ========== DIAGNOSTIC LOGGING ==========
-      console.log(`🟡 [WS] Replaying ${bufferedMessages.length} buffered SESSION_USAGE_UPDATE messages for session ${sessionId}`);
-      // ========================================
       for (const message of bufferedMessages) {
         callback(message);
       }
@@ -185,6 +165,10 @@ export function useWebSocket() {
   };
 }
 
+// Reference counting for session subscriptions
+// Prevents premature unsubscription when multiple components use the same session
+const sessionSubscriptionCounts = new Map();
+
 /**
  * Subscribe to session updates
  * @param {string} sessionId
@@ -192,14 +176,36 @@ export function useWebSocket() {
 export function useSessionSubscription(sessionId) {
   const { send, on, off, clearSessionBuffer } = useWebSocket();
 
+  // Track whether THIS instance called subscribe
+  let thisInstanceSubscribed = false;
+
   const subscribe = () => {
-    send(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId });
+    if (thisInstanceSubscribed) return; // Already subscribed from this instance
+    thisInstanceSubscribed = true;
+
+    const count = sessionSubscriptionCounts.get(sessionId) || 0;
+    sessionSubscriptionCounts.set(sessionId, count + 1);
+    // Only send subscribe message on first subscription
+    if (count === 0) {
+      send(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId });
+    }
   };
 
   const unsubscribe = () => {
-    send(WS_MESSAGE_TYPES.UNSUBSCRIBE_SESSION, { sessionId });
-    // Clear any buffered messages for this session
-    clearSessionBuffer(sessionId);
+    if (!thisInstanceSubscribed) return; // Never subscribed, don't unsubscribe
+    thisInstanceSubscribed = false;
+
+    const count = sessionSubscriptionCounts.get(sessionId) || 0;
+    if (count <= 1) {
+      // Last subscriber - actually unsubscribe
+      sessionSubscriptionCounts.delete(sessionId);
+      send(WS_MESSAGE_TYPES.UNSUBSCRIBE_SESSION, { sessionId });
+      // Clear any buffered messages for this session
+      clearSessionBuffer(sessionId);
+    } else {
+      // Decrement count but don't unsubscribe yet
+      sessionSubscriptionCounts.set(sessionId, count - 1);
+    }
   };
 
   const onStatus = (callback) => {
@@ -365,13 +371,6 @@ export function useSessionSubscription(sessionId) {
 
   const onUsageUpdate = (callback) => {
     const handler = (msg) => {
-      // ========== DIAGNOSTIC LOGGING ==========
-      console.log(`🔷 [WS Handler] onUsageUpdate filter check`, {
-        msgSessionId: msg.sessionId,
-        handlerSessionId: sessionId,
-        matches: msg.sessionId === sessionId,
-      });
-      // ========================================
       if (msg.sessionId === sessionId) {
         callback(msg);
       }
@@ -470,9 +469,6 @@ export async function ensureSubscribed(sessionId) {
 
     // Helper to send subscription and resolve
     const sendSubscription = () => {
-      // ========== DIAGNOSTIC LOGGING ==========
-      console.log(`🔶 [ensureSubscribed] Sending SUBSCRIBE_SESSION for ${sessionId}`);
-      // ========================================
       send(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId });
       clearTimeout(timeout);
       resolve();
