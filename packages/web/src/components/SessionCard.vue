@@ -306,16 +306,22 @@ const buttonStatusesToDisplay = computed(() => {
   const projectId = props.session.projectId;
   if (!projectId) return [];
 
-  // Access buttons state directly to ensure Vue tracks dependencies
+  // Access commandRunVersion to establish Vue dependency tracking.
+  // This forces the computed to re-evaluate whenever updateSessionCommandRun is called,
+  // ensuring real-time updates on the session list view.
   // eslint-disable-next-line no-unused-vars
-  const _buttonsRef = commandButtonsStore.buttons;
+  const _version = sessionsStore.commandRunVersion;
 
   const buttons = commandButtonsStore.getButtonsByProjectId(projectId);
   const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
 
-  // Read directly from session object (pre-joined by server, includes running commands)
-  // This eliminates client-side O(buttons × runs) filtering
-  return (props.session.latestCommandRuns || [])
+  // Get latestCommandRuns from the store session.
+  const sessionId = props.session.id;
+  const sessions = sessionsStore.sessions;
+  const storeSession = sessions.find(s => s.id === sessionId);
+  const latestRuns = storeSession?.latestCommandRuns || props.session.latestCommandRuns || [];
+
+  return latestRuns
     .filter(run => buttonMap[run.buttonId]?.showOnList)
     .map(run => ({
       buttonId: run.buttonId,
@@ -446,9 +452,9 @@ const onStarClick = () => {
 .session-name {
   margin: 0 0 0.5rem;
   font-size: 1rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: auto;
+  word-break: break-word;
+  line-height: 1.4;
 }
 
 .session-meta {

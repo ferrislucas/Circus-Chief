@@ -108,6 +108,9 @@ export class WebSocketManager {
           this.#projectSubscriptions.set(projectId, new Set());
         }
         this.#projectSubscriptions.get(projectId).add(ws);
+        // ========== DIAGNOSTIC LOGGING ==========
+        console.log(`🔷 [WS Manager] Client subscribed to project ${projectId}, total subscribers: ${this.#projectSubscriptions.get(projectId).size}`);
+        // ========================================
         break;
       }
 
@@ -183,6 +186,11 @@ export class WebSocketManager {
    */
   broadcastToProject(projectId, type, payload) {
     const subscribers = this.#projectSubscriptions.get(projectId);
+    // ========== DIAGNOSTIC LOGGING ==========
+    if (type === 'command:run:complete' || type === 'command:run:output') {
+      console.log(`🔷 [WS Manager] broadcastToProject ${type} to ${projectId}, subscribers: ${subscribers?.size || 0}`);
+    }
+    // ========================================
     if (!subscribers || subscribers.size === 0) return;
 
     const message = createMessage(type, payload);
