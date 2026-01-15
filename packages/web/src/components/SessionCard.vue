@@ -306,35 +306,29 @@ const buttonStatusesToDisplay = computed(() => {
   const projectId = props.session.projectId;
   if (!projectId) return [];
 
-  // Access state directly to ensure Vue tracks dependencies
-  // (getters returning functions don't properly track reactive deps)
+  // Access commandRunVersion to establish Vue dependency tracking.
+  // This forces the computed to re-evaluate whenever updateSessionCommandRun is called,
+  // ensuring real-time updates on the session list view.
   // eslint-disable-next-line no-unused-vars
-  const _buttonsRef = commandButtonsStore.buttons;
-  // eslint-disable-next-line no-unused-vars
-  const _runsRef = commandButtonsStore.runs;
+  const _version = sessionsStore.commandRunVersion;
 
   const buttons = commandButtonsStore.getButtonsByProjectId(projectId);
-  const displayButtons = [];
+  const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
 
-  for (const button of buttons) {
-    // Only include buttons marked to show on list
-    if (!button.showOnList) continue;
+  // Get latestCommandRuns from the store session.
+  const sessionId = props.session.id;
+  const sessions = sessionsStore.sessions;
+  const storeSession = sessions.find(s => s.id === sessionId);
+  const latestRuns = storeSession?.latestCommandRuns || props.session.latestCommandRuns || [];
 
-    // Get latest run for this button in this session
-    const latestRun = commandButtonsStore.getLatestRunForButton(button.id, props.session.id);
-
-    // Only show if button has been run (never-run buttons are hidden)
-    if (!latestRun) continue;
-
-    displayButtons.push({
-      buttonId: button.id,
-      label: button.label,
-      status: latestRun.status,
-      latestRun: latestRun,
-    });
-  }
-
-  return displayButtons;
+  return latestRuns
+    .filter(run => buttonMap[run.buttonId]?.showOnList)
+    .map(run => ({
+      buttonId: run.buttonId,
+      label: buttonMap[run.buttonId].label,
+      status: run.status,
+      latestRun: run,
+    }));
 });
 
 const getStatusIcon = (status) => {
@@ -458,9 +452,9 @@ const onStarClick = () => {
 .session-name {
   margin: 0 0 0.5rem;
   font-size: 1rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: auto;
+  word-break: break-word;
+  line-height: 1.4;
 }
 
 .session-meta {
