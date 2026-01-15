@@ -585,11 +585,12 @@ export async function getSessionAttachments(sessionId: string) {
 
 export async function seedCommandButton(
   projectId: string,
-  data: { label: string; command: string; sortOrder?: number }
+  data: { label: string; command: string; sortOrder?: number; showOnList?: boolean }
 ) {
   const url = `${API_URL}/api/projects/${projectId}/command-buttons`;
   console.log(`[seedCommandButton] POST ${url}`);
   console.log(`[seedCommandButton] projectId: ${projectId}`);
+  console.log(`[seedCommandButton] data: ${JSON.stringify(data)}`);
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -601,14 +602,16 @@ export async function seedCommandButton(
     console.log(`[seedCommandButton] error response: ${errorText}`);
     throw new Error(`Failed to seed command button: ${response.status} ${response.statusText} - ${errorText}`);
   }
-  return response.json();
+  const result = await response.json();
+  console.log(`[seedCommandButton] created button: ${JSON.stringify(result)}`);
+  return result;
 }
 
 /**
  * Run a command button and return the run ID
  */
 export async function runCommandButton(sessionId: string, buttonId: string) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/run/${buttonId}`, {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/${buttonId}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
