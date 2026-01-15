@@ -89,52 +89,87 @@ describe('CanvasFileViewer', () => {
     });
   });
 
-  describe('copy button', () => {
-    it('renders copy button in header', () => {
+  describe('three-dot menu', () => {
+    it('renders menu button in header', () => {
       const wrapper = mountComponent();
 
-      expect(wrapper.find('.copy-button').exists()).toBe(true);
+      expect(wrapper.find('.btn-menu').exists()).toBe(true);
     });
 
-    it('copies filename to clipboard on click', async () => {
-      const wrapper = mountComponent({
-        item: { id: '1', filename: 'copyfile.txt', type: 'text', content: 'Content', createdAt: Date.now() },
-      });
-
-      const copyButton = wrapper.find('.copy-button');
-      await copyButton.trigger('click');
-
-      expect(mockClipboard.writeText).toHaveBeenCalledWith('copyfile.txt');
-    });
-
-    it('copies label when filename is missing', async () => {
-      const wrapper = mountComponent({
-        item: { id: '1', label: 'My Document', type: 'text', content: 'Content', createdAt: Date.now() },
-      });
-
-      const copyButton = wrapper.find('.copy-button');
-      await copyButton.trigger('click');
-
-      expect(mockClipboard.writeText).toHaveBeenCalledWith('My Document');
-    });
-
-    it('shows copied state temporarily', async () => {
+    it('opens menu when button is clicked', async () => {
       const wrapper = mountComponent();
 
-      const copyButton = wrapper.find('.copy-button');
-      await copyButton.trigger('click');
+      expect(wrapper.find('.file-menu-items').exists()).toBe(false);
+
+      const menuButton = wrapper.find('.btn-menu');
+      await menuButton.trigger('click');
       await flushAll(wrapper);
 
-      // Should show checkmark after copy
-      expect(copyButton.text()).toContain('✓');
-      expect(copyButton.classes()).toContain('copied');
+      expect(wrapper.find('.file-menu-items').exists()).toBe(true);
+    });
 
-      // After 1.5s, should revert
-      vi.advanceTimersByTime(1500);
+    it('shows copy file contents, copy filename, and delete options', async () => {
+      const wrapper = mountComponent();
+
+      const menuButton = wrapper.find('.btn-menu');
+      await menuButton.trigger('click');
       await flushAll(wrapper);
 
-      expect(copyButton.text()).toContain('📋');
-      expect(copyButton.classes()).not.toContain('copied');
+      const menuItems = wrapper.findAll('.menu-item');
+      expect(menuItems.length).toBeGreaterThanOrEqual(3);
+      expect(menuItems[0].text()).toContain('Copy file contents');
+      expect(menuItems[1].text()).toContain('Copy filename');
+      expect(menuItems[2].text()).toContain('Delete this version');
+    });
+
+    it('copies file contents when menu option is clicked', async () => {
+      const wrapper = mountComponent({
+        item: { id: '1', filename: 'test.txt', type: 'text', content: 'File content here', createdAt: Date.now() },
+      });
+
+      const menuButton = wrapper.find('.btn-menu');
+      await menuButton.trigger('click');
+      await flushAll(wrapper);
+
+      const menuItems = wrapper.findAll('.menu-item');
+      await menuItems[0].trigger('click');
+      await flushAll(wrapper);
+
+      expect(mockClipboard.writeText).toHaveBeenCalledWith('File content here');
+    });
+
+    it('copies filename when menu option is clicked', async () => {
+      const wrapper = mountComponent({
+        item: { id: '1', filename: 'myfile.txt', type: 'text', content: 'Content', createdAt: Date.now() },
+      });
+
+      const menuButton = wrapper.find('.btn-menu');
+      await menuButton.trigger('click');
+      await flushAll(wrapper);
+
+      const menuItems = wrapper.findAll('.menu-item');
+      await menuItems[1].trigger('click');
+      await flushAll(wrapper);
+
+      expect(mockClipboard.writeText).toHaveBeenCalledWith('myfile.txt');
+    });
+
+    it('shows delete all versions option when multiple versions exist', async () => {
+      const wrapper = mountComponent({
+        item: { id: '2', filename: 'test.txt', type: 'text', content: 'Content', createdAt: 2000 },
+        versions: [
+          { id: '1', createdAt: 1000 },
+          { id: '2', createdAt: 2000 },
+        ],
+      });
+
+      const menuButton = wrapper.find('.btn-menu');
+      await menuButton.trigger('click');
+      await flushAll(wrapper);
+
+      const menuItems = wrapper.findAll('.menu-item');
+      expect(menuItems.length).toBe(4);
+      expect(menuItems[3].text()).toContain('Delete all 2 versions');
     });
   });
 
@@ -157,14 +192,6 @@ describe('CanvasFileViewer', () => {
       });
 
       expect(wrapper.find('.version-dropdown').exists()).toBe(true);
-    });
-  });
-
-  describe('delete dropdown', () => {
-    it('renders delete button', () => {
-      const wrapper = mountComponent();
-
-      expect(wrapper.find('.delete-dropdown').exists()).toBe(true);
     });
   });
 
