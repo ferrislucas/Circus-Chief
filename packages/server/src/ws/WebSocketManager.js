@@ -147,16 +147,6 @@ export class WebSocketManager {
    */
   broadcastToSession(sessionId, type, payload) {
     const subscribers = this.#sessionSubscriptions.get(sessionId);
-    // ========== DIAGNOSTIC LOGGING ==========
-    if (type === 'session:usage_update') {
-      console.log(`🟤 [WS Manager] broadcastToSession`, {
-        sessionId,
-        type,
-        subscriberCount: subscribers?.size || 0,
-        willBuffer: !subscribers || subscribers.size === 0,
-      });
-    }
-    // ========================================
 
     // Buffer SESSION_USAGE_UPDATE messages if no subscribers exist
     if (type === 'session:usage_update' && (!subscribers || subscribers.size === 0)) {
@@ -169,9 +159,6 @@ export class WebSocketManager {
       if (buffer.length > 50) {
         buffer.shift();
       }
-      // ========== DIAGNOSTIC LOGGING ==========
-      console.log(`🟤 [WS Manager] Buffered SESSION_USAGE_UPDATE for session ${sessionId}, buffer size: ${buffer.length}`);
-      // ========================================
       return;
     }
 

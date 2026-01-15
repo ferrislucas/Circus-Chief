@@ -606,7 +606,8 @@ export const useSessionsStore = defineStore('sessions', {
       if (conversationId) {
         const index = this.conversations.findIndex((c) => c.id === conversationId);
         if (index !== -1) {
-          this.conversations[index] = {
+          // Use splice to ensure Vue reactivity properly detects the change
+          const updatedConversation = {
             ...this.conversations[index],
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
@@ -616,6 +617,7 @@ export const useSessionsStore = defineStore('sessions', {
             contextWindow: usage.contextWindow,
             model: usage.model,
           };
+          this.conversations.splice(index, 1, updatedConversation);
         }
       }
 
@@ -642,7 +644,8 @@ export const useSessionsStore = defineStore('sessions', {
     updateConversationUsage(conversationId, usage) {
       const index = this.conversations.findIndex((c) => c.id === conversationId);
       if (index !== -1) {
-        this.conversations[index] = {
+        // Use splice to ensure Vue reactivity properly detects the change
+        const updatedConversation = {
           ...this.conversations[index],
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
@@ -652,6 +655,7 @@ export const useSessionsStore = defineStore('sessions', {
           contextWindow: usage.contextWindow,
           model: usage.model,
         };
+        this.conversations.splice(index, 1, updatedConversation);
       }
     },
 
@@ -1064,7 +1068,9 @@ export const useSessionsStore = defineStore('sessions', {
 
       const index = this.conversations.findIndex((c) => c.id === conversation.id);
       if (index !== -1) {
-        this.conversations[index] = { ...this.conversations[index], ...conversation };
+        // Use splice to ensure Vue reactivity properly detects the change
+        const updatedConversation = { ...this.conversations[index], ...conversation };
+        this.conversations.splice(index, 1, updatedConversation);
       }
 
       // Update isActive flags if this conversation became active
