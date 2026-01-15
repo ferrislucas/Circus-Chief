@@ -11,16 +11,6 @@
           &#8249; Back
         </button>
         <span class="viewer-filename">{{ item.label || item.filename || 'Untitled' }}</span>
-
-        <!-- Copy button -->
-        <button
-          class="copy-button"
-          :class="{ copied: isCopied }"
-          @click="copyFilename"
-          :title="isCopied ? 'Copied!' : 'Copy filename'"
-        >
-          <span class="copy-button-icon">{{ isCopied ? '✓' : '📋' }}</span>
-        </button>
       </div>
 
       <div class="viewer-header-right">
@@ -58,22 +48,88 @@
           {{ previewMode ? 'Raw' : 'Preview' }}
         </button>
 
-        <!-- Delete dropdown -->
-        <details class="delete-dropdown">
-          <summary class="btn-delete" title="Delete">
-            &#128465;
-          </summary>
-          <ul class="delete-options">
-            <li @click="handleDeleteVersion">Delete this version</li>
-            <li
-              v-if="versions.length > 1"
-              class="delete-all"
-              @click="handleDeleteAll"
+        <!-- Three-dot menu -->
+        <div class="file-menu-container" ref="menuContainerRef">
+          <button
+            class="btn-menu"
+            :aria-label="'File actions'"
+            :aria-expanded="menuOpen.toString()"
+            aria-haspopup="menu"
+            @click="toggleMenu"
+          >
+            ⋮
+          </button>
+
+          <Transition name="fade">
+            <div
+              v-if="menuOpen"
+              class="menu-overlay"
+              @click="closeMenu"
+            ></div>
+          </Transition>
+
+          <Transition name="slide">
+            <ul
+              v-if="menuOpen"
+              class="file-menu-items"
+              role="menu"
+              @keydown="handleMenuKeyDown"
             >
-              Delete all {{ versions.length }} versions
-            </li>
-          </ul>
-        </details>
+              <li role="none">
+                <button
+                  :class="['menu-item', { 'is-highlighted': menuHighlightedIndex === 0 }]"
+                  role="menuitem"
+                  @click="handleMenuCopyContents"
+                  @mouseenter="menuHighlightedIndex = 0"
+                  @mouseleave="menuHighlightedIndex = null"
+                >
+                  <span class="menu-item-icon">📋</span>
+                  <span class="menu-item-text">Copy file contents</span>
+                </button>
+              </li>
+              <li role="none">
+                <button
+                  :class="['menu-item', { 'is-highlighted': menuHighlightedIndex === 1 }]"
+                  role="menuitem"
+                  @click="handleMenuCopyFilename"
+                  @mouseenter="menuHighlightedIndex = 1"
+                  @mouseleave="menuHighlightedIndex = null"
+                >
+                  <span class="menu-item-icon">📝</span>
+                  <span class="menu-item-text">Copy filename</span>
+                </button>
+              </li>
+              <li role="none" class="menu-divider"></li>
+              <li role="none">
+                <button
+                  :class="['menu-item', 'is-danger', { 'is-highlighted': menuHighlightedIndex === 2 }]"
+                  role="menuitem"
+                  @click="handleMenuDeleteVersion"
+                  @mouseenter="menuHighlightedIndex = 2"
+                  @mouseleave="menuHighlightedIndex = null"
+                >
+                  <span class="menu-item-icon">🗑</span>
+                  <span class="menu-item-text">Delete this version</span>
+                </button>
+              </li>
+              <li
+                v-if="versions.length > 1"
+                role="none"
+              >
+                <button
+                  :class="['menu-item', 'is-danger', { 'is-highlighted': menuHighlightedIndex === 3 }]"
+                  role="menuitem"
+                  @click="handleMenuDeleteAll"
+                  @mouseenter="menuHighlightedIndex = 3"
+                  @mouseleave="menuHighlightedIndex = null"
+                >
+                  <span class="menu-item-icon">🗑</span>
+                  <span class="menu-item-text">Delete all {{ versions.length }} versions</span>
+                </button>
+              </li>
+            </ul>
+          </Transition>
+        </div>
       </div>
     </div>
 
@@ -105,7 +161,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import hljs from 'highlight.js';
 
@@ -170,38 +226,130 @@ const props = defineProps({
 const emit = defineEmits(['back', 'selectVersion', 'delete', 'deleteAll']);
 
 const previewMode = ref(true);
-const isCopied = ref(false);
+const menuOpen = ref(false);
+const menuHighlightedIndex = ref(null);
+const menuContainerRef = ref(null);
 
-// Copy filename to clipboard with fallback
-async function copyFilename() {
-  const filename = props.item.label || props.item.filename || 'Untitled';
+// Copy content to clipboard with fallback
+async function copyToClipboard(text) {
   try {
-    await navigator.clipboard.writeText(filename);
-    showCopiedFeedback();
+    await navigator.clipboard.writeText(text);
+    return true;
   } catch (err) {
     // Fallback for older browsers / mobile
     try {
       const textarea = document.createElement('textarea');
-      textarea.value = filename;
+      textarea.value = text;
       textarea.style.position = 'fixed';
       textarea.style.opacity = '0';
       document.body.appendChild(textarea);
       textarea.select();
       document.execCommand('copy');
       document.body.removeChild(textarea);
-      showCopiedFeedback();
+      return true;
     } catch (fallbackErr) {
       console.error('Copy failed:', fallbackErr);
+      return false;
     }
   }
 }
 
-function showCopiedFeedback() {
-  isCopied.value = true;
-  setTimeout(() => {
-    isCopied.value = false;
-  }, 1500);
+// Menu functions
+function toggleMenu() {
+  menuOpen.value = !menuOpen.value;
+  if (menuOpen.value) {
+    menuHighlightedIndex.value = 0;
+  }
 }
+
+function closeMenu() {
+  menuOpen.value = false;
+  menuHighlightedIndex.value = null;
+}
+
+async function handleMenuCopyContents() {
+  let content = '';
+
+  if (props.item.type === 'markdown' || props.item.type === 'text' || props.item.type === 'code') {
+    content = props.item.content || '';
+  } else if (props.item.type === 'json') {
+    content = props.item.data || '';
+  } else if (props.item.type === 'image') {
+    // For images, copy the base64 or filename
+    content = props.item.filename || 'image';
+  }
+
+  const success = await copyToClipboard(content);
+  closeMenu();
+}
+
+async function handleMenuCopyFilename() {
+  const filename = props.item.label || props.item.filename || 'Untitled';
+  await copyToClipboard(filename);
+  closeMenu();
+}
+
+function handleMenuDeleteVersion() {
+  emit('delete', props.item.id);
+  closeMenu();
+}
+
+function handleMenuDeleteAll() {
+  const filename = props.item.filename || props.item.label || props.item.id;
+  emit('deleteAll', filename);
+  closeMenu();
+}
+
+function handleMenuKeyDown(event) {
+  const itemCount = props.versions.length > 1 ? 4 : 3;
+
+  switch (event.key) {
+    case 'ArrowDown': {
+      event.preventDefault();
+      menuHighlightedIndex.value = menuHighlightedIndex.value === null ? 0 : (menuHighlightedIndex.value + 1) % itemCount;
+      break;
+    }
+    case 'ArrowUp': {
+      event.preventDefault();
+      menuHighlightedIndex.value = menuHighlightedIndex.value === null ? itemCount - 1 : (menuHighlightedIndex.value - 1 + itemCount) % itemCount;
+      break;
+    }
+    case 'Enter': {
+      event.preventDefault();
+      if (menuHighlightedIndex.value !== null) {
+        if (menuHighlightedIndex.value === 0) {
+          handleMenuCopyContents();
+        } else if (menuHighlightedIndex.value === 1) {
+          handleMenuCopyFilename();
+        } else if (menuHighlightedIndex.value === 2) {
+          handleMenuDeleteVersion();
+        } else if (menuHighlightedIndex.value === 3) {
+          handleMenuDeleteAll();
+        }
+      }
+      break;
+    }
+    case 'Escape': {
+      event.preventDefault();
+      closeMenu();
+      break;
+    }
+  }
+}
+
+function handleDocumentClick(event) {
+  if (menuContainerRef.value && !menuContainerRef.value.contains(event.target)) {
+    closeMenu();
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleDocumentClick);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleDocumentClick);
+});
 
 const currentVersionIndex = computed(() => {
   const idx = props.versions.findIndex((v) => v.id === props.item.id);
@@ -318,44 +466,10 @@ function handleDeleteAll() {
   font-weight: 600;
   font-size: 1rem;
   min-width: 0;
+  flex: 1;
   word-break: break-word;
-}
-
-/* Copy button styles */
-.copy-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 2.5rem;
-  min-height: 2.5rem;
-  padding: 0.25rem;
-  border: none;
-  background-color: transparent;
-  color: var(--color-text-soft);
-  cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.2s ease-out;
-  flex-shrink: 0;
-}
-
-.copy-button:hover {
-  color: var(--color-text);
-  background-color: rgba(255, 255, 255, 0.05);
-}
-
-.copy-button.copied {
-  color: var(--color-success);
-  animation: copySuccess 0.3s ease-out;
-}
-
-.copy-button-icon {
-  font-size: 1rem;
-}
-
-@keyframes copySuccess {
-  0% { transform: scale(0.8); opacity: 0.7; }
-  50% { transform: scale(1.1); }
-  100% { transform: scale(1); opacity: 1; }
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Version dropdown */
@@ -453,66 +567,111 @@ function handleDeleteAll() {
   color: var(--color-text);
 }
 
-/* Delete dropdown */
-.delete-dropdown {
+/* File menu container and button */
+.file-menu-container {
   position: relative;
+  display: inline-block;
+  flex-shrink: 0;
 }
 
-.delete-dropdown summary {
+.btn-menu {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  background: none;
-  border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-soft, #888);
   cursor: pointer;
-  list-style: none;
-  font-size: 1rem;
+  transition: background 0.15s ease, color 0.15s ease;
+  font-size: 1.25rem;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
-.delete-dropdown summary::-webkit-details-marker {
-  display: none;
+.btn-menu:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text, #ccc);
 }
 
-.delete-dropdown summary:hover {
-  background: var(--color-background-mute);
-  border-color: var(--color-error);
-  color: var(--color-error);
+.btn-menu:active {
+  background: rgba(255, 255, 255, 0.15);
 }
 
-.delete-options {
+/* Menu overlay and items */
+.menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 99;
+}
+
+.file-menu-items {
   position: absolute;
   top: 100%;
   right: 0;
-  margin-top: 0.25rem;
-  background: var(--color-background-soft);
-  border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
-  list-style: none;
+  min-width: 200px;
+  margin-top: 0.5rem;
   padding: 0.25rem 0;
-  min-width: 180px;
+  list-style: none;
+  background: var(--color-bg-secondary, #222);
+  border: 1px solid var(--color-border, #444);
+  border-radius: 6px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
   z-index: 100;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-.delete-options li {
-  padding: 0.5rem 0.75rem;
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text, #ccc);
   cursor: pointer;
+  text-align: left;
   font-size: 0.875rem;
+  transition: all 0.15s ease;
 }
 
-.delete-options li:hover {
-  background: var(--color-background-mute);
+.menu-item:hover {
+  background: var(--color-bg-hover, #333);
 }
 
-.delete-options li.delete-all {
-  color: var(--color-error);
+.menu-item.is-highlighted {
+  background: var(--color-bg-hover, #333);
 }
 
-.delete-options li.delete-all:hover {
-  background: rgba(248, 81, 73, 0.1);
+.menu-item.is-danger {
+  color: var(--color-error, #f87171);
+}
+
+.menu-item.is-danger:hover {
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.menu-item-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.menu-item-text {
+  flex: 1;
+  font-weight: 500;
+}
+
+.menu-divider {
+  height: 1px;
+  background: var(--color-border, #444);
+  margin: 0.25rem 0;
+  list-style: none;
 }
 
 /* Content area */
@@ -568,30 +727,69 @@ function handleDeleteAll() {
   display: block;
 }
 
+/* Transitions */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.slide-enter-active,
+.slide-leave-active {
+  transition: all 0.15s ease;
+}
+
+.slide-enter-from {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.slide-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
 /* Mobile styles */
 @media (max-width: 640px) {
   .viewer-header {
-    padding: 0.5rem 0.75rem;
+    padding: 0.5rem 0.5rem;
+    gap: 0.5rem;
+  }
+
+  .viewer-header-left {
+    gap: 0.5rem;
   }
 
   .btn-back {
     min-height: 44px;
-    padding: 0.5rem 1rem;
+    padding: 0.5rem 0.75rem;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .viewer-filename {
     font-size: 0.875rem;
+    min-width: 0;
+    flex: 1;
   }
 
   .version-dropdown summary,
   .preview-toggle {
-    min-height: 36px;
+    min-height: 44px;
     padding: 0.5rem 0.75rem;
   }
 
-  .delete-dropdown summary {
+  .btn-menu {
     width: 44px;
     height: 44px;
+  }
+
+  .file-menu-items {
+    min-width: 180px;
   }
 }
 </style>
