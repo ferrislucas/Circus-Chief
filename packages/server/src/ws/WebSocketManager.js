@@ -73,16 +73,10 @@ export class WebSocketManager {
           this.#sessionSubscriptions.set(sessionId, new Set());
         }
         this.#sessionSubscriptions.get(sessionId).add(ws);
-        // ========== DIAGNOSTIC LOGGING ==========
-        console.log(`🔶 [WS Manager] Client subscribed to session ${sessionId}, total subscribers: ${this.#sessionSubscriptions.get(sessionId).size}`);
-        // ========================================
 
         // Replay buffered usage updates for this session
         const buffered = this.#usageUpdateBuffer.get(sessionId);
         if (buffered && buffered.length > 0) {
-          // ========== DIAGNOSTIC LOGGING ==========
-          console.log(`🔶 [WS Manager] Replaying ${buffered.length} buffered usage updates for session ${sessionId}`);
-          // ========================================
           for (const bufferedMsg of buffered) {
             const message = createMessage(bufferedMsg.type, bufferedMsg);
             if (ws.readyState === 1) {

@@ -197,17 +197,27 @@ export const useSessionsStore = defineStore('sessions', {
       return { input: '-', output: '-', total: '-', cacheRead: '-', cacheCreation: '-' };
     },
     contextPercentage: (state) => {
-      // STREAMING: Use running usage context if available, but only if it matches the active conversation
+      // STREAMING: Use running usage + base conversation tokens (same logic as formattedTokens)
       if (state.runningUsage) {
-        // If there's an active conversation, only use runningUsage if it belongs to that conversation
-        if (!state.activeConversationId || state.runningUsage.conversationId === state.activeConversationId) {
-          const total = (state.runningUsage.inputTokens || 0) + (state.runningUsage.outputTokens || 0);
-          const contextWindow = state.runningUsage.contextWindow || 200000;
+        const isRelevant = !state.activeConversationId ||
+                          state.runningUsage.conversationId === state.activeConversationId;
+        if (isRelevant) {
+          // Get conversation's base tokens (from previous turns)
+          const conv = state.conversations.find(c => c.id === state.activeConversationId);
+          const baseInput = conv?.inputTokens || 0;
+          const baseOutput = conv?.outputTokens || 0;
+          const baseContextWindow = conv?.contextWindow || 200000;
+
+          // Add running usage to base (same as formattedTokens)
+          const totalInput = baseInput + (state.runningUsage.inputTokens || 0);
+          const totalOutput = baseOutput + (state.runningUsage.outputTokens || 0);
+          const total = totalInput + totalOutput;
+          const contextWindow = state.runningUsage.contextWindow || baseContextWindow;
           return Math.min(100, Math.round((total / contextWindow) * 100));
         }
       }
 
-      // FINALIZED: Use conversation/session context
+      // PERSISTED: Use conversation totals
       const conv = state.conversations.find((c) => c.id === state.activeConversationId);
       const source = conv || state.currentSession;
       if (!source) return 0;
@@ -583,18 +593,7 @@ export const useSessionsStore = defineStore('sessions', {
      * @param {string} [conversationId] - Conversation ID (Issue #175)
      */
     updateRunningUsage(usage, conversationId = null) {
-      // ========== DIAGNOSTIC LOGGING ==========
-      console.log(`🟠 [Store] updateRunningUsage called`, {
-        usage,
-        conversationId,
-        activeConversationId: this.activeConversationId,
-        willMatch: !this.activeConversationId || conversationId === this.activeConversationId,
-      });
-      // ========================================
       this.runningUsage = { ...usage, conversationId };
-      // ========== DIAGNOSTIC LOGGING ==========
-      console.log(`🟠 [Store] runningUsage set to:`, this.runningUsage);
-      // ========================================
     },
 
     /**
