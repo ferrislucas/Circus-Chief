@@ -96,7 +96,7 @@ describe('NewSessionView - localStorage draft persistence', () => {
         localStorageMock.data = {};
       }),
     };
-    global.localStorage = localStorageMock;
+    globalThis.localStorage = localStorageMock;
   });
 
   afterEach(() => {
@@ -367,18 +367,18 @@ describe('NewSessionView - localStorage draft persistence', () => {
     });
 
     it('handles gracefully when localStorage is not available', () => {
-      const originalLocalStorage = global.localStorage;
+      const originalLocalStorage = globalThis.localStorage;
       // Simulate unavailable localStorage
-      global.localStorage = undefined;
+      globalThis.localStorage = undefined;
 
       // Component should still mount without errors
       // This test ensures no crash occurs
       try {
         // Note: In real implementation, there would be try-catch in onMounted
-        global.localStorage = originalLocalStorage;
+        globalThis.localStorage = originalLocalStorage;
         expect(true).toBe(true); // Test passes if no error thrown
       } finally {
-        global.localStorage = originalLocalStorage;
+        globalThis.localStorage = originalLocalStorage;
       }
     });
 
