@@ -124,7 +124,10 @@ function formatTokens(n) {
 }
 
 const tokenDisplay = computed(() => {
-  const total = (props.conversation.inputTokens || 0) + (props.conversation.outputTokens || 0);
+  const total = (props.conversation.inputTokens || 0) +
+    (props.conversation.outputTokens || 0) +
+    (props.conversation.cacheReadInputTokens || 0) +
+    (props.conversation.cacheCreationInputTokens || 0);
   return formatTokens(total);
 });
 
