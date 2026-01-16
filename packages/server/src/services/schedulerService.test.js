@@ -9,13 +9,22 @@ vi.mock('../database.js', () => ({
     getById: vi.fn(),
     update: vi.fn(),
   },
+  messages: {
+    getBySessionId: vi.fn(),
+  },
+  projects: {
+    getById: vi.fn(),
+  },
+  attachments: {
+    getBySessionId: vi.fn(),
+  },
 }));
 
 vi.mock('../websocket.js', () => ({
   broadcastToSession: vi.fn(),
 }));
 
-import { sessions } from '../database.js';
+import { sessions, messages, projects, attachments } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 
 describe('SchedulerService', () => {
@@ -169,28 +178,87 @@ describe('SchedulerService', () => {
 
   describe('startScheduledSession', () => {
     it('throws error if not initialized', async () => {
-      const session = { id: 'session-1', name: 'Test Session' };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1' };
 
       await expect(scheduler.startScheduledSession(session)).rejects.toThrow(
         'SchedulerService not initialized with sessionManager'
       );
     });
 
-    it('updates session status and runs it', async () => {
+    it('throws error if project not found', async () => {
       scheduler.initialize(mockSessionManager);
-      const session = { id: 'session-1', name: 'Test Session' };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1' };
+
+      projects.getById.mockReturnValue(null);
+
+      await expect(scheduler.startScheduledSession(session)).rejects.toThrow(
+        'Project not found for session session-1'
+      );
+    });
+
+    it('throws error if no user messages found', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1' };
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+      messages.getBySessionId.mockReturnValue([]);
+
+      await expect(scheduler.startScheduledSession(session)).rejects.toThrow(
+        'No user message found for session session-1'
+      );
+    });
+
+    it('updates session status and runs fresh session', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', model: 'claude-sonnet-4-5-20250929' };
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp', systemPrompt: 'Be helpful' });
+      messages.getBySessionId.mockReturnValue([{ role: 'user', content: 'Hello' }]);
+      attachments.getBySessionId.mockReturnValue([]);
 
       await scheduler.startScheduledSession(session);
 
       expect(sessions.update).toHaveBeenCalledWith('session-1', {
         status: 'starting',
-        scheduled_at: null,
+        scheduledAt: null,
       });
       expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
         sessionId: 'session-1',
         status: 'starting',
       });
-      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1');
+      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp', 'Be helpful', [], 'claude-sonnet-4-5-20250929');
+    });
+
+    it('uses gitWorktree for working directory when available', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', gitWorktree: '/tmp/worktree' };
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp/main' });
+      messages.getBySessionId.mockReturnValue([{ role: 'user', content: 'Hello' }]);
+      attachments.getBySessionId.mockReturnValue([]);
+
+      await scheduler.startScheduledSession(session);
+
+      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp/worktree', undefined, [], undefined);
+    });
+
+    it('continues session when there are existing assistant messages', async () => {
+      scheduler.initialize(mockSessionManager);
+      mockSessionManager.continueSession = vi.fn().mockResolvedValue(undefined);
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1' };
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+      messages.getBySessionId.mockReturnValue([
+        { role: 'user', content: 'First message' },
+        { role: 'assistant', content: 'Response' },
+        { role: 'user', content: 'Follow-up message' },
+      ]);
+      attachments.getBySessionId.mockReturnValue([]);
+
+      await scheduler.startScheduledSession(session);
+
+      expect(mockSessionManager.continueSession).toHaveBeenCalledWith('session-1', 'Follow-up message', '/tmp', undefined, []);
+      expect(mockSessionManager.runSession).not.toHaveBeenCalled();
     });
   });
 

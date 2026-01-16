@@ -978,6 +978,110 @@ router.post('/:id/star', (req, res) => {
   res.json(updated);
 });
 
+// POST /api/sessions/:id/schedule - Schedule a follow-up message for an existing session
+router.post('/:id/schedule', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Only allow scheduling for waiting, stopped, or error sessions
+  if (!['waiting', 'stopped', 'error'].includes(session.status)) {
+    return res.status(400).json({ error: 'Session must be in waiting, stopped, or error state to schedule' });
+  }
+
+  const {
+    scheduledAt,
+    prompt,
+    autoRescheduleEnabled,
+    rescheduleDelayMinutes,
+    rescheduleOnTokenLimit,
+    rescheduleOnServiceError,
+    maxRescheduleCount,
+    maxTotalTokens,
+    rescheduleAtTokenCount,
+  } = req.body;
+
+  // Validate scheduledAt is provided and in the future
+  if (!scheduledAt || scheduledAt <= Date.now()) {
+    return res.status(400).json({ error: 'scheduledAt must be a future timestamp' });
+  }
+
+  // Validate prompt if provided
+  if (prompt !== undefined && (typeof prompt !== 'string' || prompt.trim() === '')) {
+    return res.status(400).json({ error: 'prompt must be a non-empty string if provided' });
+  }
+
+  try {
+    // Get the project
+    const project = projects.getById(session.projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // If a prompt is provided, store it as a new user message
+    if (prompt && prompt.trim()) {
+      // Get or create active conversation
+      const activeConversation = conversations.ensureActiveConversation(req.params.id);
+
+      // Create the user message (will be processed when scheduled time arrives)
+      const message = messages.create(req.params.id, 'user', prompt.trim(), null, activeConversation.id);
+
+      // Broadcast the message to session subscribers
+      broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
+    }
+
+    // Build update data
+    const updateData = {
+      status: 'scheduled',
+      scheduledAt,
+    };
+
+    // Apply scheduling options if provided
+    if (autoRescheduleEnabled !== undefined) {
+      updateData.autoRescheduleEnabled = Boolean(autoRescheduleEnabled);
+    }
+    if (rescheduleDelayMinutes !== undefined) {
+      updateData.rescheduleDelayMinutes = parseInt(rescheduleDelayMinutes, 10);
+    }
+    if (rescheduleOnTokenLimit !== undefined) {
+      updateData.rescheduleOnTokenLimit = Boolean(rescheduleOnTokenLimit);
+    }
+    if (rescheduleOnServiceError !== undefined) {
+      updateData.rescheduleOnServiceError = Boolean(rescheduleOnServiceError);
+    }
+    if (maxRescheduleCount !== undefined) {
+      updateData.maxRescheduleCount = maxRescheduleCount ? parseInt(maxRescheduleCount, 10) : null;
+    }
+    if (maxTotalTokens !== undefined) {
+      updateData.maxTotalTokens = maxTotalTokens ? parseInt(maxTotalTokens, 10) : null;
+    }
+    if (rescheduleAtTokenCount !== undefined) {
+      updateData.rescheduleAtTokenCount = rescheduleAtTokenCount ? parseInt(rescheduleAtTokenCount, 10) : null;
+    }
+
+    const updated = sessions.update(req.params.id, updateData);
+
+    // Broadcast status update
+    broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_STATUS, {
+      sessionId: req.params.id,
+      status: 'scheduled',
+    });
+
+    // Broadcast session update to project subscribers
+    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: session.projectId,
+      sessionId: req.params.id,
+      session: updated,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Schedule session error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /api/sessions/:id/duplicate - Duplicate a session
 router.post('/:id/duplicate', async (req, res) => {
   const session = sessions.getById(req.params.id);
