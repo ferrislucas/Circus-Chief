@@ -4,6 +4,9 @@
     <div class="info-header">
       <span class="info-icon">⏰</span>
       <h3 class="info-title">Scheduled Session</h3>
+      <button @click="showEditModal = true" class="edit-btn" title="Edit schedule">
+        ✏️
+      </button>
     </div>
 
     <div class="info-content">
@@ -25,18 +28,27 @@
         <button @click="handleStartNow" class="btn btn-primary" :disabled="loading">
           {{ loading ? 'Loading...' : 'Start Now' }}
         </button>
+        <button @click="showEditModal = true" class="btn btn-secondary">
+          Edit Schedule
+        </button>
+        <button @click="handleCancelSchedule" class="btn btn-danger" :disabled="loading">
+          Cancel
+        </button>
       </div>
     </div>
   </div>
 
-  <!-- Auto-Reschedule Info (for running sessions) -->
+  <!-- Auto-Reschedule Info (for running/waiting sessions) -->
   <div
-    v-else-if="session.status === 'running' && session.autoRescheduleEnabled"
+    v-else-if="(session.status === 'running' || session.status === 'waiting') && session.autoRescheduleEnabled"
     class="auto-reschedule-panel"
   >
     <div class="info-header">
       <span class="info-icon">🔄</span>
       <h3 class="info-title">Auto-Reschedule Enabled</h3>
+      <button @click="showEditModal = true" class="edit-btn" title="Edit settings">
+        ✏️
+      </button>
     </div>
 
     <div class="reschedule-grid">
@@ -75,7 +87,31 @@
         </span>
       </div>
     </div>
+
+    <div v-if="session.status === 'waiting'" class="actions">
+      <button @click="handleDisableReschedule" class="btn btn-secondary">
+        Disable Auto-Reschedule
+      </button>
+    </div>
   </div>
+
+  <!-- Enable Auto-Reschedule for waiting sessions without it enabled -->
+  <div
+    v-else-if="session.status === 'waiting' && !session.autoRescheduleEnabled"
+    class="enable-reschedule-panel"
+  >
+    <button @click="showEditModal = true" class="btn btn-secondary btn-sm">
+      ⚙️ Configure Auto-Reschedule
+    </button>
+  </div>
+
+  <!-- Edit Modal -->
+  <SchedulingEditModal
+    :is-open="showEditModal"
+    :session="session"
+    @close="showEditModal = false"
+    @saved="handleSaved"
+  />
 </template>
 
 <script setup>
@@ -83,6 +119,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
+import SchedulingEditModal from './SchedulingEditModal.vue';
 
 const props = defineProps({
   session: {
@@ -94,6 +131,7 @@ const props = defineProps({
 const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 const loading = ref(false);
+const showEditModal = ref(false);
 const countdownTime = ref(new Date());
 let countdownInterval = null;
 
@@ -127,6 +165,38 @@ async function handleStartNow() {
   }
 }
 
+async function handleCancelSchedule() {
+  if (!confirm('Cancel the scheduled session?')) return;
+
+  loading.value = true;
+  try {
+    await sessionsStore.updateSessionFields(props.session.id, {
+      status: 'stopped',
+      scheduledAt: null,
+    });
+    uiStore.showToast('Schedule cancelled', 'success');
+  } catch (error) {
+    uiStore.showToast('Failed to cancel schedule: ' + error.message, 'error');
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function handleDisableReschedule() {
+  try {
+    await sessionsStore.updateSessionFields(props.session.id, {
+      autoRescheduleEnabled: false,
+    });
+    uiStore.showToast('Auto-reschedule disabled', 'success');
+  } catch (error) {
+    uiStore.showToast('Failed to update settings: ' + error.message, 'error');
+  }
+}
+
+function handleSaved() {
+  // Settings updated, modal will close
+}
+
 // Update countdown display every second
 onMounted(() => {
   countdownInterval = setInterval(() => {
@@ -157,6 +227,13 @@ onUnmounted(() => {
 .auto-reschedule-panel {
   background: linear-gradient(135deg, rgba(34, 197, 255, 0.08) 0%, rgba(34, 197, 255, 0.02) 100%);
   border: 1px solid rgba(34, 197, 255, 0.2);
+  border-radius: var(--border-radius, 6px);
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.enable-reschedule-panel {
+  margin-bottom: 1rem;
 }
 
 .info-header {
@@ -176,6 +253,21 @@ onUnmounted(() => {
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--color-text);
+  flex: 1;
+}
+
+.edit-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--border-radius, 4px);
+  transition: background 0.2s;
+}
+
+.edit-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .info-content {
@@ -266,6 +358,36 @@ onUnmounted(() => {
 .btn-primary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: var(--color-background);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+.btn-secondary:hover {
+  background: var(--color-background-secondary);
+}
+
+.btn-danger {
+  background: var(--color-error, #dc2626);
+  color: white;
+  border: 1px solid var(--color-error, #dc2626);
+}
+
+.btn-danger:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btn-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
 }
 
 .reschedule-grid {

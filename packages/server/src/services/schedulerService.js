@@ -1,4 +1,4 @@
-import { sessions } from '../database.js';
+import { sessions, messages, projects, attachments } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
@@ -85,16 +85,58 @@ class SchedulerService {
 
     console.log(`[SchedulerService] Starting scheduled session ${session.id}: ${session.name}`);
 
+    // Get the project for working directory and system prompt
+    const project = projects.getById(session.projectId);
+    if (!project) {
+      throw new Error(`Project not found for session ${session.id}`);
+    }
+
+    // Determine working directory
+    const workingDirectory = session.gitWorktree || project.workingDirectory;
+
+    // Get the session messages to find the prompt
+    const sessionMessages = messages.getBySessionId(session.id);
+    const userMessages = sessionMessages.filter((msg) => msg.role === 'user');
+    const hasAssistantResponses = sessionMessages.some((msg) => msg.role === 'assistant');
+
+    if (userMessages.length === 0) {
+      throw new Error(`No user message found for session ${session.id}`);
+    }
+
+    // Get attachments for context
+    const sessionAttachments = attachments.getBySessionId(session.id);
+
     // Update status from 'scheduled' to 'starting'
     sessions.update(session.id, {
       status: 'starting',
-      scheduled_at: null,
+      scheduledAt: null,
     });
     broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
 
-    // Trigger session execution through the session manager
-    // The session manager will pick up the session and run it
-    await this.sessionManager.runSession(session.id);
+    // Determine if this is an initial run or a continuation
+    if (hasAssistantResponses) {
+      // Session has conversation history - this is a scheduled continuation
+      // Use the most recent user message as the follow-up
+      const latestUserMessage = userMessages[userMessages.length - 1];
+      await this.sessionManager.continueSession(
+        session.id,
+        latestUserMessage.content,
+        workingDirectory,
+        project.systemPrompt,
+        sessionAttachments
+      );
+    } else {
+      // Fresh session - initial run
+      const initialMessage = userMessages[0];
+      await this.sessionManager.runSession(
+        session.id,
+        initialMessage.content,
+        workingDirectory,
+        project.systemPrompt,
+        sessionAttachments,
+        session.model
+      );
+    }
   }
 
   /**

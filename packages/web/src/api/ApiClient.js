@@ -386,6 +386,25 @@ export class ApiClient {
     return this.#request('POST', `/sessions/${id}/duplicate`, options);
   }
 
+  /**
+   * Schedule a follow-up for an existing session
+   * @param {string} id - Session ID
+   * @param {Object} data - Scheduling data
+   * @param {number} data.scheduledAt - Timestamp for when to start
+   * @param {string} [data.prompt] - Optional follow-up message
+   * @param {boolean} [data.autoRescheduleEnabled] - Enable auto-reschedule on errors
+   * @param {number} [data.rescheduleDelayMinutes] - Delay between reschedules
+   * @param {boolean} [data.rescheduleOnTokenLimit] - Reschedule on token limit errors
+   * @param {boolean} [data.rescheduleOnServiceError] - Reschedule on service errors
+   * @param {number|null} [data.maxRescheduleCount] - Max reschedule attempts
+   * @param {number|null} [data.maxTotalTokens] - Max total tokens before stopping
+   * @param {number|null} [data.rescheduleAtTokenCount] - Token threshold for proactive reschedule
+   * @returns {Promise<Object>}
+   */
+  async scheduleSession(id, data) {
+    return this.#request('POST', `/sessions/${id}/schedule`, data);
+  }
+
   // Canvas
 
   /**
