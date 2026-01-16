@@ -1027,12 +1027,13 @@ export const useSessionsStore = defineStore('sessions', {
     async branchConversation(sessionId, conversationId, messageId, name = null, prompt = null) {
       this.error = null;
       try {
-        // Note: name is auto-generated from prompt on the server side
+        // 1. Create the branch (API call)
         const branchConversation = await api.branchConversation(sessionId, conversationId, {
           messageId,
           prompt,
         });
 
+        // 2. Optimistically update store IMMEDIATELY
         // Add the new branch to the list (will also be added via WebSocket, but add here for immediate feedback)
         const exists = this.conversations.some((c) => c.id === branchConversation.id);
         if (!exists) {
@@ -1046,15 +1047,32 @@ export const useSessionsStore = defineStore('sessions', {
         }));
         this.activeConversationId = branchConversation.id;
 
-        // Fetch messages for the new branch
-        const messages = await api.getConversationMessages(sessionId, branchConversation.id);
-        this.messages = messages;
-
-        // Clear work logs and re-fetch for new context
+        // 3. Clear work logs immediately (before async fetches)
         this.workLogs = {};
         this.partialThinking = null;
-        await this.fetchWorkLogs(sessionId);
 
+        // 4. Fetch messages and work logs in parallel WITHOUT blocking the return
+        // This allows the UI to update immediately while data loads in the background
+        Promise.all([
+          api.getConversationMessages(sessionId, branchConversation.id)
+            .then(messages => {
+              // Only update if we're still on this conversation
+              if (this.activeConversationId === branchConversation.id) {
+                this.messages = messages;
+              }
+            })
+            .catch(err => {
+              console.error('Failed to fetch messages for branch:', err);
+              // Don't set this.error here - branch was created successfully
+            }),
+          this.fetchWorkLogs(sessionId)
+            .catch(err => {
+              console.error('Failed to fetch work logs for branch:', err);
+              // Don't set this.error here - branch was created successfully
+            })
+        ]);
+
+        // 5. Return immediately after optimistic update
         return branchConversation;
       } catch (err) {
         this.error = err.message;
