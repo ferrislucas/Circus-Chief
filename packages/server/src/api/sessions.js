@@ -22,6 +22,12 @@ router.get('/', (req, res) => {
   res.json(activeSessions);
 });
 
+// GET /api/sessions/scheduled - Get all scheduled sessions across all projects
+router.get('/scheduled', (req, res) => {
+  const scheduledSessions = sessions.getScheduledSessions();
+  res.json(scheduledSessions);
+});
+
 // GET /api/sessions/:id - Get session details
 router.get('/:id', (req, res) => {
   const session = sessions.getById(req.params.id);
@@ -764,7 +770,23 @@ router.patch('/:id', (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const { thinkingEnabled, status, mode, nextTemplateId, model } = req.body;
+  const {
+    thinkingEnabled,
+    status,
+    mode,
+    nextTemplateId,
+    model,
+    // Scheduling fields
+    scheduledAt,
+    autoRescheduleEnabled,
+    rescheduleDelayMinutes,
+    rescheduleOnTokenLimit,
+    rescheduleOnServiceError,
+    maxRescheduleCount,
+    maxTotalTokens,
+    rescheduleCount,
+    rescheduleAtTokenCount,
+  } = req.body;
 
   // Build update object with only provided fields
   const updateData = {};
@@ -772,7 +794,7 @@ router.patch('/:id', (req, res) => {
     updateData.thinkingEnabled = Boolean(thinkingEnabled);
   }
   if (status !== undefined) {
-    const validStatuses = ['starting', 'running', 'waiting', 'error', 'stopped'];
+    const validStatuses = ['starting', 'running', 'waiting', 'error', 'stopped', 'scheduled'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
@@ -801,6 +823,34 @@ router.patch('/:id', (req, res) => {
       return res.status(400).json({ error: 'Invalid model. Must be one of: ' + validModels.join(', ') });
     }
     updateData.model = model;
+  }
+  // Scheduling fields
+  if (scheduledAt !== undefined) {
+    updateData.scheduledAt = scheduledAt;
+  }
+  if (autoRescheduleEnabled !== undefined) {
+    updateData.autoRescheduleEnabled = Boolean(autoRescheduleEnabled);
+  }
+  if (rescheduleDelayMinutes !== undefined) {
+    updateData.rescheduleDelayMinutes = parseInt(rescheduleDelayMinutes, 10);
+  }
+  if (rescheduleOnTokenLimit !== undefined) {
+    updateData.rescheduleOnTokenLimit = Boolean(rescheduleOnTokenLimit);
+  }
+  if (rescheduleOnServiceError !== undefined) {
+    updateData.rescheduleOnServiceError = Boolean(rescheduleOnServiceError);
+  }
+  if (maxRescheduleCount !== undefined) {
+    updateData.maxRescheduleCount = maxRescheduleCount ? parseInt(maxRescheduleCount, 10) : null;
+  }
+  if (maxTotalTokens !== undefined) {
+    updateData.maxTotalTokens = maxTotalTokens ? parseInt(maxTotalTokens, 10) : null;
+  }
+  if (rescheduleCount !== undefined) {
+    updateData.rescheduleCount = parseInt(rescheduleCount, 10);
+  }
+  if (rescheduleAtTokenCount !== undefined) {
+    updateData.rescheduleAtTokenCount = rescheduleAtTokenCount ? parseInt(rescheduleAtTokenCount, 10) : null;
   }
 
   if (Object.keys(updateData).length === 0) {
