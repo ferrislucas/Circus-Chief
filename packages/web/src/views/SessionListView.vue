@@ -10,9 +10,6 @@
             </svg>
           </a>
         </div>
-        <p v-if="projectsStore.currentProject" class="project-path">
-          {{ projectsStore.currentProject.workingDirectory }}
-        </p>
       </div>
       <router-link v-if="activeTab === 'sessions'" :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary">
         New Session
@@ -622,13 +619,6 @@ onUnmounted(() => {
   stroke-linejoin: round;
 }
 
-.project-path {
-  margin: 0.25rem 0 0;
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-  font-family: var(--font-mono);
-}
-
 .tabs {
   display: flex;
   gap: 0;
@@ -735,10 +725,6 @@ onUnmounted(() => {
   .page-header .btn {
     width: 100%;
     justify-content: center;
-  }
-
-  .project-path {
-    word-break: break-all;
   }
 }
 </style>
