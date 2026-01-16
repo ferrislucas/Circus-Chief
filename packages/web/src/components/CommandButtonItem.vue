@@ -13,26 +13,13 @@
           {{ statusIcon }}
         </div>
 
-        <!-- Copy Button (in header for quick access) -->
-        <button
+        <!-- Action Menu (copy/canvas/copy-command) -->
+        <ActionMenu
           v-if="run?.output && run.status !== 'running'"
-          class="btn btn-sm btn-icon"
-          :class="{ copied: isCopied }"
-          @click="handleCopy"
-          :title="isCopied ? 'Copied!' : 'Copy output to clipboard'"
-        >
-          {{ isCopied ? '✓' : '📋' }}
-        </button>
-
-        <!-- Canvas Button (in header for quick access) -->
-        <button
-          v-if="run?.output && run.status !== 'running'"
-          class="btn btn-sm btn-icon"
-          @click="handleCanvas"
-          title="Send output to canvas"
-        >
-          🎨
-        </button>
+          :items="menuItems"
+          aria-label="Command output actions"
+          @action-click="handleMenuAction"
+        />
 
         <!-- Run Button (idle state) -->
         <button
@@ -96,6 +83,8 @@
 import { defineProps, defineEmits, ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { ansiToHtml, stripAnsi } from '../utils/ansi.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { useUiStore } from '../stores/ui.js';
+import ActionMenu from './ActionMenu.vue';
 
 /**
  * Debounce with leading edge - first call is immediate, subsequent calls are debounced
@@ -146,8 +135,9 @@ const props = defineProps({
 
 const emit = defineEmits(['run', 'kill', 'send-to-canvas']);
 
-// Initialize store
+// Initialize stores
 const commandButtonsStore = useCommandButtonsStore();
+const uiStore = useUiStore();
 
 // Use store to persist collapse state across tab navigation
 // Computed property syncs with store: get returns !isCollapsed, set updates store
@@ -168,8 +158,12 @@ const showOutput = computed({
 // Track if button click is in flight (prevents double-clicks)
 const isSubmitting = ref(false);
 
-// Track if copy button was recently clicked (for visual feedback)
-const isCopied = ref(false);
+// Menu items for ActionMenu component
+const menuItems = computed(() => [
+  { icon: '📋', label: 'Copy output', action: 'copy-output' },
+  { icon: '🎨', label: 'Send to canvas', action: 'send-to-canvas' },
+  { icon: '📄', label: 'Copy command', action: 'copy-command' }
+]);
 
 // Template ref for output container (used for auto-scroll)
 const outputContainerRef = ref(null);
@@ -398,7 +392,29 @@ const handleKill = () => {
   emit('kill');
 };
 
-const handleCopy = async () => {
+/**
+ * Handle menu action selection
+ * Dispatches to appropriate handler based on action type
+ */
+const handleMenuAction = async (action) => {
+  switch (action) {
+    case 'copy-output':
+      await handleCopyOutput();
+      break;
+    case 'send-to-canvas':
+      await handleSendToCanvas();
+      break;
+    case 'copy-command':
+      await handleCopyCommand();
+      break;
+  }
+};
+
+/**
+ * Copy command output to clipboard
+ * Shows toast notification on success
+ */
+const handleCopyOutput = async () => {
   if (!props.run?.output) {
     return;
   }
@@ -433,18 +449,63 @@ const handleCopy = async () => {
     }
   }
 
-  // Show visual feedback if copy succeeded
+  // Show toast if copy succeeded
   if (copySucceeded) {
-    isCopied.value = true;
-    setTimeout(() => {
-      isCopied.value = false;
-    }, 1500);
-    // Copy handling is complete - visual feedback shown to user
+    uiStore.success('Output copied to clipboard');
   }
 };
 
-const handleCanvas = () => {
+/**
+ * Send command output to canvas
+ * Toast is shown in parent component (CommandsTab.vue)
+ */
+const handleSendToCanvas = () => {
   emit('send-to-canvas', props.button.label, props.run.output);
+};
+
+/**
+ * Copy command text to clipboard
+ * Shows toast notification on success
+ */
+const handleCopyCommand = async () => {
+  if (!props.button?.command) {
+    return;
+  }
+
+  const textToCopy = props.button.command;
+  let copySucceeded = false;
+
+  // Try modern Clipboard API first
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      copySucceeded = true;
+    } catch (err) {
+      console.error('Clipboard API failed:', err);
+    }
+  }
+
+  // Fallback for older browsers
+  if (!copySucceeded) {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = textToCopy;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      copySucceeded = true;
+    } catch (fallbackErr) {
+      console.error('Fallback copy failed:', fallbackErr);
+    }
+  }
+
+  // Show toast if copy succeeded
+  if (copySucceeded) {
+    uiStore.success('Command copied to clipboard');
+  }
 };
 
 /**
@@ -471,8 +532,10 @@ onBeforeUnmount(() => {
 defineExpose({
   handleRun,
   handleKill,
-  handleCopy,
-  handleCanvas,
+  handleMenuAction,
+  handleCopyOutput,
+  handleSendToCanvas,
+  handleCopyCommand,
   formattedOutput,
   showOutput,
   outputIsTruncatedForDisplay,
@@ -524,30 +587,6 @@ defineExpose({
   gap: 0.75rem;
 }
 
-/* Icon Buttons (Copy/Canvas in header) */
-.btn-icon {
-  padding: 0.35rem 0.5rem;
-  min-width: auto;
-  font-size: 0.9rem;
-  background-color: transparent;
-  border: 1px solid var(--color-border);
-  color: var(--color-text-soft);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-icon:hover {
-  background-color: rgba(88, 166, 255, 0.1);
-  border-color: var(--color-primary);
-  color: var(--color-text);
-}
-
-.btn-icon.copied {
-  background-color: rgba(34, 197, 94, 0.2);
-  border-color: rgba(34, 197, 94, 0.4);
-  color: var(--color-success);
-}
 
 /* Status Indicator */
 .status-indicator {
