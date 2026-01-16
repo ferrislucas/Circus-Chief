@@ -195,20 +195,57 @@ describe('CanvasTab', () => {
   });
 
   describe('file upload', () => {
-    it('renders upload button', async () => {
-      api.getCanvasItems.mockResolvedValue([]);
+    it('renders upload button in list view', async () => {
+      api.getCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'file1.png', createdAt: 1000 },
+        { id: '2', filename: 'file2.png', createdAt: 2000 },
+      ]);
 
       const wrapper = mountComponent();
 
-      await flushPromises();
+      await flushAll(wrapper);
 
       const uploadButton = wrapper.find('label.btn-primary');
       expect(uploadButton.exists()).toBe(true);
-      expect(uploadButton.text()).toBe('Upload File');
+      expect(uploadButton.text()).toContain('Upload File');
+    });
+
+    it('hides upload button when viewing a single file', async () => {
+      api.getCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'file1.png', createdAt: 1000 },
+      ]);
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // With only one file, shouldShowViewer is true
+      const uploadButton = wrapper.find('label.btn-primary');
+      expect(uploadButton.exists()).toBe(false);
+    });
+
+    it('hides upload button when viewing a specific file in list', async () => {
+      api.getCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'file1.png', createdAt: 1000 },
+        { id: '2', filename: 'file2.png', createdAt: 2000 },
+      ]);
+
+      mockRoute.query = { item: '1' };
+
+      const wrapper = mountComponent();
+
+      await flushAll(wrapper);
+
+      // With item query parameter, shouldShowViewer is true
+      const uploadButton = wrapper.find('label.btn-primary');
+      expect(uploadButton.exists()).toBe(false);
     });
 
     it('has hidden file input', async () => {
-      api.getCanvasItems.mockResolvedValue([]);
+      api.getCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'file1.png', createdAt: 1000 },
+        { id: '2', filename: 'file2.png', createdAt: 2000 },
+      ]);
 
       const wrapper = mountComponent();
 
