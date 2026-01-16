@@ -396,7 +396,7 @@ describe('SchedulingInfo.vue', () => {
 
   describe('countdown updates', () => {
     it('sets up countdown interval on mount', () => {
-      const setIntervalSpy = vi.spyOn(global, 'setInterval');
+      const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
 
       mount(SchedulingInfo, {
         props: {
@@ -409,7 +409,7 @@ describe('SchedulingInfo.vue', () => {
     });
 
     it('clears countdown interval on unmount', () => {
-      const clearIntervalSpy = vi.spyOn(global, 'clearInterval');
+      const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
 
       const wrapper = mount(SchedulingInfo, {
         props: {
