@@ -20,7 +20,7 @@ describe('NewSessionView - DOM Synchronization on Draft Restoration', () => {
         delete localStorageMock.data[key];
       }),
     };
-    global.localStorage = localStorageMock;
+    globalThis.localStorage = localStorageMock;
   });
 
   afterEach(() => {
