@@ -6,6 +6,8 @@ import { initDatabase } from './database.js';
 import { initWebSocket } from './websocket.js';
 import { DEFAULT_SERVER_PORT } from '@claudetools/shared';
 import * as prStatusService from './services/prStatusService.js';
+import { schedulerService } from './services/schedulerService.js';
+import * as sessionManager from './services/sessionManager.js';
 
 /**
  * Validate Node.js environment at startup.
@@ -62,12 +64,17 @@ const server = createServer(app);
 // Initialize WebSocket for app
 initWebSocket(server);
 
+// Initialize and start scheduler service
+schedulerService.initialize(sessionManager);
+schedulerService.start();
+
 // Start PR status polling service
 prStatusService.start();
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully');
+  schedulerService.stop();
   prStatusService.stop();
   server.close(() => {
     console.log('Server closed');
@@ -77,6 +84,7 @@ process.on('SIGTERM', () => {
 
 process.on('SIGINT', () => {
   console.log('SIGINT received, shutting down gracefully');
+  schedulerService.stop();
   prStatusService.stop();
   server.close(() => {
     console.log('Server closed');

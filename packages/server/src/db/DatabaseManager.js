@@ -89,7 +89,41 @@ export class DatabaseManager {
       this.#db.exec('ALTER TABLE projects ADD COLUMN session_title_prompt TEXT');
     }
 
-    // Migrate sessions table to add 'stopped' status to CHECK constraint
+    // Add scheduling columns to sessions table
+    const schedSessionsTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const schedSessionsColumns = schedSessionsTableInfo.map((col) => col.name);
+
+    if (!schedSessionsColumns.includes('scheduled_at')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN scheduled_at INTEGER DEFAULT NULL');
+    }
+    if (!schedSessionsColumns.includes('reschedule_delay_minutes')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN reschedule_delay_minutes INTEGER DEFAULT 15');
+    }
+    if (!schedSessionsColumns.includes('auto_reschedule_enabled')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN auto_reschedule_enabled INTEGER DEFAULT 0');
+    }
+    if (!schedSessionsColumns.includes('reschedule_on_token_limit')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN reschedule_on_token_limit INTEGER DEFAULT 1');
+    }
+    if (!schedSessionsColumns.includes('reschedule_on_service_error')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN reschedule_on_service_error INTEGER DEFAULT 1');
+    }
+    if (!schedSessionsColumns.includes('max_reschedule_count')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN max_reschedule_count INTEGER DEFAULT NULL');
+    }
+    if (!schedSessionsColumns.includes('max_total_tokens')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN max_total_tokens INTEGER DEFAULT NULL');
+    }
+    if (!schedSessionsColumns.includes('reschedule_count')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN reschedule_count INTEGER DEFAULT 0');
+    }
+    if (!schedSessionsColumns.includes('reschedule_at_token_count')) {
+      this.#db.exec(
+        'ALTER TABLE sessions ADD COLUMN reschedule_at_token_count INTEGER DEFAULT NULL'
+      );
+    }
+
+    // Migrate sessions table to add 'stopped' and 'scheduled' status to CHECK constraint
     // SQLite doesn't allow modifying CHECK constraints, so we need to recreate the table
     this.#migrateSessionsStatusConstraint();
 
@@ -360,30 +394,31 @@ export class DatabaseManager {
   }
 
   /**
-   * Migrate sessions table to include 'stopped' in status CHECK constraint
+   * Migrate sessions table to include 'stopped' and 'scheduled' in status CHECK constraint
    * SQLite doesn't support ALTER TABLE to modify constraints, so we recreate the table
    * @private
    */
   #migrateSessionsStatusConstraint() {
-    // Check if the current constraint includes 'stopped' by trying to read it from sqlite_master
+    // Check if the current constraint includes 'scheduled' by trying to read it from sqlite_master
     const tableSchema = this.#db
       .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'")
       .get();
 
-    // If schema includes 'stopped', no migration needed
-    if (tableSchema?.sql?.includes("'stopped'")) {
+    // If schema includes 'scheduled', no migration needed
+    if (tableSchema?.sql?.includes("'scheduled'")) {
       return;
     }
 
-    // Need to recreate table with updated constraint
-    // Use a transaction to ensure atomicity
-    this.#db.exec(`
-      -- Create new table with updated constraint
-      CREATE TABLE sessions_new (
+    // Get all columns from the current table to preserve data
+    const columns = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const columnNames = columns.map((col) => col.name);
+
+    // Build the column list for the new table, including all existing columns
+    const baseColumns = `
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'starting' CHECK (status IN ('starting', 'running', 'waiting', 'stopped', 'completed', 'error')),
+        status TEXT NOT NULL DEFAULT 'starting' CHECK (status IN ('starting', 'running', 'waiting', 'stopped', 'completed', 'error', 'scheduled')),
         mode TEXT NOT NULL DEFAULT 'standard' CHECK (mode IN ('plan', 'standard', 'yolo')),
         thinking_enabled INTEGER NOT NULL DEFAULT 0,
         git_branch TEXT,
@@ -395,13 +430,78 @@ export class DatabaseManager {
         model TEXT,
         next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
         parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+        input_tokens INTEGER DEFAULT 0,
+        output_tokens INTEGER DEFAULT 0,
+        cache_read_input_tokens INTEGER DEFAULT 0,
+        cache_creation_input_tokens INTEGER DEFAULT 0,
+        web_search_requests INTEGER DEFAULT 0,
+        context_window INTEGER DEFAULT 200000,
+        archived INTEGER NOT NULL DEFAULT 0,
+        starred INTEGER NOT NULL DEFAULT 0,
+        scheduled_at INTEGER DEFAULT NULL,
+        reschedule_delay_minutes INTEGER DEFAULT 15,
+        auto_reschedule_enabled INTEGER DEFAULT 0,
+        reschedule_on_token_limit INTEGER DEFAULT 1,
+        reschedule_on_service_error INTEGER DEFAULT 1,
+        max_reschedule_count INTEGER DEFAULT NULL,
+        max_total_tokens INTEGER DEFAULT NULL,
+        reschedule_count INTEGER DEFAULT 0,
+        reschedule_at_token_count INTEGER DEFAULT NULL,
         created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
         updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    `;
+
+    // Create a SELECT clause that only includes columns that exist in the current table
+    const selectColumns = [
+      'id',
+      'project_id',
+      'name',
+      'status',
+      'mode',
+      'thinking_enabled',
+      'git_branch',
+      'git_worktree',
+      'pr_url',
+      'error',
+      'cost_usd',
+      'claude_session_id',
+      'model',
+      'next_template_id',
+      'parent_session_id',
+      'input_tokens',
+      'output_tokens',
+      'cache_read_input_tokens',
+      'cache_creation_input_tokens',
+      'web_search_requests',
+      'context_window',
+      'archived',
+      'starred',
+      'scheduled_at',
+      'reschedule_delay_minutes',
+      'auto_reschedule_enabled',
+      'reschedule_on_token_limit',
+      'reschedule_on_service_error',
+      'max_reschedule_count',
+      'max_total_tokens',
+      'reschedule_count',
+      'reschedule_at_token_count',
+      'created_at',
+      'updated_at',
+    ]
+      .filter((col) => columnNames.includes(col))
+      .join(', ');
+
+    // Need to recreate table with updated constraint
+    // Use a transaction to ensure atomicity
+    this.#db.exec(`
+      -- Create new table with updated constraint
+      CREATE TABLE sessions_new (
+        ${baseColumns}
       );
 
-      -- Copy data from old table (explicitly list columns that exist in both tables)
-      INSERT INTO sessions_new (id, project_id, name, status, mode, thinking_enabled, git_branch, git_worktree, pr_url, error, cost_usd, claude_session_id, model, created_at, updated_at)
-      SELECT id, project_id, name, status, mode, thinking_enabled, git_branch, git_worktree, pr_url, error, cost_usd, claude_session_id, model, created_at, updated_at FROM sessions;
+      -- Copy data from old table (only columns that exist)
+      INSERT INTO sessions_new (${selectColumns})
+      SELECT ${selectColumns} FROM sessions;
 
       -- Drop old table
       DROP TABLE sessions;
@@ -413,8 +513,10 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
       CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
       CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived);
+      CREATE INDEX IF NOT EXISTS idx_sessions_starred ON sessions(archived, starred);
       CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id);
       CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
+      CREATE INDEX IF NOT EXISTS idx_sessions_scheduled ON sessions(scheduled_at) WHERE scheduled_at IS NOT NULL;
     `);
   }
 

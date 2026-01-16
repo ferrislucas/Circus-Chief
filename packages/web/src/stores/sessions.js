@@ -759,6 +759,31 @@ export const useSessionsStore = defineStore('sessions', {
     },
 
     /**
+     * Generic async update for session fields via API
+     * @param {string} sessionId - Session ID
+     * @param {Object} updates - Fields to update (e.g., { status: 'starting', scheduledAt: null })
+     * @returns {Promise<Object>} Updated session
+     */
+    async updateSessionFields(sessionId, updates) {
+      this.error = null;
+      try {
+        const updated = await api.updateSession(sessionId, updates);
+        // Update local state with all updated fields
+        const session = this.sessions.find((s) => s.id === sessionId);
+        if (session) {
+          Object.assign(session, updates);
+        }
+        if (this.currentSession?.id === sessionId) {
+          this.currentSession = { ...this.currentSession, ...updates };
+        }
+        return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    /**
      * Update session with new data from WebSocket
      * @param {Object} sessionData - Updated session data
      */

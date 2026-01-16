@@ -71,6 +71,9 @@
 
       <div v-if="error" class="error-message">{{ error }}</div>
 
+      <!-- Scheduling Options -->
+      <SchedulingOptions v-model="schedulingData" />
+
       <div class="form-actions">
         <button type="submit" class="btn btn-primary btn-full-width" :disabled="loading">
           <span v-if="loading" class="loading-spinner"></span>
@@ -182,6 +185,7 @@ import FileAttachment from '../components/FileAttachment.vue';
 import ModelSelector from '../components/ModelSelector.vue';
 import ModeSelector from '../components/ModeSelector.vue';
 import QuickResponsesPanel from '../components/QuickResponsesPanel.vue';
+import SchedulingOptions from '../components/SchedulingOptions.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -225,6 +229,16 @@ const fileAttachment = ref(null);
 const selectedTemplateId = ref(null);
 const parentSessionId = ref(null);
 const startImmediately = ref(true);
+const schedulingData = ref({
+  scheduledAt: null,
+  autoRescheduleEnabled: false,
+  rescheduleDelayMinutes: 15,
+  rescheduleOnTokenLimit: true,
+  rescheduleOnServiceError: true,
+  maxRescheduleCount: null,
+  maxTotalTokens: null,
+  rescheduleAtTokenCount: null,
+});
 
 const projectTemplates = computed(() => templatesStore.projectTemplates);
 const globalTemplates = computed(() => templatesStore.globalTemplates);
@@ -477,6 +491,15 @@ async function handleSubmit() {
       files: attachedFiles.value,
       templateId: selectedTemplateId.value,
       parentSessionId: parentSessionId.value || null,
+      // Scheduling fields
+      scheduledAt: schedulingData.value.scheduledAt,
+      autoRescheduleEnabled: schedulingData.value.autoRescheduleEnabled,
+      rescheduleDelayMinutes: schedulingData.value.rescheduleDelayMinutes,
+      rescheduleOnTokenLimit: schedulingData.value.rescheduleOnTokenLimit,
+      rescheduleOnServiceError: schedulingData.value.rescheduleOnServiceError,
+      maxRescheduleCount: schedulingData.value.maxRescheduleCount,
+      maxTotalTokens: schedulingData.value.maxTotalTokens,
+      rescheduleAtTokenCount: schedulingData.value.rescheduleAtTokenCount,
     });
     fileAttachment.value?.clear();
     // Clear the draft from localStorage after successful submission
