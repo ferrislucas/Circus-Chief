@@ -1108,11 +1108,12 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
     const tabs = wrapper.findAll('.tab');
-    expect(tabs.length).toBe(4);
+    expect(tabs.length).toBe(5);
     expect(tabs[0].text()).toBe('Sessions');
     expect(tabs[1].text()).toBe('Archived');
     expect(tabs[2].text()).toBe('Templates');
     expect(tabs[3].text()).toBe('Commands');
+    expect(tabs[4].text()).toContain('Scheduled');
 
     // Sessions tab should be active
     expect(tabs[0].classes()).toContain('active');
