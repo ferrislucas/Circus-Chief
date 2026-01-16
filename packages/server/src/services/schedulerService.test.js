@@ -83,7 +83,7 @@ describe('SchedulerService', () => {
       scheduler.initialize(mockSessionManager);
       scheduler.start();
 
-      const intervalId = scheduler.intervalId;
+      expect(scheduler.intervalId).not.toBeNull();
       scheduler.stop();
 
       expect(scheduler.intervalId).toBeNull();

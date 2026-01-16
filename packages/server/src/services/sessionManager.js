@@ -146,7 +146,7 @@ function shouldRescheduleOnError(session, error) {
  * @param {string} sessionId - Session ID
  * @returns {Promise<boolean>} True if rescheduled
  */
-async function checkProactiveReschedule(sessionId) {
+async function _checkProactiveReschedule(sessionId) {
   const session = sessions.getById(sessionId);
   if (!session || !session.autoRescheduleEnabled || !session.rescheduleAtTokenCount) {
     return false;
