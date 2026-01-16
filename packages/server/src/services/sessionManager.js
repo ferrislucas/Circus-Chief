@@ -14,6 +14,9 @@ const lastMessageIds = new Map();
 /** @type {Map<string, string>} Accumulate thinking content per session */
 const thinkingAccumulators = new Map();
 
+/** @type {Map<string, string>} Accumulate text content per session */
+const textAccumulators = new Map();
+
 /** @type {Map<string, { controller: AbortController }>} */
 const activeSessions = new Map();
 
@@ -684,6 +687,8 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     }
     throw error;
   } finally {
+    textAccumulators.delete(sessionId);
+    thinkingAccumulators.delete(sessionId);
     activeSessions.delete(sessionId);
   }
 }
@@ -803,6 +808,8 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     }
     throw error;
   } finally {
+    textAccumulators.delete(sessionId);
+    thinkingAccumulators.delete(sessionId);
     activeSessions.delete(sessionId);
   }
 }
@@ -925,6 +932,8 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     }
     throw error;
   } finally {
+    textAccumulators.delete(sessionId);
+    thinkingAccumulators.delete(sessionId);
     activeSessions.delete(sessionId);
   }
 }
@@ -1070,6 +1079,12 @@ async function handleStreamEvent(sessionId, event) {
         // Broadcast message
         broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
 
+        // Clear partial text on client now that complete message has been sent
+        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
+          sessionId,
+          text: '',
+        });
+
         // Trigger debounced summary generation on new message
         summaryService.onSessionActivity(sessionId);
       }
@@ -1125,6 +1140,9 @@ async function handleStreamEvent(sessionId, event) {
     case 'stream_event': {
       // Handle message_start for initial usage (input tokens) - enables real-time token updates
       if (event.event?.type === 'message_start') {
+        // Clear text accumulator for fresh message
+        textAccumulators.delete(sessionId);
+
         const usage = event.event?.message?.usage;
         if (usage) {
           const conversationId = activeConversationIds.get(sessionId);
@@ -1158,9 +1176,14 @@ async function handleStreamEvent(sessionId, event) {
         const delta = event.event.delta;
 
         if (delta?.type === 'text_delta' && delta.text) {
+          // Accumulate text content
+          const current = textAccumulators.get(sessionId) || '';
+          const accumulated = current + delta.text;
+          textAccumulators.set(sessionId, accumulated);
+
           broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
             sessionId,
-            text: delta.text,
+            text: accumulated,
           });
 
           // ISSUE 2: Estimate tokens from streamed content for real-time output token updates
@@ -1211,7 +1234,7 @@ async function handleStreamEvent(sessionId, event) {
         }
       }
 
-      // Handle content_block_stop - finalize accumulated thinking
+      // Handle content_block_stop - finalize accumulated thinking and text
       if (event.event?.type === 'content_block_stop') {
         const accumulated = thinkingAccumulators.get(sessionId);
         if (accumulated) {
@@ -1225,6 +1248,10 @@ async function handleStreamEvent(sessionId, event) {
             thinking: null,
           });
         }
+
+        // Clear text accumulator when content block finishes
+        // The text has been finalized into a message
+        textAccumulators.delete(sessionId);
       }
       break;
     }
