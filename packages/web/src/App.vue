@@ -42,6 +42,9 @@ import ToastContainer from './components/ToastContainer.vue';
   top: 0;
   z-index: 100;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+
+  /* Add safe area padding for iOS notch/status bar */
+  padding-top: calc(5px + var(--safe-area-inset-top, 0px)) !important;
 }
 
 .app-header .container {

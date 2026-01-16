@@ -317,15 +317,6 @@ onMounted(async () => {
   // Handle usage updates for real-time token display (Issue #175)
   cleanups.push(
     onUsageUpdate((msg) => {
-      // ========== DIAGNOSTIC LOGGING ==========
-      console.log(`🟣 [SessionDetail] onUsageUpdate handler called`, {
-        msgSessionId: msg.sessionId,
-        expectedSessionId: sessionId,
-        conversationId: msg.conversationId,
-        isFinal: msg.isFinal,
-        usage: msg.usage,
-      });
-      // ========================================
       if (msg.isFinal) {
         sessionsStore.finalizeUsage(msg.usage, msg.conversationId);
       } else {

@@ -2018,8 +2018,8 @@ describe('Sessions Store', () => {
           contextWindow: 200000,
         };
 
-        // Should use running usage: (10000 + 50000) / 200000 = 30%
-        expect(store.contextPercentage).toBe(30);
+        // Should add base + running usage: (10000 + 10000 + 5000 + 50000) / 200000 = 37.5% ≈ 38%
+        expect(store.contextPercentage).toBe(38);
       });
 
       it('falls back to conversation context when runningUsage is null', () => {
@@ -2065,8 +2065,8 @@ describe('Sessions Store', () => {
           contextWindow: 200000,
         };
 
-        // (100000 + 50000) / 200000 = 75%
-        expect(store.contextPercentage).toBe(75);
+        // Should add base + running usage: (5000 + 2500 + 100000 + 50000) / 200000 = 78.75% ≈ 79%
+        expect(store.contextPercentage).toBe(79);
       });
     });
 
