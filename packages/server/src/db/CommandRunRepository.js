@@ -157,4 +157,26 @@ export class CommandRunRepository extends BaseRepository {
       .all(projectId);
     return this.mapAll(rows);
   }
+
+  /**
+   * Get the latest run for each button in a session (one per button)
+   * @param {string} sessionId - Session ID
+   * @returns {Array} Array of CommandRun objects
+   */
+  getLatestRunsForSession(sessionId) {
+    const rows = this.db
+      .prepare(
+        `SELECT *
+         FROM (
+           SELECT cr.*,
+             ROW_NUMBER() OVER (PARTITION BY cr.button_id ORDER BY COALESCE(cr.completed_at, cr.started_at) DESC, cr.id DESC) as rn
+           FROM command_runs cr
+           WHERE cr.session_id = ?
+         )
+         WHERE rn = 1
+         ORDER BY COALESCE(completed_at, started_at) DESC, id DESC`
+      )
+      .all(sessionId);
+    return this.mapAll(rows);
+  }
 }

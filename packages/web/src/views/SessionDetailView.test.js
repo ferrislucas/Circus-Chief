@@ -1295,4 +1295,165 @@ describe('SessionDetailView', () => {
       expect(finalizeUsageSpy).toHaveBeenCalledWith(mockUsage, mockConversationId);
     });
   });
+
+  describe('command button status indicators', () => {
+    it('displays command button status indicators when latestCommandRuns exists', async () => {
+      const { useCommandButtonsStore } = await import('../stores/commandButtons.js');
+      const commandButtonsStore = useCommandButtonsStore();
+
+      // Set up command buttons for the project (getButtonsByProjectId is a getter that filters by projectId)
+      commandButtonsStore.buttons = [
+        { id: 'btn-1', label: 'Test Command', showOnList: true, projectId: 'project-1' },
+        { id: 'btn-2', label: 'Build', showOnList: true, projectId: 'project-1' },
+        { id: 'btn-3', label: 'Hidden', showOnList: false, projectId: 'project-1' },
+      ];
+
+      vi.spyOn(commandButtonsStore, 'fetchButtons').mockResolvedValue(undefined);
+
+      // Set up session with command runs
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        latestCommandRuns: [
+          { buttonId: 'btn-1', status: 'running', runId: 'run-1' },
+          { buttonId: 'btn-2', status: 'success', runId: 'run-2', exitCode: 0 },
+          { buttonId: 'btn-3', status: 'error', runId: 'run-3', exitCode: 1 },
+        ],
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+            CommandButtonStatusBar: false, // Don't stub - we want to test the real component
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Check if CommandButtonStatusBar is rendered
+      const statusBar = wrapper.findComponent({ name: 'CommandButtonStatusBar' });
+      expect(statusBar.exists()).toBe(true);
+
+      // Should show 2 indicators (btn-1 and btn-2) because btn-3 has showOnList: false
+      const indicators = statusBar.findAll('.button-status-indicator');
+      expect(indicators.length).toBe(2);
+    });
+
+    it('hides command button status indicators when latestCommandRuns is empty', async () => {
+      const { useCommandButtonsStore } = await import('../stores/commandButtons.js');
+      const commandButtonsStore = useCommandButtonsStore();
+
+      commandButtonsStore.buttons = [];
+      vi.spyOn(commandButtonsStore, 'fetchButtons').mockResolvedValue(undefined);
+
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        latestCommandRuns: [],
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+            CommandButtonStatusBar: false,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // CommandButtonStatusBar should exist but not render anything
+      const statusBar = wrapper.findComponent({ name: 'CommandButtonStatusBar' });
+      expect(statusBar.exists()).toBe(true);
+      expect(statusBar.find('.command-status-bar').exists()).toBe(false);
+    });
+
+    it('updates indicators in real-time when command status changes', async () => {
+      const { useCommandButtonsStore } = await import('../stores/commandButtons.js');
+      const commandButtonsStore = useCommandButtonsStore();
+
+      commandButtonsStore.buttons = [
+        { id: 'btn-1', label: 'Test Command', showOnList: true, projectId: 'project-1' },
+      ];
+
+      vi.spyOn(commandButtonsStore, 'fetchButtons').mockResolvedValue(undefined);
+
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        latestCommandRuns: [
+          { buttonId: 'btn-1', status: 'running', runId: 'run-1' },
+        ],
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+            CommandButtonStatusBar: false,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Verify initial state
+      let statusBar = wrapper.findComponent({ name: 'CommandButtonStatusBar' });
+      let indicator = statusBar.find('.button-status-running');
+      expect(indicator.exists()).toBe(true);
+      expect(indicator.text()).toBe('⊙');
+
+      // Simulate command completion via store update
+      sessionsStore.updateSessionCommandRun('session-1', 'btn-1', {
+        buttonId: 'btn-1',
+        status: 'success',
+        exitCode: 0,
+        runId: 'run-1',
+      });
+
+      await flushPromises();
+
+      // Check that indicator updated to success
+      statusBar = wrapper.findComponent({ name: 'CommandButtonStatusBar' });
+      indicator = statusBar.find('.button-status-success');
+      expect(indicator.exists()).toBe(true);
+      expect(indicator.text()).toBe('✓');
+    });
+  });
 });
