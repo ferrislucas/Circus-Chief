@@ -213,6 +213,11 @@ input, textarea, select {
   color: var(--color-error);
 }
 
+.status-scheduled {
+  background-color: rgba(34, 197, 255, 0.2);
+  color: #22c5ff;
+}
+
 /* Loading */
 .loading-spinner {
   display: inline-block;

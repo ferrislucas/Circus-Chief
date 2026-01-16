@@ -21,21 +21,22 @@
             />
           </div>
 
-          <!-- Optional Prompt -->
+          <!-- Required Prompt -->
           <div class="form-group">
-            <label for="prompt" class="form-label">Follow-up Message (optional)</label>
+            <label for="prompt" class="form-label">Follow-up Message *</label>
             <textarea
               id="prompt"
               v-model="form.prompt"
               class="form-input"
               rows="3"
               placeholder="Enter a message to send when the session starts..."
+              required
             ></textarea>
-            <p class="form-help">Leave empty to continue with the existing conversation</p>
+            <p class="form-help">This message will be sent when the scheduled session starts</p>
           </div>
 
           <!-- Scheduling Options (collapsible) -->
-          <SchedulingOptions v-model="form.scheduling" />
+          <SchedulingOptions v-model="form.scheduling" :hide-scheduled-at="true" />
         </div>
 
         <div class="modal-footer">
@@ -88,6 +89,7 @@ const minDateTime = computed(() => {
 
 const isValid = computed(() => {
   if (!form.scheduledAtLocal) return false;
+  if (!form.prompt || !form.prompt.trim()) return false;
   const scheduledTime = new Date(form.scheduledAtLocal).getTime();
   return scheduledTime > Date.now();
 });
@@ -105,13 +107,9 @@ async function handleSchedule() {
 
     const payload = {
       scheduledAt,
+      prompt: form.prompt.trim(),
       ...form.scheduling,
     };
-
-    // Only include prompt if provided
-    if (form.prompt && form.prompt.trim()) {
-      payload.prompt = form.prompt.trim();
-    }
 
     await api.scheduleSession(props.sessionId, payload);
 

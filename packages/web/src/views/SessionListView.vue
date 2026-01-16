@@ -334,9 +334,9 @@ const summaryErrors = reactive({});
 // Track if archived sessions have been loaded
 const archivedLoaded = ref(false);
 
-// Scheduled sessions state
-const scheduledSessions = ref([]);
-const loadingScheduled = ref(false);
+// Scheduled sessions state - use store instead of local refs
+const scheduledSessions = computed(() => sessionsStore.scheduledSessions || []);
+const loadingScheduled = computed(() => sessionsStore.loadingScheduled || false);
 
 // Store cleanup functions for WebSocket listeners
 const cleanups = [];
@@ -584,16 +584,7 @@ function fetchArchivedSummaries() {
 }
 
 async function fetchScheduledSessions() {
-  loadingScheduled.value = true;
-  try {
-    const response = await api.get('/sessions/scheduled');
-    scheduledSessions.value = response.data || [];
-  } catch (error) {
-    console.error('Failed to fetch scheduled sessions:', error);
-    scheduledSessions.value = [];
-  } finally {
-    loadingScheduled.value = false;
-  }
+  await sessionsStore.fetchScheduledSessions();
 }
 
 async function handleArchive(sessionId) {
