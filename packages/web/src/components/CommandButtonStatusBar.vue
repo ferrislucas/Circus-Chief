@@ -1,15 +1,12 @@
 <template>
   <div v-if="buttonStatuses.length > 0" class="command-status-bar">
-    <span class="status-label">Command Status:</span>
-    <div class="status-indicators">
-      <span
-        v-for="indicator in buttonStatuses"
-        :key="indicator.buttonId"
-        :class="['button-status-indicator', `button-status-${indicator.status}`]"
-        :title="`${indicator.label}: ${indicator.status}`"
-        @click="selectedButtonForModal = indicator"
-      >{{ getStatusIcon(indicator.status) }}</span>
-    </div>
+    <span
+      v-for="indicator in buttonStatuses"
+      :key="indicator.buttonId"
+      :class="['button-status-indicator', `button-status-${indicator.status}`]"
+      :title="`${indicator.label}: ${indicator.status}`"
+      @click="selectedButtonForModal = indicator"
+    >{{ getStatusIcon(indicator.status) }}</span>
     <!-- Button Status Modal -->
     <ButtonStatusModal
       v-if="selectedButtonForModal"
@@ -54,21 +51,10 @@ const getStatusIcon = (status) => {
 .command-status-bar {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 0;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
   border-bottom: 1px solid var(--color-border);
   margin-bottom: 0.75rem;
-}
-
-.status-label {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-  font-weight: 500;
-}
-
-.status-indicators {
-  display: flex;
-  gap: 0.5rem;
   flex-wrap: wrap;
 }
 

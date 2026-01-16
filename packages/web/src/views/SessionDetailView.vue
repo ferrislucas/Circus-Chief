@@ -122,10 +122,12 @@ import DuplicateSessionButton from '../components/DuplicateSessionButton.vue';
 import OverflowMenu from '../components/OverflowMenu.vue';
 import CommandButtonStatusBar from '../components/CommandButtonStatusBar.vue';
 import { useTemplatesStore } from '../stores/templates.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 
 const route = useRoute();
 const router = useRouter();
 const sessionsStore = useSessionsStore();
+const commandButtonsStore = useCommandButtonsStore();
 const canvasStore = useCanvasStore();
 const todosStore = useTodosStore();
 const uiStore = useUiStore();
@@ -149,13 +151,21 @@ const buttonStatusesToDisplay = computed(() => {
   // eslint-disable-next-line no-unused-vars
   const _version = sessionsStore.commandRunVersion;
 
-  if (!sessionsStore.currentSession?.latestCommandRuns) return [];
-  return sessionsStore.currentSession.latestCommandRuns.map(run => ({
-    buttonId: run.buttonId,
-    label: run.label,
-    status: run.status,
-    latestRun: run,
-  }));
+  const projectId = sessionsStore.currentSession?.projectId;
+  if (!projectId) return [];
+
+  const buttons = commandButtonsStore.getButtonsByProjectId(projectId);
+  const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
+
+  const latestRuns = sessionsStore.currentSession?.latestCommandRuns || [];
+  return latestRuns
+    .filter(run => buttonMap[run.buttonId]?.showOnList)
+    .map(run => ({
+      buttonId: run.buttonId,
+      label: buttonMap[run.buttonId].label,
+      status: run.status,
+      latestRun: run,
+    }));
 });
 
 // Allow archiving any session that isn't running
@@ -257,6 +267,18 @@ onMounted(async () => {
   // and prevents handlers from trying to access empty conversation lists
   await sessionsStore.fetchSession(sessionId);
   await sessionsStore.fetchConversations(sessionId);
+
+  // Fetch command buttons for the project so button labels are available
+  // This is needed for displaying command status indicators
+  const projectId = sessionsStore.currentSession?.projectId;
+  if (projectId) {
+    try {
+      await commandButtonsStore.fetchButtons(projectId);
+    } catch (error) {
+      // Non-critical - command buttons may not exist for this project
+      console.debug('Failed to fetch command buttons:', error);
+    }
+  }
 
   // STEP 2: Register all handlers (data is now ready)
   // This ensures we don't miss any updates that arrive while data is being fetched
