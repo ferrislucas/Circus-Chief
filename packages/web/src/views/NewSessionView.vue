@@ -171,7 +171,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
@@ -366,6 +366,14 @@ onMounted(async () => {
   const saved = localStorage.getItem(storageKey.value);
   if (saved) {
     prompt.value = saved;
+    // Sync to textarea DOM element after Vue has rendered
+    nextTick(() => {
+      if (textareaRef.value) {
+        textareaRef.value.value = saved;
+        // Also update the promptHasContent flag
+        promptHasContent.value = saved.trim().length > 0;
+      }
+    });
   }
 
   // Fetch project defaults
