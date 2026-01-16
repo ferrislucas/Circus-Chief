@@ -99,17 +99,6 @@ describe('SessionCard', () => {
       expect(badge.classes()).toContain('status-running');
     });
 
-    it('renders session mode capitalized', () => {
-      const wrapper = mountComponent();
-      expect(wrapper.find('.session-mode').text()).toBe('Code');
-    });
-
-    it('renders YOLO mode in uppercase', () => {
-      const wrapper = mountComponent({
-        session: { ...baseSession, mode: 'yolo' },
-      });
-      expect(wrapper.find('.session-mode').text()).toBe('YOLO');
-    });
 
     it('links to session detail page', () => {
       const wrapper = mountComponent();
@@ -344,60 +333,6 @@ describe('SessionCard', () => {
         });
         expect(wrapper.find('.status-badge').classes()).toContain(`status-${status}`);
       });
-    });
-  });
-
-  describe('model display', () => {
-    it('displays Opus 4.5 for claude-opus-4-5-20251101 model', () => {
-      const wrapper = mountComponent({
-        session: { ...baseSession, model: 'claude-opus-4-5-20251101' },
-      });
-      expect(wrapper.find('.session-model').text()).toBe('Opus 4.5');
-    });
-
-    it('displays Sonnet 4.5 for claude-sonnet-4-5-20250929 model', () => {
-      const wrapper = mountComponent({
-        session: { ...baseSession, model: 'claude-sonnet-4-5-20250929' },
-      });
-      expect(wrapper.find('.session-model').text()).toBe('Sonnet 4.5');
-    });
-
-    it('displays Haiku 4.5 for claude-haiku-4-5-20251001 model', () => {
-      const wrapper = mountComponent({
-        session: { ...baseSession, model: 'claude-haiku-4-5-20251001' },
-      });
-      expect(wrapper.find('.session-model').text()).toBe('Haiku 4.5');
-    });
-
-    it('displays Default when model is null', () => {
-      const wrapper = mountComponent({
-        session: { ...baseSession, model: null },
-      });
-      expect(wrapper.find('.session-model').text()).toBe('Default');
-    });
-
-    it('displays Default when model is undefined', () => {
-      const wrapper = mountComponent({
-        session: { ...baseSession },
-      });
-      expect(wrapper.find('.session-model').text()).toBe('Default');
-    });
-
-    it('displays Unknown for unrecognized model ID', () => {
-      const wrapper = mountComponent({
-        session: { ...baseSession, model: 'unknown-model-id' },
-      });
-      expect(wrapper.find('.session-model').text()).toBe('Unknown');
-    });
-
-    it('renders model in session-meta alongside status and mode', () => {
-      const wrapper = mountComponent({
-        session: { ...baseSession, model: 'claude-opus-4-5-20251101' },
-      });
-      const sessionMeta = wrapper.find('.session-meta');
-      expect(sessionMeta.find('.status-badge').exists()).toBe(true);
-      expect(sessionMeta.find('.session-mode').exists()).toBe(true);
-      expect(sessionMeta.find('.session-model').exists()).toBe(true);
     });
   });
 

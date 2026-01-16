@@ -2,6 +2,7 @@
   <div :class="['tree-item', { 'is-branch': isBranch, 'is-active': isActive }]">
     <div
       :class="['tree-item-row', { active: isActive }]"
+      data-testid="conversation-option"
       @click="$emit('select', conversation.id)"
     >
       <!-- Indent based on depth -->
