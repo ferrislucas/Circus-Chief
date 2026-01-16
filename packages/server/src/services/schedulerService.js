@@ -188,3 +188,6 @@ class SchedulerService {
 
 // Singleton instance
 export const schedulerService = new SchedulerService();
+
+// Export class for testing
+export { SchedulerService };
