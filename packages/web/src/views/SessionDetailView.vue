@@ -44,7 +44,9 @@
           <OverflowMenu
             aria-label="Session actions"
             :is-archived="sessionsStore.currentSession.archived"
+            copy-session-id-text="Copy ID"
             @duplicate="handleDuplicate"
+            @copySessionId="handleCopySessionId"
             @archive="handleArchive"
             @delete="handleDelete"
           />
@@ -522,6 +524,29 @@ async function handleStar() {
 function handleScheduled() {
   // Refresh session data after scheduling
   sessionsStore.fetchSession(sessionId);
+}
+
+async function handleCopySessionId() {
+  try {
+    await navigator.clipboard.writeText(sessionId);
+    uiStore.success(`Session ID copied to clipboard: ${sessionId}`);
+  } catch (err) {
+    // Fallback using textarea method for older browsers
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = sessionId;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      uiStore.success(`Session ID copied to clipboard: ${sessionId}`);
+    } catch (fallbackErr) {
+      console.error('Copy failed:', fallbackErr);
+      uiStore.error('Failed to copy session ID');
+    }
+  }
 }
 
 function getTemplateName(templateId) {
