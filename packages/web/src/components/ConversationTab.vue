@@ -14,6 +14,7 @@
         :key="message.id"
         :class="['message', `message-${message.role}`]"
         :data-message-id="message.id"
+        :data-testid="`message-${message.role}`"
       >
         <div class="message-header">
           <span class="message-role">{{ message.role }}</span>
@@ -23,6 +24,7 @@
             v-if="message.role === 'user' && canBranch && branchingMessageId !== message.id"
             type="button"
             class="branch-btn"
+            data-testid="branch-button"
             @click="openBranchEditor(message.id)"
             title="Create a branch from this message"
           >
@@ -841,6 +843,7 @@ function closeBranchEditor() {
 }
 
 async function handleBranchCreate({ messageId, prompt }) {
+  let branchCreated = false;
   try {
     const activeConv = sessionsStore.activeConversation;
     if (!activeConv) {
@@ -859,6 +862,7 @@ async function handleBranchCreate({ messageId, prompt }) {
       prompt
     );
 
+    branchCreated = true;
     closeBranchEditor();
     uiStore.success('Branch created - Claude is responding');
 
@@ -866,8 +870,10 @@ async function handleBranchCreate({ messageId, prompt }) {
     scrollToBottom(true);
   } catch (err) {
     uiStore.error(err.message);
-    // Reset the creating state in the editor
-    if (branchEditorRef.value) {
+  } finally {
+    // Always ensure the creating state is reset if branch wasn't successfully created
+    // (if branchCreated is true, the editor is already closed by closeBranchEditor)
+    if (!branchCreated && branchEditorRef.value) {
       branchEditorRef.value.resetCreating();
     }
   }
