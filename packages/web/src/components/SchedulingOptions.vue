@@ -23,7 +23,7 @@
     <!-- Expanded Content -->
     <div v-if="expanded" class="scheduling-content">
       <!-- Schedule Start Time -->
-      <div class="form-group">
+      <div v-if="!hideScheduledAt" class="form-group">
         <label for="scheduled-at" class="form-label">Schedule Start Time (optional)</label>
         <input
           id="scheduled-at"
@@ -142,6 +142,10 @@ const props = defineProps({
   modelValue: {
     type: Object,
     default: () => ({}),
+  },
+  hideScheduledAt: {
+    type: Boolean,
+    default: false,
   },
 });
 
