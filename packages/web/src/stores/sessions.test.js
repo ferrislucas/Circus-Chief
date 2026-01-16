@@ -28,6 +28,7 @@ vi.mock('../composables/useApi.js', () => ({
     deleteConversation: vi.fn(),
     generateConversationSummary: vi.fn(),
     getConversationMessages: vi.fn(),
+    branchConversation: vi.fn(),
   },
 }));
 
@@ -3481,7 +3482,6 @@ describe('Sessions Store', () => {
       consoleErrorSpy.mockRestore();
     });
   });
-});
 
   describe('branchConversation', () => {
     it('creates branch and updates UI optimistically without blocking on async fetches', async () => {
