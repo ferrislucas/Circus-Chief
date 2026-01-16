@@ -28,6 +28,7 @@ vi.mock('../composables/useApi.js', () => ({
     deleteConversation: vi.fn(),
     generateConversationSummary: vi.fn(),
     getConversationMessages: vi.fn(),
+    branchConversation: vi.fn(),
   },
 }));
 
@@ -2018,8 +2019,8 @@ describe('Sessions Store', () => {
           contextWindow: 200000,
         };
 
-        // Should use running usage: (10000 + 50000) / 200000 = 30%
-        expect(store.contextPercentage).toBe(30);
+        // Should add base + running usage: (10000 + 10000 + 5000 + 50000) / 200000 = 37.5% ≈ 38%
+        expect(store.contextPercentage).toBe(38);
       });
 
       it('falls back to conversation context when runningUsage is null', () => {
@@ -2065,8 +2066,8 @@ describe('Sessions Store', () => {
           contextWindow: 200000,
         };
 
-        // (100000 + 50000) / 200000 = 75%
-        expect(store.contextPercentage).toBe(75);
+        // Should add base + running usage: (5000 + 2500 + 100000 + 50000) / 200000 = 78.75% ≈ 79%
+        expect(store.contextPercentage).toBe(79);
       });
     });
 
@@ -3346,6 +3347,224 @@ describe('Sessions Store', () => {
       expect(store.sessions[0].latestCommandRuns.length).toBe(2);
       expect(store.sessions[0].latestCommandRuns[0]).toEqual(run1); // btn-1 unchanged
       expect(store.sessions[0].latestCommandRuns[1]).toEqual(updatedRun2); // btn-2 added
+    });
+  });
+
+  describe('branchConversation', () => {
+    it('creates branch and updates UI optimistically without blocking on async fetches', async () => {
+      const store = useSessionsStore();
+
+      // Set up initial conversations
+      const mainConversation = {
+        id: 'conv-main',
+        sessionId: 'session-1',
+        name: 'Main',
+        isActive: true,
+        parentConversationId: null,
+        branchMessageId: null,
+        messageCount: 2,
+        inputTokens: 100,
+        outputTokens: 200,
+      };
+
+      store.conversations = [mainConversation];
+      store.activeConversationId = 'conv-main';
+      store.messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello' },
+        { id: 'msg-2', role: 'assistant', content: 'Hi there' },
+      ];
+
+      // Mock API responses
+      const branchConversation = {
+        id: 'conv-branch',
+        sessionId: 'session-1',
+        name: 'Branch: Tell me a joke',
+        isActive: true,
+        parentConversationId: 'conv-main',
+        branchMessageId: 'msg-1',
+        messageCount: 2,
+        inputTokens: 50,
+        outputTokens: 0,
+      };
+
+      const branchMessages = [
+        { id: 'msg-1', role: 'user', content: 'Hello' },
+        { id: 'msg-3', role: 'user', content: 'Tell me a joke' },
+      ];
+
+      api.branchConversation.mockResolvedValue(branchConversation);
+      api.getConversationMessages.mockResolvedValue(branchMessages);
+      store.fetchWorkLogs = vi.fn().mockResolvedValue(undefined);
+
+      // Call branchConversation
+      const resultPromise = store.branchConversation('session-1', 'conv-main', 'msg-1', null, 'Tell me a joke');
+
+      // Immediately check that the method returns quickly (not blocking)
+      const result = await resultPromise;
+
+      // CRITICAL: Verify the method returned the branch immediately
+      expect(result).toEqual(branchConversation);
+
+      // CRITICAL: Verify optimistic UI update happened immediately
+      // The branch should be added to conversations
+      expect(store.conversations).toHaveLength(2);
+      expect(store.conversations.find(c => c.id === 'conv-branch')).toEqual(branchConversation);
+
+      // The branch should be set as active
+      expect(store.activeConversationId).toBe('conv-branch');
+      expect(store.conversations.find(c => c.id === 'conv-main').isActive).toBe(false);
+      expect(store.conversations.find(c => c.id === 'conv-branch').isActive).toBe(true);
+
+      // Work logs should be cleared immediately
+      expect(store.workLogs).toEqual({});
+      expect(store.partialThinking).toBeNull();
+
+      // API calls should have been made
+      expect(api.branchConversation).toHaveBeenCalledWith('session-1', 'conv-main', {
+        messageId: 'msg-1',
+        prompt: 'Tell me a joke',
+      });
+
+      // Wait a bit for background fetches to complete
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Background fetches should have been called
+      expect(api.getConversationMessages).toHaveBeenCalledWith('session-1', 'conv-branch');
+      expect(store.fetchWorkLogs).toHaveBeenCalledWith('session-1');
+
+      // Messages should eventually be updated by background fetch
+      expect(store.messages).toEqual(branchMessages);
+    });
+
+    it('handles branch creation API errors gracefully', async () => {
+      const store = useSessionsStore();
+
+      // Set up initial state
+      store.conversations = [{
+        id: 'conv-main',
+        sessionId: 'session-1',
+        name: 'Main',
+        isActive: true,
+      }];
+      store.activeConversationId = 'conv-main';
+
+      // Mock API to reject
+      const apiError = new Error('Network error');
+      api.branchConversation.mockRejectedValue(apiError);
+
+      // Call branchConversation and expect it to throw
+      await expect(
+        store.branchConversation('session-1', 'conv-main', 'msg-1', null, 'Test prompt')
+      ).rejects.toThrow('Network error');
+
+      // Verify store.error was set
+      expect(store.error).toBe('Network error');
+
+      // Verify state wasn't modified (only 1 conversation remains)
+      expect(store.conversations).toHaveLength(1);
+      expect(store.activeConversationId).toBe('conv-main');
+    });
+
+    it('handles message fetch errors in background without failing branch creation', async () => {
+      const store = useSessionsStore();
+
+      // Set up initial state
+      store.conversations = [{
+        id: 'conv-main',
+        sessionId: 'session-1',
+        name: 'Main',
+        isActive: true,
+      }];
+      store.activeConversationId = 'conv-main';
+      store.messages = [];
+
+      // Mock successful branch creation but failed message fetch
+      const branchConversation = {
+        id: 'conv-branch',
+        sessionId: 'session-1',
+        name: 'Branch',
+        isActive: true,
+        parentConversationId: 'conv-main',
+      };
+
+      api.branchConversation.mockResolvedValue(branchConversation);
+      api.getConversationMessages.mockRejectedValue(new Error('Failed to fetch messages'));
+      store.fetchWorkLogs = vi.fn().mockResolvedValue(undefined);
+
+      // Spy on console.error to verify error is logged but not thrown
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Call branchConversation - should succeed despite message fetch failure
+      const result = await store.branchConversation('session-1', 'conv-main', 'msg-1', null, 'Test');
+
+      // Branch creation should succeed
+      expect(result).toEqual(branchConversation);
+      expect(store.conversations).toHaveLength(2);
+      expect(store.activeConversationId).toBe('conv-branch');
+
+      // Wait for background fetch to fail
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Error should be logged to console but not set in store.error
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Failed to fetch messages for branch:',
+        expect.any(Error)
+      );
+      expect(store.error).toBeNull(); // No error in store - branch was created successfully
+
+      consoleSpy.mockRestore();
+    });
+
+    it('only updates messages if still on the branched conversation', async () => {
+      const store = useSessionsStore();
+
+      // Set up initial state
+      store.conversations = [{
+        id: 'conv-main',
+        sessionId: 'session-1',
+        name: 'Main',
+        isActive: true,
+      }];
+      store.activeConversationId = 'conv-main';
+      store.messages = [{ id: 'msg-1', role: 'user', content: 'Original' }];
+
+      // Mock branch creation
+      const branchConversation = {
+        id: 'conv-branch',
+        sessionId: 'session-1',
+        name: 'Branch',
+        isActive: true,
+        parentConversationId: 'conv-main',
+      };
+
+      const branchMessages = [{ id: 'msg-2', role: 'user', content: 'Branched' }];
+
+      api.branchConversation.mockResolvedValue(branchConversation);
+      // Delay message fetch to simulate slow network
+      api.getConversationMessages.mockImplementation(() =>
+        new Promise(resolve => setTimeout(() => resolve(branchMessages), 100))
+      );
+      store.fetchWorkLogs = vi.fn().mockResolvedValue(undefined);
+
+      // Start branch creation
+      const resultPromise = store.branchConversation('session-1', 'conv-main', 'msg-1', null, 'Test');
+
+      // Wait for the promise to resolve (optimistic update completes)
+      await resultPromise;
+
+      // The optimistic update will have set activeConversationId to 'conv-branch'
+      expect(store.activeConversationId).toBe('conv-branch');
+
+      // Now switch to a different conversation before background fetch completes
+      store.activeConversationId = 'conv-other';
+
+      // Wait for background fetch to complete
+      await new Promise(resolve => setTimeout(resolve, 150));
+
+      // Messages should NOT be updated because we switched conversations
+      // The background fetch checks if activeConversationId still matches before updating
+      expect(store.messages).toEqual([{ id: 'msg-1', role: 'user', content: 'Original' }]);
+      expect(store.messages).not.toEqual(branchMessages);
     });
   });
 });

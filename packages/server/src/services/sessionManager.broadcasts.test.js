@@ -657,9 +657,10 @@ describe('sessionManager broadcasts', () => {
       const partialCalls = broadcastToSession.mock.calls.filter(
         (call) => call[1] === WS_MESSAGE_TYPES.SESSION_PARTIAL
       );
-      expect(partialCalls.length).toBe(2);
+      expect(partialCalls.length).toBe(3);
       expect(partialCalls[0][2].text).toBe('Hello ');
-      expect(partialCalls[1][2].text).toBe('world!');
+      expect(partialCalls[1][2].text).toBe('Hello world!');
+      expect(partialCalls[2][2].text).toBe(''); // Clear signal after complete message
 
       // Verify usage was streamed
       const usageUpdateCalls = broadcastToSession.mock.calls.filter(

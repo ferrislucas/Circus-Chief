@@ -8,7 +8,7 @@
   >
     <!-- Upload header -->
     <div class="canvas-header">
-      <label class="btn btn-primary" :class="{ disabled: uploading }">
+      <label v-if="!shouldShowViewer && !showTrash" class="btn btn-primary" :class="{ disabled: uploading }">
         {{ uploading ? 'Uploading...' : 'Upload File' }}
         <input
           type="file"

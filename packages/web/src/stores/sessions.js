@@ -200,17 +200,27 @@ export const useSessionsStore = defineStore('sessions', {
       return { input: '-', output: '-', total: '-', cacheRead: '-', cacheCreation: '-' };
     },
     contextPercentage: (state) => {
-      // STREAMING: Use running usage context if available, but only if it matches the active conversation
+      // STREAMING: Use running usage + base conversation tokens (same logic as formattedTokens)
       if (state.runningUsage) {
-        // If there's an active conversation, only use runningUsage if it belongs to that conversation
-        if (!state.activeConversationId || state.runningUsage.conversationId === state.activeConversationId) {
-          const total = (state.runningUsage.inputTokens || 0) + (state.runningUsage.outputTokens || 0);
-          const contextWindow = state.runningUsage.contextWindow || 200000;
+        const isRelevant = !state.activeConversationId ||
+                          state.runningUsage.conversationId === state.activeConversationId;
+        if (isRelevant) {
+          // Get conversation's base tokens (from previous turns)
+          const conv = state.conversations.find(c => c.id === state.activeConversationId);
+          const baseInput = conv?.inputTokens || 0;
+          const baseOutput = conv?.outputTokens || 0;
+          const baseContextWindow = conv?.contextWindow || 200000;
+
+          // Add running usage to base (same as formattedTokens)
+          const totalInput = baseInput + (state.runningUsage.inputTokens || 0);
+          const totalOutput = baseOutput + (state.runningUsage.outputTokens || 0);
+          const total = totalInput + totalOutput;
+          const contextWindow = state.runningUsage.contextWindow || baseContextWindow;
           return Math.min(100, Math.round((total / contextWindow) * 100));
         }
       }
 
-      // FINALIZED: Use conversation/session context
+      // PERSISTED: Use conversation totals
       const conv = state.conversations.find((c) => c.id === state.activeConversationId);
       const source = conv || state.currentSession;
       if (!source) return 0;
@@ -586,18 +596,7 @@ export const useSessionsStore = defineStore('sessions', {
      * @param {string} [conversationId] - Conversation ID (Issue #175)
      */
     updateRunningUsage(usage, conversationId = null) {
-      // ========== DIAGNOSTIC LOGGING ==========
-      console.log(`🟠 [Store] updateRunningUsage called`, {
-        usage,
-        conversationId,
-        activeConversationId: this.activeConversationId,
-        willMatch: !this.activeConversationId || conversationId === this.activeConversationId,
-      });
-      // ========================================
       this.runningUsage = { ...usage, conversationId };
-      // ========== DIAGNOSTIC LOGGING ==========
-      console.log(`🟠 [Store] runningUsage set to:`, this.runningUsage);
-      // ========================================
     },
 
     /**
@@ -610,7 +609,8 @@ export const useSessionsStore = defineStore('sessions', {
       if (conversationId) {
         const index = this.conversations.findIndex((c) => c.id === conversationId);
         if (index !== -1) {
-          this.conversations[index] = {
+          // Use splice to ensure Vue reactivity properly detects the change
+          const updatedConversation = {
             ...this.conversations[index],
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
@@ -620,6 +620,7 @@ export const useSessionsStore = defineStore('sessions', {
             contextWindow: usage.contextWindow,
             model: usage.model,
           };
+          this.conversations.splice(index, 1, updatedConversation);
         }
       }
 
@@ -646,7 +647,8 @@ export const useSessionsStore = defineStore('sessions', {
     updateConversationUsage(conversationId, usage) {
       const index = this.conversations.findIndex((c) => c.id === conversationId);
       if (index !== -1) {
-        this.conversations[index] = {
+        // Use splice to ensure Vue reactivity properly detects the change
+        const updatedConversation = {
           ...this.conversations[index],
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
@@ -656,6 +658,7 @@ export const useSessionsStore = defineStore('sessions', {
           contextWindow: usage.contextWindow,
           model: usage.model,
         };
+        this.conversations.splice(index, 1, updatedConversation);
       }
     },
 
@@ -1024,12 +1027,13 @@ export const useSessionsStore = defineStore('sessions', {
     async branchConversation(sessionId, conversationId, messageId, name = null, prompt = null) {
       this.error = null;
       try {
-        // Note: name is auto-generated from prompt on the server side
+        // 1. Create the branch (API call)
         const branchConversation = await api.branchConversation(sessionId, conversationId, {
           messageId,
           prompt,
         });
 
+        // 2. Optimistically update store IMMEDIATELY
         // Add the new branch to the list (will also be added via WebSocket, but add here for immediate feedback)
         const exists = this.conversations.some((c) => c.id === branchConversation.id);
         if (!exists) {
@@ -1043,15 +1047,32 @@ export const useSessionsStore = defineStore('sessions', {
         }));
         this.activeConversationId = branchConversation.id;
 
-        // Fetch messages for the new branch
-        const messages = await api.getConversationMessages(sessionId, branchConversation.id);
-        this.messages = messages;
-
-        // Clear work logs and re-fetch for new context
+        // 3. Clear work logs immediately (before async fetches)
         this.workLogs = {};
         this.partialThinking = null;
-        await this.fetchWorkLogs(sessionId);
 
+        // 4. Fetch messages and work logs in parallel WITHOUT blocking the return
+        // This allows the UI to update immediately while data loads in the background
+        Promise.all([
+          api.getConversationMessages(sessionId, branchConversation.id)
+            .then(messages => {
+              // Only update if we're still on this conversation
+              if (this.activeConversationId === branchConversation.id) {
+                this.messages = messages;
+              }
+            })
+            .catch(err => {
+              console.error('Failed to fetch messages for branch:', err);
+              // Don't set this.error here - branch was created successfully
+            }),
+          this.fetchWorkLogs(sessionId)
+            .catch(err => {
+              console.error('Failed to fetch work logs for branch:', err);
+              // Don't set this.error here - branch was created successfully
+            })
+        ]);
+
+        // 5. Return immediately after optimistic update
         return branchConversation;
       } catch (err) {
         this.error = err.message;
@@ -1068,7 +1089,9 @@ export const useSessionsStore = defineStore('sessions', {
 
       const index = this.conversations.findIndex((c) => c.id === conversation.id);
       if (index !== -1) {
-        this.conversations[index] = { ...this.conversations[index], ...conversation };
+        // Use splice to ensure Vue reactivity properly detects the change
+        const updatedConversation = { ...this.conversations[index], ...conversation };
+        this.conversations.splice(index, 1, updatedConversation);
       }
 
       // Update isActive flags if this conversation became active
