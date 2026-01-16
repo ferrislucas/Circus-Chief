@@ -6,6 +6,7 @@ export const useSessionsStore = defineStore('sessions', {
     sessions: [],
     archivedSessions: [],
     activeSessions: [],
+    scheduledSessions: [],
     currentSession: null,
     messages: [],
     conversations: [], // All conversations for current session
@@ -17,6 +18,7 @@ export const useSessionsStore = defineStore('sessions', {
     starredFilter: null, // 'starred' | 'unstarred' | null (null = show all)
     runningUsage: null, // Partial usage during a turn
     loading: false,
+    loadingScheduled: false,
     error: null,
     // Version counter for command run updates - used to force Vue reactivity
     // in computed properties that depend on latestCommandRuns
@@ -273,6 +275,19 @@ export const useSessionsStore = defineStore('sessions', {
         this.error = err.message;
       } finally {
         if (showLoading) this.loading = false;
+      }
+    },
+
+    async fetchScheduledSessions() {
+      this.loadingScheduled = true;
+      this.error = null;
+      try {
+        this.scheduledSessions = await api.getScheduledSessions();
+      } catch (err) {
+        this.error = err.message;
+        console.error('Failed to fetch scheduled sessions:', err);
+      } finally {
+        this.loadingScheduled = false;
       }
     },
 
@@ -851,6 +866,21 @@ export const useSessionsStore = defineStore('sessions', {
       const activeIndex = this.activeSessions.findIndex((s) => s.id === sessionData.id);
       if (activeIndex !== -1) {
         this.activeSessions[activeIndex] = { ...this.activeSessions[activeIndex], ...sessionData };
+      }
+
+      // Handle scheduled status changes - add to or remove from scheduledSessions
+      if (sessionData.status === 'scheduled') {
+        // Add to scheduled list if not present
+        const scheduledIndex = this.scheduledSessions.findIndex((s) => s.id === sessionData.id);
+        if (scheduledIndex === -1) {
+          this.scheduledSessions.push(sessionData);
+        } else {
+          // Update existing scheduled session
+          this.scheduledSessions[scheduledIndex] = { ...this.scheduledSessions[scheduledIndex], ...sessionData };
+        }
+      } else {
+        // Remove from scheduled list when status changes from 'scheduled'
+        this.scheduledSessions = this.scheduledSessions.filter((s) => s.id !== sessionData.id);
       }
     },
 

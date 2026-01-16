@@ -111,6 +111,14 @@ export class ApiClient {
   }
 
   /**
+   * Get all scheduled sessions across all projects
+   * @returns {Promise<Array>}
+   */
+  async getScheduledSessions() {
+    return this.#request('GET', '/sessions/scheduled');
+  }
+
+  /**
    * Get all sessions for a project
    * @param {string} projectId - Project ID
    * @param {boolean|null} archived - Filter by archived status (null = all, true = archived only, false = non-archived only)
