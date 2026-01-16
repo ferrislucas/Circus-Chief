@@ -14,6 +14,7 @@
         :key="message.id"
         :class="['message', `message-${message.role}`]"
         :data-message-id="message.id"
+        :data-testid="`message-${message.role}`"
       >
         <div class="message-header">
           <span class="message-role">{{ message.role }}</span>
@@ -23,6 +24,7 @@
             v-if="message.role === 'user' && canBranch && branchingMessageId !== message.id"
             type="button"
             class="branch-btn"
+            data-testid="branch-button"
             @click="openBranchEditor(message.id)"
             title="Create a branch from this message"
           >
@@ -183,16 +185,24 @@
     </form>
 
     <div v-else-if="sessionsStore.currentSession?.status === 'running'" class="running-state">
-      <LiveWorkLogPanel
-        :work-logs="unassociatedWorkLogs"
-        :partial-thinking="sessionsStore.partialThinking"
-      />
-      <div class="running-actions">
-        <button type="button" class="btn btn-danger btn-send" @click="handleStop" :disabled="stopping">
+      <!-- Header row with status and stop button -->
+      <div class="running-header">
+        <div class="running-status">
+          <span class="loading-spinner"></span>
+          <span class="running-title">Claude is working...</span>
+        </div>
+        <button type="button" class="btn btn-danger btn-stop" @click="handleStop" :disabled="stopping">
           <span v-if="stopping" class="loading-spinner"></span>
           Stop
         </button>
       </div>
+
+      <!-- Work logs panel (without its own header) -->
+      <LiveWorkLogPanel
+        :work-logs="unassociatedWorkLogs"
+        :partial-thinking="sessionsStore.partialThinking"
+        :show-header="false"
+      />
 
       <!-- Show template indicator while running -->
       <div v-if="sessionsStore.currentSession?.nextTemplateId" class="template-pending">
@@ -804,6 +814,7 @@ function closeBranchEditor() {
 }
 
 async function handleBranchCreate({ messageId, prompt }) {
+  let branchCreated = false;
   try {
     const activeConv = sessionsStore.activeConversation;
     if (!activeConv) {
@@ -822,6 +833,7 @@ async function handleBranchCreate({ messageId, prompt }) {
       prompt
     );
 
+    branchCreated = true;
     closeBranchEditor();
     uiStore.success('Branch created - Claude is responding');
 
@@ -829,8 +841,10 @@ async function handleBranchCreate({ messageId, prompt }) {
     scrollToBottom(true);
   } catch (err) {
     uiStore.error(err.message);
-    // Reset the creating state in the editor
-    if (branchEditorRef.value) {
+  } finally {
+    // Always ensure the creating state is reset if branch wasn't successfully created
+    // (if branchCreated is true, the editor is already closed by closeBranchEditor)
+    if (!branchCreated && branchEditorRef.value) {
       branchEditorRef.value.resetCreating();
     }
   }
@@ -1441,10 +1455,31 @@ async function handleBranchCreate({ messageId, prompt }) {
   padding-top: 1rem;
 }
 
-.running-actions {
+.running-header {
   display: flex;
-  justify-content: flex-end;
-  padding-top: 1rem;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.running-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-text-soft);
+  font-size: 0.875rem;
+}
+
+.running-title {
+  font-weight: 500;
+}
+
+.btn-stop {
+  min-height: 36px;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  flex-shrink: 0;
 }
 
 /* Responsive styles for input controls */

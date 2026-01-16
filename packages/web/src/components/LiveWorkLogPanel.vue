@@ -1,6 +1,6 @@
 <template>
   <div class="live-work-log-panel">
-    <div class="live-header">
+    <div v-if="showHeader" class="live-header">
       <span class="loading-spinner"></span>
       <span class="live-title">Claude is working...</span>
       <span v-if="totalCount" class="live-count">({{ totalCount }} {{ totalCount === 1 ? 'item' : 'items' }})</span>
@@ -26,6 +26,7 @@ import CommandBlock from './CommandBlock.vue';
 const props = defineProps({
   workLogs: { type: Array, default: () => [] },
   partialThinking: { type: String, default: null },
+  showHeader: { type: Boolean, default: true }, // Hide header when shown in parent
 });
 
 // Scroll state tracking - auto-scroll unless user manually scrolls up
@@ -86,6 +87,12 @@ defineExpose({
 .live-work-log-panel {
   border-top: 1px solid var(--color-border);
   padding: 0.75rem 0;
+}
+
+.live-work-log-panel:not(:has(.live-header)) {
+  /* When header is hidden (show-header=false), adjust padding */
+  border-top: none;
+  padding-top: 0;
 }
 
 .live-header {
