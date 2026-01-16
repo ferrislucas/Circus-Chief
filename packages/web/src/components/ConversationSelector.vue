@@ -6,6 +6,7 @@
         <button
           type="button"
           class="dropdown-trigger"
+          data-testid="conversation-selector"
           @click.stop="toggleDropdown"
           title="Switch conversation"
         >
