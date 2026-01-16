@@ -27,6 +27,19 @@
           <!-- Session name -->
           <h3 class="session-name">{{ sessionsStore.currentSession.name }}</h3>
 
+          <!-- Schedule button (for sessions that can be scheduled) -->
+          <button
+            v-if="canSchedule"
+            @click="showScheduleModal = true"
+            class="btn-icon btn-schedule"
+            title="Schedule session"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </button>
+
           <!-- Overflow menu with secondary actions -->
           <OverflowMenu
             aria-label="Session actions"
@@ -97,6 +110,14 @@
         <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
         <CommandsTab v-else-if="activeTab === 'commands'" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
       </div>
+
+      <!-- Schedule Session Modal -->
+      <ScheduleSessionModal
+        :is-open="showScheduleModal"
+        :session-id="sessionId"
+        @close="showScheduleModal = false"
+        @scheduled="handleScheduled"
+      />
     </template>
   </div>
 </template>
@@ -121,6 +142,7 @@ import PrIndicators from '../components/PrIndicators.vue';
 import DuplicateSessionButton from '../components/DuplicateSessionButton.vue';
 import OverflowMenu from '../components/OverflowMenu.vue';
 import SchedulingInfo from '../components/SchedulingInfo.vue';
+import ScheduleSessionModal from '../components/ScheduleSessionModal.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
 const route = useRoute();
@@ -165,8 +187,15 @@ const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCan
 let cleanups = [];
 const pollIntervalId = ref(null);
 const showDeleteConfirm = ref(false);
+const showScheduleModal = ref(false);
 const summary = ref(null);
 const hasChanges = ref(false);
+
+// Allow scheduling for waiting, stopped, or error sessions
+const canSchedule = computed(() => {
+  const status = sessionsStore.currentSession?.status;
+  return ['waiting', 'stopped', 'error'].includes(status);
+});
 
 // Check for file system changes (staged, unstaged, untracked)
 async function checkForChanges() {
@@ -490,6 +519,11 @@ async function handleStar() {
   }
 }
 
+function handleScheduled() {
+  // Refresh session data after scheduling
+  sessionsStore.fetchSession(sessionId);
+}
+
 function getTemplateName(templateId) {
   const template = templatesStore.getTemplateById(templateId);
   return template?.name || 'Unknown template';
@@ -556,6 +590,15 @@ function getTemplateName(templateId) {
 
 .btn-star.is-starred {
   color: var(--color-warning, #f0ad4e);
+}
+
+.btn-schedule {
+  display: inline-flex;
+  align-items: center;
+}
+
+.btn-schedule:hover {
+  color: var(--color-primary, #22c5ff);
 }
 
 .session-name {
