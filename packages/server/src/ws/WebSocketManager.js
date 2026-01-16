@@ -73,16 +73,10 @@ export class WebSocketManager {
           this.#sessionSubscriptions.set(sessionId, new Set());
         }
         this.#sessionSubscriptions.get(sessionId).add(ws);
-        // ========== DIAGNOSTIC LOGGING ==========
-        console.log(`🔶 [WS Manager] Client subscribed to session ${sessionId}, total subscribers: ${this.#sessionSubscriptions.get(sessionId).size}`);
-        // ========================================
 
         // Replay buffered usage updates for this session
         const buffered = this.#usageUpdateBuffer.get(sessionId);
         if (buffered && buffered.length > 0) {
-          // ========== DIAGNOSTIC LOGGING ==========
-          console.log(`🔶 [WS Manager] Replaying ${buffered.length} buffered usage updates for session ${sessionId}`);
-          // ========================================
           for (const bufferedMsg of buffered) {
             const message = createMessage(bufferedMsg.type, bufferedMsg);
             if (ws.readyState === 1) {
@@ -156,16 +150,6 @@ export class WebSocketManager {
    */
   broadcastToSession(sessionId, type, payload) {
     const subscribers = this.#sessionSubscriptions.get(sessionId);
-    // ========== DIAGNOSTIC LOGGING ==========
-    if (type === 'session:usage_update') {
-      console.log(`🟤 [WS Manager] broadcastToSession`, {
-        sessionId,
-        type,
-        subscriberCount: subscribers?.size || 0,
-        willBuffer: !subscribers || subscribers.size === 0,
-      });
-    }
-    // ========================================
 
     // Buffer SESSION_USAGE_UPDATE messages if no subscribers exist
     if (type === 'session:usage_update' && (!subscribers || subscribers.size === 0)) {
@@ -178,9 +162,6 @@ export class WebSocketManager {
       if (buffer.length > 50) {
         buffer.shift();
       }
-      // ========== DIAGNOSTIC LOGGING ==========
-      console.log(`🟤 [WS Manager] Buffered SESSION_USAGE_UPDATE for session ${sessionId}, buffer size: ${buffer.length}`);
-      // ========================================
       return;
     }
 
