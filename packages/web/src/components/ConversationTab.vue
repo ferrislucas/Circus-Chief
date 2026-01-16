@@ -183,16 +183,24 @@
     </form>
 
     <div v-else-if="sessionsStore.currentSession?.status === 'running'" class="running-state">
-      <LiveWorkLogPanel
-        :work-logs="unassociatedWorkLogs"
-        :partial-thinking="sessionsStore.partialThinking"
-      />
-      <div class="running-actions">
-        <button type="button" class="btn btn-danger btn-send" @click="handleStop" :disabled="stopping">
+      <!-- Header row with status and stop button -->
+      <div class="running-header">
+        <div class="running-status">
+          <span class="loading-spinner"></span>
+          <span class="running-title">Claude is working...</span>
+        </div>
+        <button type="button" class="btn btn-danger btn-stop" @click="handleStop" :disabled="stopping">
           <span v-if="stopping" class="loading-spinner"></span>
           Stop
         </button>
       </div>
+
+      <!-- Work logs panel (without its own header) -->
+      <LiveWorkLogPanel
+        :work-logs="unassociatedWorkLogs"
+        :partial-thinking="sessionsStore.partialThinking"
+        :show-header="false"
+      />
 
       <!-- Show template indicator while running -->
       <div v-if="sessionsStore.currentSession?.nextTemplateId" class="template-pending">
@@ -1470,10 +1478,31 @@ async function handleBranchCreate({ messageId, prompt }) {
   padding-top: 1rem;
 }
 
-.running-actions {
+.running-header {
   display: flex;
-  justify-content: flex-end;
-  padding-top: 1rem;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.running-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-text-soft);
+  font-size: 0.875rem;
+}
+
+.running-title {
+  font-weight: 500;
+}
+
+.btn-stop {
+  min-height: 36px;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  flex-shrink: 0;
 }
 
 /* Responsive styles for input controls */
