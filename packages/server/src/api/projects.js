@@ -242,14 +242,44 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
     }
   }
 
+  // Extract scheduling fields from request
+  const scheduledAt = req.body.scheduledAt ? parseInt(req.body.scheduledAt, 10) : undefined;
+  const autoRescheduleEnabled = req.body.autoRescheduleEnabled === true || req.body.autoRescheduleEnabled === 'true';
+  const rescheduleDelayMinutes = req.body.rescheduleDelayMinutes ? parseInt(req.body.rescheduleDelayMinutes, 10) : 15;
+  const rescheduleOnTokenLimit = req.body.rescheduleOnTokenLimit !== false && req.body.rescheduleOnTokenLimit !== 'false';
+  const rescheduleOnServiceError = req.body.rescheduleOnServiceError !== false && req.body.rescheduleOnServiceError !== 'false';
+  const maxRescheduleCount = req.body.maxRescheduleCount ? parseInt(req.body.maxRescheduleCount, 10) : null;
+  const maxTotalTokens = req.body.maxTotalTokens ? parseInt(req.body.maxTotalTokens, 10) : null;
+  const rescheduleAtTokenCount = req.body.rescheduleAtTokenCount ? parseInt(req.body.rescheduleAtTokenCount, 10) : null;
+
   const sessionName = name || generateInitialName(prompt);
-  // Create session with 'waiting' status if not starting immediately, otherwise 'starting'
-  const initialStatus = startImmediately ? undefined : 'waiting';
+  // Determine initial status: scheduled > waiting > starting
+  let initialStatus;
+  if (scheduledAt && scheduledAt > Date.now()) {
+    initialStatus = 'scheduled';
+  } else if (!startImmediately) {
+    initialStatus = 'waiting';
+  }
   const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, model, parentSessionId, initialStatus);
 
   // Set nextTemplateId if template was selected
   if (nextTemplateId) {
     sessions.update(session.id, { nextTemplateId });
+  }
+
+  // Set scheduling fields if provided
+  const schedulingUpdate = {};
+  if (scheduledAt !== undefined) schedulingUpdate.scheduledAt = scheduledAt;
+  if (autoRescheduleEnabled !== undefined) schedulingUpdate.autoRescheduleEnabled = autoRescheduleEnabled;
+  if (rescheduleDelayMinutes !== undefined) schedulingUpdate.rescheduleDelayMinutes = rescheduleDelayMinutes;
+  if (rescheduleOnTokenLimit !== undefined) schedulingUpdate.rescheduleOnTokenLimit = rescheduleOnTokenLimit;
+  if (rescheduleOnServiceError !== undefined) schedulingUpdate.rescheduleOnServiceError = rescheduleOnServiceError;
+  if (maxRescheduleCount !== undefined) schedulingUpdate.maxRescheduleCount = maxRescheduleCount;
+  if (maxTotalTokens !== undefined) schedulingUpdate.maxTotalTokens = maxTotalTokens;
+  if (rescheduleAtTokenCount !== undefined) schedulingUpdate.rescheduleAtTokenCount = rescheduleAtTokenCount;
+
+  if (Object.keys(schedulingUpdate).length > 0) {
+    sessions.update(session.id, schedulingUpdate);
   }
 
   // Setup git environment (branch checkout or worktree creation)
@@ -269,8 +299,9 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
     // Store file attachments if any - saves to disk in workingDirectory/.attachments
     const sessionAttachments = attachments.createBatch(session.id, null, files, workingDirectory);
 
-    // Only start session manager if startImmediately is true
-    if (startImmediately) {
+    // Only start session manager if startImmediately is true AND not scheduled
+    const isScheduled = scheduledAt && scheduledAt > Date.now();
+    if (startImmediately && !isScheduled) {
       // Start session manager (non-blocking) - pass attachments for context
       const { runSession } = await import('../services/sessionManager.js');
       runSession(session.id, prompt, workingDirectory, project.systemPrompt, sessionAttachments, model).catch((error) => {
