@@ -170,6 +170,7 @@ router.get('/:id/messages', (req, res) => {
   const { conversation_id } = req.query;
 
   let sessionMessages;
+  let resolvedConvId = null;
   if (conversation_id) {
     // Get messages for specific conversation
     const conv = conversations.getById(conversation_id);
@@ -177,16 +178,21 @@ router.get('/:id/messages', (req, res) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
     sessionMessages = messages.getByConversationId(conversation_id);
+    resolvedConvId = conversation_id;
   } else {
     // Get messages for active conversation, or all messages if no active conversation
     const activeConv = conversations.getActiveBySessionId(req.params.id);
     if (activeConv) {
       sessionMessages = messages.getByConversationId(activeConv.id);
+      resolvedConvId = activeConv.id;
     } else {
       // Fall back to all messages (for legacy/migration)
       sessionMessages = messages.getBySessionId(req.params.id);
+      resolvedConvId = 'all (no active conversation)';
     }
   }
+
+  console.log(`[API] fetchMessages: session ${req.params.id}, conversation ${resolvedConvId}, returned ${sessionMessages.length} messages`);
 
   // Attach file attachments to each message (without content for efficiency)
   const messagesWithAttachments = sessionMessages.map((msg) => ({

@@ -316,9 +316,13 @@ export const useSessionsStore = defineStore('sessions', {
       if (showLoading) this.loading = true;
       this.error = null;
       try {
-        this.messages = await api.getSessionMessages(sessionId);
+        const fetchedMessages = await api.getSessionMessages(sessionId);
+        console.log(`[STORE] fetchMessages: session ${sessionId}, received ${fetchedMessages.length} messages, activeConversationId: ${this.activeConversationId}`);
+        this.messages = fetchedMessages;
+        console.log(`[STORE] fetchMessages: updated store with ${this.messages.length} messages`);
       } catch (err) {
         this.error = err.message;
+        console.error(`[STORE] fetchMessages: error fetching messages for session ${sessionId}:`, err.message);
       } finally {
         if (showLoading) this.loading = false;
       }

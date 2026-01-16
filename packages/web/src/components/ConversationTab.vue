@@ -464,21 +464,26 @@ onMounted(async () => {
 
   // Subscribe to conversation events for real-time updates
   unsubConvCreated = onConversationCreated((conversation) => {
+    console.log(`[CONV] CONVERSATION_CREATED event: conversation ${conversation.id}, isActive: ${conversation.isActive}`);
     sessionsStore.addConversation(conversation);
     // If this is now the active conversation, fetch its messages
     if (conversation.isActive) {
+      console.log(`[CONV] CONVERSATION_CREATED: fetching messages for new active conversation ${conversation.id}`);
       sessionsStore.fetchMessages(props.sessionId, false);
     }
   });
 
   unsubConvUpdated = onConversationUpdated((conversation) => {
+    console.log(`[CONV] CONVERSATION_UPDATED event: conversation ${conversation.id}, isActive: ${conversation.isActive}`);
     sessionsStore.updateConversation(conversation);
   });
 
   unsubConvDeleted = onConversationDeleted((conversationId, newActiveConv) => {
+    console.log(`[CONV] CONVERSATION_DELETED event: deleted ${conversationId}, newActive: ${newActiveConv?.id || 'none'}`);
     sessionsStore.removeConversation(conversationId, newActiveConv);
     // If we have a new active conversation, fetch its messages
     if (newActiveConv) {
+      console.log(`[CONV] CONVERSATION_DELETED: fetching messages for new active conversation ${newActiveConv.id}`);
       sessionsStore.fetchMessages(props.sessionId, false);
     }
   });
@@ -596,6 +601,7 @@ function scrollToClaudesTurn() {
 watch(
   () => sessionsStore.messages.length,
   (newLen, oldLen) => {
+    console.log(`[CONV] messages.length changed: ${oldLen} → ${newLen}, activeConversationId: ${sessionsStore.activeConversationId}`);
     // Force scroll when messages first load, conditional scroll otherwise
     if (oldLen === 0 && newLen > 0) {
       scrollToBottom(true);
@@ -612,6 +618,29 @@ watch(
   async (newStatus, oldStatus) => {
     if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
       await sessionsStore.fetchWorkLogs(props.sessionId);
+    }
+  }
+);
+
+// Message reconciliation watcher - detects and fixes disappearing conversations bug
+// When activeConversationId changes AND messages are empty AND session isn't running,
+// refetch messages to recover from race conditions during conversation creation
+watch(
+  () => sessionsStore.activeConversationId,
+  async (newConvId, oldConvId) => {
+    if (newConvId && newConvId !== oldConvId) {
+      // Wait a tick for any pending message updates to complete
+      await nextTick();
+
+      // If messages are empty and session isn't running, something went wrong
+      // This catches the race condition where CONVERSATION_CREATED arrives before
+      // the user message is inserted into the database
+      if (sessionsStore.messages.length === 0 &&
+          sessionsStore.currentSession?.status !== 'running' &&
+          sessionsStore.currentSession?.status !== 'starting') {
+        console.warn(`[BUG FIX] Empty messages for conversation ${newConvId}, refetching...`);
+        await sessionsStore.fetchMessages(props.sessionId, false);
+      }
     }
   }
 );
