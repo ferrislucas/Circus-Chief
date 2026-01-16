@@ -2966,12 +2966,12 @@ describe('Sessions Store', () => {
       expect(store.starredFilter).toBe(null);
     });
 
-    it('restoreStarredFilter should handle backward compatibility for legacy "unstarred" value', () => {
-      // Legacy value: 'unstarred' should be treated as null (no filter)
+    it('restoreStarredFilter should restore "unstarred" as a valid filter value', () => {
+      // 'unstarred' is now a valid three-state filter value
       sessionStorage.setItem('sessionStarredFilter', 'unstarred');
       const store = useSessionsStore();
       store.restoreStarredFilter();
-      expect(store.starredFilter).toBe(null);
+      expect(store.starredFilter).toBe('unstarred');
     });
 
     it('saveStarredFilter should persist starred filter to sessionStorage', () => {

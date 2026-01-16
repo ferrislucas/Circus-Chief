@@ -1239,15 +1239,14 @@ export const useSessionsStore = defineStore('sessions', {
 
     /**
      * Restore starred filter from sessionStorage
-     * Handles backward compatibility: 'unstarred' is treated as null (no filter)
+     * @param {string|null} filter - 'starred' | 'unstarred' | null (null = show all)
      */
     restoreStarredFilter() {
       try {
         const filter = sessionStorage.getItem('sessionStarredFilter');
-        if (filter === 'starred') {
+        if (filter === 'starred' || filter === 'unstarred') {
           this.starredFilter = filter;
-        } else if (filter === 'unstarred') {
-          // Legacy: treat 'unstarred' as null (no filter)
+        } else {
           this.starredFilter = null;
         }
       } catch (error) {
