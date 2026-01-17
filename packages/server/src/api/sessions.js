@@ -1076,6 +1076,10 @@ router.post('/:id/schedule', async (req, res) => {
     rescheduleAtTokenCount,
   } = req.body;
 
+  // DEBUG: Log incoming scheduledAt value
+  console.log('[DEBUG] Schedule API - scheduledAt from request:', scheduledAt, 'type:', typeof scheduledAt);
+  console.log('[DEBUG] Schedule API - Date.now():', Date.now());
+
   // Validate scheduledAt is provided and in the future
   if (!scheduledAt || scheduledAt <= Date.now()) {
     return res.status(400).json({ error: 'scheduledAt must be a future timestamp' });

@@ -39,6 +39,7 @@
 import { ref, reactive, computed, watch, nextTick } from 'vue';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
+import { useSessionsStore } from '../stores/sessions.js';
 import SchedulingOptions from './SchedulingOptions.vue';
 
 const props = defineProps({
@@ -49,6 +50,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'update:isOpen']);
 
 const uiStore = useUiStore();
+const sessionsStore = useSessionsStore();
 const loading = ref(false);
 
 const form = reactive({
@@ -97,7 +99,10 @@ async function handleSchedule() {
 
   // Make API call in background
   try {
-    await api.scheduleSession(props.sessionId, payload);
+    const updatedSession = await api.scheduleSession(props.sessionId, payload);
+    // Update the session store immediately with the API response
+    // This ensures the UI shows the correct scheduled time without waiting for WebSocket
+    sessionsStore.updateSession(updatedSession);
     uiStore.showToast('Session scheduled successfully', 'success');
   } catch (error) {
     console.error('Failed to schedule session:', error);
