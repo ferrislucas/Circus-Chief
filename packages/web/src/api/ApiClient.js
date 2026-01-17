@@ -346,6 +346,16 @@ export class ApiClient {
   }
 
   /**
+   * Update the pending prompt for a session (auto-save input field)
+   * @param {string} id - Session ID
+   * @param {string|null} pendingPrompt - The pending prompt (or null to clear)
+   * @returns {Promise<Object>}
+   */
+  async updateSessionPendingPrompt(id, pendingPrompt) {
+    return this.#request('PATCH', `/sessions/${id}/pending-prompt`, { pendingPrompt });
+  }
+
+  /**
    * Delete a session
    * @param {string} id - Session ID
    * @returns {Promise<void>}

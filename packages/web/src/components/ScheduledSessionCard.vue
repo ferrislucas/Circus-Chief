@@ -9,6 +9,12 @@
         </p>
       </div>
       <div class="status-badge-container">
+        <button @click="showEditModal = true" class="edit-btn" title="Edit schedule">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+          </svg>
+        </button>
         <span class="status-badge status-scheduled">scheduled</span>
       </div>
     </div>
@@ -43,6 +49,14 @@
         Cancel
       </button>
     </div>
+
+    <!-- Edit Schedule Modal -->
+    <SchedulingEditModal
+      :is-open="showEditModal"
+      :session="session"
+      @close="showEditModal = false"
+      @saved="handleSaved"
+    />
   </div>
 </template>
 
@@ -51,6 +65,7 @@ import { ref, computed } from 'vue';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
+import SchedulingEditModal from './SchedulingEditModal.vue';
 
 const props = defineProps({
   session: {
@@ -62,6 +77,7 @@ const props = defineProps({
 const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 const loading = ref(false);
+const showEditModal = ref(false);
 
 const scheduledTimeDisplay = computed(() => {
   const time = new Date(props.session.scheduledAt);
@@ -82,10 +98,10 @@ async function handleStartNow() {
       scheduledAt: null,
     });
 
-    uiStore.showToast('Session started', 'success');
+    uiStore.success('Session started');
   } catch (error) {
     console.error('Failed to start session:', error);
-    uiStore.showToast('Failed to start session: ' + error.message, 'error');
+    uiStore.error('Failed to start session: ' + error.message);
   } finally {
     loading.value = false;
   }
@@ -102,13 +118,18 @@ async function handleCancel() {
       status: 'stopped',
     });
 
-    uiStore.showToast('Session cancelled', 'success');
+    uiStore.success('Session cancelled');
   } catch (error) {
     console.error('Failed to cancel session:', error);
-    uiStore.showToast('Failed to cancel session: ' + error.message, 'error');
+    uiStore.error('Failed to cancel session: ' + error.message);
   } finally {
     loading.value = false;
   }
+}
+
+function handleSaved() {
+  // Modal handles closing itself
+  // Session updates come via WebSocket
 }
 </script>
 
@@ -153,8 +174,27 @@ async function handleCancel() {
 
 .status-badge-container {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
   flex-shrink: 0;
+}
+
+.edit-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: var(--border-radius, 4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s, background 0.2s;
+}
+
+.edit-btn:hover {
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .status-badge {
