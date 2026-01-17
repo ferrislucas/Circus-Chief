@@ -25,30 +25,8 @@
             />
           </div>
 
-          <!-- Collapsible Advanced Scheduling Options -->
-          <button
-            type="button"
-            @click="showAdvanced = !showAdvanced"
-            class="advanced-options-header"
-            :aria-expanded="showAdvanced"
-          >
-            <span class="advanced-options-title">Advanced Scheduling Options</span>
-            <svg
-              class="chevron-icon"
-              :class="{ 'rotate-180': showAdvanced }"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
-          </button>
-
-          <!-- Collapsible Content -->
-          <div v-if="showAdvanced" class="advanced-options-content">
-            <!-- Auto-Reschedule Settings -->
-            <div class="form-group">
+          <!-- Auto-Reschedule Settings -->
+          <div class="form-group">
               <label class="toggle-switch">
                 <input type="checkbox" v-model="form.autoRescheduleEnabled" />
                 <span class="toggle-slider"></span>
@@ -128,7 +106,6 @@
               <p class="form-help">Current count: {{ session.rescheduleCount }}</p>
             </div>
           </div>
-          </div>
         </div>
 
         <div class="modal-footer">
@@ -158,7 +135,6 @@ const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 const loading = ref(false);
 const error = ref(null);
-const showAdvanced = ref(false);
 
 const form = reactive({
   scheduledAtLocal: '',
@@ -474,60 +450,5 @@ watch(
 
 .btn-secondary:hover {
   background: var(--color-background-secondary);
-}
-
-/* Collapsible Advanced Options */
-.advanced-options-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 0.75rem;
-  margin-bottom: 1rem;
-  background: var(--color-background, rgba(255, 255, 255, 0.02));
-  border: 1px solid var(--color-border);
-  border-radius: 0.25rem;
-  color: var(--color-text);
-  cursor: pointer;
-  font-size: 0.95rem;
-  font-weight: 500;
-  transition: background-color 0.2s;
-}
-
-.advanced-options-header:hover {
-  background: var(--color-background-secondary, rgba(255, 255, 255, 0.05));
-}
-
-.advanced-options-title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.chevron-icon {
-  width: 1.25rem;
-  height: 1.25rem;
-  flex-shrink: 0;
-  transition: transform 0.2s;
-}
-
-.chevron-icon.rotate-180 {
-  transform: rotate(180deg);
-}
-
-.advanced-options-content {
-  animation: slideDown 0.2s ease-out;
-}
-
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    max-height: 0;
-    overflow: hidden;
-  }
-  to {
-    opacity: 1;
-    max-height: 1000px;
-  }
 }
 </style>
