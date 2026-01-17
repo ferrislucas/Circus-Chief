@@ -95,27 +95,12 @@
                 <button
                   :class="['menu-item', 'is-danger', { 'is-highlighted': menuHighlightedIndex === 2 }]"
                   role="menuitem"
-                  @click="handleMenuDeleteVersion"
+                  @click="handleMenuDeleteAll"
                   @mouseenter="menuHighlightedIndex = 2"
                   @mouseleave="menuHighlightedIndex = null"
                 >
                   <span class="menu-item-icon">🗑</span>
-                  <span class="menu-item-text">Delete this version</span>
-                </button>
-              </li>
-              <li
-                v-if="versions.length > 1"
-                role="none"
-              >
-                <button
-                  :class="['menu-item', 'is-danger', { 'is-highlighted': menuHighlightedIndex === 3 }]"
-                  role="menuitem"
-                  @click="handleMenuDeleteAll"
-                  @mouseenter="menuHighlightedIndex = 3"
-                  @mouseleave="menuHighlightedIndex = null"
-                >
-                  <span class="menu-item-icon">🗑</span>
-                  <span class="menu-item-text">Delete all {{ versions.length }} versions</span>
+                  <span class="menu-item-text">Delete file<span v-if="versions.length > 1"> ({{ versions.length }} versions)</span></span>
                 </button>
               </li>
             </ul>
@@ -211,7 +196,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['back', 'selectVersion', 'delete', 'deleteAll']);
+const emit = defineEmits(['back', 'selectVersion', 'deleteAll']);
 
 const menuOpen = ref(false);
 const menuHighlightedIndex = ref(null);
@@ -276,11 +261,6 @@ async function handleMenuCopyFilename() {
   closeMenu();
 }
 
-function handleMenuDeleteVersion() {
-  emit('delete', props.item.id);
-  closeMenu();
-}
-
 function handleMenuDeleteAll() {
   const filename = props.item.filename || props.item.label || props.item.id;
   emit('deleteAll', filename);
@@ -288,7 +268,7 @@ function handleMenuDeleteAll() {
 }
 
 function handleMenuKeyDown(event) {
-  const itemCount = props.versions.length > 1 ? 4 : 3;
+  const itemCount = 3;
 
   switch (event.key) {
     case 'ArrowDown': {
@@ -309,8 +289,6 @@ function handleMenuKeyDown(event) {
         } else if (menuHighlightedIndex.value === 1) {
           handleMenuCopyFilename();
         } else if (menuHighlightedIndex.value === 2) {
-          handleMenuDeleteVersion();
-        } else if (menuHighlightedIndex.value === 3) {
           handleMenuDeleteAll();
         }
       }
@@ -386,15 +364,6 @@ function formatJson(data) {
 
 function selectVersion(itemId) {
   emit('selectVersion', itemId);
-}
-
-function handleDeleteVersion() {
-  emit('delete', props.item.id);
-}
-
-function handleDeleteAll() {
-  const filename = props.item.filename || props.item.label || props.item.id;
-  emit('deleteAll', filename);
 }
 </script>
 

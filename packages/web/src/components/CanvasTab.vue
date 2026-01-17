@@ -90,7 +90,6 @@
         :showBackButton="showBackButton"
         @back="handleBack"
         @selectVersion="handleSelectVersion"
-        @delete="handleDelete"
         @deleteAll="handleDeleteAll"
       />
 
@@ -179,40 +178,7 @@ function handleSelectVersion(itemId) {
   });
 }
 
-// Delete handlers
-async function handleDelete(itemId) {
-  if (!confirm('Delete this version?')) return;
-
-  try {
-    // Get next version to select before deleting
-    const versions = selectedVersions.value;
-    const currentIndex = versions.findIndex((v) => v.id === itemId);
-    let nextItemId = null;
-
-    if (versions.length > 1) {
-      // Select next version (or previous if deleting last)
-      const nextIndex = currentIndex < versions.length - 1 ? currentIndex + 1 : currentIndex - 1;
-      nextItemId = versions[nextIndex]?.id;
-    }
-
-    await canvasStore.deleteItem(props.sessionId, itemId);
-
-    if (nextItemId) {
-      router.push({
-        query: { ...route.query, item: nextItemId }
-      });
-    } else {
-      // No more versions, go back to list
-      const { item, ...rest } = route.query;
-      router.push({ query: rest });
-    }
-
-    uiStore.success('Version deleted');
-  } catch (err) {
-    uiStore.error(err.message);
-  }
-}
-
+// Delete handler
 async function handleDeleteAll(filename) {
   if (!confirm(`Delete all versions of "${filename}"?`)) return;
 

@@ -116,10 +116,10 @@ describe('CanvasFileViewer', () => {
       await flushAll(wrapper);
 
       const menuItems = wrapper.findAll('.menu-item');
-      expect(menuItems.length).toBeGreaterThanOrEqual(3);
+      expect(menuItems.length).toBe(3);
       expect(menuItems[0].text()).toContain('Copy file contents');
       expect(menuItems[1].text()).toContain('Copy filename');
-      expect(menuItems[2].text()).toContain('Delete this version');
+      expect(menuItems[2].text()).toContain('Delete file');
     });
 
     it('copies file contents when menu option is clicked', async () => {
@@ -154,7 +154,7 @@ describe('CanvasFileViewer', () => {
       expect(mockClipboard.writeText).toHaveBeenCalledWith('myfile.txt');
     });
 
-    it('shows delete all versions option when multiple versions exist', async () => {
+    it('shows delete file option with version count when multiple versions exist', async () => {
       const wrapper = mountComponent({
         item: { id: '2', filename: 'test.txt', type: 'text', content: 'Content', createdAt: 2000 },
         versions: [
@@ -168,8 +168,9 @@ describe('CanvasFileViewer', () => {
       await flushAll(wrapper);
 
       const menuItems = wrapper.findAll('.menu-item');
-      expect(menuItems.length).toBe(4);
-      expect(menuItems[3].text()).toContain('Delete all 2 versions');
+      expect(menuItems.length).toBe(3);
+      expect(menuItems[2].text()).toContain('Delete file');
+      expect(menuItems[2].text()).toContain('2 versions');
     });
   });
 

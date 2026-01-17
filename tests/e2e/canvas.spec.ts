@@ -224,9 +224,9 @@ test.describe('Canvas Management', () => {
     // Handle confirmation dialog
     page.on('dialog', (dialog) => dialog.accept());
 
-    // Open delete dropdown and click delete
-    await page.locator('.delete-dropdown summary').click();
-    await page.getByText('Delete this version').click();
+    // Open menu and click delete file button
+    await page.locator('.btn-menu').click();
+    await page.getByText('Delete file').click();
 
     // Verify empty state is shown
     await expect(page.getByText('No canvas items yet')).toBeVisible();
@@ -597,9 +597,9 @@ test.describe('Canvas Management', () => {
     // Handle confirmation dialog
     page.on('dialog', (dialog) => dialog.accept());
 
-    // Open delete dropdown and click "Delete all versions"
-    await page.locator('.delete-dropdown summary').click();
-    await page.getByText('Delete all 2 versions').click();
+    // Open menu and click delete file button
+    await page.locator('.btn-menu').click();
+    await page.getByText(/Delete file.*2 versions/i).click();
 
     // Should show empty state
     await expect(page.getByText('No canvas items yet')).toBeVisible();
@@ -638,8 +638,8 @@ test.describe('Canvas Trash & Soft Delete', () => {
     page.on('dialog', (dialog) => dialog.accept());
 
     // Delete the item
-    await page.locator('.delete-dropdown summary').click();
-    await page.getByText('Delete this version').click();
+    await page.locator('.btn-menu').click();
+    await page.getByText('Delete file').click();
 
     // Verify item is gone from canvas via API
     const items = await getCanvasItems(session.id);
