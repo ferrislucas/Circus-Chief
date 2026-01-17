@@ -617,12 +617,15 @@ watch(
   }
 );
 
-// Re-fetch work logs when session status changes from running to waiting/completed
-// This ensures work logs are properly associated after Claude's turn ends
+// Re-fetch messages and work logs when session status changes from running to waiting/completed
+// This ensures the UI shows the correct messages after Claude's turn ends
 watch(
   () => sessionsStore.currentSession?.status,
   async (newStatus, oldStatus) => {
     if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
+      console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
+      // Fetch messages first, then work logs - this ensures messages are visible
+      await sessionsStore.fetchMessages(props.sessionId, false);
       await sessionsStore.fetchWorkLogs(props.sessionId);
     }
   }
