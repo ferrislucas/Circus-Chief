@@ -170,7 +170,6 @@ describe('CanvasFileViewer', () => {
       const menuItems = wrapper.findAll('.menu-item');
       expect(menuItems.length).toBe(3);
       expect(menuItems[2].text()).toContain('Delete file');
-      expect(menuItems[2].text()).toContain('2 versions');
     });
   });
 

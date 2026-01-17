@@ -100,7 +100,7 @@
                   @mouseleave="menuHighlightedIndex = null"
                 >
                   <span class="menu-item-icon">🗑</span>
-                  <span class="menu-item-text">Delete file<span v-if="versions.length > 1"> ({{ versions.length }} versions)</span></span>
+                  <span class="menu-item-text">Delete file</span>
                 </button>
               </li>
             </ul>
