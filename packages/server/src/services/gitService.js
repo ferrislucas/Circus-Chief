@@ -241,7 +241,8 @@ export async function createWorktree(directory, branch, path, options = {}) {
   // Get the default branch from origin (main or master)
   const defaultBranch = await getOriginDefaultBranch(directory);
   // Base new branch on origin's default branch to avoid including unrelated commits from HEAD
-  await git(directory, `worktree add "${path}" -b "${branch}" ${defaultBranch}`);
+  // Use --no-track to prevent the new branch from tracking the start-point (main/master)
+  await git(directory, `worktree add --no-track "${path}" -b "${branch}" ${defaultBranch}`);
   return { path, branch };
 }
 
@@ -336,7 +337,8 @@ export async function createWorktreeForBranch(directory, branch, worktreePath, o
     // Get the default branch from origin (main or master)
     const defaultBranch = await getOriginDefaultBranch(directory);
     // Base new branch on origin's default branch to avoid including unrelated commits from HEAD
-    await git(directory, `worktree add -b "${branch}" "${worktreePath}" ${defaultBranch}`);
+    // Use --no-track to prevent the new branch from tracking the start-point (main/master)
+    await git(directory, `worktree add --no-track -b "${branch}" "${worktreePath}" ${defaultBranch}`);
   }
   return { path: worktreePath, branch };
 }

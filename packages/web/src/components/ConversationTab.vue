@@ -153,14 +153,6 @@
               <span v-if="restarting" class="loading-spinner"></span>
               {{ restarting ? 'Starting...' : 'Start Session' }}
             </button>
-            <div :class="['save-indicator', `save-${saveStatus}`]">
-              <span v-if="saveStatus === 'saving'" class="save-icon">⏳</span>
-              <span v-else-if="saveStatus === 'saved'" class="save-icon">✓</span>
-              <span v-else-if="saveStatus === 'error'" class="save-icon">⚠</span>
-              <span class="save-text">
-                {{ saveStatus === 'saving' ? 'Saving...' : (saveStatus === 'saved' ? 'Saved' : (saveStatus === 'error' ? saveError || 'Save failed' : 'Unsaved')) }}
-              </span>
-            </div>
           </div>
           <button v-else type="submit" class="btn btn-primary btn-send" :disabled="isSendDisabled">
             <span v-if="sending" class="loading-spinner"></span>
@@ -474,21 +466,22 @@ onMounted(async () => {
 
   // Subscribe to conversation events for real-time updates
   unsubConvCreated = onConversationCreated((conversation) => {
+    console.log(`[CONV] CONVERSATION_CREATED event: conversation ${conversation.id}, isActive: ${conversation.isActive}`);
     sessionsStore.addConversation(conversation);
-    // If this is now the active conversation, fetch its messages
-    if (conversation.isActive) {
-      sessionsStore.fetchMessages(props.sessionId, false);
-    }
+    // The watcher on activeConversationId will trigger the fetch automatically
   });
 
   unsubConvUpdated = onConversationUpdated((conversation) => {
+    console.log(`[CONV] CONVERSATION_UPDATED event: conversation ${conversation.id}, isActive: ${conversation.isActive}`);
     sessionsStore.updateConversation(conversation);
   });
 
   unsubConvDeleted = onConversationDeleted((conversationId, newActiveConv) => {
+    console.log(`[CONV] CONVERSATION_DELETED event: deleted ${conversationId}, newActive: ${newActiveConv?.id || 'none'}`);
     sessionsStore.removeConversation(conversationId, newActiveConv);
     // If we have a new active conversation, fetch its messages
     if (newActiveConv) {
+      console.log(`[CONV] CONVERSATION_DELETED: fetching messages for new active conversation ${newActiveConv.id}`);
       sessionsStore.fetchMessages(props.sessionId, false);
     }
   });
@@ -606,6 +599,7 @@ function scrollToClaudesTurn() {
 watch(
   () => sessionsStore.messages.length,
   (newLen, oldLen) => {
+    console.log(`[CONV] messages.length changed: ${oldLen} → ${newLen}, activeConversationId: ${sessionsStore.activeConversationId}`);
     // Force scroll when messages first load, conditional scroll otherwise
     if (oldLen === 0 && newLen > 0) {
       scrollToBottom(true);
@@ -615,13 +609,33 @@ watch(
   }
 );
 
-// Re-fetch work logs when session status changes from running to waiting/completed
-// This ensures work logs are properly associated after Claude's turn ends
+// Re-fetch messages and work logs when session status changes from running to waiting/completed
+// This ensures the UI shows the correct messages after Claude's turn ends
 watch(
   () => sessionsStore.currentSession?.status,
   async (newStatus, oldStatus) => {
     if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
+      console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
+      // Fetch messages first, then work logs - this ensures messages are visible
+      await sessionsStore.fetchMessages(props.sessionId, false);
       await sessionsStore.fetchWorkLogs(props.sessionId);
+    }
+  }
+);
+
+// Message reconciliation watcher - always fetch messages when conversation changes
+// This ensures the UI always shows the correct messages for the active conversation
+watch(
+  () => sessionsStore.activeConversationId,
+  async (newConvId, oldConvId) => {
+    if (newConvId && newConvId !== oldConvId) {
+      // Wait a tick for any pending message updates to complete
+      await nextTick();
+
+      // Always refetch when conversation changes - no status check
+      // This prevents the UI from showing stale messages from a previous conversation
+      console.log(`[CONV] activeConversationId changed to ${newConvId}, refetching messages`);
+      await sessionsStore.fetchMessages(props.sessionId, false);
     }
   }
 );
@@ -1128,54 +1142,6 @@ async function handleBranchCreate({ messageId, prompt }) {
   align-items: center;
   gap: 0.75rem;
   flex: 1;
-}
-
-.save-indicator {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
-  border-radius: 0.375rem;
-  border: 1px solid var(--color-border);
-  background: var(--color-background-soft);
-  min-height: 40px;
-}
-
-.save-saving {
-  border-color: rgba(100, 200, 255, 0.5);
-  background: rgba(100, 200, 255, 0.05);
-  color: var(--color-accent);
-}
-
-.save-saved {
-  border-color: rgba(34, 197, 94, 0.5);
-  background: rgba(34, 197, 94, 0.05);
-  color: var(--color-success, #22c55e);
-}
-
-.save-error {
-  border-color: rgba(239, 68, 68, 0.5);
-  background: rgba(239, 68, 68, 0.05);
-  color: var(--color-danger, #ef4444);
-}
-
-.save-unsaved {
-  border-color: rgba(251, 146, 60, 0.5);
-  background: rgba(251, 146, 60, 0.05);
-  color: var(--color-warning, #fb923c);
-}
-
-.save-icon {
-  font-size: 1rem;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.save-text {
-  font-size: 0.75rem;
-  font-weight: 500;
-  white-space: nowrap;
 }
 
 .model-row {

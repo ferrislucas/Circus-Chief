@@ -23,6 +23,7 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/sessions/:id - Get session details
+// Includes latestCommandRuns (merged from DB completed runs + in-memory running commands)
 router.get('/:id', (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
@@ -32,7 +33,43 @@ router.get('/:id', (req, res) => {
   // This is used by the frontend to determine if a session is a draft
   const allMessages = messages.getBySessionId(req.params.id);
   const hasResponses = allMessages.some(msg => msg.role === 'assistant');
-  res.json({ ...session, hasResponses });
+
+  // Get command run statuses (latest run per button for this session)
+  // Completed runs from DB
+  const dbRuns = commandRuns.getLatestRunsForSession(req.params.id);
+  // Currently running commands from memory - filter all runs for this session
+  const allRunning = commandRunner.getRunsBySession(req.params.id);
+  const runningRuns = allRunning.filter(run => run.status === 'running');
+
+  // Build map of buttonId -> run data
+  // Running commands take precedence over completed ones (more current state)
+  const runsByButton = {};
+
+  // First add DB runs (completed)
+  for (const run of dbRuns) {
+    runsByButton[run.buttonId] = {
+      buttonId: run.buttonId,
+      status: run.status,
+      exitCode: run.exitCode,
+      runId: run.id,
+      completedAt: run.completedAt,
+    };
+  }
+
+  // Then overlay running commands (takes precedence)
+  for (const run of runningRuns) {
+    runsByButton[run.buttonId] = {
+      buttonId: run.buttonId,
+      status: 'running',
+      exitCode: null,
+      runId: run.runId,
+      startedAt: run.startedAt,
+    };
+  }
+
+  const latestCommandRuns = Object.values(runsByButton);
+
+  res.json({ ...session, hasResponses, latestCommandRuns });
 });
 
 // GET /api/sessions/:id/changes - Get git changes for session
@@ -196,6 +233,7 @@ router.get('/:id/messages', (req, res) => {
   const { conversation_id } = req.query;
 
   let sessionMessages;
+  let resolvedConvId = null;
   if (conversation_id) {
     // Get messages for specific conversation
     const conv = conversations.getById(conversation_id);
@@ -203,16 +241,21 @@ router.get('/:id/messages', (req, res) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
     sessionMessages = messages.getByConversationId(conversation_id);
+    resolvedConvId = conversation_id;
   } else {
     // Get messages for active conversation, or all messages if no active conversation
     const activeConv = conversations.getActiveBySessionId(req.params.id);
     if (activeConv) {
       sessionMessages = messages.getByConversationId(activeConv.id);
+      resolvedConvId = activeConv.id;
     } else {
       // Fall back to all messages (for legacy/migration)
       sessionMessages = messages.getBySessionId(req.params.id);
+      resolvedConvId = 'all (no active conversation)';
     }
   }
+
+  console.log(`[API] fetchMessages: session ${req.params.id}, conversation ${resolvedConvId}, returned ${sessionMessages.length} messages`);
 
   // Attach file attachments to each message (without content for efficiency)
   const messagesWithAttachments = sessionMessages.map((msg) => ({
