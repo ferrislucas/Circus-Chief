@@ -57,9 +57,9 @@ const props = defineProps({
     required: true,
     validator: (items) => {
       return items.every(item =>
-        item.hasOwnProperty('icon') &&
-        item.hasOwnProperty('label') &&
-        item.hasOwnProperty('action')
+        Object.prototype.hasOwnProperty.call(item, 'icon') &&
+        Object.prototype.hasOwnProperty.call(item, 'label') &&
+        Object.prototype.hasOwnProperty.call(item, 'action')
       );
     }
   },
