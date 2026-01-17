@@ -48,6 +48,14 @@
         >
           Commands
         </button>
+        <button
+          class="tab"
+          :class="{ active: activeTab === 'scheduled' }"
+          @click="router.push(`/projects/${route.params.id}/scheduled`)"
+        >
+          Scheduled
+          <span v-if="scheduledSessions.length > 0" class="tab-badge">{{ scheduledSessions.length }}</span>
+        </button>
       </div>
 
       <!-- Mobile dropdown -->
@@ -57,6 +65,7 @@
           <option value="archived">Archived</option>
           <option value="templates">Templates</option>
           <option value="commands">Commands</option>
+          <option value="scheduled">Scheduled</option>
         </select>
       </div>
     </div>
@@ -198,6 +207,25 @@
     <div v-if="activeTab === 'commands'">
       <CommandButtonsPanel :project-id="route.params.id" />
     </div>
+
+    <!-- Scheduled Tab -->
+    <div v-if="activeTab === 'scheduled'">
+      <div v-if="loadingScheduled" class="skeleton-list">
+        <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
+      </div>
+
+      <div v-else-if="scheduledSessions.length === 0" class="empty-state">
+        <p>No scheduled sessions. Use scheduling options when creating a new session to schedule it for later.</p>
+      </div>
+
+      <div v-else class="session-list">
+        <ScheduledSessionCard
+          v-for="session in scheduledSessions"
+          :key="session.id"
+          :session="session"
+        />
+      </div>
+    </div>
   </div>
 </template>
 
@@ -212,6 +240,7 @@ import { api } from '../composables/useApi.js';
 import SessionCard from '../components/SessionCard.vue';
 import TemplatesPanel from '../components/TemplatesPanel.vue';
 import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
+import ScheduledSessionCard from '../components/ScheduledSessionCard.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -226,6 +255,7 @@ const activeTab = computed(() => {
     case 'ArchivedSessions': return 'archived';
     case 'ProjectTemplates': return 'templates';
     case 'ProjectCommands': return 'commands';
+    case 'ScheduledSessions': return 'scheduled';
     default: return 'sessions';
   }
 });
@@ -279,6 +309,7 @@ function handleTabChange(tab) {
     archived: `/projects/${projectId}/archived`,
     templates: `/projects/${projectId}/templates`,
     commands: `/projects/${projectId}/commands`,
+    scheduled: `/projects/${projectId}/scheduled`,
   };
   router.push(routes[tab]);
 }
@@ -327,6 +358,10 @@ const summaryErrors = reactive({});
 
 // Track if archived sessions have been loaded
 const archivedLoaded = ref(false);
+
+// Scheduled sessions state - use store instead of local refs
+const scheduledSessions = computed(() => sessionsStore.scheduledSessions || []);
+const loadingScheduled = computed(() => sessionsStore.loadingScheduled || false);
 
 // Store cleanup functions for WebSocket listeners
 const cleanups = [];
@@ -508,12 +543,14 @@ watch(
   }
 );
 
-// Watch for route changes to load archived sessions when needed
+// Watch for route changes to load archived sessions and scheduled sessions when needed
 watch(
   () => route.name,
   async (newRouteName) => {
     if (newRouteName === 'ArchivedSessions') {
       await loadArchivedSessions();
+    } else if (newRouteName === 'ScheduledSessions') {
+      await fetchScheduledSessions();
     }
   },
   { immediate: true }
@@ -569,6 +606,10 @@ function fetchArchivedSummaries() {
       fetchSummary(session.id);
     }
   }
+}
+
+async function fetchScheduledSessions() {
+  await sessionsStore.fetchScheduledSessions();
 }
 
 async function handleArchive(sessionId) {

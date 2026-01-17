@@ -22,6 +22,12 @@ router.get('/', (req, res) => {
   res.json(activeSessions);
 });
 
+// GET /api/sessions/scheduled - Get all scheduled sessions across all projects
+router.get('/scheduled', (req, res) => {
+  const scheduledSessions = sessions.getScheduledSessions();
+  res.json(scheduledSessions);
+});
+
 // GET /api/sessions/:id - Get session details
 // Includes latestCommandRuns (merged from DB completed runs + in-memory running commands)
 router.get('/:id', (req, res) => {
@@ -436,30 +442,57 @@ router.post('/:id/start', async (req, res) => {
     // Use gitWorktree if set, otherwise use project's working directory
     const workingDirectory = session.gitWorktree || project.workingDirectory;
 
-    // Get the initial user message (prompt)
-    const userMessages = allMessages.filter(msg => msg.role === 'user');
+    // Get or create the initial user message (prompt)
+    let userMessages = allMessages.filter(msg => msg.role === 'user');
+    let initialMessage;
+
     if (userMessages.length === 0) {
-      return res.status(400).json({ error: 'No initial prompt found' });
-    }
-    const initialMessage = userMessages[0];
-
-    // If a new prompt is provided in the request body, update the message
-    let finalPrompt = initialMessage.content;
-    if (req.body.prompt !== undefined) {
-      // Validate provided prompt
-      if (!req.body.prompt || typeof req.body.prompt !== 'string' || req.body.prompt.trim() === '') {
-        return res.status(400).json({ error: 'Prompt must be a non-empty string' });
+      // For draft/scheduled sessions, there may not be an initial message yet
+      // Create it from pendingPrompt or request body
+      const promptToUse = req.body.prompt || session.pendingPrompt;
+      if (!promptToUse || typeof promptToUse !== 'string' || promptToUse.trim() === '') {
+        return res.status(400).json({ error: 'No initial prompt found' });
       }
-      // Update the message with the new prompt
-      const updatedMessage = messages.updateContent(initialMessage.id, req.body.prompt);
-      finalPrompt = updatedMessage.content;
 
-      // Broadcast the update to session subscribers
-      broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_UPDATED, {
+      // Get the active conversation
+      const activeConv = conversations.getActiveBySessionId(session.id);
+      if (!activeConv) {
+        return res.status(500).json({ error: 'No active conversation found' });
+      }
+
+      // Create the initial message
+      initialMessage = messages.create(session.id, 'user', promptToUse, null, activeConv.id);
+
+      // Clear pendingPrompt since we've created the message
+      sessions.update(session.id, { pendingPrompt: null });
+
+      // Broadcast the new message
+      broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_CREATED, {
         sessionId: session.id,
-        message: updatedMessage,
+        message: initialMessage,
       });
+    } else {
+      initialMessage = userMessages[0];
+
+      // If a new prompt is provided in the request body, update the message
+      if (req.body.prompt !== undefined) {
+        // Validate provided prompt
+        if (!req.body.prompt || typeof req.body.prompt !== 'string' || req.body.prompt.trim() === '') {
+          return res.status(400).json({ error: 'Prompt must be a non-empty string' });
+        }
+        // Update the message with the new prompt
+        const updatedMessage = messages.updateContent(initialMessage.id, req.body.prompt);
+        initialMessage = updatedMessage;
+
+        // Broadcast the update to session subscribers
+        broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_UPDATED, {
+          sessionId: session.id,
+          message: updatedMessage,
+        });
+      }
     }
+
+    const finalPrompt = initialMessage.content;
 
     // Get session attachments for context
     const sessionAttachments = attachments.getBySessionId(session.id);
@@ -807,7 +840,23 @@ router.patch('/:id', (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const { thinkingEnabled, status, mode, nextTemplateId, model } = req.body;
+  const {
+    thinkingEnabled,
+    status,
+    mode,
+    nextTemplateId,
+    model,
+    // Scheduling fields
+    scheduledAt,
+    autoRescheduleEnabled,
+    rescheduleDelayMinutes,
+    rescheduleOnTokenLimit,
+    rescheduleOnServiceError,
+    maxRescheduleCount,
+    maxTotalTokens,
+    rescheduleCount,
+    rescheduleAtTokenCount,
+  } = req.body;
 
   // Build update object with only provided fields
   const updateData = {};
@@ -815,7 +864,7 @@ router.patch('/:id', (req, res) => {
     updateData.thinkingEnabled = Boolean(thinkingEnabled);
   }
   if (status !== undefined) {
-    const validStatuses = ['starting', 'running', 'waiting', 'error', 'stopped'];
+    const validStatuses = ['starting', 'running', 'waiting', 'error', 'stopped', 'scheduled'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
@@ -845,6 +894,34 @@ router.patch('/:id', (req, res) => {
     }
     updateData.model = model;
   }
+  // Scheduling fields
+  if (scheduledAt !== undefined) {
+    updateData.scheduledAt = scheduledAt;
+  }
+  if (autoRescheduleEnabled !== undefined) {
+    updateData.autoRescheduleEnabled = Boolean(autoRescheduleEnabled);
+  }
+  if (rescheduleDelayMinutes !== undefined) {
+    updateData.rescheduleDelayMinutes = parseInt(rescheduleDelayMinutes, 10);
+  }
+  if (rescheduleOnTokenLimit !== undefined) {
+    updateData.rescheduleOnTokenLimit = Boolean(rescheduleOnTokenLimit);
+  }
+  if (rescheduleOnServiceError !== undefined) {
+    updateData.rescheduleOnServiceError = Boolean(rescheduleOnServiceError);
+  }
+  if (maxRescheduleCount !== undefined) {
+    updateData.maxRescheduleCount = maxRescheduleCount ? parseInt(maxRescheduleCount, 10) : null;
+  }
+  if (maxTotalTokens !== undefined) {
+    updateData.maxTotalTokens = maxTotalTokens ? parseInt(maxTotalTokens, 10) : null;
+  }
+  if (rescheduleCount !== undefined) {
+    updateData.rescheduleCount = parseInt(rescheduleCount, 10);
+  }
+  if (rescheduleAtTokenCount !== undefined) {
+    updateData.rescheduleAtTokenCount = rescheduleAtTokenCount ? parseInt(rescheduleAtTokenCount, 10) : null;
+  }
 
   if (Object.keys(updateData).length === 0) {
     return res.status(400).json({ error: 'No valid fields to update' });
@@ -861,6 +938,38 @@ router.patch('/:id', (req, res) => {
   }
 
   // Broadcast session update to project subscribers for real-time list updates
+  broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    projectId: session.projectId,
+    sessionId: req.params.id,
+    session: updated,
+  });
+
+  res.json(updated);
+});
+
+// PATCH /api/sessions/:id/pending-prompt - Update pending prompt for auto-save
+router.patch('/:id/pending-prompt', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const { pendingPrompt } = req.body;
+
+  // Allow null or string (including empty string for clearing)
+  if (pendingPrompt !== null && typeof pendingPrompt !== 'string') {
+    return res.status(400).json({ error: 'pendingPrompt must be a string or null' });
+  }
+
+  const updated = sessions.update(req.params.id, { pendingPrompt });
+
+  // Broadcast update to session subscribers
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    sessionId: req.params.id,
+    session: updated,
+  });
+
+  // Broadcast to project subscribers for real-time updates
   broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
     projectId: session.projectId,
     sessionId: req.params.id,
@@ -969,6 +1078,103 @@ router.post('/:id/star', (req, res) => {
   });
 
   res.json(updated);
+});
+
+// POST /api/sessions/:id/schedule - Schedule a follow-up message for an existing session
+router.post('/:id/schedule', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Only allow scheduling for waiting, stopped, or error sessions
+  if (!['waiting', 'stopped', 'error'].includes(session.status)) {
+    return res.status(400).json({ error: 'Session must be in waiting, stopped, or error state to schedule' });
+  }
+
+  const {
+    scheduledAt,
+    autoRescheduleEnabled,
+    rescheduleDelayMinutes,
+    rescheduleOnTokenLimit,
+    rescheduleOnServiceError,
+    maxRescheduleCount,
+    maxTotalTokens,
+    rescheduleAtTokenCount,
+  } = req.body;
+
+  // DEBUG: Log incoming scheduledAt value
+  console.log('[DEBUG] Schedule API - scheduledAt from request:', scheduledAt, 'type:', typeof scheduledAt);
+  console.log('[DEBUG] Schedule API - Date.now():', Date.now());
+
+  // Validate scheduledAt is provided and in the future
+  if (!scheduledAt || scheduledAt <= Date.now()) {
+    return res.status(400).json({ error: 'scheduledAt must be a future timestamp' });
+  }
+
+  // Validate that pendingPrompt exists and is not empty
+  if (!session.pendingPrompt || session.pendingPrompt.trim() === '') {
+    return res.status(400).json({ error: 'pendingPrompt must be set before scheduling' });
+  }
+
+  try {
+    // Get the project
+    const project = projects.getById(session.projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // No need to create a message here - the scheduler will use pendingPrompt
+
+    // Build update data
+    const updateData = {
+      status: 'scheduled',
+      scheduledAt,
+    };
+
+    // Apply scheduling options if provided
+    if (autoRescheduleEnabled !== undefined) {
+      updateData.autoRescheduleEnabled = Boolean(autoRescheduleEnabled);
+    }
+    if (rescheduleDelayMinutes !== undefined) {
+      updateData.rescheduleDelayMinutes = parseInt(rescheduleDelayMinutes, 10);
+    }
+    if (rescheduleOnTokenLimit !== undefined) {
+      updateData.rescheduleOnTokenLimit = Boolean(rescheduleOnTokenLimit);
+    }
+    if (rescheduleOnServiceError !== undefined) {
+      updateData.rescheduleOnServiceError = Boolean(rescheduleOnServiceError);
+    }
+    if (maxRescheduleCount !== undefined) {
+      updateData.maxRescheduleCount = maxRescheduleCount ? parseInt(maxRescheduleCount, 10) : null;
+    }
+    if (maxTotalTokens !== undefined) {
+      updateData.maxTotalTokens = maxTotalTokens ? parseInt(maxTotalTokens, 10) : null;
+    }
+    if (rescheduleAtTokenCount !== undefined) {
+      updateData.rescheduleAtTokenCount = rescheduleAtTokenCount ? parseInt(rescheduleAtTokenCount, 10) : null;
+    }
+
+    const updated = sessions.update(req.params.id, updateData);
+
+    // Broadcast status update
+    broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_STATUS, {
+      sessionId: req.params.id,
+      status: 'scheduled',
+    });
+
+    // Broadcast session update to project subscribers
+    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: session.projectId,
+      sessionId: req.params.id,
+      session: updated,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Schedule session error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // POST /api/sessions/:id/duplicate - Duplicate a session
