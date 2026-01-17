@@ -3351,6 +3351,139 @@ describe('Sessions Store', () => {
     });
   });
 
+  describe('fetchMessages', () => {
+    it('fetches messages for a session and updates store', async () => {
+      const store = useSessionsStore();
+      const mockMessages = [
+        { id: 'msg-1', role: 'user', content: 'Hello' },
+        { id: 'msg-2', role: 'assistant', content: 'Hi there' },
+      ];
+
+      api.getSessionMessages.mockResolvedValue(mockMessages);
+
+      await store.fetchMessages('session-123', true);
+
+      expect(api.getSessionMessages).toHaveBeenCalledWith('session-123');
+      expect(store.messages).toEqual(mockMessages);
+      expect(store.loading).toBe(false);
+      expect(store.error).toBeNull();
+    });
+
+    it('sets loading state when showLoading is true', async () => {
+      const store = useSessionsStore();
+      api.getSessionMessages.mockResolvedValue([]);
+
+      const fetchPromise = store.fetchMessages('session-123', true);
+
+      // Loading should be true during fetch
+      expect(store.loading).toBe(true);
+
+      await fetchPromise;
+
+      // Loading should be false after fetch
+      expect(store.loading).toBe(false);
+    });
+
+    it('does not set loading state when showLoading is false', async () => {
+      const store = useSessionsStore();
+      api.getSessionMessages.mockResolvedValue([]);
+
+      await store.fetchMessages('session-123', false);
+
+      // Loading should not have been set
+      expect(store.loading).toBe(false);
+    });
+
+    it('handles errors and sets error state', async () => {
+      const store = useSessionsStore();
+      const errorMessage = 'Failed to fetch messages';
+
+      api.getSessionMessages.mockRejectedValue(new Error(errorMessage));
+
+      await store.fetchMessages('session-123', true);
+
+      expect(store.error).toBe(errorMessage);
+      expect(store.loading).toBe(false);
+    });
+
+    it('logs fetch details including message count and activeConversationId', async () => {
+      const store = useSessionsStore();
+      store.activeConversationId = 'conv-123';
+
+      const mockMessages = [
+        { id: 'msg-1', role: 'user', content: 'Test' },
+      ];
+
+      api.getSessionMessages.mockResolvedValue(mockMessages);
+
+      const consoleLogSpy = vi.spyOn(console, 'log');
+
+      await store.fetchMessages('session-456', false);
+
+      // Verify logging includes session ID, message count, and conversation ID
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[STORE] fetchMessages: session session-456')
+      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining('received 1 messages')
+      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining('activeConversationId: conv-123')
+      );
+
+      consoleLogSpy.mockRestore();
+    });
+
+    it('clears previous error on successful fetch', async () => {
+      const store = useSessionsStore();
+      store.error = 'Previous error';
+
+      api.getSessionMessages.mockResolvedValue([]);
+
+      await store.fetchMessages('session-123', false);
+
+      expect(store.error).toBeNull();
+    });
+
+    it('updates messages array with fetched data', async () => {
+      const store = useSessionsStore();
+
+      // Set initial messages
+      store.messages = [{ id: 'old-msg', role: 'user', content: 'Old' }];
+
+      const newMessages = [
+        { id: 'new-msg-1', role: 'user', content: 'New 1' },
+        { id: 'new-msg-2', role: 'assistant', content: 'New 2' },
+      ];
+
+      api.getSessionMessages.mockResolvedValue(newMessages);
+
+      await store.fetchMessages('session-123', false);
+
+      // Messages should be completely replaced
+      expect(store.messages).toEqual(newMessages);
+      expect(store.messages).toHaveLength(2);
+    });
+
+    it('logs error when fetch fails', async () => {
+      const store = useSessionsStore();
+      const errorMessage = 'Network error';
+
+      api.getSessionMessages.mockRejectedValue(new Error(errorMessage));
+
+      const consoleErrorSpy = vi.spyOn(console, 'error');
+
+      await store.fetchMessages('session-789', false);
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[STORE] fetchMessages: error fetching messages for session session-789'),
+        errorMessage
+      );
+
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
   describe('branchConversation', () => {
     it('creates branch and updates UI optimistically without blocking on async fetches', async () => {
       const store = useSessionsStore();

@@ -474,21 +474,22 @@ onMounted(async () => {
 
   // Subscribe to conversation events for real-time updates
   unsubConvCreated = onConversationCreated((conversation) => {
+    console.log(`[CONV] CONVERSATION_CREATED event: conversation ${conversation.id}, isActive: ${conversation.isActive}`);
     sessionsStore.addConversation(conversation);
-    // If this is now the active conversation, fetch its messages
-    if (conversation.isActive) {
-      sessionsStore.fetchMessages(props.sessionId, false);
-    }
+    // The watcher on activeConversationId will trigger the fetch automatically
   });
 
   unsubConvUpdated = onConversationUpdated((conversation) => {
+    console.log(`[CONV] CONVERSATION_UPDATED event: conversation ${conversation.id}, isActive: ${conversation.isActive}`);
     sessionsStore.updateConversation(conversation);
   });
 
   unsubConvDeleted = onConversationDeleted((conversationId, newActiveConv) => {
+    console.log(`[CONV] CONVERSATION_DELETED event: deleted ${conversationId}, newActive: ${newActiveConv?.id || 'none'}`);
     sessionsStore.removeConversation(conversationId, newActiveConv);
     // If we have a new active conversation, fetch its messages
     if (newActiveConv) {
+      console.log(`[CONV] CONVERSATION_DELETED: fetching messages for new active conversation ${newActiveConv.id}`);
       sessionsStore.fetchMessages(props.sessionId, false);
     }
   });
@@ -606,6 +607,7 @@ function scrollToClaudesTurn() {
 watch(
   () => sessionsStore.messages.length,
   (newLen, oldLen) => {
+    console.log(`[CONV] messages.length changed: ${oldLen} → ${newLen}, activeConversationId: ${sessionsStore.activeConversationId}`);
     // Force scroll when messages first load, conditional scroll otherwise
     if (oldLen === 0 && newLen > 0) {
       scrollToBottom(true);
@@ -615,13 +617,33 @@ watch(
   }
 );
 
-// Re-fetch work logs when session status changes from running to waiting/completed
-// This ensures work logs are properly associated after Claude's turn ends
+// Re-fetch messages and work logs when session status changes from running to waiting/completed
+// This ensures the UI shows the correct messages after Claude's turn ends
 watch(
   () => sessionsStore.currentSession?.status,
   async (newStatus, oldStatus) => {
     if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
+      console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
+      // Fetch messages first, then work logs - this ensures messages are visible
+      await sessionsStore.fetchMessages(props.sessionId, false);
       await sessionsStore.fetchWorkLogs(props.sessionId);
+    }
+  }
+);
+
+// Message reconciliation watcher - always fetch messages when conversation changes
+// This ensures the UI always shows the correct messages for the active conversation
+watch(
+  () => sessionsStore.activeConversationId,
+  async (newConvId, oldConvId) => {
+    if (newConvId && newConvId !== oldConvId) {
+      // Wait a tick for any pending message updates to complete
+      await nextTick();
+
+      // Always refetch when conversation changes - no status check
+      // This prevents the UI from showing stale messages from a previous conversation
+      console.log(`[CONV] activeConversationId changed to ${newConvId}, refetching messages`);
+      await sessionsStore.fetchMessages(props.sessionId, false);
     }
   }
 );
