@@ -149,6 +149,18 @@
         </div>
         <div class="input-actions">
           <div v-if="isDraft" class="draft-actions">
+            <button
+              type="button"
+              class="btn btn-secondary btn-schedule"
+              @click="showScheduleModal = true"
+              :disabled="!inputHasContent"
+              title="Schedule this session to start later"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                <circle cx="8" cy="8" r="6" stroke-width="1.5"/>
+                <path d="M8 5v3l2 2" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </button>
             <button type="submit" class="btn btn-primary btn-send" :disabled="restarting || saveStatus === 'saving'">
               <span v-if="restarting" class="loading-spinner"></span>
               {{ restarting ? 'Starting...' : 'Start Session' }}
@@ -296,7 +308,6 @@ const quickResponsesStore = useQuickResponsesStore();
 const input = ref('');
 const quickResponseSettingsOpen = ref(false);
 const showScheduleModal = ref(false);
-const inputHasContent = ref(false); // Tracks if textarea has content (for button disabled state)
 const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
 const saveError = ref('');
 const textareaRef = ref(null);
@@ -356,6 +367,13 @@ const unassociatedWorkLogs = computed(() => {
   return sessionsStore.getUnassociatedWorkLogs;
 });
 
+// Computed to check if input has content (for button disabled state)
+// Uses reactive input.value as source of truth
+const inputHasContent = computed(() => {
+  // Check reactive input value (synced from textarea via handleInput or watch)
+  return input.value.trim().length > 0;
+});
+
 // Computed for send button disabled state - avoids re-evaluating on every render
 const isSendDisabled = computed(() => {
   return !inputHasContent.value || sending.value;
@@ -403,7 +421,6 @@ onMounted(async () => {
   const pending = sessionsStore.currentSession?.pendingPrompt;
   if (pending) {
     input.value = pending;
-    inputHasContent.value = pending.trim().length > 0;
     // Set textarea value directly
     nextTick(() => {
       if (textareaRef.value) {
@@ -415,7 +432,6 @@ onMounted(async () => {
     const userMessage = sessionsStore.messages.find(msg => msg.role === 'user');
     if (userMessage) {
       input.value = userMessage.content;
-      inputHasContent.value = userMessage.content.trim().length > 0;
       // Set textarea value directly
       nextTick(() => {
         if (textareaRef.value) {
@@ -548,26 +564,20 @@ onUnmounted(() => {
 // This prevents Vue reactivity from firing on every keystroke
 function handleInput(event) {
   const value = event.target.value;
-  const hasContent = value.trim().length > 0;
 
-  // Only update the reactive flag if it changed (minimizes re-renders)
-  if (inputHasContent.value !== hasContent) {
-    inputHasContent.value = hasContent;
-  }
+  // Sync to reactive state IMMEDIATELY (for button enabling to work)
+  input.value = value;
 
   // Mark as unsaved immediately (but only if status changed)
   if (saveStatus.value !== 'unsaved' && saveStatus.value !== 'saving') {
     saveStatus.value = 'unsaved';
   }
 
-  // Debounce the sync to reactive state and server
+  // Debounce the server save
   if (inputSyncTimer) clearTimeout(inputSyncTimer);
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
 
   inputSyncTimer = setTimeout(() => {
-    // Sync to reactive state (for handleSend/handleStart to access)
-    input.value = value;
-
     // Auto-save to server (for all waiting/stopped/error sessions)
     if (canSendMessage.value) {
       savePendingPrompt(value);
@@ -637,6 +647,29 @@ watch(
   }
 );
 
+// Watch for messages loading on draft sessions and populate textarea
+watch(
+  () => sessionsStore.messages,
+  (newMessages) => {
+    // Only populate textarea for draft sessions that don't have textarea content yet
+    if (isDraft.value && textareaRef.value) {
+      const textareaHasContent = textareaRef.value.value && textareaRef.value.value.trim().length > 0;
+      if (!textareaHasContent) {
+        const userMessage = newMessages.find(msg => msg.role === 'user');
+        if (userMessage && userMessage.content) {
+          input.value = userMessage.content;
+          nextTick(() => {
+            if (textareaRef.value) {
+              textareaRef.value.value = userMessage.content;
+            }
+          });
+        }
+      }
+    }
+  },
+  { deep: true, immediate: true }
+);
+
 function formatTime(timestamp) {
   return new Date(timestamp).toLocaleTimeString();
 }
@@ -665,7 +698,6 @@ async function handleSend() {
   try {
     await sessionsStore.sendMessage(props.sessionId, currentValue, attachedFiles.value);
     input.value = '';
-    inputHasContent.value = false;
     if (textareaRef.value) textareaRef.value.value = '';
     attachedFiles.value = [];
     fileAttachment.value?.clear();
@@ -692,7 +724,6 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
 
     // Update reactive state
     input.value = newValue;
-    inputHasContent.value = true;
 
     // Ensure DOM updates and focus
     nextTick(() => {
