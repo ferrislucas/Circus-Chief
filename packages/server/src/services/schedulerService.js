@@ -1,4 +1,4 @@
-import { sessions, messages, projects, attachments } from '../database.js';
+import { sessions, messages, conversations, projects, attachments } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
@@ -108,17 +108,18 @@ class SchedulerService {
     // Get attachments for context
     const sessionAttachments = attachments.getBySessionId(session.id);
 
-    // Update status from 'scheduled' to 'starting' and clear pendingPrompt
-    sessions.update(session.id, {
-      status: 'starting',
-      scheduledAt: null,
-      pendingPrompt: null,
-    });
-    broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
-
     // Determine if this is an initial run or a continuation
     if (hasAssistantResponses) {
       // Session has conversation history - this is a scheduled continuation
+
+      // Update status from 'scheduled' to 'starting' and clear pendingPrompt
+      sessions.update(session.id, {
+        status: 'starting',
+        scheduledAt: null,
+        pendingPrompt: null,
+      });
+      broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
+
       await this.sessionManager.continueSession(
         session.id,
         prompt,
@@ -128,6 +129,31 @@ class SchedulerService {
       );
     } else {
       // Fresh session - initial run
+      // First, create the user message so it appears in the conversation
+
+      // Get the active conversation
+      const activeConv = conversations.getActiveBySessionId(session.id);
+      if (!activeConv) {
+        throw new Error(`No active conversation found for session ${session.id}`);
+      }
+
+      // Create the initial user message
+      const userMessage = messages.create(session.id, 'user', prompt, null, activeConv.id);
+
+      // Broadcast the new message so UI updates
+      broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_CREATED, {
+        sessionId: session.id,
+        message: userMessage,
+      });
+
+      // Update status from 'scheduled' to 'starting' and clear pendingPrompt
+      sessions.update(session.id, {
+        status: 'starting',
+        scheduledAt: null,
+        pendingPrompt: null,
+      });
+      broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
+
       await this.sessionManager.runSession(
         session.id,
         prompt,
