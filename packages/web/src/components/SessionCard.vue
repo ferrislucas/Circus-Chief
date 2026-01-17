@@ -39,8 +39,8 @@
         <div v-if="summary" class="session-summary">
           <p class="summary-text">{{ summary.shortSummary }}</p>
           <div class="summary-meta">
-            <span v-if="summary.filesModified?.length" class="summary-files">
-              {{ summary.filesModified.length }} files modified
+            <span v-if="filesCount > 0" class="summary-files">
+              {{ filesCount }} {{ filesCount === 1 ? 'file' : 'files' }} modified
             </span>
           </div>
         </div>
@@ -153,8 +153,8 @@
       <div v-if="summary" class="session-summary">
         <p class="summary-text">{{ summary.shortSummary }}</p>
         <div class="summary-meta">
-          <span v-if="summary.filesModified?.length" class="summary-files">
-            {{ summary.filesModified.length }} files modified
+          <span v-if="filesCount > 0" class="summary-files">
+            {{ filesCount }} {{ filesCount === 1 ? 'file' : 'files' }} modified
           </span>
         </div>
       </div>
@@ -181,18 +181,20 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { formatDate } from '../utils/formatters.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import PrIndicators from './PrIndicators.vue';
+import { api } from '../composables/useApi.js';
 
 const router = useRouter();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
 const selectedButtonForModal = ref(null);
+const filesCount = ref(0);
 
 const props = defineProps({
   session: {
@@ -344,6 +346,20 @@ const onUnarchiveClick = () => {
 const onStarClick = () => {
   sessionsStore.toggleSessionStar(props.session.id);
 };
+
+// Fetch modified files count on mount
+onMounted(async () => {
+  try {
+    const result = await api.getSessionFilesCount(props.session.id);
+    filesCount.value = result.count || 0;
+  } catch (error) {
+    console.warn('Failed to fetch files count:', error);
+    // If API fails, fall back to LLM summary count
+    if (props.summary?.filesModified?.length) {
+      filesCount.value = props.summary.filesModified.length;
+    }
+  }
+});
 </script>
 
 <style scoped>
