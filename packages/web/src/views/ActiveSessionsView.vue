@@ -17,11 +17,20 @@
           {{ status }}
         </button>
         <button
-          :class="['filter-btn star-btn', { active: sessionsStore.starredFilter }]"
+          :class="[
+            'filter-btn star-btn',
+            {
+              'star-filter-active': sessionsStore.starredFilter === 'starred',
+              'star-filter-unstarred': sessionsStore.starredFilter === 'unstarred',
+              'star-filter-all': sessionsStore.starredFilter === null
+            }
+          ]"
           :title="starFilterTooltip"
           @click="toggleStarFilterIcon"
         >
-          {{ sessionsStore.starredFilter === 'starred' ? '⭐' : '☆' }}
+          <span class="star-icon" v-if="sessionsStore.starredFilter === 'starred'">⭐</span>
+          <span class="star-icon star-crossed" v-else-if="sessionsStore.starredFilter === 'unstarred'">⭐</span>
+          <span class="star-icon" v-else>☆</span>
         </button>
       </div>
     </div>
@@ -100,15 +109,23 @@ const toggleStarredFilter = (filter) => {
 };
 
 const toggleStarFilterIcon = () => {
-  const newValue = sessionsStore.starredFilter === 'starred' ? null : 'starred';
-  sessionsStore.setStarredFilter(newValue);
+  // Cycle through three states: null -> starred -> unstarred -> null
+  if (sessionsStore.starredFilter === null) {
+    sessionsStore.setStarredFilter('starred');
+  } else if (sessionsStore.starredFilter === 'starred') {
+    sessionsStore.setStarredFilter('unstarred');
+  } else {
+    sessionsStore.setStarredFilter(null);
+  }
 };
 
 const starFilterTooltip = computed(() => {
   if (sessionsStore.starredFilter === 'starred') {
-    return 'Show all sessions';
+    return 'Showing starred sessions only. Click to filter unstarred.';
+  } else if (sessionsStore.starredFilter === 'unstarred') {
+    return 'Showing unstarred sessions only. Click to show all.';
   } else {
-    return 'Filter starred sessions';
+    return 'Showing all sessions. Click to filter by starred.';
   }
 });
 
@@ -134,6 +151,8 @@ const filteredSessions = computed(() => {
   // Apply starred filter if set
   if (sessionsStore.starredFilter === 'starred') {
     sessions = sessions.filter(session => session.starred);
+  } else if (sessionsStore.starredFilter === 'unstarred') {
+    sessions = sessions.filter(session => !session.starred);
   }
 
   return sessions;
@@ -449,9 +468,49 @@ async function retryFetchSummary(sessionId) {
   color: var(--color-text);
 }
 
+/* Star icon wrapper - enables positioning for the slash */
+.star-icon {
+  position: relative;
+  display: inline-block;
+}
+
+/* Default state - no filter (show all) */
+.filter-btn.star-filter-all {
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text-soft);
+}
+
+.filter-btn.star-filter-all:hover {
+  border-color: var(--color-primary);
+  color: var(--color-text);
+}
+
+/* Active state - filter by starred */
+.filter-btn.star-filter-active,
 .filter-btn.active {
   background: var(--color-primary);
   border-color: var(--color-primary);
   color: white;
+}
+
+/* Unstarred state - filter by not starred (EXCLUDE starred) */
+.filter-btn.star-filter-unstarred {
+  background: transparent;
+  border-color: #f97316; /* Orange for "exclude/negative" action */
+  color: #f97316; /* Orange star */
+}
+
+/* Add diagonal line through the star */
+.star-crossed::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -10%;
+  right: -10%;
+  height: 2px;
+  background: currentColor; /* Inherits orange color */
+  transform: translateY(-50%) rotate(-45deg);
+  pointer-events: none;
 }
 </style>
