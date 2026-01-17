@@ -3,6 +3,11 @@
     <!-- Header -->
     <div class="viewer-header">
       <div class="viewer-header-left">
+        <span class="viewer-filename">{{ item.label || item.filename || 'Untitled' }}</span>
+      </div>
+
+      <div class="viewer-header-right">
+        <!-- Back button -->
         <button
           v-if="showBackButton"
           class="btn-back"
@@ -10,10 +15,7 @@
         >
           &#8249; Back
         </button>
-        <span class="viewer-filename">{{ item.label || item.filename || 'Untitled' }}</span>
-      </div>
 
-      <div class="viewer-header-right">
         <!-- Version dropdown -->
         <details
           v-if="versions.length > 1"
@@ -36,17 +38,6 @@
             </li>
           </ul>
         </details>
-
-        <!-- Markdown preview toggle -->
-        <button
-          v-if="item.type === 'markdown'"
-          class="preview-toggle"
-          :class="{ active: previewMode }"
-          @click="previewMode = !previewMode"
-          :title="previewMode ? 'Show raw markdown' : 'Preview markdown'"
-        >
-          {{ previewMode ? 'Raw' : 'Preview' }}
-        </button>
 
         <!-- Three-dot menu -->
         <div class="file-menu-container" ref="menuContainerRef">
@@ -142,14 +133,11 @@
         class="viewer-image"
       />
 
-      <template v-else-if="item.type === 'markdown'">
-        <MarkdownViewer
-          v-if="previewMode"
-          :content="item.content"
-          class="viewer-markdown"
-        />
-        <pre v-else class="viewer-markdown-raw">{{ item.content }}</pre>
-      </template>
+      <MarkdownViewer
+        v-if="item.type === 'markdown'"
+        :content="item.content"
+        class="viewer-markdown"
+      />
 
       <pre v-else-if="item.type === 'json'" class="viewer-json">{{ formatJson(item.data) }}</pre>
 
@@ -225,7 +213,6 @@ const props = defineProps({
 
 const emit = defineEmits(['back', 'selectVersion', 'delete', 'deleteAll']);
 
-const previewMode = ref(true);
 const menuOpen = ref(false);
 const menuHighlightedIndex = ref(null);
 const menuContainerRef = ref(null);
@@ -546,27 +533,6 @@ function handleDeleteAll() {
   font-size: 0.75rem;
 }
 
-/* Preview toggle */
-.preview-toggle {
-  background: none;
-  border: 1px solid var(--color-border);
-  color: var(--color-text-soft);
-  padding: 0.35rem 0.6rem;
-  border-radius: var(--border-radius);
-  cursor: pointer;
-  font-size: 0.75rem;
-  min-height: 28px;
-}
-
-.preview-toggle:hover {
-  background: var(--color-background-mute);
-}
-
-.preview-toggle.active {
-  background: var(--color-background-mute);
-  color: var(--color-text);
-}
-
 /* File menu container and button */
 .file-menu-container {
   position: relative;
@@ -777,8 +743,7 @@ function handleDeleteAll() {
     flex: 1;
   }
 
-  .version-dropdown summary,
-  .preview-toggle {
+  .version-dropdown summary {
     min-height: 44px;
     padding: 0.5rem 0.75rem;
   }
