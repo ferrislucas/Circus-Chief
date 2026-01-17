@@ -242,19 +242,31 @@ export const useSessionsStore = defineStore('sessions', {
     /**
      * Get tokens for a specific conversation, considering runningUsage if active
      * Used by ConversationSelector to show real-time token updates in dropdown
+     *
+     * During streaming: Returns base conversation tokens + current turn's running usage
+     * After completion: Returns base conversation tokens only
+     * This matches the logic in formattedTokens for consistency
      */
     getConversationDisplayTokens: (state) => (conversationId) => {
-      // If this conversation has active runningUsage, use that for real-time display
-      if (state.runningUsage && state.runningUsage.conversationId === conversationId) {
-        return {
-          inputTokens: state.runningUsage.inputTokens || 0,
-          outputTokens: state.runningUsage.outputTokens || 0,
-          total: (state.runningUsage.inputTokens || 0) + (state.runningUsage.outputTokens || 0),
-        };
-      }
-      // Otherwise use stored conversation data
+      // Find the conversation first (needed for both cases)
       const conv = state.conversations.find((c) => c.id === conversationId);
       if (!conv) return { inputTokens: 0, outputTokens: 0, total: 0 };
+
+      // If this conversation has active runningUsage, add it to base tokens
+      if (state.runningUsage && state.runningUsage.conversationId === conversationId) {
+        const baseInput = conv.inputTokens || 0;
+        const baseOutput = conv.outputTokens || 0;
+        const totalInput = baseInput + (state.runningUsage.inputTokens || 0);
+        const totalOutput = baseOutput + (state.runningUsage.outputTokens || 0);
+
+        return {
+          inputTokens: totalInput,
+          outputTokens: totalOutput,
+          total: totalInput + totalOutput,
+        };
+      }
+
+      // Otherwise use stored conversation data
       return {
         inputTokens: conv.inputTokens || 0,
         outputTokens: conv.outputTokens || 0,
