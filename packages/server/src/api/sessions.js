@@ -442,30 +442,57 @@ router.post('/:id/start', async (req, res) => {
     // Use gitWorktree if set, otherwise use project's working directory
     const workingDirectory = session.gitWorktree || project.workingDirectory;
 
-    // Get the initial user message (prompt)
-    const userMessages = allMessages.filter(msg => msg.role === 'user');
+    // Get or create the initial user message (prompt)
+    let userMessages = allMessages.filter(msg => msg.role === 'user');
+    let initialMessage;
+
     if (userMessages.length === 0) {
-      return res.status(400).json({ error: 'No initial prompt found' });
-    }
-    const initialMessage = userMessages[0];
-
-    // If a new prompt is provided in the request body, update the message
-    let finalPrompt = initialMessage.content;
-    if (req.body.prompt !== undefined) {
-      // Validate provided prompt
-      if (!req.body.prompt || typeof req.body.prompt !== 'string' || req.body.prompt.trim() === '') {
-        return res.status(400).json({ error: 'Prompt must be a non-empty string' });
+      // For draft/scheduled sessions, there may not be an initial message yet
+      // Create it from pendingPrompt or request body
+      const promptToUse = req.body.prompt || session.pendingPrompt;
+      if (!promptToUse || typeof promptToUse !== 'string' || promptToUse.trim() === '') {
+        return res.status(400).json({ error: 'No initial prompt found' });
       }
-      // Update the message with the new prompt
-      const updatedMessage = messages.updateContent(initialMessage.id, req.body.prompt);
-      finalPrompt = updatedMessage.content;
 
-      // Broadcast the update to session subscribers
-      broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_UPDATED, {
+      // Get the active conversation
+      const activeConv = conversations.getActiveBySessionId(session.id);
+      if (!activeConv) {
+        return res.status(500).json({ error: 'No active conversation found' });
+      }
+
+      // Create the initial message
+      initialMessage = messages.create(session.id, 'user', promptToUse, null, activeConv.id);
+
+      // Clear pendingPrompt since we've created the message
+      sessions.update(session.id, { pendingPrompt: null });
+
+      // Broadcast the new message
+      broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_CREATED, {
         sessionId: session.id,
-        message: updatedMessage,
+        message: initialMessage,
       });
+    } else {
+      initialMessage = userMessages[0];
+
+      // If a new prompt is provided in the request body, update the message
+      if (req.body.prompt !== undefined) {
+        // Validate provided prompt
+        if (!req.body.prompt || typeof req.body.prompt !== 'string' || req.body.prompt.trim() === '') {
+          return res.status(400).json({ error: 'Prompt must be a non-empty string' });
+        }
+        // Update the message with the new prompt
+        const updatedMessage = messages.updateContent(initialMessage.id, req.body.prompt);
+        initialMessage = updatedMessage;
+
+        // Broadcast the update to session subscribers
+        broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_UPDATED, {
+          sessionId: session.id,
+          message: updatedMessage,
+        });
+      }
     }
+
+    const finalPrompt = initialMessage.content;
 
     // Get session attachments for context
     const sessionAttachments = attachments.getBySessionId(session.id);
