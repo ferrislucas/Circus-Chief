@@ -210,7 +210,7 @@ describe('CanvasTab', () => {
       expect(uploadButton.text()).toContain('Upload File');
     });
 
-    it('hides upload button when viewing a single file', async () => {
+    it('shows upload button when viewing a single file', async () => {
       api.getCanvasItems.mockResolvedValue([
         { id: '1', filename: 'file1.png', createdAt: 1000 },
       ]);
@@ -219,12 +219,12 @@ describe('CanvasTab', () => {
 
       await flushAll(wrapper);
 
-      // With only one file, shouldShowViewer is true
+      // Upload button is now always visible, even when viewing a single file
       const uploadButton = wrapper.find('label.btn-primary');
-      expect(uploadButton.exists()).toBe(false);
+      expect(uploadButton.exists()).toBe(true);
     });
 
-    it('hides upload button when viewing a specific file in list', async () => {
+    it('shows upload button when viewing a specific file in list', async () => {
       api.getCanvasItems.mockResolvedValue([
         { id: '1', filename: 'file1.png', createdAt: 1000 },
         { id: '2', filename: 'file2.png', createdAt: 2000 },
@@ -236,9 +236,9 @@ describe('CanvasTab', () => {
 
       await flushAll(wrapper);
 
-      // With item query parameter, shouldShowViewer is true
+      // Upload button is now always visible, even when viewing a specific file
       const uploadButton = wrapper.find('label.btn-primary');
-      expect(uploadButton.exists()).toBe(false);
+      expect(uploadButton.exists()).toBe(true);
     });
 
     it('has hidden file input', async () => {
