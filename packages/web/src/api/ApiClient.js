@@ -111,6 +111,14 @@ export class ApiClient {
   }
 
   /**
+   * Get all scheduled sessions across all projects
+   * @returns {Promise<Array>}
+   */
+  async getScheduledSessions() {
+    return this.#request('GET', '/sessions/scheduled');
+  }
+
+  /**
    * Get all sessions for a project
    * @param {string} projectId - Project ID
    * @param {boolean|null} archived - Filter by archived status (null = all, true = archived only, false = non-archived only)
@@ -338,6 +346,16 @@ export class ApiClient {
   }
 
   /**
+   * Update the pending prompt for a session (auto-save input field)
+   * @param {string} id - Session ID
+   * @param {string|null} pendingPrompt - The pending prompt (or null to clear)
+   * @returns {Promise<Object>}
+   */
+  async updateSessionPendingPrompt(id, pendingPrompt) {
+    return this.#request('PATCH', `/sessions/${id}/pending-prompt`, { pendingPrompt });
+  }
+
+  /**
    * Delete a session
    * @param {string} id - Session ID
    * @returns {Promise<void>}
@@ -384,6 +402,25 @@ export class ApiClient {
    */
   async duplicateSession(id, options = {}) {
     return this.#request('POST', `/sessions/${id}/duplicate`, options);
+  }
+
+  /**
+   * Schedule a follow-up for an existing session
+   * @param {string} id - Session ID
+   * @param {Object} data - Scheduling data
+   * @param {number} data.scheduledAt - Timestamp for when to start
+   * @param {string} [data.prompt] - Optional follow-up message
+   * @param {boolean} [data.autoRescheduleEnabled] - Enable auto-reschedule on errors
+   * @param {number} [data.rescheduleDelayMinutes] - Delay between reschedules
+   * @param {boolean} [data.rescheduleOnTokenLimit] - Reschedule on token limit errors
+   * @param {boolean} [data.rescheduleOnServiceError] - Reschedule on service errors
+   * @param {number|null} [data.maxRescheduleCount] - Max reschedule attempts
+   * @param {number|null} [data.maxTotalTokens] - Max total tokens before stopping
+   * @param {number|null} [data.rescheduleAtTokenCount] - Token threshold for proactive reschedule
+   * @returns {Promise<Object>}
+   */
+  async scheduleSession(id, data) {
+    return this.#request('POST', `/sessions/${id}/schedule`, data);
   }
 
   // Canvas
