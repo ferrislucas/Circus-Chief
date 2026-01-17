@@ -227,6 +227,7 @@ function startPolling() {
     // Use showLoading=false to avoid flickering
     if (status === 'running' || status === 'starting') {
       await sessionsStore.fetchSession(sessionId, false);
+      await sessionsStore.fetchConversations(sessionId); // NEW: Fetch token counts
       await sessionsStore.fetchMessages(sessionId, false);
       await sessionsStore.fetchWorkLogs(sessionId);
       // Check for file changes during active session so the Changes tab indicator updates
@@ -235,7 +236,7 @@ function startPolling() {
       // Session no longer actively processing, stop polling
       stopPolling();
     }
-  }, 2000);
+  }, 1000); // Changed from 2000
 }
 
 function stopPolling() {
