@@ -25,9 +25,6 @@
       </div>
 
       <div class="actions">
-        <button @click="handleStartNow" class="btn btn-primary" :disabled="loading">
-          {{ loading ? 'Loading...' : 'Start Now' }}
-        </button>
         <button @click="showEditModal = true" class="btn btn-secondary">
           Edit Schedule
         </button>
@@ -136,23 +133,6 @@ const absoluteTimeDisplay = computed(() => {
 function formatTokenCount(count) {
   if (!count) return '0';
   return count.toLocaleString();
-}
-
-async function handleStartNow() {
-  loading.value = true;
-  try {
-    await sessionsStore.updateSessionFields(props.session.id, {
-      status: 'starting',
-      scheduledAt: null,
-    });
-
-    uiStore.showToast('Session started', 'success');
-  } catch (error) {
-    console.error('Failed to start session:', error);
-    uiStore.showToast('Failed to start session: ' + error.message, 'error');
-  } finally {
-    loading.value = false;
-  }
 }
 
 async function handleCancelSchedule() {
