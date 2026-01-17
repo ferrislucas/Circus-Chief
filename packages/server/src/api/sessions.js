@@ -877,6 +877,38 @@ router.patch('/:id', (req, res) => {
   res.json(updated);
 });
 
+// PATCH /api/sessions/:id/pending-prompt - Update pending prompt for auto-save
+router.patch('/:id/pending-prompt', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const { pendingPrompt } = req.body;
+
+  // Allow null or string (including empty string for clearing)
+  if (pendingPrompt !== null && typeof pendingPrompt !== 'string') {
+    return res.status(400).json({ error: 'pendingPrompt must be a string or null' });
+  }
+
+  const updated = sessions.update(req.params.id, { pendingPrompt });
+
+  // Broadcast update to session subscribers
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    sessionId: req.params.id,
+    session: updated,
+  });
+
+  // Broadcast to project subscribers for real-time updates
+  broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    projectId: session.projectId,
+    sessionId: req.params.id,
+    session: updated,
+  });
+
+  res.json(updated);
+});
+
 // GET /api/sessions/:id/summary - Get session summary
 router.get('/:id/summary', async (req, res) => {
   const session = sessions.getById(req.params.id);
@@ -992,7 +1024,6 @@ router.post('/:id/schedule', async (req, res) => {
 
   const {
     scheduledAt,
-    prompt,
     autoRescheduleEnabled,
     rescheduleDelayMinutes,
     rescheduleOnTokenLimit,
@@ -1007,9 +1038,9 @@ router.post('/:id/schedule', async (req, res) => {
     return res.status(400).json({ error: 'scheduledAt must be a future timestamp' });
   }
 
-  // Validate prompt if provided
-  if (prompt !== undefined && (typeof prompt !== 'string' || prompt.trim() === '')) {
-    return res.status(400).json({ error: 'prompt must be a non-empty string if provided' });
+  // Validate that pendingPrompt exists and is not empty
+  if (!session.pendingPrompt || session.pendingPrompt.trim() === '') {
+    return res.status(400).json({ error: 'pendingPrompt must be set before scheduling' });
   }
 
   try {
@@ -1019,17 +1050,7 @@ router.post('/:id/schedule', async (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    // If a prompt is provided, store it as a new user message
-    if (prompt && prompt.trim()) {
-      // Get or create active conversation
-      const activeConversation = conversations.ensureActiveConversation(req.params.id);
-
-      // Create the user message (will be processed when scheduled time arrives)
-      const message = messages.create(req.params.id, 'user', prompt.trim(), null, activeConversation.id);
-
-      // Broadcast the message to session subscribers
-      broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
-    }
+    // No need to create a message here - the scheduler will use pendingPrompt
 
     // Build update data
     const updateData = {

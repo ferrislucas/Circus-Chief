@@ -19,20 +19,7 @@
               class="form-input"
               required
             />
-          </div>
-
-          <!-- Required Prompt -->
-          <div class="form-group">
-            <label for="prompt" class="form-label">Follow-up Message *</label>
-            <textarea
-              id="prompt"
-              v-model="form.prompt"
-              class="form-input"
-              rows="3"
-              placeholder="Enter a message to send when the session starts..."
-              required
-            ></textarea>
-            <p class="form-help">This message will be sent when the scheduled session starts</p>
+            <p class="form-help">The message you've typed will be sent at this time</p>
           </div>
 
           <!-- Scheduling Options (collapsible) -->
@@ -68,7 +55,6 @@ const loading = ref(false);
 
 const form = reactive({
   scheduledAtLocal: '',
-  prompt: '',
   scheduling: {
     autoRescheduleEnabled: false,
     rescheduleDelayMinutes: 15,
@@ -89,7 +75,6 @@ const minDateTime = computed(() => {
 
 const isValid = computed(() => {
   if (!form.scheduledAtLocal) return false;
-  if (!form.prompt || !form.prompt.trim()) return false;
   const scheduledTime = new Date(form.scheduledAtLocal).getTime();
   return scheduledTime > Date.now();
 });
@@ -107,7 +92,6 @@ async function handleSchedule() {
 
     const payload = {
       scheduledAt,
-      prompt: form.prompt.trim(),
       ...form.scheduling,
     };
 
@@ -115,10 +99,11 @@ async function handleSchedule() {
 
     uiStore.showToast('Session scheduled successfully', 'success');
     emit('scheduled');
-    close();
+    emit('close'); // Explicit close event instead of calling close()
   } catch (error) {
     console.error('Failed to schedule session:', error);
     uiStore.showToast('Failed to schedule session: ' + error.message, 'error');
+    // Don't close on error - let user fix
   } finally {
     loading.value = false;
   }
@@ -130,7 +115,6 @@ watch(
   (isOpen) => {
     if (isOpen) {
       form.scheduledAtLocal = '';
-      form.prompt = '';
       form.scheduling = {
         autoRescheduleEnabled: false,
         rescheduleDelayMinutes: 15,

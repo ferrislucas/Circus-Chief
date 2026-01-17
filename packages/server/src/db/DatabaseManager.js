@@ -348,6 +348,14 @@ export class DatabaseManager {
         'ALTER TABLE conversations ADD COLUMN branch_from_message_id TEXT REFERENCES conversation_messages(id) ON DELETE SET NULL'
       );
     }
+
+    // Add pendingPrompt column to sessions table for auto-saving draft input
+    const pendingPromptTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const pendingPromptColumns = pendingPromptTableInfo.map((col) => col.name);
+
+    if (!pendingPromptColumns.includes('pending_prompt')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN pending_prompt TEXT');
+    }
   }
 
   /**

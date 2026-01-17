@@ -162,10 +162,24 @@
               </span>
             </div>
           </div>
-          <button v-else type="submit" class="btn btn-primary btn-send" :disabled="isSendDisabled">
-            <span v-if="sending" class="loading-spinner"></span>
-            {{ sending ? 'Sending...' : 'Send' }}
-          </button>
+          <template v-else>
+            <button
+              type="button"
+              class="btn btn-secondary btn-schedule"
+              @click="showScheduleModal = true"
+              :disabled="!inputHasContent || sessionsStore.currentSession?.status === 'scheduled'"
+              title="Schedule this message to be sent later"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                <circle cx="8" cy="8" r="6" stroke-width="1.5"/>
+                <path d="M8 5v3l2 2" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button type="submit" class="btn btn-primary btn-send" :disabled="isSendDisabled">
+              <span v-if="sending" class="loading-spinner"></span>
+              {{ sending ? 'Sending...' : 'Send' }}
+            </button>
+          </template>
         </div>
       </div>
       <div class="model-row">
@@ -237,6 +251,14 @@
       :projectId="sessionsStore.currentSession?.projectId"
       @close="quickResponseSettingsOpen = false"
     />
+
+    <!-- Schedule Session Modal -->
+    <ScheduleSessionModal
+      :isOpen="showScheduleModal"
+      :sessionId="sessionId"
+      @close="showScheduleModal = false"
+      @scheduled="showScheduleModal = false"
+    />
   </div>
 </template>
 
@@ -260,6 +282,7 @@ import TemplateSelector from './TemplateSelector.vue';
 import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
 import BranchEditor from './BranchEditor.vue';
+import ScheduleSessionModal from './ScheduleSessionModal.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 const props = defineProps({
@@ -272,6 +295,7 @@ const quickResponsesStore = useQuickResponsesStore();
 
 const input = ref('');
 const quickResponseSettingsOpen = ref(false);
+const showScheduleModal = ref(false);
 const inputHasContent = ref(false); // Tracks if textarea has content (for button disabled state)
 const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
 const saveError = ref('');
@@ -306,8 +330,6 @@ let pendingPartialText = null;
 const PARTIAL_THROTTLE_MS = 150; // Throttle streaming updates to reduce CPU load on iPad
 
 const SCROLL_THRESHOLD = 100; // pixels from bottom to consider "at bottom"
-
-const STORAGE_KEY = `session-draft-${props.sessionId}`;
 
 const canSendMessage = computed(() => {
   const status = sessionsStore.currentSession?.status;
@@ -377,8 +399,19 @@ function handleScroll() {
 }
 
 onMounted(async () => {
-  // If this is a draft session, load the initial prompt into the input field
-  if (isDraft.value && sessionsStore.messages.length > 0) {
+  // Load pendingPrompt from session data (works for both draft and waiting sessions)
+  const pending = sessionsStore.currentSession?.pendingPrompt;
+  if (pending) {
+    input.value = pending;
+    inputHasContent.value = pending.trim().length > 0;
+    // Set textarea value directly
+    nextTick(() => {
+      if (textareaRef.value) {
+        textareaRef.value.value = pending;
+      }
+    });
+  } else if (isDraft.value && sessionsStore.messages.length > 0) {
+    // Fallback: If this is a draft session without pendingPrompt, load from initial message
     const userMessage = sessionsStore.messages.find(msg => msg.role === 'user');
     if (userMessage) {
       input.value = userMessage.content;
@@ -387,21 +420,6 @@ onMounted(async () => {
       nextTick(() => {
         if (textareaRef.value) {
           textareaRef.value.value = userMessage.content;
-        }
-      });
-    }
-  }
-
-  // Load draft from localStorage (if not a draft session)
-  if (!isDraft.value) {
-    const savedDraft = localStorage.getItem(STORAGE_KEY);
-    if (savedDraft) {
-      input.value = savedDraft;
-      inputHasContent.value = savedDraft.trim().length > 0;
-      // Set textarea value directly
-      nextTick(() => {
-        if (textareaRef.value) {
-          textareaRef.value.value = savedDraft;
         }
       });
     }
@@ -526,7 +544,7 @@ onUnmounted(() => {
   sessionsStore.clearWorkLogs();
 });
 
-// Handle textarea input with debounced sync to reactive state
+// Handle textarea input with debounced sync to reactive state and server
 // This prevents Vue reactivity from firing on every keystroke
 function handleInput(event) {
   const value = event.target.value;
@@ -537,31 +555,24 @@ function handleInput(event) {
     inputHasContent.value = hasContent;
   }
 
-  // Mark draft as unsaved immediately (but only if status changed)
-  if (isDraft.value && saveStatus.value !== 'unsaved' && saveStatus.value !== 'saving') {
+  // Mark as unsaved immediately (but only if status changed)
+  if (saveStatus.value !== 'unsaved' && saveStatus.value !== 'saving') {
     saveStatus.value = 'unsaved';
   }
 
-  // Debounce the sync to reactive state and localStorage
+  // Debounce the sync to reactive state and server
   if (inputSyncTimer) clearTimeout(inputSyncTimer);
-  if (debounceTimer) clearTimeout(debounceTimer);
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
 
   inputSyncTimer = setTimeout(() => {
     // Sync to reactive state (for handleSend/handleStart to access)
     input.value = value;
 
-    // Save to localStorage
-    if (value.trim()) {
-      localStorage.setItem(STORAGE_KEY, value);
-      // Auto-save draft to database
-      if (isDraft.value) {
-        saveDraftPrompt(value);
-      }
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
+    // Auto-save to server (for all waiting/stopped/error sessions)
+    if (canSendMessage.value) {
+      savePendingPrompt(value);
     }
-  }, 150); // Short debounce for syncing, longer operations handled inside
+  }, 500); // Debounce 500ms for server save
 }
 
 function scrollToBottom(force = false) {
@@ -658,7 +669,8 @@ async function handleSend() {
     if (textareaRef.value) textareaRef.value.value = '';
     attachedFiles.value = [];
     fileAttachment.value?.clear();
-    localStorage.removeItem(STORAGE_KEY);
+    // Clear pending prompt on server
+    await api.updateSessionPendingPrompt(props.sessionId, null);
   } catch (err) {
     uiStore.error(err.message);
   } finally {
@@ -694,9 +706,10 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
         // Set cursor to end
         textareaRef.value.selectionStart = textareaRef.value.selectionEnd = textareaRef.value.value.length;
 
-        // Mark as unsaved and save to localStorage (if not draft mode)
-        if (!isDraft.value && newValue.trim()) {
-          localStorage.setItem(STORAGE_KEY, newValue);
+        // Mark as unsaved and trigger auto-save
+        if (canSendMessage.value && newValue.trim()) {
+          saveStatus.value = 'unsaved';
+          savePendingPrompt(newValue);
         }
       }
     });
@@ -741,11 +754,11 @@ async function copyError() {
   }
 }
 
-async function saveDraftPrompt(prompt) {
+async function savePendingPrompt(prompt) {
   try {
     saveStatus.value = 'saving';
     saveError.value = '';
-    await api.updateSessionInitialPrompt(props.sessionId, prompt);
+    await api.updateSessionPendingPrompt(props.sessionId, prompt);
     saveStatus.value = 'saved';
     // Reset save status after 2 seconds
     if (draftSaveTimer) clearTimeout(draftSaveTimer);
@@ -757,7 +770,7 @@ async function saveDraftPrompt(prompt) {
   } catch (err) {
     saveStatus.value = 'error';
     saveError.value = err.message;
-    console.error('Failed to save draft prompt:', err);
+    console.error('Failed to save pending prompt:', err);
   }
 }
 
@@ -771,8 +784,6 @@ async function handleStart() {
     // Pass the current prompt to the start method via the store
     // This ensures the UI updates immediately via Vue reactivity
     await sessionsStore.startSession(props.sessionId, currentValue);
-    // Clear localStorage draft on successful start
-    localStorage.removeItem(STORAGE_KEY);
   } catch (err) {
     uiStore.error(err.message);
   } finally {
@@ -1229,6 +1240,26 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 .btn-secondary:hover {
   background-color: var(--color-background-mute);
+}
+
+.btn-schedule {
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.btn-schedule:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.btn-schedule:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .status-message {

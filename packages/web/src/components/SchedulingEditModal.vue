@@ -8,6 +8,11 @@
         </div>
 
         <div class="modal-body">
+          <!-- Error message -->
+          <div v-if="error" class="error-message">
+            {{ error }}
+          </div>
+
           <!-- Schedule Time (only for scheduled sessions) -->
           <div v-if="session?.status === 'scheduled'" class="form-group">
             <label for="scheduled-at" class="form-label">Scheduled Time</label>
@@ -20,16 +25,38 @@
             />
           </div>
 
-          <!-- Auto-Reschedule Settings -->
-          <div class="form-group">
-            <label class="toggle-switch">
-              <input type="checkbox" v-model="form.autoRescheduleEnabled" />
-              <span class="toggle-slider"></span>
-              <span class="toggle-label">Auto-reschedule on errors</span>
-            </label>
-          </div>
+          <!-- Collapsible Advanced Scheduling Options -->
+          <button
+            type="button"
+            @click="showAdvanced = !showAdvanced"
+            class="advanced-options-header"
+            :aria-expanded="showAdvanced"
+          >
+            <span class="advanced-options-title">Advanced Scheduling Options</span>
+            <svg
+              class="chevron-icon"
+              :class="{ 'rotate-180': showAdvanced }"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
 
-          <div v-if="form.autoRescheduleEnabled" class="reschedule-settings">
+          <!-- Collapsible Content -->
+          <div v-if="showAdvanced" class="advanced-options-content">
+            <!-- Auto-Reschedule Settings -->
+            <div class="form-group">
+              <label class="toggle-switch">
+                <input type="checkbox" v-model="form.autoRescheduleEnabled" />
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Auto-reschedule on errors</span>
+              </label>
+            </div>
+
+            <div v-if="form.autoRescheduleEnabled" class="reschedule-settings">
             <!-- Reschedule Triggers -->
             <div class="form-group">
               <p class="settings-label">Reschedule Triggers</p>
@@ -101,12 +128,13 @@
               <p class="form-help">Current count: {{ session.rescheduleCount }}</p>
             </div>
           </div>
+          </div>
         </div>
 
         <div class="modal-footer">
           <button @click="close" class="btn btn-secondary">Cancel</button>
           <button @click="handleSave" class="btn btn-primary" :disabled="loading">
-            {{ loading ? 'Saving...' : 'Save' }}
+            {{ loading ? 'Updating...' : 'Update' }}
           </button>
         </div>
       </div>
@@ -129,6 +157,8 @@ const emit = defineEmits(['close', 'saved']);
 const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 const loading = ref(false);
+const error = ref(null);
+const showAdvanced = ref(false);
 
 const form = reactive({
   scheduledAtLocal: '',
@@ -165,6 +195,8 @@ function convertToLocalDatetime(timestamp) {
 
 async function handleSave() {
   loading.value = true;
+  error.value = null;
+
   try {
     const updateData = {
       autoRescheduleEnabled: form.autoRescheduleEnabled,
@@ -188,11 +220,13 @@ async function handleSave() {
 
     await sessionsStore.updateSessionFields(props.session.id, updateData);
 
-    uiStore.showToast('Settings saved', 'success');
+    uiStore.success('Settings saved');
     emit('saved');
-    close();
-  } catch (error) {
-    uiStore.showToast('Failed to save settings: ' + error.message, 'error');
+    close(); // Close modal on success
+  } catch (err) {
+    error.value = err.message || 'Failed to save settings';
+    uiStore.error('Failed to save settings: ' + error.value);
+    // Modal stays open on error
   } finally {
     loading.value = false;
   }
@@ -203,6 +237,7 @@ watch(
   () => props.isOpen,
   (isOpen) => {
     if (isOpen && props.session) {
+      error.value = null; // Clear any previous errors
       form.scheduledAtLocal = convertToLocalDatetime(props.session.scheduledAt);
       form.autoRescheduleEnabled = props.session.autoRescheduleEnabled || false;
       form.rescheduleDelayMinutes = props.session.rescheduleDelayMinutes || 15;
@@ -230,16 +265,19 @@ watch(
 }
 
 .modal-content {
+  display: flex;
+  flex-direction: column;
   background: var(--color-background-secondary, #1f2937);
   border-radius: 0.5rem;
   width: 100%;
   max-width: 500px;
   max-height: 90vh;
-  overflow-y: auto;
+  overflow: hidden;
   border: 1px solid var(--color-border);
 }
 
 .modal-header {
+  flex-shrink: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -269,10 +307,24 @@ watch(
 }
 
 .modal-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
   padding: 1.5rem;
 }
 
+.error-message {
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 0.25rem;
+  color: #fca5a5;
+  font-size: 0.9rem;
+}
+
 .modal-footer {
+  flex-shrink: 0;
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
@@ -422,5 +474,60 @@ watch(
 
 .btn-secondary:hover {
   background: var(--color-background-secondary);
+}
+
+/* Collapsible Advanced Options */
+.advanced-options-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  background: var(--color-background, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.advanced-options-header:hover {
+  background: var(--color-background-secondary, rgba(255, 255, 255, 0.05));
+}
+
+.advanced-options-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chevron-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+  transition: transform 0.2s;
+}
+
+.chevron-icon.rotate-180 {
+  transform: rotate(180deg);
+}
+
+.advanced-options-content {
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+    overflow: hidden;
+  }
+  to {
+    opacity: 1;
+    max-height: 1000px;
+  }
 }
 </style>
