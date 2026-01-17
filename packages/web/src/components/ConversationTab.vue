@@ -855,7 +855,9 @@ async function handleBranchCreate({ messageId, prompt }) {
 .conversation-tab {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* Removed height: 100% - causes layout issues on iPad Safari when combined with
+     sticky positioning and internal scroll containers. The natural document flow
+     works correctly without it. */
 }
 
 .conversation-usage {
