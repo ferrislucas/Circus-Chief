@@ -278,6 +278,11 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   if (maxTotalTokens !== undefined) schedulingUpdate.maxTotalTokens = maxTotalTokens;
   if (rescheduleAtTokenCount !== undefined) schedulingUpdate.rescheduleAtTokenCount = rescheduleAtTokenCount;
 
+  // For draft/waiting sessions, set pendingPrompt so they can be scheduled
+  if (initialStatus === 'waiting') {
+    schedulingUpdate.pendingPrompt = prompt;
+  }
+
   if (Object.keys(schedulingUpdate).length > 0) {
     sessions.update(session.id, schedulingUpdate);
   }
