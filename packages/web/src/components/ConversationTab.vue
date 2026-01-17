@@ -476,11 +476,7 @@ onMounted(async () => {
   unsubConvCreated = onConversationCreated((conversation) => {
     console.log(`[CONV] CONVERSATION_CREATED event: conversation ${conversation.id}, isActive: ${conversation.isActive}`);
     sessionsStore.addConversation(conversation);
-    // If this is now the active conversation, fetch its messages
-    if (conversation.isActive) {
-      console.log(`[CONV] CONVERSATION_CREATED: fetching messages for new active conversation ${conversation.id}`);
-      sessionsStore.fetchMessages(props.sessionId, false);
-    }
+    // The watcher on activeConversationId will trigger the fetch automatically
   });
 
   unsubConvUpdated = onConversationUpdated((conversation) => {
@@ -632,9 +628,8 @@ watch(
   }
 );
 
-// Message reconciliation watcher - detects and fixes disappearing conversations bug
-// When activeConversationId changes AND messages are empty AND session isn't running,
-// refetch messages to recover from race conditions during conversation creation
+// Message reconciliation watcher - always fetch messages when conversation changes
+// This ensures the UI always shows the correct messages for the active conversation
 watch(
   () => sessionsStore.activeConversationId,
   async (newConvId, oldConvId) => {
@@ -642,15 +637,10 @@ watch(
       // Wait a tick for any pending message updates to complete
       await nextTick();
 
-      // If messages are empty and session isn't running, something went wrong
-      // This catches the race condition where CONVERSATION_CREATED arrives before
-      // the user message is inserted into the database
-      if (sessionsStore.messages.length === 0 &&
-          sessionsStore.currentSession?.status !== 'running' &&
-          sessionsStore.currentSession?.status !== 'starting') {
-        console.warn(`[BUG FIX] Empty messages for conversation ${newConvId}, refetching...`);
-        await sessionsStore.fetchMessages(props.sessionId, false);
-      }
+      // Always refetch when conversation changes - no status check
+      // This prevents the UI from showing stale messages from a previous conversation
+      console.log(`[CONV] activeConversationId changed to ${newConvId}, refetching messages`);
+      await sessionsStore.fetchMessages(props.sessionId, false);
     }
   }
 );
