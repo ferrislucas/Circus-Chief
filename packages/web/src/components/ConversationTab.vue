@@ -268,8 +268,7 @@
     <ScheduleSessionModal
       :isOpen="showScheduleModal"
       :sessionId="sessionId"
-      @close="showScheduleModal = false"
-      @scheduled="showScheduleModal = false"
+      @close="closeScheduleModal"
     />
   </div>
 </template>
@@ -844,6 +843,14 @@ async function handleTemplateChange(templateId) {
   } catch (err) {
     uiStore.error(err.message);
   }
+}
+
+function closeScheduleModal() {
+  showScheduleModal.value = false;
+}
+
+function handleScheduled() {
+  closeScheduleModal();
 }
 
 // Branching methods

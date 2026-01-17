@@ -114,9 +114,9 @@ test.describe('Scheduling UI', () => {
 
   test.describe('Full Scheduling Flow', () => {
 
-    // TODO: This test is failing due to API/backend issue - modal doesn't close after clicking Schedule
-    // The UI elements work (clock icon, modal opening, datetime picker) which is what we're testing
-    test.skip('can schedule a draft session for future execution', async ({ page }) => {
+    // Issue #432: Modal doesn't close after clicking Schedule button
+    // This test verifies the bug exists and will pass once the issue is fixed
+    test('can schedule a draft session for future execution', async ({ page }) => {
       // Create a draft session
       const session = await seedSession(project.id, { prompt: 'Scheduled task: do something', startImmediately: false });
 
