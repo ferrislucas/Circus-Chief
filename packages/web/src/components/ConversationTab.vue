@@ -266,7 +266,7 @@
 
     <!-- Schedule Session Modal -->
     <ScheduleSessionModal
-      :isOpen="showScheduleModal"
+      v-model:isOpen="showScheduleModal"
       :sessionId="sessionId"
       @close="closeScheduleModal"
     />

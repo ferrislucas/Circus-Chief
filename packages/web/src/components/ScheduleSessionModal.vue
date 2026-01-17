@@ -1,5 +1,4 @@
 <template>
-  <Teleport to="body">
     <div v-if="isOpen" class="modal-backdrop" @click.self="close">
       <div class="modal-content">
         <div class="modal-header">
@@ -34,7 +33,6 @@
         </div>
       </div>
     </div>
-  </Teleport>
 </template>
 
 <script setup>
@@ -48,7 +46,7 @@ const props = defineProps({
   sessionId: String,
 });
 
-const emit = defineEmits(['close']);
+const emit = defineEmits(['close', 'update:isOpen']);
 
 const uiStore = useUiStore();
 const loading = ref(false);
@@ -80,34 +78,30 @@ const isValid = computed(() => {
 });
 
 function close() {
+  emit('update:isOpen', false);
   emit('close');
 }
 
 async function handleSchedule() {
   if (!isValid.value) return;
 
-  loading.value = true;
+  const scheduledAt = new Date(form.scheduledAtLocal).getTime();
+
+  const payload = {
+    scheduledAt,
+    ...form.scheduling,
+  };
+
+  // Close modal immediately for better UX
+  close();
+
+  // Make API call in background
   try {
-    const scheduledAt = new Date(form.scheduledAtLocal).getTime();
-
-    const payload = {
-      scheduledAt,
-      ...form.scheduling,
-    };
-
     await api.scheduleSession(props.sessionId, payload);
-
     uiStore.showToast('Session scheduled successfully', 'success');
-
-    // Ensure Vue has processed reactivity before emitting
-    await nextTick();
-    emit('close');
   } catch (error) {
     console.error('Failed to schedule session:', error);
     uiStore.showToast('Failed to schedule session: ' + error.message, 'error');
-    // Don't close on error - let user fix
-  } finally {
-    loading.value = false;
   }
 }
 
