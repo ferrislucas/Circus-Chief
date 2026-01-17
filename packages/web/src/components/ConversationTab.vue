@@ -7,8 +7,8 @@
     <TokenUsagePanel class="conversation-usage" />
 
     <div class="messages" ref="messagesContainer">
-      <!-- Hide messages for draft sessions (only show in input field) -->
-      <template v-if="!isDraft">
+      <!-- Hide messages for draft and scheduled sessions (only show in input field) -->
+      <template v-if="!isDraft && !isScheduledDraft">
       <div
         v-for="message in sessionsStore.messages"
         :key="message.id"
@@ -118,11 +118,11 @@
       @openSettings="quickResponseSettingsOpen = true"
     />
 
-    <form v-if="canSendMessage" @submit.prevent="isDraft ? handleStart() : handleSend()" class="input-form">
+    <form v-if="canSendMessage" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
       <textarea
         ref="textareaRef"
         class="form-input form-textarea"
-        :placeholder="isDraft ? 'Edit your prompt...' : 'Send a follow-up message...'"
+        :placeholder="(isDraft || isScheduledDraft) ? 'Edit your prompt...' : 'Send a follow-up message...'"
         rows="3"
         @input="handleInput"
         @keydown="handleKeydown"
@@ -343,7 +343,7 @@ const SCROLL_THRESHOLD = 100; // pixels from bottom to consider "at bottom"
 
 const canSendMessage = computed(() => {
   const status = sessionsStore.currentSession?.status;
-  return status === 'waiting' || status === 'stopped' || status === 'error';
+  return status === 'waiting' || status === 'scheduled' || status === 'stopped' || status === 'error';
 });
 
 const canBranch = computed(() => {
@@ -360,6 +360,11 @@ const isUsersTurn = computed(() => {
 const isDraft = computed(() => {
   if (!sessionsStore.currentSession) return false;
   return sessionsStore.isDraftSession(sessionsStore.currentSession);
+});
+
+const isScheduledDraft = computed(() => {
+  if (!sessionsStore.currentSession) return false;
+  return sessionsStore.isScheduledDraft(sessionsStore.currentSession);
 });
 
 const unassociatedWorkLogs = computed(() => {

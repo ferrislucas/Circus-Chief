@@ -127,6 +127,16 @@ export const useSessionsStore = defineStore('sessions', {
       }
       return !state.messages.some((msg) => msg.role === 'assistant');
     },
+    isScheduledDraft: (state) => (session) => {
+      // A session is a scheduled draft if it's scheduled and has never received any assistant responses
+      // This means the user can still edit the prompt before it starts
+      if (!session || session.status !== 'scheduled') return false;
+      // If hasResponses is available (from server), use it; otherwise fall back to checking loaded messages
+      if (session.hasResponses !== undefined) {
+        return !session.hasResponses;
+      }
+      return !state.messages.some((msg) => msg.role === 'assistant');
+    },
     // Token usage getters - now conversation-level (Issue #175)
     conversationTokens: (state) => {
       const conv = state.conversations.find((c) => c.id === state.activeConversationId);

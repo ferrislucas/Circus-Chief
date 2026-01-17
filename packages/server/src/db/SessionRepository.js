@@ -66,9 +66,14 @@ export class SessionRepository extends BaseRepository {
       )
       .run(id, projectId, name, status, mode, thinkingEnabled ? 1 : 0, gitBranch, model, parentSessionId, now, now);
 
-    // Create initial conversation and user message
+    // Create initial conversation
     const conversation = conversations.create(id, 'Initial', true);
-    messages.create(id, 'user', prompt, null, conversation.id);
+
+    // Only create initial user message for sessions that start immediately
+    // For waiting/scheduled sessions, the message will be created when they start
+    if (status !== 'waiting' && status !== 'scheduled') {
+      messages.create(id, 'user', prompt, null, conversation.id);
+    }
 
     return this.getById(id);
   }
