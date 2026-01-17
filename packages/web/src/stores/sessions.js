@@ -1140,6 +1140,8 @@ export const useSessionsStore = defineStore('sessions', {
           isActive: c.id === conversation.id,
         }));
         this.activeConversationId = conversation.id;
+        // Don't clear messages here - let the watcher's fetchMessages() replace them atomically
+        // Clearing here causes isDraft to temporarily become true, hiding the messages
       }
     },
 
