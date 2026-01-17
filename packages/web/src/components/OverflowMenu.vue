@@ -62,7 +62,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 
-const emit = defineEmits(['duplicate', 'archive', 'delete']);
+const emit = defineEmits(['duplicate', 'archive', 'copySessionId', 'delete']);
 
 const props = defineProps({
   ariaLabel: {
@@ -72,6 +72,10 @@ const props = defineProps({
   duplicateText: {
     type: String,
     default: 'Duplicate'
+  },
+  copySessionIdText: {
+    type: String,
+    default: null
   },
   archiveText: {
     type: String,
@@ -103,10 +107,16 @@ const archiveText = computed(() => {
   return props.isArchived ? 'Unarchive' : 'Archive';
 });
 
-const items = computed(() => [
-  { text: archiveText.value, icon: '📦', isDanger: false },
-  { text: props.duplicateText, icon: '⟳', isDanger: false }
-]);
+const items = computed(() => {
+  const baseItems = [
+    { text: archiveText.value, icon: '📦', isDanger: false },
+    { text: props.duplicateText, icon: '⟳', isDanger: false }
+  ];
+  if (props.copySessionIdText) {
+    baseItems.push({ text: props.copySessionIdText, icon: '📋', isDanger: false });
+  }
+  return baseItems;
+});
 
 function toggleMenu() {
   isOpen.value = !isOpen.value;
@@ -132,6 +142,9 @@ function handleItemClick(item, index) {
   } else if (index === 1) {
     // Second item is always Duplicate
     emit('duplicate');
+  } else if (index === 2 && props.copySessionIdText) {
+    // Third item is Copy Session ID (if provided)
+    emit('copySessionId');
   }
   closeMenu();
 }
