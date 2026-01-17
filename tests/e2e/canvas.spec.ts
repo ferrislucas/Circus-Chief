@@ -599,7 +599,7 @@ test.describe('Canvas Management', () => {
 
     // Open menu and click delete file button
     await page.locator('.btn-menu').click();
-    await page.getByText(/Delete file.*2 versions/i).click();
+    await page.getByText('Delete file').click();
 
     // Should show empty state
     await expect(page.getByText('No canvas items yet')).toBeVisible();
