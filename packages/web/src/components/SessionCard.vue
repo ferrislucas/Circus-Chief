@@ -18,7 +18,6 @@
           <h3 class="session-name">{{ session.name }}</h3>
           <p class="session-meta">
             <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
-            <span class="session-mode">{{ formattedMode }}</span>
             <PrIndicators v-if="prUrl" :pr-url="prUrl" :summary="prSummary" />
             <span
               v-for="indicator in buttonStatusesToDisplay"
@@ -90,8 +89,6 @@
         <h3 class="session-name">{{ session.name }}</h3>
         <p class="session-meta">
           <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
-          <span class="session-mode">{{ formattedMode }}</span>
-          <span class="session-model">{{ formattedModel }}</span>
           <PrIndicators v-if="prUrl" :pr-url="prUrl" :summary="prSummary" />
           <span
             v-for="indicator in buttonStatusesToDisplay"
@@ -189,7 +186,6 @@ import { useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { formatDate } from '../utils/formatters.js';
-import { useModelInfo } from '../composables/useModelInfo.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import PrIndicators from './PrIndicators.vue';
 
@@ -255,8 +251,6 @@ const props = defineProps({
 
 const emit = defineEmits(['retrySummary', 'archive', 'unarchive']);
 
-const { getModelDisplayName } = useModelInfo();
-
 // Show archive for statuses that are no longer active (not running or starting)
 const canArchive = computed(() => {
   return props.session.status !== 'running' && props.session.status !== 'starting';
@@ -265,17 +259,6 @@ const canArchive = computed(() => {
 const dateToShow = computed(() => {
   // For project view (showProject=false), show createdAt; for active sessions view (showProject=true), show updatedAt
   return props.showProject ? props.session.updatedAt : props.session.createdAt;
-});
-
-const formattedMode = computed(() => {
-  const mode = props.session.mode;
-  if (mode === 'yolo') return 'YOLO';
-  // Capitalize first letter for other modes
-  return mode ? mode.charAt(0).toUpperCase() + mode.slice(1) : '';
-});
-
-const formattedModel = computed(() => {
-  return getModelDisplayName(props.session.model);
 });
 
 const hasChildren = computed(() => props.children && props.children.length > 0);
@@ -464,15 +447,6 @@ const onStarClick = () => {
   gap: 0.75rem;
 }
 
-.session-mode {
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
-}
-
-.session-model {
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
-}
 
 .session-project {
   margin: 0.5rem 0 0;
@@ -741,9 +715,7 @@ const onStarClick = () => {
   }
 
   /* Smaller badges on mobile */
-  .status-badge,
-  .session-mode,
-  .session-model {
+  .status-badge {
     font-size: 0.7rem;
   }
 
