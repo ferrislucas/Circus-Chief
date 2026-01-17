@@ -153,14 +153,6 @@
               <span v-if="restarting" class="loading-spinner"></span>
               {{ restarting ? 'Starting...' : 'Start Session' }}
             </button>
-            <div :class="['save-indicator', `save-${saveStatus}`]">
-              <span v-if="saveStatus === 'saving'" class="save-icon">⏳</span>
-              <span v-else-if="saveStatus === 'saved'" class="save-icon">✓</span>
-              <span v-else-if="saveStatus === 'error'" class="save-icon">⚠</span>
-              <span class="save-text">
-                {{ saveStatus === 'saving' ? 'Saving...' : (saveStatus === 'saved' ? 'Saved' : (saveStatus === 'error' ? saveError || 'Save failed' : 'Unsaved')) }}
-              </span>
-            </div>
           </div>
           <button v-else type="submit" class="btn btn-primary btn-send" :disabled="isSendDisabled">
             <span v-if="sending" class="loading-spinner"></span>
@@ -1150,54 +1142,6 @@ async function handleBranchCreate({ messageId, prompt }) {
   align-items: center;
   gap: 0.75rem;
   flex: 1;
-}
-
-.save-indicator {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
-  border-radius: 0.375rem;
-  border: 1px solid var(--color-border);
-  background: var(--color-background-soft);
-  min-height: 40px;
-}
-
-.save-saving {
-  border-color: rgba(100, 200, 255, 0.5);
-  background: rgba(100, 200, 255, 0.05);
-  color: var(--color-accent);
-}
-
-.save-saved {
-  border-color: rgba(34, 197, 94, 0.5);
-  background: rgba(34, 197, 94, 0.05);
-  color: var(--color-success, #22c55e);
-}
-
-.save-error {
-  border-color: rgba(239, 68, 68, 0.5);
-  background: rgba(239, 68, 68, 0.05);
-  color: var(--color-danger, #ef4444);
-}
-
-.save-unsaved {
-  border-color: rgba(251, 146, 60, 0.5);
-  background: rgba(251, 146, 60, 0.05);
-  color: var(--color-warning, #fb923c);
-}
-
-.save-icon {
-  font-size: 1rem;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.save-text {
-  font-size: 0.75rem;
-  font-weight: 500;
-  white-space: nowrap;
 }
 
 .model-row {
