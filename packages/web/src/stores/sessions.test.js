@@ -1673,7 +1673,7 @@ describe('Sessions Store', () => {
     });
 
     describe('getConversationDisplayTokens getter', () => {
-      it('returns runningUsage data when conversation has active streaming', () => {
+      it('returns base conversation + runningUsage data when conversation has active streaming', () => {
         const store = useSessionsStore();
         store.conversations = [
           { id: 'conv-1', inputTokens: 1000, outputTokens: 500 },
@@ -1685,9 +1685,10 @@ describe('Sessions Store', () => {
         };
 
         const tokens = store.getConversationDisplayTokens('conv-1');
-        expect(tokens.inputTokens).toBe(5000);
-        expect(tokens.outputTokens).toBe(2500);
-        expect(tokens.total).toBe(7500);
+        // Should combine base conversation tokens + current turn running usage
+        expect(tokens.inputTokens).toBe(6000); // 1000 + 5000
+        expect(tokens.outputTokens).toBe(3000); // 500 + 2500
+        expect(tokens.total).toBe(9000); // Combined total
       });
 
       it('returns stored conversation data when no runningUsage', () => {
@@ -2967,12 +2968,12 @@ describe('Sessions Store', () => {
       expect(store.starredFilter).toBe(null);
     });
 
-    it('restoreStarredFilter should handle backward compatibility for legacy "unstarred" value', () => {
-      // Legacy value: 'unstarred' should be treated as null (no filter)
+    it('restoreStarredFilter should restore "unstarred" as a valid filter value', () => {
+      // 'unstarred' is now a valid three-state filter value
       sessionStorage.setItem('sessionStarredFilter', 'unstarred');
       const store = useSessionsStore();
       store.restoreStarredFilter();
-      expect(store.starredFilter).toBe(null);
+      expect(store.starredFilter).toBe('unstarred');
     });
 
     it('saveStarredFilter should persist starred filter to sessionStorage', () => {
