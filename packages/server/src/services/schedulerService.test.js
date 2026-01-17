@@ -11,6 +11,10 @@ vi.mock('../database.js', () => ({
   },
   messages: {
     getBySessionId: vi.fn(),
+    create: vi.fn(),
+  },
+  conversations: {
+    getActiveBySessionId: vi.fn(),
   },
   projects: {
     getById: vi.fn(),
@@ -24,7 +28,7 @@ vi.mock('../websocket.js', () => ({
   broadcastToSession: vi.fn(),
 }));
 
-import { sessions, messages, projects, attachments } from '../database.js';
+import { sessions, messages, conversations, projects, attachments } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 
 describe('SchedulerService', () => {
@@ -214,6 +218,8 @@ describe('SchedulerService', () => {
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp', systemPrompt: 'Be helpful' });
       messages.getBySessionId.mockReturnValue([]);
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+      messages.create.mockReturnValue({ id: 'msg-1', sessionId: 'session-1', role: 'user', content: 'Hello', conversationId: 'conv-1' });
       attachments.getBySessionId.mockReturnValue([]);
 
       await scheduler.startScheduledSession(session);
@@ -236,6 +242,8 @@ describe('SchedulerService', () => {
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp/main' });
       messages.getBySessionId.mockReturnValue([]);
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+      messages.create.mockReturnValue({ id: 'msg-1', sessionId: 'session-1', role: 'user', content: 'Hello', conversationId: 'conv-1' });
       attachments.getBySessionId.mockReturnValue([]);
 
       await scheduler.startScheduledSession(session);
