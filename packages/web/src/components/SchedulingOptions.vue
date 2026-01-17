@@ -1,27 +1,10 @@
 <template>
   <div class="scheduling-options">
-    <!-- Collapsible Header -->
-    <button
-      type="button"
-      @click="expanded = !expanded"
-      class="scheduling-header"
-      :aria-expanded="expanded"
-    >
-      <span class="scheduling-title">⏰ Scheduling Options</span>
-      <svg
-        class="chevron-icon"
-        :class="{ 'rotate-180': expanded }"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <polyline points="6 9 12 15 18 9"></polyline>
-      </svg>
-    </button>
+    <!-- Static Header -->
+    <h3 class="scheduling-title">⏰ Scheduling Options</h3>
 
-    <!-- Expanded Content -->
-    <div v-if="expanded" class="scheduling-content">
+    <!-- Content -->
+    <div class="scheduling-content">
       <!-- Schedule Start Time -->
       <div v-if="!hideScheduledAt" class="form-group">
         <label for="scheduled-at" class="form-label">Schedule Start Time (optional)</label>
@@ -151,8 +134,6 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue']);
 
-const expanded = ref(false);
-
 // Local scheduling state
 const localScheduling = reactive({
   scheduledAt: props.modelValue.scheduledAt || null,
@@ -239,60 +220,21 @@ watch(
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius, 6px);
   background: var(--color-background-secondary, rgba(0, 0, 0, 0.1));
-}
-
-.scheduling-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
   padding: 1rem;
-  background: none;
-  border: none;
-  color: var(--color-text);
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: 500;
-  transition: background-color 0.2s;
-}
-
-.scheduling-header:hover {
-  background-color: var(--color-background, rgba(255, 255, 255, 0.05));
 }
 
 .scheduling-title {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--color-text);
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-.chevron-icon {
-  width: 1.25rem;
-  height: 1.25rem;
-  flex-shrink: 0;
-  transition: transform 0.2s;
-}
-
-.chevron-icon.rotate-180 {
-  transform: rotate(180deg);
-}
-
 .scheduling-content {
-  padding: 0 1rem 1rem 1rem;
-  border-top: 1px solid var(--color-border);
-  animation: slideDown 0.2s ease-out;
-}
-
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    max-height: 0;
-    overflow: hidden;
-  }
-  to {
-    opacity: 1;
-    max-height: 1000px;
-  }
+  /* Content is always visible now */
 }
 
 .form-group {

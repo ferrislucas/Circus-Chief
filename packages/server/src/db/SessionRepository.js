@@ -29,6 +29,7 @@ export class SessionRepository extends BaseRepository {
       model: row.model,
       nextTemplateId: row.next_template_id,
       parentSessionId: row.parent_session_id,
+      pendingPrompt: row.pending_prompt || null,
       // Token usage fields
       inputTokens: row.input_tokens || 0,
       outputTokens: row.output_tokens || 0,
@@ -226,6 +227,10 @@ export class SessionRepository extends BaseRepository {
     if (data.rescheduleAtTokenCount !== undefined) {
       updates.push('reschedule_at_token_count = ?');
       values.push(data.rescheduleAtTokenCount);
+    }
+    if (data.pendingPrompt !== undefined) {
+      updates.push('pending_prompt = ?');
+      values.push(data.pendingPrompt);
     }
 
     if (updates.length === 0) return this.getById(id);

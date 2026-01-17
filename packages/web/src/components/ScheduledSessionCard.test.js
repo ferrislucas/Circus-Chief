@@ -13,7 +13,8 @@ vi.mock('../stores/sessions.js', () => ({
 
 vi.mock('../stores/ui.js', () => ({
   useUiStore: vi.fn(() => ({
-    showToast: vi.fn(),
+    success: vi.fn(),
+    error: vi.fn(),
   })),
 }));
 
@@ -126,10 +127,18 @@ describe('ScheduledSessionCard.vue', () => {
       },
     });
 
-    const buttons = wrapper.findAll('button');
-    expect(buttons.length).toBe(2);
-    expect(buttons[0].text()).toBe('Start Now');
-    expect(buttons[1].text()).toBe('Cancel');
+    const allButtons = wrapper.findAll('button');
+    expect(allButtons.length).toBe(3); // Edit, Start Now, Cancel
+
+    // Check action buttons specifically
+    const actionButtons = wrapper.findAll('.card-actions button');
+    expect(actionButtons.length).toBe(2);
+    expect(actionButtons[0].text()).toBe('Start Now');
+    expect(actionButtons[1].text()).toBe('Cancel');
+
+    // Check edit button exists
+    const editButton = wrapper.find('.edit-btn');
+    expect(editButton.exists()).toBe(true);
   });
 
   it('handles Start Now action', async () => {
@@ -137,7 +146,8 @@ describe('ScheduledSessionCard.vue', () => {
       updateSessionFields: vi.fn().mockResolvedValue(undefined),
     };
     const mockUiStore = {
-      showToast: vi.fn(),
+      success: vi.fn(),
+      error: vi.fn(),
     };
 
     useSessionsStore.mockReturnValue(mockSessionsStore);
@@ -149,7 +159,7 @@ describe('ScheduledSessionCard.vue', () => {
       },
     });
 
-    const startButton = wrapper.findAll('button')[0];
+    const startButton = wrapper.findAll('.card-actions button')[0];
     await startButton.trigger('click');
     await wrapper.vm.$nextTick();
 
@@ -157,7 +167,7 @@ describe('ScheduledSessionCard.vue', () => {
       status: 'starting',
       scheduledAt: null,
     });
-    expect(mockUiStore.showToast).toHaveBeenCalledWith('Session started', 'success');
+    expect(mockUiStore.success).toHaveBeenCalledWith('Session started');
   });
 
   it('handles Cancel action with confirmation', async () => {
@@ -165,7 +175,8 @@ describe('ScheduledSessionCard.vue', () => {
       updateSessionFields: vi.fn().mockResolvedValue(undefined),
     };
     const mockUiStore = {
-      showToast: vi.fn(),
+      success: vi.fn(),
+      error: vi.fn(),
     };
 
     useSessionsStore.mockReturnValue(mockSessionsStore);
@@ -180,7 +191,7 @@ describe('ScheduledSessionCard.vue', () => {
       },
     });
 
-    const cancelButton = wrapper.findAll('button')[1];
+    const cancelButton = wrapper.findAll('.card-actions button')[1];
     await cancelButton.trigger('click');
     await wrapper.vm.$nextTick();
 
@@ -188,7 +199,7 @@ describe('ScheduledSessionCard.vue', () => {
     expect(mockSessionsStore.updateSessionFields).toHaveBeenCalledWith('session-1', {
       status: 'stopped',
     });
-    expect(mockUiStore.showToast).toHaveBeenCalledWith('Session cancelled', 'success');
+    expect(mockUiStore.success).toHaveBeenCalledWith('Session cancelled');
   });
 
   it('does not cancel when user confirms no', async () => {
@@ -196,7 +207,8 @@ describe('ScheduledSessionCard.vue', () => {
       updateSessionFields: vi.fn().mockResolvedValue(undefined),
     };
     const mockUiStore = {
-      showToast: vi.fn(),
+      success: vi.fn(),
+      error: vi.fn(),
     };
 
     useSessionsStore.mockReturnValue(mockSessionsStore);
@@ -211,7 +223,7 @@ describe('ScheduledSessionCard.vue', () => {
       },
     });
 
-    const cancelButton = wrapper.findAll('button')[1];
+    const cancelButton = wrapper.findAll('.card-actions button')[1];
     await cancelButton.trigger('click');
     await wrapper.vm.$nextTick();
 
@@ -224,7 +236,8 @@ describe('ScheduledSessionCard.vue', () => {
       updateSessionFields: vi.fn(() => new Promise((resolve) => setTimeout(resolve, 100))),
     };
     const mockUiStore = {
-      showToast: vi.fn(),
+      success: vi.fn(),
+      error: vi.fn(),
     };
 
     useSessionsStore.mockReturnValue(mockSessionsStore);
@@ -236,7 +249,7 @@ describe('ScheduledSessionCard.vue', () => {
       },
     });
 
-    const startButton = wrapper.findAll('button')[0];
+    const startButton = wrapper.findAll('.card-actions button')[0];
     startButton.trigger('click');
     await wrapper.vm.$nextTick();
 
@@ -257,7 +270,8 @@ describe('ScheduledSessionCard.vue', () => {
       updateSessionFields: vi.fn().mockRejectedValue(mockError),
     };
     const mockUiStore = {
-      showToast: vi.fn(),
+      success: vi.fn(),
+      error: vi.fn(),
     };
 
     useSessionsStore.mockReturnValue(mockSessionsStore);
@@ -269,12 +283,12 @@ describe('ScheduledSessionCard.vue', () => {
       },
     });
 
-    const startButton = wrapper.findAll('button')[0];
+    const startButton = wrapper.findAll('.card-actions button')[0];
     await startButton.trigger('click');
     await new Promise((resolve) => setTimeout(resolve, 50));
     await wrapper.vm.$nextTick();
 
-    expect(mockUiStore.showToast).toHaveBeenCalledWith('Failed to start session: Network error', 'error');
+    expect(mockUiStore.error).toHaveBeenCalledWith('Failed to start session: Network error');
     expect(startButton.text()).toBe('Start Now');
   });
 
@@ -284,7 +298,8 @@ describe('ScheduledSessionCard.vue', () => {
       updateSessionFields: vi.fn().mockRejectedValue(mockError),
     };
     const mockUiStore = {
-      showToast: vi.fn(),
+      success: vi.fn(),
+      error: vi.fn(),
     };
 
     useSessionsStore.mockReturnValue(mockSessionsStore);
@@ -298,12 +313,12 @@ describe('ScheduledSessionCard.vue', () => {
       },
     });
 
-    const cancelButton = wrapper.findAll('button')[1];
+    const cancelButton = wrapper.findAll('.card-actions button')[1];
     await cancelButton.trigger('click');
     await new Promise((resolve) => setTimeout(resolve, 50));
     await wrapper.vm.$nextTick();
 
-    expect(mockUiStore.showToast).toHaveBeenCalledWith('Failed to cancel session: Failed to cancel', 'error');
+    expect(mockUiStore.error).toHaveBeenCalledWith('Failed to cancel session: Failed to cancel');
     expect(cancelButton.text()).toBe('Cancel');
   });
 

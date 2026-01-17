@@ -196,24 +196,24 @@ describe('SchedulerService', () => {
       );
     });
 
-    it('throws error if no user messages found', async () => {
+    it('throws error if no pendingPrompt found', async () => {
       scheduler.initialize(mockSessionManager);
-      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1' };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: null };
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
       messages.getBySessionId.mockReturnValue([]);
 
       await expect(scheduler.startScheduledSession(session)).rejects.toThrow(
-        'No user message found for session session-1'
+        'No pendingPrompt found for session session-1'
       );
     });
 
     it('updates session status and runs fresh session', async () => {
       scheduler.initialize(mockSessionManager);
-      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', model: 'claude-sonnet-4-5-20250929' };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', model: 'claude-sonnet-4-5-20250929', pendingPrompt: 'Hello' };
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp', systemPrompt: 'Be helpful' });
-      messages.getBySessionId.mockReturnValue([{ role: 'user', content: 'Hello' }]);
+      messages.getBySessionId.mockReturnValue([]);
       attachments.getBySessionId.mockReturnValue([]);
 
       await scheduler.startScheduledSession(session);
@@ -221,6 +221,7 @@ describe('SchedulerService', () => {
       expect(sessions.update).toHaveBeenCalledWith('session-1', {
         status: 'starting',
         scheduledAt: null,
+        pendingPrompt: null,
       });
       expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
         sessionId: 'session-1',
@@ -231,10 +232,10 @@ describe('SchedulerService', () => {
 
     it('uses gitWorktree for working directory when available', async () => {
       scheduler.initialize(mockSessionManager);
-      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', gitWorktree: '/tmp/worktree' };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', gitWorktree: '/tmp/worktree', pendingPrompt: 'Hello' };
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp/main' });
-      messages.getBySessionId.mockReturnValue([{ role: 'user', content: 'Hello' }]);
+      messages.getBySessionId.mockReturnValue([]);
       attachments.getBySessionId.mockReturnValue([]);
 
       await scheduler.startScheduledSession(session);
@@ -245,13 +246,12 @@ describe('SchedulerService', () => {
     it('continues session when there are existing assistant messages', async () => {
       scheduler.initialize(mockSessionManager);
       mockSessionManager.continueSession = vi.fn().mockResolvedValue(undefined);
-      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1' };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Follow-up message' };
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
       messages.getBySessionId.mockReturnValue([
         { role: 'user', content: 'First message' },
         { role: 'assistant', content: 'Response' },
-        { role: 'user', content: 'Follow-up message' },
       ]);
       attachments.getBySessionId.mockReturnValue([]);
 

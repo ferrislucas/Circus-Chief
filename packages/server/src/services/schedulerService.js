@@ -94,43 +94,43 @@ class SchedulerService {
     // Determine working directory
     const workingDirectory = session.gitWorktree || project.workingDirectory;
 
-    // Get the session messages to find the prompt
-    const sessionMessages = messages.getBySessionId(session.id);
-    const userMessages = sessionMessages.filter((msg) => msg.role === 'user');
-    const hasAssistantResponses = sessionMessages.some((msg) => msg.role === 'assistant');
-
-    if (userMessages.length === 0) {
-      throw new Error(`No user message found for session ${session.id}`);
+    // Use pendingPrompt as the message to send
+    if (!session.pendingPrompt || session.pendingPrompt.trim() === '') {
+      throw new Error(`No pendingPrompt found for session ${session.id}`);
     }
+
+    const prompt = session.pendingPrompt.trim();
+
+    // Get the session messages to determine if this is initial or continuation
+    const sessionMessages = messages.getBySessionId(session.id);
+    const hasAssistantResponses = sessionMessages.some((msg) => msg.role === 'assistant');
 
     // Get attachments for context
     const sessionAttachments = attachments.getBySessionId(session.id);
 
-    // Update status from 'scheduled' to 'starting'
+    // Update status from 'scheduled' to 'starting' and clear pendingPrompt
     sessions.update(session.id, {
       status: 'starting',
       scheduledAt: null,
+      pendingPrompt: null,
     });
     broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
 
     // Determine if this is an initial run or a continuation
     if (hasAssistantResponses) {
       // Session has conversation history - this is a scheduled continuation
-      // Use the most recent user message as the follow-up
-      const latestUserMessage = userMessages[userMessages.length - 1];
       await this.sessionManager.continueSession(
         session.id,
-        latestUserMessage.content,
+        prompt,
         workingDirectory,
         project.systemPrompt,
         sessionAttachments
       );
     } else {
       // Fresh session - initial run
-      const initialMessage = userMessages[0];
       await this.sessionManager.runSession(
         session.id,
-        initialMessage.content,
+        prompt,
         workingDirectory,
         project.systemPrompt,
         sessionAttachments,
