@@ -159,6 +159,32 @@ router.get('/:id/default-branch', async (req, res) => {
   }
 });
 
+// GET /api/sessions/:id/files-count - Get count of modified files
+router.get('/:id/files-count', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const project = projects.getById(session.projectId);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  // Use gitWorktree if set, otherwise use the project's working directory
+  const directory = session.gitWorktree || project.workingDirectory;
+
+  try {
+    // Get the default branch to compare against
+    const defaultBranch = await gitService.getOriginDefaultBranch(directory);
+    const count = await gitService.getModifiedFilesCount(directory, defaultBranch);
+
+    res.json({ count });
+  } catch (error) {
+    res.status(500).json({ error: error.message, count: 0 });
+  }
+});
+
 // GET /api/sessions/:id/messages - Get session messages
 // Supports ?conversation_id=xxx to filter by conversation
 router.get('/:id/messages', (req, res) => {
