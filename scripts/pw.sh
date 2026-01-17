@@ -156,7 +156,7 @@ ensure_directories() {
 # Build the container
 cmd_build() {
     print_info "Building Playwright container..."
-    docker compose -f "$COMPOSE_FILE" build playwright
+    docker-compose -f "$COMPOSE_FILE" build playwright
     print_success "Container built successfully"
 }
 
@@ -180,10 +180,10 @@ cmd_test() {
     # Use -T to disable pseudo-TTY allocation in docker
     # This prevents conflicts with the PTY wrapper used by command buttons
     # and ensures output is properly line-buffered for real-time streaming
-    docker compose -f "$COMPOSE_FILE" run --rm -T playwright test "$@"
+    docker-compose -f "$COMPOSE_FILE" run --rm -T playwright test "$@"
     local exit_code=$?
 
-    # Explicitly return the exit code from docker compose
+    # Explicitly return the exit code from docker-compose
     return $exit_code
 }
 
@@ -210,7 +210,7 @@ cmd_screenshot() {
     local filename="${2:-screenshot-$(date +%Y%m%d-%H%M%S).png}"
 
     print_info "Capturing screenshot of: $url"
-    docker compose -f "$COMPOSE_FILE" run --rm playwright screenshot "$url" "$filename"
+    docker-compose -f "$COMPOSE_FILE" run --rm playwright screenshot "$url" "$filename"
     print_success "Screenshot saved to: screenshots/$filename"
 }
 
@@ -236,7 +236,7 @@ cmd_codegen() {
     fi
 
     print_info "Starting Playwright codegen for: $url"
-    docker compose -f "$COMPOSE_FILE" --profile headed run --rm playwright-headed codegen "$url"
+    docker-compose -f "$COMPOSE_FILE" --profile headed run --rm playwright-headed codegen "$url"
 }
 
 # Interactive shell
@@ -244,7 +244,7 @@ cmd_shell() {
     ensure_dependencies
     ensure_directories
     print_info "Starting interactive shell..."
-    docker compose -f "$COMPOSE_FILE" run --rm playwright shell
+    docker-compose -f "$COMPOSE_FILE" run --rm playwright shell
 }
 
 # Debug mode (headed browser)
@@ -269,7 +269,7 @@ cmd_debug() {
     print_info "Running tests in debug mode (headed browser) on port: $TEST_SERVER_PORT"
 
     # Use -T for output streaming (headed mode still works with X11 forwarding)
-    docker compose -f "$COMPOSE_FILE" --profile headed run --rm -T playwright-headed test "$@"
+    docker-compose -f "$COMPOSE_FILE" --profile headed run --rm -T playwright-headed test "$@"
     local exit_code=$?
 
     return $exit_code

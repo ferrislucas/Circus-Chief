@@ -1,12 +1,7 @@
 <template>
   <div class="scheduling-options">
-    <!-- Static Header -->
-    <h3 class="scheduling-title">⏰ Scheduling Options</h3>
-
-    <!-- Content -->
-    <div class="scheduling-content">
-      <!-- Schedule Start Time -->
-      <div v-if="!hideScheduledAt" class="form-group">
+    <!-- Schedule Start Time -->
+    <div v-if="!hideScheduledAt" class="form-group">
         <label for="scheduled-at" class="form-label">Schedule Start Time (optional)</label>
         <input
           id="scheduled-at"
@@ -114,7 +109,6 @@
           </div>
         </div>
       </div>
-    </div>
   </div>
 </template>
 
@@ -217,24 +211,7 @@ watch(
 
 <style scoped>
 .scheduling-options {
-  border: 1px solid var(--color-border);
-  border-radius: var(--border-radius, 6px);
-  background: var(--color-background-secondary, rgba(0, 0, 0, 0.1));
-  padding: 1rem;
-}
-
-.scheduling-title {
-  margin: 0 0 1rem 0;
-  font-size: 1rem;
-  font-weight: 500;
-  color: var(--color-text);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.scheduling-content {
-  /* Content is always visible now */
+  /* Container for scheduling form fields - no border/background needed as it lives inside modal */
 }
 
 .form-group {

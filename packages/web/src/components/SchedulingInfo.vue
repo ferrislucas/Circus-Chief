@@ -95,16 +95,6 @@
     </div>
   </div>
 
-  <!-- Enable Auto-Reschedule for waiting sessions without it enabled -->
-  <div
-    v-else-if="session.status === 'waiting' && !session.autoRescheduleEnabled"
-    class="enable-reschedule-panel"
-  >
-    <button @click="showEditModal = true" class="btn btn-secondary btn-sm">
-      ⚙️ Configure Auto-Reschedule
-    </button>
-  </div>
-
   <!-- Edit Modal -->
   <SchedulingEditModal
     :is-open="showEditModal"
@@ -229,10 +219,6 @@ onUnmounted(() => {
   border: 1px solid rgba(34, 197, 255, 0.2);
   border-radius: var(--border-radius, 6px);
   padding: 1.5rem;
-  margin-bottom: 1rem;
-}
-
-.enable-reschedule-panel {
   margin-bottom: 1rem;
 }
 
