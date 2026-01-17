@@ -402,7 +402,8 @@ function handleDeleteAll() {
 .canvas-file-viewer {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* Removed height: 100% - causes layout issues on iPad Safari when combined with
+     sticky positioning. The natural document flow works correctly without it. */
 }
 
 .viewer-header {
