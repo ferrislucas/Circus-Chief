@@ -109,16 +109,17 @@ describe('SchedulingInfo.vue', () => {
       expect(wrapper.find('.absolute-time').text()).toMatch(/\w+,/);
     });
 
-    it('displays Start Now button for scheduled session', () => {
+    it('displays action buttons for scheduled session', () => {
       const wrapper = mount(SchedulingInfo, {
         props: {
           session: scheduledSession,
         },
       });
 
-      const button = wrapper.find('.actions button');
-      expect(button.exists()).toBe(true);
-      expect(button.text()).toBe('Start Now');
+      const buttons = wrapper.findAll('.actions button');
+      expect(buttons.length).toBe(2); // Edit Schedule and Cancel
+      expect(buttons[0].text()).toBe('Edit Schedule');
+      expect(buttons[1].text()).toBe('Cancel');
     });
 
     it('shows auto-reschedule badge for scheduled session with reschedule enabled', () => {
@@ -305,92 +306,6 @@ describe('SchedulingInfo.vue', () => {
       // Checks that token counts are formatted
       expect(wrapper.text()).toContain('150,000');
       expect(wrapper.text()).toContain('500,000');
-    });
-  });
-
-  describe('Start Now button', () => {
-    it('handles Start Now click', async () => {
-      const mockSessionsStore = {
-        updateSessionFields: vi.fn().mockResolvedValue(undefined),
-      };
-      const mockUiStore = {
-        showToast: vi.fn(),
-      };
-
-      useSessionsStore.mockReturnValue(mockSessionsStore);
-      useUiStore.mockReturnValue(mockUiStore);
-
-      const wrapper = mount(SchedulingInfo, {
-        props: {
-          session: scheduledSession,
-        },
-      });
-
-      const button = wrapper.find('.actions button');
-      await button.trigger('click');
-      await wrapper.vm.$nextTick();
-
-      expect(mockSessionsStore.updateSessionFields).toHaveBeenCalledWith('session-1', {
-        status: 'starting',
-        scheduledAt: null,
-      });
-      expect(mockUiStore.showToast).toHaveBeenCalledWith('Session started', 'success');
-    });
-
-    it('shows loading state while starting', async () => {
-      const mockSessionsStore = {
-        updateSessionFields: vi.fn(() => new Promise((resolve) => setTimeout(resolve, 100))),
-      };
-      const mockUiStore = {
-        showToast: vi.fn(),
-      };
-
-      useSessionsStore.mockReturnValue(mockSessionsStore);
-      useUiStore.mockReturnValue(mockUiStore);
-
-      const wrapper = mount(SchedulingInfo, {
-        props: {
-          session: scheduledSession,
-        },
-      });
-
-      const button = wrapper.find('.actions button');
-      button.trigger('click');
-      await wrapper.vm.$nextTick();
-
-      expect(button.text()).toBe('Loading...');
-      expect(button.attributes('disabled')).toBe('');
-    });
-
-    it('handles error when starting session', async () => {
-      vi.useRealTimers();
-
-      const mockError = new Error('Network error');
-      const mockSessionsStore = {
-        updateSessionFields: vi.fn().mockRejectedValue(mockError),
-      };
-      const mockUiStore = {
-        showToast: vi.fn(),
-      };
-
-      useSessionsStore.mockReturnValue(mockSessionsStore);
-      useUiStore.mockReturnValue(mockUiStore);
-
-      const wrapper = mount(SchedulingInfo, {
-        props: {
-          session: scheduledSession,
-        },
-      });
-
-      const button = wrapper.find('.actions button');
-      await button.trigger('click');
-      // Wait for promises to settle
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      await wrapper.vm.$nextTick();
-
-      expect(mockUiStore.showToast).toHaveBeenCalledWith('Failed to start session: Network error', 'error');
-
-      vi.useFakeTimers();
     });
   });
 
