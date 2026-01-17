@@ -685,6 +685,7 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     // Get the active conversation for this session (created in SessionRepository.create)
     const activeConversation = conversations.ensureActiveConversation(sessionId);
     activeConversationIds.set(sessionId, activeConversation.id);
+    console.log(`[SESSION] runSession: ensured active conversation ${activeConversation.id} for session ${sessionId}`);
 
     // Update status to running
     sessions.update(sessionId, { status: 'running' });
@@ -814,13 +815,19 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     // Ensure there's an active conversation for this session
     const activeConversation = conversations.ensureActiveConversation(sessionId);
     activeConversationIds.set(sessionId, activeConversation.id);
+    console.log(`[SESSION] continueSession: ensured active conversation ${activeConversation.id} for session ${sessionId}`);
 
     // Each conversation has its own Claude session context
     // If null, Claude will start a fresh session (no resume)
 
     // Store the user message with conversation ID
     const message = messages.create(sessionId, 'user', content, null, activeConversation.id);
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
+    console.log(`[SESSION] continueSession: created user message ${message.id} in conversation ${activeConversation.id}`);
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, {
+      message,
+      conversationId: activeConversation.id, // Include conversation context
+    });
+    console.log(`[SESSION] continueSession: broadcast user message ${message.id} to conversation ${activeConversation.id}`);
 
     // Associate any pending attachments with the message
     if (fileAttachments.length > 0) {
@@ -1188,6 +1195,7 @@ async function handleStreamEvent(sessionId, event) {
         const activeConversation = conversations.getActiveBySessionId(sessionId);
         const conversationId = activeConversation?.id || null;
         const message = messages.create(sessionId, 'assistant', textContent, toolUse, conversationId);
+        console.log(`[SESSION] assistant event: created assistant message ${message.id} in conversation ${conversationId}`);
 
         // Associate pending work logs with this message immediately
         // This ensures work logs are attached to the correct message, not just the last one
@@ -1196,8 +1204,12 @@ async function handleStreamEvent(sessionId, event) {
         // Track the message ID in case there are trailing work logs after the last message
         lastMessageIds.set(sessionId, message.id);
 
-        // Broadcast message
-        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, { message });
+        // Broadcast message with conversationId for proper routing
+        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, {
+          message,
+          conversationId, // Include conversation context to prevent ambiguity
+        });
+        console.log(`[SESSION] assistant event: broadcast assistant message ${message.id} to conversation ${conversationId}`);
 
         // Clear partial text on client now that complete message has been sent
         broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
