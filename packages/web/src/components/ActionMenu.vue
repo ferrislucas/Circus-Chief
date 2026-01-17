@@ -1,5 +1,5 @@
 <template>
-  <div class="overflow-menu-container" ref="containerRef">
+  <div class="action-menu-container" ref="containerRef">
     <button
       class="btn-kebab"
       :aria-label="ariaLabel"
@@ -7,7 +7,7 @@
       aria-haspopup="menu"
       @click="toggleMenu"
     >
-      ⋮
+      {{ triggerIcon }}
     </button>
 
     <Transition name="fade">
@@ -33,25 +33,12 @@
           <button
             :class="['menu-item', { 'is-danger': item.isDanger, 'is-highlighted': highlightedIndex === index }]"
             role="menuitem"
-            @click="handleItemClick(item, index)"
+            @click="handleItemClick(item.action)"
             @mouseenter="highlightedIndex = index"
             @mouseleave="highlightedIndex = null"
           >
             <span v-if="item.icon" class="menu-item-icon">{{ item.icon }}</span>
-            <span class="menu-item-text">{{ item.text }}</span>
-          </button>
-        </li>
-        <li v-if="showDivider" role="none" class="menu-divider"></li>
-        <li role="none">
-          <button
-            :class="['menu-item', 'is-danger', { 'is-highlighted': highlightedIndex === items.length }]"
-            role="menuitem"
-            @click="handleDelete"
-            @mouseenter="highlightedIndex = items.length"
-            @mouseleave="highlightedIndex = null"
-          >
-            <span class="menu-item-icon">🗑</span>
-            <span class="menu-item-text">{{ deleteText }}</span>
+            <span class="menu-item-text">{{ item.label }}</span>
           </button>
         </li>
       </ul>
@@ -60,38 +47,29 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, defineExpose } from 'vue';
 
-const emit = defineEmits(['duplicate', 'archive', 'copySessionId', 'delete']);
+const emit = defineEmits(['action-click']);
 
 const props = defineProps({
+  items: {
+    type: Array,
+    required: true,
+    validator: (items) => {
+      return items.every(item =>
+        Object.prototype.hasOwnProperty.call(item, 'icon') &&
+        Object.prototype.hasOwnProperty.call(item, 'label') &&
+        Object.prototype.hasOwnProperty.call(item, 'action')
+      );
+    }
+  },
   ariaLabel: {
     type: String,
     default: 'More actions'
   },
-  duplicateText: {
+  triggerIcon: {
     type: String,
-    default: 'Duplicate'
-  },
-  copySessionIdText: {
-    type: String,
-    default: null
-  },
-  archiveText: {
-    type: String,
-    default: null
-  },
-  isArchived: {
-    type: Boolean,
-    default: false
-  },
-  deleteText: {
-    type: String,
-    default: 'Delete'
-  },
-  showDivider: {
-    type: Boolean,
-    default: true
+    default: '⋮'
   }
 });
 
@@ -99,29 +77,12 @@ const isOpen = ref(false);
 const containerRef = ref(null);
 const highlightedIndex = ref(null);
 
-const archiveText = computed(() => {
-  if (props.archiveText !== null) {
-    return props.archiveText;
-  }
-  // Default behavior: show "Archive" or "Unarchive" based on archived state
-  return props.isArchived ? 'Unarchive' : 'Archive';
-});
-
-const items = computed(() => {
-  const baseItems = [
-    { text: archiveText.value, icon: '📦', isDanger: false },
-    { text: props.duplicateText, icon: '⟳', isDanger: false }
-  ];
-  if (props.copySessionIdText) {
-    baseItems.push({ text: props.copySessionIdText, icon: '📋', isDanger: false });
-  }
-  return baseItems;
-});
-
 function toggleMenu() {
   isOpen.value = !isOpen.value;
   if (isOpen.value) {
     highlightedIndex.value = 0;
+  } else {
+    highlightedIndex.value = null;
   }
 }
 
@@ -135,22 +96,8 @@ function handleOutsideClick() {
   closeMenu();
 }
 
-function handleItemClick(item, index) {
-  if (index === 0) {
-    // First item is always Archive/Unarchive
-    emit('archive');
-  } else if (index === 1) {
-    // Second item is always Duplicate
-    emit('duplicate');
-  } else if (index === 2 && props.copySessionIdText) {
-    // Third item is Copy Session ID (if provided)
-    emit('copySessionId');
-  }
-  closeMenu();
-}
-
-function handleDelete() {
-  emit('delete');
+function handleItemClick(action) {
+  emit('action-click', action);
   closeMenu();
 }
 
@@ -158,24 +105,20 @@ function handleKeyDown(event) {
   switch (event.key) {
     case 'ArrowDown': {
       event.preventDefault();
-      const totalItems = items.value.length + 1; // +1 for delete button
+      const totalItems = props.items.length;
       highlightedIndex.value = highlightedIndex.value === null ? 0 : (highlightedIndex.value + 1) % totalItems;
       break;
     }
     case 'ArrowUp': {
       event.preventDefault();
-      const totalItemsUp = items.value.length + 1;
-      highlightedIndex.value = highlightedIndex.value === null ? totalItemsUp - 1 : (highlightedIndex.value - 1 + totalItemsUp) % totalItemsUp;
+      const totalItems = props.items.length;
+      highlightedIndex.value = highlightedIndex.value === null ? totalItems - 1 : (highlightedIndex.value - 1 + totalItems) % totalItems;
       break;
     }
     case 'Enter':
       event.preventDefault();
-      if (highlightedIndex.value !== null) {
-        if (highlightedIndex.value < items.value.length) {
-          handleItemClick(items.value[highlightedIndex.value], highlightedIndex.value);
-        } else {
-          handleDelete();
-        }
+      if (highlightedIndex.value !== null && props.items[highlightedIndex.value]) {
+        handleItemClick(props.items[highlightedIndex.value].action);
       }
       break;
     case 'Escape':
@@ -201,13 +144,23 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('click', handleDocumentClick);
 });
+
+// Expose methods and state for testing
+defineExpose({
+  isOpen,
+  highlightedIndex,
+  toggleMenu,
+  closeMenu,
+  handleItemClick,
+  handleOutsideClick,
+  handleKeyDown
+});
 </script>
 
 <style scoped>
-.overflow-menu-container {
+.action-menu-container {
   position: relative;
   display: inline-block;
-  margin-left: auto; /* Push to right side of flex container */
   flex-shrink: 0;
 }
 
@@ -301,12 +254,6 @@ onUnmounted(() => {
 .menu-item-text {
   flex: 1;
   font-weight: 500;
-}
-
-.menu-divider {
-  height: 1px;
-  background: var(--color-border, #444);
-  margin: 0.25rem 0;
 }
 
 /* Transitions */
