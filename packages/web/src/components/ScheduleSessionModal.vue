@@ -38,7 +38,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch } from 'vue';
+import { ref, reactive, computed, watch, nextTick } from 'vue';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import SchedulingOptions from './SchedulingOptions.vue';
@@ -48,7 +48,7 @@ const props = defineProps({
   sessionId: String,
 });
 
-const emit = defineEmits(['close', 'scheduled']);
+const emit = defineEmits(['close']);
 
 const uiStore = useUiStore();
 const loading = ref(false);
@@ -98,8 +98,10 @@ async function handleSchedule() {
     await api.scheduleSession(props.sessionId, payload);
 
     uiStore.showToast('Session scheduled successfully', 'success');
-    emit('scheduled');
-    emit('close'); // Explicit close event instead of calling close()
+
+    // Ensure Vue has processed reactivity before emitting
+    await nextTick();
+    emit('close');
   } catch (error) {
     console.error('Failed to schedule session:', error);
     uiStore.showToast('Failed to schedule session: ' + error.message, 'error');
