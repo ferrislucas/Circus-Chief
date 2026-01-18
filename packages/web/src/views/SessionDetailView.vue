@@ -509,9 +509,10 @@ onUnmounted(() => {
 });
 
 async function handleDuplicate() {
-  // This delegates to the DuplicateSessionButton's logic
-  // The overflow menu emits the event, and we handle it here
-  // For now, we'll trigger the duplicate action on the store or API
+  if (!confirm('Duplicate this session? A new session will be created with all conversations, canvas items, and notes.')) {
+    return;
+  }
+
   try {
     // Get the current session ID to duplicate
     const newSessionId = await sessionsStore.duplicateSession(sessionId);
