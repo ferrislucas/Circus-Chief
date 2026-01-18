@@ -94,15 +94,28 @@ export async function checkAndTriggerNextTemplate(sessionId) {
       nextTemplateId: template.nextTemplateId || null,
     });
 
-    // Setup git environment (branch checkout or worktree creation)
-    const { workingDirectory, gitWorktree } = await setupGitForSession({
-      projectDir: project.workingDirectory,
-      gitMode: gitMode,
-      gitBranch: gitBranch,
-      sessionId: newSession.id,
-    });
+    // Determine working directory: inherit from parent if it has a worktree
+    let workingDirectory;
+    let gitWorktree = null;
 
-    // Update session with worktree path if created
+    if (session.gitWorktree) {
+      // Parent is in a worktree - child should run in the same worktree
+      workingDirectory = session.gitWorktree;
+      gitWorktree = session.gitWorktree;
+      console.log(`Template trigger: Inheriting parent worktree: ${gitWorktree}`);
+    } else {
+      // Parent is not in a worktree - set up git environment normally
+      const gitSetup = await setupGitForSession({
+        projectDir: project.workingDirectory,
+        gitMode: gitMode,
+        gitBranch: gitBranch,
+        sessionId: newSession.id,
+      });
+      workingDirectory = gitSetup.workingDirectory;
+      gitWorktree = gitSetup.gitWorktree;
+    }
+
+    // Update session with worktree path if set
     if (gitWorktree) {
       sessions.update(newSession.id, { gitWorktree });
     }
