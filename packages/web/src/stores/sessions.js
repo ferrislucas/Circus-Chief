@@ -300,11 +300,15 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
-    async fetchScheduledSessions() {
+    async fetchScheduledSessions(projectId = null) {
       this.loadingScheduled = true;
       this.error = null;
       try {
-        this.scheduledSessions = await api.getScheduledSessions();
+        const sessions = await api.getScheduledSessions(projectId);
+        // Sort by scheduledAt (earliest first)
+        this.scheduledSessions = sessions.sort((a, b) =>
+          new Date(a.scheduledAt) - new Date(b.scheduledAt)
+        );
       } catch (err) {
         this.error = err.message;
         console.error('Failed to fetch scheduled sessions:', err);
@@ -904,6 +908,10 @@ export const useSessionsStore = defineStore('sessions', {
           // Update existing scheduled session
           this.scheduledSessions[scheduledIndex] = { ...this.scheduledSessions[scheduledIndex], ...sessionData };
         }
+        // Re-sort after update (earliest first)
+        this.scheduledSessions.sort((a, b) =>
+          new Date(a.scheduledAt) - new Date(b.scheduledAt)
+        );
       } else {
         // Remove from scheduled list when status changes from 'scheduled'
         this.scheduledSessions = this.scheduledSessions.filter((s) => s.id !== sessionData.id);
