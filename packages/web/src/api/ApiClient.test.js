@@ -766,6 +766,67 @@ describe('ApiClient', () => {
       });
     });
 
+    describe('getSessionFilesCount', () => {
+      it('fetches files count for session', async () => {
+        const mockData = { count: 5 };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getSessionFilesCount('sess-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/files-count', expect.any(Object));
+        expect(result).toEqual(mockData);
+      });
+
+      it('returns count of 0 when no files modified', async () => {
+        const mockData = { count: 0 };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getSessionFilesCount('sess-123');
+
+        expect(result.count).toBe(0);
+      });
+
+      it('returns count for session with many modified files', async () => {
+        const mockData = { count: 42 };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getSessionFilesCount('sess-123');
+
+        expect(result.count).toBe(42);
+      });
+
+      it('handles 404 for non-existent session', async () => {
+        mockFetch.mockReturnValue({
+          ok: false,
+          status: 404,
+          json: async () => ({ error: 'Session not found' }),
+        });
+
+        await expect(client.getSessionFilesCount('nonexistent')).rejects.toThrow('Session not found');
+      });
+
+      it('handles 404 for session with non-existent project', async () => {
+        mockFetch.mockReturnValue({
+          ok: false,
+          status: 404,
+          json: async () => ({ error: 'Project not found' }),
+        });
+
+        await expect(client.getSessionFilesCount('sess-123')).rejects.toThrow('Project not found');
+      });
+
+      it('handles git service errors gracefully', async () => {
+        const mockData = { count: 0 };
+        mockFetch.mockReturnValue({
+          ok: false,
+          status: 500,
+          json: async () => ({ error: 'Git service error', count: 0 }),
+        });
+
+        await expect(client.getSessionFilesCount('sess-123')).rejects.toThrow();
+      });
+    });
+
     describe('getSessionFile', () => {
       it('fetches file from session working directory', async () => {
         const mockFileData = {

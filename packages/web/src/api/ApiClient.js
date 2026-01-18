@@ -296,6 +296,15 @@ export class ApiClient {
   }
 
   /**
+   * Get count of files modified compared to the default branch
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<{count: number}>}
+   */
+  async getSessionFilesCount(sessionId) {
+    return this.#request('GET', `/sessions/${sessionId}/files-count`);
+  }
+
+  /**
    * Get a file from the session's working directory (for displaying images in diffs)
    * @param {string} sessionId - Session ID
    * @param {string} filePath - Relative path to file
