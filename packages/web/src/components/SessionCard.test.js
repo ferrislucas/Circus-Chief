@@ -4,6 +4,13 @@ import { h, defineComponent } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import SessionCard from './SessionCard.vue';
 
+// Mock API - define mock function inside factory to avoid hoisting issues
+vi.mock('../composables/useApi.js', () => ({
+  api: {
+    getSessionFilesCount: vi.fn().mockResolvedValue({ count: 0 }),
+  },
+}));
+
 // Mock vue-router
 vi.mock('vue-router', () => ({
   useRouter: vi.fn(() => ({
@@ -56,9 +63,19 @@ const RouterLinkStub = defineComponent({
 });
 
 describe('SessionCard', () => {
-  beforeEach(() => {
+  let mockApi;
+
+  beforeEach(async () => {
     // Set up Pinia for each test
     setActivePinia(createPinia());
+
+    // Get reference to the mocked API
+    const { api } = await import('../composables/useApi.js');
+    mockApi = api;
+
+    // Reset and configure API mock
+    mockApi.getSessionFilesCount.mockReset();
+    mockApi.getSessionFilesCount.mockResolvedValue({ count: 0 });
   });
   const baseSession = {
     id: 'session-123',
@@ -235,11 +252,19 @@ describe('SessionCard', () => {
       filesModified: ['src/app.js', 'src/utils.js'],
     };
 
-    it('shows summary when showSummary is true and summary is provided', () => {
+    it('shows summary when showSummary is true and summary is provided', async () => {
+      mockApi.getSessionFilesCount.mockResolvedValue({ count: 2 });
+
       const wrapper = mountComponent({
         showSummary: true,
         summary: testSummary,
       });
+
+      // Wait for async file count fetch
+      await wrapper.vm.$nextTick();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await wrapper.vm.$nextTick();
+
       expect(wrapper.find('.summary-text').text()).toBe('Implemented new feature');
       expect(wrapper.find('.summary-files').text()).toBe('2 files modified');
     });
@@ -714,6 +739,131 @@ describe('SessionCard', () => {
         // If confirm returned true, confirm should have been called with the restore message
         expect(confirmSpy).toHaveBeenCalledWith('Restore this session to active?');
       });
+    });
+  });
+
+  describe('file count display', () => {
+    it('fetches file count on mount', async () => {
+      mockApi.getSessionFilesCount.mockResolvedValue({ count: 5 });
+
+      const wrapper = mountComponent({
+        showSummary: true,
+        summary: { shortSummary: 'Test summary' },
+      });
+
+      // Wait for async operations
+      await wrapper.vm.$nextTick();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(mockApi.getSessionFilesCount).toHaveBeenCalledWith('session-123');
+    });
+
+    it('displays file count when API returns count > 0', async () => {
+      mockApi.getSessionFilesCount.mockResolvedValue({ count: 5 });
+
+      const wrapper = mountComponent({
+        showSummary: true,
+        summary: { shortSummary: 'Test summary' },
+      });
+
+      // Wait for async operations
+      await wrapper.vm.$nextTick();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await wrapper.vm.$nextTick();
+
+      const filesText = wrapper.find('.summary-files');
+      expect(filesText.exists()).toBe(true);
+      expect(filesText.text()).toBe('5 files modified');
+    });
+
+    it('uses singular "file" for count of 1', async () => {
+      mockApi.getSessionFilesCount.mockResolvedValue({ count: 1 });
+
+      const wrapper = mountComponent({
+        showSummary: true,
+        summary: { shortSummary: 'Test summary' },
+      });
+
+      // Wait for async operations
+      await wrapper.vm.$nextTick();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await wrapper.vm.$nextTick();
+
+      const filesText = wrapper.find('.summary-files');
+      expect(filesText.exists()).toBe(true);
+      expect(filesText.text()).toBe('1 file modified');
+    });
+
+    it('hides file count when count is 0', async () => {
+      mockApi.getSessionFilesCount.mockResolvedValue({ count: 0 });
+
+      const wrapper = mountComponent({
+        showSummary: true,
+        summary: { shortSummary: 'Test summary' },
+      });
+
+      // Wait for async operations
+      await wrapper.vm.$nextTick();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await wrapper.vm.$nextTick();
+
+      const filesText = wrapper.find('.summary-files');
+      expect(filesText.exists()).toBe(false);
+    });
+
+    it('falls back to LLM summary count when API fails', async () => {
+      mockApi.getSessionFilesCount.mockRejectedValue(new Error('API error'));
+
+      const wrapper = mountComponent({
+        showSummary: true,
+        summary: {
+          shortSummary: 'Test summary',
+          filesModified: ['file1.js', 'file2.js', 'file3.js'],
+        },
+      });
+
+      // Wait for async operations
+      await wrapper.vm.$nextTick();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await wrapper.vm.$nextTick();
+
+      const filesText = wrapper.find('.summary-files');
+      expect(filesText.exists()).toBe(true);
+      expect(filesText.text()).toBe('3 files modified');
+    });
+
+    it('handles API failure with no LLM summary gracefully', async () => {
+      mockApi.getSessionFilesCount.mockRejectedValue(new Error('API error'));
+
+      const wrapper = mountComponent({
+        showSummary: true,
+        summary: { shortSummary: 'Test summary' },
+      });
+
+      // Wait for async operations
+      await wrapper.vm.$nextTick();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await wrapper.vm.$nextTick();
+
+      // Should hide file count when both API and LLM fallback fail
+      const filesText = wrapper.find('.summary-files');
+      expect(filesText.exists()).toBe(false);
+    });
+
+    it('does not display file count when showSummary is false', async () => {
+      mockApi.getSessionFilesCount.mockResolvedValue({ count: 5 });
+
+      const wrapper = mountComponent({
+        showSummary: false,
+      });
+
+      // Wait for async operations
+      await wrapper.vm.$nextTick();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Even though API was called, summary section should not exist
+      const summarySection = wrapper.find('.session-summary');
+      expect(summarySection.exists()).toBe(false);
     });
   });
 });

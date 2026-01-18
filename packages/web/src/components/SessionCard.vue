@@ -18,6 +18,10 @@
           <h3 class="session-name">{{ session.name }}</h3>
           <p class="session-meta">
             <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
+            <span v-if="session.status === 'scheduled' && session.scheduledAt" class="schedule-indicator">
+              <span class="schedule-icon">⏰</span>
+              <span class="schedule-time">{{ formatScheduledTime(session.scheduledAt) }}</span>
+            </span>
             <PrIndicators v-if="prUrl" :pr-url="prUrl" :summary="prSummary" />
             <span
               v-for="indicator in buttonStatusesToDisplay"
@@ -89,6 +93,10 @@
         <h3 class="session-name">{{ session.name }}</h3>
         <p class="session-meta">
           <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
+          <span v-if="session.status === 'scheduled' && session.scheduledAt" class="schedule-indicator">
+            <span class="schedule-icon">⏰</span>
+            <span class="schedule-time">{{ formatScheduledTime(session.scheduledAt) }}</span>
+          </span>
           <PrIndicators v-if="prUrl" :pr-url="prUrl" :summary="prSummary" />
           <span
             v-for="indicator in buttonStatusesToDisplay"
@@ -360,6 +368,18 @@ onMounted(async () => {
     }
   }
 });
+
+const formatScheduledTime = (timestamp) => {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffMs = date - now;
+
+  if (diffMs < 0) return 'overdue';
+  if (diffMs < 60000) return 'in < 1 min';
+  if (diffMs < 3600000) return `in ${Math.round(diffMs / 60000)} min`;
+  if (diffMs < 86400000) return `at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+};
 </script>
 
 <style scoped>
@@ -461,6 +481,18 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.schedule-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.schedule-icon {
+  font-size: 0.875rem;
 }
 
 

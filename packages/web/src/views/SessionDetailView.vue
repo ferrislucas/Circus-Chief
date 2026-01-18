@@ -51,6 +51,9 @@
         <CommandButtonStatusBar :button-statuses="buttonStatusesToDisplay" />
       </div>
 
+      <!-- Scheduling Info Panel -->
+      <SchedulingInfo v-if="sessionsStore.currentSession" :session="sessionsStore.currentSession" />
+
       <div class="tabs">
         <router-link
           :to="`/projects/${sessionsStore.currentSession.projectId}/sessions`"
@@ -122,6 +125,7 @@ import CommandsTab from '../components/CommandsTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
 import DuplicateSessionButton from '../components/DuplicateSessionButton.vue';
 import OverflowMenu from '../components/OverflowMenu.vue';
+import SchedulingInfo from '../components/SchedulingInfo.vue';
 import CommandButtonStatusBar from '../components/CommandButtonStatusBar.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
