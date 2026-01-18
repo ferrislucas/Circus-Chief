@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
   content TEXT NOT NULL,
   tool_use TEXT, -- JSON array of tool uses
+  model TEXT, -- Model that generated this message (for assistant messages)
   timestamp INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 

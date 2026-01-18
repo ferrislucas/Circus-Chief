@@ -33,6 +33,9 @@ const currentTurnUsage = new Map();
 /** @type {Map<string, string>} Map sessionId -> conversationId for current turn */
 const activeConversationIds = new Map();
 
+/** @type {Map<string, string>} Track current model per session (updated on system.init) */
+const currentModels = new Map();
+
 /** @type {Map<string, number>} Estimated output tokens from streamed content (for real-time updates) */
 const estimatedOutputTokens = new Map();
 
@@ -798,6 +801,7 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
   } finally {
     textAccumulators.delete(sessionId);
     thinkingAccumulators.delete(sessionId);
+    currentModels.delete(sessionId);
     activeSessions.delete(sessionId);
   }
 }
@@ -938,6 +942,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
   } finally {
     textAccumulators.delete(sessionId);
     thinkingAccumulators.delete(sessionId);
+    currentModels.delete(sessionId);
     activeSessions.delete(sessionId);
   }
 }
@@ -1075,6 +1080,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   } finally {
     textAccumulators.delete(sessionId);
     thinkingAccumulators.delete(sessionId);
+    currentModels.delete(sessionId);
     activeSessions.delete(sessionId);
   }
 }
@@ -1180,6 +1186,8 @@ async function handleStreamEvent(sessionId, event) {
             claudeSessionId: event.session_id,
           });
         }
+        // Track current model for this session (used when creating messages)
+        currentModels.set(sessionId, event.model);
         // Still update session's model
         sessions.update(sessionId, {
           model: event.model,
@@ -1208,8 +1216,9 @@ async function handleStreamEvent(sessionId, event) {
         const toolUse = toolUseBlocks.length > 0 ? toolUseBlocks : null;
         const activeConversation = conversations.getActiveBySessionId(sessionId);
         const conversationId = activeConversation?.id || null;
-        const message = messages.create(sessionId, 'assistant', textContent, toolUse, conversationId);
-        console.log(`[SESSION] assistant event: created assistant message ${message.id} in conversation ${conversationId}`);
+        const currentModel = currentModels.get(sessionId) || null;
+        const message = messages.create(sessionId, 'assistant', textContent, toolUse, conversationId, currentModel);
+        console.log(`[SESSION] assistant event: created assistant message ${message.id} in conversation ${conversationId} with model ${currentModel}`);
 
         // Associate pending work logs with this message immediately
         // This ensures work logs are attached to the correct message, not just the last one
