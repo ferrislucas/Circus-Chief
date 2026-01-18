@@ -31,7 +31,9 @@
           <OverflowMenu
             aria-label="Session actions"
             :is-archived="sessionsStore.currentSession.archived"
+            copy-session-id-text="Copy ID"
             @duplicate="handleDuplicate"
+            @copySessionId="handleCopySessionId"
             @archive="handleArchive"
             @delete="handleDelete"
           />
@@ -44,7 +46,13 @@
             :summary="summary"
           />
         </div>
+
+        <!-- Command button status indicators for real-time status updates -->
+        <CommandButtonStatusBar :button-statuses="buttonStatusesToDisplay" />
       </div>
+
+      <!-- Scheduling Info Panel -->
+      <SchedulingInfo v-if="sessionsStore.currentSession" :session="sessionsStore.currentSession" />
 
       <div class="tabs">
         <router-link
@@ -117,11 +125,15 @@ import CommandsTab from '../components/CommandsTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
 import DuplicateSessionButton from '../components/DuplicateSessionButton.vue';
 import OverflowMenu from '../components/OverflowMenu.vue';
+import SchedulingInfo from '../components/SchedulingInfo.vue';
+import CommandButtonStatusBar from '../components/CommandButtonStatusBar.vue';
 import { useTemplatesStore } from '../stores/templates.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 
 const route = useRoute();
 const router = useRouter();
 const sessionsStore = useSessionsStore();
+const commandButtonsStore = useCommandButtonsStore();
 const canvasStore = useCanvasStore();
 const todosStore = useTodosStore();
 const uiStore = useUiStore();
@@ -136,6 +148,31 @@ const sessionId = route.params.id;
 const activeTab = computed(() => route.params.tab || 'conversation');
 const changesFileCount = ref(0);
 const canvasItemCount = ref(0);
+
+// Command button status indicators for real-time updates (mirrors SessionCard behavior)
+const buttonStatusesToDisplay = computed(() => {
+  // Access commandRunVersion to establish Vue dependency tracking.
+  // This forces the computed to re-evaluate whenever updateSessionCommandRun is called,
+  // ensuring real-time updates on the session detail view.
+  // eslint-disable-next-line no-unused-vars
+  const _version = sessionsStore.commandRunVersion;
+
+  const projectId = sessionsStore.currentSession?.projectId;
+  if (!projectId) return [];
+
+  const buttons = commandButtonsStore.getButtonsByProjectId(projectId);
+  const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
+
+  const latestRuns = sessionsStore.currentSession?.latestCommandRuns || [];
+  return latestRuns
+    .filter(run => buttonMap[run.buttonId]?.showOnList)
+    .map(run => ({
+      buttonId: run.buttonId,
+      label: buttonMap[run.buttonId].label,
+      status: run.status,
+      latestRun: run,
+    }));
+});
 
 // Allow archiving any session that isn't running
 const canArchive = computed(() => {
@@ -155,7 +192,7 @@ function navigateToTab(tabId) {
   router.push(`/sessions/${route.params.id}/${tabId}`);
 }
 
-const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onConversationUpdated, onUsageUpdate, onChangesUpdate } =
+const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onConversationUpdated, onUsageUpdate, onChangesUpdate, onCommandOutput, onCommandComplete, onCommandError } =
   useSessionSubscription(sessionId);
 
 let cleanups = [];
@@ -190,6 +227,7 @@ function startPolling() {
     // Use showLoading=false to avoid flickering
     if (status === 'running' || status === 'starting') {
       await sessionsStore.fetchSession(sessionId, false);
+      await sessionsStore.fetchConversations(sessionId); // NEW: Fetch token counts
       await sessionsStore.fetchMessages(sessionId, false);
       await sessionsStore.fetchWorkLogs(sessionId);
       // Check for file changes during active session so the Changes tab indicator updates
@@ -198,7 +236,7 @@ function startPolling() {
       // Session no longer actively processing, stop polling
       stopPolling();
     }
-  }, 2000);
+  }, 1000); // Changed from 2000
 }
 
 function stopPolling() {
@@ -236,6 +274,18 @@ onMounted(async () => {
   // and prevents handlers from trying to access empty conversation lists
   await sessionsStore.fetchSession(sessionId);
   await sessionsStore.fetchConversations(sessionId);
+
+  // Fetch command buttons for the project so button labels are available
+  // This is needed for displaying command status indicators
+  const projectId = sessionsStore.currentSession?.projectId;
+  if (projectId) {
+    try {
+      await commandButtonsStore.fetchButtons(projectId);
+    } catch (error) {
+      // Non-critical - command buttons may not exist for this project
+      console.debug('Failed to fetch command buttons:', error);
+    }
+  }
 
   // STEP 2: Register all handlers (data is now ready)
   // This ensures we don't miss any updates that arrive while data is being fetched
@@ -332,6 +382,47 @@ onMounted(async () => {
         // Fallback: determine from file count if hasChanges is not explicitly provided
         hasChanges.value = changeCount > 0;
       }
+    })
+  );
+
+  // Handle command run output (for real-time status icon updates)
+  cleanups.push(
+    onCommandOutput((runId, buttonId, output) => {
+      // Update session's latestCommandRuns for session detail display
+      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+        buttonId,
+        status: 'running',
+        runId,
+        startedAt: Date.now(),
+      });
+    })
+  );
+
+  // Handle command run complete
+  cleanups.push(
+    onCommandComplete((runId, buttonId, exitCode, output) => {
+      // Update session's latestCommandRuns for session detail display
+      const status = exitCode === 0 ? 'success' : 'error';
+      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+        buttonId,
+        status,
+        exitCode,
+        runId,
+        completedAt: Date.now(),
+      });
+    })
+  );
+
+  // Handle command run error
+  cleanups.push(
+    onCommandError((runId, buttonId, error) => {
+      // Update session's latestCommandRuns for session detail display
+      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+        buttonId,
+        status: 'error',
+        runId,
+        completedAt: Date.now(),
+      });
     })
   );
 
@@ -483,6 +574,29 @@ async function handleStar() {
     await sessionsStore.toggleSessionStar(sessionId);
   } catch (err) {
     uiStore.error(err.message);
+  }
+}
+
+async function handleCopySessionId() {
+  try {
+    await navigator.clipboard.writeText(sessionId);
+    uiStore.success(`Session ID copied to clipboard: ${sessionId}`);
+  } catch (err) {
+    // Fallback using textarea method for older browsers
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = sessionId;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      uiStore.success(`Session ID copied to clipboard: ${sessionId}`);
+    } catch (fallbackErr) {
+      console.error('Copy failed:', fallbackErr);
+      uiStore.error('Failed to copy session ID');
+    }
   }
 }
 
