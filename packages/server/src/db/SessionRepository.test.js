@@ -1059,4 +1059,118 @@ describe('SessionRepository', () => {
       expect(duplicate.parentSessionId).toBeNull();
     });
   });
+
+  describe('getScheduledSessions', () => {
+    it('should return all scheduled sessions across all projects', () => {
+      const project1 = projectRepo.create('Project 1', '/tmp/p1');
+      const project2 = projectRepo.create('Project 2', '/tmp/p2');
+
+      const session1 = repo.create(project1.id, 'Session 1', 'Prompt 1', 'standard', false, null, null, null, 'scheduled');
+      repo.update(session1.id, { scheduledAt: Date.now() + 1000 });
+
+      const session2 = repo.create(project2.id, 'Session 2', 'Prompt 2', 'standard', false, null, null, null, 'scheduled');
+      repo.update(session2.id, { scheduledAt: Date.now() + 2000 });
+
+      const result = repo.getScheduledSessions();
+
+      expect(result).toHaveLength(2);
+      expect(result.map((s) => s.id)).toContain(session1.id);
+      expect(result.map((s) => s.id)).toContain(session2.id);
+    });
+
+    it('should return scheduled sessions sorted by scheduledAt (earliest first)', () => {
+      const now = Date.now();
+
+      const session1 = repo.create(projectId, 'Session 1', 'Prompt 1', 'standard', false, null, null, null, 'scheduled');
+      repo.update(session1.id, { scheduledAt: now + 3000 }); // Latest
+
+      const session2 = repo.create(projectId, 'Session 2', 'Prompt 2', 'standard', false, null, null, null, 'scheduled');
+      repo.update(session2.id, { scheduledAt: now + 1000 }); // Earliest
+
+      const session3 = repo.create(projectId, 'Session 3', 'Prompt 3', 'standard', false, null, null, null, 'scheduled');
+      repo.update(session3.id, { scheduledAt: now + 2000 }); // Middle
+
+      const result = repo.getScheduledSessions();
+
+      expect(result).toHaveLength(3);
+      expect(result[0].id).toBe(session2.id); // Earliest first
+      expect(result[1].id).toBe(session3.id);
+      expect(result[2].id).toBe(session1.id); // Latest last
+    });
+
+    it('should filter scheduled sessions by project ID', () => {
+      const project1 = projectRepo.create('Project 1', '/tmp/p1');
+      const project2 = projectRepo.create('Project 2', '/tmp/p2');
+
+      const session1 = repo.create(project1.id, 'Session 1', 'Prompt 1', 'standard', false, null, null, null, 'scheduled');
+      repo.update(session1.id, { scheduledAt: Date.now() + 1000 });
+
+      const session2 = repo.create(project2.id, 'Session 2', 'Prompt 2', 'standard', false, null, null, null, 'scheduled');
+      repo.update(session2.id, { scheduledAt: Date.now() + 2000 });
+
+      const result = repo.getScheduledSessions(project1.id);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe(session1.id);
+      expect(result[0].projectId).toBe(project1.id);
+    });
+
+    it('should exclude non-scheduled sessions', () => {
+      repo.create(projectId, 'Running', 'Prompt', 'standard', false, null, null, null, 'running');
+      repo.create(projectId, 'Completed', 'Prompt', 'standard', false, null, null, null, 'completed');
+      repo.create(projectId, 'Waiting', 'Prompt', 'standard', false, null, null, null, 'waiting');
+
+      const scheduledSession = repo.create(projectId, 'Scheduled', 'Prompt', 'standard', false, null, null, null, 'scheduled');
+      repo.update(scheduledSession.id, { scheduledAt: Date.now() + 1000 });
+
+      const result = repo.getScheduledSessions();
+
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe(scheduledSession.id);
+    });
+
+    it('should exclude archived scheduled sessions', () => {
+      const session1 = repo.create(projectId, 'Session 1', 'Prompt 1', 'standard', false, null, null, null, 'scheduled');
+      repo.update(session1.id, { scheduledAt: Date.now() + 1000 });
+
+      const session2 = repo.create(projectId, 'Session 2', 'Prompt 2', 'standard', false, null, null, null, 'scheduled');
+      repo.update(session2.id, { scheduledAt: Date.now() + 2000, archived: true });
+
+      const result = repo.getScheduledSessions();
+
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe(session1.id);
+    });
+
+    it('should include project name in results', () => {
+      const project = projectRepo.create('My Project', '/tmp/project');
+      const session = repo.create(project.id, 'Session', 'Prompt', 'standard', false, null, null, null, 'scheduled');
+      repo.update(session.id, { scheduledAt: Date.now() + 1000 });
+
+      const result = repo.getScheduledSessions();
+
+      expect(result).toHaveLength(1);
+      expect(result[0].projectName).toBe('My Project');
+    });
+
+    it('should return empty array when no scheduled sessions exist', () => {
+      repo.create(projectId, 'Running', 'Prompt', 'standard', false, null, null, null, 'running');
+
+      const result = repo.getScheduledSessions();
+
+      expect(result).toHaveLength(0);
+    });
+
+    it('should return empty array when filtering by project with no scheduled sessions', () => {
+      const project1 = projectRepo.create('Project 1', '/tmp/p1');
+      const project2 = projectRepo.create('Project 2', '/tmp/p2');
+
+      const session = repo.create(project1.id, 'Session', 'Prompt', 'standard', false, null, null, null, 'scheduled');
+      repo.update(session.id, { scheduledAt: Date.now() + 1000 });
+
+      const result = repo.getScheduledSessions(project2.id);
+
+      expect(result).toHaveLength(0);
+    });
+  });
 });
