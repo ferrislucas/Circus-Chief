@@ -3,10 +3,9 @@
     <!-- Header -->
     <div class="card-header">
       <div class="session-info">
-        <h3 class="session-name">{{ session.name }}</h3>
-        <p class="session-project" v-if="session.projectName">
-          <span class="project-name">{{ session.projectName }}</span>
-        </p>
+        <router-link :to="`/sessions/${session.id}`" class="session-name-link">
+          <h3 class="session-name">{{ session.name }}</h3>
+        </router-link>
       </div>
       <div class="status-badge-container">
         <span class="status-badge status-scheduled">scheduled</span>
@@ -130,22 +129,23 @@ function handleSaved() {
   min-width: 0;
 }
 
+.session-name-link {
+  text-decoration: none;
+  color: inherit;
+  transition: color 0.2s;
+}
+
+.session-name-link:hover .session-name {
+  color: var(--color-primary, #22c5ff);
+}
+
 .session-name {
   margin: 0 0 0.25rem 0;
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--color-text);
   word-break: break-word;
-}
-
-.session-project {
-  margin: 0;
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-}
-
-.project-name {
-  color: var(--color-text-soft);
+  transition: color 0.2s;
 }
 
 .status-badge-container {
