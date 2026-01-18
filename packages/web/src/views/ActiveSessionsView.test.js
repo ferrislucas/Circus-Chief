@@ -422,7 +422,7 @@ describe('Status filtering', () => {
     expect(sessionIds).toContain('session-3'); // starting
   });
 
-  it('filters to show only idle sessions (error + stopped) when idle filter is clicked', async () => {
+  it('filters to show only idle sessions (waiting + error + stopped) when idle filter is clicked', async () => {
     const wrapper = mount(ActiveSessionsView);
     await flushAll(wrapper);
 
@@ -431,9 +431,9 @@ describe('Status filtering', () => {
     await flushAll(wrapper);
 
     const sessionCards = wrapper.findAll('.session-card');
-    expect(sessionCards).toHaveLength(2);
+    expect(sessionCards).toHaveLength(3);
     const sessionIds = sessionCards.map(card => card.attributes('data-session-id'));
-    expect(sessionIds).not.toContain('session-2'); // waiting - no longer idle
+    expect(sessionIds).toContain('session-2'); // waiting
     expect(sessionIds).toContain('session-4'); // error
     expect(sessionIds).toContain('session-5'); // stopped
   });
@@ -541,7 +541,7 @@ describe('Status filtering', () => {
     expect(sessionIds).toContain('session-3');
   });
 
-  it('includes error and stopped statuses in idle filter (not waiting)', async () => {
+  it('includes waiting and error statuses in idle filter', async () => {
     const wrapper = mount(ActiveSessionsView);
     await flushAll(wrapper);
 
@@ -552,10 +552,9 @@ describe('Status filtering', () => {
     const sessionCards = wrapper.findAll('.session-card');
     const sessionIds = sessionCards.map(card => card.attributes('data-session-id'));
 
-    // Should include session-4 (error) and session-5 (stopped), but NOT session-2 (waiting)
-    expect(sessionIds).not.toContain('session-2');
+    // Should include session-2 (waiting) and session-4 (error)
+    expect(sessionIds).toContain('session-2');
     expect(sessionIds).toContain('session-4');
-    expect(sessionIds).toContain('session-5');
   });
 
   it('shows empty state message when filters return no results', async () => {
@@ -599,7 +598,7 @@ describe('Status filtering', () => {
   });
 
   it('handles multiple status groupings in idle filter correctly', async () => {
-    // Verify that "stopped" and "error" are included in idle filter (but NOT "waiting")
+    // Verify that "waiting", "stopped", and "error" are all included in idle filter
     mockSessionsStore.activeSessions = [
       { id: 'session-1', name: 'Waiting', status: 'waiting', projectId: 'project-1' },
       { id: 'session-2', name: 'Stopped', status: 'stopped', projectId: 'project-2' },
@@ -615,9 +614,9 @@ describe('Status filtering', () => {
     await flushAll(wrapper);
 
     const sessionCards = wrapper.findAll('.session-card');
-    expect(sessionCards).toHaveLength(2);
+    expect(sessionCards).toHaveLength(3);
     const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
-    expect(sessionIds).toEqual(['session-2', 'session-3']);
+    expect(sessionIds).toEqual(['session-1', 'session-2', 'session-3']);
   });
 });
 

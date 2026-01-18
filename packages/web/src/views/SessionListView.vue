@@ -54,7 +54,6 @@
           @click="router.push(`/projects/${route.params.id}/scheduled`)"
         >
           Scheduled
-          <span v-if="scheduledSessions.length > 0" class="tab-badge">{{ scheduledSessions.length }}</span>
         </button>
       </div>
 
@@ -315,7 +314,7 @@ function handleTabChange(tab) {
 }
 
 // Statuses that count as "idle" (not actively running)
-const IDLE_STATUSES = ['stopped', 'error'];
+const IDLE_STATUSES = ['waiting', 'stopped', 'error'];
 // Statuses that count as "running" (actively processing or starting up)
 const RUNNING_STATUSES = ['running', 'starting'];
 
@@ -326,7 +325,7 @@ const filteredGroupedSessions = computed(() => {
   if (sessionsStore.statusFilter) {
     groups = groups.filter(group => {
       const parentStatus = group.parent.status;
-      // "idle" filter matches stopped or error statuses
+      // "idle" filter matches waiting, stopped, or error statuses
       if (sessionsStore.statusFilter === 'idle' && IDLE_STATUSES.includes(parentStatus)) {
         return true;
       }
@@ -609,7 +608,7 @@ function fetchArchivedSummaries() {
 }
 
 async function fetchScheduledSessions() {
-  await sessionsStore.fetchScheduledSessions();
+  await sessionsStore.fetchScheduledSessions(projectId.value);
 }
 
 async function handleArchive(sessionId) {
