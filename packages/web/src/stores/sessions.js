@@ -6,6 +6,7 @@ export const useSessionsStore = defineStore('sessions', {
     sessions: [],
     archivedSessions: [],
     activeSessions: [],
+    scheduledSessions: [],
     currentSession: null,
     messages: [],
     conversations: [], // All conversations for current session
@@ -17,6 +18,7 @@ export const useSessionsStore = defineStore('sessions', {
     starredFilter: null, // 'starred' | 'unstarred' | null (null = show all)
     runningUsage: null, // Partial usage during a turn
     loading: false,
+    loadingScheduled: false,
     error: null,
     // Version counter for command run updates - used to force Vue reactivity
     // in computed properties that depend on latestCommandRuns
@@ -119,6 +121,16 @@ export const useSessionsStore = defineStore('sessions', {
       // We use session.hasResponses (from server) as the authoritative source since it checks
       // all messages across all conversations, not just the currently loaded conversation
       if (!session || session.status !== 'waiting') return false;
+      // If hasResponses is available (from server), use it; otherwise fall back to checking loaded messages
+      if (session.hasResponses !== undefined) {
+        return !session.hasResponses;
+      }
+      return !state.messages.some((msg) => msg.role === 'assistant');
+    },
+    isScheduledDraft: (state) => (session) => {
+      // A session is a scheduled draft if it's scheduled and has never received any assistant responses
+      // This means the user can still edit the prompt before it starts
+      if (!session || session.status !== 'scheduled') return false;
       // If hasResponses is available (from server), use it; otherwise fall back to checking loaded messages
       if (session.hasResponses !== undefined) {
         return !session.hasResponses;
@@ -242,19 +254,31 @@ export const useSessionsStore = defineStore('sessions', {
     /**
      * Get tokens for a specific conversation, considering runningUsage if active
      * Used by ConversationSelector to show real-time token updates in dropdown
+     *
+     * During streaming: Returns base conversation tokens + current turn's running usage
+     * After completion: Returns base conversation tokens only
+     * This matches the logic in formattedTokens for consistency
      */
     getConversationDisplayTokens: (state) => (conversationId) => {
-      // If this conversation has active runningUsage, use that for real-time display
-      if (state.runningUsage && state.runningUsage.conversationId === conversationId) {
-        return {
-          inputTokens: state.runningUsage.inputTokens || 0,
-          outputTokens: state.runningUsage.outputTokens || 0,
-          total: (state.runningUsage.inputTokens || 0) + (state.runningUsage.outputTokens || 0),
-        };
-      }
-      // Otherwise use stored conversation data
+      // Find the conversation first (needed for both cases)
       const conv = state.conversations.find((c) => c.id === conversationId);
       if (!conv) return { inputTokens: 0, outputTokens: 0, total: 0 };
+
+      // If this conversation has active runningUsage, add it to base tokens
+      if (state.runningUsage && state.runningUsage.conversationId === conversationId) {
+        const baseInput = conv.inputTokens || 0;
+        const baseOutput = conv.outputTokens || 0;
+        const totalInput = baseInput + (state.runningUsage.inputTokens || 0);
+        const totalOutput = baseOutput + (state.runningUsage.outputTokens || 0);
+
+        return {
+          inputTokens: totalInput,
+          outputTokens: totalOutput,
+          total: totalInput + totalOutput,
+        };
+      }
+
+      // Otherwise use stored conversation data
       return {
         inputTokens: conv.inputTokens || 0,
         outputTokens: conv.outputTokens || 0,
@@ -273,6 +297,19 @@ export const useSessionsStore = defineStore('sessions', {
         this.error = err.message;
       } finally {
         if (showLoading) this.loading = false;
+      }
+    },
+
+    async fetchScheduledSessions() {
+      this.loadingScheduled = true;
+      this.error = null;
+      try {
+        this.scheduledSessions = await api.getScheduledSessions();
+      } catch (err) {
+        this.error = err.message;
+        console.error('Failed to fetch scheduled sessions:', err);
+      } finally {
+        this.loadingScheduled = false;
       }
     },
 
@@ -316,9 +353,13 @@ export const useSessionsStore = defineStore('sessions', {
       if (showLoading) this.loading = true;
       this.error = null;
       try {
-        this.messages = await api.getSessionMessages(sessionId);
+        const fetchedMessages = await api.getSessionMessages(sessionId);
+        console.log(`[STORE] fetchMessages: session ${sessionId}, received ${fetchedMessages.length} messages, activeConversationId: ${this.activeConversationId}`);
+        this.messages = fetchedMessages;
+        console.log(`[STORE] fetchMessages: updated store with ${this.messages.length} messages`);
       } catch (err) {
         this.error = err.message;
+        console.error(`[STORE] fetchMessages: error fetching messages for session ${sessionId}:`, err.message);
       } finally {
         if (showLoading) this.loading = false;
       }
@@ -762,6 +803,31 @@ export const useSessionsStore = defineStore('sessions', {
     },
 
     /**
+     * Generic async update for session fields via API
+     * @param {string} sessionId - Session ID
+     * @param {Object} updates - Fields to update (e.g., { status: 'starting', scheduledAt: null })
+     * @returns {Promise<Object>} Updated session
+     */
+    async updateSessionFields(sessionId, updates) {
+      this.error = null;
+      try {
+        const updated = await api.updateSession(sessionId, updates);
+        // Update local state with all updated fields
+        const session = this.sessions.find((s) => s.id === sessionId);
+        if (session) {
+          Object.assign(session, updates);
+        }
+        if (this.currentSession?.id === sessionId) {
+          this.currentSession = { ...this.currentSession, ...updates };
+        }
+        return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      }
+    },
+
+    /**
      * Update session with new data from WebSocket
      * @param {Object} sessionData - Updated session data
      */
@@ -826,6 +892,21 @@ export const useSessionsStore = defineStore('sessions', {
       const activeIndex = this.activeSessions.findIndex((s) => s.id === sessionData.id);
       if (activeIndex !== -1) {
         this.activeSessions[activeIndex] = { ...this.activeSessions[activeIndex], ...sessionData };
+      }
+
+      // Handle scheduled status changes - add to or remove from scheduledSessions
+      if (sessionData.status === 'scheduled') {
+        // Add to scheduled list if not present
+        const scheduledIndex = this.scheduledSessions.findIndex((s) => s.id === sessionData.id);
+        if (scheduledIndex === -1) {
+          this.scheduledSessions.push(sessionData);
+        } else {
+          // Update existing scheduled session
+          this.scheduledSessions[scheduledIndex] = { ...this.scheduledSessions[scheduledIndex], ...sessionData };
+        }
+      } else {
+        // Remove from scheduled list when status changes from 'scheduled'
+        this.scheduledSessions = this.scheduledSessions.filter((s) => s.id !== sessionData.id);
       }
     },
 
@@ -1124,6 +1205,8 @@ export const useSessionsStore = defineStore('sessions', {
           isActive: c.id === conversation.id,
         }));
         this.activeConversationId = conversation.id;
+        // Don't clear messages here - let the watcher's fetchMessages() replace them atomically
+        // Clearing here causes isDraft to temporarily become true, hiding the messages
       }
     },
 
@@ -1262,15 +1345,14 @@ export const useSessionsStore = defineStore('sessions', {
 
     /**
      * Restore starred filter from sessionStorage
-     * Handles backward compatibility: 'unstarred' is treated as null (no filter)
+     * @param {string|null} filter - 'starred' | 'unstarred' | null (null = show all)
      */
     restoreStarredFilter() {
       try {
         const filter = sessionStorage.getItem('sessionStarredFilter');
-        if (filter === 'starred') {
+        if (filter === 'starred' || filter === 'unstarred') {
           this.starredFilter = filter;
-        } else if (filter === 'unstarred') {
-          // Legacy: treat 'unstarred' as null (no filter)
+        } else {
           this.starredFilter = null;
         }
       } catch (error) {

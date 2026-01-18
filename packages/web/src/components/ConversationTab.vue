@@ -7,8 +7,8 @@
     <TokenUsagePanel class="conversation-usage" />
 
     <div class="messages" ref="messagesContainer">
-      <!-- Hide messages for draft sessions (only show in input field) -->
-      <template v-if="!isDraft">
+      <!-- Hide messages for draft and scheduled sessions (only show in input field) -->
+      <template v-if="!isDraft && !isScheduledDraft">
       <div
         v-for="message in sessionsStore.messages"
         :key="message.id"
@@ -118,11 +118,11 @@
       @openSettings="quickResponseSettingsOpen = true"
     />
 
-    <form v-if="canSendMessage" @submit.prevent="isDraft ? handleStart() : handleSend()" class="input-form">
+    <form v-if="canSendMessage" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
       <textarea
         ref="textareaRef"
         class="form-input form-textarea"
-        :placeholder="isDraft ? 'Edit your prompt...' : 'Send a follow-up message...'"
+        :placeholder="(isDraft || isScheduledDraft) ? 'Edit your prompt...' : 'Send a follow-up message...'"
         rows="3"
         @input="handleInput"
         @keydown="handleKeydown"
@@ -149,23 +149,41 @@
         </div>
         <div class="input-actions">
           <div v-if="isDraft" class="draft-actions">
+            <button
+              type="button"
+              class="btn btn-secondary btn-schedule"
+              @click="showScheduleModal = true"
+              :disabled="!inputHasContent"
+              title="Schedule this session to start later"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                <circle cx="8" cy="8" r="6" stroke-width="1.5"/>
+                <path d="M8 5v3l2 2" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </button>
             <button type="submit" class="btn btn-primary btn-send" :disabled="restarting || saveStatus === 'saving'">
               <span v-if="restarting" class="loading-spinner"></span>
               {{ restarting ? 'Starting...' : 'Start Session' }}
             </button>
-            <div :class="['save-indicator', `save-${saveStatus}`]">
-              <span v-if="saveStatus === 'saving'" class="save-icon">⏳</span>
-              <span v-else-if="saveStatus === 'saved'" class="save-icon">✓</span>
-              <span v-else-if="saveStatus === 'error'" class="save-icon">⚠</span>
-              <span class="save-text">
-                {{ saveStatus === 'saving' ? 'Saving...' : (saveStatus === 'saved' ? 'Saved' : (saveStatus === 'error' ? saveError || 'Save failed' : 'Unsaved')) }}
-              </span>
-            </div>
           </div>
-          <button v-else type="submit" class="btn btn-primary btn-send" :disabled="isSendDisabled">
-            <span v-if="sending" class="loading-spinner"></span>
-            {{ sending ? 'Sending...' : 'Send' }}
-          </button>
+          <template v-else>
+            <button
+              type="button"
+              class="btn btn-secondary btn-schedule"
+              @click="showScheduleModal = true"
+              :disabled="!inputHasContent || sessionsStore.currentSession?.status === 'scheduled'"
+              title="Schedule this message to be sent later"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+                <circle cx="8" cy="8" r="6" stroke-width="1.5"/>
+                <path d="M8 5v3l2 2" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button type="submit" class="btn btn-primary btn-send" :disabled="isSendDisabled">
+              <span v-if="sending" class="loading-spinner"></span>
+              {{ sending ? 'Sending...' : 'Send' }}
+            </button>
+          </template>
         </div>
       </div>
       <div class="model-row">
@@ -237,6 +255,13 @@
       :projectId="sessionsStore.currentSession?.projectId"
       @close="quickResponseSettingsOpen = false"
     />
+
+    <!-- Schedule Session Modal -->
+    <ScheduleSessionModal
+      v-model:isOpen="showScheduleModal"
+      :sessionId="sessionId"
+      @close="closeScheduleModal"
+    />
   </div>
 </template>
 
@@ -260,6 +285,7 @@ import TemplateSelector from './TemplateSelector.vue';
 import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
 import BranchEditor from './BranchEditor.vue';
+import ScheduleSessionModal from './ScheduleSessionModal.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 const props = defineProps({
@@ -272,7 +298,7 @@ const quickResponsesStore = useQuickResponsesStore();
 
 const input = ref('');
 const quickResponseSettingsOpen = ref(false);
-const inputHasContent = ref(false); // Tracks if textarea has content (for button disabled state)
+const showScheduleModal = ref(false);
 const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
 const saveError = ref('');
 const textareaRef = ref(null);
@@ -307,11 +333,9 @@ const PARTIAL_THROTTLE_MS = 150; // Throttle streaming updates to reduce CPU loa
 
 const SCROLL_THRESHOLD = 100; // pixels from bottom to consider "at bottom"
 
-const STORAGE_KEY = `session-draft-${props.sessionId}`;
-
 const canSendMessage = computed(() => {
   const status = sessionsStore.currentSession?.status;
-  return status === 'waiting' || status === 'stopped' || status === 'error';
+  return status === 'waiting' || status === 'scheduled' || status === 'stopped' || status === 'error';
 });
 
 const canBranch = computed(() => {
@@ -330,8 +354,20 @@ const isDraft = computed(() => {
   return sessionsStore.isDraftSession(sessionsStore.currentSession);
 });
 
+const isScheduledDraft = computed(() => {
+  if (!sessionsStore.currentSession) return false;
+  return sessionsStore.isScheduledDraft(sessionsStore.currentSession);
+});
+
 const unassociatedWorkLogs = computed(() => {
   return sessionsStore.getUnassociatedWorkLogs;
+});
+
+// Computed to check if input has content (for button disabled state)
+// Uses reactive input.value as source of truth
+const inputHasContent = computed(() => {
+  // Check reactive input value (synced from textarea via handleInput or watch)
+  return input.value.trim().length > 0;
 });
 
 // Computed for send button disabled state - avoids re-evaluating on every render
@@ -377,31 +413,25 @@ function handleScroll() {
 }
 
 onMounted(async () => {
-  // If this is a draft session, load the initial prompt into the input field
-  if (isDraft.value && sessionsStore.messages.length > 0) {
+  // Load pendingPrompt from session data (works for both draft and waiting sessions)
+  const pending = sessionsStore.currentSession?.pendingPrompt;
+  if (pending) {
+    input.value = pending;
+    // Set textarea value directly
+    nextTick(() => {
+      if (textareaRef.value) {
+        textareaRef.value.value = pending;
+      }
+    });
+  } else if (isDraft.value && sessionsStore.messages.length > 0) {
+    // Fallback: If this is a draft session without pendingPrompt, load from initial message
     const userMessage = sessionsStore.messages.find(msg => msg.role === 'user');
     if (userMessage) {
       input.value = userMessage.content;
-      inputHasContent.value = userMessage.content.trim().length > 0;
       // Set textarea value directly
       nextTick(() => {
         if (textareaRef.value) {
           textareaRef.value.value = userMessage.content;
-        }
-      });
-    }
-  }
-
-  // Load draft from localStorage (if not a draft session)
-  if (!isDraft.value) {
-    const savedDraft = localStorage.getItem(STORAGE_KEY);
-    if (savedDraft) {
-      input.value = savedDraft;
-      inputHasContent.value = savedDraft.trim().length > 0;
-      // Set textarea value directly
-      nextTick(() => {
-        if (textareaRef.value) {
-          textareaRef.value.value = savedDraft;
         }
       });
     }
@@ -474,21 +504,22 @@ onMounted(async () => {
 
   // Subscribe to conversation events for real-time updates
   unsubConvCreated = onConversationCreated((conversation) => {
+    console.log(`[CONV] CONVERSATION_CREATED event: conversation ${conversation.id}, isActive: ${conversation.isActive}`);
     sessionsStore.addConversation(conversation);
-    // If this is now the active conversation, fetch its messages
-    if (conversation.isActive) {
-      sessionsStore.fetchMessages(props.sessionId, false);
-    }
+    // The watcher on activeConversationId will trigger the fetch automatically
   });
 
   unsubConvUpdated = onConversationUpdated((conversation) => {
+    console.log(`[CONV] CONVERSATION_UPDATED event: conversation ${conversation.id}, isActive: ${conversation.isActive}`);
     sessionsStore.updateConversation(conversation);
   });
 
   unsubConvDeleted = onConversationDeleted((conversationId, newActiveConv) => {
+    console.log(`[CONV] CONVERSATION_DELETED event: deleted ${conversationId}, newActive: ${newActiveConv?.id || 'none'}`);
     sessionsStore.removeConversation(conversationId, newActiveConv);
     // If we have a new active conversation, fetch its messages
     if (newActiveConv) {
+      console.log(`[CONV] CONVERSATION_DELETED: fetching messages for new active conversation ${newActiveConv.id}`);
       sessionsStore.fetchMessages(props.sessionId, false);
     }
   });
@@ -526,42 +557,29 @@ onUnmounted(() => {
   sessionsStore.clearWorkLogs();
 });
 
-// Handle textarea input with debounced sync to reactive state
+// Handle textarea input with debounced sync to reactive state and server
 // This prevents Vue reactivity from firing on every keystroke
 function handleInput(event) {
   const value = event.target.value;
-  const hasContent = value.trim().length > 0;
 
-  // Only update the reactive flag if it changed (minimizes re-renders)
-  if (inputHasContent.value !== hasContent) {
-    inputHasContent.value = hasContent;
-  }
+  // Sync to reactive state IMMEDIATELY (for button enabling to work)
+  input.value = value;
 
-  // Mark draft as unsaved immediately (but only if status changed)
-  if (isDraft.value && saveStatus.value !== 'unsaved' && saveStatus.value !== 'saving') {
+  // Mark as unsaved immediately (but only if status changed)
+  if (saveStatus.value !== 'unsaved' && saveStatus.value !== 'saving') {
     saveStatus.value = 'unsaved';
   }
 
-  // Debounce the sync to reactive state and localStorage
+  // Debounce the server save
   if (inputSyncTimer) clearTimeout(inputSyncTimer);
-  if (debounceTimer) clearTimeout(debounceTimer);
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
 
   inputSyncTimer = setTimeout(() => {
-    // Sync to reactive state (for handleSend/handleStart to access)
-    input.value = value;
-
-    // Save to localStorage
-    if (value.trim()) {
-      localStorage.setItem(STORAGE_KEY, value);
-      // Auto-save draft to database
-      if (isDraft.value) {
-        saveDraftPrompt(value);
-      }
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
+    // Auto-save to server (for all waiting/stopped/error sessions)
+    if (canSendMessage.value) {
+      savePendingPrompt(value);
     }
-  }, 150); // Short debounce for syncing, longer operations handled inside
+  }, 500); // Debounce 500ms for server save
 }
 
 function scrollToBottom(force = false) {
@@ -606,6 +624,7 @@ function scrollToClaudesTurn() {
 watch(
   () => sessionsStore.messages.length,
   (newLen, oldLen) => {
+    console.log(`[CONV] messages.length changed: ${oldLen} → ${newLen}, activeConversationId: ${sessionsStore.activeConversationId}`);
     // Force scroll when messages first load, conditional scroll otherwise
     if (oldLen === 0 && newLen > 0) {
       scrollToBottom(true);
@@ -615,13 +634,56 @@ watch(
   }
 );
 
-// Re-fetch work logs when session status changes from running to waiting/completed
-// This ensures work logs are properly associated after Claude's turn ends
+// Re-fetch messages and work logs when session status changes from running to waiting/completed
+// This ensures the UI shows the correct messages after Claude's turn ends
 watch(
   () => sessionsStore.currentSession?.status,
   async (newStatus, oldStatus) => {
     if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
+      console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
+      // Fetch messages first, then work logs - this ensures messages are visible
+      await sessionsStore.fetchMessages(props.sessionId, false);
       await sessionsStore.fetchWorkLogs(props.sessionId);
+    }
+  }
+);
+
+// Watch for messages loading on draft sessions and populate textarea
+watch(
+  () => sessionsStore.messages,
+  (newMessages) => {
+    // Only populate textarea for draft sessions that don't have textarea content yet
+    if (isDraft.value && textareaRef.value) {
+      const textareaHasContent = textareaRef.value.value && textareaRef.value.value.trim().length > 0;
+      if (!textareaHasContent) {
+        const userMessage = newMessages.find(msg => msg.role === 'user');
+        if (userMessage && userMessage.content) {
+          input.value = userMessage.content;
+          nextTick(() => {
+            if (textareaRef.value) {
+              textareaRef.value.value = userMessage.content;
+            }
+          });
+        }
+      }
+    }
+  },
+  { deep: true, immediate: true }
+);
+
+// Message reconciliation watcher - always fetch messages when conversation changes
+// This ensures the UI always shows the correct messages for the active conversation
+watch(
+  () => sessionsStore.activeConversationId,
+  async (newConvId, oldConvId) => {
+    if (newConvId && newConvId !== oldConvId) {
+      // Wait a tick for any pending message updates to complete
+      await nextTick();
+
+      // Always refetch when conversation changes - no status check
+      // This prevents the UI from showing stale messages from a previous conversation
+      console.log(`[CONV] activeConversationId changed to ${newConvId}, refetching messages`);
+      await sessionsStore.fetchMessages(props.sessionId, false);
     }
   }
 );
@@ -654,11 +716,11 @@ async function handleSend() {
   try {
     await sessionsStore.sendMessage(props.sessionId, currentValue, attachedFiles.value);
     input.value = '';
-    inputHasContent.value = false;
     if (textareaRef.value) textareaRef.value.value = '';
     attachedFiles.value = [];
     fileAttachment.value?.clear();
-    localStorage.removeItem(STORAGE_KEY);
+    // Clear pending prompt on server
+    await api.updateSessionPendingPrompt(props.sessionId, null);
   } catch (err) {
     uiStore.error(err.message);
   } finally {
@@ -680,7 +742,6 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
 
     // Update reactive state
     input.value = newValue;
-    inputHasContent.value = true;
 
     // Ensure DOM updates and focus
     nextTick(() => {
@@ -694,9 +755,10 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
         // Set cursor to end
         textareaRef.value.selectionStart = textareaRef.value.selectionEnd = textareaRef.value.value.length;
 
-        // Mark as unsaved and save to localStorage (if not draft mode)
-        if (!isDraft.value && newValue.trim()) {
-          localStorage.setItem(STORAGE_KEY, newValue);
+        // Mark as unsaved and trigger auto-save
+        if (canSendMessage.value && newValue.trim()) {
+          saveStatus.value = 'unsaved';
+          savePendingPrompt(newValue);
         }
       }
     });
@@ -741,11 +803,11 @@ async function copyError() {
   }
 }
 
-async function saveDraftPrompt(prompt) {
+async function savePendingPrompt(prompt) {
   try {
     saveStatus.value = 'saving';
     saveError.value = '';
-    await api.updateSessionInitialPrompt(props.sessionId, prompt);
+    await api.updateSessionPendingPrompt(props.sessionId, prompt);
     saveStatus.value = 'saved';
     // Reset save status after 2 seconds
     if (draftSaveTimer) clearTimeout(draftSaveTimer);
@@ -757,7 +819,7 @@ async function saveDraftPrompt(prompt) {
   } catch (err) {
     saveStatus.value = 'error';
     saveError.value = err.message;
-    console.error('Failed to save draft prompt:', err);
+    console.error('Failed to save pending prompt:', err);
   }
 }
 
@@ -771,8 +833,6 @@ async function handleStart() {
     // Pass the current prompt to the start method via the store
     // This ensures the UI updates immediately via Vue reactivity
     await sessionsStore.startSession(props.sessionId, currentValue);
-    // Clear localStorage draft on successful start
-    localStorage.removeItem(STORAGE_KEY);
   } catch (err) {
     uiStore.error(err.message);
   } finally {
@@ -802,6 +862,14 @@ async function handleTemplateChange(templateId) {
   } catch (err) {
     uiStore.error(err.message);
   }
+}
+
+function closeScheduleModal() {
+  showScheduleModal.value = false;
+}
+
+function handleScheduled() {
+  closeScheduleModal();
 }
 
 // Branching methods
@@ -1130,54 +1198,6 @@ async function handleBranchCreate({ messageId, prompt }) {
   flex: 1;
 }
 
-.save-indicator {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
-  border-radius: 0.375rem;
-  border: 1px solid var(--color-border);
-  background: var(--color-background-soft);
-  min-height: 40px;
-}
-
-.save-saving {
-  border-color: rgba(100, 200, 255, 0.5);
-  background: rgba(100, 200, 255, 0.05);
-  color: var(--color-accent);
-}
-
-.save-saved {
-  border-color: rgba(34, 197, 94, 0.5);
-  background: rgba(34, 197, 94, 0.05);
-  color: var(--color-success, #22c55e);
-}
-
-.save-error {
-  border-color: rgba(239, 68, 68, 0.5);
-  background: rgba(239, 68, 68, 0.05);
-  color: var(--color-danger, #ef4444);
-}
-
-.save-unsaved {
-  border-color: rgba(251, 146, 60, 0.5);
-  background: rgba(251, 146, 60, 0.05);
-  color: var(--color-warning, #fb923c);
-}
-
-.save-icon {
-  font-size: 1rem;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.save-text {
-  font-size: 0.75rem;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
 .model-row {
   padding-top: 0.75rem;
   border-top: 1px solid var(--color-border);
@@ -1229,6 +1249,26 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 .btn-secondary:hover {
   background-color: var(--color-background-mute);
+}
+
+.btn-schedule {
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.btn-schedule:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.btn-schedule:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .status-message {

@@ -213,6 +213,11 @@ input, textarea, select {
   color: var(--color-error);
 }
 
+.status-scheduled {
+  background-color: rgba(34, 197, 255, 0.2);
+  color: #22c5ff;
+}
+
 /* Loading */
 .loading-spinner {
   display: inline-block;
@@ -259,15 +264,6 @@ input, textarea, select {
   background-color: var(--color-background);
   z-index: 99;
   padding: 0.5rem 0.5rem 0 0.5rem; /* Add horizontal padding to prevent cut-off */
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
-  /* Hide scrollbar but keep functionality */
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.tabs::-webkit-scrollbar {
-  display: none;
 }
 
 .tab {

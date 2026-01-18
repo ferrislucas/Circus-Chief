@@ -757,7 +757,7 @@ describe('ActiveSessionsView polling fallback', () => {
       expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith('starred');
     });
 
-    it('toggles from starred filter to null on second click', async () => {
+    it('toggles from starred filter to unstarred on second click', async () => {
       mockSessionsStore.starredFilter = 'starred';
       const wrapper = mount(ActiveSessionsView);
       await flushAll(wrapper);
@@ -766,7 +766,7 @@ describe('ActiveSessionsView polling fallback', () => {
       await starButton.trigger('click');
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith(null);
+      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith('unstarred');
     });
 
     it('displays correct tooltip for empty star (no filter)', async () => {
@@ -775,7 +775,7 @@ describe('ActiveSessionsView polling fallback', () => {
       await flushAll(wrapper);
 
       const starButton = wrapper.find('.star-btn');
-      expect(starButton.attributes('title')).toBe('Filter starred sessions');
+      expect(starButton.attributes('title')).toBe('Showing all sessions. Click to filter by starred.');
     });
 
     it('displays correct tooltip for filled star (starred filter)', async () => {
@@ -784,7 +784,16 @@ describe('ActiveSessionsView polling fallback', () => {
       await flushAll(wrapper);
 
       const starButton = wrapper.find('.star-btn');
-      expect(starButton.attributes('title')).toBe('Show all sessions');
+      expect(starButton.attributes('title')).toBe('Showing starred sessions only. Click to filter unstarred.');
+    });
+
+    it('displays correct tooltip for unstarred filter', async () => {
+      mockSessionsStore.starredFilter = 'unstarred';
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
+
+      const starButton = wrapper.find('.star-btn');
+      expect(starButton.attributes('title')).toBe('Showing unstarred sessions only. Click to show all.');
     });
 
     it('filter button has active class when filter is applied', async () => {
@@ -793,7 +802,7 @@ describe('ActiveSessionsView polling fallback', () => {
       await flushAll(wrapper);
 
       const starButton = wrapper.find('.star-btn');
-      expect(starButton.classes()).toContain('active');
+      expect(starButton.classes()).toContain('star-filter-active');
     });
 
     it('filter button does not have active class when no filter is applied', async () => {
@@ -802,7 +811,7 @@ describe('ActiveSessionsView polling fallback', () => {
       await flushAll(wrapper);
 
       const starButton = wrapper.find('.star-btn');
-      expect(starButton.classes()).not.toContain('active');
+      expect(starButton.classes()).not.toContain('star-filter-active');
     });
   });
 });
