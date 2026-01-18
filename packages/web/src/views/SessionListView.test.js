@@ -587,7 +587,7 @@ describe('Status filtering', () => {
   });
 
   describe('Idle filter', () => {
-    it('shows waiting sessions when idle filter is clicked', async () => {
+    it('does not show waiting sessions when idle filter is clicked', async () => {
       const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
@@ -597,7 +597,7 @@ describe('Status filtering', () => {
 
       const sessionCards = wrapper.findAll('.session-card');
       const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
-      expect(sessionIds).toContain('session-2'); // waiting
+      expect(sessionIds).not.toContain('session-2'); // waiting - no longer idle
     });
 
     it('shows stopped sessions when idle filter is clicked', async () => {
@@ -626,7 +626,7 @@ describe('Status filtering', () => {
       expect(sessionIds).toContain('session-4'); // error
     });
 
-    it('shows all idle statuses (waiting, stopped, error) when idle filter is clicked', async () => {
+    it('shows all idle statuses (stopped, error) when idle filter is clicked', async () => {
       const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
@@ -635,10 +635,10 @@ describe('Status filtering', () => {
       await flushAll(wrapper);
 
       const sessionCards = wrapper.findAll('.session-card');
-      expect(sessionCards).toHaveLength(3); // waiting, stopped, error
+      expect(sessionCards).toHaveLength(2); // stopped, error (waiting is no longer idle)
 
       const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
-      expect(sessionIds).toContain('session-2'); // waiting
+      expect(sessionIds).not.toContain('session-2'); // waiting - no longer idle
       expect(sessionIds).toContain('session-3'); // stopped
       expect(sessionIds).toContain('session-4'); // error
     });
@@ -678,7 +678,7 @@ describe('Status filtering', () => {
       // Click to enable filter
       await idleButton.trigger('click');
       await flushAll(wrapper);
-      expect(wrapper.findAll('.session-card')).toHaveLength(3);
+      expect(wrapper.findAll('.session-card')).toHaveLength(2); // stopped, error (waiting no longer idle)
 
       // Click again to disable filter
       await idleButton.trigger('click');
@@ -704,14 +704,14 @@ describe('Status filtering', () => {
       await filterButtons[1].trigger('click');
       await flushAll(wrapper);
 
-      // Should now show only idle sessions
+      // Should now show only idle sessions (stopped + error, waiting is no longer idle)
       sessionCards = wrapper.findAll('.session-card');
-      expect(sessionCards).toHaveLength(3); // waiting, stopped, error
+      expect(sessionCards).toHaveLength(2); // stopped, error
 
       const sessionIds = sessionCards.map(c => c.attributes('data-session-id'));
       expect(sessionIds).not.toContain('session-1'); // running - now excluded
       expect(sessionIds).not.toContain('session-5'); // starting - now excluded
-      expect(sessionIds).toContain('session-2'); // waiting
+      expect(sessionIds).not.toContain('session-2'); // waiting - no longer idle
       expect(sessionIds).toContain('session-3'); // stopped
       expect(sessionIds).toContain('session-4'); // error
     });
@@ -726,7 +726,7 @@ describe('Status filtering', () => {
       await filterButtons[1].trigger('click');
       await flushAll(wrapper);
       let sessionCards = wrapper.findAll('.session-card');
-      expect(sessionCards).toHaveLength(3); // waiting, stopped, error
+      expect(sessionCards).toHaveLength(2); // stopped, error (waiting no longer idle)
 
       // Click running filter (should disable idle and enable running)
       await filterButtons[0].trigger('click');
@@ -810,10 +810,9 @@ describe('Status filtering', () => {
       await idleButton.trigger('click');
       await flushAll(wrapper);
 
-      // Should show only the waiting parent group
+      // Should show no sessions (waiting is no longer idle, running is running, not idle)
       const sessionCards = wrapper.findAll('.session-card');
-      expect(sessionCards).toHaveLength(1);
-      expect(sessionCards[0].attributes('data-session-id')).toBe('session-2');
+      expect(sessionCards).toHaveLength(0);
     });
 
     it('includes entire group (parent + children) when parent matches filter', async () => {
@@ -879,7 +878,7 @@ describe('Status filtering', () => {
       expect(emptyState.text()).toContain('No sessions match the current filter');
     });
 
-    it('shows idle sessions but not starting sessions when only starting and idle exist', async () => {
+    it('shows no sessions when only starting and waiting exist (waiting no longer idle)', async () => {
       mockSessionsStore.sessions = [
         { id: 'session-1', name: 'Starting Session', status: 'starting' },
         { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
@@ -894,8 +893,9 @@ describe('Status filtering', () => {
       await flushAll(wrapper);
 
       const sessionCards = wrapper.findAll('.session-card');
-      expect(sessionCards).toHaveLength(1);
-      expect(sessionCards[0].attributes('data-session-id')).toBe('session-2');
+      expect(sessionCards).toHaveLength(0);
+      const emptyState = wrapper.find('.empty-state');
+      expect(emptyState.exists()).toBe(true);
     });
   });
 
@@ -944,7 +944,7 @@ describe('Status filtering', () => {
       expect(emptyState.exists()).toBe(true);
     });
 
-    it('starting sessions show in running filter but not idle filter', async () => {
+    it('starting sessions show in running filter but not idle filter (waiting also not idle)', async () => {
       mockSessionsStore.sessions = [
         { id: 'session-1', name: 'Starting Session', status: 'starting' },
         { id: 'session-2', name: 'Running Session', status: 'running' },
@@ -970,16 +970,15 @@ describe('Status filtering', () => {
       await runningButton.trigger('click');
       await flushAll(wrapper);
 
-      // Idle filter should NOT include starting
+      // Idle filter should NOT include starting or waiting
       const idleButton = wrapper.findAll('.filter-btn')[1];
       await idleButton.trigger('click');
       await flushAll(wrapper);
 
       sessionCards = wrapper.findAll('.session-card');
-      expect(sessionCards).toHaveLength(1);
-      const idleIds = sessionCards.map(c => c.attributes('data-session-id'));
-      expect(idleIds).toContain('session-3'); // waiting
-      expect(idleIds).not.toContain('session-1'); // starting - NOT idle
+      expect(sessionCards).toHaveLength(0);
+      expect(sessionCards).not.toContain('session-3'); // waiting - NOT idle
+      expect(sessionCards).not.toContain('session-1'); // starting - NOT idle
     });
   });
 });
