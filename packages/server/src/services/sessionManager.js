@@ -760,6 +760,13 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     if (activeSession && !controller.signal.aborted) {
       sessions.update(sessionId, { status: 'waiting' });
       broadcastSessionStatus(sessionId, 'waiting');
+
+      // Check if session should be proactively rescheduled based on token threshold
+      const wasRescheduled = await _checkProactiveReschedule(sessionId);
+      if (wasRescheduled) {
+        return; // Session was rescheduled, don't continue with normal completion
+      }
+
       // Trigger summary generation when session completes a turn
       summaryService.onSessionActivity(sessionId);
 
@@ -900,6 +907,13 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     if (activeSession && !controller.signal.aborted) {
       sessions.update(sessionId, { status: 'waiting' });
       broadcastSessionStatus(sessionId, 'waiting');
+
+      // Check if session should be proactively rescheduled based on token threshold
+      const wasRescheduled = await _checkProactiveReschedule(sessionId);
+      if (wasRescheduled) {
+        return; // Session was rescheduled, don't continue with normal completion
+      }
+
       // Trigger summary generation when session completes a turn
       summaryService.onSessionActivity(sessionId);
 
@@ -1037,6 +1051,13 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     if (activeSession && !controller.signal.aborted) {
       sessions.update(sessionId, { status: 'waiting' });
       broadcastSessionStatus(sessionId, 'waiting');
+
+      // Check if session should be proactively rescheduled based on token threshold
+      const wasRescheduled = await _checkProactiveReschedule(sessionId);
+      if (wasRescheduled) {
+        return; // Session was rescheduled, don't continue with normal completion
+      }
+
       // Trigger summary generation when session completes a turn
       summaryService.onSessionActivity(sessionId);
 
