@@ -7,6 +7,7 @@ import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import * as diffService from './diffService.js';
 import { createClaudeCodeSpawner, createRobustEnv } from './nodeSpawnHelper.js';
+import { schedulerService } from './schedulerService.js';
 
 /** @type {Map<string, string|null>} Track last message ID for end-of-turn work log association */
 const lastMessageIds = new Map();
@@ -93,6 +94,86 @@ function updateTurnUsage(conversationId, usage, eventType) {
 
 /** Check if mock mode is enabled (for E2E testing) */
 const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
+
+/**
+ * Check if an error should trigger automatic rescheduling
+ * @param {object} session - Session object
+ * @param {Error} error - Error that occurred
+ * @returns {boolean} True if should reschedule
+ */
+function shouldRescheduleOnError(session, error) {
+  if (!session.autoRescheduleEnabled) {
+    return false;
+  }
+
+  const errorMessage = error.message.toLowerCase();
+
+  // Check for token limit errors
+  if (session.rescheduleOnTokenLimit) {
+    if (
+      errorMessage.includes('token') ||
+      errorMessage.includes('context length') ||
+      errorMessage.includes('max_tokens') ||
+      errorMessage.includes('context window')
+    ) {
+      console.log('[SessionManager] Token limit error detected, checking if should reschedule');
+      return true;
+    }
+  }
+
+  // Check for service errors
+  if (session.rescheduleOnServiceError) {
+    if (
+      errorMessage.includes('overloaded') ||
+      errorMessage.includes('rate limit') ||
+      errorMessage.includes('503') ||
+      errorMessage.includes('529') ||
+      errorMessage.includes('unavailable') ||
+      errorMessage.includes('service unavailable') ||
+      errorMessage.includes('too many requests')
+    ) {
+      console.log('[SessionManager] Service error detected, checking if should reschedule');
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Check if session should be proactively rescheduled based on token count
+ * Called after processing each message to check token thresholds
+ * @param {string} sessionId - Session ID
+ * @returns {Promise<boolean>} True if rescheduled
+ */
+async function _checkProactiveReschedule(sessionId) {
+  const session = sessions.getById(sessionId);
+  if (!session || !session.autoRescheduleEnabled || !session.rescheduleAtTokenCount) {
+    return false;
+  }
+
+  const totalTokens = session.inputTokens + session.outputTokens;
+  if (totalTokens >= session.rescheduleAtTokenCount) {
+    console.log(
+      `[SessionManager] Proactive token threshold reached: ${totalTokens.toLocaleString()}/${session.rescheduleAtTokenCount.toLocaleString()}`
+    );
+
+    // Check if we've reached limits
+    if (schedulerService.hasReachedLimits(session)) {
+      console.log('[SessionManager] Cannot reschedule - limits reached');
+      return false;
+    }
+
+    // Gracefully reschedule
+    await schedulerService.rescheduleSession(
+      sessionId,
+      `Token threshold reached (${totalTokens.toLocaleString()} tokens)`
+    );
+    return true;
+  }
+
+  return false;
+}
 
 /**
  * Handle template triggering if a session has a nextTemplateId configured
@@ -681,6 +762,19 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     console.error('Session error:', error);
     console.error('Error stack:', error.stack);
     if (!controller.signal.aborted) {
+      // Check if we should reschedule instead of marking as error
+      const session = sessions.getById(sessionId);
+      if (session && shouldRescheduleOnError(session, error)) {
+        const rescheduled = await schedulerService.rescheduleSession(sessionId, error.message);
+        if (rescheduled) {
+          console.log(`[SessionManager] Session ${sessionId} rescheduled due to error`);
+          // Don't throw error or set error status - session is rescheduled
+          return;
+        }
+        // If rescheduling failed (limits reached), fall through to error handling
+      }
+
+      // Normal error handling (no reschedule or reschedule limits reached)
       sessions.update(sessionId, { status: 'error', error: error.message });
       broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
       // Trigger summary generation on error
@@ -808,6 +902,19 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     console.error('Continue session error:', error);
     console.error('Error stack:', error.stack);
     if (!controller.signal.aborted) {
+      // Check if we should reschedule instead of marking as error
+      const session = sessions.getById(sessionId);
+      if (session && shouldRescheduleOnError(session, error)) {
+        const rescheduled = await schedulerService.rescheduleSession(sessionId, error.message);
+        if (rescheduled) {
+          console.log(`[SessionManager] Session ${sessionId} rescheduled due to error`);
+          // Don't throw error or set error status - session is rescheduled
+          return;
+        }
+        // If rescheduling failed (limits reached), fall through to error handling
+      }
+
+      // Normal error handling (no reschedule or reschedule limits reached)
       sessions.update(sessionId, { status: 'error', error: error.message });
       broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
       // Trigger summary generation on error
@@ -932,6 +1039,19 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     console.error('Continue session with existing message error:', error);
     console.error('Error stack:', error.stack);
     if (!controller.signal.aborted) {
+      // Check if we should reschedule instead of marking as error
+      const session = sessions.getById(sessionId);
+      if (session && shouldRescheduleOnError(session, error)) {
+        const rescheduled = await schedulerService.rescheduleSession(sessionId, error.message);
+        if (rescheduled) {
+          console.log(`[SessionManager] Session ${sessionId} rescheduled due to error`);
+          // Don't throw error or set error status - session is rescheduled
+          return;
+        }
+        // If rescheduling failed (limits reached), fall through to error handling
+      }
+
+      // Normal error handling (no reschedule or reschedule limits reached)
       sessions.update(sessionId, { status: 'error', error: error.message });
       broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
       // Trigger summary generation on error

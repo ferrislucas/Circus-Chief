@@ -47,6 +47,11 @@ const routes = [
     component: () => import('./views/SessionListView.vue'),
   },
   {
+    path: '/projects/:id/scheduled',
+    name: 'ScheduledSessions',
+    component: () => import('./views/SessionListView.vue'),
+  },
+  {
     path: '/projects/:id/sessions/new',
     name: 'NewSession',
     component: () => import('./views/NewSessionView.vue'),

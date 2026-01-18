@@ -9,11 +9,30 @@ export const CreateSessionRequest = z.object({
   gitMode: z.enum(['branch', 'worktree']).optional(),
   templateId: z.string().uuid().optional(), // Template to apply on session creation
   nextTemplateId: z.string().uuid().nullable().optional(),
+  // Scheduling fields
+  scheduledAt: z.number().optional(), // Unix timestamp in ms
+  autoRescheduleEnabled: z.boolean().optional(),
+  rescheduleDelayMinutes: z.number().min(5).max(1440).optional(), // 5 min to 24 hours
+  rescheduleOnTokenLimit: z.boolean().optional(),
+  rescheduleOnServiceError: z.boolean().optional(),
+  maxRescheduleCount: z.number().min(1).max(100).nullable().optional(),
+  maxTotalTokens: z.number().min(1000).nullable().optional(),
+  rescheduleAtTokenCount: z.number().min(10000).nullable().optional(), // e.g., 100k, 150k tokens
 });
 
 export const UpdateSessionRequest = z.object({
   thinkingEnabled: z.boolean().optional(),
   nextTemplateId: z.string().uuid().nullable().optional(),
+  // Scheduling fields
+  scheduledAt: z.number().nullable().optional(), // Unix timestamp in ms
+  autoRescheduleEnabled: z.boolean().optional(),
+  rescheduleDelayMinutes: z.number().min(5).max(1440).optional(), // 5 min to 24 hours
+  rescheduleOnTokenLimit: z.boolean().optional(),
+  rescheduleOnServiceError: z.boolean().optional(),
+  maxRescheduleCount: z.number().min(1).max(100).nullable().optional(),
+  maxTotalTokens: z.number().min(1000).nullable().optional(),
+  rescheduleCount: z.number().optional(), // For resetting
+  rescheduleAtTokenCount: z.number().min(10000).nullable().optional(),
 });
 
 export const SendMessageRequest = z.object({
@@ -24,7 +43,7 @@ export const SessionResponse = z.object({
   id: z.string().uuid(),
   projectId: z.string().uuid(),
   name: z.string(),
-  status: z.enum(['starting', 'running', 'waiting', 'stopped', 'error']),
+  status: z.enum(['starting', 'running', 'waiting', 'stopped', 'completed', 'error', 'scheduled']),
   mode: z.enum(['plan', 'standard', 'yolo']),
   thinkingEnabled: z.boolean(),
   gitBranch: z.string().nullable(),
@@ -33,6 +52,16 @@ export const SessionResponse = z.object({
   error: z.string().nullable(),
   nextTemplateId: z.string().uuid().nullable(),
   parentSessionId: z.string().uuid().nullable(),
+  // Scheduling fields
+  scheduledAt: z.number().nullable(),
+  rescheduleDelayMinutes: z.number(),
+  autoRescheduleEnabled: z.boolean(),
+  rescheduleOnTokenLimit: z.boolean(),
+  rescheduleOnServiceError: z.boolean(),
+  maxRescheduleCount: z.number().nullable(),
+  maxTotalTokens: z.number().nullable(),
+  rescheduleCount: z.number(),
+  rescheduleAtTokenCount: z.number().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
