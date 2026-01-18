@@ -5,10 +5,6 @@
         <router-link to="/" class="logo">
           <img src="/logo.png" alt="ClaudeTools.io Logo" class="logo-image" />
         </router-link>
-        <nav class="nav">
-          <router-link to="/" class="nav-link">Projects</router-link>
-          <router-link to="/sessions/active" class="nav-link">Sessions</router-link>
-        </nav>
       </div>
     </header>
 
