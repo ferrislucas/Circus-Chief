@@ -154,6 +154,45 @@ describe('ApiClient', () => {
       });
     });
 
+    describe('getScheduledSessions', () => {
+      it('fetches all scheduled sessions without filter', async () => {
+        const mockData = [
+          { id: '1', name: 'Session 1', status: 'scheduled' },
+          { id: '2', name: 'Session 2', status: 'scheduled' },
+        ];
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getScheduledSessions();
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/scheduled', expect.any(Object));
+        expect(result).toEqual(mockData);
+      });
+
+      it('fetches scheduled sessions filtered by project ID', async () => {
+        const mockData = [
+          { id: '1', name: 'Session 1', status: 'scheduled', projectId: 'proj-123' },
+        ];
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getScheduledSessions('proj-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/scheduled?projectId=proj-123', expect.any(Object));
+        expect(result).toEqual(mockData);
+      });
+
+      it('fetches all scheduled sessions when projectId is null', async () => {
+        const mockData = [
+          { id: '1', name: 'Session 1', status: 'scheduled' },
+        ];
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getScheduledSessions(null);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/scheduled', expect.any(Object));
+        expect(result).toEqual(mockData);
+      });
+    });
+
     describe('archiveSession', () => {
       it('posts to archive endpoint', async () => {
         const mockData = { id: 'sess-123', archived: true };
