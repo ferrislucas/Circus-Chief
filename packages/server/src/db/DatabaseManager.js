@@ -356,6 +356,14 @@ export class DatabaseManager {
     if (!pendingPromptColumns.includes('pending_prompt')) {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN pending_prompt TEXT');
     }
+
+    // Add model column to conversation_messages table (Issue: track model per message)
+    const msgModelTableInfo = this.#db.prepare('PRAGMA table_info(conversation_messages)').all();
+    const msgModelColumns = msgModelTableInfo.map((col) => col.name);
+
+    if (!msgModelColumns.includes('model')) {
+      this.#db.exec('ALTER TABLE conversation_messages ADD COLUMN model TEXT');
+    }
   }
 
   /**
