@@ -3,7 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { canvasItems, projects } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
-import { existsSync, rmSync } from 'fs';
+import { existsSync, rmSync, readFileSync } from 'fs';
 import { isBinaryContent, getTypeFromExtension } from './canvas.js';
 import canvasRouter from './canvas.js';
 
@@ -525,6 +525,137 @@ describe('Canvas API', () => {
         expect(res.body).toHaveProperty('createdAt');
         expect(res.body).toHaveProperty('version');
         expect(res.body).toHaveProperty('totalVersions');
+      });
+
+      it('main endpoint returns latest version number in standard versioning', async () => {
+        canvasItems.create(sessionId, { type: 'text', content: 'v1', filename: 'test.txt' });
+        canvasItems.create(sessionId, { type: 'text', content: 'v2', filename: 'test.txt' });
+        canvasItems.create(sessionId, { type: 'text', content: 'v3', filename: 'test.txt' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/test.txt`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.version).toBe(3); // Latest version in standard versioning
+        expect(res.body.totalVersions).toBe(3);
+      });
+    });
+
+    describe('GET history endpoint with standard versioning', () => {
+      it('retrieves oldest version with version=1', async () => {
+        canvasItems.create(sessionId, { type: 'text', content: 'First version', filename: 'history.txt' });
+        canvasItems.create(sessionId, { type: 'text', content: 'Second version', filename: 'history.txt' });
+        canvasItems.create(sessionId, { type: 'text', content: 'Third version', filename: 'history.txt' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/history.txt/history/1`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.version).toBe(1);
+        expect(res.body.totalVersions).toBe(3);
+
+        // Verify it's actually the oldest version
+        const filePath = res.body.filePath;
+        const content = readFileSync(filePath, 'utf-8');
+        expect(content).toBe('First version');
+      });
+
+      it('retrieves latest version with version=N', async () => {
+        canvasItems.create(sessionId, { type: 'text', content: 'First version', filename: 'history2.txt' });
+        canvasItems.create(sessionId, { type: 'text', content: 'Second version', filename: 'history2.txt' });
+        canvasItems.create(sessionId, { type: 'text', content: 'Latest version', filename: 'history2.txt' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/history2.txt/history/3`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.version).toBe(3);
+        expect(res.body.totalVersions).toBe(3);
+
+        // Verify it's actually the latest version
+        const filePath = res.body.filePath;
+        const content = readFileSync(filePath, 'utf-8');
+        expect(content).toBe('Latest version');
+      });
+
+      it('retrieves middle version correctly', async () => {
+        canvasItems.create(sessionId, { type: 'text', content: 'v1', filename: 'middle.txt' });
+        canvasItems.create(sessionId, { type: 'text', content: 'v2 middle', filename: 'middle.txt' });
+        canvasItems.create(sessionId, { type: 'text', content: 'v3', filename: 'middle.txt' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/middle.txt/history/2`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.version).toBe(2);
+
+        const filePath = res.body.filePath;
+        const content = readFileSync(filePath, 'utf-8');
+        expect(content).toBe('v2 middle');
+      });
+
+      it('returns 404 for version 0', async () => {
+        canvasItems.create(sessionId, { type: 'text', content: 'content', filename: 'test.txt' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/test.txt/history/0`);
+
+        expect(res.status).toBe(404);
+        expect(res.body.error).toContain('Version 0 not found');
+      });
+
+      it('returns 404 for version greater than totalVersions', async () => {
+        canvasItems.create(sessionId, { type: 'text', content: 'v1', filename: 'test.txt' });
+        canvasItems.create(sessionId, { type: 'text', content: 'v2', filename: 'test.txt' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/test.txt/history/5`);
+
+        expect(res.status).toBe(404);
+        expect(res.body.error).toContain('Version 5 not found');
+        expect(res.body.error).toContain('Available versions: 1-2');
+      });
+
+      it('returns 404 for non-existent file', async () => {
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/nonexistent.txt/history/1`);
+
+        expect(res.status).toBe(404);
+        expect(res.body.error).toContain('File not found on canvas');
+      });
+
+      it('includes version suffix in temp filename', async () => {
+        canvasItems.create(sessionId, { type: 'text', content: 'v1', filename: 'versioned.txt' });
+        canvasItems.create(sessionId, { type: 'text', content: 'v2', filename: 'versioned.txt' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/versioned.txt/history/1`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.filePath).toContain('versioned.v1.txt');
+      });
+
+      it('works with image files', async () => {
+        const pngBuffer = Buffer.from([0x89, 0x50, 0x4E, 0x47]);
+        const base64v1 = pngBuffer.toString('base64');
+        const base64v2 = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x00]).toString('base64');
+
+        canvasItems.create(sessionId, { type: 'image', data: base64v1, mimeType: 'image/png', filename: 'img.png' });
+        canvasItems.create(sessionId, { type: 'image', data: base64v2, mimeType: 'image/png', filename: 'img.png' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/img.png/history/1`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.type).toBe('image');
+        expect(res.body.version).toBe(1);
+        expect(res.body.fileSize).toBe(4); // First version is smaller
+      });
+
+      it('works with JSON files', async () => {
+        canvasItems.create(sessionId, { type: 'json', content: '{"v":1}', filename: 'data.json' });
+        canvasItems.create(sessionId, { type: 'json', content: '{"v":2}', filename: 'data.json' });
+
+        const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/data.json/history/1`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.type).toBe('json');
+
+        const filePath = res.body.filePath;
+        const content = readFileSync(filePath, 'utf-8');
+        const parsed = JSON.parse(content);
+        expect(parsed.v).toBe(1);
       });
     });
   });

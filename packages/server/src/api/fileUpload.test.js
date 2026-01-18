@@ -11,6 +11,7 @@ vi.mock('../websocket.js', () => ({
 }));
 
 vi.mock('../services/sessionManager.js', () => ({
+  runSession: vi.fn().mockResolvedValue(undefined),
   continueSession: vi.fn(),
   stopSession: vi.fn(),
   restartSession: vi.fn(),
