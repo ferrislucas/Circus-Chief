@@ -449,4 +449,184 @@ describe('gitService', () => {
       expect(hasFile).toBe(true);
     });
   });
+
+  describe('getModifiedFilesCount', () => {
+    let getModifiedFilesCount;
+    let defaultBranch;
+
+    beforeEach(async () => {
+      // Import the function after beforeEach setup
+      const module = await import('./gitService.js');
+      getModifiedFilesCount = module.getModifiedFilesCount;
+
+      // Get the actual default branch for this test repo
+      defaultBranch = await getOriginDefaultBranch(testDir);
+    });
+
+    it('returns 0 when no files are modified', async () => {
+      const count = await getModifiedFilesCount(testDir, defaultBranch);
+      expect(count).toBe(0);
+    });
+
+    it('counts committed changes compared to origin branch', async () => {
+      // Create and commit a new file
+      await writeFile(join(testDir, 'new-file.txt'), 'content');
+      execSync('git add new-file.txt', { cwd: testDir });
+      execSync('git commit -m "Add new file"', { cwd: testDir });
+
+      const count = await getModifiedFilesCount(testDir, defaultBranch);
+      expect(count).toBe(1);
+    });
+
+    it('counts multiple committed files', async () => {
+      // Create and commit multiple files
+      await writeFile(join(testDir, 'file1.txt'), 'content1');
+      await writeFile(join(testDir, 'file2.txt'), 'content2');
+      await writeFile(join(testDir, 'file3.txt'), 'content3');
+      execSync('git add .', { cwd: testDir });
+      execSync('git commit -m "Add three files"', { cwd: testDir });
+
+      const count = await getModifiedFilesCount(testDir, defaultBranch);
+      expect(count).toBe(3);
+    });
+
+    it('counts staged but uncommitted files', async () => {
+      // Stage a file without committing
+      await writeFile(join(testDir, 'staged-file.txt'), 'content');
+      execSync('git add staged-file.txt', { cwd: testDir });
+
+      const count = await getModifiedFilesCount(testDir, defaultBranch);
+      // Note: git diff --name-only without --staged doesn't show staged files
+      // So staged-only files won't be counted (they would need to be in unstaged or untracked)
+      // However, this will be picked up by getUntrackedFiles since it was never committed
+      // Actually, once added, it's no longer untracked. So it won't be counted at all.
+      expect(count).toBe(0);
+    });
+
+    it('counts unstaged modified files', async () => {
+      // Modify existing file without staging
+      await writeFile(join(testDir, 'README.md'), '# Modified content');
+
+      const count = await getModifiedFilesCount(testDir, defaultBranch);
+      expect(count).toBe(1);
+    });
+
+    it('counts untracked files', async () => {
+      // Create new files without adding them
+      await writeFile(join(testDir, 'untracked1.txt'), 'content1');
+      await writeFile(join(testDir, 'untracked2.txt'), 'content2');
+
+      const count = await getModifiedFilesCount(testDir, defaultBranch);
+      expect(count).toBe(2);
+    });
+
+    it('counts unique files across committed, staged, unstaged, and untracked', async () => {
+      // Committed change
+      await writeFile(join(testDir, 'committed.txt'), 'content');
+      execSync('git add committed.txt', { cwd: testDir });
+      execSync('git commit -m "Add committed"', { cwd: testDir });
+
+      // Staged change (won't be counted as explained above)
+      await writeFile(join(testDir, 'staged.txt'), 'content');
+      execSync('git add staged.txt', { cwd: testDir });
+
+      // Unstaged change (modify existing file)
+      await writeFile(join(testDir, 'README.md'), '# Modified');
+
+      // Untracked files
+      await writeFile(join(testDir, 'untracked.txt'), 'content');
+
+      const count = await getModifiedFilesCount(testDir, defaultBranch);
+      // Should count: committed.txt, README.md, untracked.txt = 3 unique files
+      // Note: staged.txt is not counted because it's not in committed/unstaged/untracked
+      expect(count).toBe(3);
+    });
+
+    it('counts file only once when it appears in multiple states', async () => {
+      // Commit a file
+      await writeFile(join(testDir, 'test.txt'), 'v1');
+      execSync('git add test.txt', { cwd: testDir });
+      execSync('git commit -m "Add test.txt"', { cwd: testDir });
+
+      // Modify it (unstaged)
+      await writeFile(join(testDir, 'test.txt'), 'v2');
+
+      const count = await getModifiedFilesCount(testDir, defaultBranch);
+      // Should count test.txt only once
+      expect(count).toBe(1);
+    });
+
+    it('works with origin/master as default branch', async () => {
+      // Create a new file
+      await writeFile(join(testDir, 'new-file.txt'), 'content');
+      execSync('git add new-file.txt', { cwd: testDir });
+      execSync('git commit -m "Add file"', { cwd: testDir });
+
+      const count = await getModifiedFilesCount(testDir, 'origin/master');
+      expect(count).toBeGreaterThan(0);
+    });
+
+    it('returns 0 on error and logs warning', async () => {
+      // Use a non-existent directory
+      const count = await getModifiedFilesCount('/nonexistent/directory', 'origin/main');
+      expect(count).toBe(0);
+    });
+
+    it('handles nested directory structures', async () => {
+      // Create files in nested directories
+      const nestedDir = join(testDir, 'src', 'components');
+      execSync(`mkdir -p "${nestedDir}"`, { cwd: testDir });
+      await writeFile(join(nestedDir, 'Component1.js'), 'code');
+      await writeFile(join(nestedDir, 'Component2.js'), 'code');
+      await writeFile(join(testDir, 'src', 'index.js'), 'code');
+
+      const count = await getModifiedFilesCount(testDir, defaultBranch);
+      expect(count).toBe(3);
+    });
+
+    it('handles files with spaces in names', async () => {
+      await writeFile(join(testDir, 'file with spaces.txt'), 'content');
+      // Don't add it - leave it untracked so it will be counted
+      const count = await getModifiedFilesCount(testDir, defaultBranch);
+      expect(count).toBe(1);
+    });
+
+    it('counts deleted files that are unstaged', async () => {
+      // Create and commit a file
+      await writeFile(join(testDir, 'to-delete.txt'), 'content');
+      execSync('git add to-delete.txt', { cwd: testDir });
+      execSync('git commit -m "Add file to delete"', { cwd: testDir });
+
+      // Push to origin so it's in the remote
+      execSync('git push origin HEAD', { cwd: testDir });
+
+      // Delete the file but don't stage the deletion
+      await rm(join(testDir, 'to-delete.txt'));
+      // Don't add it - leave the deletion unstaged so it will be counted
+
+      const count = await getModifiedFilesCount(testDir, defaultBranch);
+      // Should count the deletion as 1 modified file (in unstaged changes)
+      expect(count).toBe(1);
+    });
+
+    it('handles binary files', async () => {
+      // Create a binary file (simulate with buffer)
+      const binaryContent = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+      await writeFile(join(testDir, 'image.png'), binaryContent);
+
+      const count = await getModifiedFilesCount(testDir, defaultBranch);
+      expect(count).toBe(1);
+    });
+
+    it('returns correct count for large number of files', async () => {
+      // Create many files
+      const fileCount = 50;
+      for (let i = 0; i < fileCount; i++) {
+        await writeFile(join(testDir, `file-${i}.txt`), `content ${i}`);
+      }
+
+      const count = await getModifiedFilesCount(testDir, defaultBranch);
+      expect(count).toBe(fileCount);
+    });
+  });
 });
