@@ -383,7 +383,7 @@ export function useSessionSubscription(sessionId) {
   const onCommandOutput = (callback) => {
     const handler = (msg) => {
       if (msg.sessionId === sessionId) {
-        callback(msg.runId, msg.output);
+        callback(msg.runId, msg.buttonId, msg.output);
       }
     };
     on(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, handler);
@@ -393,7 +393,7 @@ export function useSessionSubscription(sessionId) {
   const onCommandComplete = (callback) => {
     const handler = (msg) => {
       if (msg.sessionId === sessionId) {
-        callback(msg.runId, msg.exitCode, msg.output);
+        callback(msg.runId, msg.buttonId, msg.exitCode, msg.output);
       }
     };
     on(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, handler);
@@ -403,7 +403,7 @@ export function useSessionSubscription(sessionId) {
   const onCommandError = (callback) => {
     const handler = (msg) => {
       if (msg.sessionId === sessionId) {
-        callback(msg.runId, msg.error || msg.message);
+        callback(msg.runId, msg.buttonId, msg.error || msg.message);
       }
     };
     on(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);

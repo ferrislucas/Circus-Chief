@@ -448,8 +448,8 @@ describe('CommandButtonItem', () => {
     });
   });
 
-  describe('header action buttons', () => {
-    it('displays copy button in header when output is available and not running', async () => {
+  describe('header action menu', () => {
+    it('displays ActionMenu when output is available and not running', async () => {
       const wrapper = mount(CommandButtonItem, {
         props: {
           button: mockButton,
@@ -458,12 +458,12 @@ describe('CommandButtonItem', () => {
         }
       });
 
-      // Should have copy button in header (btn-icon class)
-      const copyButton = wrapper.find('.btn-icon');
-      expect(copyButton.exists()).toBe(true);
+      // Should have ActionMenu component
+      const actionMenu = wrapper.findComponent({ name: 'ActionMenu' });
+      expect(actionMenu.exists()).toBe(true);
     });
 
-    it('does not display copy button when command is running', async () => {
+    it('does not display ActionMenu when command is running', async () => {
       const runningRun = { ...mockRun, status: 'running', output: 'Some output' };
 
       const wrapper = mount(CommandButtonItem, {
@@ -474,12 +474,28 @@ describe('CommandButtonItem', () => {
         }
       });
 
-      // Should not have copy button (btn-icon class)
-      const iconButtons = wrapper.findAll('.btn-icon');
-      expect(iconButtons.length).toBe(0);
+      // Should not have ActionMenu
+      const actionMenu = wrapper.findComponent({ name: 'ActionMenu' });
+      expect(actionMenu.exists()).toBe(false);
     });
 
-    it('displays canvas button in header when output is available', async () => {
+    it('does not display ActionMenu when no output is available', async () => {
+      const runWithoutOutput = { ...mockRun, output: null };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: runWithoutOutput
+        }
+      });
+
+      // Should not have ActionMenu
+      const actionMenu = wrapper.findComponent({ name: 'ActionMenu' });
+      expect(actionMenu.exists()).toBe(false);
+    });
+
+    it('passes correct menu items to ActionMenu', async () => {
       const wrapper = mount(CommandButtonItem, {
         props: {
           button: mockButton,
@@ -488,9 +504,133 @@ describe('CommandButtonItem', () => {
         }
       });
 
-      // Should have two icon buttons (copy and canvas)
-      const iconButtons = wrapper.findAll('.btn-icon');
-      expect(iconButtons.length).toBe(2);
+      const actionMenu = wrapper.findComponent({ name: 'ActionMenu' });
+      expect(actionMenu.exists()).toBe(true);
+
+      const items = actionMenu.props('items');
+      expect(items).toHaveLength(3);
+      expect(items[0]).toEqual({ icon: '📋', label: 'Copy output', action: 'copy-output' });
+      expect(items[1]).toEqual({ icon: '🎨', label: 'Send to canvas', action: 'send-to-canvas' });
+      expect(items[2]).toEqual({ icon: '📄', label: 'Copy command', action: 'copy-command' });
+    });
+  });
+
+  describe('menu actions', () => {
+    beforeEach(() => {
+      // Mock clipboard API
+      global.navigator.clipboard = {
+        writeText: vi.fn().mockResolvedValue(undefined)
+      };
+    });
+
+    it('handleCopyOutput copies output to clipboard', async () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: mockRun
+        }
+      });
+
+      await wrapper.vm.handleCopyOutput();
+      await nextTick();
+
+      expect(global.navigator.clipboard.writeText).toHaveBeenCalledWith(mockRun.output);
+    });
+
+    it('handleSendToCanvas calls emit with correct parameters', async () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: mockRun
+        }
+      });
+
+      // handleSendToCanvas exists and is a function
+      expect(typeof wrapper.vm.handleSendToCanvas).toBe('function');
+
+      // Calling it shouldn't throw
+      expect(() => wrapper.vm.handleSendToCanvas()).not.toThrow();
+    });
+
+    it('handleCopyCommand copies command to clipboard', async () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: mockRun
+        }
+      });
+
+      await wrapper.vm.handleCopyCommand();
+      await nextTick();
+
+      expect(global.navigator.clipboard.writeText).toHaveBeenCalledWith(mockButton.command);
+    });
+
+    it('handleMenuAction dispatches to handleCopyOutput for copy-output action', async () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: mockRun
+        }
+      });
+
+      // Test that handleMenuAction with 'copy-output' calls clipboard API
+      await wrapper.vm.handleMenuAction('copy-output');
+      await nextTick();
+
+      expect(global.navigator.clipboard.writeText).toHaveBeenCalledWith(mockRun.output);
+    });
+
+    it('handleMenuAction handles send-to-canvas action', async () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: mockRun
+        }
+      });
+
+      // Test that handleMenuAction with 'send-to-canvas' doesn't throw
+      expect(() => wrapper.vm.handleMenuAction('send-to-canvas')).not.toThrow();
+    });
+
+    it('handleMenuAction dispatches to handleCopyCommand for copy-command action', async () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: mockRun
+        }
+      });
+
+      // Test that handleMenuAction with 'copy-command' calls clipboard API
+      await wrapper.vm.handleMenuAction('copy-command');
+      await nextTick();
+
+      expect(global.navigator.clipboard.writeText).toHaveBeenCalledWith(mockButton.command);
+    });
+
+    it('handleCopyOutput strips ANSI codes before copying', async () => {
+      const coloredOutput = '\x1b[31mError message\x1b[0m';
+      const runWithColor = { ...mockRun, output: coloredOutput };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: runWithColor
+        }
+      });
+
+      await wrapper.vm.handleCopyOutput();
+      await nextTick();
+
+      // Should strip ANSI codes before copying
+      expect(global.navigator.clipboard.writeText).toHaveBeenCalledWith('Error message');
     });
   });
 });

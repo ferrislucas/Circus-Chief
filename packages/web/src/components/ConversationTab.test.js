@@ -693,6 +693,7 @@ describe('ConversationTab - Error Handling Improvements', () => {
       getUnassociatedWorkLogs: [],
       partialThinking: null,
       isDraftSession: vi.fn().mockReturnValue(false),
+      isScheduledDraft: vi.fn().mockReturnValue(false),
       fetchConversations: vi.fn().mockResolvedValue([]),
       fetchWorkLogs: vi.fn().mockResolvedValue([]),
       fetchMessages: vi.fn().mockResolvedValue([]),

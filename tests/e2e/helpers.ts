@@ -251,7 +251,7 @@ export async function seedProject(name: string, workingDirectory: string) {
 
 export async function seedSession(
   projectId: string,
-  data: { prompt: string; name?: string; mode?: string }
+  data: { prompt: string; name?: string; mode?: string; startImmediately?: boolean }
 ) {
   const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
     method: 'POST',
