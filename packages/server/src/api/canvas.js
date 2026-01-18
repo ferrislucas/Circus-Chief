@@ -297,11 +297,12 @@ router.get('/:id/canvas', (req, res) => {
   res.json(items);
 });
 
-// GET /api/sessions/:id/canvas/file/:filename - Get canvas file by filename
-// Writes the file to /tmp and returns the file path for Claude's Read tool
-router.get('/:id/canvas/file/:filename', async (req, res) => {
-  const { id: sessionId, filename } = req.params;
-  const version = req.query.version ? parseInt(req.query.version, 10) : null;
+// GET /api/sessions/:id/canvas/file/:filename/history/:version - Get historical version of canvas file
+// Uses standard versioning: version 1 = oldest, version N = latest (where N = totalVersions)
+// NOTE: This route must be defined BEFORE the main file route to match correctly
+router.get('/:id/canvas/file/:filename/history/:version', async (req, res) => {
+  const { id: sessionId, filename, version } = req.params;
+  const versionNum = parseInt(version, 10);
 
   const session = sessions.getById(sessionId);
   if (!session) {
@@ -314,14 +315,20 @@ router.get('/:id/canvas/file/:filename', async (req, res) => {
     return res.status(404).json({ error: 'File not found on canvas' });
   }
 
-  // Select version: null = latest (index 0), 1 = latest, 2 = second latest, etc.
-  const versionIndex = version ? version - 1 : 0;
-  if (versionIndex < 0 || versionIndex >= allVersions.length) {
+  // Validate version number
+  if (isNaN(versionNum) || versionNum < 1 || versionNum > allVersions.length) {
     return res.status(404).json({
-      error: `Version ${version} not found. Available versions: 1-${allVersions.length}`
+      error: `Version ${versionNum} not found. Available versions: 1-${allVersions.length} (1 = oldest, ${allVersions.length} = latest)`
     });
   }
-  const item = allVersions[versionIndex];
+
+  // Convert version number to array index
+  // allVersions is sorted DESC (newest first): [0] = newest, [length-1] = oldest
+  // Standard versioning: version 1 = oldest, version N = newest
+  // Mapping: version 1 → index (length-1), version N → index 0
+  // Formula: index = length - version
+  const index = allVersions.length - versionNum;
+  const item = allVersions[index];
 
   try {
     // Create temp directory for this session
@@ -329,10 +336,9 @@ router.get('/:id/canvas/file/:filename', async (req, res) => {
     await mkdir(tempDir, { recursive: true });
 
     // Include version in filename to avoid collisions when viewing multiple versions
-    const versionSuffix = version && version > 1 ? `.v${version}` : '';
     const ext = extname(filename);
     const base = basename(filename, ext);
-    const tempFilename = `${base}${versionSuffix}${ext}`;
+    const tempFilename = `${base}.v${versionNum}${ext}`;
     const filePath = join(tempDir, tempFilename);
 
     // Write content based on type
@@ -358,7 +364,66 @@ router.get('/:id/canvas/file/:filename', async (req, res) => {
       mimeType: item.mimeType,
       fileSize,
       createdAt: item.createdAt,
-      version: versionIndex + 1,
+      version: versionNum,
+      totalVersions: allVersions.length
+    });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to write file: ${err.message}` });
+  }
+});
+
+// GET /api/sessions/:id/canvas/file/:filename - Get canvas file by filename
+// Writes the file to /tmp and returns the file path for Claude's Read tool
+// Always returns the latest version
+router.get('/:id/canvas/file/:filename', async (req, res) => {
+  const { id: sessionId, filename } = req.params;
+
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Get all versions of this file (newest first)
+  const allVersions = canvasItems.getAllVersionsByFilename(sessionId, filename);
+  if (allVersions.length === 0) {
+    return res.status(404).json({ error: 'File not found on canvas' });
+  }
+
+  // Always use latest version (index 0)
+  const item = allVersions[0];
+
+  try {
+    // Create temp directory for this session
+    const tempDir = `/tmp/canvas-${sessionId}`;
+    await mkdir(tempDir, { recursive: true });
+
+    // Use original filename without version suffix
+    const filePath = join(tempDir, filename);
+
+    // Write content based on type
+    if (item.type === 'image' || item.type === 'pdf') {
+      // Binary: decode base64 and write
+      const buffer = Buffer.from(item.data, 'base64');
+      await writeFile(filePath, buffer);
+    } else if (item.type === 'json') {
+      // JSON: write the data field
+      await writeFile(filePath, item.data || '{}');
+    } else {
+      // text/markdown/code: write content field
+      await writeFile(filePath, item.content || '');
+    }
+
+    // Get file size
+    const stats = statSync(filePath);
+    const fileSize = stats.size;
+
+    res.json({
+      filePath,
+      type: item.type,
+      mimeType: item.mimeType,
+      fileSize,
+      createdAt: item.createdAt,
+      version: allVersions.length, // Latest version number in standard versioning
       totalVersions: allVersions.length
     });
   } catch (err) {
