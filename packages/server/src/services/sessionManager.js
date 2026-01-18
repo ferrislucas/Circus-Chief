@@ -96,6 +96,16 @@ function updateTurnUsage(conversationId, usage, eventType) {
 const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
 
 /**
+ * Get the base API URL for canvas and session operations.
+ * Uses CLAUDETOOLS_API_URL environment variable if set, otherwise constructs
+ * from the runtime port to ensure dynamic port handling.
+ * @returns {string} The base API URL (e.g., http://localhost:5000)
+ */
+function getApiBaseUrl() {
+  return process.env.CLAUDETOOLS_API_URL || `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`;
+}
+
+/**
  * Check if an error should trigger automatic rescheduling
  * @param {object} session - Session object
  * @param {Error} error - Error that occurred
@@ -434,7 +444,7 @@ async function* mockQuery({ prompt }) {
  * @returns {string}
  */
 function buildCanvasWriteSystemPrompt(sessionId) {
-  const apiUrl = process.env.CLAUDETOOLS_API_URL || `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`;
+  const apiUrl = getApiBaseUrl();
   return `When you generate artifacts that should be displayed on the canvas (images, markdown documents, code snippets, data visualizations, PDFs), POST them to:
 
 POST ${apiUrl}/api/sessions/${sessionId}/canvas
@@ -455,7 +465,7 @@ The file type is automatically detected from the file extension. Supported forma
  * @returns {string}
  */
 function buildCanvasReadSystemPrompt(sessionId) {
-  const apiUrl = process.env.CLAUDETOOLS_API_URL || `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`;
+  const apiUrl = getApiBaseUrl();
   return `## Reading from Canvas
 
 To list all files on the canvas:
@@ -491,7 +501,7 @@ Where version 1 = oldest, and higher numbers are newer versions.`;
  * @returns {string}
  */
 function buildSessionApiInstructions(sessionId, projectId) {
-  const apiUrl = process.env.CLAUDETOOLS_API_URL || `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`;
+  const apiUrl = getApiBaseUrl();
 
   return `## Session Management API
 

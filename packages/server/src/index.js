@@ -37,6 +37,7 @@ const { values } = parseArgs({
 });
 
 const port = parseInt(values.port, 10);
+process.env.PORT = String(port);
 const production = process.env.NODE_ENV === 'production';
 const dbPath = process.env.DB_PATH || 'claudetools.db';
 
