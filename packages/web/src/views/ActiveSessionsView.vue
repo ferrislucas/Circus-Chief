@@ -81,7 +81,7 @@ const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
 
 // Statuses that count as "idle" (not actively running)
-const IDLE_STATUSES = ['waiting', 'stopped', 'error'];
+const IDLE_STATUSES = ['stopped', 'error'];
 // Statuses that count as "running" (actively processing or starting up)
 const RUNNING_STATUSES = ['running', 'starting'];
 
@@ -136,7 +136,7 @@ const filteredSessions = computed(() => {
   if (sessionsStore.statusFilter) {
     sessions = sessions.filter(session => {
       const status = session.status;
-      // "idle" filter matches waiting, stopped, or error statuses
+      // "idle" filter matches stopped or error statuses
       if (sessionsStore.statusFilter === 'idle' && IDLE_STATUSES.includes(status)) {
         return true;
       }
