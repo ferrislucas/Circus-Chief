@@ -285,14 +285,18 @@ describe('SchedulerService', () => {
       };
 
       sessions.getById.mockReturnValue(session);
+      messages.getBySessionId.mockReturnValue([
+        { role: 'user', content: 'First message' },
+      ]);
 
       const result = await scheduler.rescheduleSession('session-1', 'Token limit reached');
 
       expect(result).toBe(true);
       expect(sessions.update).toHaveBeenCalledWith('session-1', {
         status: 'scheduled',
-        scheduled_at: now + 15 * 60 * 1000,
-        reschedule_count: 1,
+        scheduledAt: now + 15 * 60 * 1000,
+        rescheduleCount: 1,
+        pendingPrompt: 'First message',
         error: expect.stringContaining('Rescheduled (1x)'),
       });
       expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
@@ -342,11 +346,14 @@ describe('SchedulerService', () => {
       };
 
       sessions.getById.mockReturnValue(session);
+      messages.getBySessionId.mockReturnValue([
+        { role: 'user', content: 'Test message' },
+      ]);
 
       await scheduler.rescheduleSession('session-1', 'Reason');
 
       const updateCall = sessions.update.mock.calls[0][1];
-      expect(updateCall.reschedule_count).toBe(6);
+      expect(updateCall.rescheduleCount).toBe(6);
     });
   });
 

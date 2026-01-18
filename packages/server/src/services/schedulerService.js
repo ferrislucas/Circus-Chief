@@ -189,6 +189,20 @@ class SchedulerService {
       return false;
     }
 
+    // Get the last user message to use as pendingPrompt for restart
+    const sessionMessages = messages.getBySessionId(sessionId);
+    const lastUserMessage = [...sessionMessages].reverse().find(msg => msg.role === 'user');
+
+    if (!lastUserMessage) {
+      console.error(`[SchedulerService] No user message found for session ${sessionId}`);
+      sessions.update(sessionId, {
+        status: 'error',
+        error: `Cannot reschedule: No user message found. ${reason}`,
+      });
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'error' });
+      return false;
+    }
+
     // Calculate new scheduled time
     const newScheduledAt = Date.now() + session.rescheduleDelayMinutes * 60 * 1000;
     const delayMinutes = session.rescheduleDelayMinutes;
@@ -198,11 +212,12 @@ class SchedulerService {
       `[SchedulerService] Rescheduling session ${sessionId} for ${delayMinutes} minutes from now (attempt ${newRescheduleCount})`
     );
 
-    // Update session to scheduled status with new time
+    // Update session to scheduled status with new time and pendingPrompt
     sessions.update(sessionId, {
       status: 'scheduled',
-      scheduled_at: newScheduledAt,
-      reschedule_count: newRescheduleCount,
+      scheduledAt: newScheduledAt,           // Fixed: camelCase
+      rescheduleCount: newRescheduleCount,   // Fixed: camelCase
+      pendingPrompt: lastUserMessage.content, // Set prompt for scheduler
       error: `Rescheduled (${newRescheduleCount}x): ${reason}`,
     });
 
