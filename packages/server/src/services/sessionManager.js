@@ -387,16 +387,20 @@ To read a specific file from the canvas (returns file path for Read tool):
 curl ${apiUrl}/api/sessions/${sessionId}/canvas/file/{filename}
 \`\`\`
 
-To read an earlier version of a file (version 1 = latest, 2 = previous, etc.):
-\`\`\`bash
-curl "${apiUrl}/api/sessions/${sessionId}/canvas/file/{filename}?version=2"
-\`\`\`
-
 Response: { filePath, type, mimeType, createdAt, version, totalVersions }
 
 Then use the Read tool on the returned filePath to view the content.
 
-Supported types: images, PDFs, markdown, text, JSON`;
+Supported types: images, PDFs, markdown, text, JSON
+
+### Accessing Historical Versions
+
+If you need to access an earlier version of a file:
+\`\`\`bash
+curl ${apiUrl}/api/sessions/${sessionId}/canvas/file/{filename}/history/{version}
+\`\`\`
+
+Where version 1 = oldest, and higher numbers are newer versions.`;
 }
 
 /**

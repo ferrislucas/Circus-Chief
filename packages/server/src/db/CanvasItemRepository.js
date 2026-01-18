@@ -85,7 +85,7 @@ export class CanvasItemRepository extends BaseRepository {
       .prepare(
         `SELECT * FROM canvas_items
          WHERE session_id = ? AND filename = ? AND deleted_at IS NULL
-         ORDER BY created_at DESC`
+         ORDER BY created_at DESC, rowid DESC`
       )
       .all(sessionId, filename);
     return this.mapAll(rows);
