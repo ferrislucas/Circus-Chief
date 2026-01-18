@@ -11,6 +11,10 @@ export class SessionRepository extends BaseRepository {
   }
 
   static #mapSession(row) {
+    // DEBUG: Log scheduled_at value from database
+    if (row.scheduled_at) {
+      console.log('[DEBUG] scheduled_at from DB:', row.scheduled_at, 'type:', typeof row.scheduled_at);
+    }
     return {
       id: row.id,
       projectId: row.project_id,
@@ -29,6 +33,7 @@ export class SessionRepository extends BaseRepository {
       model: row.model,
       nextTemplateId: row.next_template_id,
       parentSessionId: row.parent_session_id,
+      pendingPrompt: row.pending_prompt || null,
       // Token usage fields
       inputTokens: row.input_tokens || 0,
       outputTokens: row.output_tokens || 0,
@@ -36,6 +41,16 @@ export class SessionRepository extends BaseRepository {
       cacheCreationInputTokens: row.cache_creation_input_tokens || 0,
       webSearchRequests: row.web_search_requests || 0,
       contextWindow: row.context_window || 200000,
+      // Scheduling fields
+      scheduledAt: row.scheduled_at || null,
+      rescheduleDelayMinutes: row.reschedule_delay_minutes || 15,
+      autoRescheduleEnabled: Boolean(row.auto_reschedule_enabled),
+      rescheduleOnTokenLimit: Boolean(row.reschedule_on_token_limit),
+      rescheduleOnServiceError: Boolean(row.reschedule_on_service_error),
+      maxRescheduleCount: row.max_reschedule_count,
+      maxTotalTokens: row.max_total_tokens,
+      rescheduleCount: row.reschedule_count || 0,
+      rescheduleAtTokenCount: row.reschedule_at_token_count,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -51,9 +66,14 @@ export class SessionRepository extends BaseRepository {
       )
       .run(id, projectId, name, status, mode, thinkingEnabled ? 1 : 0, gitBranch, model, parentSessionId, now, now);
 
-    // Create initial conversation and user message
+    // Create initial conversation
     const conversation = conversations.create(id, 'Initial', true);
-    messages.create(id, 'user', prompt, null, conversation.id);
+
+    // Only create initial user message for sessions that start immediately
+    // For waiting/scheduled sessions, the message will be created when they start
+    if (status !== 'waiting' && status !== 'scheduled') {
+      messages.create(id, 'user', prompt, null, conversation.id);
+    }
 
     return this.getById(id);
   }
@@ -180,6 +200,47 @@ export class SessionRepository extends BaseRepository {
       updates.push('starred = ?');
       values.push(data.starred ? 1 : 0);
     }
+    // Scheduling fields
+    if (data.scheduledAt !== undefined) {
+      updates.push('scheduled_at = ?');
+      values.push(data.scheduledAt);
+    }
+    if (data.rescheduleDelayMinutes !== undefined) {
+      updates.push('reschedule_delay_minutes = ?');
+      values.push(data.rescheduleDelayMinutes);
+    }
+    if (data.autoRescheduleEnabled !== undefined) {
+      updates.push('auto_reschedule_enabled = ?');
+      values.push(data.autoRescheduleEnabled ? 1 : 0);
+    }
+    if (data.rescheduleOnTokenLimit !== undefined) {
+      updates.push('reschedule_on_token_limit = ?');
+      values.push(data.rescheduleOnTokenLimit ? 1 : 0);
+    }
+    if (data.rescheduleOnServiceError !== undefined) {
+      updates.push('reschedule_on_service_error = ?');
+      values.push(data.rescheduleOnServiceError ? 1 : 0);
+    }
+    if (data.maxRescheduleCount !== undefined) {
+      updates.push('max_reschedule_count = ?');
+      values.push(data.maxRescheduleCount);
+    }
+    if (data.maxTotalTokens !== undefined) {
+      updates.push('max_total_tokens = ?');
+      values.push(data.maxTotalTokens);
+    }
+    if (data.rescheduleCount !== undefined) {
+      updates.push('reschedule_count = ?');
+      values.push(data.rescheduleCount);
+    }
+    if (data.rescheduleAtTokenCount !== undefined) {
+      updates.push('reschedule_at_token_count = ?');
+      values.push(data.rescheduleAtTokenCount);
+    }
+    if (data.pendingPrompt !== undefined) {
+      updates.push('pending_prompt = ?');
+      values.push(data.pendingPrompt);
+    }
 
     if (updates.length === 0) return this.getById(id);
 
@@ -292,5 +353,53 @@ export class SessionRepository extends BaseRepository {
         id
       );
     return this.getById(id);
+  }
+
+  /**
+   * Get all scheduled sessions that are due to start (scheduled_at <= now)
+   * @param {number} now - Current timestamp in milliseconds
+   * @returns {Array<Object>} Scheduled sessions that should start
+   */
+  getScheduledSessionsDue(now) {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM sessions
+         WHERE status = 'scheduled'
+           AND scheduled_at IS NOT NULL
+           AND scheduled_at <= ?
+           AND archived = 0
+         ORDER BY scheduled_at ASC`
+      )
+      .all(now);
+    return this.mapAll(rows);
+  }
+
+  /**
+   * Get all scheduled sessions (optionally filtered by project)
+   * @param {string|null} projectId - Optional project ID to filter by
+   * @returns {Array<Object>} Scheduled sessions with project info
+   */
+  getScheduledSessions(projectId = null) {
+    let sql = `
+      SELECT s.*, p.name as project_name
+      FROM sessions s
+      JOIN projects p ON s.project_id = p.id
+      WHERE s.status = 'scheduled'
+        AND s.archived = 0
+    `;
+    const params = [];
+
+    if (projectId) {
+      sql += ` AND s.project_id = ?`;
+      params.push(projectId);
+    }
+
+    sql += ` ORDER BY s.scheduled_at ASC`;
+
+    const rows = this.db.prepare(sql).all(...params);
+    return rows.map(row => ({
+      ...SessionRepository.#mapSession(row),
+      projectName: row.project_name,
+    }));
   }
 }
