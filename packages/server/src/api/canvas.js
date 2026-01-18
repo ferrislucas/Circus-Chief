@@ -347,8 +347,8 @@ router.get('/:id/canvas/file/:filename/history/:version', async (req, res) => {
       const buffer = Buffer.from(item.data, 'base64');
       await writeFile(filePath, buffer);
     } else if (item.type === 'json') {
-      // JSON: write the data field
-      await writeFile(filePath, item.data || '{}');
+      // JSON: write the data field, fallback to content if data is not available
+      await writeFile(filePath, item.data || item.content || '{}');
     } else {
       // text/markdown/code: write content field
       await writeFile(filePath, item.content || '');
@@ -406,8 +406,8 @@ router.get('/:id/canvas/file/:filename', async (req, res) => {
       const buffer = Buffer.from(item.data, 'base64');
       await writeFile(filePath, buffer);
     } else if (item.type === 'json') {
-      // JSON: write the data field
-      await writeFile(filePath, item.data || '{}');
+      // JSON: write the data field, fallback to content if data is not available
+      await writeFile(filePath, item.data || item.content || '{}');
     } else {
       // text/markdown/code: write content field
       await writeFile(filePath, item.content || '');
