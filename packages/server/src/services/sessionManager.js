@@ -430,11 +430,15 @@ async function* mockQuery({ prompt }) {
     },
   };
 
-  // Yield result event
+  // Yield result event with usage
   yield {
     type: 'result',
     subtype: 'success',
     total_cost_usd: 0.001,
+    usage: {
+      input_tokens: prompt.split(' ').length,
+      output_tokens: outputTokens,
+    },
   };
 }
 
