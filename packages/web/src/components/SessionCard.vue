@@ -17,7 +17,7 @@
         <div class="session-info">
           <h3 class="session-name">{{ session.name }}</h3>
           <p class="session-meta">
-            <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
+            <span v-if="session.status !== 'waiting'" :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
             <span v-if="session.status === 'scheduled' && session.scheduledAt" class="schedule-indicator">
               <span class="schedule-icon">⏰</span>
               <span class="schedule-time">{{ formatScheduledTime(session.scheduledAt) }}</span>
@@ -92,7 +92,7 @@
       <div class="session-info">
         <h3 class="session-name">{{ session.name }}</h3>
         <p class="session-meta">
-          <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
+          <span v-if="session.status !== 'waiting'" :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
           <span v-if="session.status === 'scheduled' && session.scheduledAt" class="schedule-indicator">
             <span class="schedule-icon">⏰</span>
             <span class="schedule-time">{{ formatScheduledTime(session.scheduledAt) }}</span>
@@ -181,7 +181,7 @@
   <!-- Button Status Modal -->
   <ButtonStatusModal
     v-if="selectedButtonForModal"
-    :button="{ label: selectedButtonForModal.label }"
+    :button="{ label: selectedButtonForModal.label, command: selectedButtonForModal.command }"
     :latest-run="selectedButtonForModal.latestRun"
     :is-open="!!selectedButtonForModal"
     @close="selectedButtonForModal = null"
@@ -319,6 +319,7 @@ const buttonStatusesToDisplay = computed(() => {
     .map(run => ({
       buttonId: run.buttonId,
       label: buttonMap[run.buttonId].label,
+      command: buttonMap[run.buttonId].command,
       status: run.status,
       latestRun: run,
     }));

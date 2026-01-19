@@ -18,6 +18,7 @@ async function flushAll(wrapper) {
 describe('ButtonStatusModal.vue', () => {
   const baseButton = {
     label: 'Build',
+    command: 'npm run build',
   };
 
   const baseRun = {
@@ -586,6 +587,262 @@ describe('ButtonStatusModal.vue', () => {
       const detailText = wrapper.text();
       expect(detailText).toContain('Elapsed Time');
       expect(detailText).toContain('Started');
+    });
+  });
+
+  describe('command display', () => {
+    it('displays command text when provided', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: { label: 'Build', command: 'npm run build' },
+          latestRun: baseRun,
+          isOpen: true,
+        },
+      });
+
+      expect(wrapper.find('.command-section').exists()).toBe(true);
+      expect(wrapper.find('.command-text').text()).toBe('npm run build');
+    });
+
+    it('hides command section when command is not provided', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: { label: 'Build' }, // no command property
+          latestRun: baseRun,
+          isOpen: true,
+        },
+      });
+
+      expect(wrapper.find('.command-section').exists()).toBe(false);
+    });
+
+    it('handles empty command string', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: { label: 'Build', command: '' },
+          latestRun: baseRun,
+          isOpen: true,
+        },
+      });
+
+      // Empty string is falsy, so command section should not be shown
+      expect(wrapper.find('.command-section').exists()).toBe(false);
+    });
+
+    it('displays long commands with proper styling', () => {
+      const longCommand = 'npm run build && npm run lint && npm run test:unit --coverage --reporter=verbose';
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: { label: 'Build', command: longCommand },
+          latestRun: baseRun,
+          isOpen: true,
+        },
+      });
+
+      const commandText = wrapper.find('.command-text');
+      expect(commandText.exists()).toBe(true);
+      expect(commandText.text()).toBe(longCommand);
+      // Verify it has the code element styling
+      expect(commandText.element.tagName.toLowerCase()).toBe('code');
+    });
+  });
+
+  describe('duration display', () => {
+    it('calculates and displays duration for completed runs', () => {
+      const startedAt = Date.now() - 125000; // 2 minutes, 5 seconds ago
+      const completedAt = Date.now();
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: {
+            ...baseRun,
+            status: 'success',
+            startedAt,
+            completedAt,
+          },
+          isOpen: true,
+        },
+      });
+
+      const detailText = wrapper.text();
+      expect(detailText).toContain('Duration');
+      // Duration should be approximately 2m 5s
+      expect(detailText).toMatch(/\d+m \d+s/);
+    });
+
+    it('displays duration in seconds for short runs', () => {
+      const startedAt = Date.now() - 45000; // 45 seconds ago
+      const completedAt = Date.now();
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: {
+            ...baseRun,
+            status: 'success',
+            startedAt,
+            completedAt,
+          },
+          isOpen: true,
+        },
+      });
+
+      const detailText = wrapper.text();
+      expect(detailText).toContain('Duration');
+      // Duration should be approximately 45s (no minutes)
+      expect(detailText).toMatch(/\d+s/);
+    });
+
+    it('displays duration for error runs', () => {
+      const startedAt = Date.now() - 30000; // 30 seconds ago
+      const completedAt = Date.now();
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: {
+            ...baseRun,
+            status: 'error',
+            exitCode: 1,
+            startedAt,
+            completedAt,
+          },
+          isOpen: true,
+        },
+      });
+
+      const detailText = wrapper.text();
+      expect(detailText).toContain('Duration');
+    });
+
+    it('does not show duration when completedAt is missing', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: {
+            ...baseRun,
+            status: 'success',
+            startedAt: Date.now() - 30000,
+            completedAt: null,
+          },
+          isOpen: true,
+        },
+      });
+
+      const detailText = wrapper.text();
+      expect(detailText).not.toContain('Duration:');
+    });
+
+    it('does not show duration when startedAt is missing', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: {
+            ...baseRun,
+            status: 'success',
+            startedAt: null,
+            completedAt: Date.now(),
+          },
+          isOpen: true,
+        },
+      });
+
+      const detailText = wrapper.text();
+      expect(detailText).not.toContain('Duration:');
+    });
+
+    it('does not show duration for running processes', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: {
+            ...baseRun,
+            status: 'running',
+            startedAt: Date.now() - 30000,
+          },
+          isOpen: true,
+        },
+      });
+
+      // Running processes show elapsed time, not duration
+      const detailText = wrapper.text();
+      expect(detailText).toContain('Elapsed Time');
+      expect(detailText).not.toContain('Duration:');
+    });
+  });
+
+  describe('run ID display', () => {
+    it('displays run ID for running processes', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: {
+            ...baseRun,
+            status: 'running',
+            runId: 'run-abc-123',
+            startedAt: Date.now(),
+          },
+          isOpen: true,
+        },
+      });
+
+      const detailText = wrapper.text();
+      expect(detailText).toContain('Run ID');
+      expect(detailText).toContain('run-abc-123');
+    });
+
+    it('displays run ID for successful runs', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: {
+            ...baseRun,
+            status: 'success',
+            runId: 'run-xyz-456',
+          },
+          isOpen: true,
+        },
+      });
+
+      const detailText = wrapper.text();
+      expect(detailText).toContain('Run ID');
+      expect(detailText).toContain('run-xyz-456');
+    });
+
+    it('displays run ID for error runs', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: {
+            ...baseRun,
+            status: 'error',
+            runId: 'run-error-789',
+          },
+          isOpen: true,
+        },
+      });
+
+      const detailText = wrapper.text();
+      expect(detailText).toContain('Run ID');
+      expect(detailText).toContain('run-error-789');
+    });
+
+    it('run ID has monospace styling', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: {
+            ...baseRun,
+            status: 'success',
+            runId: 'run-styled-123',
+          },
+          isOpen: true,
+        },
+      });
+
+      // Find the run ID detail value element
+      const runIdRow = wrapper.findAll('.detail-row').find(row => row.text().includes('Run ID'));
+      expect(runIdRow).toBeDefined();
+      const runIdValue = runIdRow.find('.detail-value');
+      expect(runIdValue.classes()).toContain('monospace');
     });
   });
 });

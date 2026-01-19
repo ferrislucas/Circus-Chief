@@ -205,11 +205,6 @@ input, textarea, select {
   color: var(--color-success);
 }
 
-.status-waiting {
-  background-color: rgba(210, 153, 34, 0.2);
-  color: var(--color-warning);
-}
-
 .status-completed {
   background-color: rgba(139, 148, 158, 0.2);
   color: var(--color-text-soft);

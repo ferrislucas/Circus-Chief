@@ -2455,19 +2455,28 @@ describe('Sessions Store', () => {
     });
 
     describe('fetchArchivedSessions', () => {
-      it('fetches archived sessions for a project', async () => {
+      it('fetches archived sessions for a project with pagination', async () => {
         const store = useSessionsStore();
 
         const mockSessions = [
           { id: 'session-1', archived: true },
           { id: 'session-2', archived: true },
         ];
-        api.getProjectSessions.mockResolvedValue(mockSessions);
+        api.getProjectSessions.mockResolvedValue({
+          sessions: mockSessions,
+          pagination: { total: 2, limit: 25, offset: 0, hasMore: false },
+        });
 
         await store.fetchArchivedSessions('project-1');
 
-        expect(api.getProjectSessions).toHaveBeenCalledWith('project-1', true, null);
+        expect(api.getProjectSessions).toHaveBeenCalledWith('project-1', true, null, { limit: 25, offset: 0 });
         expect(store.archivedSessions).toEqual(mockSessions);
+        expect(store.archivedPagination).toEqual({
+          total: 2,
+          offset: 2,
+          hasMore: false,
+          loading: false,
+        });
       });
 
       it('handles fetch error', async () => {
@@ -2489,7 +2498,10 @@ describe('Sessions Store', () => {
           { id: 'session-2', archived: true, starred: true },
           { id: 'session-3', archived: true, starred: false },
         ];
-        api.getProjectSessions.mockResolvedValue(mockArchivedSessions);
+        api.getProjectSessions.mockResolvedValue({
+          sessions: mockArchivedSessions,
+          pagination: { total: 3, limit: 25, offset: 0, hasMore: false },
+        });
 
         await store.fetchArchivedSessions('project-1');
         expect(store.archivedSessions).toEqual(mockArchivedSessions);
@@ -2502,12 +2514,15 @@ describe('Sessions Store', () => {
         const starredSessions = [
           { id: 'session-2', archived: true, starred: true },
         ];
-        api.getProjectSessions.mockResolvedValue(starredSessions);
+        api.getProjectSessions.mockResolvedValue({
+          sessions: starredSessions,
+          pagination: { total: 1, limit: 25, offset: 0, hasMore: false },
+        });
 
         await store.fetchArchivedSessions('project-1');
 
-        // Should have called API with the correct starred filter
-        expect(api.getProjectSessions).toHaveBeenLastCalledWith('project-1', true, 'starred');
+        // Should have called API with the correct starred filter and pagination
+        expect(api.getProjectSessions).toHaveBeenLastCalledWith('project-1', true, 'starred', { limit: 25, offset: 0 });
         // Should have the starred sessions
         expect(store.archivedSessions).toHaveLength(1);
         expect(store.archivedSessions[0].starred).toBe(true);
@@ -2520,7 +2535,10 @@ describe('Sessions Store', () => {
         const mockArchivedSessions = [
           { id: 'session-1', archived: true, starred: true },
         ];
-        api.getProjectSessions.mockResolvedValue(mockArchivedSessions);
+        api.getProjectSessions.mockResolvedValue({
+          sessions: mockArchivedSessions,
+          pagination: { total: 1, limit: 25, offset: 0, hasMore: false },
+        });
 
         store.setStarredFilter('starred');
         await store.fetchArchivedSessions('project-1');
@@ -2529,13 +2547,49 @@ describe('Sessions Store', () => {
 
         // Now when user refreshes the archived tab, it should properly fetch again
         // and not return zero sessions (bug: would show empty list)
-        api.getProjectSessions.mockResolvedValue(mockArchivedSessions);
+        api.getProjectSessions.mockResolvedValue({
+          sessions: mockArchivedSessions,
+          pagination: { total: 1, limit: 25, offset: 0, hasMore: false },
+        });
 
         await store.fetchArchivedSessions('project-1');
 
-        expect(api.getProjectSessions).toHaveBeenLastCalledWith('project-1', true, 'starred');
+        expect(api.getProjectSessions).toHaveBeenLastCalledWith('project-1', true, 'starred', { limit: 25, offset: 0 });
         expect(store.archivedSessions).toHaveLength(1);
         expect(store.archivedSessions).toEqual(mockArchivedSessions);
+      });
+
+      it('loads more archived sessions with pagination', async () => {
+        const store = useSessionsStore();
+
+        // First page
+        const firstPageSessions = [
+          { id: 'session-1', archived: true },
+          { id: 'session-2', archived: true },
+        ];
+        api.getProjectSessions.mockResolvedValue({
+          sessions: firstPageSessions,
+          pagination: { total: 4, limit: 2, offset: 0, hasMore: true },
+        });
+
+        await store.fetchArchivedSessions('project-1');
+        expect(store.archivedSessions).toHaveLength(2);
+        expect(store.archivedPagination.hasMore).toBe(true);
+
+        // Second page
+        const secondPageSessions = [
+          { id: 'session-3', archived: true },
+          { id: 'session-4', archived: true },
+        ];
+        api.getProjectSessions.mockResolvedValue({
+          sessions: secondPageSessions,
+          pagination: { total: 4, limit: 2, offset: 2, hasMore: false },
+        });
+
+        await store.loadMoreArchivedSessions('project-1');
+
+        expect(store.archivedSessions).toHaveLength(4);
+        expect(store.archivedPagination.hasMore).toBe(false);
       });
     });
 

@@ -125,9 +125,12 @@ export class ApiClient {
    * @param {string} projectId - Project ID
    * @param {boolean|null} archived - Filter by archived status (null = all, true = archived only, false = non-archived only)
    * @param {string|null} starred - Filter by starred status (null = all, 'starred' = starred only, 'unstarred' = unstarred only)
-   * @returns {Promise<Array>}
+   * @param {Object} paginationOptions - Pagination options
+   * @param {number|null} paginationOptions.limit - Number of sessions to fetch (null = all)
+   * @param {number} paginationOptions.offset - Offset for pagination (default: 0)
+   * @returns {Promise<Array|{sessions: Array, pagination: Object}>} Array when no pagination, object with pagination metadata when limit is specified
    */
-  async getProjectSessions(projectId, archived = null, starred = null) {
+  async getProjectSessions(projectId, archived = null, starred = null, { limit = null, offset = 0 } = {}) {
     let path = `/projects/${projectId}/sessions`;
     const params = new URLSearchParams();
 
@@ -138,6 +141,12 @@ export class ApiClient {
       params.append('starred', true);
     } else if (starred === 'unstarred') {
       params.append('starred', false);
+    }
+
+    // Add pagination params
+    if (limit !== null) {
+      params.append('limit', limit);
+      params.append('offset', offset);
     }
 
     const query = params.toString();
