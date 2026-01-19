@@ -156,21 +156,23 @@ const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const { getModelDisplayName } = useModelInfo();
 
-// Capture session ID at component creation to avoid race conditions during navigation.
-// When navigating away, Vue Router updates route.params BEFORE unmounting the component.
-// If polling reads route.params.id after navigation starts, it would get the wrong ID.
+// Capture session ID at component creation
+// Note: When navigating between sessions (parent/child), the component is reused
+// and we use a route watcher below to reload data
 const sessionId = route.params.id;
 
 const activeTab = computed(() => route.params.tab || 'conversation');
 
 // Get the session hierarchy path (for breadcrumbs)
 const sessionPath = computed(() => {
-  return sessionsStore.getSessionPath(sessionId);
+  // Use route.params.id directly to be reactive to route changes
+  return sessionsStore.getSessionPath(route.params.id);
 });
 
 // Get child sessions for this session
 const childSessions = computed(() => {
-  return sessionsStore.getChildSessions(sessionId);
+  // Use route.params.id directly to be reactive to route changes
+  return sessionsStore.getChildSessions(route.params.id);
 });
 const changesFileCount = ref(0);
 const canvasItemCount = ref(0);

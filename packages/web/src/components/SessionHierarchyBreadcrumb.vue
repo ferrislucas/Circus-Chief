@@ -8,7 +8,7 @@
       >
         <router-link
           v-if="session.id !== currentSessionId"
-          :to="`/sessions/${session.id}`"
+          :to="`/sessions/${session.id}/conversation`"
           class="breadcrumb-link"
           :title="session.name"
         >

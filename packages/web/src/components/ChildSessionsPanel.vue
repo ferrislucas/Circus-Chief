@@ -12,7 +12,7 @@
         <router-link
           v-for="session in sessions"
           :key="session.id"
-          :to="`/sessions/${session.id}`"
+          :to="`/sessions/${session.id}/conversation`"
           class="child-session-item"
         >
           <div class="child-session-info">
