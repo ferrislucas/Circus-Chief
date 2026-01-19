@@ -117,8 +117,8 @@ describe('CanvasFileViewer', () => {
 
       const menuItems = wrapper.findAll('.menu-item');
       expect(menuItems.length).toBe(3);
-      expect(menuItems[0].text()).toContain('Copy file contents');
-      expect(menuItems[1].text()).toContain('Copy filename');
+      expect(menuItems[0].text()).toContain('Copy filename');
+      expect(menuItems[1].text()).toContain('Copy file contents');
       expect(menuItems[2].text()).toContain('Delete file');
     });
 
@@ -132,7 +132,7 @@ describe('CanvasFileViewer', () => {
       await flushAll(wrapper);
 
       const menuItems = wrapper.findAll('.menu-item');
-      await menuItems[0].trigger('click');
+      await menuItems[1].trigger('click');
       await flushAll(wrapper);
 
       expect(mockClipboard.writeText).toHaveBeenCalledWith('File content here');
@@ -148,7 +148,7 @@ describe('CanvasFileViewer', () => {
       await flushAll(wrapper);
 
       const menuItems = wrapper.findAll('.menu-item');
-      await menuItems[1].trigger('click');
+      await menuItems[0].trigger('click');
       await flushAll(wrapper);
 
       expect(mockClipboard.writeText).toHaveBeenCalledWith('myfile.txt');

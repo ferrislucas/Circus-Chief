@@ -96,6 +96,7 @@ router.delete('/:id', (req, res) => {
 // GET /api/projects/:id/sessions - List project sessions
 // Supports ?archived=true|false to filter by archive status
 // Supports ?starred=true|false to filter by starred status
+// Supports ?limit=N&offset=M for pagination (returns pagination metadata when limit is specified)
 // Each session includes latestCommandRuns (merged from DB completed runs + in-memory running commands)
 router.get('/:id/sessions', (req, res) => {
   const project = projects.getById(req.params.id);
@@ -104,7 +105,7 @@ router.get('/:id/sessions', (req, res) => {
   }
 
   // Parse archived query param: undefined = all, 'true' = archived only, 'false' = non-archived only
-  const { archived, starred } = req.query;
+  const { archived, starred, limit, offset } = req.query;
   let archivedFilter = null;
   if (archived === 'true') archivedFilter = true;
   else if (archived === 'false') archivedFilter = false;
@@ -113,7 +114,25 @@ router.get('/:id/sessions', (req, res) => {
   if (starred === 'true') starredFilter = true;
   else if (starred === 'false') starredFilter = false;
 
-  const projectSessions = sessions.getByProjectId(req.params.id, { archived: archivedFilter, starred: starredFilter });
+  // Parse pagination params
+  const parsedLimit = limit ? parseInt(limit, 10) : null;
+  const parsedOffset = offset ? parseInt(offset, 10) : 0;
+
+  const projectSessions = sessions.getByProjectId(req.params.id, {
+    archived: archivedFilter,
+    starred: starredFilter,
+    limit: parsedLimit,
+    offset: parsedOffset,
+  });
+
+  // Get total count for pagination (only when limit is specified)
+  let total = null;
+  if (parsedLimit !== null) {
+    total = sessions.getCountByProjectId(req.params.id, {
+      archived: archivedFilter,
+      starred: starredFilter,
+    });
+  }
 
   // Get completed runs from DATABASE (latest run per button per session)
   const dbRuns = commandRuns.getLatestRunsForProject(req.params.id);
@@ -160,7 +179,21 @@ router.get('/:id/sessions', (req, res) => {
     latestCommandRuns: Object.values(runsBySession[session.id] || {}),
   }));
 
-  res.json(sessionsWithRuns);
+  // Return response with pagination metadata when limit is specified
+  if (parsedLimit !== null) {
+    res.json({
+      sessions: sessionsWithRuns,
+      pagination: {
+        total,
+        limit: parsedLimit,
+        offset: parsedOffset,
+        hasMore: parsedOffset + projectSessions.length < total,
+      },
+    });
+  } else {
+    // Backward compatible: return array when no pagination
+    res.json(sessionsWithRuns);
+  }
 });
 
 // POST /api/projects/:id/sessions - Create session
