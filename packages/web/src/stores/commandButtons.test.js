@@ -1089,29 +1089,28 @@ describe('CommandButtons Store', () => {
       expect(api.killCommandRun).toHaveBeenCalledTimes(1);
     });
 
-    it('sets error on API failure', async () => {
+    it('does not set store.error on API failure (to avoid hiding command list)', async () => {
       const store = useCommandButtonsStore();
       const error = new Error('Kill failed: process not found');
       api.killCommandRun.mockRejectedValue(error);
 
-      try {
-        await store.killRun('session-123', 'run-456');
-      } catch (e) {
-        // Expected to throw
-      }
+      // killRun should throw when run isn't in state
+      await expect(store.killRun('session-123', 'run-456')).rejects.toThrow('Kill failed: process not found');
 
-      expect(store.error).toBe('Kill failed: process not found');
+      // But should NOT set store.error (that would hide the command list)
+      expect(store.error).toBeNull();
     });
 
-    it('throws error on API failure', async () => {
+    it('throws error on API failure when run not in state', async () => {
       const store = useCommandButtonsStore();
       const error = new Error('Process already dead');
       api.killCommandRun.mockRejectedValue(error);
 
+      // When run doesn't exist in state, error should be thrown for component to handle
       await expect(store.killRun('session-123', 'run-456')).rejects.toThrow('Process already dead');
     });
 
-    it('updates run status to error when process is already dead', async () => {
+    it('updates run status to error when process is already dead and returns silently', async () => {
       const store = useCommandButtonsStore();
       const runId = 'run-456';
 
@@ -1130,31 +1129,29 @@ describe('CommandButtons Store', () => {
       // API call fails because process is already dead
       api.killCommandRun.mockRejectedValue(new Error('Run not found or already completed'));
 
-      try {
-        await store.killRun('session-123', runId);
-      } catch (e) {
-        // Expected to throw
-      }
+      // Should NOT throw when we can recover the state - just return silently
+      await store.killRun('session-123', runId);
 
       // Run status should be updated to error so UI can show Run button again
       expect(store.runs[runId].status).toBe('error');
       expect(store.runs[runId].exitCode).toBe(-1);
+      // completedAt should also be set
+      expect(store.runs[runId].completedAt).toBeDefined();
+      // store.error should NOT be set
+      expect(store.error).toBeNull();
     });
 
-    it('does not update status if run is not in state', async () => {
+    it('does not update status or set error if run is not in state', async () => {
       const store = useCommandButtonsStore();
       api.killCommandRun.mockRejectedValue(new Error('Process already dead'));
 
-      try {
-        await store.killRun('session-123', 'nonexistent-run');
-      } catch (e) {
-        // Expected to throw
-      }
+      // Should throw since we can't recover the state
+      await expect(store.killRun('session-123', 'nonexistent-run')).rejects.toThrow('Process already dead');
 
-      // Store should still set error
-      expect(store.error).toBe('Process already dead');
+      // Store should NOT set error (to avoid hiding command list)
+      expect(store.error).toBeNull();
 
-      // But no run should be created
+      // And no run should be created
       expect(Object.keys(store.runs).length).toBe(0);
     });
 

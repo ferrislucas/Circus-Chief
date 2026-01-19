@@ -70,24 +70,24 @@
                 <button
                   :class="['menu-item', { 'is-highlighted': menuHighlightedIndex === 0 }]"
                   role="menuitem"
-                  @click="handleMenuCopyContents"
+                  @click="handleMenuCopyFilename"
                   @mouseenter="menuHighlightedIndex = 0"
                   @mouseleave="menuHighlightedIndex = null"
                 >
-                  <span class="menu-item-icon">📋</span>
-                  <span class="menu-item-text">Copy file contents</span>
+                  <span class="menu-item-icon">📝</span>
+                  <span class="menu-item-text">Copy filename</span>
                 </button>
               </li>
               <li role="none">
                 <button
                   :class="['menu-item', { 'is-highlighted': menuHighlightedIndex === 1 }]"
                   role="menuitem"
-                  @click="handleMenuCopyFilename"
+                  @click="handleMenuCopyContents"
                   @mouseenter="menuHighlightedIndex = 1"
                   @mouseleave="menuHighlightedIndex = null"
                 >
-                  <span class="menu-item-icon">📝</span>
-                  <span class="menu-item-text">Copy filename</span>
+                  <span class="menu-item-icon">📋</span>
+                  <span class="menu-item-text">Copy file contents</span>
                 </button>
               </li>
               <li role="none" class="menu-divider"></li>
@@ -285,9 +285,9 @@ function handleMenuKeyDown(event) {
       event.preventDefault();
       if (menuHighlightedIndex.value !== null) {
         if (menuHighlightedIndex.value === 0) {
-          handleMenuCopyContents();
-        } else if (menuHighlightedIndex.value === 1) {
           handleMenuCopyFilename();
+        } else if (menuHighlightedIndex.value === 1) {
+          handleMenuCopyContents();
         } else if (menuHighlightedIndex.value === 2) {
           handleMenuDeleteAll();
         }
