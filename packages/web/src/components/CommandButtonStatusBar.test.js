@@ -142,4 +142,33 @@ describe('CommandButtonStatusBar', () => {
     // Modal should appear
     expect(wrapper.findComponent({ name: 'ButtonStatusModal' }).exists()).toBe(true);
   });
+
+  it('passes command property to modal when available', async () => {
+    const buttonStatuses = [
+      {
+        buttonId: 'btn-1',
+        label: 'Build',
+        command: 'npm run build',
+        status: 'success',
+        latestRun: { runId: 'run-1', status: 'success', exitCode: 0 },
+      },
+    ];
+
+    const wrapper = mount(CommandButtonStatusBar, {
+      props: { buttonStatuses },
+      global: {
+        stubs: {
+          ButtonStatusModal: true,
+        },
+      },
+    });
+
+    const indicator = wrapper.find('.button-status-indicator');
+    await indicator.trigger('click');
+
+    // Verify modal is rendered with the correct props
+    const modal = wrapper.findComponent({ name: 'ButtonStatusModal' });
+    expect(modal.exists()).toBe(true);
+    expect(modal.props('button')).toEqual({ label: 'Build', command: 'npm run build' });
+  });
 });

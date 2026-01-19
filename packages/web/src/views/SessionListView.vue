@@ -449,6 +449,14 @@ watch(
     // Handle command run output (for real-time status icon updates)
     cleanups.push(
       onCommandRunOutput((runId, sessionId, buttonId, output) => {
+        // Get the actual startedAt from the commandButtons store or existing session run
+        // to avoid resetting the timer on every output event
+        const existingRun = commandButtonsStore.runs[runId];
+        const sessions = sessionsStore.sessions;
+        const storeSession = sessions.find(s => s.id === sessionId);
+        const existingSessionRun = storeSession?.latestCommandRuns?.find(r => r.runId === runId);
+        const startedAt = existingRun?.startedAt || existingSessionRun?.startedAt || Date.now();
+
         // Ensure run exists in commandButtonsStore (still needed for SessionDetailView output display)
         if (!commandButtonsStore.runs[runId]) {
           commandButtonsStore.runs[runId] = {
@@ -458,7 +466,7 @@ watch(
             status: 'running',
             output: '',
             exitCode: null,
-            startedAt: Date.now(),
+            startedAt,
             outputTruncated: false,
           };
         }
@@ -469,7 +477,7 @@ watch(
           buttonId,
           status: 'running',
           runId,
-          startedAt: Date.now(),
+          startedAt,
         });
       })
     );
