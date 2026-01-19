@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
+import { calculateBillableTokens, formatTokenCount } from '@claudetools/shared';
+import { useSettingsStore } from './settings.js';
 
 export const useSessionsStore = defineStore('sessions', {
   state: () => ({
@@ -465,6 +467,153 @@ export const useSessionsStore = defineStore('sessions', {
         outputTokens: conv.outputTokens || 0,
         total: (conv.inputTokens || 0) + (conv.outputTokens || 0),
       };
+    },
+
+    /**
+     * Calculate Billable Token Equivalent (BTE) for current conversation
+     * Uses configurable weights from settings store
+     * Supports real-time updates during streaming
+     */
+    billableTokens: (state) => {
+      const settingsStore = useSettingsStore();
+      const weights = settingsStore.tokenCostWeights;
+
+      // STREAMING: During active turn, use turn usage + conversation base
+      if (state.runningUsage) {
+        const isRelevant = !state.activeConversationId ||
+                          state.runningUsage.conversationId === state.activeConversationId;
+        if (isRelevant) {
+          const conv = state.conversations.find(c => c.id === state.activeConversationId);
+          const usage = {
+            inputTokens: (conv?.inputTokens || 0) + (state.runningUsage.inputTokens || 0),
+            outputTokens: (conv?.outputTokens || 0) + (state.runningUsage.outputTokens || 0),
+            cacheReadInputTokens: (conv?.cacheReadInputTokens || 0) + (state.runningUsage.cacheReadInputTokens || 0),
+            cacheCreationInputTokens: (conv?.cacheCreationInputTokens || 0) + (state.runningUsage.cacheCreationInputTokens || 0),
+          };
+          return calculateBillableTokens(usage, weights);
+        }
+      }
+
+      // PERSISTED: Use conversation totals
+      if (state.activeConversationId && state.conversations.length > 0) {
+        const conv = state.conversations.find(c => c.id === state.activeConversationId);
+        if (conv) {
+          return calculateBillableTokens({
+            inputTokens: conv.inputTokens,
+            outputTokens: conv.outputTokens,
+            cacheReadInputTokens: conv.cacheReadInputTokens,
+            cacheCreationInputTokens: conv.cacheCreationInputTokens,
+          }, weights);
+        }
+      }
+
+      // FALLBACK: No data
+      return 0;
+    },
+
+    /**
+     * Get formatted BTE string for display (e.g., "87.5K")
+     */
+    formattedBillableTokens: (state) => {
+      const settingsStore = useSettingsStore();
+      const weights = settingsStore.tokenCostWeights;
+
+      // STREAMING: During active turn, use turn usage + conversation base
+      if (state.runningUsage) {
+        const isRelevant = !state.activeConversationId ||
+                          state.runningUsage.conversationId === state.activeConversationId;
+        if (isRelevant) {
+          const conv = state.conversations.find(c => c.id === state.activeConversationId);
+          const usage = {
+            inputTokens: (conv?.inputTokens || 0) + (state.runningUsage.inputTokens || 0),
+            outputTokens: (conv?.outputTokens || 0) + (state.runningUsage.outputTokens || 0),
+            cacheReadInputTokens: (conv?.cacheReadInputTokens || 0) + (state.runningUsage.cacheReadInputTokens || 0),
+            cacheCreationInputTokens: (conv?.cacheCreationInputTokens || 0) + (state.runningUsage.cacheCreationInputTokens || 0),
+          };
+          const bte = calculateBillableTokens(usage, weights);
+          return formatTokenCount(bte);
+        }
+      }
+
+      // PERSISTED: Use conversation totals
+      if (state.activeConversationId && state.conversations.length > 0) {
+        const conv = state.conversations.find(c => c.id === state.activeConversationId);
+        if (conv) {
+          const bte = calculateBillableTokens({
+            inputTokens: conv.inputTokens,
+            outputTokens: conv.outputTokens,
+            cacheReadInputTokens: conv.cacheReadInputTokens,
+            cacheCreationInputTokens: conv.cacheCreationInputTokens,
+          }, weights);
+          return formatTokenCount(bte);
+        }
+      }
+
+      // FALLBACK: No data
+      return '-';
+    },
+
+    /**
+     * Calculate BTE for a specific conversation
+     * Used by ConversationSelector and ConversationTreeItem
+     */
+    getConversationBillableTokens: (state) => (conversationId) => {
+      const settingsStore = useSettingsStore();
+      const weights = settingsStore.tokenCostWeights;
+
+      const conv = state.conversations.find(c => c.id === conversationId);
+      if (!conv) return 0;
+
+      // If this conversation has active runningUsage, include it
+      if (state.runningUsage && state.runningUsage.conversationId === conversationId) {
+        const usage = {
+          inputTokens: (conv.inputTokens || 0) + (state.runningUsage.inputTokens || 0),
+          outputTokens: (conv.outputTokens || 0) + (state.runningUsage.outputTokens || 0),
+          cacheReadInputTokens: (conv.cacheReadInputTokens || 0) + (state.runningUsage.cacheReadInputTokens || 0),
+          cacheCreationInputTokens: (conv.cacheCreationInputTokens || 0) + (state.runningUsage.cacheCreationInputTokens || 0),
+        };
+        return calculateBillableTokens(usage, weights);
+      }
+
+      // Use stored conversation data
+      return calculateBillableTokens({
+        inputTokens: conv.inputTokens,
+        outputTokens: conv.outputTokens,
+        cacheReadInputTokens: conv.cacheReadInputTokens,
+        cacheCreationInputTokens: conv.cacheCreationInputTokens,
+      }, weights);
+    },
+
+    /**
+     * Get formatted BTE for a specific conversation
+     */
+    getFormattedConversationBillableTokens: (state) => (conversationId) => {
+      const settingsStore = useSettingsStore();
+      const weights = settingsStore.tokenCostWeights;
+
+      const conv = state.conversations.find(c => c.id === conversationId);
+      if (!conv) return '-';
+
+      // If this conversation has active runningUsage, include it
+      let usage;
+      if (state.runningUsage && state.runningUsage.conversationId === conversationId) {
+        usage = {
+          inputTokens: (conv.inputTokens || 0) + (state.runningUsage.inputTokens || 0),
+          outputTokens: (conv.outputTokens || 0) + (state.runningUsage.outputTokens || 0),
+          cacheReadInputTokens: (conv.cacheReadInputTokens || 0) + (state.runningUsage.cacheReadInputTokens || 0),
+          cacheCreationInputTokens: (conv.cacheCreationInputTokens || 0) + (state.runningUsage.cacheCreationInputTokens || 0),
+        };
+      } else {
+        usage = {
+          inputTokens: conv.inputTokens,
+          outputTokens: conv.outputTokens,
+          cacheReadInputTokens: conv.cacheReadInputTokens,
+          cacheCreationInputTokens: conv.cacheCreationInputTokens,
+        };
+      }
+
+      const bte = calculateBillableTokens(usage, weights);
+      return formatTokenCount(bte);
     },
   },
 

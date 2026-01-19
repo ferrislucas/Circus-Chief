@@ -364,6 +364,15 @@ export class DatabaseManager {
     if (!msgModelColumns.includes('model')) {
       this.#db.exec('ALTER TABLE conversation_messages ADD COLUMN model TEXT');
     }
+
+    // Create app_settings table for storing application-wide settings (e.g., token cost weights)
+    this.#db.exec(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
   }
 
   /**
