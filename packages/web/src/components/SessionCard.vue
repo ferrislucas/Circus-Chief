@@ -187,7 +187,7 @@
   <!-- Button Status Modal -->
   <ButtonStatusModal
     v-if="selectedButtonForModal"
-    :button="{ label: selectedButtonForModal.label }"
+    :button="{ label: selectedButtonForModal.label, command: selectedButtonForModal.command }"
     :latest-run="selectedButtonForModal.latestRun"
     :is-open="!!selectedButtonForModal"
     @close="selectedButtonForModal = null"
@@ -339,6 +339,7 @@ const buttonStatusesToDisplay = computed(() => {
     .map(run => ({
       buttonId: run.buttonId,
       label: buttonMap[run.buttonId].label,
+      command: buttonMap[run.buttonId].command,
       status: run.status,
       latestRun: run,
     }));

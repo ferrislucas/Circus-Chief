@@ -139,6 +139,12 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
     error: null,
     sessions,
     archivedSessions: [],
+    archivedPagination: {
+      total: 0,
+      offset: 0,
+      hasMore: false,
+      loading: false,
+    },
     statusFilter: null,
     starredFilter: null,
     get groupedSessions() {
@@ -160,6 +166,7 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
     },
     fetchSessions: vi.fn().mockResolvedValue(),
     fetchArchivedSessions: vi.fn().mockResolvedValue(),
+    loadMoreArchivedSessions: vi.fn().mockResolvedValue(),
     archiveSession: vi.fn().mockResolvedValue(),
     unarchiveSession: vi.fn().mockResolvedValue(),
     addSessionToList: vi.fn(),

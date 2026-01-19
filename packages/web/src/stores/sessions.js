@@ -24,6 +24,13 @@ export const useSessionsStore = defineStore('sessions', {
     // Version counter for command run updates - used to force Vue reactivity
     // in computed properties that depend on latestCommandRuns
     commandRunVersion: 0,
+    // Pagination state for archived sessions
+    archivedPagination: {
+      total: 0,
+      offset: 0,
+      hasMore: false,
+      loading: false,
+    },
   }),
 
   getters: {
@@ -496,15 +503,46 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
-    async fetchArchivedSessions(projectId) {
-      this.loading = true;
+    async fetchArchivedSessions(projectId, { reset = true } = {}) {
+      const PAGE_SIZE = 25;
+
+      if (reset) {
+        this.archivedSessions = [];
+        this.archivedPagination.offset = 0;
+      }
+
+      this.archivedPagination.loading = true;
       this.error = null;
+
       try {
-        this.archivedSessions = await api.getProjectSessions(projectId, true, this.starredFilter);
+        const response = await api.getProjectSessions(
+          projectId,
+          true, // archived
+          this.starredFilter,
+          { limit: PAGE_SIZE, offset: this.archivedPagination.offset }
+        );
+
+        if (reset) {
+          this.archivedSessions = response.sessions;
+        } else {
+          this.archivedSessions = [...this.archivedSessions, ...response.sessions];
+        }
+
+        this.archivedPagination = {
+          total: response.pagination.total,
+          offset: this.archivedPagination.offset + response.sessions.length,
+          hasMore: response.pagination.hasMore,
+          loading: false,
+        };
       } catch (err) {
         this.error = err.message;
-      } finally {
-        this.loading = false;
+        this.archivedPagination.loading = false;
+      }
+    },
+
+    async loadMoreArchivedSessions(projectId) {
+      if (this.archivedPagination.hasMore && !this.archivedPagination.loading) {
+        await this.fetchArchivedSessions(projectId, { reset: false });
       }
     },
 

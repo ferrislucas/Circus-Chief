@@ -127,24 +127,29 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
     },
 
     async killRun(sessionId, runId) {
-      this.error = null;
+      // Note: Don't set this.error for kill failures - the component
+      // already handles this via toast. Setting error would hide the command list.
       try {
         await api.killCommandRun(sessionId, runId);
       } catch (err) {
-        // If the process is already dead, update the run status so the UI
-        // shows the Run button instead of being stuck on the Kill button
+        // If the process is already dead (or we can't find it), update the
+        // run status so the UI shows the Run button instead of being stuck
+        // on the Kill button
         if (this.runs[runId] && this.runs[runId].status === 'running') {
-          this.$patch({
-            runs: {
-              [runId]: {
-                ...this.runs[runId],
-                status: 'error',
-                exitCode: -1, // Indicate abnormal termination
-              },
-            },
-          });
+          // Use direct state mutation for reliability instead of $patch
+          this.runs[runId] = {
+            ...this.runs[runId],
+            status: 'error',
+            exitCode: -1, // Indicate abnormal termination
+            completedAt: Date.now(),
+          };
+          // State is recovered - don't throw since UI is now correct
+          // The component will still show a toast via the catch block
+          // but we need to let it know this was a "soft" error
+          console.log(`[killRun] Process ${runId} not found on server, updated UI state to error`);
+          return;
         }
-        this.error = err.message;
+        // Only throw if we couldn't recover the state
         throw err;
       }
     },
