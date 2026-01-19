@@ -17,13 +17,14 @@
       Loading command buttons...
     </div>
 
-    <!-- Error State -->
-    <div v-else-if="commandButtonsStore.error" class="error-message">
-      {{ commandButtonsStore.error }}
+    <!-- Error Banner (shown alongside list, not instead of it) -->
+    <div v-if="!commandButtonsStore.loading && commandButtonsStore.error" class="error-banner">
+      <span>{{ commandButtonsStore.error }}</span>
+      <button class="dismiss-btn" @click="commandButtonsStore.error = null">Dismiss</button>
     </div>
 
-    <!-- Empty State -->
-    <div v-else-if="commandButtonsStore.buttons.length === 0" class="empty-state">
+    <!-- Empty State (only when no buttons and not loading) -->
+    <div v-if="!commandButtonsStore.loading && commandButtonsStore.buttons.length === 0" class="empty-state">
       <p>No command buttons configured for this project.</p>
       <router-link
         :to="`/projects/${projectId}/commands`"
@@ -33,8 +34,8 @@
       </router-link>
     </div>
 
-    <!-- Commands List -->
-    <div v-else class="commands-list">
+    <!-- Commands List (show when buttons exist, regardless of error state) -->
+    <div v-if="!commandButtonsStore.loading && commandButtonsStore.buttons.length > 0" class="commands-list">
       <CommandButtonItem
         v-for="button in commandButtonsStore.buttons"
         :key="button.id"
@@ -119,6 +120,9 @@ const onButtonKill = async (buttonId) => {
     await commandButtonsStore.killRun(props.sessionId, runId);
   } catch (err) {
     uiStore.error(`Failed to kill command: ${err.message}`);
+    // Clear the store error so it doesn't affect rendering
+    // (the toast already notifies the user)
+    commandButtonsStore.error = null;
   }
 };
 
@@ -240,7 +244,6 @@ defineExpose({
 }
 
 .loading-state,
-.error-message,
 .empty-state {
   padding: 2rem;
   text-align: center;
@@ -250,9 +253,30 @@ defineExpose({
   color: var(--color-text-soft);
 }
 
-.error-message {
-  color: var(--color-error);
+.error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
   background-color: rgba(248, 81, 73, 0.1);
+  border: 1px solid var(--color-error);
+  border-radius: var(--border-radius);
+  color: var(--color-error);
+}
+
+.error-banner .dismiss-btn {
+  background: none;
+  border: 1px solid var(--color-error);
+  border-radius: 4px;
+  color: var(--color-error);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.error-banner .dismiss-btn:hover {
+  background-color: rgba(248, 81, 73, 0.2);
 }
 
 .loading-state {

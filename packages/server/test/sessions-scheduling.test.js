@@ -103,6 +103,59 @@ describe('Sessions API - Scheduling Endpoints', () => {
 
       expect(res.body[0].projectName).toBe(project.name);
     });
+
+    it('filters scheduled sessions by projectId query parameter', async () => {
+      // Create another project and scheduled session
+      const project2 = projects.create('Project 2', '/tmp/test2');
+      const session2 = sessions.create(project2.id, 'Session 2', 'Prompt 2');
+      const scheduledAt2 = Date.now() + 3600000;
+      sessions.update(session2.id, { status: 'scheduled', scheduledAt: scheduledAt2 });
+
+      // Schedule current project's session too
+      const scheduledAt1 = Date.now() + 1800000;
+      sessions.update(session.id, { status: 'scheduled', scheduledAt: scheduledAt1 });
+
+      // Request with projectId filter
+      const res = await request(app)
+        .get(`/api/sessions/scheduled?projectId=${project.id}`)
+        .expect(200);
+
+      // Should only return sessions from the specified project
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].id).toBe(session.id);
+      expect(res.body[0].projectId).toBe(project.id);
+      expect(res.body[0].projectName).toBe(project.name);
+    });
+
+    it('returns empty array when filtering by projectId with no scheduled sessions', async () => {
+      // Create another project without scheduled sessions
+      const project2 = projects.create('Project 2', '/tmp/test2');
+
+      // Schedule a session in the first project
+      const scheduledAt = Date.now() + 3600000;
+      sessions.update(session.id, { status: 'scheduled', scheduledAt });
+
+      // Request with second project's ID
+      const res = await request(app)
+        .get(`/api/sessions/scheduled?projectId=${project2.id}`)
+        .expect(200);
+
+      // Should return empty array
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body).toHaveLength(0);
+    });
+
+    it('ignores invalid projectId and returns all scheduled sessions', async () => {
+      const scheduledAt = Date.now() + 3600000;
+      sessions.update(session.id, { status: 'scheduled', scheduledAt });
+
+      const res = await request(app)
+        .get('/api/sessions/scheduled?projectId=nonexistent-id')
+        .expect(200);
+
+      // Should return empty array when filtering by non-existent project
+      expect(res.body).toHaveLength(0);
+    });
   });
 
   describe('PATCH /api/sessions/:id - Scheduling fields', () => {
