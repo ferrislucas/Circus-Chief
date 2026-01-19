@@ -2,7 +2,7 @@ import { Page, expect } from '@playwright/test';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
-function getAPIURL(): string {
+export function getAPIURL(): string {
   if (process.env.API_URL) return process.env.API_URL;
 
   // Look for .server-port file in the project root (relative to cwd)
