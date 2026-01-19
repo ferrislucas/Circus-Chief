@@ -96,6 +96,22 @@
           <span class="star-icon star-crossed" v-else-if="sessionsStore.starredFilter === 'unstarred'">⭐</span>
           <span class="star-icon" v-else>☆</span>
         </button>
+        <button
+          :class="[
+            'filter-btn schedule-btn',
+            {
+              'schedule-filter-active': sessionsStore.scheduledFilter === 'scheduled',
+              'schedule-filter-not-scheduled': sessionsStore.scheduledFilter === 'not-scheduled',
+              'schedule-filter-all': sessionsStore.scheduledFilter === null
+            }
+          ]"
+          :title="scheduledFilterTooltip"
+          @click="toggleScheduledFilterIcon"
+        >
+          <span class="schedule-icon" v-if="sessionsStore.scheduledFilter === 'scheduled'">⏰</span>
+          <span class="schedule-icon schedule-crossed" v-else-if="sessionsStore.scheduledFilter === 'not-scheduled'">⏰</span>
+          <span class="schedule-icon" v-else>⏰</span>
+        </button>
       </div>
     </div>
 
@@ -300,6 +316,27 @@ const starFilterTooltip = computed(() => {
   }
 });
 
+const toggleScheduledFilterIcon = () => {
+  // Cycle through three states: null -> scheduled -> not-scheduled -> null
+  if (sessionsStore.scheduledFilter === null) {
+    sessionsStore.setScheduledFilter('scheduled');
+  } else if (sessionsStore.scheduledFilter === 'scheduled') {
+    sessionsStore.setScheduledFilter('not-scheduled');
+  } else {
+    sessionsStore.setScheduledFilter(null);
+  }
+};
+
+const scheduledFilterTooltip = computed(() => {
+  if (sessionsStore.scheduledFilter === 'scheduled') {
+    return 'Showing workflows with scheduled sessions. Click to filter non-scheduled.';
+  } else if (sessionsStore.scheduledFilter === 'not-scheduled') {
+    return 'Showing workflows without scheduled sessions. Click to show all.';
+  } else {
+    return 'Showing all workflows. Click to filter by scheduled.';
+  }
+});
+
 // Handle tab change from mobile dropdown
 function handleTabChange(tab) {
   const projectId = route.params.id;
@@ -313,35 +350,53 @@ function handleTabChange(tab) {
   router.push(routes[tab]);
 }
 
-// Statuses that count as "idle" (not actively running)
-const IDLE_STATUSES = ['waiting', 'stopped', 'error'];
-// Statuses that count as "running" (actively processing or starting up)
-const RUNNING_STATUSES = ['running', 'starting'];
-
 const filteredGroupedSessions = computed(() => {
   let groups = sessionsStore.groupedSessions;
 
-  // Apply status filter if set
+  // Apply workflow-aware status filter if set
+  // This filters based on the aggregated status of the entire workflow tree
   if (sessionsStore.statusFilter) {
     groups = groups.filter(group => {
-      const parentStatus = group.parent.status;
-      // "idle" filter matches waiting, stopped, or error statuses
-      if (sessionsStore.statusFilter === 'idle' && IDLE_STATUSES.includes(parentStatus)) {
+      // Get the workflow's effective status (aggregated across all descendants)
+      const workflowStatus = sessionsStore.getWorkflowAggregatedStatus(group.parent.id);
+      const effectiveStatus = workflowStatus.effectiveStatus;
+
+      // "running" filter shows workflows where any session is running
+      if (sessionsStore.statusFilter === 'running' && effectiveStatus === 'running') {
         return true;
       }
-      // "running" filter matches running and starting statuses
-      if (sessionsStore.statusFilter === 'running' && RUNNING_STATUSES.includes(parentStatus)) {
+      // "idle" filter shows workflows where no session is running
+      if (sessionsStore.statusFilter === 'idle' && effectiveStatus === 'idle') {
         return true;
       }
       return false;
     });
   }
 
-  // Apply starred filter if set
+  // Apply starred filter if set (only considers root session's starred status)
   if (sessionsStore.starredFilter === 'starred') {
     groups = groups.filter(group => group.parent.starred);
   } else if (sessionsStore.starredFilter === 'unstarred') {
     groups = groups.filter(group => !group.parent.starred);
+  }
+
+  // Apply workflow-aware scheduled filter if set
+  // This filters based on whether any session in the workflow is scheduled
+  if (sessionsStore.scheduledFilter) {
+    groups = groups.filter(group => {
+      const workflowStatus = sessionsStore.getWorkflowAggregatedStatus(group.parent.id);
+      const hasScheduled = workflowStatus.scheduledCount > 0;
+
+      // "scheduled" filter shows workflows with at least one scheduled session
+      if (sessionsStore.scheduledFilter === 'scheduled' && hasScheduled) {
+        return true;
+      }
+      // "not-scheduled" filter shows workflows with no scheduled sessions
+      if (sessionsStore.scheduledFilter === 'not-scheduled' && !hasScheduled) {
+        return true;
+      }
+      return false;
+    });
   }
 
   return groups;
@@ -634,6 +689,7 @@ onMounted(() => {
   sessionsStore.restoreExpandedState();
   sessionsStore.restoreStatusFilter();
   sessionsStore.restoreStarredFilter();
+  sessionsStore.restoreScheduledFilter();
 });
 
 // Save expanded state and cleanup WebSocket listeners on unmount
@@ -820,6 +876,51 @@ onUnmounted(() => {
   right: -10%;
   height: 2px;
   background: currentColor; /* Inherits orange color */
+  transform: translateY(-50%) rotate(-45deg);
+  pointer-events: none;
+}
+
+/* Schedule filter styles */
+.schedule-icon {
+  position: relative;
+  display: inline-block;
+}
+
+/* Default state - no filter (show all) */
+.filter-btn.schedule-filter-all {
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text-soft);
+}
+
+.filter-btn.schedule-filter-all:hover {
+  border-color: var(--color-primary);
+  color: var(--color-text);
+}
+
+/* Active state - filter by scheduled */
+.filter-btn.schedule-filter-active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+/* Not-scheduled state - filter by not scheduled (EXCLUDE scheduled) */
+.filter-btn.schedule-filter-not-scheduled {
+  background: transparent;
+  border-color: #f97316; /* Orange for "exclude/negative" action */
+  color: #f97316;
+}
+
+/* Add diagonal line through the schedule icon */
+.schedule-crossed::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -10%;
+  right: -10%;
+  height: 2px;
+  background: currentColor;
   transform: translateY(-50%) rotate(-45deg);
   pointer-events: none;
 }

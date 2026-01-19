@@ -177,6 +177,43 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
       this.starredFilter = filter;
     }),
     saveStarredFilter: vi.fn(),
+    scheduledFilter: null,
+    restoreScheduledFilter: vi.fn(),
+    setScheduledFilter: vi.fn(function(filter) {
+      this.scheduledFilter = filter;
+    }),
+    saveScheduledFilter: vi.fn(),
+    getWorkflowAggregatedStatus: vi.fn(function(sessionId) {
+      // Find the session and return appropriate status
+      const session = this.sessions.find(s => s.id === sessionId);
+      if (!session) {
+        return {
+          effectiveStatus: 'idle',
+          runningCount: 0,
+          scheduledCount: 0,
+          waitingCount: 0,
+          completedCount: 0,
+          errorCount: 0,
+          totalCount: 1,
+          hasScheduledDescendant: false,
+          rootIsScheduled: false,
+        };
+      }
+      const runningStatuses = ['running', 'starting'];
+      const isRunning = runningStatuses.includes(session.status);
+      const isScheduled = session.status === 'scheduled';
+      return {
+        effectiveStatus: isRunning ? 'running' : 'idle',
+        runningCount: isRunning ? 1 : 0,
+        scheduledCount: isScheduled ? 1 : 0,
+        waitingCount: session.status === 'waiting' ? 1 : 0,
+        completedCount: session.status === 'completed' ? 1 : 0,
+        errorCount: session.status === 'error' ? 1 : 0,
+        totalCount: 1,
+        hasScheduledDescendant: false,
+        rootIsScheduled: isScheduled,
+      };
+    }),
     ...overrides,
   });
   return baseStore;
@@ -459,15 +496,16 @@ describe('Status filtering', () => {
   }
 
   describe('Filter button rendering', () => {
-    it('renders filter buttons for running and idle statuses', async () => {
+    it('renders filter buttons for running, idle, starred, and scheduled statuses', async () => {
       const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
       const filterButtons = wrapper.findAll('.filter-btn');
-      expect(filterButtons).toHaveLength(3);
+      expect(filterButtons).toHaveLength(4);
       expect(filterButtons[0].text()).toBe('running');
       expect(filterButtons[1].text()).toBe('idle');
       expect(filterButtons[2].classes()).toContain('star-btn');
+      expect(filterButtons[3].classes()).toContain('schedule-btn');
     });
 
     it('only shows filter buttons on sessions tab', async () => {
