@@ -20,6 +20,7 @@ export { AttachmentRepository } from './AttachmentRepository.js';
 export { CommandButtonRepository } from './CommandButtonRepository.js';
 export { CommandRunRepository } from './CommandRunRepository.js';
 export { QuickResponseRepository } from './QuickResponseRepository.js';
+export { SettingsRepository } from './SettingsRepository.js';
 
 // Singleton instances
 import { ProjectRepository } from './ProjectRepository.js';
@@ -36,6 +37,7 @@ import { AttachmentRepository } from './AttachmentRepository.js';
 import { CommandButtonRepository } from './CommandButtonRepository.js';
 import { CommandRunRepository } from './CommandRunRepository.js';
 import { QuickResponseRepository } from './QuickResponseRepository.js';
+import { SettingsRepository } from './SettingsRepository.js';
 
 export const projects = new ProjectRepository();
 export const projectDefaults = new ProjectDefaultsRepository();
@@ -51,6 +53,7 @@ export const attachments = new AttachmentRepository();
 export const commandButtons = new CommandButtonRepository();
 export const commandRuns = new CommandRunRepository();
 export const quickResponses = new QuickResponseRepository();
+export const settings = new SettingsRepository();
 
 // SessionRepository needs to be instantiated after messages is available
 import { SessionRepository } from './SessionRepository.js';

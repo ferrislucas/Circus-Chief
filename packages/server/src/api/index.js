@@ -6,6 +6,7 @@ import canvasRouter from './canvas.js';
 import gitRouter from './git.js';
 import filesystemRouter from './filesystem.js';
 import quickResponsesRouter from './quickResponses.js';
+import settingsRouter from './settings.js';
 
 const router = Router();
 
@@ -14,6 +15,7 @@ router.use('/sessions', sessionsRouter);
 router.use('/templates', templatesRouter);
 router.use('/git', gitRouter);
 router.use('/filesystem', filesystemRouter);
+router.use('/settings', settingsRouter);
 
 // Canvas routes are nested under sessions
 router.use('/sessions', canvasRouter);
