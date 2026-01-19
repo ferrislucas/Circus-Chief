@@ -169,6 +169,7 @@ const buttonStatusesToDisplay = computed(() => {
     .map(run => ({
       buttonId: run.buttonId,
       label: buttonMap[run.buttonId].label,
+      command: buttonMap[run.buttonId].command,
       status: run.status,
       latestRun: run,
     }));
@@ -388,12 +389,17 @@ onMounted(async () => {
   // Handle command run output (for real-time status icon updates)
   cleanups.push(
     onCommandOutput((runId, buttonId, output) => {
+      // Get the actual startedAt from the commandButtons store or existing session run
+      // to avoid resetting the timer on every output event
+      const existingRun = commandButtonsStore.runs[runId];
+      const existingSessionRun = sessionsStore.currentSession?.latestCommandRuns?.find(r => r.runId === runId);
+
       // Update session's latestCommandRuns for session detail display
       sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
         buttonId,
         status: 'running',
         runId,
-        startedAt: Date.now(),
+        startedAt: existingRun?.startedAt || existingSessionRun?.startedAt || Date.now(),
       });
     })
   );
