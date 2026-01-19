@@ -1,10 +1,7 @@
 <template>
   <div class="conversation-tab">
-    <!-- Conversation Selector -->
-    <ConversationSelector :session-id="sessionId" />
-
-    <!-- Token Usage Panel - shows conversation-level usage (Issue #175) -->
-    <TokenUsagePanel class="conversation-usage" />
+    <!-- Unified Conversation Panel - selector + BTE cost display -->
+    <ConversationPanel :session-id="sessionId" />
 
     <div class="messages" ref="messagesContainer">
       <!-- Hide messages for draft and scheduled sessions (only show in input field) -->
@@ -288,8 +285,7 @@ import TodoDrawer from './TodoDrawer.vue';
 import WorkLogPanel from './WorkLogPanel.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
-import ConversationSelector from './ConversationSelector.vue';
-import TokenUsagePanel from './TokenUsagePanel.vue';
+import ConversationPanel from './ConversationPanel.vue';
 import FileAttachment from './FileAttachment.vue';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';
@@ -960,10 +956,6 @@ async function handleBranchCreate({ messageId, prompt }) {
   /* Removed height: 100% - causes layout issues on iPad Safari when combined with
      sticky positioning and internal scroll containers. The natural document flow
      works correctly without it. */
-}
-
-.conversation-usage {
-  margin-bottom: 1rem;
 }
 
 .messages {
