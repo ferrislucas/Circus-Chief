@@ -7,6 +7,7 @@ vi.mock('../composables/useApi.js', () => ({
   api: {
     getActiveSessions: vi.fn(),
     getProjectSessions: vi.fn(),
+    getScheduledSessions: vi.fn(),
     getSession: vi.fn(),
     getSessionMessages: vi.fn(),
     createSession: vi.fn(),
@@ -2589,6 +2590,145 @@ describe('Sessions Store', () => {
 
         expect(store.archivedSessions).toHaveLength(4);
         expect(store.archivedPagination.hasMore).toBe(false);
+      });
+    });
+
+    describe('fetchScheduledSessions', () => {
+      it('fetches all scheduled sessions across all projects', async () => {
+        const store = useSessionsStore();
+
+        const mockSessions = [
+          { id: 'session-1', status: 'scheduled', scheduledAt: '2024-01-01T12:00:00Z' },
+          { id: 'session-2', status: 'scheduled', scheduledAt: '2024-01-01T13:00:00Z' },
+        ];
+        api.getScheduledSessions.mockResolvedValue(mockSessions);
+
+        await store.fetchScheduledSessions();
+
+        expect(api.getScheduledSessions).toHaveBeenCalledWith(null);
+        expect(store.scheduledSessions).toEqual(mockSessions);
+      });
+
+      it('fetches scheduled sessions filtered by project ID', async () => {
+        const store = useSessionsStore();
+
+        const mockSessions = [
+          { id: 'session-1', status: 'scheduled', projectId: 'project-1', scheduledAt: '2024-01-01T12:00:00Z' },
+        ];
+        api.getScheduledSessions.mockResolvedValue(mockSessions);
+
+        await store.fetchScheduledSessions('project-1');
+
+        expect(api.getScheduledSessions).toHaveBeenCalledWith('project-1');
+        expect(store.scheduledSessions).toEqual(mockSessions);
+      });
+
+      it('sorts scheduled sessions by scheduledAt (earliest first)', async () => {
+        const store = useSessionsStore();
+
+        const mockSessions = [
+          { id: 'session-3', status: 'scheduled', scheduledAt: '2024-01-01T14:00:00Z' },
+          { id: 'session-1', status: 'scheduled', scheduledAt: '2024-01-01T12:00:00Z' },
+          { id: 'session-2', status: 'scheduled', scheduledAt: '2024-01-01T13:00:00Z' },
+        ];
+        api.getScheduledSessions.mockResolvedValue(mockSessions);
+
+        await store.fetchScheduledSessions();
+
+        expect(store.scheduledSessions).toHaveLength(3);
+        expect(store.scheduledSessions[0].id).toBe('session-1'); // Earliest
+        expect(store.scheduledSessions[1].id).toBe('session-2');
+        expect(store.scheduledSessions[2].id).toBe('session-3'); // Latest
+      });
+
+      it('handles fetch error', async () => {
+        const store = useSessionsStore();
+
+        api.getScheduledSessions.mockRejectedValue(new Error('Fetch failed'));
+
+        await store.fetchScheduledSessions();
+
+        expect(store.error).toBe('Fetch failed');
+      });
+
+      it('sets loadingScheduled flag during fetch', async () => {
+        const store = useSessionsStore();
+
+        api.getScheduledSessions.mockImplementation(() => {
+          // Check flag during fetch
+          expect(store.loadingScheduled).toBe(true);
+          return Promise.resolve([]);
+        });
+
+        await store.fetchScheduledSessions();
+
+        expect(store.loadingScheduled).toBe(false);
+      });
+    });
+
+    describe('updateSession with scheduled sessions', () => {
+      it('updates scheduled session and maintains sort order', () => {
+        const store = useSessionsStore();
+
+        store.scheduledSessions = [
+          { id: 'session-1', status: 'scheduled', scheduledAt: '2024-01-01T12:00:00Z', name: 'First' },
+          { id: 'session-2', status: 'scheduled', scheduledAt: '2024-01-01T13:00:00Z', name: 'Second' },
+          { id: 'session-3', status: 'scheduled', scheduledAt: '2024-01-01T14:00:00Z', name: 'Third' },
+        ];
+
+        // Update session-3 to have an earlier scheduledAt
+        store.updateSession({
+          id: 'session-3',
+          status: 'scheduled',
+          scheduledAt: '2024-01-01T11:00:00Z',
+          name: 'Third Updated',
+        });
+
+        expect(store.scheduledSessions).toHaveLength(3);
+        // Should be re-sorted with session-3 now first
+        expect(store.scheduledSessions[0].id).toBe('session-3');
+        expect(store.scheduledSessions[0].name).toBe('Third Updated');
+        expect(store.scheduledSessions[1].id).toBe('session-1');
+        expect(store.scheduledSessions[2].id).toBe('session-2');
+      });
+
+      it('removes session from scheduled list when status changes from scheduled', () => {
+        const store = useSessionsStore();
+
+        store.scheduledSessions = [
+          { id: 'session-1', status: 'scheduled', scheduledAt: '2024-01-01T12:00:00Z' },
+          { id: 'session-2', status: 'scheduled', scheduledAt: '2024-01-01T13:00:00Z' },
+        ];
+
+        // Update session-1 to status 'running'
+        store.updateSession({
+          id: 'session-1',
+          status: 'running',
+        });
+
+        expect(store.scheduledSessions).toHaveLength(1);
+        expect(store.scheduledSessions[0].id).toBe('session-2');
+      });
+
+      it('adds new scheduled session and maintains sort order', () => {
+        const store = useSessionsStore();
+
+        store.scheduledSessions = [
+          { id: 'session-1', status: 'scheduled', scheduledAt: '2024-01-01T12:00:00Z' },
+          { id: 'session-3', status: 'scheduled', scheduledAt: '2024-01-01T14:00:00Z' },
+        ];
+
+        // Add a new scheduled session with time in between
+        store.updateSession({
+          id: 'session-2',
+          status: 'scheduled',
+          scheduledAt: '2024-01-01T13:00:00Z',
+        });
+
+        expect(store.scheduledSessions).toHaveLength(3);
+        expect(store.scheduledSessions[0].id).toBe('session-1');
+        expect(store.scheduledSessions[1].id).toBe('session-2');
+        expect(store.scheduledSessions[2].id).toBe('session-3');
       });
     });
 
