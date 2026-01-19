@@ -54,7 +54,6 @@
           @click="router.push(`/projects/${route.params.id}/scheduled`)"
         >
           Scheduled
-          <span v-if="scheduledSessions.length > 0" class="tab-badge">{{ scheduledSessions.length }}</span>
         </button>
       </div>
 
@@ -617,7 +616,7 @@ function fetchArchivedSummaries() {
 }
 
 async function fetchScheduledSessions() {
-  await sessionsStore.fetchScheduledSessions();
+  await sessionsStore.fetchScheduledSessions(projectId.value);
 }
 
 async function handleArchive(sessionId) {
