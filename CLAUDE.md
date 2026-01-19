@@ -131,3 +131,68 @@ yarn test
 - Use relative paths: `packages/server/src/...`
 - Use `pwd` to check your current directory if unsure
 - Never assume the working directory is the main repo
+
+## E2E Testing with Playwright
+
+**CRITICAL: Always use `./scripts/pw.sh` for E2E tests. Never use port 5000 for E2E tests.**
+
+### Why Use pw.sh
+
+The `pw.sh` script ensures proper server isolation for E2E tests:
+- **Auto-starts a dedicated test server** if one isn't running
+- **Auto-detects the correct port** from `.server-port` file
+- **Protects port 5000** (main development server) from interference
+- **Worktrees get their own ports** (5001+) to avoid conflicts
+
+### Do NOT do this:
+```bash
+# BAD - interferes with main development server
+npx playwright test
+BASE_URL=http://localhost:5000 npx playwright test
+
+# BAD - manually starting server on port 5000 for tests
+PORT=5000 yarn dev && npx playwright test
+```
+
+### Do this instead:
+```bash
+# GOOD - uses pw.sh which handles server isolation
+./scripts/pw.sh test                           # Run all E2E tests
+./scripts/pw.sh test --grep="login"            # Filter by test name
+./scripts/pw.sh test tests/e2e/auth.spec.ts    # Run specific test file
+./scripts/pw.sh debug tests/e2e/auth.spec.ts   # Debug mode (headed browser)
+```
+
+### How Server Port Assignment Works
+
+The `start-server.sh` script (called by `pw.sh`) assigns ports as follows:
+- **Main repository** (`.git` is a directory): Always uses port **5000**
+- **Git worktrees** (`.git` is a file): Auto-assigns next available port starting at **5001**
+
+The selected port is written to `.server-port` so other tools can discover it.
+
+### What pw.sh Does
+
+1. Checks if `.server-port` file exists and if that server is running
+2. If no server is running, starts one via `./scripts/start-server.sh`
+3. Sets `BASE_URL` and `API_URL` environment variables to the correct port
+4. Runs Playwright tests (via Docker if available, otherwise npx)
+
+### Common pw.sh Commands
+
+```bash
+./scripts/pw.sh test                    # Run all tests
+./scripts/pw.sh test --grep="pattern"   # Filter tests by name
+./scripts/pw.sh test path/to/test.ts    # Run specific test file
+./scripts/pw.sh debug                   # Run tests with headed browser (requires X11)
+./scripts/pw.sh codegen                 # Launch interactive test generator
+./scripts/pw.sh screenshot <url>        # Capture a screenshot
+./scripts/pw.sh help                    # Show all commands
+```
+
+### Why This Matters
+
+- **Port 5000** is reserved for the main development server that users interact with
+- Running E2E tests against port 5000 could interfere with active work
+- Worktrees need isolated servers to run tests independently
+- `pw.sh` guarantees tests never accidentally hit the wrong server
