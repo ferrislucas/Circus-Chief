@@ -22,9 +22,10 @@ router.get('/', (req, res) => {
   res.json(activeSessions);
 });
 
-// GET /api/sessions/scheduled - Get all scheduled sessions across all projects
+// GET /api/sessions/scheduled - Get all scheduled sessions (optionally filtered by project)
 router.get('/scheduled', (req, res) => {
-  const scheduledSessions = sessions.getScheduledSessions();
+  const { projectId } = req.query;
+  const scheduledSessions = sessions.getScheduledSessions(projectId || null);
   res.json(scheduledSessions);
 });
 
