@@ -1,28 +1,75 @@
 <template>
-  <!-- Parent session with children -->
-  <div v-if="hasChildren" class="parent-session-group">
-    <router-link :to="`/sessions/${session.id}`" class="session-card card parent-card">
+  <!-- Workflow card (root session with consolidated view) -->
+  <div class="workflow-card-wrapper">
+    <router-link
+      :to="`/sessions/${session.id}`"
+      class="session-card card"
+      :class="{ 'parent-card': hasChildren && isExpanded, 'is-child': isChild }"
+    >
       <div class="session-header-row">
-        <div class="expand-toggle">
+        <!-- Expand toggle for sessions with children -->
+        <div v-if="hasChildren" class="expand-toggle">
           <button
             class="expand-btn"
             @click.prevent="toggleExpand"
-            :aria-label="isExpanded ? 'Collapse children' : 'Expand children'"
+            :aria-label="isExpanded ? 'Collapse sessions' : 'Expand sessions'"
             :title="isExpanded ? 'Collapse' : 'Expand'"
           >
             {{ isExpanded ? '▼' : '▶' }}
           </button>
-          <span v-if="childCount > 0" class="child-count">{{ childCount }}</span>
         </div>
+
+        <!-- Star button (always visible on root sessions, not on child sessions) -->
+        <button
+          v-if="!isChild"
+          class="star-btn"
+          :title="session.starred ? 'Unstar session' : 'Star session'"
+          @click.stop.prevent="onStarClick"
+        >
+          <svg v-if="session.starred" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
+          </svg>
+          <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
+          </svg>
+        </button>
+
         <div class="session-info">
           <h3 class="session-name">{{ session.name }}</h3>
+
+          <!-- Workflow status badges (aggregated across all descendants) -->
           <p class="session-meta">
-            <span v-if="session.status !== 'waiting'" :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
-            <span v-if="session.status === 'scheduled' && session.scheduledAt" class="schedule-indicator">
-              <span class="schedule-icon">⏰</span>
-              <span class="schedule-time">{{ formatScheduledTime(session.scheduledAt) }}</span>
+            <!-- Running count badge (if any session in workflow is running) -->
+            <span v-if="workflowStatus.runningCount > 0" class="status-badge status-running">
+              ● {{ workflowStatus.runningCount }} running
             </span>
+
+            <!-- Scheduled count badge (if any session in workflow is scheduled) -->
+            <span v-if="workflowStatus.scheduledCount > 0" class="status-badge status-scheduled">
+              <svg class="schedule-icon-inline" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+              {{ workflowStatus.scheduledCount }} scheduled
+            </span>
+
+            <!-- Error count badge (if any session in workflow has error) -->
+            <span v-if="workflowStatus.errorCount > 0" class="status-badge status-error">
+              ⚠ {{ workflowStatus.errorCount }} error
+            </span>
+
+            <!-- Session count (always show for root sessions with children, or show when no actionable statuses) -->
+            <span
+              v-if="!isChild && (workflowStatus.totalCount > 1 || (workflowStatus.runningCount === 0 && workflowStatus.scheduledCount === 0 && workflowStatus.errorCount === 0))"
+              class="session-count"
+            >
+              {{ workflowStatus.totalCount }} {{ workflowStatus.totalCount === 1 ? 'session' : 'sessions' }}
+            </span>
+
+            <!-- PR Indicators -->
             <PrIndicators v-if="prUrl" :pr-url="prUrl" :summary="prSummary" />
+
+            <!-- Command button status indicators -->
             <span
               v-for="indicator in buttonStatusesToDisplay"
               :key="indicator.buttonId"
@@ -31,103 +78,18 @@
               @click.stop.prevent="selectedButtonForModal = indicator"
             >{{ getStatusIcon(indicator.status) }}</span>
           </p>
+
           <p v-if="showProject && session.projectName" class="session-project">
             <span class="project-name">{{ session.projectName }}</span>
           </p>
         </div>
-        <div class="session-date">
-          {{ formatDate(dateToShow) }}
-        </div>
-      </div>
-      <div v-if="showSummary">
-        <div v-if="summary" class="session-summary">
-          <p class="summary-text">{{ summary.shortSummary }}</p>
-          <div class="summary-meta">
-            <span v-if="filesCount > 0" class="summary-files">
-              {{ filesCount }} {{ filesCount === 1 ? 'file' : 'files' }} modified
-            </span>
+
+        <div class="session-header-actions">
+          <div class="session-date">
+            {{ formatDate(dateToShow) }}
           </div>
-        </div>
-        <div v-else-if="summaryLoading" class="session-summary session-summary-loading">
-          <span class="loading-spinner-small"></span>
-          <span>Loading summary...</span>
-        </div>
-        <div v-else-if="summaryError" class="session-summary session-summary-error">
-          <span class="error-icon">!</span>
-          <span>Summary unavailable</span>
-          <button class="retry-btn" @click.prevent="$emit('retrySummary', session.id)">Retry</button>
-        </div>
-      </div>
-    </router-link>
-
-    <!-- Children container -->
-    <div v-if="isExpanded" class="children-container">
-      <div v-for="child in children" :key="child.id" class="child-session">
-        <SessionCard
-          :session="child"
-          :show-summary="true"
-          :summary="summaries[child.id]"
-          :is-child="true"
-          :children="getChildrenForSession(child.id)"
-          :summaries="summaries"
-          :pr-url="child.prUrl"
-          :pr-summary="summaries[child.id]"
-          @retry-summary="$emit('retrySummary', child.id)"
-        />
-      </div>
-      <button class="add-child-btn" @click="addChildSession">
-        + Add child session
-      </button>
-    </div>
-  </div>
-
-  <!-- Regular card (standalone or child) -->
-  <router-link
-    v-else
-    :to="`/sessions/${session.id}`"
-    class="session-card card"
-    :class="{ 'is-child': isChild }"
-  >
-    <div class="session-header-row">
-      <div class="session-info">
-        <h3 class="session-name">{{ session.name }}</h3>
-        <p class="session-meta">
-          <span v-if="session.status !== 'waiting'" :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
-          <span v-if="session.status === 'scheduled' && session.scheduledAt" class="schedule-indicator">
-            <span class="schedule-icon">⏰</span>
-            <span class="schedule-time">{{ formatScheduledTime(session.scheduledAt) }}</span>
-          </span>
-          <PrIndicators v-if="prUrl" :pr-url="prUrl" :summary="prSummary" />
-          <span
-            v-for="indicator in buttonStatusesToDisplay"
-            :key="indicator.buttonId"
-            :class="['button-status-indicator', `button-status-${indicator.status}`]"
-            :title="indicator.label"
-            @click.stop.prevent="selectedButtonForModal = indicator"
-          >{{ getStatusIcon(indicator.status) }}</span>
-        </p>
-        <p v-if="showProject && session.projectName" class="session-project">
-          <span class="project-name">{{ session.projectName }}</span>
-        </p>
-      </div>
-      <div class="session-header-actions">
-        <div class="session-date">
-          {{ formatDate(dateToShow) }}
-        </div>
-        <div class="session-action-buttons-group">
-          <button
-            class="star-btn"
-            :title="session.starred ? 'Unstar session' : 'Star session'"
-            @click.stop.prevent="onStarClick"
-          >
-            <svg v-if="session.starred" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
-            </svg>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
-            </svg>
-          </button>
-          <div v-if="showArchive || showUnarchive" class="archive-actions">
+          <!-- Archive button (always visible on root sessions, not on child sessions) -->
+          <div v-if="!isChild && (showArchive || showUnarchive)" class="archive-actions">
             <button
               v-if="showArchive && canArchive"
               class="archive-btn"
@@ -156,27 +118,71 @@
           </div>
         </div>
       </div>
-    </div>
-    <div v-if="showSummary">
-      <div v-if="summary" class="session-summary">
-        <p class="summary-text">{{ summary.shortSummary }}</p>
-        <div class="summary-meta">
-          <span v-if="filesCount > 0" class="summary-files">
-            {{ filesCount }} {{ filesCount === 1 ? 'file' : 'files' }} modified
-          </span>
+
+      <!-- Summary section -->
+      <div v-if="showSummary">
+        <div v-if="summary" class="session-summary">
+          <p class="summary-text">{{ summary.shortSummary }}</p>
+          <div class="summary-meta">
+            <span v-if="filesCount > 0" class="summary-files">
+              {{ filesCount }} {{ filesCount === 1 ? 'file' : 'files' }} modified
+            </span>
+          </div>
+        </div>
+        <div v-else-if="summaryLoading" class="session-summary session-summary-loading">
+          <span class="loading-spinner-small"></span>
+          <span>Loading summary...</span>
+        </div>
+        <div v-else-if="summaryError" class="session-summary session-summary-error">
+          <span class="error-icon">!</span>
+          <span>Summary unavailable</span>
+          <button class="retry-btn" @click.prevent="$emit('retrySummary', session.id)">Retry</button>
         </div>
       </div>
-      <div v-else-if="summaryLoading" class="session-summary session-summary-loading">
-        <span class="loading-spinner-small"></span>
-        <span>Loading summary...</span>
+
+      <!-- Expand/collapse toggle for sessions with children -->
+      <div v-if="hasChildren && !isChild" class="expand-toggle-row">
+        <button
+          class="expand-toggle-btn"
+          @click.prevent="toggleExpand"
+        >
+          {{ isExpanded ? '▲ Hide sessions' : `▼ Show ${workflowStatus.totalCount} sessions` }}
+        </button>
       </div>
-      <div v-else-if="summaryError" class="session-summary session-summary-error">
-        <span class="error-icon">!</span>
-        <span>Summary unavailable</span>
-        <button class="retry-btn" @click.prevent="$emit('retrySummary', session.id)">Retry</button>
+    </router-link>
+
+    <!-- Expanded workflow sessions panel -->
+    <div v-if="hasChildren && isExpanded && !isChild" class="workflow-sessions-panel">
+      <div class="workflow-sessions-header">
+        WORKFLOW SESSIONS
+      </div>
+
+      <div class="workflow-sessions-list">
+        <!-- Root session entry -->
+        <div class="workflow-session-item root-session">
+          <router-link :to="`/sessions/${session.id}`" class="workflow-session-link">
+            <div class="workflow-session-label">
+              <span class="workflow-session-role">◉ ROOT</span>
+            </div>
+            <div class="workflow-session-name">{{ session.name }}</div>
+            <div class="workflow-session-meta">
+              <span class="workflow-session-summary">{{ summary?.shortSummary || 'No summary yet' }}</span>
+              <span class="workflow-session-date">{{ formatDate(session.createdAt) }}</span>
+            </div>
+          </router-link>
+        </div>
+
+        <!-- Child sessions (recursive) -->
+        <WorkflowSessionItem
+          v-for="child in allDescendants"
+          :key="child.id"
+          :session="child"
+          :summaries="summaries"
+          :depth="getSessionDepth(child.id)"
+        />
       </div>
     </div>
-  </router-link>
+  </div>
 
   <!-- Button Status Modal -->
   <ButtonStatusModal
@@ -196,6 +202,7 @@ import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { formatDate } from '../utils/formatters.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import PrIndicators from './PrIndicators.vue';
+import WorkflowSessionItem from './WorkflowSessionItem.vue';
 import { api } from '../composables/useApi.js';
 
 const router = useRouter();
@@ -273,26 +280,39 @@ const dateToShow = computed(() => {
 
 const hasChildren = computed(() => props.children && props.children.length > 0);
 
-const childCount = computed(() => props.children?.length || 0);
-
 const isExpanded = computed(() => sessionsStore.isSessionExpanded(props.session.id));
+
+// Get aggregated workflow status for display
+const workflowStatus = computed(() => {
+  if (props.isChild) {
+    // For child sessions, just show their own status
+    const status = props.session.status;
+    const runningStatuses = ['running', 'starting'];
+    return {
+      runningCount: runningStatuses.includes(status) ? 1 : 0,
+      scheduledCount: status === 'scheduled' ? 1 : 0,
+      errorCount: status === 'error' ? 1 : 0,
+      totalCount: 1,
+    };
+  }
+  return sessionsStore.getWorkflowAggregatedStatus(props.session.id);
+});
+
+// Get all descendants for the expanded panel
+const allDescendants = computed(() => {
+  return sessionsStore.getAllDescendants(props.session.id);
+});
+
+// Get depth of a session in the hierarchy (for indentation)
+const getSessionDepth = (sessionId) => {
+  const path = sessionsStore.getSessionPath(sessionId);
+  // Subtract 1 because root is depth 0
+  return Math.max(0, path.length - 1);
+};
 
 const toggleExpand = () => {
   sessionsStore.toggleSessionExpanded(props.session.id);
   sessionsStore.saveExpandedState();
-};
-
-const addChildSession = () => {
-  // Navigate to create new session with parent ID pre-filled
-  router.push({
-    name: 'new-session',
-    params: { projectId: props.session.projectId || '' },
-    query: { parentSessionId: props.session.id },
-  });
-};
-
-const getChildrenForSession = (sessionId) => {
-  return sessionsStore.getChildSessions(sessionId);
 };
 
 const buttonStatusesToDisplay = computed(() => {
@@ -383,10 +403,9 @@ const formatScheduledTime = (timestamp) => {
 </script>
 
 <style scoped>
-.parent-session-group {
+.workflow-card-wrapper {
   display: flex;
   flex-direction: column;
-  gap: 0;
 }
 
 .parent-card {
@@ -650,38 +669,131 @@ const formatScheduledTime = (timestamp) => {
   }
 }
 
-.children-container {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin-left: 0;
-  margin-top: 0;
-  padding: 0.75rem 1rem;
-  background: var(--color-background-secondary, rgba(0, 0, 0, 0.1));
-  border-left: 2px solid var(--color-primary);
-  border-bottom-left-radius: 6px;
-  border-bottom-right-radius: 6px;
+/* Session count badge */
+.session-count {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
 }
 
-.child-session {
+/* Schedule icon inline with text */
+.schedule-icon-inline {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 0.25rem;
+}
+
+/* Expand toggle row at bottom of card */
+.expand-toggle-row {
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.expand-toggle-btn {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0.25rem 0;
+  transition: color 0.15s;
+}
+
+.expand-toggle-btn:hover {
+  color: var(--color-primary-bright, #06ffff);
+}
+
+/* Workflow sessions panel (expanded view) */
+.workflow-sessions-panel {
+  border: 1px solid var(--color-border);
+  border-top: none;
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+  background: var(--color-background-secondary, rgba(0, 0, 0, 0.1));
   animation: slideIn 0.2s ease-out;
 }
 
-.add-child-btn {
-  margin-top: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: var(--color-border);
-  border: 1px solid var(--color-border);
+.workflow-sessions-header {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-text-soft);
+  padding: 0.75rem 1rem 0.5rem;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.workflow-sessions-list {
+  padding: 0.5rem;
+}
+
+.workflow-session-item {
+  padding: 0.5rem;
   border-radius: var(--border-radius, 6px);
-  color: var(--color-primary);
-  cursor: pointer;
-  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
   transition: background-color 0.15s;
 }
 
-.add-child-btn:hover {
-  background: var(--color-primary);
-  color: white;
+.workflow-session-item:hover {
+  background-color: var(--color-bg-soft, rgba(255, 255, 255, 0.05));
+}
+
+.workflow-session-item:last-child {
+  margin-bottom: 0;
+}
+
+.workflow-session-link {
+  display: block;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.workflow-session-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+}
+
+.workflow-session-role {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--color-text-soft);
+  letter-spacing: 0.05em;
+}
+
+.workflow-session-status {
+  font-size: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.workflow-session-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-session-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.workflow-session-summary {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 0.5rem;
+}
+
+.workflow-session-date {
+  flex-shrink: 0;
 }
 
 @keyframes slideIn {

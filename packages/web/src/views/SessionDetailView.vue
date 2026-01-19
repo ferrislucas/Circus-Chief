@@ -6,6 +6,13 @@
     </div>
 
     <template v-else-if="sessionsStore.currentSession">
+      <!-- Session hierarchy breadcrumb -->
+      <SessionHierarchyBreadcrumb
+        v-if="sessionPath.length > 1"
+        :path="sessionPath"
+        :current-session-id="sessionId"
+      />
+
       <div class="session-header">
         <!-- Main header row with star, status, name, and menu -->
         <div class="session-header-row">
@@ -102,6 +109,13 @@
         <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
         <CommandsTab v-else-if="activeTab === 'commands'" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
       </div>
+
+      <!-- Child sessions panel (if this session has children) -->
+      <ChildSessionsPanel
+        v-if="childSessions.length > 0"
+        :sessions="childSessions"
+        :parent-session-id="sessionId"
+      />
     </template>
   </div>
 </template>
@@ -127,6 +141,8 @@ import DuplicateSessionButton from '../components/DuplicateSessionButton.vue';
 import OverflowMenu from '../components/OverflowMenu.vue';
 import SchedulingInfo from '../components/SchedulingInfo.vue';
 import CommandButtonStatusBar from '../components/CommandButtonStatusBar.vue';
+import SessionHierarchyBreadcrumb from '../components/SessionHierarchyBreadcrumb.vue';
+import ChildSessionsPanel from '../components/ChildSessionsPanel.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 
@@ -146,6 +162,16 @@ const { getModelDisplayName } = useModelInfo();
 const sessionId = route.params.id;
 
 const activeTab = computed(() => route.params.tab || 'conversation');
+
+// Get the session hierarchy path (for breadcrumbs)
+const sessionPath = computed(() => {
+  return sessionsStore.getSessionPath(sessionId);
+});
+
+// Get child sessions for this session
+const childSessions = computed(() => {
+  return sessionsStore.getChildSessions(sessionId);
+});
 const changesFileCount = ref(0);
 const canvasItemCount = ref(0);
 
