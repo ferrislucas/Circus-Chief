@@ -227,9 +227,16 @@
       />
 
       <!-- Show template indicator while running -->
-      <div v-if="sessionsStore.currentSession?.nextTemplateId" class="template-pending">
+      <div v-if="nextTemplate" class="template-pending">
         <span class="template-pending-label">Next:</span>
-        <span class="template-pending-name">Template will trigger when Claude finishes</span>
+        <router-link
+          :to="`/projects/${sessionsStore.currentSession.projectId}/templates`"
+          class="template-pending-link"
+          :title="`View template: ${nextTemplate.name}`"
+        >
+          {{ nextTemplate.name }}
+        </router-link>
+        <span class="template-pending-description">will trigger when Claude finishes</span>
       </div>
     </div>
 
@@ -273,6 +280,7 @@
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
+import { useTemplatesStore } from '../stores/templates.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import { api } from '../composables/useApi.js';
@@ -299,6 +307,7 @@ const props = defineProps({
 
 const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
+const templatesStore = useTemplatesStore();
 const quickResponsesStore = useQuickResponsesStore();
 
 const input = ref('');
@@ -383,6 +392,13 @@ const isSendDisabled = computed(() => {
 // Check if there are any assistant messages for the scroll-to-claude button
 const hasAssistantMessages = computed(() => {
   return sessionsStore.messages.some(msg => msg.role === 'assistant');
+});
+
+// Computed property to get template details for the next template indicator
+const nextTemplate = computed(() => {
+  const templateId = sessionsStore.currentSession?.nextTemplateId;
+  if (!templateId) return null;
+  return templatesStore.getTemplateById(templateId);
 });
 
 // Subscribe to partial messages for streaming, work logs, and conversation events
@@ -1258,8 +1274,20 @@ async function handleBranchCreate({ messageId, prompt }) {
   font-weight: 500;
 }
 
-.template-pending-name {
-  color: var(--color-text);
+.template-pending-link {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s;
+}
+
+.template-pending-link:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.template-pending-description {
+  color: var(--color-text-soft);
   font-size: 0.75rem;
   font-style: italic;
 }
