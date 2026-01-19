@@ -119,14 +119,14 @@
     />
 
     <form v-if="canSendMessage" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
-      <textarea
+      <ResizableTextarea
         ref="textareaRef"
         class="form-input form-textarea"
         :placeholder="(isDraft || isScheduledDraft) ? 'Edit your prompt...' : 'Send a follow-up message...'"
-        rows="3"
+        :min-height="80"
         @input="handleInput"
         @keydown="handleKeydown"
-      ></textarea>
+      />
       <div class="input-controls">
         <div class="session-options">
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
@@ -286,6 +286,7 @@ import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
 import BranchEditor from './BranchEditor.vue';
 import ScheduleSessionModal from './ScheduleSessionModal.vue';
+import ResizableTextarea from './ResizableTextarea.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 const props = defineProps({

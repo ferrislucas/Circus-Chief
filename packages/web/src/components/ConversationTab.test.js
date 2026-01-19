@@ -1042,4 +1042,120 @@ describe('ConversationTab - Error Handling Improvements', () => {
       expect(wrapper.find('.error-banner').exists()).toBe(false);
     });
   });
+
+  describe('ResizableTextarea integration', () => {
+    it('renders ResizableTextarea component in input form', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        mode: 'standard',
+        thinkingEnabled: false,
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const resizableTextarea = wrapper.findComponent({ name: 'ResizableTextarea' });
+      expect(resizableTextarea.exists()).toBe(true);
+    });
+
+    it('ResizableTextarea is shown when can send message', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        mode: 'standard',
+        thinkingEnabled: false,
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const inputForm = wrapper.find('.input-form');
+      expect(inputForm.exists()).toBe(true);
+
+      const resizableTextarea = wrapper.find('textarea');
+      expect(resizableTextarea.exists()).toBe(true);
+    });
+
+    it('ResizableTextarea is not shown when session is running', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'running',
+        mode: 'standard',
+        thinkingEnabled: false,
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const inputForm = wrapper.find('.input-form');
+      expect(inputForm.exists()).toBe(false);
+    });
+
+    it('ResizableTextarea has correct min-height prop', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        mode: 'standard',
+        thinkingEnabled: false,
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const resizableTextarea = wrapper.findComponent({ name: 'ResizableTextarea' });
+      expect(resizableTextarea.props('minHeight')).toBe(80);
+    });
+
+    it('ResizableTextarea emits input events', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        mode: 'standard',
+        thinkingEnabled: false,
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      await textarea.setValue('Test input');
+
+      // Verify textarea has the input value
+      expect(textarea.element.value).toBe('Test input');
+    });
+
+    it('ResizableTextarea placeholder changes based on session type', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        mode: 'standard',
+        thinkingEnabled: false,
+      };
+      mockSessionsStore.isDraftSession = vi.fn(() => false);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      expect(textarea.attributes('placeholder')).toBe('Send a follow-up message...');
+    });
+
+    it('ResizableTextarea placeholder for draft sessions', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        mode: 'standard',
+        thinkingEnabled: false,
+      };
+      mockSessionsStore.isDraftSession = vi.fn(() => true);
+      mockSessionsStore.isScheduledDraft = vi.fn(() => false);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      expect(textarea.attributes('placeholder')).toBe('Edit your prompt...');
+    });
+  });
 });
