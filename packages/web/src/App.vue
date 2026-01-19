@@ -9,7 +9,7 @@
     </header>
 
     <main class="app-main">
-      <router-view />
+      <router-view :key="$route.fullPath" />
     </main>
 
     <ToastContainer />
