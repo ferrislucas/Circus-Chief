@@ -65,6 +65,7 @@
         :depth="depth + 1"
         :all-conversations="allConversations"
         :active-conversation-id="activeConversationId"
+        :show-bte="showBte"
         @select="$emit('select', $event)"
         @delete="$emit('delete', $event)"
       />
@@ -74,6 +75,9 @@
 
 <script setup>
 import { ref, computed } from 'vue';
+import { useSessionsStore } from '../stores/sessions.js';
+
+const sessionsStore = useSessionsStore();
 
 const props = defineProps({
   conversation: { type: Object, required: true },
@@ -81,6 +85,7 @@ const props = defineProps({
   depth: { type: Number, default: 0 },
   allConversations: { type: Array, required: true },
   activeConversationId: { type: String, default: null },
+  showBte: { type: Boolean, default: false },
 });
 
 defineEmits(['select', 'delete']);
@@ -125,6 +130,13 @@ function formatTokens(n) {
 }
 
 const tokenDisplay = computed(() => {
+  // Show BTE (cost score) if enabled
+  if (props.showBte) {
+    const bte = sessionsStore.getFormattedConversationBillableTokens(props.conversation.id);
+    return bte && bte !== '-' && bte !== '0' ? bte : null;
+  }
+
+  // Otherwise show raw token total
   const total = (props.conversation.inputTokens || 0) +
     (props.conversation.outputTokens || 0) +
     (props.conversation.cacheReadInputTokens || 0) +

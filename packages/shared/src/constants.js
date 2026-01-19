@@ -3,6 +3,17 @@ export const DEFAULT_SERVER_PORT = 5000;
 export const API_PREFIX = '/api';
 export const WS_PATH = '/ws';
 
+/**
+ * Default token cost weights for calculating Billable Token Equivalent (BTE)
+ * These weights represent relative costs compared to input tokens (1.0 = base rate)
+ */
+export const DEFAULT_TOKEN_COST_WEIGHTS = {
+  input: 1.0,        // Base rate
+  output: 5.0,       // 5x input cost (output tokens are more expensive)
+  cacheRead: 0.1,    // 90% discount for cache reads
+  cacheCreation: 1.25 // 25% premium for cache creation
+};
+
 export const MAX_JSON_SIZE = '50mb';
 
 export const WS_RECONNECT_BASE_DELAY = 2000;

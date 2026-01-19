@@ -1,9 +1,43 @@
+import { DEFAULT_TOKEN_COST_WEIGHTS } from './constants.js';
+
 /**
  * Generate a short random ID (4 hex characters)
  * @returns {string}
  */
 export function generateShortId() {
   return Math.random().toString(16).substring(2, 6);
+}
+
+/**
+ * Calculate Billable Token Equivalent (BTE) - a cost-weighted token score
+ * @param {Object} usage - Token usage object
+ * @param {number} [usage.inputTokens] - Number of input tokens
+ * @param {number} [usage.outputTokens] - Number of output tokens
+ * @param {number} [usage.cacheReadInputTokens] - Number of cache read tokens
+ * @param {number} [usage.cacheCreationInputTokens] - Number of cache creation tokens
+ * @param {Object} [weights] - Custom weights (defaults to DEFAULT_TOKEN_COST_WEIGHTS)
+ * @returns {number} The calculated BTE score
+ */
+export function calculateBillableTokens(usage, weights = DEFAULT_TOKEN_COST_WEIGHTS) {
+  if (!usage) return 0;
+  return Math.round(
+    (usage.inputTokens || 0) * weights.input +
+    (usage.outputTokens || 0) * weights.output +
+    (usage.cacheReadInputTokens || 0) * weights.cacheRead +
+    (usage.cacheCreationInputTokens || 0) * weights.cacheCreation
+  );
+}
+
+/**
+ * Format a token count for display (e.g., 1234 → "1.2K", 1234567 → "1.2M")
+ * @param {number} n - The token count
+ * @returns {string} Formatted string
+ */
+export function formatTokenCount(n) {
+  if (!n || n === 0) return '0';
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(n);
 }
 
 /**
