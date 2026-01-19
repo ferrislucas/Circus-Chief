@@ -1,7 +1,7 @@
 <template>
   <div class="canvas-file-list">
-    <!-- Header with select all checkbox -->
-    <div class="list-header" v-if="showSelectionUI">
+    <!-- Header with select all checkbox - hidden when bulk toolbar is showing -->
+    <div class="list-header" v-if="showSelectionUI && selectedCount === 0">
       <input
         type="checkbox"
         class="select-all-checkbox"
@@ -12,9 +12,6 @@
         aria-label="Select all items"
       />
       <span class="header-label">Items</span>
-      <span class="selection-count" v-if="selectedCount > 0">
-        {{ selectedCount }} selected
-      </span>
     </div>
 
     <div
@@ -349,13 +346,18 @@ function formatRelativeTime(timestamp) {
   }
 
   .file-name {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 150px;
   }
 
   .file-type {
+    display: none;
+  }
+
+  .file-time {
     display: none;
   }
 
