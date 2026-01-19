@@ -9,6 +9,12 @@
       </div>
 
       <div class="modal-body">
+        <!-- Command Section -->
+        <div v-if="button.command" class="command-section">
+          <span class="section-label">Command:</span>
+          <code class="command-text">{{ button.command }}</code>
+        </div>
+
         <!-- Status Section -->
         <div class="status-section">
           <div class="status-row">
@@ -33,10 +39,18 @@
               <span class="detail-label">Started:</span>
               <span class="detail-value">{{ formatTime(latestRun.startedAt) }}</span>
             </div>
+            <div class="detail-row">
+              <span class="detail-label">Run ID:</span>
+              <span class="detail-value monospace">{{ latestRun.runId }}</span>
+            </div>
           </div>
 
           <!-- Success status details -->
           <div v-else-if="latestRun.status === 'success'" class="status-details">
+            <div v-if="duration" class="detail-row">
+              <span class="detail-label">Duration:</span>
+              <span class="detail-value">{{ duration }}</span>
+            </div>
             <div class="detail-row">
               <span class="detail-label">Exit Code:</span>
               <span class="detail-value">{{ latestRun.exitCode ?? 'N/A' }}</span>
@@ -45,10 +59,18 @@
               <span class="detail-label">Completed:</span>
               <span class="detail-value">{{ formatTime(latestRun.completedAt) }}</span>
             </div>
+            <div class="detail-row">
+              <span class="detail-label">Run ID:</span>
+              <span class="detail-value monospace">{{ latestRun.runId }}</span>
+            </div>
           </div>
 
           <!-- Error status details -->
           <div v-else-if="latestRun.status === 'error'" class="status-details">
+            <div v-if="duration" class="detail-row">
+              <span class="detail-label">Duration:</span>
+              <span class="detail-value">{{ duration }}</span>
+            </div>
             <div class="detail-row">
               <span class="detail-label">Exit Code:</span>
               <span class="detail-value">{{ latestRun.exitCode ?? 'N/A' }}</span>
@@ -56,6 +78,10 @@
             <div class="detail-row">
               <span class="detail-label">Failed:</span>
               <span class="detail-value">{{ formatTime(latestRun.completedAt) }}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Run ID:</span>
+              <span class="detail-value monospace">{{ latestRun.runId }}</span>
             </div>
           </div>
         </div>
@@ -106,6 +132,20 @@ const statusDisplay = computed(() => {
     default:
       return { text: 'Unknown', color: 'pending' };
   }
+});
+
+const duration = computed(() => {
+  if (!props.latestRun?.completedAt || !props.latestRun?.startedAt) {
+    return null;
+  }
+  const durationMs = props.latestRun.completedAt - props.latestRun.startedAt;
+  const seconds = Math.floor(durationMs / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (minutes > 0) {
+    return `${minutes}m ${secs}s`;
+  }
+  return `${secs}s`;
 });
 
 const updateElapsedTime = () => {
@@ -242,6 +282,39 @@ onBeforeUnmount(() => {
 .modal-body {
   padding: 1.5rem 1.25rem;
   color: var(--color-text);
+}
+
+.command-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.section-label {
+  font-weight: 600;
+  color: var(--color-text-soft);
+  font-size: 0.85rem;
+}
+
+.command-text {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Consolas', monospace;
+  font-size: 0.85rem;
+  background-color: rgba(0, 0, 0, 0.3);
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  color: var(--color-text);
+  word-break: break-all;
+  overflow-x: auto;
+  max-height: 100px;
+  display: block;
+}
+
+.monospace {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Consolas', monospace;
+  font-size: 0.8rem;
 }
 
 .status-section {
