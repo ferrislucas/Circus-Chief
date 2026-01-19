@@ -78,7 +78,7 @@ export class SessionRepository extends BaseRepository {
     return this.getById(id);
   }
 
-  getByProjectId(projectId, { archived = null, starred = null } = {}) {
+  getByProjectId(projectId, { archived = null, starred = null, limit = null, offset = 0 } = {}) {
     let sql = `SELECT * FROM sessions WHERE project_id = ?`;
     const params = [projectId];
 
@@ -98,8 +98,39 @@ export class SessionRepository extends BaseRepository {
       created_at DESC,
       rowid DESC`;
 
+    // Add LIMIT/OFFSET for pagination
+    if (limit !== null) {
+      sql += ` LIMIT ? OFFSET ?`;
+      params.push(limit, offset);
+    }
+
     const rows = this.db.prepare(sql).all(...params);
     return this.mapAll(rows);
+  }
+
+  /**
+   * Get count of sessions for a project with optional filters
+   * @param {string} projectId - Project ID
+   * @param {Object} options - Filter options
+   * @param {boolean|null} options.archived - Filter by archived status
+   * @param {boolean|null} options.starred - Filter by starred status
+   * @returns {number} Count of matching sessions
+   */
+  getCountByProjectId(projectId, { archived = null, starred = null } = {}) {
+    let sql = `SELECT COUNT(*) as count FROM sessions WHERE project_id = ?`;
+    const params = [projectId];
+
+    if (archived !== null) {
+      sql += ` AND archived = ?`;
+      params.push(archived ? 1 : 0);
+    }
+
+    if (starred !== null) {
+      sql += ` AND starred = ?`;
+      params.push(starred ? 1 : 0);
+    }
+
+    return this.db.prepare(sql).get(...params).count;
   }
 
   getActiveAndWaiting() {

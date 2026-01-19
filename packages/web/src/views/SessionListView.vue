@@ -167,7 +167,7 @@
 
     <!-- Archived Tab -->
     <div v-if="activeTab === 'archived'">
-      <div v-if="sessionsStore.loading" class="skeleton-list">
+      <div v-if="sessionsStore.archivedPagination.loading && sessionsStore.archivedSessions.length === 0" class="skeleton-list">
         <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
       </div>
 
@@ -194,6 +194,18 @@
           @retry-summary="retryFetchSummary"
           @unarchive="handleUnarchive"
         />
+
+        <!-- Load More Button -->
+        <div v-if="sessionsStore.archivedPagination.hasMore" class="load-more-container">
+          <button
+            class="btn btn-secondary"
+            :disabled="sessionsStore.archivedPagination.loading"
+            @click="loadMoreArchived"
+          >
+            <span v-if="sessionsStore.archivedPagination.loading">Loading...</span>
+            <span v-else>Load More ({{ archivedRemaining }} remaining)</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -357,6 +369,12 @@ const summaryErrors = reactive({});
 
 // Track if archived sessions have been loaded
 const archivedLoaded = ref(false);
+
+// Computed property for remaining archived sessions
+const archivedRemaining = computed(() => {
+  const { total, offset } = sessionsStore.archivedPagination;
+  return Math.max(0, total - offset);
+});
 
 // Scheduled sessions state - use store instead of local refs
 const scheduledSessions = computed(() => sessionsStore.scheduledSessions || []);
@@ -607,6 +625,11 @@ function fetchArchivedSummaries() {
   }
 }
 
+async function loadMoreArchived() {
+  await sessionsStore.loadMoreArchivedSessions(projectId.value);
+  fetchArchivedSummaries(); // Fetch summaries for newly loaded sessions
+}
+
 async function fetchScheduledSessions() {
   await sessionsStore.fetchScheduledSessions(projectId.value);
 }
@@ -743,6 +766,12 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.load-more-container {
+  display: flex;
+  justify-content: center;
+  padding: 1.5rem;
 }
 
 .status-filters {
