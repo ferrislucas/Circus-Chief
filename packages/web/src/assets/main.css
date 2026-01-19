@@ -34,6 +34,18 @@
   padding: 0;
 }
 
+/* Prevent double-tap and pinch zoom on iOS/iPadOS */
+html {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Ensure interactive elements also respect this */
+button, a, input, select, textarea {
+  touch-action: manipulation;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   background-color: var(--color-background);
@@ -191,11 +203,6 @@ input, textarea, select {
 .status-running {
   background-color: rgba(63, 185, 80, 0.2);
   color: var(--color-success);
-}
-
-.status-waiting {
-  background-color: rgba(210, 153, 34, 0.2);
-  color: var(--color-warning);
 }
 
 .status-completed {

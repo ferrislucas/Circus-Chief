@@ -349,7 +349,7 @@ describe('SessionCard', () => {
   });
 
   describe('status badge classes', () => {
-    const statuses = ['running', 'waiting', 'error', 'stopped'];
+    const statuses = ['running', 'error', 'stopped'];
 
     statuses.forEach((status) => {
       it(`applies correct class for ${status} status`, () => {
@@ -358,6 +358,13 @@ describe('SessionCard', () => {
         });
         expect(wrapper.find('.status-badge').classes()).toContain(`status-${status}`);
       });
+    });
+
+    it('does not display status badge for waiting status', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.status-badge').exists()).toBe(false);
     });
   });
 
