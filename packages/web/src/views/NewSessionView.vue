@@ -14,16 +14,16 @@
       />
 
       <div class="form-group">
-        <textarea
+        <ResizableTextarea
           id="prompt"
           ref="textareaRef"
           class="form-input form-textarea"
           placeholder="What would you like Claude to help you with?"
-          rows="5"
+          :min-height="120"
           required
           @input="handleInput"
           @keydown="handleKeydown"
-        ></textarea>
+        />
         <div class="attachment-row">
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
         </div>
@@ -186,6 +186,7 @@ import ModelSelector from '../components/ModelSelector.vue';
 import ModeSelector from '../components/ModeSelector.vue';
 import QuickResponsesPanel from '../components/QuickResponsesPanel.vue';
 import SchedulingOptions from '../components/SchedulingOptions.vue';
+import ResizableTextarea from '../components/ResizableTextarea.vue';
 
 const route = useRoute();
 const router = useRouter();
