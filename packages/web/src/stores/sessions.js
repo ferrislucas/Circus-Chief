@@ -16,6 +16,7 @@ export const useSessionsStore = defineStore('sessions', {
     expandedSessions: new Set(), // Track which parent sessions are expanded
     statusFilter: null, // 'running' | 'idle' | null (null = show all)
     starredFilter: null, // 'starred' | 'unstarred' | null (null = show all)
+    scheduledFilter: null, // 'scheduled' | 'not-scheduled' | null (null = show all)
     runningUsage: null, // Partial usage during a turn
     loading: false,
     loadingScheduled: false,
@@ -1357,6 +1358,46 @@ export const useSessionsStore = defineStore('sessions', {
         }
       } catch (error) {
         console.warn('Failed to restore starred filter:', error);
+      }
+    },
+
+    /**
+     * Set scheduled filter and persist to sessionStorage
+     * @param {string|null} filter - 'scheduled' | 'not-scheduled' | null (null = show all)
+     */
+    setScheduledFilter(filter) {
+      this.scheduledFilter = filter;
+      this.saveScheduledFilter();
+    },
+
+    /**
+     * Save scheduled filter to sessionStorage
+     */
+    saveScheduledFilter() {
+      try {
+        if (this.scheduledFilter) {
+          sessionStorage.setItem('sessionScheduledFilter', this.scheduledFilter);
+        } else {
+          sessionStorage.removeItem('sessionScheduledFilter');
+        }
+      } catch (error) {
+        console.warn('Failed to save scheduled filter:', error);
+      }
+    },
+
+    /**
+     * Restore scheduled filter from sessionStorage
+     */
+    restoreScheduledFilter() {
+      try {
+        const filter = sessionStorage.getItem('sessionScheduledFilter');
+        if (filter === 'scheduled' || filter === 'not-scheduled') {
+          this.scheduledFilter = filter;
+        } else {
+          this.scheduledFilter = null;
+        }
+      } catch (error) {
+        console.warn('Failed to restore scheduled filter:', error);
       }
     },
 
