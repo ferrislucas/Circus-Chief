@@ -1039,6 +1039,37 @@ export class ApiClient {
   async reorderGlobalQuickResponses(orders) {
     return this.#request('POST', '/quick-responses/global/reorder', orders);
   }
+
+  // Settings
+
+  /**
+   * Get token cost weights
+   * @returns {Promise<{input: number, output: number, cacheRead: number, cacheCreation: number}>}
+   */
+  async getTokenCostWeights() {
+    return this.#request('GET', '/settings/token-weights');
+  }
+
+  /**
+   * Update token cost weights
+   * @param {Object} weights - Token cost weights
+   * @param {number} weights.input - Input token weight
+   * @param {number} weights.output - Output token weight
+   * @param {number} weights.cacheRead - Cache read token weight
+   * @param {number} weights.cacheCreation - Cache creation token weight
+   * @returns {Promise<{input: number, output: number, cacheRead: number, cacheCreation: number}>}
+   */
+  async updateTokenCostWeights(weights) {
+    return this.#request('PUT', '/settings/token-weights', weights);
+  }
+
+  /**
+   * Reset token cost weights to defaults
+   * @returns {Promise<{input: number, output: number, cacheRead: number, cacheCreation: number}>}
+   */
+  async resetTokenCostWeights() {
+    return this.#request('DELETE', '/settings/token-weights');
+  }
 }
 
 // Singleton instance
