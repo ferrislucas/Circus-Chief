@@ -144,7 +144,7 @@ describe('ConversationTab - formatModelName function', () => {
       const model = 'claude-opus-4-5-20251101';
       const formatted = formatModelName(model);
       // Verify it has expected format
-      expect(formatted).toMatch(/^claude-[a-z0-9.\-]+$/);
+      expect(formatted).toMatch(/^claude-[a-z0-9.-]+$/);
     });
 
     it('provides readable format for display', () => {
