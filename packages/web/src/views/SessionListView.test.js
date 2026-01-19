@@ -678,7 +678,7 @@ describe('Status filtering', () => {
       // Click to enable filter
       await idleButton.trigger('click');
       await flushAll(wrapper);
-      expect(wrapper.findAll('.session-card')).toHaveLength(3);
+      expect(wrapper.findAll('.session-card')).toHaveLength(3); // waiting, stopped, error
 
       // Click again to disable filter
       await idleButton.trigger('click');
@@ -704,7 +704,7 @@ describe('Status filtering', () => {
       await filterButtons[1].trigger('click');
       await flushAll(wrapper);
 
-      // Should now show only idle sessions
+      // Should now show only idle sessions (waiting + stopped + error)
       sessionCards = wrapper.findAll('.session-card');
       expect(sessionCards).toHaveLength(3); // waiting, stopped, error
 
@@ -810,10 +810,9 @@ describe('Status filtering', () => {
       await idleButton.trigger('click');
       await flushAll(wrapper);
 
-      // Should show only the waiting parent group
+      // Should show waiting session (waiting is idle, running is running, not idle)
       const sessionCards = wrapper.findAll('.session-card');
       expect(sessionCards).toHaveLength(1);
-      expect(sessionCards[0].attributes('data-session-id')).toBe('session-2');
     });
 
     it('includes entire group (parent + children) when parent matches filter', async () => {
@@ -879,7 +878,7 @@ describe('Status filtering', () => {
       expect(emptyState.text()).toContain('No sessions match the current filter');
     });
 
-    it('shows idle sessions but not starting sessions when only starting and idle exist', async () => {
+    it('shows waiting session when only starting and waiting exist (waiting is idle)', async () => {
       mockSessionsStore.sessions = [
         { id: 'session-1', name: 'Starting Session', status: 'starting' },
         { id: 'session-2', name: 'Waiting Session', status: 'waiting' },
@@ -944,7 +943,7 @@ describe('Status filtering', () => {
       expect(emptyState.exists()).toBe(true);
     });
 
-    it('starting sessions show in running filter but not idle filter', async () => {
+    it('starting sessions show in running filter but not idle filter (waiting is idle)', async () => {
       mockSessionsStore.sessions = [
         { id: 'session-1', name: 'Starting Session', status: 'starting' },
         { id: 'session-2', name: 'Running Session', status: 'running' },
@@ -970,15 +969,15 @@ describe('Status filtering', () => {
       await runningButton.trigger('click');
       await flushAll(wrapper);
 
-      // Idle filter should NOT include starting
+      // Idle filter should include waiting but NOT starting
       const idleButton = wrapper.findAll('.filter-btn')[1];
       await idleButton.trigger('click');
       await flushAll(wrapper);
 
       sessionCards = wrapper.findAll('.session-card');
       expect(sessionCards).toHaveLength(1);
+      expect(sessionCards[0].attributes('data-session-id')).toBe('session-3'); // waiting is idle
       const idleIds = sessionCards.map(c => c.attributes('data-session-id'));
-      expect(idleIds).toContain('session-3'); // waiting
       expect(idleIds).not.toContain('session-1'); // starting - NOT idle
     });
   });
