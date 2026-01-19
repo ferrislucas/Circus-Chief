@@ -97,6 +97,22 @@
           <span class="star-icon star-crossed" v-else-if="sessionsStore.starredFilter === 'unstarred'">⭐</span>
           <span class="star-icon" v-else>☆</span>
         </button>
+        <button
+          :class="[
+            'filter-btn clock-btn',
+            {
+              'clock-filter-active': sessionsStore.scheduledFilter === 'scheduled',
+              'clock-filter-inactive': sessionsStore.scheduledFilter === 'not-scheduled',
+              'clock-filter-all': sessionsStore.scheduledFilter === null
+            }
+          ]"
+          :title="clockFilterTooltip"
+          @click="toggleClockFilterIcon"
+        >
+          <span class="clock-icon" v-if="sessionsStore.scheduledFilter === 'scheduled'">🕐</span>
+          <span class="clock-icon clock-crossed" v-else-if="sessionsStore.scheduledFilter === 'not-scheduled'">🕐</span>
+          <span class="clock-icon" v-else>⏰</span>
+        </button>
       </div>
     </div>
 
@@ -118,6 +134,22 @@
           <span class="star-icon" v-if="sessionsStore.starredFilter === 'starred'">⭐</span>
           <span class="star-icon star-crossed" v-else-if="sessionsStore.starredFilter === 'unstarred'">⭐</span>
           <span class="star-icon" v-else>☆</span>
+        </button>
+        <button
+          :class="[
+            'filter-btn clock-btn',
+            {
+              'clock-filter-active': sessionsStore.scheduledFilter === 'scheduled',
+              'clock-filter-inactive': sessionsStore.scheduledFilter === 'not-scheduled',
+              'clock-filter-all': sessionsStore.scheduledFilter === null
+            }
+          ]"
+          :title="clockFilterTooltip"
+          @click="toggleClockFilterIcon"
+        >
+          <span class="clock-icon" v-if="sessionsStore.scheduledFilter === 'scheduled'">🕐</span>
+          <span class="clock-icon clock-crossed" v-else-if="sessionsStore.scheduledFilter === 'not-scheduled'">🕐</span>
+          <span class="clock-icon" v-else>⏰</span>
         </button>
       </div>
     </div>
@@ -301,6 +333,27 @@ const starFilterTooltip = computed(() => {
   }
 });
 
+const toggleClockFilterIcon = () => {
+  // Cycle through three states: null -> scheduled -> not-scheduled -> null
+  if (sessionsStore.scheduledFilter === null) {
+    sessionsStore.setScheduledFilter('scheduled');
+  } else if (sessionsStore.scheduledFilter === 'scheduled') {
+    sessionsStore.setScheduledFilter('not-scheduled');
+  } else {
+    sessionsStore.setScheduledFilter(null);
+  }
+};
+
+const clockFilterTooltip = computed(() => {
+  if (sessionsStore.scheduledFilter === 'scheduled') {
+    return 'Showing scheduled sessions only. Click to filter non-scheduled.';
+  } else if (sessionsStore.scheduledFilter === 'not-scheduled') {
+    return 'Showing non-scheduled sessions only. Click to show all.';
+  } else {
+    return 'Showing all sessions. Click to filter by scheduled.';
+  }
+});
+
 // Handle tab change from mobile dropdown
 function handleTabChange(tab) {
   const projectId = route.params.id;
@@ -315,7 +368,7 @@ function handleTabChange(tab) {
 }
 
 // Statuses that count as "idle" (not actively running)
-const IDLE_STATUSES = ['waiting', 'stopped', 'error'];
+const IDLE_STATUSES = ['waiting', 'stopped', 'error', 'scheduled'];
 // Statuses that count as "running" (actively processing or starting up)
 const RUNNING_STATUSES = ['running', 'starting'];
 
@@ -343,6 +396,13 @@ const filteredGroupedSessions = computed(() => {
     groups = groups.filter(group => group.parent.starred);
   } else if (sessionsStore.starredFilter === 'unstarred') {
     groups = groups.filter(group => !group.parent.starred);
+  }
+
+  // Apply scheduled filter if set
+  if (sessionsStore.scheduledFilter === 'scheduled') {
+    groups = groups.filter(group => group.parent.status === 'scheduled');
+  } else if (sessionsStore.scheduledFilter === 'not-scheduled') {
+    groups = groups.filter(group => group.parent.status !== 'scheduled');
   }
 
   return groups;
@@ -635,6 +695,7 @@ onMounted(() => {
   sessionsStore.restoreExpandedState();
   sessionsStore.restoreStatusFilter();
   sessionsStore.restoreStarredFilter();
+  sessionsStore.restoreScheduledFilter();
 });
 
 // Save expanded state and cleanup WebSocket listeners on unmount
@@ -814,6 +875,51 @@ onUnmounted(() => {
 
 /* Add diagonal line through the star */
 .star-crossed::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -10%;
+  right: -10%;
+  height: 2px;
+  background: currentColor; /* Inherits orange color */
+  transform: translateY(-50%) rotate(-45deg);
+  pointer-events: none;
+}
+
+/* Clock icon wrapper - enables positioning for the slash */
+.clock-icon {
+  position: relative;
+  display: inline-block;
+}
+
+/* Default state - no filter (show all) */
+.filter-btn.clock-filter-all {
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text-soft);
+}
+
+.filter-btn.clock-filter-all:hover {
+  border-color: var(--color-primary);
+  color: var(--color-text);
+}
+
+/* Active state - filter by scheduled */
+.filter-btn.clock-filter-active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+/* Inactive state - filter by not scheduled (EXCLUDE scheduled) */
+.filter-btn.clock-filter-inactive {
+  background: transparent;
+  border-color: #f97316; /* Orange for "exclude/negative" action */
+  color: #f97316; /* Orange clock */
+}
+
+/* Add diagonal line through the clock */
+.clock-crossed::after {
   content: '';
   position: absolute;
   top: 50%;

@@ -141,6 +141,9 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
     archivedSessions: [],
     statusFilter: null,
     starredFilter: null,
+    scheduledFilter: null,
+    scheduledSessions: [],
+    loadingScheduled: false,
     get groupedSessions() {
       // Derive groupedSessions from sessions like the real store does
       const grouped = [];
@@ -177,6 +180,12 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
       this.starredFilter = filter;
     }),
     saveStarredFilter: vi.fn(),
+    restoreScheduledFilter: vi.fn(),
+    setScheduledFilter: vi.fn(function(filter) {
+      this.scheduledFilter = filter;
+    }),
+    saveScheduledFilter: vi.fn(),
+    fetchScheduledSessions: vi.fn().mockResolvedValue(),
     ...overrides,
   });
   return baseStore;
@@ -464,10 +473,11 @@ describe('Status filtering', () => {
       await flushAll(wrapper);
 
       const filterButtons = wrapper.findAll('.filter-btn');
-      expect(filterButtons).toHaveLength(3);
+      expect(filterButtons).toHaveLength(4);
       expect(filterButtons[0].text()).toBe('running');
       expect(filterButtons[1].text()).toBe('idle');
       expect(filterButtons[2].classes()).toContain('star-btn');
+      expect(filterButtons[3].classes()).toContain('clock-btn');
     });
 
     it('only shows filter buttons on sessions tab', async () => {
