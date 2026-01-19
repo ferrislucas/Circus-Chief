@@ -18,6 +18,7 @@ export const useSessionsStore = defineStore('sessions', {
     expandedSessions: new Set(), // Track which parent sessions are expanded
     statusFilter: null, // 'running' | 'idle' | null (null = show all)
     starredFilter: null, // 'starred' | 'unstarred' | null (null = show all)
+    scheduledFilter: null, // 'scheduled' | 'not-scheduled' | null (null = show all)
     runningUsage: null, // Partial usage during a turn
     loading: false,
     loadingScheduled: false,
@@ -94,6 +95,179 @@ export const useSessionsStore = defineStore('sessions', {
 
     isSessionExpanded: (state) => (sessionId) => {
       return state.expandedSessions.has(sessionId);
+    },
+
+    /**
+     * Get all descendants of a session (children, grandchildren, etc.)
+     * @param {string} sessionId - The session ID
+     * @returns {Array} All descendant sessions
+     */
+    getAllDescendants: (state) => (sessionId) => {
+      const descendants = [];
+      const stack = [sessionId];
+      const visited = new Set();
+
+      while (stack.length > 0) {
+        const currentId = stack.pop();
+        if (visited.has(currentId)) continue;
+        visited.add(currentId);
+
+        const children = state.sessions.filter((s) => s.parentSessionId === currentId);
+        for (const child of children) {
+          descendants.push(child);
+          stack.push(child.id);
+        }
+      }
+
+      return descendants;
+    },
+
+    /**
+     * Get the effective status for a workflow (root session + all descendants)
+     * @param {string} rootSessionId - The root session ID
+     * @returns {'running' | 'idle'} The effective status for filtering
+     */
+    getWorkflowEffectiveStatus: (state) => (rootSessionId) => {
+      // Get the root session
+      const root = state.sessions.find((s) => s.id === rootSessionId);
+      if (!root) return 'idle';
+
+      // Get all descendants
+      const allSessions = [root];
+      const stack = [rootSessionId];
+      const visited = new Set();
+
+      while (stack.length > 0) {
+        const currentId = stack.pop();
+        if (visited.has(currentId)) continue;
+        visited.add(currentId);
+
+        const children = state.sessions.filter((s) => s.parentSessionId === currentId);
+        for (const child of children) {
+          allSessions.push(child);
+          stack.push(child.id);
+        }
+      }
+
+      // Check if any session in the workflow is running
+      const runningStatuses = ['running', 'starting'];
+      const hasRunning = allSessions.some((s) => runningStatuses.includes(s.status));
+
+      return hasRunning ? 'running' : 'idle';
+    },
+
+    /**
+     * Get the path from root to a specific session (for breadcrumbs)
+     * @param {string} sessionId - The session ID
+     * @returns {Array} Array of sessions from root to this session
+     */
+    getSessionPath: (state) => (sessionId) => {
+      const path = [];
+
+      // Helper to find a session in either sessions array or currentSession
+      const findSession = (id) => {
+        if (state.currentSession?.id === id) return state.currentSession;
+        return state.sessions.find((s) => s.id === id);
+      };
+
+      let current = findSession(sessionId);
+
+      while (current) {
+        path.unshift(current);
+        if (!current.parentSessionId) break;
+        current = findSession(current.parentSessionId);
+      }
+
+      return path;
+    },
+
+    /**
+     * Get the root session for a given session
+     * @param {string} sessionId - The session ID
+     * @returns {Object|null} The root session
+     */
+    getRootSession: (state) => (sessionId) => {
+      let current = state.sessions.find((s) => s.id === sessionId);
+      while (current?.parentSessionId) {
+        current = state.sessions.find((s) => s.id === current.parentSessionId);
+      }
+      return current || null;
+    },
+
+    /**
+     * Get aggregated workflow status for display and filtering
+     * @param {string} rootSessionId - The root session ID
+     * @returns {Object} Aggregated status info
+     */
+    getWorkflowAggregatedStatus: (state) => (rootSessionId) => {
+      // Get the root session
+      const root = state.sessions.find((s) => s.id === rootSessionId);
+      if (!root) {
+        return {
+          effectiveStatus: 'idle',
+          runningCount: 0,
+          scheduledCount: 0,
+          waitingCount: 0,
+          completedCount: 0,
+          errorCount: 0,
+          totalCount: 0,
+          hasScheduledDescendant: false,
+          rootIsScheduled: false,
+        };
+      }
+
+      // Get all sessions in the workflow
+      const allSessions = [root];
+      const stack = [rootSessionId];
+      const visited = new Set();
+
+      while (stack.length > 0) {
+        const currentId = stack.pop();
+        if (visited.has(currentId)) continue;
+        visited.add(currentId);
+
+        const children = state.sessions.filter((s) => s.parentSessionId === currentId);
+        for (const child of children) {
+          allSessions.push(child);
+          stack.push(child.id);
+        }
+      }
+
+      // Count statuses
+      const runningStatuses = ['running', 'starting'];
+      let runningCount = 0;
+      let scheduledCount = 0;
+      let waitingCount = 0;
+      let completedCount = 0;
+      let errorCount = 0;
+
+      for (const session of allSessions) {
+        if (runningStatuses.includes(session.status)) {
+          runningCount++;
+        } else if (session.status === 'scheduled') {
+          scheduledCount++;
+        } else if (session.status === 'waiting') {
+          waitingCount++;
+        } else if (session.status === 'completed' || session.status === 'stopped') {
+          completedCount++;
+        } else if (session.status === 'error') {
+          errorCount++;
+        }
+      }
+
+      const hasRunning = runningCount > 0;
+
+      return {
+        effectiveStatus: hasRunning ? 'running' : 'idle',
+        runningCount,
+        scheduledCount,
+        waitingCount,
+        completedCount,
+        errorCount,
+        totalCount: allSessions.length,
+        hasScheduledDescendant: allSessions.slice(1).some((s) => s.status === 'scheduled'),
+        rootIsScheduled: root.status === 'scheduled',
+      };
     },
 
     // Group sessions by parent for hierarchical display
@@ -533,6 +707,49 @@ export const useSessionsStore = defineStore('sessions', {
       this.error = null;
       try {
         this.currentSession = await api.getSession(id);
+
+        // Also fetch parent and child sessions for navigation
+        // This ensures related sessions are available in the store
+
+        // Fetch parent sessions for breadcrumb navigation
+        if (this.currentSession?.parentSessionId) {
+          let parentId = this.currentSession.parentSessionId;
+          while (parentId) {
+            // Check if parent is already in sessions array
+            const existingParent = this.sessions.find((s) => s.id === parentId);
+            if (existingParent) {
+              parentId = existingParent.parentSessionId;
+              continue;
+            }
+
+            // Fetch parent session and add to sessions array
+            try {
+              const parentSession = await api.getSession(parentId);
+              this.sessions.push(parentSession);
+              parentId = parentSession.parentSessionId;
+            } catch (error) {
+              console.error('Failed to fetch parent session:', error);
+              break;
+            }
+          }
+        }
+
+        // Fetch child sessions for child sessions panel
+        // Get all sessions for the project to find children
+        if (this.currentSession?.projectId) {
+          try {
+            const projectSessions = await api.getProjectSessions(this.currentSession.projectId);
+            // Add any child sessions that aren't already in the store
+            const childSessions = projectSessions.filter(s => s.parentSessionId === id);
+            for (const child of childSessions) {
+              if (!this.sessions.find(s => s.id === child.id)) {
+                this.sessions.push(child);
+              }
+            }
+          } catch (error) {
+            console.error('Failed to fetch child sessions:', error);
+          }
+        }
       } catch (err) {
         this.error = err.message;
       } finally {
@@ -1552,6 +1769,46 @@ export const useSessionsStore = defineStore('sessions', {
         }
       } catch (error) {
         console.warn('Failed to restore starred filter:', error);
+      }
+    },
+
+    /**
+     * Set scheduled filter and persist to sessionStorage
+     * @param {string|null} filter - 'scheduled' | 'not-scheduled' | null (null = show all)
+     */
+    setScheduledFilter(filter) {
+      this.scheduledFilter = filter;
+      this.saveScheduledFilter();
+    },
+
+    /**
+     * Save scheduled filter to sessionStorage
+     */
+    saveScheduledFilter() {
+      try {
+        if (this.scheduledFilter) {
+          sessionStorage.setItem('sessionScheduledFilter', this.scheduledFilter);
+        } else {
+          sessionStorage.removeItem('sessionScheduledFilter');
+        }
+      } catch (error) {
+        console.warn('Failed to save scheduled filter:', error);
+      }
+    },
+
+    /**
+     * Restore scheduled filter from sessionStorage
+     */
+    restoreScheduledFilter() {
+      try {
+        const filter = sessionStorage.getItem('sessionScheduledFilter');
+        if (filter === 'scheduled' || filter === 'not-scheduled') {
+          this.scheduledFilter = filter;
+        } else {
+          this.scheduledFilter = null;
+        }
+      } catch (error) {
+        console.warn('Failed to restore scheduled filter:', error);
       }
     },
 
