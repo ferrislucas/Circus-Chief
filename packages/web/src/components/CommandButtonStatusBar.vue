@@ -10,7 +10,7 @@
     <!-- Button Status Modal -->
     <ButtonStatusModal
       v-if="selectedButtonForModal"
-      :button="{ label: selectedButtonForModal.label }"
+      :button="{ label: selectedButtonForModal.label, command: selectedButtonForModal.command }"
       :latest-run="selectedButtonForModal.latestRun"
       :is-open="!!selectedButtonForModal"
       @close="selectedButtonForModal = null"

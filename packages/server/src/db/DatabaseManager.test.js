@@ -459,4 +459,115 @@ describe('DatabaseManager', () => {
       expect(conv.output_tokens).toBe(150);
     });
   });
+
+  describe('conversation_messages model column migration', () => {
+    it('has model column with TEXT type', () => {
+      const db = manager.get();
+      const columns = db.prepare('PRAGMA table_info(conversation_messages)').all();
+      const modelColumn = columns.find((col) => col.name === 'model');
+
+      expect(modelColumn).toBeDefined();
+      expect(modelColumn.type).toBe('TEXT');
+      expect(modelColumn.notnull).toBe(0); // nullable
+    });
+
+    it('allows messages with model field', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      // Create a project and session first
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-msg-model', 'Test Project', '/tmp', now, now);
+      db.prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('sess-msg-model', 'proj-msg-model', 'Test Session', 'running', now, now);
+
+      // Insert message with model
+      expect(() => {
+        db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+          .run('msg-1', 'sess-msg-model', 'assistant', 'Response', 'claude-opus-4-5-20251101', now);
+      }).not.toThrow();
+
+      // Verify the insert worked
+      const msg = db.prepare('SELECT * FROM conversation_messages WHERE id = ?').get('msg-1');
+      expect(msg.model).toBe('claude-opus-4-5-20251101');
+      expect(msg.content).toBe('Response');
+    });
+
+    it('allows messages without model field (backward compatibility)', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      // Create a project and session
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-msg-no-model', 'Test Project', '/tmp', now, now);
+      db.prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('sess-msg-no-model', 'proj-msg-no-model', 'Test Session', 'running', now, now);
+
+      // Insert message without model (old data)
+      expect(() => {
+        db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)')
+          .run('msg-2', 'sess-msg-no-model', 'user', 'Question', now);
+      }).not.toThrow();
+
+      // Verify the insert worked and model is null
+      const msg = db.prepare('SELECT * FROM conversation_messages WHERE id = ?').get('msg-2');
+      expect(msg.model).toBeNull();
+      expect(msg.content).toBe('Question');
+    });
+
+    it('stores different models for different assistant messages', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      // Create a project and session
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-msg-diff-models', 'Test Project', '/tmp', now, now);
+      db.prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('sess-msg-diff-models', 'proj-msg-diff-models', 'Test Session', 'running', now, now);
+
+      // Insert messages with different models
+      db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('msg-a1', 'sess-msg-diff-models', 'assistant', 'Answer 1', 'claude-opus-4-5-20251101', now);
+      db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('msg-a2', 'sess-msg-diff-models', 'assistant', 'Answer 2', 'claude-haiku-4-5-20251001', now);
+      db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('msg-a3', 'sess-msg-diff-models', 'assistant', 'Answer 3', 'claude-sonnet-4-5-20250929', now);
+
+      // Verify each message has correct model
+      const msg1 = db.prepare('SELECT model FROM conversation_messages WHERE id = ?').get('msg-a1');
+      const msg2 = db.prepare('SELECT model FROM conversation_messages WHERE id = ?').get('msg-a2');
+      const msg3 = db.prepare('SELECT model FROM conversation_messages WHERE id = ?').get('msg-a3');
+
+      expect(msg1.model).toBe('claude-opus-4-5-20251101');
+      expect(msg2.model).toBe('claude-haiku-4-5-20251001');
+      expect(msg3.model).toBe('claude-sonnet-4-5-20250929');
+    });
+
+    it('preserves model when selecting messages', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      // Create a project and session
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-msg-select-model', 'Test Project', '/tmp', now, now);
+      db.prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('sess-msg-select-model', 'proj-msg-select-model', 'Test Session', 'running', now, now);
+
+      // Insert mixed messages
+      db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('msg-u1', 'sess-msg-select-model', 'user', 'Question', null, now);
+      db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('msg-a1', 'sess-msg-select-model', 'assistant', 'Answer', 'claude-opus-4-5-20251101', now);
+
+      // Select all messages for session
+      const messages = db.prepare('SELECT * FROM conversation_messages WHERE session_id = ? ORDER BY timestamp ASC')
+        .all('sess-msg-select-model');
+
+      expect(messages).toHaveLength(2);
+      expect(messages[0].role).toBe('user');
+      expect(messages[0].model).toBeNull();
+      expect(messages[1].role).toBe('assistant');
+      expect(messages[1].model).toBe('claude-opus-4-5-20251101');
+    });
+  });
 });

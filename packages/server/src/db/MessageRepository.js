@@ -18,6 +18,7 @@ export class MessageRepository extends BaseRepository {
       content: row.content,
       toolUse: row.tool_use ? JSON.parse(row.tool_use) : null,
       timestamp: row.timestamp,
+      model: row.model,
     };
   }
 
@@ -28,17 +29,18 @@ export class MessageRepository extends BaseRepository {
    * @param {string} content - The message content
    * @param {Object|null} toolUse - Optional tool use data
    * @param {string|null} conversationId - Optional conversation ID
+   * @param {string|null} model - Optional model that generated this message (for assistant messages)
    * @returns {Object} The created message
    */
-  create(sessionId, role, content, toolUse = null, conversationId = null) {
+  create(sessionId, role, content, toolUse = null, conversationId = null, model = null) {
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO conversation_messages (id, session_id, conversation_id, role, content, tool_use, timestamp)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO conversation_messages (id, session_id, conversation_id, role, content, tool_use, model, timestamp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, sessionId, conversationId, role, content, toolUse ? JSON.stringify(toolUse) : null, now);
+      .run(id, sessionId, conversationId, role, content, toolUse ? JSON.stringify(toolUse) : null, model, now);
     return this.getById(id);
   }
 
@@ -126,7 +128,8 @@ export class MessageRepository extends BaseRepository {
           msg.role,
           msg.content,
           msg.toolUse,
-          targetConvId
+          targetConvId,
+          msg.model
         );
       }
     }
