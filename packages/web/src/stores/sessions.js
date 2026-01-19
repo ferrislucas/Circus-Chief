@@ -161,12 +161,19 @@ export const useSessionsStore = defineStore('sessions', {
      */
     getSessionPath: (state) => (sessionId) => {
       const path = [];
-      let current = state.sessions.find((s) => s.id === sessionId);
+
+      // Helper to find a session in either sessions array or currentSession
+      const findSession = (id) => {
+        if (state.currentSession?.id === id) return state.currentSession;
+        return state.sessions.find((s) => s.id === id);
+      };
+
+      let current = findSession(sessionId);
 
       while (current) {
         path.unshift(current);
         if (!current.parentSessionId) break;
-        current = state.sessions.find((s) => s.id === current.parentSessionId);
+        current = findSession(current.parentSessionId);
       }
 
       return path;
@@ -551,6 +558,49 @@ export const useSessionsStore = defineStore('sessions', {
       this.error = null;
       try {
         this.currentSession = await api.getSession(id);
+
+        // Also fetch parent and child sessions for navigation
+        // This ensures related sessions are available in the store
+
+        // Fetch parent sessions for breadcrumb navigation
+        if (this.currentSession?.parentSessionId) {
+          let parentId = this.currentSession.parentSessionId;
+          while (parentId) {
+            // Check if parent is already in sessions array
+            const existingParent = this.sessions.find((s) => s.id === parentId);
+            if (existingParent) {
+              parentId = existingParent.parentSessionId;
+              continue;
+            }
+
+            // Fetch parent session and add to sessions array
+            try {
+              const parentSession = await api.getSession(parentId);
+              this.sessions.push(parentSession);
+              parentId = parentSession.parentSessionId;
+            } catch (error) {
+              console.error('Failed to fetch parent session:', error);
+              break;
+            }
+          }
+        }
+
+        // Fetch child sessions for child sessions panel
+        // Get all sessions for the project to find children
+        if (this.currentSession?.projectId) {
+          try {
+            const projectSessions = await api.getProjectSessions(this.currentSession.projectId);
+            // Add any child sessions that aren't already in the store
+            const childSessions = projectSessions.filter(s => s.parentSessionId === id);
+            for (const child of childSessions) {
+              if (!this.sessions.find(s => s.id === child.id)) {
+                this.sessions.push(child);
+              }
+            }
+          } catch (error) {
+            console.error('Failed to fetch child sessions:', error);
+          }
+        }
       } catch (err) {
         this.error = err.message;
       } finally {
