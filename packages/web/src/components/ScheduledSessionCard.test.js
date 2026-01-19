@@ -42,7 +42,8 @@ describe('ScheduledSessionCard.vue', () => {
 
     expect(wrapper.find('.scheduled-session-card').exists()).toBe(true);
     expect(wrapper.find('.session-name').text()).toBe('Test Session');
-    expect(wrapper.find('.project-name').text()).toBe('Test Project');
+    // Session name is now clickable and links to session detail
+    expect(wrapper.find('.session-name-link').exists()).toBe(true);
     expect(wrapper.find('.status-scheduled').text()).toBe('scheduled');
   });
 
@@ -259,6 +260,7 @@ describe('ScheduledSessionCard.vue', () => {
     });
 
     expect(wrapper.find('.session-name').text()).toBe('Test Session');
-    expect(wrapper.find('.session-project').exists()).toBe(false);
+    // Project name is no longer displayed in the component
+    expect(wrapper.find('.session-name-link').exists()).toBe(true);
   });
 });

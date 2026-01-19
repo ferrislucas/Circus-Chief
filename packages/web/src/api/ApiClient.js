@@ -111,11 +111,13 @@ export class ApiClient {
   }
 
   /**
-   * Get all scheduled sessions across all projects
+   * Get all scheduled sessions (optionally filtered by project)
+   * @param {string|null} projectId - Optional project ID to filter by
    * @returns {Promise<Array>}
    */
-  async getScheduledSessions() {
-    return this.#request('GET', '/sessions/scheduled');
+  async getScheduledSessions(projectId = null) {
+    const params = projectId ? `?projectId=${projectId}` : '';
+    return this.#request('GET', `/sessions/scheduled${params}`);
   }
 
   /**
