@@ -35,7 +35,7 @@
         </div>
 
         <!-- Cost display (collapsed view) -->
-        <div v-if="!isExpanded" class="cost-display" @click="isExpanded = true">
+        <div v-if="!isExpanded" class="cost-display" @click="isExpanded = true" title="Billable Token Equivalent - weighted token cost where output tokens are 5x and cache varies">
           <span class="cost-label">Cost:</span>
           <span class="cost-value">{{ formattedBillableTokens }}</span>
           <span v-if="isUpdating" class="updating-indicator">
@@ -70,7 +70,7 @@
 
     <!-- Expanded token breakdown -->
     <div v-if="isExpanded" class="token-breakdown">
-      <div class="bte-header">
+      <div class="bte-header" title="Billable Token Equivalent - weighted token cost where output tokens are 5x and cache varies">
         <span class="bte-label">Cost:</span>
         <span class="bte-value">{{ formattedBillableTokens }}</span>
         <span v-if="isUpdating" class="updating-indicator">
@@ -93,14 +93,14 @@
           <div class="token-weight">×{{ weights.output }}</div>
           <div class="token-weighted">={{ formatWeighted(outputTokens, weights.output) }}</div>
         </div>
-        <div class="token-item">
-          <div class="token-type">Cache R</div>
+        <div class="token-item" title="Tokens read from cache (90% discount)">
+          <div class="token-type">Cache Read</div>
           <div class="token-count">{{ formattedTokens.cacheRead }}</div>
           <div class="token-weight">×{{ weights.cacheRead }}</div>
           <div class="token-weighted">={{ formatWeighted(cacheReadTokens, weights.cacheRead) }}</div>
         </div>
-        <div class="token-item">
-          <div class="token-type">Cache C</div>
+        <div class="token-item" title="Tokens written to cache (25% premium)">
+          <div class="token-type">Cache Create</div>
           <div class="token-count">{{ formattedTokens.cacheCreation }}</div>
           <div class="token-weight">×{{ weights.cacheCreation }}</div>
           <div class="token-weighted">={{ formatWeighted(cacheCreationTokens, weights.cacheCreation) }}</div>
@@ -108,17 +108,7 @@
       </div>
 
       <div class="breakdown-footer">
-        <div class="context-bar">
-          <div class="context-bar-track">
-            <div
-              class="context-bar-fill"
-              :style="{ width: `${contextPercentage}%` }"
-              :class="contextBarClass"
-            ></div>
-          </div>
-          <span class="context-pct">{{ contextPercentage }}% context</span>
-        </div>
-        <button type="button" class="settings-btn" @click="openSettings" title="Configure weights">
+        <button type="button" class="settings-btn" @click="openSettings" title="Configure token cost weights">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3"></circle>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
@@ -180,7 +170,6 @@ const isSessionRunning = computed(() => {
 
 const formattedTokens = computed(() => sessionsStore.formattedTokens);
 const formattedBillableTokens = computed(() => sessionsStore.formattedBillableTokens);
-const contextPercentage = computed(() => sessionsStore.contextPercentage);
 const isUpdating = computed(() => sessionsStore.isUsageUpdating);
 
 // Raw token values for weighted calculations
@@ -214,13 +203,6 @@ const cacheCreationTokens = computed(() => {
     return (conv?.cacheCreationInputTokens || 0) + (sessionsStore.runningUsage.cacheCreationInputTokens || 0);
   }
   return sessionsStore.activeConversation?.cacheCreationInputTokens || 0;
-});
-
-const contextBarClass = computed(() => {
-  const pct = contextPercentage.value;
-  if (pct >= 90) return 'critical';
-  if (pct >= 70) return 'warning';
-  return 'normal';
 });
 
 // Convert number to ordinal
@@ -473,9 +455,15 @@ defineExpose({
 
 .token-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 0.5rem;
   margin-bottom: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .token-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
 .token-item {
@@ -516,48 +504,7 @@ defineExpose({
 .breakdown-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.context-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex: 1;
-}
-
-.context-bar-track {
-  flex: 1;
-  max-width: 150px;
-  height: 6px;
-  background: var(--color-background-mute);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.context-bar-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.3s ease;
-}
-
-.context-bar-fill.normal {
-  background: var(--color-success, #10b981);
-}
-
-.context-bar-fill.warning {
-  background: var(--color-warning, #f59e0b);
-}
-
-.context-bar-fill.critical {
-  background: var(--color-danger, #ef4444);
-}
-
-.context-pct {
-  font-size: 0.625rem;
-  font-family: var(--font-mono);
-  color: var(--color-text-soft);
+  justify-content: flex-end;
 }
 
 .settings-btn {
