@@ -18,6 +18,10 @@
       >
         <div class="message-header">
           <span class="message-role">{{ message.role }}</span>
+          <!-- Show model for assistant messages -->
+          <span v-if="message.role === 'assistant' && message.model" class="message-model">
+            {{ formatModelName(message.model) }}
+          </span>
           <span class="message-time">{{ formatTime(message.timestamp) }}</span>
           <!-- Branch button for user messages -->
           <button
@@ -119,14 +123,14 @@
     />
 
     <form v-if="canSendMessage" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
-      <textarea
+      <ResizableTextarea
         ref="textareaRef"
         class="form-input form-textarea"
         :placeholder="(isDraft || isScheduledDraft) ? 'Edit your prompt...' : 'Send a follow-up message...'"
-        rows="3"
+        :min-height="80"
         @input="handleInput"
         @keydown="handleKeydown"
-      ></textarea>
+      />
       <div class="input-controls">
         <div class="session-options">
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
@@ -223,9 +227,16 @@
       />
 
       <!-- Show template indicator while running -->
-      <div v-if="sessionsStore.currentSession?.nextTemplateId" class="template-pending">
+      <div v-if="nextTemplate" class="template-pending">
         <span class="template-pending-label">Next:</span>
-        <span class="template-pending-name">Template will trigger when Claude finishes</span>
+        <router-link
+          :to="`/projects/${sessionsStore.currentSession.projectId}/templates`"
+          class="template-pending-link"
+          :title="`View template: ${nextTemplate.name}`"
+        >
+          {{ nextTemplate.name }}
+        </router-link>
+        <span class="template-pending-description">will trigger when Claude finishes</span>
       </div>
     </div>
 
@@ -269,6 +280,7 @@
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
+import { useTemplatesStore } from '../stores/templates.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import { api } from '../composables/useApi.js';
@@ -286,6 +298,7 @@ import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
 import BranchEditor from './BranchEditor.vue';
 import ScheduleSessionModal from './ScheduleSessionModal.vue';
+import ResizableTextarea from './ResizableTextarea.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 const props = defineProps({
@@ -294,6 +307,7 @@ const props = defineProps({
 
 const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
+const templatesStore = useTemplatesStore();
 const quickResponsesStore = useQuickResponsesStore();
 
 const input = ref('');
@@ -378,6 +392,13 @@ const isSendDisabled = computed(() => {
 // Check if there are any assistant messages for the scroll-to-claude button
 const hasAssistantMessages = computed(() => {
   return sessionsStore.messages.some(msg => msg.role === 'assistant');
+});
+
+// Computed property to get template details for the next template indicator
+const nextTemplate = computed(() => {
+  const templateId = sessionsStore.currentSession?.nextTemplateId;
+  if (!templateId) return null;
+  return templatesStore.getTemplateById(templateId);
 });
 
 // Subscribe to partial messages for streaming, work logs, and conversation events
@@ -692,6 +713,19 @@ function formatTime(timestamp) {
   return new Date(timestamp).toLocaleTimeString();
 }
 
+/**
+ * Format model name for display
+ * Converts "claude-3-5-sonnet-20241022" to "claude-3.5-sonnet"
+ * @param {string} model - The model name
+ * @returns {string} Formatted model name
+ */
+function formatModelName(model) {
+  if (!model) return '';
+  return model
+    .replace(/-(\d{8})$/, '')  // Remove date suffix
+    .replace(/-(\d)-(\d)-/, '-$1.$2-');  // Convert 3-5 to 3.5
+}
+
 function formatFileSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -971,7 +1005,8 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 .message-header {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
   margin-bottom: 0.5rem;
 }
 
@@ -982,8 +1017,18 @@ async function handleBranchCreate({ messageId, prompt }) {
 }
 
 .message-time {
+  margin-left: auto;
   font-size: 0.75rem;
   color: var(--color-text-soft);
+}
+
+.message-model {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+  padding: 0.125rem 0.375rem;
+  background: var(--color-background-mute);
+  border-radius: 0.25rem;
+  font-family: ui-monospace, monospace;
 }
 
 /* Branch button - always visible for user messages */
@@ -1229,8 +1274,20 @@ async function handleBranchCreate({ messageId, prompt }) {
   font-weight: 500;
 }
 
-.template-pending-name {
-  color: var(--color-text);
+.template-pending-link {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s;
+}
+
+.template-pending-link:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.template-pending-description {
+  color: var(--color-text-soft);
   font-size: 0.75rem;
   font-style: italic;
 }

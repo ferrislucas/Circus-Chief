@@ -515,14 +515,39 @@ export class CommandRunner {
         const dbRuns = commandRuns.getRecentBySessionId(sessionId, 3600000, false);
         for (const dbRun of dbRuns) {
           // Don't duplicate running processes
-          const isRunning = runs.some((r) => r.runId === dbRun.id);
-          if (!isRunning) {
+          const isRunningInMemory = runs.some((r) => r.runId === dbRun.id);
+          if (!isRunningInMemory) {
+            // FIX: If DB shows "running" but we don't have the process in memory,
+            // it's an orphaned run (server restarted, process died unexpectedly, etc.)
+            // Mark it as error in the database so the UI shows the correct state
+            let status = dbRun.status;
+            let exitCode = dbRun.exitCode;
+
+            if (dbRun.status === 'running' && !this.processes.has(dbRun.id)) {
+              console.log(
+                `[commandRunner.getRunsBySession] Orphaned run detected: ${dbRun.id}, marking as error`
+              );
+              status = 'error';
+              exitCode = -1;
+
+              // Update the database to reflect the actual state
+              if (typeof commandRuns.complete === 'function') {
+                try {
+                  commandRuns.complete(dbRun.id, exitCode, dbRun.output || '');
+                } catch (updateErr) {
+                  console.warn(
+                    `[commandRunner.getRunsBySession] Failed to update orphaned run: ${updateErr.message}`
+                  );
+                }
+              }
+            }
+
             runs.push({
               runId: dbRun.id,
               buttonId: dbRun.buttonId,
-              status: dbRun.status,
+              status,
               output: dbRun.output,
-              exitCode: dbRun.exitCode,
+              exitCode,
               startedAt: dbRun.startedAt,
             });
           }

@@ -34,18 +34,19 @@
     <!-- Bulk action toolbar -->
     <div v-if="canvasStore.selectedItemCount > 0 && !showTrash" class="bulk-action-toolbar">
       <div class="toolbar-left">
+        <input
+          type="checkbox"
+          class="toolbar-checkbox"
+          :checked="canvasStore.isAllItemsSelected"
+          @change="handleSelectAll"
+          :disabled="canvasStore.bulkOperationInProgress"
+          aria-label="Select all items"
+        />
         <span class="selection-info">
           {{ canvasStore.selectedItemCount }} item{{ canvasStore.selectedItemCount > 1 ? 's' : '' }} selected
         </span>
       </div>
       <div class="toolbar-right">
-        <button
-          class="btn btn-sm"
-          @click="handleSelectAll"
-          :disabled="canvasStore.bulkOperationInProgress"
-        >
-          {{ canvasStore.isAllItemsSelected ? 'Deselect All' : 'Select All' }}
-        </button>
         <button
           class="btn btn-sm btn-danger"
           @click="handleBulkDelete"
@@ -388,6 +389,19 @@ function handleCancelSelection() {
   justify-content: flex-end;
 }
 
+.toolbar-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.toolbar-checkbox:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .selection-info {
   color: var(--color-text);
   font-weight: 500;
@@ -449,6 +463,11 @@ function handleCancelSelection() {
   .toolbar-right .btn {
     flex: 1;
     min-height: 44px;
+  }
+
+  .toolbar-checkbox {
+    width: 16px;
+    height: 16px;
   }
 }
 
