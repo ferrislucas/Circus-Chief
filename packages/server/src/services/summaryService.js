@@ -186,14 +186,71 @@ function formatMessages(messageList) {
 }
 
 /**
+ * Get all child sessions of a parent session
+ * @param {string} parentSessionId - The parent session ID
+ * @returns {Array} Array of child sessions
+ */
+function getChildSessions(parentSessionId) {
+  // Use the SessionRepository's getChildSessions method
+  return sessions.getChildSessions(parentSessionId);
+}
+
+/**
+ * Build child session context for workflow-aware summaries
+ * @param {string} sessionId - The session ID
+ * @returns {string} Context string describing child sessions
+ */
+function buildChildSessionContext(sessionId) {
+  const children = getChildSessions(sessionId);
+  if (children.length === 0) return '';
+
+  const childContexts = children.map(child => {
+    const childSummary = sessionSummaries.getBySessionId(child.id);
+    return `- ${child.name} (${child.status}): ${childSummary?.shortSummary || 'No summary yet'}`;
+  });
+
+  return `
+CHILD SESSIONS (${children.length}):
+${childContexts.join('\n')}`;
+}
+
+/**
+ * Aggregate file counts from this session and all child sessions
+ * @param {string} sessionId - The session ID
+ * @param {Array} currentFiles - Files from the current session
+ * @returns {Array} Deduplicated list of all files modified
+ */
+function aggregateFilesModified(sessionId, currentFiles = []) {
+  const allFiles = new Set(currentFiles);
+
+  const children = getChildSessions(sessionId);
+  for (const child of children) {
+    const childSummary = sessionSummaries.getBySessionId(child.id);
+    if (childSummary?.filesModified) {
+      for (const file of childSummary.filesModified) {
+        allFiles.add(file);
+      }
+    }
+    // Recursively aggregate from grandchildren
+    const grandchildFiles = aggregateFilesModified(child.id, []);
+    for (const file of grandchildFiles) {
+      allFiles.add(file);
+    }
+  }
+
+  return Array.from(allFiles);
+}
+
+/**
  * Build the prompt for incremental summary generation
  * @param {Object|null} existingSummary - Existing summary if any
  * @param {Array} recentMessages - Recent messages to summarize
  * @param {string} sessionStatus - Current session status
  * @param {string|null} projectTitlePrompt - Custom prompt for session titles (uses default if null)
+ * @param {string|null} childContext - Context about child sessions (for workflow-aware summaries)
  * @returns {string}
  */
-function buildIncrementalPrompt(existingSummary, recentMessages, sessionStatus, projectTitlePrompt = null) {
+function buildIncrementalPrompt(existingSummary, recentMessages, sessionStatus, projectTitlePrompt = null, childContext = '') {
   const existingContext = existingSummary
     ? `EXISTING SUMMARY:
 ${existingSummary.fullSummary}
@@ -212,7 +269,7 @@ Previous title: ${existingSummary.sessionTitle || 'Not set'}`
   return `You are updating a session summary for a Claude Code session. Current session status: ${sessionStatus}
 
 ${existingContext}
-
+${childContext}
 RECENT CONVERSATION:
 ${formattedMessages}
 
@@ -423,8 +480,11 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
       generating: true,
     });
 
-    // Build prompt with project-specific title prompt if available
-    const prompt = buildIncrementalPrompt(existingSummary, recentMessages, session.status, project?.sessionTitlePrompt);
+    // Build child session context for workflow-aware summaries
+    const childContext = buildChildSessionContext(sessionId);
+
+    // Build prompt with project-specific title prompt and child context
+    const prompt = buildIncrementalPrompt(existingSummary, recentMessages, session.status, project?.sessionTitlePrompt, childContext);
 
     // Call Claude via SDK (or mock in test mode)
     const responseText = await callClaude(prompt, recentMessages, session.status);
@@ -447,6 +507,11 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
 
     // Add message count for staleness tracking
     summaryData.messageCount = allMessages.length;
+
+    // For root sessions (no parent), aggregate files from all child sessions
+    if (!session.parentSessionId) {
+      summaryData.filesModified = aggregateFilesModified(sessionId, summaryData.filesModified);
+    }
 
     // Validate and enrich PR URL
     const prUrl = summaryData.prUrl || session.prUrl;
@@ -545,6 +610,13 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
     }
 
     console.log(`[SummaryService] Successfully generated summary for session ${sessionId}`);
+
+    // Propagate summary updates to parent sessions (workflow-aware)
+    if (session.parentSessionId) {
+      // Don't await - let this run asynchronously
+      propagateToParent(sessionId);
+    }
+
     return summary;
   } catch (error) {
     console.error(`[SummaryService] Failed to generate summary for session ${sessionId}:`, {
@@ -819,5 +891,19 @@ export async function generateConversationSummary(sessionId, conversationId) {
   }
 }
 
+/**
+ * Propagate summary update to parent sessions
+ * When a child session's summary is updated, the parent's summary may need regeneration
+ * @param {string} sessionId - The child session ID that was updated
+ */
+export async function propagateToParent(sessionId) {
+  const session = sessions.getById(sessionId);
+  if (!session || !session.parentSessionId) return;
+
+  // Trigger a summary regeneration for the parent session
+  // This is debounced so multiple child updates don't cause multiple parent regenerations
+  onSessionActivity(session.parentSessionId);
+}
+
 // Export for testing
-export { DEBOUNCE_DELAY, MAX_MESSAGES, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl };
+export { DEBOUNCE_DELAY, MAX_MESSAGES, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified };
