@@ -204,12 +204,13 @@
     </form>
 
     <div v-else-if="sessionsStore.currentSession?.status === 'running'" class="running-state">
-      <!-- Header row with status and stop button -->
+      <!-- Header row with status, token display, and stop button -->
       <div class="running-header">
         <div class="running-status">
           <span class="loading-spinner"></span>
           <span class="running-title">Claude is working...</span>
         </div>
+        <RunningTokenDisplay />
         <button type="button" class="btn btn-danger btn-stop" @click="handleStop" :disabled="stopping">
           <span v-if="stopping" class="loading-spinner"></span>
           Stop
@@ -286,6 +287,7 @@ import WorkLogPanel from './WorkLogPanel.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
 import ConversationPanel from './ConversationPanel.vue';
+import RunningTokenDisplay from './RunningTokenDisplay.vue';
 import FileAttachment from './FileAttachment.vue';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';
