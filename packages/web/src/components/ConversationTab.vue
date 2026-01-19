@@ -18,6 +18,10 @@
       >
         <div class="message-header">
           <span class="message-role">{{ message.role }}</span>
+          <!-- Show model for assistant messages -->
+          <span v-if="message.role === 'assistant' && message.model" class="message-model">
+            {{ formatModelName(message.model) }}
+          </span>
           <span class="message-time">{{ formatTime(message.timestamp) }}</span>
           <!-- Branch button for user messages -->
           <button
@@ -119,14 +123,14 @@
     />
 
     <form v-if="canSendMessage" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
-      <textarea
+      <ResizableTextarea
         ref="textareaRef"
         class="form-input form-textarea"
         :placeholder="(isDraft || isScheduledDraft) ? 'Edit your prompt...' : 'Send a follow-up message...'"
-        rows="3"
+        :min-height="80"
         @input="handleInput"
         @keydown="handleKeydown"
-      ></textarea>
+      />
       <div class="input-controls">
         <div class="session-options">
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
@@ -294,6 +298,7 @@ import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
 import BranchEditor from './BranchEditor.vue';
 import ScheduleSessionModal from './ScheduleSessionModal.vue';
+import ResizableTextarea from './ResizableTextarea.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 const props = defineProps({
@@ -708,6 +713,19 @@ function formatTime(timestamp) {
   return new Date(timestamp).toLocaleTimeString();
 }
 
+/**
+ * Format model name for display
+ * Converts "claude-3-5-sonnet-20241022" to "claude-3.5-sonnet"
+ * @param {string} model - The model name
+ * @returns {string} Formatted model name
+ */
+function formatModelName(model) {
+  if (!model) return '';
+  return model
+    .replace(/-(\d{8})$/, '')  // Remove date suffix
+    .replace(/-(\d)-(\d)-/, '-$1.$2-');  // Convert 3-5 to 3.5
+}
+
 function formatFileSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -987,7 +1005,8 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 .message-header {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
   margin-bottom: 0.5rem;
 }
 
@@ -998,8 +1017,18 @@ async function handleBranchCreate({ messageId, prompt }) {
 }
 
 .message-time {
+  margin-left: auto;
   font-size: 0.75rem;
   color: var(--color-text-soft);
+}
+
+.message-model {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+  padding: 0.125rem 0.375rem;
+  background: var(--color-background-mute);
+  border-radius: 0.25rem;
+  font-family: ui-monospace, monospace;
 }
 
 /* Branch button - always visible for user messages */

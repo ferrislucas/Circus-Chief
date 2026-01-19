@@ -167,7 +167,7 @@
 
     <!-- Archived Tab -->
     <div v-if="activeTab === 'archived'">
-      <div v-if="sessionsStore.loading" class="skeleton-list">
+      <div v-if="sessionsStore.archivedPagination.loading && sessionsStore.archivedSessions.length === 0" class="skeleton-list">
         <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
       </div>
 
@@ -194,6 +194,18 @@
           @retry-summary="retryFetchSummary"
           @unarchive="handleUnarchive"
         />
+
+        <!-- Load More Button -->
+        <div v-if="sessionsStore.archivedPagination.hasMore" class="load-more-container">
+          <button
+            class="btn btn-secondary"
+            :disabled="sessionsStore.archivedPagination.loading"
+            @click="loadMoreArchived"
+          >
+            <span v-if="sessionsStore.archivedPagination.loading">Loading...</span>
+            <span v-else>Load More ({{ archivedRemaining }} remaining)</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -358,6 +370,12 @@ const summaryErrors = reactive({});
 // Track if archived sessions have been loaded
 const archivedLoaded = ref(false);
 
+// Computed property for remaining archived sessions
+const archivedRemaining = computed(() => {
+  const { total, offset } = sessionsStore.archivedPagination;
+  return Math.max(0, total - offset);
+});
+
 // Scheduled sessions state - use store instead of local refs
 const scheduledSessions = computed(() => sessionsStore.scheduledSessions || []);
 const loadingScheduled = computed(() => sessionsStore.loadingScheduled || false);
@@ -448,6 +466,14 @@ watch(
     // Handle command run output (for real-time status icon updates)
     cleanups.push(
       onCommandRunOutput((runId, sessionId, buttonId, output) => {
+        // Get the actual startedAt from the commandButtons store or existing session run
+        // to avoid resetting the timer on every output event
+        const existingRun = commandButtonsStore.runs[runId];
+        const sessions = sessionsStore.sessions;
+        const storeSession = sessions.find(s => s.id === sessionId);
+        const existingSessionRun = storeSession?.latestCommandRuns?.find(r => r.runId === runId);
+        const startedAt = existingRun?.startedAt || existingSessionRun?.startedAt || Date.now();
+
         // Ensure run exists in commandButtonsStore (still needed for SessionDetailView output display)
         if (!commandButtonsStore.runs[runId]) {
           commandButtonsStore.runs[runId] = {
@@ -457,7 +483,7 @@ watch(
             status: 'running',
             output: '',
             exitCode: null,
-            startedAt: Date.now(),
+            startedAt,
             outputTruncated: false,
           };
         }
@@ -468,7 +494,7 @@ watch(
           buttonId,
           status: 'running',
           runId,
-          startedAt: Date.now(),
+          startedAt,
         });
       })
     );
@@ -607,6 +633,11 @@ function fetchArchivedSummaries() {
   }
 }
 
+async function loadMoreArchived() {
+  await sessionsStore.loadMoreArchivedSessions(projectId.value);
+  fetchArchivedSummaries(); // Fetch summaries for newly loaded sessions
+}
+
 async function fetchScheduledSessions() {
   await sessionsStore.fetchScheduledSessions(projectId.value);
 }
@@ -743,6 +774,12 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.load-more-container {
+  display: flex;
+  justify-content: center;
+  padding: 1.5rem;
 }
 
 .status-filters {
