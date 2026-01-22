@@ -636,6 +636,25 @@ watch(
   { immediate: true }
 );
 
+// Watch for filter changes when archived tab is active
+watch(
+  () => sessionsStore.starredFilter,
+  async (newFilter, oldFilter) => {
+    // Only re-fetch if:
+    // 1. We're on the archived tab
+    // 2. Archived sessions have been loaded at least once
+    // 3. The filter actually changed (not initial setup)
+    if (
+      activeTab.value === 'archived' &&
+      archivedLoaded.value &&
+      newFilter !== oldFilter
+    ) {
+      await sessionsStore.fetchArchivedSessions(projectId.value, { reset: true });
+      fetchArchivedSummaries(); // No await - parallel load
+    }
+  }
+);
+
 async function fetchSummaries() {
   // Fetch summaries for all sessions (in parallel, but with some rate limiting)
   const sessions = sessionsStore.sessions;
@@ -673,7 +692,8 @@ async function retryFetchSummary(sessionId) {
 
 async function loadArchivedSessions() {
   if (!archivedLoaded.value) {
-    await sessionsStore.fetchArchivedSessions(projectId.value);
+    // Always reset when loading - this ensures filter is applied on initial tab load
+    await sessionsStore.fetchArchivedSessions(projectId.value, { reset: true });
     archivedLoaded.value = true;
     fetchArchivedSummaries();
   }

@@ -1188,8 +1188,8 @@ describe('SessionListView Archived Tab', () => {
     await archivedTab.trigger('click');
     await flushPromises();
 
-    // Now it should have been called
-    expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id');
+    // Now it should have been called with reset: true
+    expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
   });
 
   it('does not fetch archived sessions again on subsequent tab clicks', async () => {
@@ -1517,8 +1517,8 @@ describe('SessionListView Archived Tab', () => {
 
       await wrapper.vm.$nextTick();
 
-      // Verify fetchArchivedSessions was called for the current project
-      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id');
+      // Verify fetchArchivedSessions was called with reset: true
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
     });
 
     it('loads archived sessions on page refresh (when mounted directly on archived route)', async () => {
@@ -1537,11 +1537,262 @@ describe('SessionListView Archived Tab', () => {
       await wrapper.vm.$nextTick();
 
       // With { immediate: true } on the route.name watch, fetchArchivedSessions
-      // should be called even though route.name didn't change from component mount
-      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id');
+      // should be called with reset: true even though route.name didn't change from component mount
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
 
       // Verify archived sessions are displayed
       expect(mockSessionsStore.archivedSessions).toHaveLength(2);
+    });
+  });
+
+  describe('Starred filter on archived sessions', () => {
+    it('passes { reset: true } when loading archived sessions for the first time', async () => {
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Click Archived tab
+      const archivedTab = wrapper.findAll('.tab')[1];
+      await archivedTab.trigger('click');
+      await flushPromises();
+
+      // Verify fetchArchivedSessions was called with reset: true
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+    });
+
+    it('re-fetches archived sessions when star filter changes while on archived tab', async () => {
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Switch to archived tab and wait for initial load
+      const archivedTab = wrapper.findAll('.tab')[1];
+      await archivedTab.trigger('click');
+      await flushPromises();
+
+      // Clear the mock to track subsequent calls
+      mockSessionsStore.fetchArchivedSessions.mockClear();
+
+      // Change the star filter
+      mockSessionsStore.starredFilter = 'starred';
+      await wrapper.vm.$nextTick();
+      await flushPromises();
+
+      // Should have re-fetched archived sessions with reset: true
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+    });
+
+    it('does not re-fetch archived sessions when star filter changes on sessions tab', async () => {
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Stay on sessions tab (default)
+      // Change the star filter
+      mockSessionsStore.starredFilter = 'starred';
+      await wrapper.vm.$nextTick();
+      await flushPromises();
+
+      // Should NOT have fetched archived sessions
+      expect(mockSessionsStore.fetchArchivedSessions).not.toHaveBeenCalled();
+    });
+
+    it('does not re-fetch archived sessions when filter changes but archived tab not yet loaded', async () => {
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Switch to templates tab (not archived)
+      const templatesTab = wrapper.findAll('.tab')[2];
+      await templatesTab.trigger('click');
+      await flushPromises();
+
+      // Change the star filter
+      mockSessionsStore.starredFilter = 'starred';
+      await wrapper.vm.$nextTick();
+      await flushPromises();
+
+      // Should NOT have fetched archived sessions because archivedLoaded is false
+      expect(mockSessionsStore.fetchArchivedSessions).not.toHaveBeenCalled();
+    });
+
+    it('applies filter when switching to archived tab with active star filter', async () => {
+      // Set star filter BEFORE switching to archived tab
+      mockSessionsStore.starredFilter = 'starred';
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Now switch to archived tab
+      const archivedTab = wrapper.findAll('.tab')[1];
+      await archivedTab.trigger('click');
+      await flushPromises();
+
+      // Should have fetched with reset: true, which applies the current starredFilter
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+    });
+
+    it('handles multiple filter changes on archived tab', async () => {
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Switch to archived tab
+      const archivedTab = wrapper.findAll('.tab')[1];
+      await archivedTab.trigger('click');
+      await flushPromises();
+
+      // Clear initial fetch
+      mockSessionsStore.fetchArchivedSessions.mockClear();
+
+      // Change filter to starred
+      mockSessionsStore.starredFilter = 'starred';
+      await wrapper.vm.$nextTick();
+      await flushPromises();
+
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledTimes(1);
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+
+      // Change filter to unstarred
+      mockSessionsStore.fetchArchivedSessions.mockClear();
+      mockSessionsStore.starredFilter = 'unstarred';
+      await wrapper.vm.$nextTick();
+      await flushPromises();
+
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledTimes(1);
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+
+      // Clear filter
+      mockSessionsStore.fetchArchivedSessions.mockClear();
+      mockSessionsStore.starredFilter = null;
+      await wrapper.vm.$nextTick();
+      await flushPromises();
+
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledTimes(1);
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+    });
+
+    it('does not re-fetch on initial watcher trigger when filter has not changed', async () => {
+      // Start with a filter already set
+      mockSessionsStore.starredFilter = 'starred';
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Switch to archived tab
+      const archivedTab = wrapper.findAll('.tab')[1];
+      await archivedTab.trigger('click');
+      await flushPromises();
+
+      // Clear the initial fetch call
+      mockSessionsStore.fetchArchivedSessions.mockClear();
+
+      // Trigger the watcher with the same value (simulating initial watcher setup)
+      // This shouldn't cause a re-fetch because newFilter === oldFilter
+      mockSessionsStore.starredFilter = 'starred';
+      await wrapper.vm.$nextTick();
+      await flushPromises();
+
+      // Should not have called fetchArchivedSessions again
+      // (the watcher has the guard: newFilter !== oldFilter)
+      expect(mockSessionsStore.fetchArchivedSessions).not.toHaveBeenCalled();
+    });
+
+    it('shows star filter button on archived tab', async () => {
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Switch to archived tab
+      const archivedTab = wrapper.findAll('.tab')[1];
+      await archivedTab.trigger('click');
+      await flushAll(wrapper);
+
+      // Star filter button should be visible
+      const starButton = wrapper.find('.star-btn');
+      expect(starButton.exists()).toBe(true);
+    });
+
+    it('star filter button on archived tab cycles through states', async () => {
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Switch to archived tab
+      const archivedTab = wrapper.findAll('.tab')[1];
+      await archivedTab.trigger('click');
+      await flushAll(wrapper);
+
+      const starButton = wrapper.find('.star-btn');
+
+      // Initially null, click to go to 'starred'
+      mockSessionsStore.starredFilter = null;
+      await starButton.trigger('click');
+      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith('starred');
+
+      // Set to 'starred' and click to go to 'unstarred'
+      mockSessionsStore.setStarredFilter.mockClear();
+      mockSessionsStore.starredFilter = 'starred';
+      await wrapper.vm.$nextTick();
+      await starButton.trigger('click');
+      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith('unstarred');
+
+      // Set to 'unstarred' and click to go back to null
+      mockSessionsStore.setStarredFilter.mockClear();
+      mockSessionsStore.starredFilter = 'unstarred';
+      await wrapper.vm.$nextTick();
+      await starButton.trigger('click');
+      expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith(null);
+    });
+
+    it('fetches summaries for filtered archived sessions', async () => {
+      mockSessionsStore.archivedSessions = [
+        { id: 'archived-1', name: 'Starred Archived', status: 'completed', starred: true },
+        { id: 'archived-2', name: 'Regular Archived', status: 'completed', starred: false },
+      ];
+
+      mockGetSessionSummary.mockResolvedValue({ shortSummary: 'Test summary' });
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Switch to archived tab
+      const archivedTab = wrapper.findAll('.tab')[1];
+      await archivedTab.trigger('click');
+      await flushPromises();
+
+      // Wait for summary fetches to complete
+      await flushPromises();
+
+      // Should have attempted to fetch summaries for archived sessions
+      expect(mockGetSessionSummary).toHaveBeenCalledWith('archived-1');
+      expect(mockGetSessionSummary).toHaveBeenCalledWith('archived-2');
+    });
+
+    it('filter persists when switching between sessions and archived tabs', async () => {
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Set star filter on sessions tab
+      mockSessionsStore.starredFilter = 'starred';
+      await wrapper.vm.$nextTick();
+      await flushPromises();
+
+      // Switch to archived tab
+      const archivedTab = wrapper.findAll('.tab')[1];
+      await archivedTab.trigger('click');
+      await flushPromises();
+
+      // Verify the filter was applied (fetchArchivedSessions uses this.starredFilter)
+      expect(mockSessionsStore.fetchArchivedSessions).toHaveBeenCalledWith('test-project-id', { reset: true });
+
+      // Switch back to sessions tab
+      const sessionsTab = wrapper.findAll('.tab')[0];
+      await sessionsTab.trigger('click');
+      await flushPromises();
+
+      // Filter should still be active
+      expect(mockSessionsStore.starredFilter).toBe('starred');
+
+      // Switch back to archived tab
+      await archivedTab.trigger('click');
+      await flushPromises();
+
+      // Filter should still be active
+      expect(mockSessionsStore.starredFilter).toBe('starred');
     });
   });
 
