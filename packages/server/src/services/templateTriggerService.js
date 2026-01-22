@@ -8,24 +8,52 @@ import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 const liquid = new Liquid();
 
 /**
- * Render a template prompt with parent session context
+ * Get the root session (the original session that started a template chain)
+ * @param {Object} session - The current session
+ * @returns {Object} The root session (or the current session if it has no parent)
+ */
+export function getRootSession(session) {
+  let current = session;
+  while (current.parentSessionId) {
+    const parent = sessions.getById(current.parentSessionId);
+    if (!parent) break;
+    current = parent;
+  }
+  return current;
+}
+
+/**
+ * Render a template prompt with parent session and root session context
  * @param {string} templatePrompt - The Liquid template string
  * @param {Object} parentSession - The parent session object
- * @param {Object|null} summary - The parent session's summary
+ * @param {Object|null} parentSummary - The parent session's summary
+ * @param {Object} rootSession - The root session object
+ * @param {Object|null} rootSummary - The root session's summary
  * @returns {Promise<string>} The rendered prompt
  */
-export async function renderTemplatePrompt(templatePrompt, parentSession, summary) {
+export async function renderTemplatePrompt(templatePrompt, parentSession, parentSummary, rootSession, rootSummary) {
   const context = {
     parentSession: {
       id: parentSession.id,
       name: parentSession.name,
       status: parentSession.status,
-      summary: summary?.fullSummary || summary?.shortSummary || 'No summary available',
-      shortSummary: summary?.shortSummary || 'No summary available',
-      fullSummary: summary?.fullSummary || 'No summary available',
-      keyActions: summary?.keyActions || [],
-      filesModified: summary?.filesModified || [],
-      outcome: summary?.outcome || parentSession.status,
+      summary: parentSummary?.fullSummary || parentSummary?.shortSummary || 'No summary available',
+      shortSummary: parentSummary?.shortSummary || 'No summary available',
+      fullSummary: parentSummary?.fullSummary || 'No summary available',
+      keyActions: parentSummary?.keyActions || [],
+      filesModified: parentSummary?.filesModified || [],
+      outcome: parentSummary?.outcome || parentSession.status,
+    },
+    rootSession: {
+      id: rootSession.id,
+      name: rootSession.name,
+      status: rootSession.status,
+      summary: rootSummary?.fullSummary || rootSummary?.shortSummary || 'No summary available',
+      shortSummary: rootSummary?.shortSummary || 'No summary available',
+      fullSummary: rootSummary?.fullSummary || 'No summary available',
+      keyActions: rootSummary?.keyActions || [],
+      filesModified: rootSummary?.filesModified || [],
+      outcome: rootSummary?.outcome || rootSession.status,
     },
   };
 
@@ -65,10 +93,14 @@ export async function checkAndTriggerNextTemplate(sessionId) {
 
   try {
     // Get the parent session's summary for the template context
-    const summary = sessionSummaries.getBySessionId(sessionId);
+    const parentSummary = sessionSummaries.getBySessionId(sessionId);
 
-    // Render the template prompt with parent session context
-    const renderedPrompt = await renderTemplatePrompt(template.prompt, session, summary);
+    // Get the root session and its summary
+    const rootSession = getRootSession(session);
+    const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
+
+    // Render the template prompt with parent and root session context
+    const renderedPrompt = await renderTemplatePrompt(template.prompt, session, parentSummary, rootSession, rootSummary);
 
     // Determine settings: use template overrides if set, otherwise inherit from parent session
     const thinkingEnabled = template.thinkingEnabled !== null ? template.thinkingEnabled : session.thinkingEnabled;
