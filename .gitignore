@@ -51,3 +51,6 @@ temp/
 
 # Git worktrees
 .worktrees/
+
+# Claude plans (generated during sessions)
+.claude/plans/
