@@ -38,11 +38,6 @@
         <div v-if="!isExpanded" class="cost-display" @click="isExpanded = true" title="Billable Token Equivalent - weighted token cost where output tokens are 5x and cache varies">
           <span class="cost-label">Cost:</span>
           <span class="cost-value">{{ formattedBillableTokens }}</span>
-          <span v-if="isUpdating" class="updating-indicator">
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
-          </span>
         </div>
 
         <!-- Toggle expand button -->
@@ -73,11 +68,6 @@
       <div class="bte-header" title="Billable Token Equivalent - weighted token cost where output tokens are 5x and cache varies">
         <span class="bte-label">Cost:</span>
         <span class="bte-value">{{ formattedBillableTokens }}</span>
-        <span v-if="isUpdating" class="updating-indicator">
-          <span class="dot"></span>
-          <span class="dot"></span>
-          <span class="dot"></span>
-        </span>
       </div>
 
       <div class="token-grid">
@@ -170,7 +160,6 @@ const isSessionRunning = computed(() => {
 
 const formattedTokens = computed(() => sessionsStore.formattedTokens);
 const formattedBillableTokens = computed(() => sessionsStore.formattedBillableTokens);
-const isUpdating = computed(() => sessionsStore.isUsageUpdating);
 
 // Raw token values for weighted calculations
 const inputTokens = computed(() => {
@@ -527,37 +516,4 @@ defineExpose({
   background: var(--color-background-soft);
 }
 
-/* Updating indicator */
-.updating-indicator {
-  display: flex;
-  gap: 2px;
-  align-items: center;
-}
-
-.updating-indicator .dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background-color: var(--color-accent, var(--color-primary));
-  animation: pulse 1.4s ease-in-out infinite;
-}
-
-.updating-indicator .dot:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.updating-indicator .dot:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-@keyframes pulse {
-  0%, 80%, 100% {
-    opacity: 0.3;
-    transform: scale(0.8);
-  }
-  40% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
 </style>
