@@ -58,9 +58,9 @@
               ⚠ {{ workflowStatus.errorCount }} error
             </span>
 
-            <!-- Session count (always show for root sessions with children, or show when no actionable statuses) -->
+            <!-- Session count (only show when there are multiple sessions) -->
             <span
-              v-if="!isChild && (workflowStatus.totalCount > 1 || (workflowStatus.runningCount === 0 && workflowStatus.scheduledCount === 0 && workflowStatus.errorCount === 0))"
+              v-if="!isChild && workflowStatus.totalCount > 1"
               class="session-count"
             >
               {{ workflowStatus.totalCount }} {{ workflowStatus.totalCount === 1 ? 'session' : 'sessions' }}
