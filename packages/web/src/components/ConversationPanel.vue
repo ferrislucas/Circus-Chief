@@ -305,6 +305,7 @@ defineExpose({
 
 .header-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
 }
@@ -426,6 +427,14 @@ defineExpose({
 .btn-new:hover {
   border-color: var(--color-primary);
   background: var(--color-background-soft);
+}
+
+@media (max-width: 480px) {
+  .btn-new {
+    margin-left: 0;
+    flex: 1 0 100%;
+    justify-content: center;
+  }
 }
 
 /* Token breakdown (expanded) */
