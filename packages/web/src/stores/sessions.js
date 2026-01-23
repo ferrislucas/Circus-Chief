@@ -763,7 +763,22 @@ export const useSessionsStore = defineStore('sessions', {
       try {
         const fetchedMessages = await api.getSessionMessages(sessionId);
         console.log(`[STORE] fetchMessages: session ${sessionId}, received ${fetchedMessages.length} messages, activeConversationId: ${this.activeConversationId}`);
-        this.messages = fetchedMessages;
+
+        // Smart merge: preserve any messages that were added via WebSocket but not yet in API response
+        // This prevents a race condition where WebSocket delivers a message before the server has
+        // persisted it, causing fetchMessages to overwrite the store with stale data
+        const fetchedIds = new Set(fetchedMessages.map(m => m.id));
+        const newMessages = this.messages.filter(m =>
+          m.sessionId === sessionId && !fetchedIds.has(m.id)
+        );
+
+        if (newMessages.length > 0) {
+          console.log(`[STORE] fetchMessages: merging ${fetchedMessages.length} fetched + ${newMessages.length} WebSocket-delivered messages`);
+          this.messages = [...fetchedMessages, ...newMessages];
+        } else {
+          this.messages = fetchedMessages;
+        }
+
         console.log(`[STORE] fetchMessages: updated store with ${this.messages.length} messages`);
       } catch (err) {
         this.error = err.message;
@@ -956,7 +971,12 @@ export const useSessionsStore = defineStore('sessions', {
     },
 
     addMessage(message) {
-      this.messages.push(message);
+      // Prevent duplicate additions (can happen if WebSocket delivers message multiple times
+      // or if fetchMessages returns the message while we're also receiving it via WebSocket)
+      const exists = this.messages.some(m => m.id === message.id);
+      if (!exists) {
+        this.messages.push(message);
+      }
     },
 
     async fetchWorkLogs(sessionId) {
