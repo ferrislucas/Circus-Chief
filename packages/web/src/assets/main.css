@@ -20,7 +20,7 @@
   --color-info: #58a6ff;
   --border-radius: 6px;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
-  --header-height: 3rem;
+  --header-height: 51px; /* 40px logo + 10px padding (5px top/bottom) + 1px border */
 
   /* Combined header height with safe area for sticky positioning */
   --header-height-with-safe-area: calc(var(--header-height) + var(--safe-area-inset-top));
