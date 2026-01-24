@@ -45,7 +45,7 @@ describe('CanvasItemRepository', () => {
     });
 
     it('creates canvas item with label', () => {
-      const item = repo.create(sessionId, {
+      const _item = repo.create(sessionId, {
         type: 'text',
         content: 'Some text',
       });
