@@ -285,6 +285,44 @@ router.get('/:id/work-logs', (req, res) => {
   res.json(grouped);
 });
 
+// POST /api/sessions/:id/test-messages - Seed test messages (for E2E testing only)
+// This bypasses normal message flow and directly inserts messages into the database
+router.post('/:id/test-messages', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const { role, content, conversationId } = req.body;
+  if (!role || !content) {
+    return res.status(400).json({ error: 'Role and content are required' });
+  }
+
+  if (!['user', 'assistant'].includes(role)) {
+    return res.status(400).json({ error: 'Role must be "user" or "assistant"' });
+  }
+
+  // Get or use provided conversation ID
+  let convId = conversationId;
+  if (!convId) {
+    const convs = conversations.getBySessionId(req.params.id);
+    if (convs.length > 0) {
+      const activeConv = convs.find((c) => c.isActive) || convs[0];
+      convId = activeConv.id;
+    }
+  }
+
+  const message = messages.create(req.params.id, role, content, null, convId, role === 'assistant' ? 'test-model' : null);
+
+  // Broadcast the new test message to WebSocket subscribers
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.MESSAGE_CREATED, {
+    sessionId: req.params.id,
+    message,
+  });
+
+  res.status(201).json(message);
+});
+
 // POST /api/sessions/:id/work-logs - Create work log (for testing)
 router.post('/:id/work-logs', (req, res) => {
   const session = sessions.getById(req.params.id);

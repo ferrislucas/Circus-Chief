@@ -680,3 +680,141 @@ export async function runCommandButtonAndWait(
   const { runId } = await runCommandButton(sessionId, buttonId);
   return waitForCommandRunComplete(sessionId, runId, timeout);
 }
+
+// ============================================================
+// Conversation Helpers
+// ============================================================
+
+/**
+ * Get conversations for a session via API
+ */
+export async function getSessionConversations(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/conversations`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+/**
+ * Wait for a session to reach a specific status via API polling
+ * (Does not require a page - useful for setup/teardown)
+ */
+export async function waitForSessionStatusAPI(
+  sessionId: string,
+  status: string | string[],
+  timeout = 30000
+): Promise<any> {
+  const statuses = Array.isArray(status) ? status : [status];
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const session = await getSession(sessionId);
+    if (session && statuses.includes(session.status)) {
+      return session;
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`Session ${sessionId} did not reach status ${statuses.join('|')} after ${timeout}ms`);
+}
+
+/**
+ * Branch a conversation via API
+ */
+export async function branchConversationAPI(
+  sessionId: string,
+  conversationId: string,
+  messageId: string,
+  prompt: string
+) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/conversations/${conversationId}/branch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messageId, prompt }),
+  });
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to branch conversation: ${error}`);
+  }
+  return response.json();
+}
+
+/**
+ * Seed a test message directly into a session (bypasses normal message flow)
+ * Useful for setting up test state without requiring Claude to respond
+ */
+export async function seedTestMessage(
+  sessionId: string,
+  role: 'user' | 'assistant',
+  content: string,
+  conversationId?: string
+) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/test-messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role, content, conversationId }),
+  });
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to seed test message: ${error}`);
+  }
+  return response.json();
+}
+
+/**
+ * Create a session with pre-seeded messages in 'waiting' status
+ * Perfect for testing UI features that require an existing conversation
+ */
+export async function seedSessionWithMessages(
+  projectId: string,
+  options: {
+    name?: string;
+    userMessage: string;
+    assistantMessage: string;
+  }
+) {
+  // 1. Create a draft session (startImmediately: false)
+  const session = await seedSession(projectId, {
+    prompt: options.userMessage,
+    name: options.name,
+    startImmediately: false,
+  });
+
+  // 2. Get or create a conversation for this session
+  const conversations = await getSessionConversations(session.id);
+  let conversationId = conversations.length > 0 ? conversations[0].id : null;
+
+  if (!conversationId) {
+    throw new Error(`No conversation found for session ${session.id}`);
+  }
+
+  // 3. Seed the user message with conversation ID
+  await seedTestMessage(session.id, 'user', options.userMessage, conversationId);
+
+  // 4. Seed the assistant response with conversation ID
+  await seedTestMessage(session.id, 'assistant', options.assistantMessage, conversationId);
+
+  // 5. Update session status to 'waiting' so branching is allowed
+  await updateSessionStatus(session.id, 'waiting');
+
+  // 6. Wait for the session to have hasResponses = true (for up to 5 seconds)
+  const sessionWithResponses = await waitForSessionHasResponses(session.id, 5000);
+
+  return sessionWithResponses;
+}
+
+/**
+ * Wait for a session to have hasResponses = true (indicating it has received assistant messages)
+ * This ensures the frontend won't treat the session as a draft after loading
+ */
+async function waitForSessionHasResponses(
+  sessionId: string,
+  timeout = 5000
+): Promise<any> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const sess = await getSession(sessionId);
+    if (sess && sess.hasResponses === true) {
+      return sess;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Session ${sessionId} did not get hasResponses=true after ${timeout}ms`);
+}
