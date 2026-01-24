@@ -211,7 +211,7 @@ const canArchive = computed(() => {
 
 const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
-  { id: 'conversation', label: 'Conversation' },
+  { id: 'conversation', label: 'Conversations' },
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
   { id: 'canvas', label: canvasItemCount.value > 0 ? `Canvas (${canvasItemCount.value})` : 'Canvas' },
   { id: 'commands', label: 'Commands' }
