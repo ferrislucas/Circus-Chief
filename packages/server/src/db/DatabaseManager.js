@@ -206,6 +206,9 @@ export class DatabaseManager {
     // Always ensure the index exists (moved from schema.sql for migration compatibility)
     this.#db.exec('CREATE INDEX IF NOT EXISTS idx_canvas_deleted ON canvas_items(deleted_at)');
 
+    // Drop label column from canvas_items table
+    this.#migrateCanvasItemsDropLabel();
+
     // Add claude_session_id column to conversations table for per-conversation context isolation
     const conversationsTableInfo = this.#db.prepare('PRAGMA table_info(conversations)').all();
     const conversationsColumns = conversationsTableInfo.map((col) => col.name);
@@ -355,6 +358,11 @@ export class DatabaseManager {
 
     if (!pendingPromptColumns.includes('pending_prompt')) {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN pending_prompt TEXT');
+    }
+
+    // Add slashCommands column to sessions table for storing available slash commands from SDK init event
+    if (!pendingPromptColumns.includes('slash_commands')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN slash_commands TEXT');
     }
 
     // Add model column to conversation_messages table (Issue: track model per message)
@@ -668,6 +676,53 @@ export class DatabaseManager {
 
       -- Recreate index
       CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
+    `);
+  }
+
+  /**
+   * Migrate canvas_items table to drop label column
+   * @private
+   */
+  #migrateCanvasItemsDropLabel() {
+    // Check if label column still exists
+    const tableInfo = this.#db.prepare('PRAGMA table_info(canvas_items)').all();
+    const columns = tableInfo.map((col) => col.name);
+
+    // If label column doesn't exist, migration already done
+    if (!columns.includes('label')) {
+      return;
+    }
+
+    // Need to recreate table without label column
+    this.#db.exec(`
+      -- Create new table without label column
+      CREATE TABLE canvas_items_new (
+        id TEXT PRIMARY KEY,
+        session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+        type TEXT NOT NULL CHECK (type IN ('image', 'markdown', 'text', 'json', 'pdf', 'code')),
+        content TEXT,
+        data TEXT,
+        mime_type TEXT,
+        filename TEXT,
+        width INTEGER,
+        height INTEGER,
+        deleted_at INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+
+      -- Copy data from old table (excluding label column)
+      INSERT INTO canvas_items_new (id, session_id, type, content, data, mime_type, filename, width, height, deleted_at, created_at)
+      SELECT id, session_id, type, content, data, mime_type, filename, width, height, deleted_at, created_at FROM canvas_items;
+
+      -- Drop old table
+      DROP TABLE canvas_items;
+
+      -- Rename new table
+      ALTER TABLE canvas_items_new RENAME TO canvas_items;
+
+      -- Recreate indexes
+      CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
+      CREATE INDEX IF NOT EXISTS idx_canvas_deleted ON canvas_items(deleted_at);
     `);
   }
 

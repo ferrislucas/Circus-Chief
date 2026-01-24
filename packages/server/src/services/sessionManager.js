@@ -455,7 +455,7 @@ function buildCanvasWriteSystemPrompt(sessionId) {
   return `When you generate artifacts that should be displayed on the canvas (images, markdown documents, code snippets, data visualizations, PDFs), POST them to:
 
 POST ${apiUrl}/api/sessions/${sessionId}/canvas
-Body: {"filePath": "/path/to/file", "label": "Optional description"}
+Body: {"filePath": "/path/to/file"}
 
 The file type is automatically detected from the file extension. Supported formats:
 - Images: .png, .jpg, .jpeg, .gif, .webp, .svg, .bmp
@@ -1285,9 +1285,10 @@ async function handleStreamEvent(sessionId, event) {
         }
         // Track current model for this session (used when creating messages)
         currentModels.set(sessionId, event.model);
-        // Still update session's model
+        // Still update session's model and capture available slash commands
         sessions.update(sessionId, {
           model: event.model,
+          slashCommands: JSON.stringify(event.slash_commands || []),
         });
         // Reset message tracking for new session
         lastMessageIds.delete(sessionId);

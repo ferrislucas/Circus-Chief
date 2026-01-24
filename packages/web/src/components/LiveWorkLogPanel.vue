@@ -164,4 +164,11 @@ defineExpose({
     animation: none;
   }
 }
+
+/* Hide "Claude is working..." text on extremely small screens */
+@media (max-width: 360px) {
+  .live-title {
+    display: none;
+  }
+}
 </style>

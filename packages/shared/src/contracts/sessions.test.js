@@ -93,6 +93,71 @@ describe('UpdateSessionRequest', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  describe('prUrl validation', () => {
+    it('accepts valid GitHub PR URL', () => {
+      const result = UpdateSessionRequest.safeParse({
+        prUrl: 'https://github.com/owner/repo/pull/123',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts null prUrl to clear it', () => {
+      const result = UpdateSessionRequest.safeParse({
+        prUrl: null,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts PR URL with complex owner/repo names', () => {
+      const result = UpdateSessionRequest.safeParse({
+        prUrl: 'https://github.com/my-org-name/my-repo-123/pull/9999',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects non-GitHub URLs', () => {
+      const result = UpdateSessionRequest.safeParse({
+        prUrl: 'https://gitlab.com/owner/repo/pull/123',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects GitHub URLs that are not PR URLs', () => {
+      const result = UpdateSessionRequest.safeParse({
+        prUrl: 'https://github.com/owner/repo/issues/123',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects malformed PR URLs (missing pull number)', () => {
+      const result = UpdateSessionRequest.safeParse({
+        prUrl: 'https://github.com/owner/repo/pull/',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects PR URLs with extra path segments', () => {
+      const result = UpdateSessionRequest.safeParse({
+        prUrl: 'https://github.com/owner/repo/pull/123/files',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects empty string prUrl', () => {
+      const result = UpdateSessionRequest.safeParse({
+        prUrl: '',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects non-string prUrl values', () => {
+      const result = UpdateSessionRequest.safeParse({
+        prUrl: 123,
+      });
+      expect(result.success).toBe(false);
+    });
+  });
 });
 
 describe('SendMessageRequest', () => {
