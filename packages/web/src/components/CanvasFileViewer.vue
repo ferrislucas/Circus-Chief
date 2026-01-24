@@ -3,19 +3,18 @@
     <!-- Header -->
     <div class="viewer-header">
       <div class="viewer-header-left">
+        <!-- Breadcrumb navigation - always visible -->
+        <button
+          class="breadcrumb-back"
+          @click="handleBack"
+        >
+          ← Canvas
+        </button>
+        <span class="breadcrumb-separator">/</span>
         <span class="viewer-filename">{{ item.label || item.filename || 'Untitled' }}</span>
       </div>
 
       <div class="viewer-header-right">
-        <!-- Back button -->
-        <button
-          v-if="showBackButton"
-          class="btn-back"
-          @click="$emit('back')"
-        >
-          &#8249; Back
-        </button>
-
         <!-- Version dropdown -->
         <details
           v-if="versions.length > 1"
@@ -226,6 +225,11 @@ async function copyToClipboard(text) {
   }
 }
 
+// Navigation functions
+function handleBack() {
+  emit('back');
+}
+
 // Menu functions
 function toggleMenu() {
   menuOpen.value = !menuOpen.value;
@@ -403,20 +407,26 @@ function selectVersion(itemId) {
   flex-shrink: 0;
 }
 
-.btn-back {
+.breadcrumb-back {
   background: none;
-  border: 1px solid var(--color-border);
-  color: var(--color-text);
-  padding: 0.4rem 0.75rem;
-  border-radius: var(--border-radius);
+  border: none;
+  color: var(--color-primary);
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 0;
   white-space: nowrap;
-  min-height: 36px;
+  transition: text-decoration 0.15s ease;
 }
 
-.btn-back:hover {
-  background: var(--color-background-mute);
+.breadcrumb-back:hover {
+  text-decoration: underline;
+}
+
+.breadcrumb-separator {
+  color: var(--color-text-soft);
+  margin: 0 0.5rem;
+  font-size: 0.875rem;
 }
 
 .viewer-filename {
@@ -700,11 +710,12 @@ function selectVersion(itemId) {
     gap: 0.5rem;
   }
 
-  .btn-back {
-    min-height: 44px;
-    padding: 0.5rem 0.75rem;
-    white-space: nowrap;
-    flex-shrink: 0;
+  .breadcrumb-back {
+    font-size: 0.875rem;
+  }
+
+  .breadcrumb-separator {
+    margin: 0 0.25rem;
   }
 
   .viewer-filename {

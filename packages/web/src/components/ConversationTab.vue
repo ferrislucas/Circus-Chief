@@ -708,7 +708,11 @@ watch(
 );
 
 // Re-fetch messages and work logs when session status changes from running to waiting/completed
-// This ensures the UI shows the correct messages after Claude's turn ends
+// This ensures the UI shows the correct messages after Claude's turn ends.
+// Note: fetchMessages() uses a smart merge strategy that preserves any messages
+// already in the store (delivered via WebSocket) that aren't yet in the API response.
+// This prevents a race condition where messages disappear if the database write
+// hasn't completed before the status change triggers this refetch.
 watch(
   () => sessionsStore.currentSession?.status,
   async (newStatus, oldStatus) => {
@@ -1660,6 +1664,13 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 @media (max-width: 400px) {
   .mode-label {
+    display: none;
+  }
+}
+
+/* Hide "Claude is working..." text on extremely small screens */
+@media (max-width: 360px) {
+  .running-title {
     display: none;
   }
 }
