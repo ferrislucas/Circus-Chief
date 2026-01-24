@@ -928,7 +928,7 @@ describe('Canvas API', () => {
     });
 
     it('creates canvas item without label when not provided', () => {
-      const item = canvasItems.create(sessionId, {
+      const _item = canvasItems.create(sessionId, {
         type: 'text',
         content: 'test content',
         filename: 'test.txt',
