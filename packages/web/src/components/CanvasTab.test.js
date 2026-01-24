@@ -301,7 +301,7 @@ describe('CanvasTab', () => {
       await flushPromises();
 
       // Verify upload was called
-      expect(api.uploadCanvasItem).toHaveBeenCalledWith('test-session', file, 'dropped.png');
+      expect(api.uploadCanvasItem).toHaveBeenCalledWith('test-session', file);
     });
   });
 

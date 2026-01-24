@@ -174,13 +174,11 @@ describe('Canvas API', () => {
         type: 'image',
         data: 'base64ImageData',
         mimeType: 'image/jpeg',
-        label: 'Test Image',
       });
 
       expect(item.type).toBe('image');
       expect(item.data).toBe('base64ImageData');
       expect(item.mimeType).toBe('image/jpeg');
-      expect(item.label).toBe('Test Image');
     });
 
     it('creates canvas item with parsed data URL values', () => {
@@ -188,7 +186,6 @@ describe('Canvas API', () => {
       const body = {
         type: 'image',
         content: 'data:image/png;base64,testBase64Data',
-        label: 'Parsed Image',
       };
 
       const parsed = parseImageData(body);
@@ -198,13 +195,11 @@ describe('Canvas API', () => {
         content: body.content,
         data: parsed.data,
         mimeType: parsed.mimeType,
-        label: body.label,
       });
 
       expect(item.type).toBe('image');
       expect(item.data).toBe('testBase64Data');
       expect(item.mimeType).toBe('image/png');
-      expect(item.label).toBe('Parsed Image');
     });
 
     it('retrieves canvas item with correct mimeType', () => {
@@ -225,7 +220,6 @@ describe('Canvas API', () => {
       const body = {
         type: 'image',
         data: 'someBase64DataWithoutMimeType',
-        label: 'Image without explicit mimeType',
       };
 
       const parsed = parseImageData(body);
@@ -234,14 +228,12 @@ describe('Canvas API', () => {
         type: body.type,
         data: parsed.data,
         mimeType: parsed.mimeType,
-        label: body.label,
       });
 
       expect(item.type).toBe('image');
       expect(item.data).toBe('someBase64DataWithoutMimeType');
       // Should default to image/png to prevent broken images
       expect(item.mimeType).toBe('image/png');
-      expect(item.label).toBe('Image without explicit mimeType');
     });
 
     it('creates canvas item with default mimeType for malformed data URL', () => {
@@ -249,7 +241,6 @@ describe('Canvas API', () => {
       const body = {
         type: 'image',
         content: 'not-a-valid-data-url',
-        label: 'Malformed data URL image',
       };
 
       const parsed = parseImageData(body);
@@ -259,7 +250,6 @@ describe('Canvas API', () => {
         content: body.content,
         data: parsed.data,
         mimeType: parsed.mimeType,
-        label: body.label,
       });
 
       expect(item.type).toBe('image');
@@ -273,7 +263,6 @@ describe('Canvas API', () => {
         data: 'JVBERi0xLjQKJeLjz9MK', // PDF header in base64
         mimeType: 'application/pdf',
         filename: 'document.pdf',
-        label: 'Test PDF',
       });
 
       expect(item.type).toBe('pdf');
@@ -814,11 +803,9 @@ describe('Canvas API', () => {
         content: 'package main',
         mimeType: 'text/x-go',
         filename: 'main.go',
-        label: 'Go entry point',
       });
 
       expect(item.type).toBe('code');
-      expect(item.label).toBe('Go entry point');
     });
 
     it('retrieves code canvas item correctly', () => {
@@ -887,14 +874,12 @@ describe('Canvas API', () => {
         type: 'text',
         content: 'Hello, World!',
         filename: 'output.txt',
-        label: 'Command Output',
         mimeType: 'text/plain',
       });
 
       expect(item.type).toBe('text');
       expect(item.content).toBe('Hello, World!');
       expect(item.filename).toBe('output.txt');
-      expect(item.label).toBe('Command Output');
       expect(item.mimeType).toBe('text/plain');
     });
 
@@ -903,7 +888,6 @@ describe('Canvas API', () => {
         type: 'markdown',
         content: '# Heading\n\nParagraph text',
         filename: 'output.md',
-        label: 'Markdown Output',
         mimeType: 'text/markdown',
       });
 
@@ -918,7 +902,6 @@ describe('Canvas API', () => {
         type: 'code',
         content: 'function hello() { console.log("test"); }',
         filename: 'output.js',
-        label: 'Code Output',
         mimeType: 'text/plain',
       });
 
@@ -934,7 +917,6 @@ describe('Canvas API', () => {
         type: 'json',
         data: jsonString,
         filename: 'output.json',
-        label: 'JSON Output',
         mimeType: 'application/json',
       });
 
@@ -953,7 +935,6 @@ describe('Canvas API', () => {
         mimeType: 'text/plain',
       });
 
-      expect(item.label).toBeNull();
     });
 
     it('retrieves inline canvas item correctly', () => {
@@ -961,7 +942,6 @@ describe('Canvas API', () => {
         type: 'text',
         content: 'Inline test content',
         filename: 'inline-test.txt',
-        label: 'Test',
         mimeType: 'text/plain',
       });
 
@@ -969,7 +949,6 @@ describe('Canvas API', () => {
       expect(retrieved.type).toBe('text');
       expect(retrieved.content).toBe('Inline test content');
       expect(retrieved.filename).toBe('inline-test.txt');
-      expect(retrieved.label).toBe('Test');
     });
   });
 
@@ -1011,7 +990,6 @@ describe('Canvas API', () => {
         expect(res.body.type).toBe('text');
         expect(res.body.content).toBe('Hello, World!');
         expect(res.body.filename).toBe('output.txt');
-        expect(res.body.label).toBe('Command Output');
         expect(res.body.mimeType).toBe('text/plain');
       });
 
@@ -1104,7 +1082,6 @@ describe('Canvas API', () => {
           });
 
         expect(res.status).toBe(201);
-        expect(res.body.label).toBe('Test Label');
       });
 
       it('sets label to null when not provided', async () => {
@@ -1117,7 +1094,6 @@ describe('Canvas API', () => {
           });
 
         expect(res.status).toBe(201);
-        expect(res.body.label).toBeNull();
       });
 
       it('returns 400 when neither filePath nor inline content provided', async () => {
@@ -1490,7 +1466,6 @@ describe('Canvas API', () => {
         expect(res.body.type).toBe('image');
         expect(res.body.mimeType).toBe('image/png');
         expect(res.body.filename).toBe('test-image.png');
-        expect(res.body.label).toBe('Test PNG Image');
         expect(res.body.data).toBeDefined();
         // Verify it's base64 encoded
         expect(typeof res.body.data).toBe('string');

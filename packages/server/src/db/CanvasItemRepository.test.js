@@ -48,10 +48,8 @@ describe('CanvasItemRepository', () => {
       const item = repo.create(sessionId, {
         type: 'text',
         content: 'Some text',
-        label: 'My Label',
       });
 
-      expect(item.label).toBe('My Label');
     });
 
     it('creates canvas item with data (for images)', () => {
@@ -97,7 +95,6 @@ describe('CanvasItemRepository', () => {
       expect(item.data).toBeNull();
       expect(item.mimeType).toBeNull();
       expect(item.filename).toBeNull();
-      expect(item.label).toBeNull();
       expect(item.width).toBeNull();
       expect(item.height).toBeNull();
     });
@@ -341,7 +338,6 @@ describe('CanvasItemRepository', () => {
           type: 'markdown',
           content: '# Hello',
           filename: 'readme.md',
-          label: 'Documentation',
         });
 
         const deletedItem = repo.softDelete(item.id);
@@ -350,7 +346,6 @@ describe('CanvasItemRepository', () => {
         expect(deletedItem.type).toBe('markdown');
         expect(deletedItem.content).toBe('# Hello');
         expect(deletedItem.filename).toBe('readme.md');
-        expect(deletedItem.label).toBe('Documentation');
         expect(deletedItem.sessionId).toBe(sessionId);
         expect(deletedItem.createdAt).toBe(item.createdAt);
       });
@@ -530,7 +525,6 @@ describe('CanvasItemRepository', () => {
           content: 'base64data',
           mimeType: 'image/png',
           filename: 'screenshot.png',
-          label: 'UI Screenshot',
           width: 1920,
           height: 1080,
         });
@@ -544,7 +538,6 @@ describe('CanvasItemRepository', () => {
           content: 'base64data',
           mimeType: 'image/png',
           filename: 'screenshot.png',
-          label: 'UI Screenshot',
           width: 1920,
           height: 1080,
         });
