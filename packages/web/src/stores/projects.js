@@ -32,7 +32,12 @@ export const useProjectsStore = defineStore('projects', {
       this.loading = true;
       this.error = null;
       try {
-        this.currentProject = await api.getProject(id);
+        const project = await api.getProject(id);
+        this.currentProject = project;
+        // Also add to projects array if not already present (for getProjectById)
+        if (!this.projects.find((p) => p.id === id)) {
+          this.projects.push(project);
+        }
       } catch (err) {
         this.error = err.message;
       } finally {
