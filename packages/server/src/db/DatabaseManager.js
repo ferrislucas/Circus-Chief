@@ -357,6 +357,11 @@ export class DatabaseManager {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN pending_prompt TEXT');
     }
 
+    // Add slashCommands column to sessions table for storing available slash commands from SDK init event
+    if (!pendingPromptColumns.includes('slash_commands')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN slash_commands TEXT');
+    }
+
     // Add model column to conversation_messages table (Issue: track model per message)
     const msgModelTableInfo = this.#db.prepare('PRAGMA table_info(conversation_messages)').all();
     const msgModelColumns = msgModelTableInfo.map((col) => col.name);

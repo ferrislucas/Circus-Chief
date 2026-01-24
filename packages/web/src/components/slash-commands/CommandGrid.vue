@@ -92,6 +92,27 @@
           </button>
         </div>
       </div>
+
+      <!-- Plugin Commands -->
+      <div v-if="filteredPluginCommands.length > 0" class="command-section">
+        <h3 class="section-title">Plugin Commands</h3>
+        <div class="command-cards">
+          <button
+            v-for="cmd in filteredPluginCommands"
+            :key="cmd.name"
+            type="button"
+            class="command-card"
+            @click="selectCommand(cmd)"
+            :data-testid="`command-${cmd.name}`"
+          >
+            <span class="command-name">/{{ cmd.name }}</span>
+            <span class="command-description">{{ cmd.description || 'No description' }}</span>
+            <span v-if="cmd.arguments.length > 0" class="command-args-badge">
+              {{ cmd.arguments.length }} arg{{ cmd.arguments.length > 1 ? 's' : '' }}
+            </span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -121,6 +142,9 @@ const projectCommands = computed(() =>
 const userCommands = computed(() =>
   props.commands.filter((c) => c.source === 'user')
 );
+const pluginCommands = computed(() =>
+  props.commands.filter((c) => c.source === 'plugin')
+);
 
 // Filtered by search
 function filterBySearch(commands) {
@@ -138,10 +162,12 @@ function filterBySearch(commands) {
 const filteredBuiltinCommands = computed(() => filterBySearch(builtinCommands.value));
 const filteredProjectCommands = computed(() => filterBySearch(projectCommands.value));
 const filteredUserCommands = computed(() => filterBySearch(userCommands.value));
+const filteredPluginCommands = computed(() => filterBySearch(pluginCommands.value));
 const filteredCommands = computed(() => [
   ...filteredBuiltinCommands.value,
   ...filteredProjectCommands.value,
   ...filteredUserCommands.value,
+  ...filteredPluginCommands.value,
 ]);
 
 function selectCommand(cmd) {

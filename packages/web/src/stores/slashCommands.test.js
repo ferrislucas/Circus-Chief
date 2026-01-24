@@ -8,6 +8,7 @@ vi.mock('../composables/useApi.js', () => ({
     getSlashCommands: vi.fn(),
     getSlashCommand: vi.fn(),
     executeSlashCommand: vi.fn(),
+    getSession: vi.fn(),
   },
 }));
 
@@ -128,6 +129,70 @@ describe('useSlashCommandsStore', () => {
   });
 
   describe('actions', () => {
+    describe('fetchCommandsFromSession', () => {
+      it('fetches and parses commands from session record', async () => {
+        const sessionId = 'test-session-id';
+        const mockCommands = [
+          { name: 'help', source: 'builtin', description: 'Display help information' },
+          { name: 'compact', source: 'builtin', description: 'Compress conversation context' },
+        ];
+        const mockSession = {
+          id: sessionId,
+          slashCommands: JSON.stringify(mockCommands),
+        };
+
+        api.getSession.mockResolvedValue(mockSession);
+
+        const store = useSlashCommandsStore();
+        await store.fetchCommandsFromSession(sessionId);
+
+        expect(api.getSession).toHaveBeenCalledWith(sessionId);
+        expect(store.commands).toEqual(mockCommands);
+      });
+
+      it('handles session with no slashCommands field', async () => {
+        const sessionId = 'test-session-id';
+        const mockSession = {
+          id: sessionId,
+          slashCommands: null,
+        };
+
+        api.getSession.mockResolvedValue(mockSession);
+
+        const store = useSlashCommandsStore();
+        await store.fetchCommandsFromSession(sessionId);
+
+        expect(store.commands).toEqual([]);
+      });
+
+      it('sets loading false after fetch completes', async () => {
+        const mockSession = {
+          id: 'test-session-id',
+          slashCommands: JSON.stringify([]),
+        };
+
+        api.getSession.mockResolvedValue(mockSession);
+
+        const store = useSlashCommandsStore();
+        await store.fetchCommandsFromSession('test-session-id');
+
+        expect(store.loading).toBe(false);
+      });
+
+      it('handles errors during fetch', async () => {
+        const mockError = new Error('Failed to fetch session');
+        api.getSession.mockRejectedValue(mockError);
+
+        const store = useSlashCommandsStore();
+        await expect(store.fetchCommandsFromSession('test-session-id')).rejects.toThrow(
+          'Failed to fetch session'
+        );
+
+        expect(store.error).toBe('Failed to fetch session');
+        expect(store.loading).toBe(false);
+      });
+    });
+
     describe('fetchCommands', () => {
       it('populates commands from API', async () => {
         const directory = '/test/project';

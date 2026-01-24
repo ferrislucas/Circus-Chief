@@ -9,6 +9,12 @@ const router = Router();
  * GET /api/commands
  * List all available slash commands for a directory
  *
+ * Discovers commands from:
+ * - Project .claude/commands/ folder
+ * - User ~/.claude/commands/ folder
+ * - Installed plugins
+ * - Built-in Claude Code commands
+ *
  * Query params:
  *   - directory: Working directory to discover commands from (required)
  */

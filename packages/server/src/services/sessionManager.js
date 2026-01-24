@@ -1213,9 +1213,10 @@ async function handleStreamEvent(sessionId, event) {
         }
         // Track current model for this session (used when creating messages)
         currentModels.set(sessionId, event.model);
-        // Still update session's model
+        // Still update session's model and capture available slash commands
         sessions.update(sessionId, {
           model: event.model,
+          slashCommands: JSON.stringify(event.slash_commands || []),
         });
         // Reset message tracking for new session
         lastMessageIds.delete(sessionId);

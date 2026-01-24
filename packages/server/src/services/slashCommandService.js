@@ -4,18 +4,18 @@ import { homedir } from 'os';
 import YAML from 'yaml';
 
 /**
- * Built-in commands are no longer exposed through the slash command system.
- * Claude Code handles built-in commands like /help and /compact internally.
- * This service now only discovers custom commands from project and user directories.
+ * Built-in Claude Code commands
+ * NOTE: All built-in commands are hidden because they require terminal interaction
+ * or don't make sense in the wizard context. Plugin commands are the primary
+ * use case for the slash command wizard.
  */
 const BUILTIN_COMMANDS = [];
 
-/**
- * Command source locations in priority order:
- * 1. Project: .claude/commands/*.md
- * 2. User: ~/.claude/commands/*.md
- * 3. Built-in: hardcoded list above
- */
+// Command source locations in priority order:
+// 1. Project: .claude/commands/*.md
+// 2. User: ~/.claude/commands/*.md
+// 3. Plugins: ~/.claude/plugins/cache/.../{plugin}/.../commands/*.md
+// 4. Built-in: hardcoded list below
 const COMMANDS_DIR = '.claude/commands';
 
 /**
@@ -115,10 +115,11 @@ function normalizeArgument(arg) {
 /**
  * Discover commands from a directory
  * @param {string} directory - Directory to scan
- * @param {string} source - Source type ('project' or 'user')
+ * @param {string} source - Source type ('project', 'user', or 'plugin')
+ * @param {string} [namespace] - Optional namespace prefix for plugin commands
  * @returns {Promise<Array>} Array of command objects
  */
-async function discoverCommandsFromDir(directory, source) {
+async function discoverCommandsFromDir(directory, source, namespace = null) {
   const commands = [];
 
   try {
@@ -130,7 +131,9 @@ async function discoverCommandsFromDir(directory, source) {
     for (const file of files) {
       if (!file.endsWith('.md')) continue;
 
-      const name = file.replace(/\.md$/, '');
+      const baseName = file.replace(/\.md$/, '');
+      // For plugin commands, prefix with namespace (e.g., "commit-commands:commit")
+      const name = namespace ? `${namespace}:${baseName}` : baseName;
       const filePath = join(directory, file);
 
       try {
@@ -156,8 +159,88 @@ async function discoverCommandsFromDir(directory, source) {
 }
 
 /**
+ * Check if a working directory matches a plugin's project path
+ * Handles git worktrees which are subdirectories of the main repo
+ * @param {string} workingDirectory - The current working directory (may be a worktree)
+ * @param {string} projectPath - The plugin's configured project path
+ * @returns {boolean} True if the directories match
+ */
+function isMatchingProject(workingDirectory, projectPath) {
+  // Exact match
+  if (workingDirectory === projectPath) {
+    return true;
+  }
+
+  // Check if workingDirectory is a worktree of projectPath
+  // Worktrees are typically at: {projectPath}/.worktrees/{session-id}
+  if (workingDirectory.startsWith(projectPath + '/.worktrees/')) {
+    return true;
+  }
+
+  // Check if workingDirectory contains .worktrees and projectPath is the parent
+  const worktreeMarker = '/.worktrees/';
+  const worktreeIndex = workingDirectory.indexOf(worktreeMarker);
+  if (worktreeIndex !== -1) {
+    const mainRepoPath = workingDirectory.substring(0, worktreeIndex);
+    if (mainRepoPath === projectPath) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Discover commands from installed plugins
+ * Reads ~/.claude/plugins/installed_plugins.json and scans each plugin's commands/ directory
+ *
+ * @param {string} workingDirectory - Project directory to filter plugins for
+ * @returns {Promise<Array>} Array of plugin command objects
+ */
+async function discoverPluginCommands(workingDirectory) {
+  const commands = [];
+  const installedPluginsPath = join(homedir(), '.claude', 'plugins', 'installed_plugins.json');
+
+  try {
+    const content = await readFile(installedPluginsPath, 'utf-8');
+    const installedPlugins = JSON.parse(content);
+
+    if (!installedPlugins.plugins) {
+      return commands;
+    }
+
+    // Iterate through each plugin
+    for (const [pluginId, installations] of Object.entries(installedPlugins.plugins)) {
+      // Find installation relevant to this project (local scope) or global
+      // Handle worktrees by checking if workingDirectory is under the plugin's projectPath
+      const relevantInstall = installations.find(
+        install => install.scope === 'global' || isMatchingProject(workingDirectory, install.projectPath)
+      );
+
+      if (!relevantInstall) continue;
+
+      // Extract namespace from pluginId (e.g., "commit-commands@claude-plugins-official" -> "commit-commands")
+      const namespace = pluginId.split('@')[0];
+
+      // Scan the plugin's commands directory
+      const pluginCommandsDir = join(relevantInstall.installPath, 'commands');
+      const pluginCommands = await discoverCommandsFromDir(pluginCommandsDir, 'plugin', namespace);
+      commands.push(...pluginCommands);
+    }
+  } catch {
+    // No installed plugins or file doesn't exist - that's fine
+  }
+
+  return commands;
+}
+
+/**
  * Get all available slash commands for a working directory
- * Commands are deduplicated by name, with project commands taking priority
+ * Commands are discovered from:
+ * 1. Project .claude/commands/ (highest priority)
+ * 2. User ~/.claude/commands/
+ * 3. Installed plugins
+ * 4. Built-in commands (lowest priority)
  *
  * @param {string} workingDirectory - The project working directory
  * @returns {Promise<Array>} Array of command objects
@@ -174,7 +257,16 @@ export async function getCommands(workingDirectory) {
     'user'
   );
 
-  // Deduplicate: project > user > builtin
+  const pluginCommands = await discoverPluginCommands(workingDirectory);
+
+  // Create built-in command objects
+  const builtinCommands = BUILTIN_COMMANDS.map(cmd => ({
+    ...cmd,
+    source: 'builtin',
+    arguments: [],
+  }));
+
+  // Deduplicate: project > user > plugin > builtin
   const seen = new Set();
   const commands = [];
 
@@ -192,10 +284,17 @@ export async function getCommands(workingDirectory) {
     }
   }
 
-  for (const cmd of BUILTIN_COMMANDS) {
+  for (const cmd of pluginCommands) {
     if (!seen.has(cmd.name)) {
       seen.add(cmd.name);
-      commands.push({ ...cmd });
+      commands.push(cmd);
+    }
+  }
+
+  for (const cmd of builtinCommands) {
+    if (!seen.has(cmd.name)) {
+      seen.add(cmd.name);
+      commands.push(cmd);
     }
   }
 

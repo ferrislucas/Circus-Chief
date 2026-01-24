@@ -61,7 +61,7 @@ import ArgumentsForm from './slash-commands/ArgumentsForm.vue';
 const props = defineProps({
   isOpen: { type: Boolean, required: true },
   sessionId: { type: String, default: null },
-  workingDirectory: { type: String, required: true },
+  workingDirectory: { type: String, default: null },
   hideBuiltin: { type: Boolean, default: false },
   mode: {
     type: String,
@@ -95,17 +95,26 @@ const executeLabel = computed(() => {
   return 'Execute Command';
 });
 
-// Fetch commands when wizard opens
+// Fetch commands when wizard opens (lazy loading)
+// Always query SDK directly - no caching, always fresh commands
 watch(
   () => props.isOpen,
   async (isOpen) => {
-    if (isOpen && props.workingDirectory) {
+    if (isOpen) {
       step.value = 1;
       selectedCommand.value = null;
+      // Debug logging to help trace workingDirectory issues
+      console.log('[SlashCommandWizard] Opening wizard, workingDirectory:', props.workingDirectory);
       try {
-        await commandsStore.fetchCommands(props.workingDirectory);
+        if (props.workingDirectory) {
+          // Query SDK for commands (starts a Claude Code process to get fresh list)
+          await commandsStore.fetchCommands(props.workingDirectory);
+          console.log('[SlashCommandWizard] Fetched commands:', commandsStore.commands.length, 'commands');
+        } else {
+          console.warn('[SlashCommandWizard] No workingDirectory provided, skipping command fetch');
+        }
       } catch (err) {
-        console.error('Failed to fetch commands:', err);
+        console.error('[SlashCommandWizard] Failed to fetch commands:', err);
       }
     }
   }
