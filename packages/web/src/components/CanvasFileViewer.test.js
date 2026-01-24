@@ -76,16 +76,12 @@ describe('CanvasFileViewer', () => {
       expect(wrapper.find('.viewer-filename').text()).toBe('My Label');
     });
 
-    it('shows back button when showBackButton is true', () => {
-      const wrapper = mountComponent({ showBackButton: true });
+    it('always shows breadcrumb navigation', () => {
+      const wrapper = mountComponent();
 
-      expect(wrapper.find('.btn-back').exists()).toBe(true);
-    });
-
-    it('hides back button when showBackButton is false', () => {
-      const wrapper = mountComponent({ showBackButton: false });
-
-      expect(wrapper.find('.btn-back').exists()).toBe(false);
+      expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
+      expect(wrapper.find('.breadcrumb-separator').exists()).toBe(true);
+      expect(wrapper.find('.breadcrumb-back').text()).toBe('← Canvas');
     });
   });
 

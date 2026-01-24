@@ -442,9 +442,9 @@ async function handleSubmit() {
 }
 
 .btn-primary {
-  background: var(--color-accent);
-  border: 1px solid var(--color-accent);
-  color: var(--color-background);
+  background: var(--color-accent, #22d3ee);
+  border: 1px solid var(--color-accent, #22d3ee);
+  color: var(--color-background, #0d1117);
 }
 
 .btn-primary:hover:not(:disabled) {
