@@ -45,7 +45,32 @@ export const useSlashCommandsStore = defineStore('slashCommands', {
 
   actions: {
     /**
+     * Fetch commands from a session's stored slashCommands field
+     * This is the fast path for ConversationTab - commands are cached in the session record
+     * from the SDK init event
+     * @param {string} sessionId - Session ID to fetch commands from
+     * @returns {Promise<Array>}
+     */
+    async fetchCommandsFromSession(sessionId) {
+      this.loading = true;
+      this.error = null;
+
+      try {
+        const session = await api.getSession(sessionId);
+        const commands = session.slashCommands ? JSON.parse(session.slashCommands) : [];
+        this.commands = commands;
+        return commands;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    /**
      * Fetch available slash commands for a directory
+     * This is the lazy path for NewSessionView - queries SDK on demand
      * @param {string} directory - Working directory to discover commands from
      * @param {boolean} force - Force refresh even if already fetched for this directory
      * @returns {Promise<Array>}

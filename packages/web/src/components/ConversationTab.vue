@@ -280,7 +280,7 @@
     <SlashCommandWizard
       v-model:isOpen="showSlashCommandWizard"
       :sessionId="sessionId"
-      :workingDirectory="workingDirectory || ''"
+      :workingDirectory="workingDirectory"
       mode="execute"
       @executed="handleSlashCommandExecuted"
     />
@@ -420,19 +420,28 @@ const nextTemplate = computed(() => {
 // Computed property to get the working directory for slash commands
 const workingDirectory = computed(() => {
   const session = sessionsStore.currentSession;
-  if (!session) return null;
+  if (!session) {
+    console.log('[workingDirectory] No current session');
+    return null;
+  }
 
   // Use git worktree if available, otherwise get from project
   if (session.gitWorktree) {
+    console.log('[workingDirectory] Using session.gitWorktree:', session.gitWorktree);
     return session.gitWorktree;
   }
 
-  // First try currentProject, then fall back to getProjectById (for direct session navigation)
+  // First try currentProject if it matches the session's project,
+  // then fall back to getProjectById (for direct session navigation or when
+  // currentProject is stale from a different project view)
   let project = projectsStore.currentProject;
-  if (!project && session.projectId) {
+  if ((!project || project.id !== session.projectId) && session.projectId) {
+    console.log('[workingDirectory] currentProject mismatch or null, falling back to getProjectById');
     project = projectsStore.getProjectById(session.projectId);
   }
-  return project?.workingDirectory || null;
+  const result = project?.workingDirectory || null;
+  console.log('[workingDirectory] Using project.workingDirectory:', result, 'from project:', project?.id);
+  return result;
 });
 
 // Subscribe to partial messages for streaming, work logs, and conversation events
