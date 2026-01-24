@@ -1608,4 +1608,11 @@ async function handleBranchCreate({ messageId, prompt }) {
     display: none;
   }
 }
+
+/* Hide "Claude is working..." text on extremely small screens */
+@media (max-width: 360px) {
+  .running-title {
+    display: none;
+  }
+}
 </style>
