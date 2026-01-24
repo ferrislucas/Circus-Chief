@@ -972,30 +972,6 @@ describe('ApiClient', () => {
         expect(result).toEqual(mockItem);
       });
 
-      it('includes label in FormData when provided', async () => {
-        mockFetch.mockReturnValue(mockResponse({ id: 'item-1' }));
-
-        const file = new File(['test'], 'doc.pdf', { type: 'application/pdf' });
-        await client.uploadCanvasItem('sess-123', file, 'My Document');
-
-        const callArgs = mockFetch.mock.calls[0];
-        const formData = callArgs[1].body;
-        expect(formData.get('file')).toBeInstanceOf(File);
-        expect(formData.get('label')).toBe('My Document');
-      });
-
-      it('does not include label in FormData when not provided', async () => {
-        mockFetch.mockReturnValue(mockResponse({ id: 'item-1' }));
-
-        const file = new File(['test'], 'image.jpg', { type: 'image/jpeg' });
-        await client.uploadCanvasItem('sess-123', file);
-
-        const callArgs = mockFetch.mock.calls[0];
-        const formData = callArgs[1].body;
-        expect(formData.get('file')).toBeInstanceOf(File);
-        expect(formData.get('label')).toBeNull();
-      });
-
       it('throws error on upload failure', async () => {
         mockFetch.mockReturnValue(Promise.resolve({
           ok: false,

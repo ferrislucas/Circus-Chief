@@ -2,7 +2,6 @@ import { z } from 'zod';
 
 export const CreateCanvasItemRequest = z.object({
   filePath: z.string(),
-  label: z.string().optional(),
 });
 
 export const CanvasItemResponse = z.object({
@@ -13,7 +12,6 @@ export const CanvasItemResponse = z.object({
   data: z.string().nullable(),
   mimeType: z.string().nullable(),
   filename: z.string().nullable(),
-  label: z.string().nullable(),
   width: z.number().nullable(),
   height: z.number().nullable(),
   createdAt: z.number(),

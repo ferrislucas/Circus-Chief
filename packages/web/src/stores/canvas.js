@@ -30,7 +30,7 @@ export const useCanvasStore = defineStore('canvas', {
     groupedItems: (state) => {
       const groups = {};
       for (const item of state.items) {
-        const key = item.filename || item.label || item.id;
+        const key = item.filename || item.id;
         if (!groups[key]) groups[key] = [];
         groups[key].push(item);
       }
@@ -50,7 +50,7 @@ export const useCanvasStore = defineStore('canvas', {
     groupedTrashedItems: (state) => {
       const groups = {};
       for (const item of state.trashedItems) {
-        const key = item.filename || item.label || item.id;
+        const key = item.filename || item.id;
         if (!groups[key]) groups[key] = [];
         groups[key].push(item);
       }
@@ -94,18 +94,18 @@ export const useCanvasStore = defineStore('canvas', {
 
     async deleteGroup(sessionId, filename) {
       const toDelete = this.items.filter(
-        (i) => (i.filename || i.label || i.id) === filename
+        (i) => (i.filename || i.id) === filename
       );
       for (const item of toDelete) {
         await this.deleteItem(sessionId, item.id);
       }
     },
 
-    async uploadItem(sessionId, file, label = null) {
+    async uploadItem(sessionId, file) {
       this.loading = true;
       this.error = null;
       try {
-        const item = await api.uploadCanvasItem(sessionId, file, label);
+        const item = await api.uploadCanvasItem(sessionId, file);
         this.items.unshift(item);
         return item;
       } catch (err) {

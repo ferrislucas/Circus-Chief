@@ -458,15 +458,11 @@ export class ApiClient {
    * Upload a file to the canvas
    * @param {string} sessionId - Session ID
    * @param {File} file - File to upload
-   * @param {string|null} label - Optional label for the canvas item
    * @returns {Promise<Object>}
    */
-  async uploadCanvasItem(sessionId, file, label = null) {
+  async uploadCanvasItem(sessionId, file) {
     const formData = new FormData();
     formData.append('file', file);
-    if (label) {
-      formData.append('label', label);
-    }
 
     const response = await fetch(`${this.#baseUrl}/sessions/${sessionId}/canvas`, {
       method: 'POST',
@@ -487,7 +483,6 @@ export class ApiClient {
    * @param {Object} data - Canvas item data
    * @param {string} data.type - Type: 'text', 'markdown', 'json', 'code'
    * @param {string} data.content - Text content
-   * @param {string|null} data.label - Optional label
    * @param {string|null} data.filename - Optional filename
    * @returns {Promise<Object>}
    */
