@@ -34,6 +34,7 @@ export class SessionRepository extends BaseRepository {
       nextTemplateId: row.next_template_id,
       parentSessionId: row.parent_session_id,
       pendingPrompt: row.pending_prompt || null,
+      slashCommands: row.slash_commands || null,
       // Token usage fields
       inputTokens: row.input_tokens || 0,
       outputTokens: row.output_tokens || 0,

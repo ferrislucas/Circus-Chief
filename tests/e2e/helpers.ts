@@ -372,10 +372,17 @@ export async function waitForSessionStatus(
   status: string,
   timeout = 10000
 ) {
-  await expect(async () => {
-    const statusBadge = page.locator(`.status-badge.status-${status}`);
-    await expect(statusBadge).toBeVisible();
-  }).toPass({ timeout });
+  // Poll the API to check session status instead of looking for DOM element
+  // (status badge is not always visible in all views)
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const session = await getSession(sessionId);
+    if (session && session.status === status) {
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`Session ${sessionId} did not reach status "${status}" after ${timeout}ms`);
 }
 
 export async function getSessionMessages(sessionId: string) {
