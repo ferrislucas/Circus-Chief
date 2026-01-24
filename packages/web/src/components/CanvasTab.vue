@@ -147,9 +147,9 @@ const selectedItem = computed(() => {
 
 const selectedVersions = computed(() => {
   if (!selectedItem.value) return [];
-  const key = selectedItem.value.filename || selectedItem.value.label || selectedItem.value.id;
+  const key = selectedItem.value.filename || selectedItem.value.id;
   return canvasStore.items
-    .filter((i) => (i.filename || i.label || i.id) === key)
+    .filter((i) => (i.filename || i.id) === key)
     .sort((a, b) => b.createdAt - a.createdAt);
 });
 
@@ -234,8 +234,8 @@ async function uploadFile(file) {
 
     // If we're viewing a file with the same name, stay on viewer with the new version
     if (selectedItem.value) {
-      const selectedFilename = selectedItem.value.filename || selectedItem.value.label || selectedItem.value.id;
-      const uploadedFilename = item.filename || item.label || item.id;
+      const selectedFilename = selectedItem.value.filename || selectedItem.value.id;
+      const uploadedFilename = item.filename || item.id;
       if (selectedFilename === uploadedFilename) {
         router.push({
           query: { ...route.query, item: item.id }

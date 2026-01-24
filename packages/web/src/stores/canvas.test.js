@@ -48,19 +48,7 @@ describe('Canvas Store', () => {
       expect(testGroup.allVersions.length).toBe(2);
     });
 
-    it('groups items by label when filename is missing', () => {
-      const store = useCanvasStore();
-      store.items = [
-        { id: '1', label: 'My Label', createdAt: 1000 },
-        { id: '2', label: 'My Label', createdAt: 2000 },
-      ];
-
-      const grouped = store.groupedItems;
-      expect(grouped.length).toBe(1);
-      expect(grouped[0].versionCount).toBe(2);
-    });
-
-    it('uses id as fallback when filename and label are missing', () => {
+    it('uses id as fallback when filename is missing', () => {
       const store = useCanvasStore();
       store.items = [
         { id: '1', createdAt: 1000 },
@@ -171,21 +159,6 @@ describe('Canvas Store', () => {
       expect(store.items[0].id).toBe('3');
     });
 
-    it('uses label for grouping when filename is missing', async () => {
-      const store = useCanvasStore();
-      store.items = [
-        { id: '1', label: 'My File' },
-        { id: '2', label: 'My File' },
-        { id: '3', label: 'Other' },
-      ];
-
-      api.deleteCanvasItem.mockResolvedValue();
-
-      await store.deleteGroup('session-1', 'My File');
-
-      expect(api.deleteCanvasItem).toHaveBeenCalledTimes(2);
-      expect(store.items.length).toBe(1);
-    });
   });
 
   describe('removeItem action', () => {
@@ -341,19 +314,6 @@ describe('Canvas Store', () => {
   });
 
   describe('groupedTrashedItems getter edge cases', () => {
-    it('handles items with label fallback for grouping key', () => {
-      const store = useCanvasStore();
-      store.trashedItems = [
-        { id: '1', label: 'My Screenshot', deletedAt: 1000 },
-        { id: '2', label: 'My Screenshot', deletedAt: 2000 },
-      ];
-
-      const grouped = store.groupedTrashedItems;
-      expect(grouped).toHaveLength(1);
-      expect(grouped[0].versionCount).toBe(2);
-      expect(grouped[0].label).toBe('My Screenshot');
-    });
-
     it('handles items with id fallback for grouping key', () => {
       const store = useCanvasStore();
       store.trashedItems = [
