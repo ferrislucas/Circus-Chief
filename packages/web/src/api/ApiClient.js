@@ -1070,6 +1070,41 @@ export class ApiClient {
   async resetTokenCostWeights() {
     return this.#request('DELETE', '/settings/token-weights');
   }
+
+  // Slash Commands
+
+  /**
+   * Get all available slash commands for a directory
+   * @param {string} directory - Working directory to discover commands from
+   * @returns {Promise<Array>} Array of command objects
+   */
+  async getSlashCommands(directory) {
+    return this.#request('GET', `/commands?directory=${encodeURIComponent(directory)}`);
+  }
+
+  /**
+   * Get a single slash command by name
+   * @param {string} directory - Working directory to discover commands from
+   * @param {string} name - Command name
+   * @returns {Promise<Object>} Command object
+   */
+  async getSlashCommand(directory, name) {
+    return this.#request('GET', `/commands/${encodeURIComponent(name)}?directory=${encodeURIComponent(directory)}`);
+  }
+
+  /**
+   * Execute a slash command in a session
+   * @param {string} sessionId - Session to execute command in
+   * @param {string} name - Command name
+   * @param {Object} args - Argument values keyed by argument name
+   * @returns {Promise<Object>} Execution result
+   */
+  async executeSlashCommand(sessionId, name, args = {}) {
+    return this.#request('POST', `/commands/${encodeURIComponent(name)}/execute`, {
+      sessionId,
+      args,
+    });
+  }
 }
 
 // Singleton instance
