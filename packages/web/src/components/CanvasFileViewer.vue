@@ -11,7 +11,7 @@
           ← Canvas
         </button>
         <span class="breadcrumb-separator">/</span>
-        <span class="viewer-filename">{{ item.label || item.filename || 'Untitled' }}</span>
+        <span class="viewer-filename">{{ item.filename || 'Untitled' }}</span>
       </div>
 
       <div class="viewer-header-right">
@@ -113,7 +113,7 @@
       <img
         v-if="item.type === 'image'"
         :src="`data:${item.mimeType};base64,${item.data}`"
-        :alt="item.label || 'Image'"
+        :alt="item.filename || 'Image'"
         class="viewer-image"
       />
 
@@ -260,13 +260,13 @@ async function handleMenuCopyContents() {
 }
 
 async function handleMenuCopyFilename() {
-  const filename = props.item.label || props.item.filename || 'Untitled';
+  const filename = props.item.filename || 'Untitled';
   await copyToClipboard(filename);
   closeMenu();
 }
 
 function handleMenuDeleteAll() {
-  const filename = props.item.filename || props.item.label || props.item.id;
+  const filename = props.item.filename || props.item.id;
   emit('deleteAll', filename);
   closeMenu();
 }

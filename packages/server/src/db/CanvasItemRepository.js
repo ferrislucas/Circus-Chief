@@ -28,7 +28,6 @@ export class CanvasItemRepository extends BaseRepository {
       data: data,
       mimeType: row.mime_type,
       filename: row.filename,
-      label: row.label,
       width: row.width,
       height: row.height,
       deletedAt: row.deleted_at,
@@ -48,8 +47,8 @@ export class CanvasItemRepository extends BaseRepository {
 
     this.db
       .prepare(
-        `INSERT INTO canvas_items (id, session_id, type, content, data, mime_type, filename, label, width, height, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO canvas_items (id, session_id, type, content, data, mime_type, filename, width, height, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -59,7 +58,6 @@ export class CanvasItemRepository extends BaseRepository {
         dataValue,
         data.mimeType || null,
         data.filename || null,
-        data.label || null,
         data.width || null,
         data.height || null,
         now
@@ -163,7 +161,6 @@ export class CanvasItemRepository extends BaseRepository {
         data: item.data,
         mimeType: item.mimeType,
         filename: item.filename,
-        label: item.label,
         width: item.width,
         height: item.height,
       });

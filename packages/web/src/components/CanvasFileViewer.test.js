@@ -68,12 +68,12 @@ describe('CanvasFileViewer', () => {
       expect(wrapper.find('.viewer-filename').text()).toBe('myfile.txt');
     });
 
-    it('displays label when filename is missing', () => {
+    it('displays Untitled when filename is missing', () => {
       const wrapper = mountComponent({
-        item: { id: '1', label: 'My Label', type: 'text', content: 'Content', createdAt: Date.now() },
+        item: { id: '1', type: 'text', content: 'Content', createdAt: Date.now() },
       });
 
-      expect(wrapper.find('.viewer-filename').text()).toBe('My Label');
+      expect(wrapper.find('.viewer-filename').text()).toBe('Untitled');
     });
 
     it('always shows breadcrumb navigation', () => {
