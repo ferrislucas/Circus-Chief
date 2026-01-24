@@ -1456,4 +1456,407 @@ describe('SessionDetailView', () => {
       expect(indicator.text()).toBe('✓');
     });
   });
+
+  describe('PR URL editing', () => {
+    it('shows "Link PR" button when no prUrl is set', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        prUrl: null,
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      const editTrigger = wrapper.find('.pr-edit-trigger');
+      expect(editTrigger.exists()).toBe(true);
+      expect(editTrigger.text()).toContain('Link PR');
+    });
+
+    it('shows edit button (without "Link PR" text) when prUrl is set', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        prUrl: 'https://github.com/owner/repo/pull/123',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: false, // Don't stub - we want to see it rendered
+          },
+        },
+      });
+
+      await flushPromises();
+
+      const editTrigger = wrapper.find('.pr-edit-trigger');
+      expect(editTrigger.exists()).toBe(true);
+      // When prUrl is set, the button should NOT show "Link PR" text
+      expect(editTrigger.text()).not.toContain('Link PR');
+    });
+
+    it('enters edit mode when edit trigger is clicked', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        prUrl: null,
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Initially no edit form
+      expect(wrapper.find('.pr-edit-form').exists()).toBe(false);
+
+      // Click the edit trigger
+      const editTrigger = wrapper.find('.pr-edit-trigger');
+      await editTrigger.trigger('click');
+
+      // Now edit form should be visible
+      expect(wrapper.find('.pr-edit-form').exists()).toBe(true);
+      expect(wrapper.find('.pr-url-input').exists()).toBe(true);
+    });
+
+    it('populates input with existing prUrl when editing', async () => {
+      const existingPrUrl = 'https://github.com/owner/repo/pull/123';
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        prUrl: existingPrUrl,
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Click the edit trigger
+      await wrapper.find('.pr-edit-trigger').trigger('click');
+
+      // Input should be populated with existing URL
+      const input = wrapper.find('.pr-url-input');
+      expect(input.element.value).toBe(existingPrUrl);
+    });
+
+    it('cancels editing when cancel button is clicked', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        prUrl: null,
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Enter edit mode
+      await wrapper.find('.pr-edit-trigger').trigger('click');
+      expect(wrapper.find('.pr-edit-form').exists()).toBe(true);
+
+      // Click cancel button
+      const cancelBtn = wrapper.find('.pr-cancel-btn');
+      await cancelBtn.trigger('click');
+
+      // Edit form should be hidden
+      expect(wrapper.find('.pr-edit-form').exists()).toBe(false);
+      expect(wrapper.find('.pr-edit-trigger').exists()).toBe(true);
+    });
+
+    it('cancels editing when Escape key is pressed', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        prUrl: null,
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Enter edit mode
+      await wrapper.find('.pr-edit-trigger').trigger('click');
+      expect(wrapper.find('.pr-edit-form').exists()).toBe(true);
+
+      // Press Escape in input
+      const input = wrapper.find('.pr-url-input');
+      await input.trigger('keyup.escape');
+
+      // Edit form should be hidden
+      expect(wrapper.find('.pr-edit-form').exists()).toBe(false);
+    });
+
+    it('shows clear button only when input has value', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        prUrl: 'https://github.com/owner/repo/pull/123',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Enter edit mode
+      await wrapper.find('.pr-edit-trigger').trigger('click');
+
+      // Clear button should exist because input has value
+      expect(wrapper.find('.pr-clear-btn').exists()).toBe(true);
+
+      // Clear the input value
+      const input = wrapper.find('.pr-url-input');
+      await input.setValue('');
+
+      // Clear button should not exist when input is empty
+      expect(wrapper.find('.pr-clear-btn').exists()).toBe(false);
+    });
+
+    it('renders branch-pr-indicators section always', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        prUrl: null,
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // The branch-pr-indicators div should always be rendered
+      const prIndicatorsSection = wrapper.find('.branch-pr-indicators');
+      expect(prIndicatorsSection.exists()).toBe(true);
+    });
+
+    it('renders PrIndicators component when prUrl is set', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        prUrl: 'https://github.com/owner/repo/pull/123',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: false, // Don't stub - we want to check it's rendered
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // PrIndicators should be rendered when prUrl exists
+      const prIndicators = wrapper.findComponent({ name: 'PrIndicators' });
+      expect(prIndicators.exists()).toBe(true);
+    });
+
+    it('does not render PrIndicators component when prUrl is not set', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        prUrl: null,
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: false, // Don't stub
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // PrIndicators should not be rendered when prUrl is null
+      const prIndicators = wrapper.findComponent({ name: 'PrIndicators' });
+      expect(prIndicators.exists()).toBe(false);
+    });
+
+    it('has input placeholder with example URL format', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        prUrl: null,
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Enter edit mode
+      await wrapper.find('.pr-edit-trigger').trigger('click');
+
+      const input = wrapper.find('.pr-url-input');
+      expect(input.attributes('placeholder')).toBe('https://github.com/owner/repo/pull/123');
+    });
+  });
 });

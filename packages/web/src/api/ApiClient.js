@@ -458,15 +458,11 @@ export class ApiClient {
    * Upload a file to the canvas
    * @param {string} sessionId - Session ID
    * @param {File} file - File to upload
-   * @param {string|null} label - Optional label for the canvas item
    * @returns {Promise<Object>}
    */
-  async uploadCanvasItem(sessionId, file, label = null) {
+  async uploadCanvasItem(sessionId, file) {
     const formData = new FormData();
     formData.append('file', file);
-    if (label) {
-      formData.append('label', label);
-    }
 
     const response = await fetch(`${this.#baseUrl}/sessions/${sessionId}/canvas`, {
       method: 'POST',
@@ -487,7 +483,6 @@ export class ApiClient {
    * @param {Object} data - Canvas item data
    * @param {string} data.type - Type: 'text', 'markdown', 'json', 'code'
    * @param {string} data.content - Text content
-   * @param {string|null} data.label - Optional label
    * @param {string|null} data.filename - Optional filename
    * @returns {Promise<Object>}
    */
@@ -1172,6 +1167,41 @@ export class ApiClient {
    */
   async removeProviderModel(providerId, modelId) {
     return this.#request('DELETE', `/providers/${providerId}/models/${modelId}`);
+  }
+
+  // Slash Commands
+
+  /**
+   * Get all available slash commands for a directory
+   * @param {string} directory - Working directory to discover commands from
+   * @returns {Promise<Array>} Array of command objects
+   */
+  async getSlashCommands(directory) {
+    return this.#request('GET', `/commands?directory=${encodeURIComponent(directory)}`);
+  }
+
+  /**
+   * Get a single slash command by name
+   * @param {string} directory - Working directory to discover commands from
+   * @param {string} name - Command name
+   * @returns {Promise<Object>} Command object
+   */
+  async getSlashCommand(directory, name) {
+    return this.#request('GET', `/commands/${encodeURIComponent(name)}?directory=${encodeURIComponent(directory)}`);
+  }
+
+  /**
+   * Execute a slash command in a session
+   * @param {string} sessionId - Session to execute command in
+   * @param {string} name - Command name
+   * @param {Object} args - Argument values keyed by argument name
+   * @returns {Promise<Object>} Execution result
+   */
+  async executeSlashCommand(sessionId, name, args = {}) {
+    return this.#request('POST', `/commands/${encodeURIComponent(name)}/execute`, {
+      sessionId,
+      args,
+    });
   }
 }
 

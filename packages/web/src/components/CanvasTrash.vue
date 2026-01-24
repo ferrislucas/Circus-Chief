@@ -81,7 +81,7 @@
 
           <span class="file-icon">{{ getTypeIcon(item.type) }}</span>
           <div class="file-info">
-            <span class="file-name">{{ item.filename || item.label || 'Untitled' }}</span>
+            <span class="file-name">{{ item.filename || 'Untitled' }}</span>
             <span class="file-meta">
               {{ item.versionCount }} version{{ item.versionCount > 1 ? 's' : '' }}
               &bull; Deleted {{ formatRelativeTime(item.deletedAt) }}

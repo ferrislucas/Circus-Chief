@@ -92,7 +92,6 @@ CREATE TABLE IF NOT EXISTS canvas_items (
   data TEXT,              -- For json (stored as JSON string) or image (base64)
   mime_type TEXT,         -- For images
   filename TEXT,
-  label TEXT,
   width INTEGER,
   height INTEGER,
   deleted_at INTEGER,     -- null = active, timestamp = soft deleted
