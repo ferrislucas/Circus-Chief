@@ -10,7 +10,7 @@
       <SessionHierarchyBreadcrumb
         v-if="sessionPath.length > 1"
         :path="sessionPath"
-        :current-session-id="sessionId"
+        :current-session-id="currentSessionId"
       />
 
       <div class="session-header">
@@ -153,7 +153,7 @@
       <ChildSessionsPanel
         v-if="childSessions.length > 0"
         :sessions="childSessions"
-        :parent-session-id="sessionId"
+        :parent-session-id="currentSessionId"
       />
     </template>
   </div>
@@ -195,10 +195,13 @@ const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const { getModelDisplayName } = useModelInfo();
 
-// Capture session ID at component creation
-// Note: When navigating between sessions (parent/child), the component is reused
-// and we use a route watcher below to reload data
-const sessionId = route.params.id;
+// Reactive session ID that tracks route changes
+// When navigating between sessions (parent/child), the component is reused
+// and the route watcher handles cleanup and re-initialization
+const currentSessionId = ref(route.params.id);
+
+// Track current subscription instance - recreated on session change
+let currentSubscription = null;
 
 const activeTab = computed(() => route.params.tab || 'conversation');
 
@@ -260,8 +263,8 @@ function navigateToTab(tabId) {
   router.push(`/sessions/${route.params.id}/${tabId}`);
 }
 
-const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onConversationUpdated, onUsageUpdate, onChangesUpdate, onCommandOutput, onCommandComplete, onCommandError } =
-  useSessionSubscription(sessionId);
+// Note: Subscription is created dynamically in initializeSession() to handle session changes
+// The currentSubscription variable tracks the active subscription instance
 
 let cleanups = [];
 const pollIntervalId = ref(null);
@@ -275,9 +278,9 @@ const editPrUrlValue = ref('');
 
 // Check for file system changes (staged, unstaged, untracked)
 async function checkForChanges() {
-  if (!sessionId) return;
+  if (!currentSessionId.value) return;
   try {
-    const changes = await api.getSessionChanges(sessionId);
+    const changes = await api.getSessionChanges(currentSessionId.value);
     hasChanges.value = !!(changes.staged || changes.unstaged || changes.untracked);
     // Count files from the diff responses so the tab shows the count immediately
     const stagedFiles = parseDiff(changes.staged || '');
@@ -295,6 +298,7 @@ function startPolling() {
   if (pollIntervalId.value) return;
   pollIntervalId.value = setInterval(async () => {
     const status = sessionsStore.currentSession?.status;
+    const sessionId = currentSessionId.value;
     // Only poll while actively processing, not while waiting for user input
     // Use showLoading=false to avoid flickering
     if (status === 'running' || status === 'starting') {
@@ -318,22 +322,33 @@ function stopPolling() {
   }
 }
 
-// Watch for status changes from any source (optimistic updates, WebSocket, etc.)
-// This ensures polling starts even when status is updated directly in the store
-watch(
-  () => sessionsStore.currentSession?.status,
-  (newStatus, oldStatus) => {
-    if (newStatus === 'running' || newStatus === 'starting') {
-      startPolling();
-    } else if (oldStatus === 'running' || oldStatus === 'starting') {
-      stopPolling();
-    }
+// Cleanup function - called on unmount AND on route change (session navigation)
+// This ensures WebSocket subscriptions don't leak between sessions
+function cleanup() {
+  stopPolling();
+  if (currentSubscription) {
+    currentSubscription.unsubscribe();
+    currentSubscription = null;
   }
-);
+  cleanups.forEach((c) => c());
+  cleanups = [];
+  sessionsStore.clearRunningUsage();
+  todosStore.clearTodos();
+  // Reset local state
+  summary.value = null;
+  hasChanges.value = false;
+  changesFileCount.value = 0;
+  canvasItemCount.value = 0;
+}
 
-onMounted(async () => {
-  // STEP 1: Ensure subscribed to WebSocket first
-  // This waits for the socket to be OPEN and subscription message to be sent
+// Initialize session - called on mount AND on route change (session navigation)
+// This sets up WebSocket subscription and handlers for the given session
+async function initializeSession(sessionId) {
+  // STEP 1: Create new subscription for this session
+  currentSubscription = useSessionSubscription(sessionId);
+  const { unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onConversationUpdated, onUsageUpdate, onChangesUpdate, onCommandOutput, onCommandComplete, onCommandError } = currentSubscription;
+
+  // STEP 2: Ensure subscribed to WebSocket
   try {
     await ensureSubscribed(sessionId);
   } catch (error) {
@@ -341,35 +356,28 @@ onMounted(async () => {
     uiStore.error('Failed to subscribe to session updates');
   }
 
-  // STEP 1.5: Fetch critical data BEFORE registering handlers
-  // This ensures conversations array is populated when usage updates arrive
-  // and prevents handlers from trying to access empty conversation lists
+  // STEP 3: Fetch critical data BEFORE registering handlers
   await sessionsStore.fetchSession(sessionId);
   await sessionsStore.fetchConversations(sessionId);
 
-  // Fetch command buttons for the project so button labels are available
-  // This is needed for displaying command status indicators
+  // Fetch command buttons for the project
   const projectId = sessionsStore.currentSession?.projectId;
   if (projectId) {
     try {
       await commandButtonsStore.fetchButtons(projectId);
     } catch (error) {
-      // Non-critical - command buttons may not exist for this project
       console.debug('Failed to fetch command buttons:', error);
     }
   }
 
-  // STEP 2: Register all handlers (data is now ready)
-  // This ensures we don't miss any updates that arrive while data is being fetched
+  // STEP 4: Register all handlers
   cleanups.push(
     onStatus((status) => {
       sessionsStore.updateSessionStatus(sessionId, status);
-      // Start polling when session starts processing, stop when done
       if (status === 'running' || status === 'starting') {
         startPolling();
       } else {
         stopPolling();
-        // Check for changes when session becomes idle (after conversation returns)
         if (status === 'waiting' || status === 'completed') {
           checkForChanges();
         }
@@ -392,8 +400,6 @@ onMounted(async () => {
   cleanups.push(
     onCanvasAdd((item) => {
       canvasStore.addItem(item);
-      // Update canvas count immediately when WebSocket event arrives
-      // Use groupedItems.length to get the deduplicated count
       canvasItemCount.value = canvasStore.groupedItems.length;
     })
   );
@@ -401,8 +407,6 @@ onMounted(async () => {
   cleanups.push(
     onCanvasRemove((itemId) => {
       canvasStore.removeItem(itemId);
-      // Update canvas count immediately when item is removed
-      // Use groupedItems.length to get the deduplicated count
       canvasItemCount.value = canvasStore.groupedItems.length;
     })
   );
@@ -425,14 +429,12 @@ onMounted(async () => {
     })
   );
 
-  // Handle conversation updates for usage tracking (Issue #175)
   cleanups.push(
     onConversationUpdated((conversation) => {
       sessionsStore.updateConversation(conversation);
     })
   );
 
-  // Handle usage updates for real-time token display (Issue #175)
   cleanups.push(
     onUsageUpdate((msg) => {
       if (msg.isFinal) {
@@ -443,29 +445,21 @@ onMounted(async () => {
     })
   );
 
-  // Handle real-time changes updates from server
   cleanups.push(
     onChangesUpdate((changeCount, hasChangesUpdate) => {
       changesFileCount.value = changeCount;
-      // Update the orange circle indicator when changes are committed or new changes appear
       if (typeof hasChangesUpdate === 'boolean') {
         hasChanges.value = hasChangesUpdate;
       } else {
-        // Fallback: determine from file count if hasChanges is not explicitly provided
         hasChanges.value = changeCount > 0;
       }
     })
   );
 
-  // Handle command run output (for real-time status icon updates)
   cleanups.push(
     onCommandOutput((runId, buttonId, output) => {
-      // Get the actual startedAt from the commandButtons store or existing session run
-      // to avoid resetting the timer on every output event
       const existingRun = commandButtonsStore.runs[runId];
       const existingSessionRun = sessionsStore.currentSession?.latestCommandRuns?.find(r => r.runId === runId);
-
-      // Update session's latestCommandRuns for session detail display
       sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
         buttonId,
         status: 'running',
@@ -475,10 +469,8 @@ onMounted(async () => {
     })
   );
 
-  // Handle command run complete
   cleanups.push(
     onCommandComplete((runId, buttonId, exitCode, output) => {
-      // Update session's latestCommandRuns for session detail display
       const status = exitCode === 0 ? 'success' : 'error';
       sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
         buttonId,
@@ -490,10 +482,8 @@ onMounted(async () => {
     })
   );
 
-  // Handle command run error
   cleanups.push(
     onCommandError((runId, buttonId, error) => {
-      // Update session's latestCommandRuns for session detail display
       sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
         buttonId,
         status: 'error',
@@ -503,19 +493,11 @@ onMounted(async () => {
     })
   );
 
-  // STEP 3: Clear todos store before fetching new session's todos
-  // This prevents old session's todos from persisting visually
-  todosStore.clearTodos();
-
-  // STEP 4: Now fetch remaining data (handlers are ready to receive updates)
+  // STEP 5: Fetch remaining data
   await sessionsStore.fetchMessages(sessionId);
   await sessionsStore.fetchWorkLogs(sessionId);
-  // Await canvas fetch to ensure indicator shows correct count immediately.
-  // This catches items added before/during WebSocket subscription establishment.
   await canvasStore.fetchItems(sessionId);
-  // Update canvas count after fetch completes to show correct indicator
   canvasItemCount.value = canvasStore.groupedItems.length;
-  // Fetch todos for the active conversation (scoped to conversation, not session)
   todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
 
   // Fetch summary for PR indicators (don't await, not critical)
@@ -533,25 +515,48 @@ onMounted(async () => {
     templatesStore.fetchProjectTemplates(sessionsStore.currentSession.projectId);
   }
 
-  // STEP 5: Start polling if session is actively processing
-  // (handles race condition where session completes before WebSocket subscription is established)
+  // STEP 6: Start polling if session is actively processing
   const status = sessionsStore.currentSession?.status;
   if (status === 'running' || status === 'starting') {
     startPolling();
   }
+}
+
+// Watch for status changes from any source (optimistic updates, WebSocket, etc.)
+// This ensures polling starts even when status is updated directly in the store
+watch(
+  () => sessionsStore.currentSession?.status,
+  (newStatus, oldStatus) => {
+    if (newStatus === 'running' || newStatus === 'starting') {
+      startPolling();
+    } else if (oldStatus === 'running' || oldStatus === 'starting') {
+      stopPolling();
+    }
+  }
+);
+
+onMounted(async () => {
+  // Initialize the session with WebSocket subscription and data fetching
+  await initializeSession(currentSessionId.value);
 });
 
 // Watch for session changes within the same component (e.g., navigating between sessions)
 // This handles the case where the route changes but the component doesn't unmount/remount
+// CRITICAL: This fixes the WebSocket subscription leak bug - we must cleanup the old session
+// and reinitialize with the new session to prevent messages from leaking across sessions
 watch(
   () => route.params.id,
   async (newSessionId, oldSessionId) => {
     // Only proceed if the session ID actually changed
     if (newSessionId && newSessionId !== oldSessionId) {
-      // Clear todos before switching to the new session
-      todosStore.clearTodos();
-      // Fetch the new session's todos for the active conversation
-      todosStore.fetchTodos(newSessionId, sessionsStore.activeConversationId);
+      // STEP 1: Cleanup old session (unsubscribe WebSocket, clear handlers, reset state)
+      cleanup();
+
+      // STEP 2: Update the reactive session ID
+      currentSessionId.value = newSessionId;
+
+      // STEP 3: Initialize the new session (subscribe WebSocket, register handlers, fetch data)
+      await initializeSession(newSessionId);
     }
   }
 );
@@ -564,7 +569,7 @@ watch(
     if (newConvId && newConvId !== oldConvId) {
       // Clear and refetch todos for the new conversation
       todosStore.clearTodos();
-      todosStore.fetchTodos(sessionId, newConvId);
+      todosStore.fetchTodos(currentSessionId.value, newConvId);
     }
   }
 );
@@ -572,17 +577,15 @@ watch(
 // Handle component reactivation (keep-alive) - refresh data when view becomes active again
 // This ensures fresh token counts and other data when returning from another tab/session
 onActivated(() => {
-  if (sessionId) {
+  if (currentSessionId.value) {
     // Refetch conversations to get latest token counts and other updated data
-    sessionsStore.fetchConversations(sessionId);
+    sessionsStore.fetchConversations(currentSessionId.value);
   }
 });
 
 onUnmounted(() => {
-  stopPolling();
-  unsubscribe();
-  cleanups.forEach((cleanup) => cleanup());
-  sessionsStore.clearRunningUsage();
+  // Use the centralized cleanup function to ensure all resources are freed
+  cleanup();
 });
 
 async function handleDuplicate() {
@@ -592,7 +595,7 @@ async function handleDuplicate() {
 
   try {
     // Get the current session ID to duplicate
-    const newSessionId = await sessionsStore.duplicateSession(sessionId);
+    const newSessionId = await sessionsStore.duplicateSession(currentSessionId.value);
     uiStore.success('Session duplicated');
     // Optionally navigate to the new session
     router.push(`/sessions/${newSessionId}/conversation`);
@@ -606,7 +609,7 @@ async function handleDelete() {
 
   try {
     const projectId = sessionsStore.currentSession?.projectId;
-    await sessionsStore.deleteSession(sessionId);
+    await sessionsStore.deleteSession(currentSessionId.value);
     uiStore.success('Session deleted');
     // Navigate to project sessions list
     if (projectId) {
@@ -630,10 +633,10 @@ async function handleArchive() {
     }
 
     if (isArchived) {
-      await sessionsStore.unarchiveSession(sessionId);
+      await sessionsStore.unarchiveSession(currentSessionId.value);
       uiStore.success('Session unarchived');
     } else {
-      await sessionsStore.archiveSession(sessionId);
+      await sessionsStore.archiveSession(currentSessionId.value);
       uiStore.success('Session archived');
     }
     // Navigate to project sessions list
@@ -649,13 +652,14 @@ async function handleArchive() {
 
 async function handleStar() {
   try {
-    await sessionsStore.toggleSessionStar(sessionId);
+    await sessionsStore.toggleSessionStar(currentSessionId.value);
   } catch (err) {
     uiStore.error(err.message);
   }
 }
 
 async function handleCopySessionId() {
+  const sessionId = currentSessionId.value;
   try {
     await navigator.clipboard.writeText(sessionId);
     uiStore.success(`Session ID copied to clipboard: ${sessionId}`);
@@ -696,6 +700,7 @@ function cancelEditPrUrl() {
 
 async function savePrUrl() {
   const newPrUrl = editPrUrlValue.value.trim();
+  const sessionId = currentSessionId.value;
 
   // Validate if not empty
   if (newPrUrl) {
