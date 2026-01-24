@@ -34,7 +34,7 @@
       />
 
       <span class="file-icon">{{ getTypeIcon(item.type) }}</span>
-      <span class="file-name">{{ item.filename || item.label || 'Untitled' }}</span>
+      <span class="file-name">{{ item.filename || 'Untitled' }}</span>
 
       <!-- Copy button -->
       <button
@@ -113,7 +113,7 @@ const copiedItemId = ref(null);
 
 // Copy filename to clipboard with fallback
 async function copyFilename(item) {
-  const filename = item.filename || item.label || 'Untitled';
+  const filename = item.filename || 'Untitled';
   try {
     await navigator.clipboard.writeText(filename);
     showCopiedFeedback(item.id);

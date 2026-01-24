@@ -455,7 +455,7 @@ function buildCanvasWriteSystemPrompt(sessionId) {
   return `When you generate artifacts that should be displayed on the canvas (images, markdown documents, code snippets, data visualizations, PDFs), POST them to:
 
 POST ${apiUrl}/api/sessions/${sessionId}/canvas
-Body: {"filePath": "/path/to/file", "label": "Optional description"}
+Body: {"filePath": "/path/to/file"}
 
 The file type is automatically detected from the file extension. Supported formats:
 - Images: .png, .jpg, .jpeg, .gif, .webp, .svg, .bmp
