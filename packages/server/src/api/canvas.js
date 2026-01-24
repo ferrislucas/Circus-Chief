@@ -147,15 +147,15 @@ function getMimeTypeForType(type) {
 // POST /api/sessions/:id/canvas - Add canvas item
 // Supports three modes:
 // 1. Multipart mode: FormData with 'file' field - from browser file uploads
-// 2. File mode: { filePath, label? } - reads file from disk
-// 3. Inline mode: { type, content, filename, label? } - uses provided content directly
+// 2. File mode: { filePath } - reads file from disk
+// 3. Inline mode: { type, content, filename } - uses provided content directly
 router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const { filePath, label, type, content, filename } = req.body;
+  const { filePath, type, content, filename } = req.body;
   let itemData;
 
   // Mode 1: Multipart file upload from FormData
@@ -186,7 +186,6 @@ router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) 
         data: base64,
         mimeType: detectedMimeType,
         filename: filename,
-        label: req.body.label || null,
       };
     } else {
       // Handle text-based types (code, markdown, json)
@@ -197,7 +196,6 @@ router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) 
         data: detectedType === 'json' ? textContent : null,
         mimeType: detectedMimeType,
         filename: filename,
-        label: req.body.label || null,
       };
     }
   }
@@ -233,7 +231,6 @@ router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) 
           data: base64,
           mimeType: detectedMimeType,
           filename: basename(filePath),
-          label: label || null,
         };
       } else {
         // Handle text-based types (code, markdown, json)
@@ -244,7 +241,6 @@ router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) 
           data: detectedType === 'json' ? textContent : null,
           mimeType: detectedMimeType,
           filename: basename(filePath),
-          label: label || null,
         };
       }
     } catch (err) {
@@ -268,7 +264,6 @@ router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) 
       data: type === 'json' ? content : null,
       mimeType: getMimeTypeForType(type),
       filename,
-      label: label || null,
     };
   }
   // No valid mode provided

@@ -123,17 +123,17 @@ describe('CanvasFileList', () => {
       expect(mockClipboard.writeText).toHaveBeenCalledWith('myfile.txt');
     });
 
-    it('uses label as fallback when filename is missing', async () => {
+    it('uses Untitled as fallback when filename is missing', async () => {
       const wrapper = mountComponent({
         items: [
-          { id: '1', label: 'My Label', type: 'text', createdAt: Date.now() },
+          { id: '1', type: 'text', createdAt: Date.now() },
         ],
       });
 
       const copyButton = wrapper.find('.copy-button');
       await copyButton.trigger('click');
 
-      expect(mockClipboard.writeText).toHaveBeenCalledWith('My Label');
+      expect(mockClipboard.writeText).toHaveBeenCalledWith('Untitled');
     });
 
     it('shows copied state temporarily', async () => {
