@@ -6,8 +6,8 @@
     @dragleave="handleDragLeave"
     @drop.prevent="handleDrop"
   >
-    <!-- Upload header -->
-    <div class="canvas-header">
+    <!-- Upload header - only show in list view -->
+    <div v-if="!shouldShowViewer || !selectedItem" class="canvas-header">
       <label v-if="!showTrash" class="btn btn-primary" :class="{ disabled: uploading }">
         {{ uploading ? 'Uploading...' : 'Upload File' }}
         <input
@@ -154,7 +154,7 @@ const selectedVersions = computed(() => {
 });
 
 const shouldShowViewer = computed(() => {
-  return groupedItems.value.length === 1 || selectedItemId.value !== null;
+  return selectedItemId.value !== null;
 });
 
 const showBackButton = computed(() => {
