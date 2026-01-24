@@ -1070,6 +1070,109 @@ export class ApiClient {
   async resetTokenCostWeights() {
     return this.#request('DELETE', '/settings/token-weights');
   }
+
+  // Model Providers
+
+  /**
+   * Get all model providers
+   * @returns {Promise<Array>}
+   */
+  async getProviders() {
+    return this.#request('GET', '/providers');
+  }
+
+  /**
+   * Get a provider by ID
+   * @param {string} id - Provider ID
+   * @returns {Promise<Object>}
+   */
+  async getProvider(id) {
+    return this.#request('GET', `/providers/${id}`);
+  }
+
+  /**
+   * Create a new provider
+   * @param {Object} data - Provider data
+   * @returns {Promise<Object>}
+   */
+  async createProvider(data) {
+    return this.#request('POST', '/providers', data);
+  }
+
+  /**
+   * Update a provider
+   * @param {string} id - Provider ID
+   * @param {Object} data - Updated provider data
+   * @returns {Promise<Object>}
+   */
+  async updateProvider(id, data) {
+    return this.#request('PATCH', `/providers/${id}`, data);
+  }
+
+  /**
+   * Delete a provider
+   * @param {string} id - Provider ID
+   * @returns {Promise<void>}
+   */
+  async deleteProvider(id) {
+    return this.#request('DELETE', `/providers/${id}`);
+  }
+
+  /**
+   * Set a provider as default
+   * @param {string} id - Provider ID
+   * @returns {Promise<Object>}
+   */
+  async setDefaultProvider(id) {
+    return this.#request('POST', `/providers/${id}/default`);
+  }
+
+  /**
+   * Test a provider configuration
+   * @param {Object} config - Provider configuration to test
+   * @returns {Promise<{success: boolean, message: string, details?: Object}>}
+   */
+  async testProviderConnection(config) {
+    return this.#request('POST', '/providers/test', config);
+  }
+
+  /**
+   * Test an existing provider
+   * @param {string} id - Provider ID
+   * @returns {Promise<{success: boolean, message: string, details?: Object}>}
+   */
+  async testExistingProvider(id) {
+    return this.#request('POST', `/providers/${id}/test`);
+  }
+
+  /**
+   * Get models for a provider
+   * @param {string} providerId - Provider ID
+   * @returns {Promise<Array>}
+   */
+  async getProviderModels(providerId) {
+    return this.#request('GET', `/providers/${providerId}/models`);
+  }
+
+  /**
+   * Add a model to a provider
+   * @param {string} providerId - Provider ID
+   * @param {Object} data - Model data
+   * @returns {Promise<Object>}
+   */
+  async addProviderModel(providerId, data) {
+    return this.#request('POST', `/providers/${providerId}/models`, data);
+  }
+
+  /**
+   * Remove a model from a provider
+   * @param {string} providerId - Provider ID
+   * @param {string} modelId - Model ID
+   * @returns {Promise<void>}
+   */
+  async removeProviderModel(providerId, modelId) {
+    return this.#request('DELETE', `/providers/${providerId}/models/${modelId}`);
+  }
 }
 
 // Singleton instance

@@ -373,6 +373,85 @@ export class DatabaseManager {
         updated_at INTEGER NOT NULL
       )
     `);
+
+    // Create model_providers and provider_models tables for custom provider support
+    this.#db.exec(`
+      CREATE TABLE IF NOT EXISTS model_providers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        base_url TEXT,
+        auth_token TEXT,
+        default_opus_model TEXT,
+        default_sonnet_model TEXT,
+        default_haiku_model TEXT,
+        api_timeout_ms INTEGER,
+        additional_env_vars TEXT,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        is_built_in INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_model_providers_default ON model_providers(is_default);
+
+      CREATE TABLE IF NOT EXISTS provider_models (
+        id TEXT PRIMARY KEY,
+        provider_id TEXT NOT NULL REFERENCES model_providers(id) ON DELETE CASCADE,
+        model_id TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        description TEXT,
+        tier TEXT CHECK(tier IN ('opus', 'sonnet', 'haiku', 'custom')),
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
+    `);
+
+    // Seed built-in Anthropic provider if it doesn't exist
+    this.#seedBuiltInProvider();
+
+    // Add provider_id column to sessions table
+    const sessionsProviderTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const sessionsProviderColumns = sessionsProviderTableInfo.map((col) => col.name);
+
+    if (!sessionsProviderColumns.includes('provider_id')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN provider_id TEXT REFERENCES model_providers(id)');
+    }
+
+    // Add provider_id column to project_session_defaults table (if it exists)
+    const tableExists = this.#db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='project_session_defaults'")
+      .get();
+
+    if (tableExists) {
+      const defaultsProviderTableInfo = this.#db.prepare('PRAGMA table_info(project_session_defaults)').all();
+      const defaultsProviderColumns = defaultsProviderTableInfo.map((col) => col.name);
+
+      if (!defaultsProviderColumns.includes('provider_id')) {
+        this.#db.exec('ALTER TABLE project_session_defaults ADD COLUMN provider_id TEXT REFERENCES model_providers(id)');
+      }
+    }
+  }
+
+  /**
+   * Seed the built-in Anthropic provider if it doesn't exist
+   * @private
+   */
+  #seedBuiltInProvider() {
+    const providerId = 'anthropic-default';
+
+    // Check if built-in provider already exists
+    const existing = this.#db
+      .prepare('SELECT id FROM model_providers WHERE id = ?')
+      .get(providerId);
+
+    if (!existing) {
+      const now = Date.now();
+      this.#db
+        .prepare(
+          `INSERT INTO model_providers (id, name, is_default, is_built_in, created_at, updated_at)
+           VALUES (?, ?, 1, 1, ?, ?)`
+        )
+        .run(providerId, 'Anthropic (Official)', now, now);
+    }
   }
 
   /**
