@@ -23,6 +23,8 @@ export const CreateSessionRequest = z.object({
 export const UpdateSessionRequest = z.object({
   thinkingEnabled: z.boolean().optional(),
   nextTemplateId: z.string().uuid().nullable().optional(),
+  // PR URL - GitHub PR URL (e.g., https://github.com/owner/repo/pull/123) or null to clear
+  prUrl: z.string().url().regex(/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/).nullable().optional(),
   // Scheduling fields
   scheduledAt: z.number().nullable().optional(), // Unix timestamp in ms
   autoRescheduleEnabled: z.boolean().optional(),

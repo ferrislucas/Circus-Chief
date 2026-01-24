@@ -873,6 +873,7 @@ router.patch('/:id', (req, res) => {
     mode,
     nextTemplateId,
     model,
+    prUrl,
     // Scheduling fields
     scheduledAt,
     autoRescheduleEnabled,
@@ -920,6 +921,22 @@ router.patch('/:id', (req, res) => {
       return res.status(400).json({ error: 'Invalid model. Must be one of: ' + validModels.join(', ') });
     }
     updateData.model = model;
+  }
+  // PR URL - allow setting, updating, or clearing (null or empty string clears it)
+  if (prUrl !== undefined) {
+    if (prUrl === null || prUrl === '') {
+      // Allow clearing the PR URL
+      updateData.prUrl = null;
+    } else if (typeof prUrl === 'string') {
+      // Validate PR URL format if provided
+      const prUrlPattern = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/;
+      if (!prUrlPattern.test(prUrl)) {
+        return res.status(400).json({ error: 'Invalid PR URL format. Must be a valid GitHub PR URL (e.g., https://github.com/owner/repo/pull/123)' });
+      }
+      updateData.prUrl = prUrl;
+    } else {
+      return res.status(400).json({ error: 'prUrl must be a string or null' });
+    }
   }
   // Scheduling fields
   if (scheduledAt !== undefined) {
