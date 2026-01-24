@@ -156,14 +156,12 @@ Body`;
       await mkdir(projectCommandsDir, { recursive: true });
     });
 
-    it('returns built-in commands when no custom commands exist', async () => {
+    it('returns empty array when no custom commands exist', async () => {
       const commands = await getCommands(testDir);
 
-      // Should have built-in commands (only UI-friendly ones)
-      expect(commands.length).toBeGreaterThan(0);
-      expect(commands.some((c) => c.name === 'compact')).toBe(true);
-      expect(commands.some((c) => c.name === 'cost')).toBe(true);
-      expect(commands.every((c) => c.source === 'builtin')).toBe(true);
+      // Built-in commands were removed (they require terminal interaction)
+      // So when no custom commands exist, we should get an empty array
+      expect(commands.length).toBe(0);
     });
 
     it('discovers project commands from .claude/commands/', async () => {
@@ -190,14 +188,14 @@ Deploy now!`
 
       const commands = await getCommands(testDir);
 
-      // Should only have built-in commands since non-markdown files are ignored
-      expect(commands.every((c) => c.source === 'builtin')).toBe(true);
+      // Non-markdown files should be ignored (no commands should be discovered)
+      expect(commands.length).toBe(0);
       expect(commands.some((c) => c.name === 'readme')).toBe(false);
       expect(commands.some((c) => c.name === 'script')).toBe(false);
     });
 
-    it('project commands override built-in commands with same name', async () => {
-      // Create a custom compact command that should override the built-in
+    it('project commands are properly discovered', async () => {
+      // Create a custom command
       await writeFile(
         join(projectCommandsDir, 'compact.md'),
         `---
@@ -209,11 +207,11 @@ Custom compact content`
       const commands = await getCommands(testDir);
 
       const compact = commands.find((c) => c.name === 'compact');
-      // Project command takes priority over built-in
+      expect(compact).toBeDefined();
       expect(compact.source).toBe('project');
       expect(compact.description).toBe('Custom compact');
 
-      // Should only have one compact command (project overrides builtin)
+      // Should have exactly one compact command
       expect(commands.filter((c) => c.name === 'compact')).toHaveLength(1);
     });
   });
