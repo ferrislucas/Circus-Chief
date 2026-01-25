@@ -646,12 +646,48 @@ function resolveProvider(session) {
 }
 
 /**
+ * Resolve the effective model ID to use for a session
+ * For custom providers, maps session model tiers (sonnet, opus, haiku) to provider-specific model IDs
+ * @param {string|null} sessionModel - Model from session (e.g., "sonnet", "opus", "haiku", or specific ID)
+ * @param {Object|null} provider - Provider object from resolveProvider()
+ * @returns {string|null} Effective model ID to pass to query(), or null to use SDK defaults
+ */
+function resolveEffectiveModel(sessionModel, provider) {
+  // If no custom provider, use the session model as-is
+  // The SDK will handle translating "sonnet" to the actual Anthropic model ID
+  if (!provider) {
+    return sessionModel;
+  }
+
+  // For custom providers, map model tiers to provider's custom model IDs
+  // This ensures the correct model ID (e.g., "GLM-4.7") is passed instead of just "sonnet"
+  const modelLower = sessionModel?.toLowerCase() || '';
+
+  // Handle tier-based model names
+  if (modelLower === 'sonnet' || modelLower === '' || !sessionModel) {
+    // Default to provider's sonnet model (or null if not configured)
+    return provider.defaultSonnetModel || null;
+  }
+  if (modelLower === 'opus') {
+    return provider.defaultOpusModel || null;
+  }
+  if (modelLower === 'haiku') {
+    return provider.defaultHaikuModel || null;
+  }
+
+  // If it's already a specific model ID (not a tier name), use it as-is
+  // This allows users to specify custom model IDs directly
+  return sessionModel;
+}
+
+/**
  * Build environment variables from provider configuration
  * @param {Object|null} provider - Provider object
  * @returns {Object} Environment variables to add to session env
  */
 function buildProviderEnv(provider) {
   if (!provider) {
+    console.log('[SessionManager] buildProviderEnv: No provider, using SDK defaults');
     return {}; // Use SDK defaults
   }
 
@@ -661,6 +697,10 @@ function buildProviderEnv(provider) {
     env.ANTHROPIC_BASE_URL = provider.baseUrl;
   }
   if (provider.authToken) {
+    // Set BOTH ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN
+    // The SDK prioritizes ANTHROPIC_API_KEY, so we must set it to override
+    // any user's existing ANTHROPIC_API_KEY in their environment
+    env.ANTHROPIC_API_KEY = provider.authToken;
     env.ANTHROPIC_AUTH_TOKEN = provider.authToken;
   }
   if (provider.defaultOpusModel) {
@@ -680,6 +720,15 @@ function buildProviderEnv(provider) {
   if (provider.additionalEnvVars) {
     Object.assign(env, provider.additionalEnvVars);
   }
+
+  console.log(`[SessionManager] buildProviderEnv: Provider "${provider.name}" env vars:`, {
+    ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL,
+    ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY ? '[SET]' : '[NOT SET]',
+    ANTHROPIC_AUTH_TOKEN: env.ANTHROPIC_AUTH_TOKEN ? '[SET]' : '[NOT SET]',
+    ANTHROPIC_DEFAULT_SONNET_MODEL: env.ANTHROPIC_DEFAULT_SONNET_MODEL,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: env.ANTHROPIC_DEFAULT_OPUS_MODEL,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+  });
 
   return env;
 }
@@ -797,11 +846,14 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     // Choose between mock and real query based on environment
     const queryFn = isMockMode() ? mockQuery : query;
 
-    // Build environment variables for thinking mode
+    // Resolve provider and build environment variables
+    const provider = resolveProvider(session);
     const sessionEnv = buildSessionEnv(session);
 
-    // Use model from parameter or session record
+    // Use model from parameter or session record, then resolve to effective model ID
+    // For custom providers, this maps "sonnet" → provider.defaultSonnetModel (e.g., "GLM-4.7")
     const sessionModel = model || session.model;
+    const effectiveModel = resolveEffectiveModel(sessionModel, provider);
 
     const queryParams = isMockMode()
       ? { prompt: promptWithAttachments }
@@ -815,10 +867,19 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
             settingSources: ['project'],
             env: sessionEnv,
             spawnClaudeCodeProcess: createClaudeCodeSpawner(),
-            ...(sessionModel && { model: sessionModel }),
+            model: effectiveModel,
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
+
+    // Log query params for debugging third-party provider issues
+    console.log(`[SessionManager] runSession query params:`, {
+      model: queryParams.options?.model || '[not set - using SDK default]',
+      hasEnv: !!queryParams.options?.env,
+      envBaseUrl: queryParams.options?.env?.ANTHROPIC_BASE_URL || '[not set]',
+      envApiKey: queryParams.options?.env?.ANTHROPIC_API_KEY ? '[SET]' : '[not set]',
+      envAuthToken: queryParams.options?.env?.ANTHROPIC_AUTH_TOKEN ? '[SET]' : '[not set]',
+    });
 
     // Run the query with the SDK (or mock)
     for await (const event of queryFn(queryParams)) {
@@ -945,8 +1006,13 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     // Choose between mock and real query based on environment
     const queryFn = isMockMode() ? mockQuery : query;
 
-    // Build environment variables for thinking mode
+    // Resolve provider and build environment variables
+    const provider = resolveProvider(session);
     const sessionEnv = buildSessionEnv(session);
+
+    // Resolve effective model ID for custom providers
+    // This maps "sonnet" → provider.defaultSonnetModel (e.g., "GLM-4.7")
+    const effectiveModel = resolveEffectiveModel(session.model, provider);
 
     const queryParams = isMockMode()
       ? { prompt: promptWithAttachments }
@@ -963,7 +1029,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
             ...(activeConversation.claudeSessionId && { resume: activeConversation.claudeSessionId }),
             env: sessionEnv,
             spawnClaudeCodeProcess: createClaudeCodeSpawner(),
-            ...(session.model && { model: session.model }),
+            model: effectiveModel,
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
@@ -1090,8 +1156,13 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     // Choose between mock and real query based on environment
     const queryFn = isMockMode() ? mockQuery : query;
 
-    // Build environment variables for thinking mode
+    // Resolve provider and build environment variables
+    const provider = resolveProvider(session);
     const sessionEnv = buildSessionEnv(session);
+
+    // Resolve effective model ID for custom providers
+    // This maps "sonnet" → provider.defaultSonnetModel (e.g., "GLM-4.7")
+    const effectiveModel = resolveEffectiveModel(session.model, provider);
 
     const queryParams = isMockMode()
       ? { prompt: lastUserMessage.content }
@@ -1108,7 +1179,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
             ...(conversation.claudeSessionId && { resume: conversation.claudeSessionId }),
             env: sessionEnv,
             spawnClaudeCodeProcess: createClaudeCodeSpawner(),
-            ...(session.model && { model: session.model }),
+            model: effectiveModel,
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
