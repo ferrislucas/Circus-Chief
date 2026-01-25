@@ -57,8 +57,7 @@
           @click="handleCreate"
           title="Start a new conversation"
         >
-          <span>+</span>
-          New
+          New Conversation
         </button>
       </div>
     </div>

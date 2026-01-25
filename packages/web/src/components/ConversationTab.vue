@@ -111,14 +111,6 @@
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
 
-    <!-- Quick Responses Panel - shows above the input when not running or for draft sessions -->
-    <QuickResponsesPanel
-      v-if="canSendMessage || isDraft"
-      :show-empty="true"
-      @insert="handleQuickResponseInsert"
-      @openSettings="quickResponseSettingsOpen = true"
-    />
-
     <form v-if="canSendMessage" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
       <ResizableTextarea
         ref="textareaRef"
@@ -128,6 +120,31 @@
         @input="handleInput"
         @keydown="handleKeydown"
       />
+
+      <!-- Quick Responses Panel - shows below the textarea when not running or for draft sessions -->
+      <QuickResponsesPanel
+        v-if="canSendMessage || isDraft"
+        :show-empty="true"
+        @insert="handleQuickResponseInsert"
+        @openSettings="quickResponseSettingsOpen = true"
+      />
+
+      <!-- Send button row -->
+      <div class="send-button-row">
+        <div v-if="isDraft" class="draft-actions">
+          <button type="submit" class="btn btn-primary btn-send-full" :disabled="restarting || saveStatus === 'saving'">
+            <span v-if="restarting" class="loading-spinner"></span>
+            {{ restarting ? 'Sending...' : 'Send' }}
+          </button>
+        </div>
+        <template v-else>
+          <button type="submit" class="btn btn-primary btn-send-full" :disabled="isSendDisabled">
+            <span v-if="sending" class="loading-spinner"></span>
+            {{ sending ? 'Sending...' : 'Send' }}
+          </button>
+        </template>
+      </div>
+
       <div class="input-controls">
         <div class="session-options">
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
@@ -151,48 +168,25 @@
           <div class="mode-switcher">
             <ModeSelector :sessionId="sessionId" />
           </div>
-        </div>
-        <div class="input-actions">
-          <div v-if="isDraft" class="draft-actions">
-            <button
-              type="button"
-              class="btn btn-secondary btn-schedule"
-              @click="showScheduleModal = true"
-              :disabled="!inputHasContent"
-              title="Schedule this session to start later"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">
-                <circle cx="8" cy="8" r="6" stroke-width="1.5"/>
-                <path d="M8 5v3l2 2" stroke-width="1.5" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <button type="submit" class="btn btn-primary btn-send" :disabled="restarting || saveStatus === 'saving'">
-              <span v-if="restarting" class="loading-spinner"></span>
-              {{ restarting ? 'Starting...' : 'Start Session' }}
-            </button>
-          </div>
-          <template v-else>
-            <button
-              type="button"
-              class="btn btn-secondary btn-schedule"
-              @click="showScheduleModal = true"
-              :disabled="!inputHasContent || sessionsStore.currentSession?.status === 'scheduled'"
-              title="Schedule this message to be sent later"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">
-                <circle cx="8" cy="8" r="6" stroke-width="1.5"/>
-                <path d="M8 5v3l2 2" stroke-width="1.5" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <button type="submit" class="btn btn-primary btn-send" :disabled="isSendDisabled">
-              <span v-if="sending" class="loading-spinner"></span>
-              {{ sending ? 'Sending...' : 'Send' }}
-            </button>
-          </template>
+
+          <ModelSelector :sessionId="sessionId" />
         </div>
       </div>
-      <div class="model-row">
-        <ModelSelector :sessionId="sessionId" />
+
+      <!-- Schedule button row -->
+      <div class="schedule-row">
+        <button
+          type="button"
+          class="btn btn-secondary btn-schedule"
+          @click="showScheduleModal = true"
+          :disabled="!inputHasContent || (!isDraft && sessionsStore.currentSession?.status === 'scheduled')"
+          :title="isDraft ? 'Schedule this session to start later' : 'Schedule this message to be sent later'"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <circle cx="8" cy="8" r="6" stroke-width="1.5"/>
+            <path d="M8 5v3l2 2" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
       </div>
 
       <!-- Template selector for chaining sessions -->
@@ -1027,7 +1021,7 @@ async function handleBranchCreate({ messageId, prompt }) {
   flex: 1;
   overflow-y: auto;
   max-height: 500px;
-  padding: 1rem 0;
+  padding: 0.25rem 0;
   position: relative;
   overflow-anchor: none; /* Prevent browser scroll anchoring issues during streaming */
   scroll-behavior: smooth;
@@ -1198,8 +1192,6 @@ async function handleBranchCreate({ messageId, prompt }) {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--color-border);
 }
 
 .input-form textarea {
@@ -1208,7 +1200,6 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 .input-controls {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   gap: 1rem;
 }
@@ -1216,8 +1207,9 @@ async function handleBranchCreate({ messageId, prompt }) {
 .session-options {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
+  gap: 1rem;
   flex-wrap: wrap;
+  flex: 1;
 }
 
 .thinking-toggle {
@@ -1290,22 +1282,35 @@ async function handleBranchCreate({ messageId, prompt }) {
   cursor: not-allowed;
 }
 
-.input-actions {
+.send-button-row {
+  padding-top: 0.75rem;
   display: flex;
+  justify-content: center;
+}
+
+.btn-send-full {
+  width: 100%;
+  min-height: 52px;
+  padding: 1rem 1.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 0.5rem;
 }
 
 .draft-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex: 1;
+  width: 100%;
 }
 
-.model-row {
+.schedule-row {
   padding-top: 0.75rem;
   border-top: 1px solid var(--color-border);
   margin-top: 0.75rem;
+  display: flex;
+  justify-content: flex-start;
 }
 
 .template-row {
@@ -1347,14 +1352,6 @@ async function handleBranchCreate({ messageId, prompt }) {
   color: var(--color-text-soft);
   font-size: 0.75rem;
   font-style: italic;
-}
-
-.btn-send {
-  min-width: 100px;
-  min-height: 48px;
-  padding: 0.75rem 1.5rem;
-  font-size: 1rem;
-  font-weight: 600;
 }
 
 .btn-secondary {
@@ -1647,11 +1644,6 @@ async function handleBranchCreate({ messageId, prompt }) {
   .session-options {
     width: 100%;
     justify-content: flex-start;
-  }
-
-  .input-actions {
-    width: 100%;
-    justify-content: flex-end;
   }
 
   /* Mobile adjustments for scroll-to-claude button */
