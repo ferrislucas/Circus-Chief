@@ -21,8 +21,29 @@ async function flushAll(wrapper) {
 }
 
 describe('ModelSelector', () => {
+  let providersStore;
+
   beforeEach(() => {
     setActivePinia(createPinia());
+    providersStore = useProvidersStore();
+
+    // Mock the providers store with a built-in Anthropic provider
+    providersStore.providers = [
+      {
+        id: 'anthropic',
+        name: 'Anthropic',
+        isBuiltIn: true,
+        models: CLAUDE_MODELS.map((model) => ({
+          id: `anthropic-${model.id}`,
+          modelId: model.id,
+          displayName: model.name,
+          providerId: 'anthropic',
+        })),
+      },
+    ];
+
+    // Mock the fetch method to prevent API calls
+    vi.spyOn(providersStore, 'fetchProvidersWithModels').mockResolvedValue();
   });
 
   const mountComponent = (props = {}, attrs = {}) => {
