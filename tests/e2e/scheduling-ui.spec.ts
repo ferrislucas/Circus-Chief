@@ -49,11 +49,6 @@ test.describe('Scheduling UI', () => {
       await expect(clockButton).toBeDisabled();
     });
 
-    // TODO: Waiting session tests require more complex setup
-    // Skip for now and focus on draft session tests
-    test.skip('clock icon appears next to Send button for waiting sessions', async ({ page }) => {
-      // Requires: session to be started, have messages, be in waiting state
-    });
   });
 
   test.describe('Scheduling Modal', () => {
@@ -77,10 +72,6 @@ test.describe('Scheduling UI', () => {
       await expect(datetimePicker).toBeVisible();
     });
 
-    test.skip('clicking clock icon opens scheduling modal for waiting session', async ({ page }) => {
-      // Requires: session in waiting state
-    });
-
     test('scheduling modal shows auto-reschedule toggle directly (no container)', async ({ page }) => {
       // Create a draft session
       const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
@@ -102,13 +93,6 @@ test.describe('Scheduling UI', () => {
       // Verify NO "Scheduling Options" header exists
       const header = modal.locator('h3:has-text("Scheduling Options")');
       await expect(header).not.toBeVisible();
-    });
-  });
-
-  test.describe('Configure Auto-Reschedule Button Removed', () => {
-
-    test.skip('no "Configure Auto-Reschedule" button on waiting session', async ({ page }) => {
-      // Requires: session in waiting state
     });
   });
 

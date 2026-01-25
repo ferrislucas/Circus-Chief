@@ -10,14 +10,6 @@ test.describe('Project Management', () => {
     await cleanupAll();
   });
 
-  // Note: This test requires no non-test projects in the database
-  // It verifies the empty state UI when cleanupAll() removes all [TEST] projects
-  test.skip('displays empty state when no projects exist', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByText('No projects yet')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Create Project' })).toBeVisible();
-  });
-
   test('can create a new project', async ({ page }) => {
     await page.goto('/');
     await page.click('text=New Project');

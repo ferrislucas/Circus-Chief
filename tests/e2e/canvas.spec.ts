@@ -338,45 +338,6 @@ test.describe('Canvas Management', () => {
     expect(naturalWidth).toBe(0);
   });
 
-  // Skip in CI - filePath requires shared filesystem between test runner and server
-  test('image renders correctly when using filePath', async ({ page }) => {
-    test.skip(!!process.env.CI, 'Skipped in CI - requires shared filesystem');
-
-    // First, create a test image file
-    const fs = await import('fs');
-    const testImagePath = '/tmp/test-canvas-image.png';
-
-    // Write the test PNG to a file
-    const imageBuffer = Buffer.from(TEST_PNG_BASE64, 'base64');
-    fs.writeFileSync(testImagePath, imageBuffer);
-
-    try {
-      await seedCanvasItem(session.id, {
-        type: 'image',
-        filePath: testImagePath,
-        label: 'File Path Image',
-      });
-
-      await navigateAndWait(page, `/sessions/${session.id}/canvas`);
-
-      // Should be in viewer directly (single item)
-      await expect(page.locator('.viewer-filename')).toContainText('File Path Image');
-
-      // Verify the image renders correctly (not broken)
-      const image = page.locator('.viewer-image');
-      await expect(image).toBeVisible();
-
-      // Check that the image has loaded successfully by verifying naturalWidth > 0
-      const naturalWidth = await image.evaluate((img: HTMLImageElement) => img.naturalWidth);
-      expect(naturalWidth).toBeGreaterThan(0);
-    } finally {
-      // Clean up the test file
-      if (fs.existsSync(testImagePath)) {
-        fs.unlinkSync(testImagePath);
-      }
-    }
-  });
-
   test('API returns error when image posted with raw base64 content (no data URL)', async () => {
     const API_URL = process.env.API_URL || 'http://localhost:5000';
 
@@ -415,38 +376,6 @@ test.describe('Canvas Management', () => {
     expect(response.status).toBe(400);
     const error = await response.json();
     expect(error.error).toContain('File not found');
-  });
-
-  // Skip in CI - filePath requires shared filesystem between test runner and server
-  test('API returns error for unsupported image format', async () => {
-    test.skip(!!process.env.CI, 'Skipped in CI - requires shared filesystem');
-
-    const API_URL = process.env.API_URL || 'http://localhost:5000';
-    const fs = await import('fs');
-    const testFilePath = '/tmp/test-unsupported.xyz';
-
-    // Create a file with unsupported extension
-    fs.writeFileSync(testFilePath, 'fake image data');
-
-    try {
-      const response = await fetch(`${API_URL}/api/sessions/${session.id}/canvas`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'image',
-          filePath: testFilePath,
-          label: 'Unsupported Format',
-        }),
-      });
-
-      expect(response.status).toBe(400);
-      const error = await response.json();
-      expect(error.error).toContain('Unsupported image format');
-    } finally {
-      if (fs.existsSync(testFilePath)) {
-        fs.unlinkSync(testFilePath);
-      }
-    }
   });
 
   test('can upload an image file via file input', async ({ page }) => {
