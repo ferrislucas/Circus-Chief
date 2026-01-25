@@ -71,6 +71,11 @@ const routes = [
     name: 'SessionDetail',
     component: () => import('./views/SessionDetailView.vue'),
   },
+  {
+    path: '/settings/providers',
+    name: 'Providers',
+    component: () => import('./views/ProvidersView.vue'),
+  },
 ];
 
 const router = createRouter({

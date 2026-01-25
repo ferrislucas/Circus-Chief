@@ -53,6 +53,9 @@ export class DatabaseManager {
     if (!sessionsColumns.includes('model')) {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN model TEXT');
     }
+    if (!sessionsColumns.includes('provider_id')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN provider_id TEXT');
+    }
 
     // Check if projects table has the system_prompt column, add it if not
     const projectsTableInfo = this.#db.prepare('PRAGMA table_info(projects)').all();
@@ -360,6 +363,11 @@ export class DatabaseManager {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN pending_prompt TEXT');
     }
 
+    // Add slashCommands column to sessions table for storing available slash commands from SDK init event
+    if (!pendingPromptColumns.includes('slash_commands')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN slash_commands TEXT');
+    }
+
     // Add model column to conversation_messages table (Issue: track model per message)
     const msgModelTableInfo = this.#db.prepare('PRAGMA table_info(conversation_messages)').all();
     const msgModelColumns = msgModelTableInfo.map((col) => col.name);
@@ -376,6 +384,140 @@ export class DatabaseManager {
         updated_at INTEGER NOT NULL
       )
     `);
+
+    // Create model_providers and provider_models tables for custom provider support
+    this.#db.exec(`
+      CREATE TABLE IF NOT EXISTS model_providers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        base_url TEXT,
+        auth_token TEXT,
+        default_opus_model TEXT,
+        default_sonnet_model TEXT,
+        default_haiku_model TEXT,
+        api_timeout_ms INTEGER,
+        additional_env_vars TEXT,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        is_built_in INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_model_providers_default ON model_providers(is_default);
+
+      CREATE TABLE IF NOT EXISTS provider_models (
+        id TEXT PRIMARY KEY,
+        provider_id TEXT NOT NULL REFERENCES model_providers(id) ON DELETE CASCADE,
+        model_id TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        description TEXT,
+        tier TEXT CHECK(tier IN ('opus', 'sonnet', 'haiku', 'custom')),
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
+    `);
+
+    // Seed built-in Anthropic provider if it doesn't exist
+    this.#seedBuiltInProvider();
+
+    // Sync default models for all existing custom providers (for providers created before auto-sync was added)
+    this.#syncExistingProviderModels();
+
+    // Add provider_id column to sessions table
+    const sessionsProviderTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const sessionsProviderColumns = sessionsProviderTableInfo.map((col) => col.name);
+
+    if (!sessionsProviderColumns.includes('provider_id')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN provider_id TEXT REFERENCES model_providers(id)');
+    }
+
+    // Add provider_id column to project_session_defaults table (if it exists)
+    const tableExists = this.#db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='project_session_defaults'")
+      .get();
+
+    if (tableExists) {
+      const defaultsProviderTableInfo = this.#db.prepare('PRAGMA table_info(project_session_defaults)').all();
+      const defaultsProviderColumns = defaultsProviderTableInfo.map((col) => col.name);
+
+      if (!defaultsProviderColumns.includes('provider_id')) {
+        this.#db.exec('ALTER TABLE project_session_defaults ADD COLUMN provider_id TEXT REFERENCES model_providers(id)');
+      }
+    }
+  }
+
+  /**
+   * Seed the built-in Anthropic provider if it doesn't exist
+   * @private
+   */
+  #seedBuiltInProvider() {
+    const providerId = 'anthropic-default';
+
+    // Check if built-in provider already exists
+    const existing = this.#db
+      .prepare('SELECT id FROM model_providers WHERE id = ?')
+      .get(providerId);
+
+    if (!existing) {
+      const now = Date.now();
+      this.#db
+        .prepare(
+          `INSERT INTO model_providers (id, name, is_default, is_built_in, created_at, updated_at)
+           VALUES (?, ?, 1, 1, ?, ?)`
+        )
+        .run(providerId, 'Anthropic (Official)', now, now);
+    }
+
+    // Seed default Anthropic models if they don't exist
+    const defaultModels = [
+      { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', description: 'Fast & lightweight', tier: 'haiku' },
+      { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-5-20250929', displayName: 'Sonnet 4.5', description: 'Balanced', tier: 'sonnet' },
+      { id: 'anthropic-opus', modelId: 'claude-opus-4-5-20251101', displayName: 'Opus 4.5', description: 'Most capable (default)', tier: 'opus' },
+    ];
+
+    const insertModel = this.#db.prepare(
+      `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+
+    const now = Date.now();
+    for (const model of defaultModels) {
+      insertModel.run(model.id, providerId, model.modelId, model.displayName, model.description, model.tier, now);
+    }
+  }
+
+  /**
+   * Sync provider_models for all existing custom providers that have default models set
+   * This handles providers created before auto-sync was added
+   * @private
+   */
+  #syncExistingProviderModels() {
+    // Get all non-built-in providers that have default models set
+    const providers = this.#db
+      .prepare(
+        `SELECT id, default_opus_model, default_sonnet_model, default_haiku_model
+         FROM model_providers
+         WHERE is_built_in = 0
+         AND (default_opus_model IS NOT NULL OR default_sonnet_model IS NOT NULL OR default_haiku_model IS NOT NULL)`
+      )
+      .all();
+
+    const now = Date.now();
+    const insertModel = this.#db.prepare(
+      `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+
+    for (const provider of providers) {
+      if (provider.default_opus_model) {
+        insertModel.run(`${provider.id}-opus`, provider.id, provider.default_opus_model, 'Opus', 'Most capable model', 'opus', now);
+      }
+      if (provider.default_sonnet_model) {
+        insertModel.run(`${provider.id}-sonnet`, provider.id, provider.default_sonnet_model, 'Sonnet', 'Balanced model', 'sonnet', now);
+      }
+      if (provider.default_haiku_model) {
+        insertModel.run(`${provider.id}-haiku`, provider.id, provider.default_haiku_model, 'Haiku', 'Fast & lightweight model', 'haiku', now);
+      }
+    }
   }
 
   /**

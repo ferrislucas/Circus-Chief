@@ -372,10 +372,17 @@ export async function waitForSessionStatus(
   status: string,
   timeout = 10000
 ) {
-  await expect(async () => {
-    const statusBadge = page.locator(`.status-badge.status-${status}`);
-    await expect(statusBadge).toBeVisible();
-  }).toPass({ timeout });
+  // Poll the API to check session status instead of looking for DOM element
+  // (status badge is not always visible in all views)
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const session = await getSession(sessionId);
+    if (session && session.status === status) {
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`Session ${sessionId} did not reach status "${status}" after ${timeout}ms`);
 }
 
 export async function getSessionMessages(sessionId: string) {
@@ -720,4 +727,103 @@ export async function runCommandButtonAndWait(
 ) {
   const { runId } = await runCommandButton(sessionId, buttonId);
   return waitForCommandRunComplete(sessionId, runId, timeout);
+}
+
+// ============================================================
+// Model Provider Helpers
+// ============================================================
+
+/**
+ * Create a model provider
+ */
+export async function createProvider(data: {
+  name: string;
+  baseUrl: string;
+  authToken: string;
+  defaultSonnetModel?: string;
+  defaultOpusModel?: string;
+  defaultHaikuModel?: string;
+  apiTimeoutMs?: number;
+}) {
+  const response = await fetch(`${API_URL}/api/providers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to create provider');
+  return response.json();
+}
+
+/**
+ * Get all providers
+ */
+export async function getProviders() {
+  const response = await fetch(`${API_URL}/api/providers`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+/**
+ * Get a specific provider by ID
+ */
+export async function getProvider(id: string) {
+  const response = await fetch(`${API_URL}/api/providers/${id}`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+/**
+ * Update a provider
+ */
+export async function updateProvider(id: string, data: {
+  name?: string;
+  baseUrl?: string;
+  authToken?: string;
+  defaultSonnetModel?: string;
+  defaultOpusModel?: string;
+  defaultHaikuModel?: string;
+  apiTimeoutMs?: number;
+}) {
+  const response = await fetch(`${API_URL}/api/providers/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to update provider');
+  return response.json();
+}
+
+/**
+ * Delete a provider
+ */
+export async function deleteProvider(id: string) {
+  const response = await fetch(`${API_URL}/api/providers/${id}`, {
+    method: 'DELETE',
+  });
+  return response.ok;
+}
+
+/**
+ * Test provider connection
+ */
+export async function testProviderConnection(id: string) {
+  const response = await fetch(`${API_URL}/api/providers/${id}/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to test provider connection');
+  return response.json();
+}
+
+/**
+ * Cleanup all test providers (those with [TEST] prefix)
+ */
+export async function cleanupProviders() {
+  const providers = await getProviders();
+  for (const provider of providers) {
+    // Only delete custom providers (those with [TEST] prefix) and not built-in ones
+    if (provider.name.startsWith(TEST_PREFIX) && !provider.isBuiltIn) {
+      await deleteProvider(provider.id);
+    }
+  }
 }
