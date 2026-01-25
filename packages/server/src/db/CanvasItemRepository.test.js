@@ -184,6 +184,133 @@ describe('CanvasItemRepository', () => {
     });
   });
 
+  describe('getLatestVersionsBySessionId', () => {
+    it('returns empty array when no items exist', () => {
+      const items = repo.getLatestVersionsBySessionId(sessionId);
+      expect(items).toEqual([]);
+    });
+
+    it('returns only the latest version of each file', () => {
+      // Create multiple versions of test.txt
+      repo.create(sessionId, { type: 'text', content: 'Version 1', filename: 'test.txt' });
+      repo.create(sessionId, { type: 'text', content: 'Version 2', filename: 'test.txt' });
+      const v3 = repo.create(sessionId, { type: 'text', content: 'Version 3', filename: 'test.txt' });
+
+      // Create multiple versions of another.md
+      repo.create(sessionId, { type: 'markdown', content: '# V1', filename: 'another.md' });
+      const v2md = repo.create(sessionId, { type: 'markdown', content: '# V2', filename: 'another.md' });
+
+      const items = repo.getLatestVersionsBySessionId(sessionId);
+
+      // Should only return 2 items (one per filename)
+      expect(items).toHaveLength(2);
+
+      // Find the returned items by filename
+      const txtItem = items.find(i => i.filename === 'test.txt');
+      const mdItem = items.find(i => i.filename === 'another.md');
+
+      // Should be the latest versions
+      expect(txtItem.id).toBe(v3.id);
+      expect(txtItem.content).toBe('Version 3');
+      expect(mdItem.id).toBe(v2md.id);
+      expect(mdItem.content).toBe('# V2');
+    });
+
+    it('returns items with no duplicates', () => {
+      // Create 5 versions of the same file
+      repo.create(sessionId, { type: 'text', content: 'V1', filename: 'shared.txt' });
+      repo.create(sessionId, { type: 'text', content: 'V2', filename: 'shared.txt' });
+      repo.create(sessionId, { type: 'text', content: 'V3', filename: 'shared.txt' });
+      repo.create(sessionId, { type: 'text', content: 'V4', filename: 'shared.txt' });
+      repo.create(sessionId, { type: 'text', content: 'V5', filename: 'shared.txt' });
+
+      const items = repo.getLatestVersionsBySessionId(sessionId);
+
+      // Should only return 1 item
+      expect(items).toHaveLength(1);
+      expect(items[0].content).toBe('V5'); // Latest version
+    });
+
+    it('returns items ordered by createdAt descending', () => {
+      const i1 = repo.create(sessionId, { type: 'text', content: 'First', filename: 'a.txt' });
+      const i2 = repo.create(sessionId, { type: 'text', content: 'Second', filename: 'b.txt' });
+      const i3 = repo.create(sessionId, { type: 'text', content: 'Third', filename: 'c.txt' });
+
+      const items = repo.getLatestVersionsBySessionId(sessionId);
+
+      expect(items).toHaveLength(3);
+      expect(items[0].createdAt).toBeGreaterThanOrEqual(items[2].createdAt);
+
+      // Verify all expected items are returned
+      const ids = items.map(i => i.id);
+      expect(ids).toContain(i1.id);
+      expect(ids).toContain(i2.id);
+      expect(ids).toContain(i3.id);
+    });
+
+    it('does not return items from other sessions', () => {
+      // Create another session
+      const project = projectRepo.create('Another Project', '/tmp/another');
+      const now = Date.now();
+      const otherId = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(otherId, project.id, 'Other Session', 'running', 'standard', now, now);
+
+      repo.create(sessionId, { type: 'text', content: 'Session 1', filename: 'shared.txt' });
+      repo.create(otherId, { type: 'text', content: 'Session 2', filename: 'shared.txt' });
+
+      const items = repo.getLatestVersionsBySessionId(sessionId);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].content).toBe('Session 1');
+    });
+
+    it('excludes soft-deleted items', () => {
+      const v1 = repo.create(sessionId, { type: 'text', content: 'V1', filename: 'test.txt' });
+      const v2 = repo.create(sessionId, { type: 'text', content: 'V2', filename: 'test.txt' });
+
+      // Soft delete the latest version
+      repo.softDelete(v2.id);
+
+      const items = repo.getLatestVersionsBySessionId(sessionId);
+
+      // Should return v1 now (since v2 is deleted)
+      expect(items).toHaveLength(1);
+      expect(items[0].id).toBe(v1.id);
+      expect(items[0].content).toBe('V1');
+    });
+
+    it('excludes files with all versions deleted', () => {
+      const v1 = repo.create(sessionId, { type: 'text', content: 'V1', filename: 'deleted.txt' });
+      const v2 = repo.create(sessionId, { type: 'text', content: 'V2', filename: 'deleted.txt' });
+      repo.create(sessionId, { type: 'text', content: 'Active', filename: 'active.txt' });
+
+      // Delete all versions of deleted.txt
+      repo.softDelete(v1.id);
+      repo.softDelete(v2.id);
+
+      const items = repo.getLatestVersionsBySessionId(sessionId);
+
+      // Should only return active.txt
+      expect(items).toHaveLength(1);
+      expect(items[0].filename).toBe('active.txt');
+    });
+
+    it('works with various file types', () => {
+      repo.create(sessionId, { type: 'image', data: 'imagedata', filename: 'pic.png', mimeType: 'image/png' });
+      repo.create(sessionId, { type: 'pdf', data: 'pdfdata', filename: 'doc.pdf', mimeType: 'application/pdf' });
+      repo.create(sessionId, { type: 'markdown', content: '# Title', filename: 'readme.md' });
+      repo.create(sessionId, { type: 'json', data: '{"key":"value"}', filename: 'data.json' });
+      repo.create(sessionId, { type: 'code', content: 'console.log()', filename: 'script.js' });
+
+      const items = repo.getLatestVersionsBySessionId(sessionId);
+
+      expect(items).toHaveLength(5);
+      expect(items.map(i => i.type).sort()).toEqual(['code', 'image', 'json', 'markdown', 'pdf']);
+    });
+  });
+
   describe('getAllVersionsByFilename', () => {
     it('returns empty array when no items with filename exist', () => {
       const items = repo.getAllVersionsByFilename(sessionId, 'nonexistent.txt');
