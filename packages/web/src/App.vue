@@ -5,6 +5,10 @@
         <router-link to="/" class="logo">
           <img src="/logo.png" alt="ClaudeTools.io Logo" class="logo-image" />
         </router-link>
+        <nav class="nav">
+          <router-link to="/sessions/active" class="nav-link">Active Sessions</router-link>
+          <router-link to="/settings/providers" class="nav-link">Providers</router-link>
+        </nav>
       </div>
     </header>
 
@@ -46,9 +50,12 @@ import ToastContainer from './components/ToastContainer.vue';
 .app-header .container {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 1rem;
   padding: 0 1rem !important;
   margin: 0 !important;
+  max-width: 100%;
+  width: 100%;
 }
 
 .logo {
@@ -74,16 +81,27 @@ import ToastContainer from './components/ToastContainer.vue';
 
 .nav {
   display: flex;
-  gap: 1rem;
+  gap: 1.5rem;
+  align-items: center;
 }
 
 .nav-link {
   color: var(--color-text-soft);
   font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.2s ease;
+  padding: 0.5rem 0;
+  border-bottom: 2px solid transparent;
 }
 
 .nav-link:hover {
   color: var(--color-text);
+}
+
+.nav-link.router-link-active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
 }
 
 .app-main {
