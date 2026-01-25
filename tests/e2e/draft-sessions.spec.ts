@@ -7,6 +7,8 @@ import {
   getSessionMessages,
 } from './helpers';
 
+const TEST_MODEL = 'claude-haiku-4-5-20251001';
+
 /**
  * Draft Session Editing - E2E Tests
  *
@@ -534,7 +536,7 @@ test.describe('Draft Session Settings UI', () => {
 
   test('changes model on draft session', async ({ page }) => {
     const session = await seedSession(project.id, 'Initial prompt', {
-      model: 'claude-opus-4-1-20250805',
+      model: TEST_MODEL,
     });
 
     await page.goto(`/sessions/${session.id}`);
@@ -563,7 +565,7 @@ test.describe('Draft Session Settings UI', () => {
     // Verify via API that model was changed
     const updatedSession = await getSession(session.id);
     // The model should have changed from the initial value
-    expect(updatedSession.model).not.toBe('claude-opus-4-1-20250805');
+    expect(updatedSession.model).not.toBe(TEST_MODEL);
   });
 
   test('applies multiple settings changes to draft before starting', async ({ page }) => {

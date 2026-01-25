@@ -10,6 +10,8 @@ import {
   cleanupCreatedResources,
 } from './helpers';
 
+const TEST_MODEL = 'claude-haiku-4-5-20251001';
+
 /**
  * Phase 5: E2E Testing & Final Integration
  *
@@ -40,7 +42,7 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
       await setProjectSessionDefaults(project.id, {
         mode: 'plan',
         thinkingEnabled: true,
-        model: 'claude-opus-4',
+        model: TEST_MODEL,
         gitMode: 'worktree',
         gitBranch: 'feature/test',
       });
@@ -101,7 +103,7 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
       const result = await setProjectSessionDefaults(project.id, {
         mode: 'plan',
         thinkingEnabled: true,
-        model: 'claude-opus-4',
+        model: TEST_MODEL,
       });
 
       expect(result.mode).toBe('plan');
@@ -140,12 +142,12 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
       await setProjectSessionDefaults(project.id, {
         mode: 'plan',
         thinkingEnabled: true,
-        model: 'claude-opus-4',
+        model: TEST_MODEL,
       });
 
       // Partial update: only change model
       const updated = await setProjectSessionDefaults(project.id, {
-        model: 'claude-haiku',
+        model: TEST_MODEL,
       });
 
       // Verify mode and thinking unchanged
@@ -183,7 +185,7 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
       await setProjectSessionDefaults(project.id, {
         mode: 'plan',
         thinkingEnabled: true,
-        model: 'claude-opus-4',
+        model: TEST_MODEL,
         gitMode: 'worktree',
         gitBranch: 'feature/test',
       });
@@ -275,7 +277,7 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
       await setProjectSessionDefaults(project.id, {
         mode: 'plan',
         thinkingEnabled: true,
-        model: 'claude-opus-4',
+        model: TEST_MODEL,
       });
 
       const session = await seedSession(project.id, {
@@ -481,7 +483,7 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
       // Set multiple fields
       await setProjectSessionDefaults(project.id, {
         mode: 'plan',
-        model: 'claude-opus-4',
+        model: TEST_MODEL,
         thinkingEnabled: true,
       });
 
