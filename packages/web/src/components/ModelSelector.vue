@@ -15,7 +15,7 @@
           :value="model.modelId"
           :data-provider-id="provider.id"
         >
-          {{ model.displayName }}
+          {{ provider.isBuiltIn ? model.displayName : model.modelId }}
         </option>
       </optgroup>
     </select>

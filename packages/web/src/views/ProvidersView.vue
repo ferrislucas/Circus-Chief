@@ -52,13 +52,6 @@
               Edit
             </button>
             <button
-              v-if="!provider.isDefault && !provider.isBuiltIn"
-              class="btn btn-sm"
-              @click="setAsDefault(provider.id)"
-            >
-              Set as Default
-            </button>
-            <button
               v-if="!provider.isBuiltIn"
               class="btn btn-sm btn-danger"
               @click="confirmDelete(provider)"
@@ -158,15 +151,6 @@ function closeFormModal() {
 function handleProviderSaved() {
   closeFormModal();
   providersStore.fetchProviders();
-}
-
-async function setAsDefault(providerId) {
-  try {
-    await providersStore.setDefault(providerId);
-    uiStore.success('Default provider updated');
-  } catch (err) {
-    uiStore.error(`Failed to set default provider: ${err.message}`);
-  }
 }
 
 async function testProvider(providerId) {

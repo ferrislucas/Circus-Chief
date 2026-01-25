@@ -6,8 +6,12 @@
           <img src="/logo.png" alt="ClaudeTools.io Logo" class="logo-image" />
         </router-link>
         <nav class="nav">
-          <router-link to="/sessions/active" class="nav-link">Active Sessions</router-link>
-          <router-link to="/settings/providers" class="nav-link">Providers</router-link>
+          <router-link to="/settings/providers" class="nav-link" title="Providers">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M12 1v6m0 6v6m8.66-15.66-4.24 4.24m-4.24 4.24-4.24 4.24m15.66-8.48h-6m-6 0H1m18.66 8.66-4.24-4.24m-4.24-4.24-4.24-4.24"></path>
+            </svg>
+          </router-link>
         </nav>
       </div>
     </header>
@@ -93,6 +97,9 @@ import ToastContainer from './components/ToastContainer.vue';
   transition: color 0.2s ease;
   padding: 0.5rem 0;
   border-bottom: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .nav-link:hover {
