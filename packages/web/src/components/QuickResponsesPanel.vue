@@ -18,6 +18,7 @@
         <span class="panel-title">Quick Responses</span>
       </div>
       <button
+        v-if="isExpanded"
         type="button"
         class="settings-button"
         @click.stop="$emit('openSettings')"

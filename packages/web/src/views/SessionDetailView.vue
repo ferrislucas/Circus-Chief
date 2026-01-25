@@ -46,55 +46,61 @@
           />
         </div>
 
-        <!-- PR indicators below main header -->
-        <div class="branch-pr-indicators">
-          <template v-if="isEditingPrUrl">
-            <div class="pr-edit-form">
-              <input
-                v-model="editPrUrlValue"
-                type="url"
-                class="pr-url-input"
-                placeholder="https://github.com/owner/repo/pull/123"
-                @keyup.enter="savePrUrl"
-                @keyup.escape="cancelEditPrUrl"
+        <!-- PR indicators and command indicators row -->
+        <div class="branch-pr-row">
+          <!-- PR indicators on left -->
+          <div class="branch-pr-indicators">
+            <template v-if="isEditingPrUrl">
+              <div class="pr-edit-form">
+                <input
+                  v-model="editPrUrlValue"
+                  type="url"
+                  class="pr-url-input"
+                  placeholder="https://github.com/owner/repo/pull/123"
+                  @keyup.enter="savePrUrl"
+                  @keyup.escape="cancelEditPrUrl"
+                />
+                <button class="btn-icon pr-edit-btn pr-save-btn" title="Save" @click="savePrUrl">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </button>
+                <button class="btn-icon pr-edit-btn pr-cancel-btn" title="Cancel" @click="cancelEditPrUrl">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+                <button v-if="editPrUrlValue" class="btn-icon pr-edit-btn pr-clear-btn" title="Clear PR URL" @click="clearPrUrl">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  </svg>
+                </button>
+              </div>
+            </template>
+            <template v-else>
+              <PrIndicators
+                v-if="sessionsStore.currentSession.prUrl"
+                :pr-url="sessionsStore.currentSession.prUrl"
+                :summary="summary"
               />
-              <button class="btn-icon pr-edit-btn pr-save-btn" title="Save" @click="savePrUrl">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="20 6 9 17 4 12"></polyline>
+              <button class="btn-link pr-edit-trigger" @click="startEditPrUrl" :title="sessionsStore.currentSession.prUrl ? 'Edit PR URL' : 'Add PR URL'">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                 </svg>
+                <span v-if="!sessionsStore.currentSession.prUrl">Link PR</span>
               </button>
-              <button class="btn-icon pr-edit-btn pr-cancel-btn" title="Cancel" @click="cancelEditPrUrl">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-              </button>
-              <button v-if="editPrUrlValue" class="btn-icon pr-edit-btn pr-clear-btn" title="Clear PR URL" @click="clearPrUrl">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="3 6 5 6 21 6"></polyline>
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                </svg>
-              </button>
-            </div>
-          </template>
-          <template v-else>
-            <PrIndicators
-              v-if="sessionsStore.currentSession.prUrl"
-              :pr-url="sessionsStore.currentSession.prUrl"
-              :summary="summary"
-            />
-            <button class="btn-link pr-edit-trigger" @click="startEditPrUrl" :title="sessionsStore.currentSession.prUrl ? 'Edit PR URL' : 'Add PR URL'">
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-              </svg>
-              <span v-if="!sessionsStore.currentSession.prUrl">Link PR</span>
-            </button>
-          </template>
-        </div>
+            </template>
+          </div>
 
-        <!-- Command button status indicators for real-time status updates -->
-        <CommandButtonStatusBar :button-statuses="buttonStatusesToDisplay" />
+          <!-- Command indicators - float right on large screens -->
+          <CommandButtonStatusBar
+            :button-statuses="buttonStatusesToDisplay"
+            class="command-indicators"
+          />
+        </div>
       </div>
 
       <!-- Scheduling Info Panel -->
@@ -746,9 +752,16 @@ async function clearPrUrl() {
   padding: 0 0.5rem; /* Ensure content doesn't touch screen edges */
 }
 
+@media (max-width: 768px) {
+  .session-header {
+    margin-bottom: 0.5rem; /* Reduced from 1rem */
+    padding: 0 0.25rem; /* Reduced padding */
+  }
+}
+
 .session-header-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* Changed from center */
   gap: 0.5rem;
 }
 
@@ -781,6 +794,7 @@ async function clearPrUrl() {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
+  margin-top: 0.125rem; /* Fine-tune alignment with text baseline */
 }
 
 .btn-star svg {
@@ -800,6 +814,31 @@ async function clearPrUrl() {
   overflow: hidden;
   word-break: break-word;
   line-height: 1.4;
+}
+
+.branch-pr-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+@media (min-width: 768px) {
+  .command-indicators {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 767px) {
+  .branch-pr-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .command-indicators {
+    width: 100%;
+  }
 }
 
 .branch-pr-indicators {

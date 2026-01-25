@@ -1,6 +1,5 @@
 <template>
   <div class="template-selector">
-    <label class="selector-label">Next Template</label>
     <div class="selector-wrapper">
       <select
         v-model="selectedTemplateId"
@@ -8,7 +7,7 @@
         class="form-input"
         :disabled="disabled || loading"
       >
-        <option :value="null">Select a template to run...</option>
+        <option :value="null">Next template to run...</option>
         <optgroup v-if="projectTemplates.length" label="Project Templates">
           <option v-for="t in projectTemplates" :key="t.id" :value="t.id">
             {{ t.name }}
@@ -154,14 +153,6 @@ function clearSelection() {
   background: var(--color-bg-soft);
   border-radius: 0.5rem;
   margin-bottom: 1rem;
-}
-
-.selector-label {
-  display: block;
-  font-weight: 500;
-  font-size: 0.875rem;
-  margin-bottom: 0.5rem;
-  color: var(--color-text);
 }
 
 .selector-wrapper {

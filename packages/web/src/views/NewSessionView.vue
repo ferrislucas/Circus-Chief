@@ -6,12 +6,6 @@
     <h1>New Session</h1>
 
     <form @submit.prevent="handleSubmit" class="form card">
-      <!-- Quick Responses Panel - shows quick response templates above the prompt -->
-      <QuickResponsesPanel
-        :show-empty="true"
-        @insert="handleQuickResponseInsert"
-        @openSettings="quickResponseSettingsOpen = true"
-      />
 
       <div class="form-group">
         <ResizableTextarea
@@ -171,6 +165,13 @@
         </p>
       </div>
     </form>
+
+    <!-- Quick Responses Panel - shows below the input form -->
+    <QuickResponsesPanel
+      :show-empty="true"
+      @insert="handleQuickResponseInsert"
+      @openSettings="quickResponseSettingsOpen = true"
+    />
 
     <!-- Slash Command Wizard Modal -->
     <SlashCommandWizard
@@ -779,16 +780,28 @@ h1 {
 }
 
 /* Mobile responsive styles */
+@media (max-width: 768px) {
+  .options-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+
+  .options-row > .thinking-toggle:first-child,
+  .options-row > .thinking-toggle:nth-child(2) {
+    grid-column: span 2;
+  }
+
+  .mode-selector-wrapper,
+  .model-selector-wrapper {
+    grid-column: span 1;
+  }
+}
+
 @media (max-width: 480px) {
   h1 {
     margin-bottom: 0.5rem;
     font-size: 1.5rem;
-  }
-
-  .options-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1rem;
   }
 
   .radio-option {

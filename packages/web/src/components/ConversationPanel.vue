@@ -57,8 +57,7 @@
           @click="handleCreate"
           title="Start a new conversation"
         >
-          <span>+</span>
-          New
+          New conversation
         </button>
       </div>
     </div>
@@ -419,6 +418,10 @@ defineExpose({
 }
 
 @media (max-width: 480px) {
+  .cost-label {
+    display: none;
+  }
+
   .btn-new {
     margin-left: 0;
     flex: 1 0 100%;
