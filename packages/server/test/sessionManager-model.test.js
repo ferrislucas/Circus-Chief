@@ -102,7 +102,7 @@ describe('sessionManager model handling', () => {
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
-      expect(queryParams.options.model).toBeUndefined();
+      expect(queryParams.options.model).toBeNull();
     });
   });
 
@@ -129,7 +129,7 @@ describe('sessionManager model handling', () => {
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
-      expect(queryParams.options.model).toBeUndefined();
+      expect(queryParams.options.model).toBeNull();
     });
 
     it('uses updated model after session update', async () => {
