@@ -14,23 +14,8 @@
       />
 
       <div class="session-header">
-        <!-- Main header row with star, status, name, and menu -->
+        <!-- Main header row with status, name, and menu -->
         <div class="session-header-row">
-          <!-- Star button (icon only) -->
-          <button
-            class="btn-icon btn-star"
-            :title="sessionsStore.currentSession?.starred ? 'Unstar session' : 'Star session'"
-            :class="{ 'is-starred': sessionsStore.currentSession?.starred }"
-            @click="handleStar"
-          >
-            <svg v-if="sessionsStore.currentSession?.starred" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
-            </svg>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
-            </svg>
-          </button>
-
           <!-- Session name -->
           <h3 class="session-name">{{ sessionsStore.currentSession.name }}</h3>
 
@@ -48,6 +33,20 @@
 
         <!-- PR indicators below main header -->
         <div class="branch-pr-indicators">
+          <!-- Star button (icon only) -->
+          <button
+            class="btn-icon btn-star"
+            :title="sessionsStore.currentSession?.starred ? 'Unstar session' : 'Star session'"
+            :class="{ 'is-starred': sessionsStore.currentSession?.starred }"
+            @click="handleStar"
+          >
+            <svg v-if="sessionsStore.currentSession?.starred" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
+            </svg>
+          </button>
           <template v-if="isEditingPrUrl">
             <div class="pr-edit-form">
               <input
