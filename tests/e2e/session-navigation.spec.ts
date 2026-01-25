@@ -101,24 +101,6 @@ test.describe('Session Navigation - Parent/Child Links', () => {
     await expect(page.locator('.session-name')).toContainText('Child Session');
   });
 
-  // Skip this test - browser back button doesn't work reliably with route key-based remounting
-  test.skip('back button works after navigating via breadcrumb', async ({ page }) => {
-    // Navigate to child session
-    await navigateAndWait(page, `/sessions/${childSession.id}`);
-
-    // Click breadcrumb to navigate to parent
-    const breadcrumb = page.locator('.session-breadcrumb');
-    const rootLink = breadcrumb.locator('a.breadcrumb-link', { hasText: 'Root Session' });
-    await rootLink.click();
-    await expect(page).toHaveURL(new RegExp(`/sessions/${rootSession.id}`), { timeout: 10000 });
-
-    // Use browser back button
-    await page.goBack();
-
-    // Should return to child session
-    await expect(page).toHaveURL(new RegExp(`/sessions/${childSession.id}`), { timeout: 10000 });
-    await expect(page.locator('.session-name')).toContainText('Child Session');
-  });
 
   test('tabs work correctly after navigation via breadcrumb', async ({ page }) => {
     // Navigate to child session
