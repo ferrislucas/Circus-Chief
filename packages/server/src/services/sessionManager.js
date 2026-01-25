@@ -752,6 +752,14 @@ function buildSessionEnv(session) {
     ...providerEnv, // Add provider env vars
   };
 
+  // When no custom provider is configured, explicitly exclude ANTHROPIC_* variables
+  // from the environment to ensure SDK uses its defaults (not user's env vars)
+  if (!provider) {
+    delete sessionEnv.ANTHROPIC_API_KEY;
+    delete sessionEnv.ANTHROPIC_AUTH_TOKEN;
+    delete sessionEnv.ANTHROPIC_BASE_URL;
+  }
+
   // Add thinking tokens if enabled
   if (session.thinkingEnabled) {
     sessionEnv.MAX_THINKING_TOKENS = '10240';
