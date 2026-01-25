@@ -31,6 +31,7 @@ export class SessionRepository extends BaseRepository {
       costUsd: row.cost_usd,
       claudeSessionId: row.claude_session_id,
       model: row.model,
+      providerId: row.provider_id,
       nextTemplateId: row.next_template_id,
       parentSessionId: row.parent_session_id,
       pendingPrompt: row.pending_prompt || null,
@@ -57,15 +58,15 @@ export class SessionRepository extends BaseRepository {
     };
   }
 
-  create(projectId, name, prompt, mode = 'standard', thinkingEnabled = false, gitBranch = null, model = null, parentSessionId = null, status = 'starting') {
+  create(projectId, name, prompt, mode = 'standard', thinkingEnabled = false, gitBranch = null, model = null, parentSessionId = null, status = 'starting', providerId = null) {
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, model, parent_session_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, model, provider_id, parent_session_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, projectId, name, status, mode, thinkingEnabled ? 1 : 0, gitBranch, model, parentSessionId, now, now);
+      .run(id, projectId, name, status, mode, thinkingEnabled ? 1 : 0, gitBranch, model, providerId, parentSessionId, now, now);
 
     // Create initial conversation
     const conversation = conversations.create(id, 'Initial', true);

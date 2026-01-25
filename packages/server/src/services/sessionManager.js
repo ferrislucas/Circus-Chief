@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { sessions, messages, workLogs, attachments, conversations } from '../database.js';
+import { sessions, messages, workLogs, attachments, conversations, modelProviders } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
 import { updateTodos } from './todoStore.js';
@@ -623,6 +623,68 @@ curl -X POST ${apiUrl}/api/sessions/<session_id>/summary
 }
 
 /**
+ * Resolve the provider for a session
+ * Follows the chain: session.providerId → project defaults → global default
+ * @param {Object} session - Session object
+ * @returns {Object|null} Provider object or null if using Anthropic default
+ */
+function resolveProvider(session) {
+  // If session has a provider ID, use it
+  if (session.providerId) {
+    return modelProviders.getById(session.providerId);
+  }
+
+  // Otherwise, get the default provider
+  const defaultProvider = modelProviders.getDefault();
+
+  // If it's the built-in Anthropic provider, return null (use SDK defaults)
+  if (defaultProvider && defaultProvider.isBuiltIn) {
+    return null;
+  }
+
+  return defaultProvider;
+}
+
+/**
+ * Build environment variables from provider configuration
+ * @param {Object|null} provider - Provider object
+ * @returns {Object} Environment variables to add to session env
+ */
+function buildProviderEnv(provider) {
+  if (!provider) {
+    return {}; // Use SDK defaults
+  }
+
+  const env = {};
+
+  if (provider.baseUrl) {
+    env.ANTHROPIC_BASE_URL = provider.baseUrl;
+  }
+  if (provider.authToken) {
+    env.ANTHROPIC_AUTH_TOKEN = provider.authToken;
+  }
+  if (provider.defaultOpusModel) {
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL = provider.defaultOpusModel;
+  }
+  if (provider.defaultSonnetModel) {
+    env.ANTHROPIC_DEFAULT_SONNET_MODEL = provider.defaultSonnetModel;
+  }
+  if (provider.defaultHaikuModel) {
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL = provider.defaultHaikuModel;
+  }
+  if (provider.apiTimeoutMs) {
+    env.API_TIMEOUT_MS = String(provider.apiTimeoutMs);
+  }
+
+  // Parse additional env vars
+  if (provider.additionalEnvVars) {
+    Object.assign(env, provider.additionalEnvVars);
+  }
+
+  return env;
+}
+
+/**
  * Build environment variables for Claude SDK based on session settings.
  * Always returns a robust env with Node in PATH to prevent ENOENT errors.
  * @param {Object} session
@@ -630,13 +692,23 @@ curl -X POST ${apiUrl}/api/sessions/<session_id>/summary
  */
 function buildSessionEnv(session) {
   const baseEnv = createRobustEnv(process.env);
-  if (!session.thinkingEnabled) {
-    return baseEnv;
-  }
-  return {
+
+  // Resolve provider and build provider env
+  const provider = resolveProvider(session);
+  const providerEnv = buildProviderEnv(provider);
+
+  // Combine all env vars
+  const sessionEnv = {
     ...baseEnv,
-    MAX_THINKING_TOKENS: '10240',
+    ...providerEnv, // Add provider env vars
   };
+
+  // Add thinking tokens if enabled
+  if (session.thinkingEnabled) {
+    sessionEnv.MAX_THINKING_TOKENS = '10240';
+  }
+
+  return sessionEnv;
 }
 
 /**
