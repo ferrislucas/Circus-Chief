@@ -916,10 +916,6 @@ router.patch('/:id', (req, res) => {
     updateData.nextTemplateId = nextTemplateId;
   }
   if (model !== undefined) {
-    const validModels = ['claude-sonnet-4-5-20250929', 'claude-opus-4-5-20251101', 'claude-haiku-4-5-20251001'];
-    if (!validModels.includes(model)) {
-      return res.status(400).json({ error: 'Invalid model. Must be one of: ' + validModels.join(', ') });
-    }
     updateData.model = model;
   }
   // PR URL - allow setting, updating, or clearing (null or empty string clears it)

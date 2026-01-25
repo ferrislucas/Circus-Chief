@@ -4,6 +4,7 @@ import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import ModelSelector from './ModelSelector.vue';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useProvidersStore } from '../stores/providers.js';
 import { useUiStore } from '../stores/ui.js';
 import { CLAUDE_MODELS } from '@claudetools/shared';
 
@@ -20,8 +21,29 @@ async function flushAll(wrapper) {
 }
 
 describe('ModelSelector', () => {
+  let providersStore;
+
   beforeEach(() => {
     setActivePinia(createPinia());
+    providersStore = useProvidersStore();
+
+    // Mock the providers store with a built-in Anthropic provider
+    providersStore.providers = [
+      {
+        id: 'anthropic',
+        name: 'Anthropic',
+        isBuiltIn: true,
+        models: CLAUDE_MODELS.map((model) => ({
+          id: `anthropic-${model.id}`,
+          modelId: model.id,
+          displayName: model.name,
+          providerId: 'anthropic',
+        })),
+      },
+    ];
+
+    // Mock the fetch method to prevent API calls
+    vi.spyOn(providersStore, 'fetchProvidersWithModels').mockResolvedValue();
   });
 
   const mountComponent = (props = {}, attrs = {}) => {
@@ -401,6 +423,103 @@ describe('ModelSelector', () => {
 
       // Emit should have been called
       expect(onUpdateModelValue).toHaveBeenCalledWith(haiku.id);
+    });
+  });
+
+  describe('provider-based model display', () => {
+    it('displays displayName for built-in provider models', async () => {
+      const providersStore = useProvidersStore();
+
+      // Mock built-in Anthropic provider with models
+      providersStore.providers = [
+        {
+          id: 'anthropic-default',
+          name: 'Anthropic (Official)',
+          isBuiltIn: true,
+          isDefault: true,
+          models: [
+            { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', tier: 'haiku' },
+            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-5-20250929', displayName: 'Sonnet 4.5', tier: 'sonnet' },
+            { id: 'anthropic-opus', modelId: 'claude-opus-4-5-20251101', displayName: 'Opus 4.5', tier: 'opus' },
+          ],
+        },
+      ];
+
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-5-20250929' });
+      await flushAll(wrapper);
+
+      const options = wrapper.findAll('option');
+
+      // Built-in provider should show displayName
+      expect(options[0].text()).toBe('Haiku 4.5');
+      expect(options[1].text()).toBe('Sonnet 4.5');
+      expect(options[2].text()).toBe('Opus 4.5');
+    });
+
+    it('displays modelId for custom provider models', async () => {
+      const providersStore = useProvidersStore();
+
+      // Mock custom AWS Bedrock provider with models
+      providersStore.providers = [
+        {
+          id: 'aws-bedrock',
+          name: 'AWS Bedrock',
+          isBuiltIn: false,
+          isDefault: false,
+          models: [
+            { id: 'bedrock-opus', modelId: 'anthropic.claude-3-opus-20240229-v1:0', displayName: 'Opus', tier: 'opus' },
+            { id: 'bedrock-sonnet', modelId: 'anthropic.claude-3-sonnet-20240229-v1:0', displayName: 'Sonnet', tier: 'sonnet' },
+            { id: 'bedrock-haiku', modelId: 'anthropic.claude-3-haiku-20240307-v1:0', displayName: 'Haiku', tier: 'haiku' },
+          ],
+        },
+      ];
+
+      const wrapper = mountComponent({ modelValue: 'anthropic.claude-3-sonnet-20240229-v1:0' });
+      await flushAll(wrapper);
+
+      const options = wrapper.findAll('option');
+
+      // Custom provider should show modelId instead of displayName
+      expect(options[0].text()).toBe('anthropic.claude-3-opus-20240229-v1:0');
+      expect(options[1].text()).toBe('anthropic.claude-3-sonnet-20240229-v1:0');
+      expect(options[2].text()).toBe('anthropic.claude-3-haiku-20240307-v1:0');
+    });
+
+    it('displays different formats for built-in vs custom providers in same dropdown', async () => {
+      const providersStore = useProvidersStore();
+
+      // Mock both built-in and custom providers
+      providersStore.providers = [
+        {
+          id: 'anthropic-default',
+          name: 'Anthropic (Official)',
+          isBuiltIn: true,
+          isDefault: true,
+          models: [
+            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-5-20250929', displayName: 'Sonnet 4.5', tier: 'sonnet' },
+          ],
+        },
+        {
+          id: 'aws-bedrock',
+          name: 'AWS Bedrock',
+          isBuiltIn: false,
+          isDefault: false,
+          models: [
+            { id: 'bedrock-sonnet', modelId: 'anthropic.claude-3-sonnet-20240229-v1:0', displayName: 'Sonnet', tier: 'sonnet' },
+          ],
+        },
+      ];
+
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-5-20250929' });
+      await flushAll(wrapper);
+
+      const options = wrapper.findAll('option');
+
+      // Built-in provider shows displayName
+      expect(options[0].text()).toBe('Sonnet 4.5');
+
+      // Custom provider shows modelId
+      expect(options[1].text()).toBe('anthropic.claude-3-sonnet-20240229-v1:0');
     });
   });
 });
