@@ -50,9 +50,17 @@ const providersStore = useProvidersStore();
 const uiStore = useUiStore();
 const togglingModel = ref(false);
 
+// Check if providers have models loaded
+// Providers may have been fetched without models (e.g., from ProvidersView)
+const providersHaveModels = computed(() => {
+  return providersStore.providers.length > 0 &&
+    providersStore.providers.some(p => p.models && p.models.length > 0);
+});
+
 // Fetch providers with models on mount
 onMounted(async () => {
-  if (providersStore.providers.length === 0) {
+  // Fetch if no providers OR if providers exist but don't have models loaded
+  if (providersStore.providers.length === 0 || !providersHaveModels.value) {
     await providersStore.fetchProvidersWithModels();
   }
 });
