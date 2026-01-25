@@ -78,7 +78,37 @@ export class ModelProviderRepository extends BaseRepository {
         now
       );
 
+    // Auto-create provider_models entries for default models
+    this.#syncDefaultModels(id, { defaultOpusModel, defaultSonnetModel, defaultHaikuModel });
+
     return this.getById(id);
+  }
+
+  /**
+   * Sync provider_models entries based on default model settings
+   * @private
+   * @param {string} providerId - Provider ID
+   * @param {Object} defaults - Object containing defaultOpusModel, defaultSonnetModel, defaultHaikuModel
+   */
+  #syncDefaultModels(providerId, { defaultOpusModel, defaultSonnetModel, defaultHaikuModel }) {
+    const now = Date.now();
+    const insertModel = this.db.prepare(
+      `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+
+    if (defaultOpusModel) {
+      const modelId = `${providerId}-opus`;
+      insertModel.run(modelId, providerId, defaultOpusModel, 'Opus', 'Most capable model', 'opus', now);
+    }
+    if (defaultSonnetModel) {
+      const modelId = `${providerId}-sonnet`;
+      insertModel.run(modelId, providerId, defaultSonnetModel, 'Sonnet', 'Balanced model', 'sonnet', now);
+    }
+    if (defaultHaikuModel) {
+      const modelId = `${providerId}-haiku`;
+      insertModel.run(modelId, providerId, defaultHaikuModel, 'Haiku', 'Fast & lightweight model', 'haiku', now);
+    }
   }
 
   /**
@@ -139,6 +169,17 @@ export class ModelProviderRepository extends BaseRepository {
       values.push(id);
 
       this.db.prepare(`UPDATE model_providers SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    }
+
+    // Sync default models if any were updated
+    if (data.defaultOpusModel !== undefined || data.defaultSonnetModel !== undefined || data.defaultHaikuModel !== undefined) {
+      // Get the updated provider to get all current default models
+      const provider = this.getById(id);
+      this.#syncDefaultModels(id, {
+        defaultOpusModel: provider.defaultOpusModel,
+        defaultSonnetModel: provider.defaultSonnetModel,
+        defaultHaikuModel: provider.defaultHaikuModel,
+      });
     }
 
     return this.getById(id);

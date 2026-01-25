@@ -53,6 +53,9 @@ export class DatabaseManager {
     if (!sessionsColumns.includes('model')) {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN model TEXT');
     }
+    if (!sessionsColumns.includes('provider_id')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN provider_id TEXT');
+    }
 
     // Check if projects table has the system_prompt column, add it if not
     const projectsTableInfo = this.#db.prepare('PRAGMA table_info(projects)').all();
@@ -416,6 +419,9 @@ export class DatabaseManager {
     // Seed built-in Anthropic provider if it doesn't exist
     this.#seedBuiltInProvider();
 
+    // Sync default models for all existing custom providers (for providers created before auto-sync was added)
+    this.#syncExistingProviderModels();
+
     // Add provider_id column to sessions table
     const sessionsProviderTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
     const sessionsProviderColumns = sessionsProviderTableInfo.map((col) => col.name);
@@ -459,6 +465,58 @@ export class DatabaseManager {
            VALUES (?, ?, 1, 1, ?, ?)`
         )
         .run(providerId, 'Anthropic (Official)', now, now);
+    }
+
+    // Seed default Anthropic models if they don't exist
+    const defaultModels = [
+      { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', description: 'Fast & lightweight', tier: 'haiku' },
+      { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-5-20250929', displayName: 'Sonnet 4.5', description: 'Balanced', tier: 'sonnet' },
+      { id: 'anthropic-opus', modelId: 'claude-opus-4-5-20251101', displayName: 'Opus 4.5', description: 'Most capable (default)', tier: 'opus' },
+    ];
+
+    const insertModel = this.#db.prepare(
+      `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+
+    const now = Date.now();
+    for (const model of defaultModels) {
+      insertModel.run(model.id, providerId, model.modelId, model.displayName, model.description, model.tier, now);
+    }
+  }
+
+  /**
+   * Sync provider_models for all existing custom providers that have default models set
+   * This handles providers created before auto-sync was added
+   * @private
+   */
+  #syncExistingProviderModels() {
+    // Get all non-built-in providers that have default models set
+    const providers = this.#db
+      .prepare(
+        `SELECT id, default_opus_model, default_sonnet_model, default_haiku_model
+         FROM model_providers
+         WHERE is_built_in = 0
+         AND (default_opus_model IS NOT NULL OR default_sonnet_model IS NOT NULL OR default_haiku_model IS NOT NULL)`
+      )
+      .all();
+
+    const now = Date.now();
+    const insertModel = this.#db.prepare(
+      `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+
+    for (const provider of providers) {
+      if (provider.default_opus_model) {
+        insertModel.run(`${provider.id}-opus`, provider.id, provider.default_opus_model, 'Opus', 'Most capable model', 'opus', now);
+      }
+      if (provider.default_sonnet_model) {
+        insertModel.run(`${provider.id}-sonnet`, provider.id, provider.default_sonnet_model, 'Sonnet', 'Balanced model', 'sonnet', now);
+      }
+      if (provider.default_haiku_model) {
+        insertModel.run(`${provider.id}-haiku`, provider.id, provider.default_haiku_model, 'Haiku', 'Fast & lightweight model', 'haiku', now);
+      }
     }
   }
 
