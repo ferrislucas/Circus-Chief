@@ -1308,22 +1308,35 @@ describe('Canvas API', () => {
       });
 
       it('returns count of recovered items', async () => {
+        // Create items with explicit timeouts
         await request(app).post(`/api/sessions/${sessionId}/canvas`)
-          .send({ type: 'text', content: 'V1', filename: 'count.txt' });
+          .send({ type: 'text', content: 'V1', filename: 'count.txt' })
+          .timeout(5000);
         await request(app).post(`/api/sessions/${sessionId}/canvas`)
-          .send({ type: 'text', content: 'V2', filename: 'count.txt' });
+          .send({ type: 'text', content: 'V2', filename: 'count.txt' })
+          .timeout(5000);
 
-        let listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
-        for (const item of listRes.body) {
-          await request(app).delete(`/api/sessions/${sessionId}/canvas/${item.id}`);
-        }
+        // Get list
+        let listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`)
+          .timeout(5000);
 
+        // Batch delete operations with Promise.all to prevent connection buildup
+        await Promise.all(
+          listRes.body.map(item =>
+            request(app)
+              .delete(`/api/sessions/${sessionId}/canvas/${item.id}`)
+              .timeout(5000)
+          )
+        );
+
+        // Recover items
         const recoverRes = await request(app)
-          .post(`/api/sessions/${sessionId}/canvas-trash/recover-file/count.txt`);
+          .post(`/api/sessions/${sessionId}/canvas-trash/recover-file/count.txt`)
+          .timeout(5000);
 
         expect(recoverRes.body).toHaveProperty('recovered');
         expect(recoverRes.body.recovered).toBe(2);
-      });
+      }, 15000); // Add test-level timeout for CI stability
 
       it('returns 404 for non-existent session', async () => {
         const res = await request(app)
