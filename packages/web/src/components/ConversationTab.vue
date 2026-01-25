@@ -147,6 +147,12 @@
 
       <div class="input-controls">
         <div class="session-options">
+          <div class="mode-switcher">
+            <ModeSelector :sessionId="sessionId" />
+          </div>
+
+          <ModelSelector :sessionId="sessionId" />
+
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
           <SlashCommandButton
             v-if="workingDirectory"
@@ -164,12 +170,6 @@
             </label>
             <span class="toggle-label">Thinking</span>
           </div>
-
-          <div class="mode-switcher">
-            <ModeSelector :sessionId="sessionId" />
-          </div>
-
-          <ModelSelector :sessionId="sessionId" />
         </div>
       </div>
 
@@ -182,10 +182,7 @@
           :disabled="!inputHasContent || (!isDraft && sessionsStore.currentSession?.status === 'scheduled')"
           :title="isDraft ? 'Schedule this session to start later' : 'Schedule this message to be sent later'"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">
-            <circle cx="8" cy="8" r="6" stroke-width="1.5"/>
-            <path d="M8 5v3l2 2" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
+          Scheduling
         </button>
       </div>
 
@@ -1284,6 +1281,7 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 .send-button-row {
   padding-top: 0.75rem;
+  margin-bottom: 14px;
   display: flex;
   justify-content: center;
 }
