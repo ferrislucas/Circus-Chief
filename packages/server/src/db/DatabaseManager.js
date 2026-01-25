@@ -85,7 +85,7 @@ export class DatabaseManager {
     }
     if (!projectsColumns.includes('summary_debounce_ms')) {
       this.#db.exec(
-        'ALTER TABLE projects ADD COLUMN summary_debounce_ms INTEGER NOT NULL DEFAULT 5000'
+        'ALTER TABLE projects ADD COLUMN summary_debounce_ms INTEGER NOT NULL DEFAULT 60000'
       );
     }
     if (!projectsColumns.includes('session_title_prompt')) {

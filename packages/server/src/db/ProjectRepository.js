@@ -21,7 +21,7 @@ export class ProjectRepository extends BaseRepository {
       disableSessionSummaries: row.disable_session_summaries === 1,
       disableConversationSummaries: row.disable_conversation_summaries === 1,
       repoUrl: row.repo_url,
-      summaryDebounceMs: row.summary_debounce_ms || 5000,
+      summaryDebounceMs: row.summary_debounce_ms || 60000,
       sessionTitlePrompt: row.session_title_prompt || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -38,7 +38,7 @@ export class ProjectRepository extends BaseRepository {
       disableSessionSummaries = false,
       disableConversationSummaries = false,
       repoUrl = null,
-      summaryDebounceMs = 5000,
+      summaryDebounceMs = 60000,  // 60 seconds for token efficiency
       sessionTitlePrompt = null,
     } = options;
     this.db
