@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { sessions, messages, workLogs, attachments, conversations, modelProviders, projects } from '../database.js';
+import { sessions, messages, workLogs, attachments, conversations, modelProviders } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
 import { updateTodos } from './todoStore.js';
