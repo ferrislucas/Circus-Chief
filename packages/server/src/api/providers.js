@@ -5,7 +5,7 @@ import {
   UpdateProviderRequest,
   CreateProviderModelRequest,
   TestConnectionRequest,
-} from '@claudetools/shared/contracts/providers.js';
+} from '@claudetools/shared/contracts/providers';
 import { testProviderConnection } from '../services/providerTestService.js';
 
 const router = Router();

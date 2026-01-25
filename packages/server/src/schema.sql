@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   cost_usd REAL DEFAULT 0,
   claude_session_id TEXT,
   model TEXT,
+  provider_id TEXT,
   next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
   parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),

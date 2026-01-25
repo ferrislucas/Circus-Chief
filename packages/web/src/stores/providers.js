@@ -14,6 +14,23 @@ export const useProvidersStore = defineStore('providers', {
     defaultProvider: (state) => state.providers.find((p) => p.isDefault),
     customProviders: (state) => state.providers.filter((p) => !p.isBuiltIn),
     getById: (state) => (id) => state.providers.find((p) => p.id === id),
+
+    // Get all models across all providers
+    allModels: (state) => {
+      const models = [];
+      for (const provider of state.providers) {
+        if (provider.models) {
+          for (const model of provider.models) {
+            models.push({
+              ...model,
+              providerName: provider.name,
+              providerId: provider.id,
+            });
+          }
+        }
+      }
+      return models;
+    },
   },
 
   actions: {
@@ -22,6 +39,32 @@ export const useProvidersStore = defineStore('providers', {
       this.error = null;
       try {
         this.providers = await api.getProviders();
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    // Fetch providers with their models
+    async fetchProvidersWithModels() {
+      this.loading = true;
+      this.error = null;
+      try {
+        const providers = await api.getProviders();
+        // Fetch models for each provider
+        const providersWithModels = await Promise.all(
+          providers.map(async (provider) => {
+            try {
+              const models = await api.getProviderModels(provider.id);
+              return { ...provider, models };
+            } catch (err) {
+              console.error(`Failed to fetch models for provider ${provider.id}:`, err);
+              return { ...provider, models: [] };
+            }
+          })
+        );
+        this.providers = providersWithModels;
       } catch (err) {
         this.error = err.message;
       } finally {
