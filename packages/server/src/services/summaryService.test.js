@@ -49,12 +49,12 @@ describe('summaryService', () => {
   });
 
   describe('constants', () => {
-    it('has a 5 second debounce delay', () => {
-      expect(DEBOUNCE_DELAY).toBe(5000);
+    it('has a 60 second debounce delay', () => {
+      expect(DEBOUNCE_DELAY).toBe(60000);
     });
 
-    it('has a maximum of 50 messages', () => {
-      expect(MAX_MESSAGES).toBe(50);
+    it('has a maximum of 15 messages', () => {
+      expect(MAX_MESSAGES).toBe(15);
     });
 
     it('has a maximum of 2 retries', () => {
@@ -84,12 +84,12 @@ describe('summaryService', () => {
       expect(result).toBe('User: Hello\n\nAssistant: Hi');
     });
 
-    it('truncates messages longer than 2000 characters', () => {
-      const longContent = 'A'.repeat(2500);
+    it('truncates messages longer than 750 characters', () => {
+      const longContent = 'A'.repeat(1000);
       const messageList = [{ role: 'user', content: longContent }];
       const result = formatMessages(messageList);
       expect(result).toContain('... [truncated]');
-      expect(result.length).toBeLessThan(2500);
+      expect(result.length).toBeLessThan(1000);
     });
 
     it('includes tool use information when present', () => {
