@@ -867,7 +867,7 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
             settingSources: ['project'],
             env: sessionEnv,
             spawnClaudeCodeProcess: createClaudeCodeSpawner(),
-            ...(effectiveModel && { model: effectiveModel }),
+            model: effectiveModel,
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
@@ -1029,7 +1029,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
             ...(activeConversation.claudeSessionId && { resume: activeConversation.claudeSessionId }),
             env: sessionEnv,
             spawnClaudeCodeProcess: createClaudeCodeSpawner(),
-            ...(effectiveModel && { model: effectiveModel }),
+            model: effectiveModel,
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
@@ -1179,7 +1179,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
             ...(conversation.claudeSessionId && { resume: conversation.claudeSessionId }),
             env: sessionEnv,
             spawnClaudeCodeProcess: createClaudeCodeSpawner(),
-            ...(effectiveModel && { model: effectiveModel }),
+            model: effectiveModel,
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
