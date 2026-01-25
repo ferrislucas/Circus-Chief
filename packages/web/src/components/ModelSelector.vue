@@ -8,17 +8,24 @@
       :disabled="disabled || togglingModel"
       class="model-select"
     >
-      <option v-for="m in models" :key="m.id" :value="m.id">
-        {{ m.name }}
-      </option>
+      <optgroup v-for="provider in providersStore.providers" :key="provider.id" :label="provider.name">
+        <option
+          v-for="model in provider.models"
+          :key="model.id"
+          :value="model.modelId"
+          :data-provider-id="provider.id"
+        >
+          {{ provider.isBuiltIn ? model.displayName : model.modelId }}
+        </option>
+      </optgroup>
     </select>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, toRef } from 'vue';
-import { CLAUDE_MODELS } from '@claudetools/shared';
+import { ref, computed, watch, toRef, onMounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useProvidersStore } from '../stores/providers.js';
 import { useUiStore } from '../stores/ui.js';
 
 const props = defineProps({
@@ -36,12 +43,19 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'update:providerId']);
 
 const sessionsStore = useSessionsStore();
+const providersStore = useProvidersStore();
 const uiStore = useUiStore();
-const models = CLAUDE_MODELS;
 const togglingModel = ref(false);
+
+// Fetch providers with models on mount
+onMounted(async () => {
+  if (providersStore.providers.length === 0) {
+    await providersStore.fetchProvidersWithModels();
+  }
+});
 
 // Use store state when sessionId provided, otherwise use modelValue prop
 const currentModel = computed(() => {
@@ -63,18 +77,30 @@ watch([currentModel, modelValueRef], ([newCurrentModel]) => {
   selectedModel.value = newCurrentModel;
 }, { flush: 'sync' });
 
-async function handleModelChange(id) {
+async function handleModelChange(modelId) {
   if (togglingModel.value) return;
-  if (selectedModel.value === id) return;
+  if (selectedModel.value === modelId) return;
+
+  // Find the provider for this model
+  let providerId = null;
+  for (const provider of providersStore.providers) {
+    if (provider.models) {
+      const model = provider.models.find((m) => m.modelId === modelId);
+      if (model) {
+        providerId = provider.id;
+        break;
+      }
+    }
+  }
 
   // Immediate visual feedback - update UI right away
-  selectedModel.value = id;
+  selectedModel.value = modelId;
 
   if (props.sessionId) {
     // Session context: update store asynchronously
     togglingModel.value = true;
     try {
-      await sessionsStore.updateSessionModel(props.sessionId, id);
+      await sessionsStore.updateSessionModel(props.sessionId, modelId);
     } catch (err) {
       // Revert selection on error
       selectedModel.value = currentModel.value;
@@ -84,7 +110,8 @@ async function handleModelChange(id) {
     }
   } else {
     // Form context: emit for v-model
-    emit('update:modelValue', id);
+    emit('update:modelValue', modelId);
+    emit('update:providerId', providerId);
   }
 }
 </script>

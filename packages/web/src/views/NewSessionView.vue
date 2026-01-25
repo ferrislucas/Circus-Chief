@@ -68,7 +68,7 @@
           </div>
 
           <div class="model-selector-wrapper">
-            <ModelSelector v-model="model" />
+            <ModelSelector v-model="model" @update:providerId="providerId = $event" />
           </div>
         </div>
       </div>
@@ -220,6 +220,7 @@ let inputSyncTimer = null;
 let debounceTimer = null;
 const mode = ref('yolo');
 const model = ref(DEFAULT_MODEL);
+const providerId = ref(null);
 const loading = ref(false);
 const quickResponseSettingsOpen = ref(false);
 const showSlashCommandWizard = ref(false);
@@ -534,6 +535,7 @@ async function handleSubmit() {
       prompt: currentPrompt,
       mode: mode.value,
       model: model.value,
+      providerId: providerId.value,
       thinkingEnabled: thinkingEnabled.value,
       startImmediately: startImmediately.value,
       gitMode: submitGitMode,
