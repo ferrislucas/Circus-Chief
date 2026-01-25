@@ -120,6 +120,15 @@
         @input="handleInput"
         @keydown="handleKeydown"
       />
+
+      <!-- Quick Responses Panel - shows between textarea and controls -->
+      <QuickResponsesPanel
+        v-if="canSendMessage || isDraft"
+        :show-empty="true"
+        @insert="handleQuickResponseInsert"
+        @openSettings="quickResponseSettingsOpen = true"
+      />
+
       <div class="input-controls">
         <!-- Row 1: Primary controls -->
         <div class="primary-controls">
@@ -224,14 +233,6 @@
         />
       </div>
     </form>
-
-    <!-- Quick Responses Panel - shows below the input when not running or for draft sessions -->
-    <QuickResponsesPanel
-      v-if="canSendMessage || isDraft"
-      :show-empty="true"
-      @insert="handleQuickResponseInsert"
-      @openSettings="quickResponseSettingsOpen = true"
-    />
 
     <div v-if="sessionsStore.currentSession?.status === 'running'" class="running-state">
       <!-- Header row with status, token display, and stop button -->

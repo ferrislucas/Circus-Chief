@@ -18,6 +18,14 @@
           @input="handleInput"
           @keydown="handleKeydown"
         />
+
+        <!-- Quick Responses Panel - shows between textarea and attachment controls -->
+        <QuickResponsesPanel
+          :show-empty="true"
+          @insert="handleQuickResponseInsert"
+          @openSettings="quickResponseSettingsOpen = true"
+        />
+
         <div class="attachment-row">
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
           <SlashCommandButton
@@ -165,13 +173,6 @@
         </p>
       </div>
     </form>
-
-    <!-- Quick Responses Panel - shows below the input form -->
-    <QuickResponsesPanel
-      :show-empty="true"
-      @insert="handleQuickResponseInsert"
-      @openSettings="quickResponseSettingsOpen = true"
-    />
 
     <!-- Slash Command Wizard Modal -->
     <SlashCommandWizard
