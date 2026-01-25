@@ -44,6 +44,7 @@
                 v-model="form.authToken"
                 :type="showAuthToken ? 'text' : 'password'"
                 placeholder="Your authentication token"
+                @input="authTokenModified = true"
               />
               <button
                 type="button"
@@ -225,6 +226,7 @@ const saving = ref(false);
 const testing = ref(false);
 const error = ref(null);
 const testResult = ref(null);
+const authTokenModified = ref(false); // Track if user has modified the auth token field
 
 const isEditing = computed(() => !!props.provider);
 
@@ -263,6 +265,7 @@ watch(
           additionalEnvVars: provider.additionalEnvVars ? { ...provider.additionalEnvVars } : {},
         };
         envVarKeys.value = Object.keys(form.value.additionalEnvVars);
+        authTokenModified.value = false; // Reset: user hasn't touched the token field yet
       } else {
         // Create mode - reset form
         form.value = {
@@ -276,6 +279,7 @@ watch(
           additionalEnvVars: {},
         };
         envVarKeys.value = [];
+        authTokenModified.value = true; // In create mode, always include authToken (even if null)
       }
       showAuthToken.value = false;
       error.value = null;
@@ -339,7 +343,6 @@ async function save() {
     const data = {
       name: form.value.name.trim(),
       baseUrl: form.value.baseUrl?.trim() || null,
-      authToken: form.value.authToken?.trim() || null,
       defaultOpusModel: form.value.defaultOpusModel?.trim() || null,
       defaultSonnetModel: form.value.defaultSonnetModel?.trim() || null,
       defaultHaikuModel: form.value.defaultHaikuModel?.trim() || null,
@@ -348,6 +351,12 @@ async function save() {
         ? form.value.additionalEnvVars
         : null,
     };
+
+    // Only include authToken if user has modified it
+    // This prevents clearing the token when editing without touching the field
+    if (authTokenModified.value) {
+      data.authToken = form.value.authToken?.trim() || null;
+    }
 
     if (isEditing.value) {
       await providersStore.updateProvider(props.provider.id, data);
