@@ -214,7 +214,7 @@ describe('SchedulerService', () => {
 
     it('updates session status and runs fresh session', async () => {
       scheduler.initialize(mockSessionManager);
-      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', model: 'claude-sonnet-4-5-20250929', pendingPrompt: 'Hello' };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello' };
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp', systemPrompt: 'Be helpful' });
       messages.getBySessionId.mockReturnValue([]);
@@ -233,7 +233,7 @@ describe('SchedulerService', () => {
         sessionId: 'session-1',
         status: 'starting',
       });
-      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp', 'Be helpful', [], 'claude-sonnet-4-5-20250929');
+      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp', 'Be helpful', [], null);
     });
 
     it('uses gitWorktree for working directory when available', async () => {
@@ -248,7 +248,7 @@ describe('SchedulerService', () => {
 
       await scheduler.startScheduledSession(session);
 
-      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp/worktree', undefined, [], undefined);
+      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp/worktree', undefined, [], null);
     });
 
     it('continues session when there are existing assistant messages', async () => {
