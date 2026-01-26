@@ -425,7 +425,7 @@ describe.skip('ConversationTab', () => {
       await wrapper.find('form').trigger('submit.prevent');
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', []);
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], null);
     });
 
     it('clears input after sending', async () => {
@@ -621,7 +621,7 @@ describe.skip('ConversationTab', () => {
       await wrapper.find('textarea').trigger('keydown', { key: 'Enter', metaKey: true });
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', []);
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], null);
     });
 
     it('calls handleSend on Ctrl+Enter when not a draft', async () => {
@@ -634,7 +634,7 @@ describe.skip('ConversationTab', () => {
       await wrapper.find('textarea').trigger('keydown', { key: 'Enter', ctrlKey: true });
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', []);
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Test message', [], null);
     });
 
     it('does NOT submit on plain Enter', async () => {
@@ -939,7 +939,7 @@ describe('ConversationTab - Error Handling Improvements', () => {
       await wrapper.find('form').trigger('submit.prevent');
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Retry message', []);
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith('sess-123', 'Retry message', [], null);
     });
   });
 
