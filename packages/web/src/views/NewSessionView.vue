@@ -37,6 +37,14 @@
         <label class="form-label">Options</label>
 
         <div class="options-row">
+          <div class="mode-selector-wrapper">
+            <ModeSelector v-model="mode" />
+          </div>
+
+          <div class="model-selector-wrapper">
+            <ModelSelector v-model="model" @update:providerId="providerId = $event" />
+          </div>
+
           <div class="thinking-toggle">
             <div class="field-with-badge">
               <label class="toggle-switch">
@@ -61,14 +69,6 @@
               </label>
               <span class="toggle-label">Start Immediately</span>
             </div>
-          </div>
-
-          <div class="mode-selector-wrapper">
-            <ModeSelector v-model="mode" />
-          </div>
-
-          <div class="model-selector-wrapper">
-            <ModelSelector v-model="model" @update:providerId="providerId = $event" />
           </div>
         </div>
       </div>

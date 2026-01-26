@@ -1,6 +1,5 @@
 <template>
   <div class="model-selector">
-    <label for="model-select" class="model-label">Model:</label>
     <select
       id="model-select"
       :value="selectedModel"
@@ -129,11 +128,6 @@ async function handleModelChange(modelId) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.model-label {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
 }
 
 .model-select {

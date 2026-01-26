@@ -1,5 +1,5 @@
 <template>
-  <div class="running-token-display">
+  <div v-if="hasNonZeroCost" class="running-token-display">
     <span class="cost-label">Cost:</span>
     <span class="cost-value">{{ formattedBillableTokens }}</span>
     <span v-if="isUpdating" class="updating-indicator">
@@ -24,6 +24,12 @@ settingsStore.fetchTokenCostWeights();
 // Get the formatted BTE cost score
 const formattedBillableTokens = computed(() => {
   return sessionsStore.formattedBillableTokens || '0';
+});
+
+// Check if cost is non-zero
+const hasNonZeroCost = computed(() => {
+  const cost = formattedBillableTokens.value;
+  return cost && cost !== '0' && cost !== '-' && cost !== '0.0';
 });
 
 // Show updating indicator when session is running

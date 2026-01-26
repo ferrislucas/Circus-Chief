@@ -24,6 +24,10 @@ test.describe('Scheduling UI', () => {
       // Navigate to the session
       await navigateAndWait(page, `/sessions/${session.id}`);
 
+      // Expand the Orchestration panel (it starts collapsed)
+      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
+      await orchestrationPanel.click();
+
       // Verify clock icon button exists next to Start Session
       const clockButton = page.locator('.btn-schedule');
       await expect(clockButton).toBeVisible();
@@ -39,6 +43,10 @@ test.describe('Scheduling UI', () => {
 
       // Navigate to the session
       await navigateAndWait(page, `/sessions/${session.id}`);
+
+      // Expand the Orchestration panel
+      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
+      await orchestrationPanel.click();
 
       // Clear the textarea content
       const textarea = page.locator('textarea');
@@ -60,6 +68,10 @@ test.describe('Scheduling UI', () => {
       // Navigate to the session
       await navigateAndWait(page, `/sessions/${session.id}`);
 
+      // Expand the Orchestration panel
+      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
+      await orchestrationPanel.click();
+
       // Click clock icon
       await page.click('.btn-schedule');
 
@@ -78,6 +90,10 @@ test.describe('Scheduling UI', () => {
 
       // Navigate to the session
       await navigateAndWait(page, `/sessions/${session.id}`);
+
+      // Expand the Orchestration panel
+      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
+      await orchestrationPanel.click();
 
       // Click clock icon
       await page.click('.btn-schedule');
@@ -107,6 +123,10 @@ test.describe('Scheduling UI', () => {
       // Navigate to the session
       await navigateAndWait(page, `/sessions/${session.id}`);
 
+      // Expand the Orchestration panel
+      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
+      await orchestrationPanel.click();
+
       // Click clock icon
       await page.click('.btn-schedule');
 
@@ -135,6 +155,10 @@ test.describe('Scheduling UI', () => {
 
       // Navigate to the session
       await navigateAndWait(page, `/sessions/${session.id}`);
+
+      // Expand the Orchestration panel
+      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
+      await orchestrationPanel.click();
 
       // Click clock icon to open scheduling modal
       await page.click('.btn-schedule');

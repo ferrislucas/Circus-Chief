@@ -57,11 +57,6 @@ describe('ModelSelector', () => {
   };
 
   describe('rendering', () => {
-    it('renders model label', () => {
-      const wrapper = mountComponent();
-      expect(wrapper.find('.model-label').text()).toBe('Model:');
-    });
-
     it('renders a select dropdown', () => {
       const wrapper = mountComponent();
       expect(wrapper.find('select').exists()).toBe(true);
