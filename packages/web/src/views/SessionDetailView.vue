@@ -6,6 +6,15 @@
     </div>
 
     <template v-else-if="sessionsStore.currentSession">
+      <!-- Delete overlay -->
+      <Transition name="fade">
+        <div v-if="isDeleting" class="delete-overlay">
+          <div class="delete-overlay-content">
+            <span class="delete-spinner"></span>
+            <span>Deleting session...</span>
+          </div>
+        </div>
+      </Transition>
       <!-- Session hierarchy breadcrumb -->
       <SessionHierarchyBreadcrumb
         v-if="sessionPath.length > 1"
@@ -23,6 +32,7 @@
           <OverflowMenu
             aria-label="Session actions"
             :is-archived="sessionsStore.currentSession.archived"
+            :is-deleting="isDeleting"
             copy-session-id-text="Copy ID"
             @duplicate="handleDuplicate"
             @copySessionId="handleCopySessionId"
@@ -272,6 +282,7 @@ const pollIntervalId = ref(null);
 const showDeleteConfirm = ref(false);
 const summary = ref(null);
 const hasChanges = ref(false);
+const isDeleting = ref(false);
 
 // PR URL editing state
 const isEditingPrUrl = ref(false);
@@ -608,9 +619,19 @@ async function handleDuplicate() {
 async function handleDelete() {
   if (!confirm('Are you sure you want to delete this session?')) return;
 
+  isDeleting.value = true;
+
+  // Show immediate feedback
+  uiStore.addToast('info', 'Deleting session...', 0); // 0 = no auto-dismiss
+
   try {
     const projectId = sessionsStore.currentSession?.projectId;
     await sessionsStore.deleteSession(currentSessionId.value);
+
+    // Remove the "Deleting..." toast
+    const toastsToRemove = uiStore.toasts.filter(t => t.message === 'Deleting session...');
+    toastsToRemove.forEach(t => uiStore.removeToast(t.id));
+
     uiStore.success('Session deleted');
     // Navigate to project sessions list
     if (projectId) {
@@ -619,6 +640,12 @@ async function handleDelete() {
       router.push('/');
     }
   } catch (err) {
+    isDeleting.value = false;
+
+    // Remove the "Deleting..." toast
+    const toastsToRemove = uiStore.toasts.filter(t => t.message === 'Deleting session...');
+    toastsToRemove.forEach(t => uiStore.removeToast(t.id));
+
     uiStore.error(err.message);
   }
 }
@@ -948,5 +975,56 @@ async function clearPrUrl() {
   .pr-edit-form {
     flex-wrap: wrap;
   }
+}
+
+/* Delete overlay styles */
+.delete-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(2px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.delete-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  color: var(--color-text, #e0e0e0);
+  font-size: 1.125rem;
+}
+
+.delete-spinner {
+  display: inline-block;
+  width: 3rem;
+  height: 3rem;
+  border: 3px solid rgba(0, 188, 212, 0.2);
+  border-top-color: var(--color-primary, #00bcd4);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Fade transition for overlay */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>
