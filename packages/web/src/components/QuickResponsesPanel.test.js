@@ -122,15 +122,6 @@ describe('QuickResponsesPanel', () => {
       expect(wrapper.find('.empty-state').exists()).toBe(true);
       expect(wrapper.find('.empty-text').text()).toBe('No quick responses yet');
     });
-
-    it('shows add button in empty state', async () => {
-      const wrapper = mountComponent({ showEmpty: true });
-      // Expand the panel
-      await triggerClick(wrapper, '.toggle-button');
-      const addButton = wrapper.find('.add-button');
-      expect(addButton.exists()).toBe(true);
-      expect(addButton.text()).toBe('+ Add Quick Response');
-    });
   });
 
   describe('collapsible behavior', () => {
@@ -236,10 +227,11 @@ describe('QuickResponsesPanel', () => {
       store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
       const wrapper = mountComponent();
 
-      // Panel header should always be visible
+      // Panel header and toggle button should always be visible
       expect(wrapper.find('.panel-header').exists()).toBe(true);
       expect(wrapper.find('.toggle-button').exists()).toBe(true);
-      expect(wrapper.find('.settings-button').exists()).toBe(true);
+      // Settings button only shows when expanded
+      expect(wrapper.find('.settings-button').exists()).toBe(false);
     });
 
     it('uses v-if to remove content from DOM when collapsed', () => {

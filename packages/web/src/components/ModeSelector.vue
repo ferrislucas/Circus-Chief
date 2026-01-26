@@ -1,6 +1,5 @@
 <template>
   <div class="mode-selector">
-    <label for="mode-select" class="mode-label">Mode:</label>
     <select
       id="mode-select"
       :value="selectedMode"
@@ -98,11 +97,6 @@ async function handleModeChange(value) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.mode-label {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
 }
 
 .mode-select {
