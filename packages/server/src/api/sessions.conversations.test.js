@@ -9,7 +9,7 @@ vi.mock('../websocket.js', () => ({
 
 vi.mock('../services/summaryService.js', () => ({
   generateConversationSummary: vi.fn().mockResolvedValue('mock summary'),
-  isConversationSummaryEnabled: vi.fn((sessionId) => {
+  isConversationSummaryEnabled: vi.fn((_sessionId) => {
     // Default implementation: return true (enabled)
     // Tests can override this by mocking the implementation
     return true;
@@ -303,7 +303,7 @@ describe('Sessions API - Conversation Endpoints', () => {
       });
 
       it('switches active conversation correctly', () => {
-        const conv1 = conversations.create(session.id, 'Conv 1', true);
+        const _conv1 = conversations.create(session.id, 'Conv 1', true);
         const conv2 = conversations.create(session.id, 'Conv 2', false);
 
         // Switch to conv2
