@@ -638,7 +638,7 @@ router.post('/:id/conversations', async (req, res) => {
 
   // Auto-generate summary for the current active conversation before creating new one
   const previousActive = conversations.getActiveBySessionId(req.params.id);
-  if (previousActive && !previousActive.summary) {
+  if (previousActive && !previousActive.summary && summaryService.isConversationSummaryEnabled(req.params.id)) {
     // Generate summary in background (don't block the request)
     summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
       console.error('Failed to generate conversation summary:', err);
@@ -690,7 +690,8 @@ router.patch('/:id/conversations/:convId', async (req, res) => {
   // If switching to this conversation, generate summary for the previous active one
   if (isActive && !conversation.isActive) {
     const previousActive = conversations.getActiveBySessionId(req.params.id);
-    if (previousActive && previousActive.id !== req.params.convId && !previousActive.summary) {
+    if (previousActive && previousActive.id !== req.params.convId && !previousActive.summary &&
+        summaryService.isConversationSummaryEnabled(req.params.id)) {
       // Generate summary in background
       summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
         console.error('Failed to generate conversation summary:', err);
@@ -799,6 +800,15 @@ router.post('/:id/conversations/:convId/branch', async (req, res) => {
       null, // name is auto-generated from prompt
       prompt
     );
+
+    // Generate summary for the previous active conversation before branching
+    const previousActive = conversations.getActiveBySessionId(req.params.id);
+    if (previousActive && !previousActive.summary && summaryService.isConversationSummaryEnabled(req.params.id)) {
+      // Generate summary in background (don't block the request)
+      summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
+        console.error('Failed to generate conversation summary:', err);
+      });
+    }
 
     // Broadcast the new conversation to session subscribers
     broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CONVERSATION_CREATED, {
@@ -916,10 +926,6 @@ router.patch('/:id', (req, res) => {
     updateData.nextTemplateId = nextTemplateId;
   }
   if (model !== undefined) {
-    const validModels = ['claude-sonnet-4-5-20250929', 'claude-opus-4-5-20251101', 'claude-haiku-4-5-20251001'];
-    if (!validModels.includes(model)) {
-      return res.status(400).json({ error: 'Invalid model. Must be one of: ' + validModels.join(', ') });
-    }
     updateData.model = model;
   }
   // PR URL - allow setting, updating, or clearing (null or empty string clears it)

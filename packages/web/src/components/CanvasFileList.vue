@@ -33,21 +33,48 @@
         :aria-label="`Select ${item.filename || 'item'}`"
       />
 
-      <span class="file-icon">{{ getTypeIcon(item.type) }}</span>
       <span class="file-name">{{ item.filename || 'Untitled' }}</span>
 
-      <!-- Copy button -->
-      <button
-        class="copy-button"
-        :class="{ copied: copiedItemId === item.id }"
-        @click.stop="copyFilename(item)"
-        :title="copiedItemId === item.id ? 'Copied!' : 'Copy filename'"
-        :aria-label="`Copy ${item.filename || 'filename'} to clipboard`"
-      >
-        <span class="copy-button-icon">
-          {{ copiedItemId === item.id ? '✓' : '📋' }}
-        </span>
-      </button>
+      <!-- Three-dot menu -->
+      <div class="file-menu-container" :ref="el => setMenuContainerRef(el, item.id)">
+        <button
+          class="btn-menu"
+          aria-label="File actions"
+          :aria-expanded="(openMenuItemId === item.id).toString()"
+          aria-haspopup="menu"
+          @click="toggleMenu(item.id, $event)"
+        >
+          ⋮
+        </button>
+
+        <Transition name="fade">
+          <div v-if="openMenuItemId === item.id" class="menu-overlay" @click="closeMenu"></div>
+        </Transition>
+
+        <Transition name="slide">
+          <ul v-if="openMenuItemId === item.id" class="file-menu-items" role="menu">
+            <li role="none">
+              <button class="menu-item" role="menuitem" @click.stop="handleMenuCopyContents(item)">
+                <span class="menu-item-icon">📋</span>
+                <span class="menu-item-text">Copy file contents</span>
+              </button>
+            </li>
+            <li role="none">
+              <button class="menu-item" role="menuitem" @click.stop="handleMenuCopyFilename(item)">
+                <span class="menu-item-icon">📝</span>
+                <span class="menu-item-text">Copy filename</span>
+              </button>
+            </li>
+            <li role="none" class="menu-divider"></li>
+            <li role="none">
+              <button class="menu-item is-danger" role="menuitem" @click.stop="handleMenuDelete(item)">
+                <span class="menu-item-icon">🗑</span>
+                <span class="menu-item-text">Delete file</span>
+              </button>
+            </li>
+          </ul>
+        </Transition>
+      </div>
 
       <span class="file-type">{{ item.type }}</span>
       <span v-if="item.versionCount > 1" class="version-badge">
@@ -60,7 +87,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useCanvasStore } from '../stores/canvas.js';
 
 const canvasStore = useCanvasStore();
@@ -76,7 +103,7 @@ defineProps({
   },
 });
 
-const emit = defineEmits(['select']);
+const emit = defineEmits(['select', 'deleteItem']);
 
 const isOperationInProgress = computed(() => canvasStore.bulkOperationInProgress);
 const selectedCount = computed(() => canvasStore.selectedItemCount);
@@ -110,27 +137,34 @@ function handleRowClick(itemId) {
 }
 
 const copiedItemId = ref(null);
+const openMenuItemId = ref(null);
+const menuHighlightedIndex = ref(null);
+const menuContainerRefs = ref({});
 
-// Copy filename to clipboard with fallback
-async function copyFilename(item) {
-  const filename = item.filename || 'Untitled';
+function setMenuContainerRef(el, itemId) {
+  if (el) menuContainerRefs.value[itemId] = el;
+}
+
+// Copy to clipboard with fallback
+async function copyToClipboard(text) {
   try {
-    await navigator.clipboard.writeText(filename);
-    showCopiedFeedback(item.id);
+    await navigator.clipboard.writeText(text);
+    return true;
   } catch (err) {
     // Fallback for older browsers / mobile
     try {
       const textarea = document.createElement('textarea');
-      textarea.value = filename;
+      textarea.value = text;
       textarea.style.position = 'fixed';
       textarea.style.opacity = '0';
       document.body.appendChild(textarea);
       textarea.select();
       document.execCommand('copy');
       document.body.removeChild(textarea);
-      showCopiedFeedback(item.id);
+      return true;
     } catch (fallbackErr) {
       console.error('Copy failed:', fallbackErr);
+      return false;
     }
   }
 }
@@ -142,17 +176,56 @@ function showCopiedFeedback(itemId) {
   }, 1500);
 }
 
-function getTypeIcon(type) {
-  const icons = {
-    image: '📷',
-    markdown: '📄',
-    json: '📋',
-    text: '📝',
-    pdf: '📕',
-    code: '💻',
-  };
-  return icons[type] || '📁';
+// Menu functions
+function toggleMenu(itemId, event) {
+  event.stopPropagation();
+  openMenuItemId.value = openMenuItemId.value === itemId ? null : itemId;
+  menuHighlightedIndex.value = openMenuItemId.value ? 0 : null;
 }
+
+function closeMenu() {
+  openMenuItemId.value = null;
+  menuHighlightedIndex.value = null;
+}
+
+async function handleMenuCopyFilename(item) {
+  await copyToClipboard(item.filename || 'Untitled');
+  showCopiedFeedback(item.id);
+  closeMenu();
+}
+
+async function handleMenuCopyContents(item) {
+  let content = '';
+  if (item.type === 'markdown' || item.type === 'text' || item.type === 'code') {
+    content = item.content || '';
+  } else if (item.type === 'json') {
+    content = item.data || '';
+  }
+  await copyToClipboard(content);
+  closeMenu();
+}
+
+function handleMenuDelete(item) {
+  emit('deleteItem', item);
+  closeMenu();
+}
+
+function handleDocumentClick(event) {
+  if (openMenuItemId.value) {
+    const container = menuContainerRefs.value[openMenuItemId.value];
+    if (container && !container.contains(event.target)) {
+      closeMenu();
+    }
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleDocumentClick);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleDocumentClick);
+});
 
 function formatRelativeTime(timestamp) {
   const now = Date.now();
@@ -168,6 +241,16 @@ function formatRelativeTime(timestamp) {
   if (minutes > 0) return `${minutes}m ago`;
   return 'just now';
 }
+
+// Expose functions for testing
+defineExpose({
+  toggleMenu,
+  closeMenu,
+  handleMenuCopyFilename,
+  handleMenuCopyContents,
+  handleMenuDelete,
+  handleDocumentClick,
+});
 </script>
 
 <style scoped>
@@ -192,11 +275,6 @@ function formatRelativeTime(timestamp) {
 
 .file-row:hover {
   background: var(--color-background-mute);
-}
-
-.file-icon {
-  font-size: 1.25rem;
-  flex-shrink: 0;
 }
 
 .file-name {
@@ -235,46 +313,133 @@ function formatRelativeTime(timestamp) {
   flex-shrink: 0;
 }
 
-/* Copy button styles */
-.copy-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 2.75rem;
-  min-height: 2.75rem;
-  padding: 0.25rem;
-  border: none;
-  background-color: transparent;
-  color: var(--color-text-soft);
-  cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.2s ease-out;
+/* File menu container and button */
+.file-menu-container {
+  position: relative;
+  display: inline-block;
   flex-shrink: 0;
 }
 
-.copy-button:hover {
-  color: var(--color-text);
-  background-color: rgba(255, 255, 255, 0.05);
+.btn-menu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-soft, #888);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  font-size: 1.25rem;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
-.copy-button:active {
-  background-color: rgba(255, 255, 255, 0.1);
+.btn-menu:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text, #ccc);
 }
 
-.copy-button.copied {
-  color: var(--color-success);
-  animation: copySuccess 0.3s ease-out;
+.btn-menu:active {
+  background: rgba(255, 255, 255, 0.15);
 }
 
-.copy-button-icon {
+/* Menu overlay and items */
+.menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 99;
+}
+
+.file-menu-items {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  min-width: 200px;
+  margin-top: 0.5rem;
+  padding: 0.25rem 0;
+  list-style: none;
+  background: var(--color-bg-secondary, #222);
+  border: 1px solid var(--color-border, #444);
+  border-radius: 6px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text, #ccc);
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.875rem;
+  transition: all 0.15s ease;
+}
+
+.menu-item:hover {
+  background: var(--color-bg-hover, #333);
+}
+
+.menu-item.is-danger {
+  color: var(--color-error, #f87171);
+}
+
+.menu-item.is-danger:hover {
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.menu-item-icon {
   font-size: 1rem;
-  display: inline-block;
+  flex-shrink: 0;
 }
 
-@keyframes copySuccess {
-  0% { transform: scale(0.8); opacity: 0.7; }
-  50% { transform: scale(1.1); }
-  100% { transform: scale(1); opacity: 1; }
+.menu-item-text {
+  flex: 1;
+  font-weight: 500;
+}
+
+.menu-divider {
+  height: 1px;
+  background: var(--color-border, #444);
+  margin: 0.25rem 0;
+  list-style: none;
+}
+
+/* Transitions */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.slide-enter-active,
+.slide-leave-active {
+  transition: all 0.15s ease;
+}
+
+.slide-enter-from {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.slide-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 /* List header styles for selection UI */
@@ -348,9 +513,7 @@ function formatRelativeTime(timestamp) {
   .file-name {
     flex: 1;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    word-break: break-word;
   }
 
   .file-type {
@@ -361,9 +524,13 @@ function formatRelativeTime(timestamp) {
     display: none;
   }
 
-  .copy-button {
-    min-width: 2.25rem;
-    min-height: 2.25rem;
+  .btn-menu {
+    width: 44px;
+    height: 44px;
+  }
+
+  .file-menu-items {
+    min-width: 180px;
   }
 
   .item-checkbox {

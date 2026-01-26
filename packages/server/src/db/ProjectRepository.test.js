@@ -134,10 +134,10 @@ describe('ProjectRepository', () => {
       expect(project.disableSessionSummaries).toBe(true);
     });
 
-    it('creates project with summaryDebounceMs default of 5000', () => {
+    it('creates project with summaryDebounceMs default of 60000', () => {
       const project = repo.create('Test Project', '/tmp/test');
 
-      expect(project.summaryDebounceMs).toBe(5000);
+      expect(project.summaryDebounceMs).toBe(60000);
     });
 
     it('creates project with custom summaryDebounceMs', () => {
@@ -373,7 +373,7 @@ describe('ProjectRepository', () => {
 
     it('updates summaryDebounceMs', () => {
       const project = repo.create('Test', '/tmp/test');
-      expect(project.summaryDebounceMs).toBe(5000);
+      expect(project.summaryDebounceMs).toBe(60000);
 
       const updated = repo.update(project.id, {
         summaryDebounceMs: 3000,
