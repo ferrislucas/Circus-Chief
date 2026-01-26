@@ -1,6 +1,5 @@
 <template>
   <div class="model-selector">
-    <label for="model-select" class="model-label">Model:</label>
     <select
       id="model-select"
       :value="selectedModel"
@@ -8,17 +7,24 @@
       :disabled="disabled || togglingModel"
       class="model-select"
     >
-      <option v-for="m in models" :key="m.id" :value="m.id">
-        {{ m.name }}
-      </option>
+      <optgroup v-for="provider in providersStore.providers" :key="provider.id" :label="provider.name">
+        <option
+          v-for="model in provider.models"
+          :key="model.id"
+          :value="model.modelId"
+          :data-provider-id="provider.id"
+        >
+          {{ provider.isBuiltIn ? model.displayName : model.modelId }}
+        </option>
+      </optgroup>
     </select>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, toRef } from 'vue';
-import { CLAUDE_MODELS } from '@claudetools/shared';
+import { ref, computed, watch, toRef, onMounted } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useProvidersStore } from '../stores/providers.js';
 import { useUiStore } from '../stores/ui.js';
 
 const props = defineProps({
@@ -36,12 +42,27 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'update:providerId']);
 
 const sessionsStore = useSessionsStore();
+const providersStore = useProvidersStore();
 const uiStore = useUiStore();
-const models = CLAUDE_MODELS;
 const togglingModel = ref(false);
+
+// Check if providers have models loaded
+// Providers may have been fetched without models (e.g., from ProvidersView)
+const providersHaveModels = computed(() => {
+  return providersStore.providers.length > 0 &&
+    providersStore.providers.some(p => p.models && p.models.length > 0);
+});
+
+// Fetch providers with models on mount
+onMounted(async () => {
+  // Fetch if no providers OR if providers exist but don't have models loaded
+  if (providersStore.providers.length === 0 || !providersHaveModels.value) {
+    await providersStore.fetchProvidersWithModels();
+  }
+});
 
 // Use store state when sessionId provided, otherwise use modelValue prop
 const currentModel = computed(() => {
@@ -63,18 +84,30 @@ watch([currentModel, modelValueRef], ([newCurrentModel]) => {
   selectedModel.value = newCurrentModel;
 }, { flush: 'sync' });
 
-async function handleModelChange(id) {
+async function handleModelChange(modelId) {
   if (togglingModel.value) return;
-  if (selectedModel.value === id) return;
+  if (selectedModel.value === modelId) return;
+
+  // Find the provider for this model
+  let providerId = null;
+  for (const provider of providersStore.providers) {
+    if (provider.models) {
+      const model = provider.models.find((m) => m.modelId === modelId);
+      if (model) {
+        providerId = provider.id;
+        break;
+      }
+    }
+  }
 
   // Immediate visual feedback - update UI right away
-  selectedModel.value = id;
+  selectedModel.value = modelId;
 
   if (props.sessionId) {
     // Session context: update store asynchronously
     togglingModel.value = true;
     try {
-      await sessionsStore.updateSessionModel(props.sessionId, id);
+      await sessionsStore.updateSessionModel(props.sessionId, modelId);
     } catch (err) {
       // Revert selection on error
       selectedModel.value = currentModel.value;
@@ -84,7 +117,8 @@ async function handleModelChange(id) {
     }
   } else {
     // Form context: emit for v-model
-    emit('update:modelValue', id);
+    emit('update:modelValue', modelId);
+    emit('update:providerId', providerId);
   }
 }
 </script>
@@ -94,11 +128,6 @@ async function handleModelChange(id) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.model-label {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
 }
 
 .model-select {

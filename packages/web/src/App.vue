@@ -5,6 +5,21 @@
         <router-link to="/" class="logo">
           <img src="/logo.png" alt="ClaudeTools.io Logo" class="logo-image" />
         </router-link>
+        <nav class="nav">
+          <router-link to="/settings/providers" class="nav-link" title="Providers">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="4" y1="21" x2="4" y2="14"></line>
+              <line x1="4" y1="10" x2="4" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12" y2="3"></line>
+              <line x1="20" y1="21" x2="20" y2="16"></line>
+              <line x1="20" y1="12" x2="20" y2="3"></line>
+              <line x1="1" y1="14" x2="7" y2="14"></line>
+              <line x1="9" y1="8" x2="15" y2="8"></line>
+              <line x1="17" y1="16" x2="23" y2="16"></line>
+            </svg>
+          </router-link>
+        </nav>
       </div>
     </header>
 
@@ -46,9 +61,12 @@ import ToastContainer from './components/ToastContainer.vue';
 .app-header .container {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 1rem;
   padding: 0 1rem !important;
   margin: 0 !important;
+  max-width: 100%;
+  width: 100%;
 }
 
 .logo {
@@ -74,16 +92,30 @@ import ToastContainer from './components/ToastContainer.vue';
 
 .nav {
   display: flex;
-  gap: 1rem;
+  gap: 1.5rem;
+  align-items: center;
 }
 
 .nav-link {
   color: var(--color-text-soft);
   font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.2s ease;
+  padding: 0.5rem 0;
+  border-bottom: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .nav-link:hover {
   color: var(--color-text);
+}
+
+.nav-link.router-link-active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
 }
 
 .app-main {

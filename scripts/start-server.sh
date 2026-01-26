@@ -117,6 +117,9 @@ echo "$SELECTED_PORT" > "$PORT_FILE"
 
 # -----------------------------------------------------------------------------
 # Start the server
+#
+# Use mock Claude responses if MOCK_CLAUDE is set (for E2E tests)
+# This prevents needing real Claude API credentials for testing
 # -----------------------------------------------------------------------------
 echo "Starting server on port ${SELECTED_PORT}..."
-yarn build && NODE_ENV=production node packages/server/src/index.js -p ${SELECTED_PORT}
+MOCK_CLAUDE="${MOCK_CLAUDE:-false}" yarn build && NODE_ENV=production MOCK_CLAUDE="${MOCK_CLAUDE}" node packages/server/src/index.js -p ${SELECTED_PORT}

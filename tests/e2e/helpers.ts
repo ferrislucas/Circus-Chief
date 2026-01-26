@@ -1,5 +1,6 @@
 import { Page, expect } from '@playwright/test';
 import { readFileSync, existsSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { join } from 'path';
 
 export function getAPIURL(): string {
@@ -160,6 +161,29 @@ export async function waitForTextVisible(page: Page, text: string, timeout = 100
   await expect(page.getByText(text)).toBeVisible({ timeout });
 }
 
+/**
+ * Wait for a file to exist (polling with timeout)
+ * Used for waiting on hook marker files
+ */
+export async function waitForFile(filePath: string, timeoutMs = 5000): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (existsSync(filePath)) {
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return false;
+}
+
+/**
+ * Read file contents
+ * Used for reading hook marker files
+ */
+export async function readMarkerFile(filePath: string): Promise<string> {
+  return readFile(filePath, 'utf-8');
+}
+
 // ============================================================
 // API Verification Helpers
 // ============================================================
@@ -235,12 +259,29 @@ export async function permanentlyDeleteCanvasItem(sessionId: string, itemId: str
 // Seeding Helpers
 // ============================================================
 
-export async function seedProject(name: string, workingDirectory: string) {
+export async function seedProject(
+  name: string,
+  workingDirectory: string,
+  options?: {
+    onSessionCreated?: string;
+    onSessionDeleted?: string;
+  }
+) {
   const testName = `${TEST_PREFIX}${name}`;
+  const body: any = { name: testName, workingDirectory };
+
+  // Add hooks if provided
+  if (options?.onSessionCreated) {
+    body.onSessionCreated = options.onSessionCreated;
+  }
+  if (options?.onSessionDeleted) {
+    body.onSessionDeleted = options.onSessionDeleted;
+  }
+
   const response = await fetch(`${API_URL}/api/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: testName, workingDirectory }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error('Failed to seed project');
   const project = await response.json();
@@ -331,10 +372,17 @@ export async function waitForSessionStatus(
   status: string,
   timeout = 10000
 ) {
-  await expect(async () => {
-    const statusBadge = page.locator(`.status-badge.status-${status}`);
-    await expect(statusBadge).toBeVisible();
-  }).toPass({ timeout });
+  // Poll the API to check session status instead of looking for DOM element
+  // (status badge is not always visible in all views)
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const session = await getSession(sessionId);
+    if (session && session.status === status) {
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`Session ${sessionId} did not reach status "${status}" after ${timeout}ms`);
 }
 
 export async function getSessionMessages(sessionId: string) {
@@ -817,4 +865,103 @@ async function waitForSessionHasResponses(
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(`Session ${sessionId} did not get hasResponses=true after ${timeout}ms`);
+}
+
+// ============================================================
+// Model Provider Helpers
+// ============================================================
+
+/**
+ * Create a model provider
+ */
+export async function createProvider(data: {
+  name: string;
+  baseUrl: string;
+  authToken: string;
+  defaultSonnetModel?: string;
+  defaultOpusModel?: string;
+  defaultHaikuModel?: string;
+  apiTimeoutMs?: number;
+}) {
+  const response = await fetch(`${API_URL}/api/providers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to create provider');
+  return response.json();
+}
+
+/**
+ * Get all providers
+ */
+export async function getProviders() {
+  const response = await fetch(`${API_URL}/api/providers`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+/**
+ * Get a specific provider by ID
+ */
+export async function getProvider(id: string) {
+  const response = await fetch(`${API_URL}/api/providers/${id}`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+/**
+ * Update a provider
+ */
+export async function updateProvider(id: string, data: {
+  name?: string;
+  baseUrl?: string;
+  authToken?: string;
+  defaultSonnetModel?: string;
+  defaultOpusModel?: string;
+  defaultHaikuModel?: string;
+  apiTimeoutMs?: number;
+}) {
+  const response = await fetch(`${API_URL}/api/providers/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to update provider');
+  return response.json();
+}
+
+/**
+ * Delete a provider
+ */
+export async function deleteProvider(id: string) {
+  const response = await fetch(`${API_URL}/api/providers/${id}`, {
+    method: 'DELETE',
+  });
+  return response.ok;
+}
+
+/**
+ * Test provider connection
+ */
+export async function testProviderConnection(id: string) {
+  const response = await fetch(`${API_URL}/api/providers/${id}/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to test provider connection');
+  return response.json();
+}
+
+/**
+ * Cleanup all test providers (those with [TEST] prefix)
+ */
+export async function cleanupProviders() {
+  const providers = await getProviders();
+  for (const provider of providers) {
+    // Only delete custom providers (those with [TEST] prefix) and not built-in ones
+    if (provider.name.startsWith(TEST_PREFIX) && !provider.isBuiltIn) {
+      await deleteProvider(provider.id);
+    }
+  }
 }

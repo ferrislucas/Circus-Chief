@@ -21,6 +21,7 @@ import {
   callClaude,
   parsePrUrl,
   validatePrUrl,
+  isConversationSummaryEnabled,
 } from './summaryService.js';
 
 describe('summaryService', () => {
@@ -49,12 +50,12 @@ describe('summaryService', () => {
   });
 
   describe('constants', () => {
-    it('has a 5 second debounce delay', () => {
-      expect(DEBOUNCE_DELAY).toBe(5000);
+    it('has a 60 second debounce delay', () => {
+      expect(DEBOUNCE_DELAY).toBe(60000);
     });
 
-    it('has a maximum of 50 messages', () => {
-      expect(MAX_MESSAGES).toBe(50);
+    it('has a maximum of 15 messages', () => {
+      expect(MAX_MESSAGES).toBe(15);
     });
 
     it('has a maximum of 2 retries', () => {
@@ -84,12 +85,12 @@ describe('summaryService', () => {
       expect(result).toBe('User: Hello\n\nAssistant: Hi');
     });
 
-    it('truncates messages longer than 2000 characters', () => {
-      const longContent = 'A'.repeat(2500);
+    it('truncates messages longer than 750 characters', () => {
+      const longContent = 'A'.repeat(1000);
       const messageList = [{ role: 'user', content: longContent }];
       const result = formatMessages(messageList);
       expect(result).toContain('... [truncated]');
-      expect(result.length).toBeLessThan(2500);
+      expect(result.length).toBeLessThan(1000);
     });
 
     it('includes tool use information when present', () => {
@@ -1786,6 +1787,41 @@ describe('summaryService', () => {
       );
       expect(result.valid).toBe(true);
       expect(result.mismatch).toBe(false);
+    });
+  });
+
+  describe('isConversationSummaryEnabled', () => {
+    it('returns true when conversation summaries are not disabled', () => {
+      const result = isConversationSummaryEnabled(sessionId);
+      expect(result).toBe(true);
+    });
+
+    it('returns false when conversation summaries are disabled for project', () => {
+      // Disable conversation summaries for the project
+      projects.update(projectId, { disableConversationSummaries: true });
+
+      const result = isConversationSummaryEnabled(sessionId);
+      expect(result).toBe(false);
+
+      // Re-enable for other tests
+      projects.update(projectId, { disableConversationSummaries: false });
+    });
+
+    it('returns false when session does not exist', () => {
+      const result = isConversationSummaryEnabled('non-existent-session-id');
+      expect(result).toBe(false);
+    });
+
+    it('returns false when project does not exist', () => {
+      // Create a session and delete its project to simulate orphaned session
+      const tempProject = projects.create('Temp Project', '/tmp/temp');
+      const orphanSession = sessions.create(tempProject.id, 'Orphan', 'Prompt', 'standard');
+
+      // Delete the project to make the session orphaned
+      projects.delete(tempProject.id);
+
+      const result = isConversationSummaryEnabled(orphanSession.id);
+      expect(result).toBe(false);
     });
   });
 });

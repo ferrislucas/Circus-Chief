@@ -28,7 +28,6 @@ export class CanvasItemRepository extends BaseRepository {
       data: data,
       mimeType: row.mime_type,
       filename: row.filename,
-      label: row.label,
       width: row.width,
       height: row.height,
       deletedAt: row.deleted_at,
@@ -48,8 +47,8 @@ export class CanvasItemRepository extends BaseRepository {
 
     this.db
       .prepare(
-        `INSERT INTO canvas_items (id, session_id, type, content, data, mime_type, filename, label, width, height, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO canvas_items (id, session_id, type, content, data, mime_type, filename, width, height, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -59,7 +58,6 @@ export class CanvasItemRepository extends BaseRepository {
         dataValue,
         data.mimeType || null,
         data.filename || null,
-        data.label || null,
         data.width || null,
         data.height || null,
         now
@@ -71,6 +69,32 @@ export class CanvasItemRepository extends BaseRepository {
     const rows = this.db
       .prepare('SELECT * FROM canvas_items WHERE session_id = ? AND deleted_at IS NULL ORDER BY created_at DESC')
       .all(sessionId);
+    return this.mapAll(rows);
+  }
+
+  /**
+   * Get only the latest version of each file for a session (for agent-facing API)
+   * Returns one item per unique filename, always the newest version
+   * @param {string} sessionId
+   * @returns {Array} Array of latest canvas items (one per filename)
+   */
+  getLatestVersionsBySessionId(sessionId) {
+    // Use a subquery to get the max rowid (which is unique and auto-incrementing) for each filename
+    // rowid is more reliable than created_at since items can have identical timestamps
+    const rows = this.db
+      .prepare(
+        `SELECT ci.*
+         FROM canvas_items ci
+         INNER JOIN (
+           SELECT filename, MAX(rowid) as max_rowid
+           FROM canvas_items
+           WHERE session_id = ? AND deleted_at IS NULL
+           GROUP BY filename
+         ) latest ON ci.filename = latest.filename AND ci.rowid = latest.max_rowid
+         WHERE ci.session_id = ? AND ci.deleted_at IS NULL
+         ORDER BY ci.created_at DESC`
+      )
+      .all(sessionId, sessionId);
     return this.mapAll(rows);
   }
 
@@ -163,7 +187,6 @@ export class CanvasItemRepository extends BaseRepository {
         data: item.data,
         mimeType: item.mimeType,
         filename: item.filename,
-        label: item.label,
         width: item.width,
         height: item.height,
       });

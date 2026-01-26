@@ -1,0 +1,165 @@
+import { test, expect } from '@playwright/test';
+import {
+  seedProject,
+  seedSession,
+  cleanupAll,
+  waitForSessionStatus,
+  navigateAndWait,
+  waitForSessionToExist,
+} from './helpers';
+
+test.describe('Slash Commands', () => {
+  // Session creation and command execution can be slow
+  test.describe.configure({ timeout: 90000 });
+
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    project = await seedProject('Slash Command Test', '/tmp/test');
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+  });
+
+  /**
+   * Helper to navigate to a session and wait for the slash command button.
+   * The button only appears when the session is in a sendable state (waiting/stopped/error)
+   * AND the project's working directory is loaded.
+   */
+  async function navigateToSessionWithSlashCommands(page: any, projectId: string, sessionId: string) {
+    // Wait for session to reach 'waiting' state in the API
+    await waitForSessionStatus(page, sessionId, 'waiting', 30000);
+
+    // Navigate directly to the session conversation
+    await page.goto(`/sessions/${sessionId}/conversation`);
+    await page.waitForLoadState('networkidle');
+
+    // Wait for the input form to be visible (indicates session loaded and in sendable state)
+    const inputForm = page.locator('.input-form');
+    await expect(inputForm).toBeVisible({ timeout: 30000 });
+
+    // Wait for the slash command button to appear
+    // ConversationTab.onMounted fetches the project asynchronously, so we need to wait
+    const slashCommandButton = page.locator('[data-testid="slash-command-button"]');
+    await expect(slashCommandButton).toBeVisible({ timeout: 15000 });
+
+    return slashCommandButton;
+  }
+
+  test('executing /help command without arguments shows success toast', async ({ page }) => {
+    // Create a session and wait for it to be ready
+    const session = await seedSession(project.id, {
+      prompt: 'Test slash commands',
+      name: 'Slash Command Test Session',
+    });
+
+    // Wait for session to exist in API
+    await waitForSessionToExist(session.id);
+
+    // Navigate to session and wait for slash command button
+    const slashCommandButton = await navigateToSessionWithSlashCommands(page, project.id, session.id);
+
+    // Click the slash command button to open the wizard
+    await slashCommandButton.click();
+
+    // Wait for the wizard to be visible
+    const wizard = page.locator('[data-testid="slash-command-wizard"]');
+    await expect(wizard).toBeVisible({ timeout: 10000 });
+
+    // Wait for commands to load (the /help command should be visible)
+    const helpCommand = wizard.locator('[data-testid="command-help"]');
+    await expect(helpCommand).toBeVisible({ timeout: 10000 });
+
+    // Click on /help command - this should execute immediately since it has no arguments
+    await helpCommand.click();
+
+    // The wizard should close after execution
+    await expect(wizard).not.toBeVisible({ timeout: 5000 });
+
+    // Verify that a SUCCESS toast appears (not an error toast)
+    // The success toast should say "Command /help executed"
+    const successToast = page.locator('.toast-success');
+    await expect(successToast).toBeVisible({ timeout: 5000 });
+    await expect(successToast).toContainText('Command /help executed');
+
+    // Verify that NO error toast appears with the null reference error
+    const errorToast = page.locator('.toast-error');
+    const errorCount = await errorToast.count();
+    if (errorCount > 0) {
+      const errorText = await errorToast.textContent();
+      // Fail the test if we see the specific null reference error
+      expect(errorText).not.toContain('null is not an object');
+      expect(errorText).not.toContain('Failed to execute command');
+    }
+  });
+
+  test('slash command wizard opens and shows available commands', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test slash commands',
+      name: 'Slash Command Test Session',
+    });
+
+    await waitForSessionToExist(session.id);
+
+    // Navigate to session and wait for slash command button
+    const slashCommandButton = await navigateToSessionWithSlashCommands(page, project.id, session.id);
+    await slashCommandButton.click();
+
+    // Verify wizard is open
+    const wizard = page.locator('[data-testid="slash-command-wizard"]');
+    await expect(wizard).toBeVisible({ timeout: 10000 });
+
+    // Verify the title shows "Slash Commands"
+    await expect(wizard.locator('#wizard-title')).toHaveText('Slash Commands');
+
+    // Verify at least one command is shown (help should always be available as builtin)
+    const commandCards = wizard.locator('[data-testid^="command-"]');
+    await expect(commandCards.first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('slash command wizard can be closed with escape key', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test slash commands',
+      name: 'Slash Command Test Session',
+    });
+
+    await waitForSessionToExist(session.id);
+
+    // Navigate to session and wait for slash command button
+    const slashCommandButton = await navigateToSessionWithSlashCommands(page, project.id, session.id);
+    await slashCommandButton.click();
+
+    const wizard = page.locator('[data-testid="slash-command-wizard"]');
+    await expect(wizard).toBeVisible({ timeout: 10000 });
+
+    // Press Escape to close
+    await page.keyboard.press('Escape');
+
+    // Wizard should be closed
+    await expect(wizard).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('slash command wizard can be closed with close button', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test slash commands',
+      name: 'Slash Command Test Session',
+    });
+
+    await waitForSessionToExist(session.id);
+
+    // Navigate to session and wait for slash command button
+    const slashCommandButton = await navigateToSessionWithSlashCommands(page, project.id, session.id);
+    await slashCommandButton.click();
+
+    const wizard = page.locator('[data-testid="slash-command-wizard"]');
+    await expect(wizard).toBeVisible({ timeout: 10000 });
+
+    // Click the close button
+    await wizard.locator('.close-btn').click();
+
+    // Wizard should be closed
+    await expect(wizard).not.toBeVisible({ timeout: 5000 });
+  });
+});
