@@ -199,7 +199,6 @@
           <span class="loading-spinner"></span>
           <span class="running-title">Claude is working...</span>
         </div>
-        <RunningTokenDisplay />
         <button type="button" class="btn btn-danger btn-stop" @click="handleStop" :disabled="stopping">
           <span v-if="stopping" class="loading-spinner"></span>
           Stop
@@ -286,7 +285,6 @@ import MarkdownViewer from './MarkdownViewer.vue';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
 import ConversationPanel from './ConversationPanel.vue';
 import TokenCostPanel from './TokenCostPanel.vue';
-import RunningTokenDisplay from './RunningTokenDisplay.vue';
 import FileAttachment from './FileAttachment.vue';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';

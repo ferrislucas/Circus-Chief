@@ -1,27 +1,16 @@
 <template>
   <div v-if="hasNonZeroCost" class="token-cost-panel">
     <!-- Cost display (collapsed view) -->
-    <div v-if="!isExpanded" class="cost-display" @click="isExpanded = true" title="Billable Token Equivalent - weighted token cost where output tokens are 5x and cache varies">
+    <div v-if="!isExpanded" class="cost-display" @click="isExpanded = !isExpanded" title="Billable Token Equivalent - weighted token cost where output tokens are 5x and cache varies">
       <span class="cost-label">Cost:</span>
       <span class="cost-value">{{ formattedBillableTokens }}</span>
     </div>
-
-    <!-- Toggle expand button -->
-    <button
-      v-if="hasNonZeroCost"
-      type="button"
-      class="toggle-btn"
-      @click="isExpanded = !isExpanded"
-      :title="isExpanded ? 'Collapse' : 'Expand'"
-    >
-      {{ isExpanded ? '▲' : '▼' }}
-    </button>
 
     <!-- Expanded token breakdown -->
     <div v-if="isExpanded" class="token-breakdown">
       <div class="bte-header" title="Billable Token Equivalent - weighted token cost where output tokens are 5x and cache varies">
         <span class="bte-label">Cost:</span>
-        <span class="bte-value">{{ formattedBillableTokens }}</span>
+        <span class="bte-value clickable" @click="isExpanded = false">{{ formattedBillableTokens }}</span>
       </div>
 
       <div class="token-grid">
@@ -215,6 +204,15 @@ function openSettings() {
   font-size: 1.125rem;
   font-weight: 700;
   color: var(--color-accent, var(--color-primary));
+}
+
+.bte-value.clickable {
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.bte-value.clickable:hover {
+  opacity: 0.8;
 }
 
 .token-grid {
