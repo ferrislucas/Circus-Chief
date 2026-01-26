@@ -234,13 +234,17 @@ export class ApiClient {
    * @param {string} sessionId - Session ID
    * @param {string} content - Message content
    * @param {Array} files - Optional array of files to attach
+   * @param {string|null} model - Model to use for this message
    * @returns {Promise<Object>}
    */
-  async sendMessage(sessionId, content, files = []) {
+  async sendMessage(sessionId, content, files = [], model = null) {
     // Use FormData if files are attached, otherwise JSON
     if (files && files.length > 0) {
       const formData = new FormData();
       formData.append('content', content);
+      if (model) {
+        formData.append('model', model);
+      }
 
       for (const file of files) {
         formData.append('files', file);
@@ -259,7 +263,7 @@ export class ApiClient {
       return response.json();
     }
 
-    return this.#request('POST', `/sessions/${sessionId}/message`, { content });
+    return this.#request('POST', `/sessions/${sessionId}/message`, { content, model });
   }
 
   /**
@@ -1111,15 +1115,6 @@ export class ApiClient {
    */
   async deleteProvider(id) {
     return this.#request('DELETE', `/providers/${id}`);
-  }
-
-  /**
-   * Set a provider as default
-   * @param {string} id - Provider ID
-   * @returns {Promise<Object>}
-   */
-  async setDefaultProvider(id) {
-    return this.#request('POST', `/providers/${id}/default`);
   }
 
   /**

@@ -160,7 +160,7 @@ class SchedulerService {
         workingDirectory,
         project.systemPrompt,
         sessionAttachments,
-        session.model
+        null
       );
     }
   }

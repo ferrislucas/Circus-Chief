@@ -156,7 +156,7 @@
             <ModeSelector :sessionId="sessionId" />
           </div>
 
-          <ModelSelector :sessionId="sessionId" />
+          <ModelSelector v-model="selectedModel" />
 
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
           <SlashCommandButton
@@ -336,6 +336,7 @@ const attachedFiles = ref([]);
 const fileAttachment = ref(null);
 const branchingMessageId = ref(null); // Message ID currently being branched from
 const branchEditorRef = ref(null);
+const selectedModel = ref(null); // Currently selected model for next message
 let draftSaveTimer = null;
 
 const partialText = ref('');
@@ -789,7 +790,7 @@ async function handleSend() {
 
   sending.value = true;
   try {
-    await sessionsStore.sendMessage(props.sessionId, currentValue, attachedFiles.value);
+    await sessionsStore.sendMessage(props.sessionId, currentValue, attachedFiles.value, selectedModel.value);
     input.value = '';
     if (textareaRef.value) textareaRef.value.value = '';
     attachedFiles.value = [];

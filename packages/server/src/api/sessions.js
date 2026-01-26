@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { readFileSync, existsSync } from 'fs';
 import { extname, resolve, normalize } from 'path';
-import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons, commandRuns } from '../database.js';
+import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons, commandRuns, modelProviders } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession, continueSessionWithExistingMessage } from '../services/sessionManager.js';
 import { getChanges, getChangesBranch } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -317,6 +317,7 @@ router.post('/:id/message', upload.array('files', 10), handleUploadError, async 
   }
 
   const content = req.body.content;
+  const model = req.body.model || null; // Model to use for this message
   const files = req.files || [];
 
   if (!content) {
@@ -340,8 +341,8 @@ router.post('/:id/message', upload.array('files', 10), handleUploadError, async 
     // Store file attachments if any - saves to disk in workingDirectory/.attachments
     const messageAttachments = attachments.createBatch(session.id, null, files, workingDirectory);
 
-    // Start continuation (non-blocking) - pass attachments for context
-    continueSession(session.id, content, workingDirectory, project.systemPrompt, messageAttachments).catch((error) => {
+    // Start continuation (non-blocking) - pass attachments for context and model
+    continueSession(session.id, content, workingDirectory, project.systemPrompt, messageAttachments, model).catch((error) => {
       console.error('Continue session error:', error);
     });
     res.json({ success: true });
@@ -529,7 +530,7 @@ router.post('/:id/start', async (req, res) => {
 
     // Start session manager (non-blocking)
     const { runSession } = await import('../services/sessionManager.js');
-    runSession(session.id, finalPrompt, workingDirectory, project.systemPrompt, sessionAttachments, session.model).catch((error) => {
+    runSession(session.id, finalPrompt, workingDirectory, project.systemPrompt, sessionAttachments, null).catch((error) => {
       console.error('Session error:', error);
       sessions.update(session.id, { status: 'error', error: error.message });
     });
@@ -883,6 +884,7 @@ router.patch('/:id', (req, res) => {
     mode,
     nextTemplateId,
     model,
+    providerId,
     prUrl,
     // Scheduling fields
     scheduledAt,
@@ -927,6 +929,16 @@ router.patch('/:id', (req, res) => {
   }
   if (model !== undefined) {
     updateData.model = model;
+  }
+  // Provider ID - allow setting, updating, or clearing (null clears it to use Anthropic)
+  if (providerId !== undefined) {
+    if (providerId !== null) {
+      const provider = modelProviders.getById(providerId);
+      if (!provider) {
+        return res.status(400).json({ error: 'Provider not found' });
+      }
+    }
+    updateData.providerId = providerId;
   }
   // PR URL - allow setting, updating, or clearing (null or empty string clears it)
   if (prUrl !== undefined) {
