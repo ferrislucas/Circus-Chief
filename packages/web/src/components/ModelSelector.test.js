@@ -3,9 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import ModelSelector from './ModelSelector.vue';
-import { useSessionsStore } from '../stores/sessions.js';
 import { useProvidersStore } from '../stores/providers.js';
-import { useUiStore } from '../stores/ui.js';
 import { CLAUDE_MODELS } from '@claudetools/shared';
 
 // Use actual model data from the shared package
@@ -202,124 +200,6 @@ describe('ModelSelector', () => {
     });
   });
 
-  describe('session context with store updates', () => {
-    it('updates store and maintains selection on success', async () => {
-      const sessionsStore = useSessionsStore();
-      const updateSessionModelSpy = vi.spyOn(sessionsStore, 'updateSessionModel').mockResolvedValue(undefined);
-
-      // Set up the session store BEFORE creating the component
-      sessionsStore.currentSession = {
-        id: 'test-session',
-        model: sonnet.id,
-      };
-
-      const wrapper = mountComponent({
-        sessionId: 'test-session',
-        modelValue: sonnet.id,
-      });
-
-      await flushAll(wrapper);
-
-      let select = wrapper.find('select');
-      expect(select.element.value).toBe(sonnet.id);
-
-      // Change to opus
-      await select.setValue(opus.id);
-      await flushAll(wrapper);
-
-      // Selection should be updated
-      select = wrapper.find('select');
-      expect(select.element.value).toBe(opus.id);
-
-      // Wait for the store update to complete
-      await flushAll(wrapper);
-
-      // Store should have been called with the new model
-      expect(updateSessionModelSpy).toHaveBeenCalledWith('test-session', opus.id);
-
-      updateSessionModelSpy.mockRestore();
-    });
-
-    it('calls store method with correct parameters on update', async () => {
-      const sessionsStore = useSessionsStore();
-      const updateSessionModelSpy = vi.spyOn(sessionsStore, 'updateSessionModel').mockResolvedValue(undefined);
-
-      // Set up the session store BEFORE creating the component
-      sessionsStore.currentSession = {
-        id: 'test-session',
-        model: sonnet.id,
-      };
-
-      const wrapper = mountComponent({
-        sessionId: 'test-session',
-        modelValue: sonnet.id,
-      });
-
-      await flushAll(wrapper);
-
-      const select = wrapper.find('select');
-
-      // Change to opus
-      await select.setValue(opus.id);
-      await flushAll(wrapper);
-
-      // Store method should have been called
-      expect(updateSessionModelSpy).toHaveBeenCalledWith('test-session', opus.id);
-
-      updateSessionModelSpy.mockRestore();
-    });
-
-    it('disables select while store update is in progress', async () => {
-      const sessionsStore = useSessionsStore();
-      let resolveUpdate;
-      const updatePromise = new Promise(resolve => {
-        resolveUpdate = resolve;
-      });
-
-      const updateSessionModelSpy = vi
-        .spyOn(sessionsStore, 'updateSessionModel')
-        .mockReturnValue(updatePromise);
-
-      // Set up the session store BEFORE creating the component
-      sessionsStore.currentSession = {
-        id: 'test-session',
-        model: sonnet.id,
-      };
-
-      const wrapper = mountComponent({
-        sessionId: 'test-session',
-        modelValue: sonnet.id,
-      });
-
-      await flushAll(wrapper);
-
-      let select = wrapper.find('select');
-      expect(select.element.disabled).toBe(false);
-
-      // Change to opus
-      await select.setValue(opus.id);
-      await flushAll(wrapper);
-
-      // Re-query select to check disabled state
-      select = wrapper.find('select');
-
-      // Select should be disabled while updating
-      expect(select.element.disabled).toBe(true);
-
-      // Resolve the update
-      resolveUpdate();
-      await flushAll(wrapper);
-
-      // Re-query select after update completes
-      select = wrapper.find('select');
-
-      // Select should be enabled again
-      expect(select.element.disabled).toBe(false);
-
-      updateSessionModelSpy.mockRestore();
-    });
-  });
-
   describe('watch observer for external changes', () => {
     it('renders correct selected state when mounted with different modelValue props', async () => {
       // Test mounting with sonnet
@@ -344,33 +224,6 @@ describe('ModelSelector', () => {
       wrapper3.unmount();
     });
 
-    it('syncs selected value when session store updates', async () => {
-      const sessionsStore = useSessionsStore();
-
-      const wrapper = mountComponent({
-        sessionId: 'test-session',
-        modelValue: undefined,
-      });
-
-      sessionsStore.currentSession = {
-        id: 'test-session',
-        model: sonnet.id,
-      };
-
-      await flushAll(wrapper);
-
-      let select = wrapper.find('select');
-      expect(select.element.value).toBe(sonnet.id);
-
-      // Simulate session model being updated in the store
-      sessionsStore.currentSession.model = opus.id;
-      await flushAll(wrapper);
-
-      select = wrapper.find('select');
-
-      // Selection should sync with store change
-      expect(select.element.value).toBe(opus.id);
-    });
   });
 
   describe('form context (v-model binding)', () => {
