@@ -282,13 +282,18 @@ router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) 
 });
 
 // GET /api/sessions/:id/canvas - List canvas items
+// Returns only latest version of each file (no version metadata exposed)
 router.get('/:id/canvas', (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
   }
 
-  const items = canvasItems.getBySessionId(req.params.id);
+  // Get only latest versions (one per filename)
+  const items = canvasItems.getLatestVersionsBySessionId(req.params.id);
+
+  // Return items without version metadata
+  // (content/data are included for frontend to display items)
   res.json(items);
 });
 
