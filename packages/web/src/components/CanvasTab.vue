@@ -99,6 +99,7 @@
         v-else
         :items="groupedItems"
         @select="handleSelect"
+        @deleteItem="handleDeleteItem"
       />
     </template>
   </div>
@@ -189,6 +190,18 @@ async function handleDeleteAll(filename) {
     const { item, ...rest } = route.query;
     router.push({ query: rest });
     uiStore.success('All versions deleted');
+  } catch (err) {
+    uiStore.error(err.message);
+  }
+}
+
+async function handleDeleteItem(item) {
+  const filename = item.filename || item.id;
+  if (!confirm(`Delete "${filename}"?`)) return;
+
+  try {
+    await canvasStore.deleteItem(props.sessionId, item.id);
+    uiStore.success('Item deleted');
   } catch (err) {
     uiStore.error(err.message);
   }
