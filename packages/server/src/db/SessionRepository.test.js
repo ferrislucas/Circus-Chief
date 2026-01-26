@@ -108,6 +108,7 @@ describe('SessionRepository', () => {
       expect(session.error).toBeNull();
       expect(session.nextTemplateId).toBeNull();
       expect(session.parentSessionId).toBeNull();
+      expect(session.pendingModel).toBeNull();
     });
 
     it('creates session with archived set to false', () => {
@@ -581,6 +582,21 @@ describe('SessionRepository', () => {
       const updated = repo.update(session.id, { starred: false });
 
       expect(updated.starred).toBe(false);
+    });
+
+    it('updates pendingModel', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const updated = repo.update(session.id, { pendingModel: 'claude-sonnet-4-5' });
+
+      expect(updated.pendingModel).toBe('claude-sonnet-4-5');
+    });
+
+    it('clears pendingModel when set to null', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { pendingModel: 'claude-opus-4-5' });
+      const updated = repo.update(session.id, { pendingModel: null });
+
+      expect(updated.pendingModel).toBeNull();
     });
   });
 

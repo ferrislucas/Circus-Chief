@@ -33,6 +33,7 @@ export class SessionRepository extends BaseRepository {
       nextTemplateId: row.next_template_id,
       parentSessionId: row.parent_session_id,
       pendingPrompt: row.pending_prompt || null,
+      pendingModel: row.pending_model || null,
       slashCommands: row.slash_commands || null,
       // Token usage fields
       inputTokens: row.input_tokens || 0,
@@ -267,6 +268,10 @@ export class SessionRepository extends BaseRepository {
     if (data.pendingPrompt !== undefined) {
       updates.push('pending_prompt = ?');
       values.push(data.pendingPrompt);
+    }
+    if (data.pendingModel !== undefined) {
+      updates.push('pending_model = ?');
+      values.push(data.pendingModel);
     }
 
     if (updates.length === 0) return this.getById(id);

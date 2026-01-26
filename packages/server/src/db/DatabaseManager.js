@@ -368,6 +368,18 @@ export class DatabaseManager {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN slash_commands TEXT');
     }
 
+    // Add pendingModel column to sessions table for storing model selected when creating scheduled/waiting sessions
+    if (!pendingPromptColumns.includes('pending_model')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN pending_model TEXT');
+    }
+
+    // Add model column to session_templates table for specifying model in template-triggered sessions
+    const templatesTableInfo = this.#db.prepare('PRAGMA table_info(session_templates)').all();
+    const templatesColumns = templatesTableInfo.map((col) => col.name);
+    if (!templatesColumns.includes('model')) {
+      this.#db.exec('ALTER TABLE session_templates ADD COLUMN model TEXT');
+    }
+
     // Add model column to conversation_messages table (Issue: track model per message)
     const msgModelTableInfo = this.#db.prepare('PRAGMA table_info(conversation_messages)').all();
     const msgModelColumns = msgModelTableInfo.map((col) => col.name);
