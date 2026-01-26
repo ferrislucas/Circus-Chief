@@ -803,10 +803,10 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
-    async sendMessage(sessionId, content, files = []) {
+    async sendMessage(sessionId, content, files = [], model = null) {
       this.error = null;
       try {
-        await api.sendMessage(sessionId, content, files);
+        await api.sendMessage(sessionId, content, files, model);
         // Optimistically update status to 'running' immediately after send succeeds
         // This ensures the UI shows "Claude is working..." without waiting for WebSocket
         const session = this.sessions.find((s) => s.id === sessionId);
@@ -1186,17 +1186,28 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
-    async updateSessionModel(sessionId, model) {
+    async updateSessionModel(sessionId, model, providerId = undefined) {
       this.error = null;
       try {
-        const updated = await api.updateSession(sessionId, { model });
+        const updateData = { model };
+        if (providerId !== undefined) {
+          updateData.providerId = providerId;
+        }
+        const updated = await api.updateSession(sessionId, updateData);
         // Update local state
         const session = this.sessions.find((s) => s.id === sessionId);
         if (session) {
           session.model = model;
+          if (providerId !== undefined) {
+            session.providerId = providerId;
+          }
         }
         if (this.currentSession?.id === sessionId) {
-          this.currentSession = { ...this.currentSession, model };
+          this.currentSession = {
+            ...this.currentSession,
+            model,
+            ...(providerId !== undefined ? { providerId } : {}),
+          };
         }
         return updated;
       } catch (err) {

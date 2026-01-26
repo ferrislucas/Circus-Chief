@@ -217,12 +217,6 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   if (!mode && projectDefs?.mode) mode = projectDefs.mode;
   if (!mode) mode = systemDefaults.mode;
 
-  let model = req.body.model;
-  if (!model && projectDefs?.model) model = projectDefs.model;
-
-  let providerId = req.body.providerId;
-  if (!providerId && projectDefs?.providerId) providerId = projectDefs.providerId;
-
   let thinkingEnabled = req.body.thinkingEnabled === true || req.body.thinkingEnabled === 'true';
   if (!thinkingEnabled && req.body.thinkingEnabled !== false && req.body.thinkingEnabled !== 'false') {
     // No explicit value provided, use defaults
@@ -296,7 +290,7 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   } else if (!startImmediately) {
     initialStatus = 'waiting';
   }
-  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, model, parentSessionId, initialStatus, providerId);
+  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, parentSessionId, initialStatus);
 
   // Set nextTemplateId if template was selected
   if (nextTemplateId) {
@@ -345,7 +339,7 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
     if (startImmediately && !isScheduled) {
       // Start session manager (non-blocking) - pass attachments for context
       const { runSession } = await import('../services/sessionManager.js');
-      runSession(session.id, prompt, workingDirectory, project.systemPrompt, sessionAttachments, model).catch((error) => {
+      runSession(session.id, prompt, workingDirectory, project.systemPrompt, sessionAttachments, null).catch((error) => {
         console.error('Session error:', error);
         sessions.update(session.id, { status: 'error', error: error.message });
       });

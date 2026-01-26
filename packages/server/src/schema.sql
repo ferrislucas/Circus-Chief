@@ -46,8 +46,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   error TEXT,
   cost_usd REAL DEFAULT 0,
   claude_session_id TEXT,
-  model TEXT,
-  provider_id TEXT,
   next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
   parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
@@ -237,7 +235,6 @@ CREATE TABLE IF NOT EXISTS model_providers (
   default_haiku_model TEXT,
   api_timeout_ms INTEGER,
   additional_env_vars TEXT,
-  is_default INTEGER NOT NULL DEFAULT 0,
   is_built_in INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
@@ -284,5 +281,4 @@ CREATE INDEX IF NOT EXISTS idx_command_runs_button ON command_runs(button_id);
 CREATE INDEX IF NOT EXISTS idx_command_runs_status ON command_runs(status);
 CREATE INDEX IF NOT EXISTS idx_quick_responses_project ON quick_responses(project_id);
 CREATE INDEX IF NOT EXISTS idx_quick_responses_sort ON quick_responses(project_id, sort_order);
-CREATE INDEX IF NOT EXISTS idx_model_providers_default ON model_providers(is_default);
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
