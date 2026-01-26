@@ -109,7 +109,7 @@
         title="Jump to Claude's response"
         aria-label="Scroll to Claude's latest response"
       >
-        ↑↑
+        ↑
       </button>
     </div>
 
@@ -1456,7 +1456,7 @@ async function handleBranchCreate({ messageId, prompt }) {
   white-space: nowrap;
   line-height: 1;
   font-weight: 500;
-  width: fit-content;
+  min-width: 2rem;
 }
 
 .scroll-to-claude-btn:hover {

@@ -32,6 +32,7 @@
         >
           Scheduling
         </button>
+        <p v-if="!inputHasContent" class="schedule-disabled-hint">Prompt is required before scheduling</p>
       </div>
 
       <!-- Template selector for chaining sessions -->
@@ -153,6 +154,7 @@ function handleTemplateChange(templateId) {
 
 .schedule-row {
   display: flex;
+  flex-direction: column;
   justify-content: flex-start;
 }
 
@@ -190,5 +192,13 @@ function handleTemplateChange(templateId) {
 .btn-schedule:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.schedule-disabled-hint {
+  margin: 0.5rem 0 0 0;
+  padding-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+  font-style: italic;
 }
 </style>
