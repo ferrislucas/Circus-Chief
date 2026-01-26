@@ -809,6 +809,19 @@ function parseConversationSummaryResponse(responseText) {
 }
 
 /**
+ * Check if conversation summaries are enabled for a session
+ * @param {string} sessionId - The session ID
+ * @returns {boolean} True if conversation summaries are enabled
+ */
+export function isConversationSummaryEnabled(sessionId) {
+  const session = sessions.getById(sessionId);
+  if (!session) return false;
+
+  const project = projects.getById(session.projectId);
+  return !project?.disableConversationSummaries;
+}
+
+/**
  * Generate summary for a specific conversation
  * @param {string} sessionId - The session ID
  * @param {string} conversationId - The conversation ID

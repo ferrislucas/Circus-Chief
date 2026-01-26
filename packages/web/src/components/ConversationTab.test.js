@@ -370,7 +370,7 @@ describe.skip('ConversationTab', () => {
       await flushAll(wrapper);
 
       expect(wrapper.find('.input-form').exists()).toBe(true);
-      expect(wrapper.find('.btn-send').exists()).toBe(true);
+      expect(wrapper.find('.btn-send-full').exists()).toBe(true);
     });
   });
 
@@ -390,8 +390,8 @@ describe.skip('ConversationTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.find('.btn-send').exists()).toBe(true);
-      expect(wrapper.find('.btn-send').text()).toContain('Send');
+      expect(wrapper.find('.btn-send-full').exists()).toBe(true);
+      expect(wrapper.find('.btn-send-full').text()).toContain('Send');
     });
 
     it('disables send button when input is empty', async () => {
@@ -400,7 +400,7 @@ describe.skip('ConversationTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.find('.btn-send').attributes('disabled')).toBeDefined();
+      expect(wrapper.find('.btn-send-full').attributes('disabled')).toBeDefined();
     });
 
     it('enables send button when input has text', async () => {
@@ -412,7 +412,7 @@ describe.skip('ConversationTab', () => {
       await wrapper.find('textarea').setValue('Hello');
       await nextTick();
 
-      expect(wrapper.find('.btn-send').attributes('disabled')).toBeUndefined();
+      expect(wrapper.find('.btn-send-full').attributes('disabled')).toBeUndefined();
     });
 
     it('sends message on form submit', async () => {
@@ -904,7 +904,7 @@ describe('ConversationTab - Error Handling Improvements', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.find('.btn-send').exists()).toBe(true);
+      expect(wrapper.find('.btn-send-full').exists()).toBe(true);
     });
 
     it('allows typing in textarea when session status is error', async () => {
