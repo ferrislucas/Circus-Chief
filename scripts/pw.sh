@@ -188,6 +188,9 @@ cmd_test() {
     ensure_dependencies
     ensure_directories
 
+    # Enable mock Claude for E2E tests (so we don't need real API credentials)
+    export MOCK_CLAUDE=true
+
     # Ensure server is running
     local TEST_SERVER_PORT
     TEST_SERVER_PORT=$(detect_or_start_server)
@@ -297,6 +300,9 @@ cmd_shell() {
 cmd_debug() {
     ensure_dependencies
     ensure_directories
+
+    # Enable mock Claude for E2E tests (so we don't need real API credentials)
+    export MOCK_CLAUDE=true
 
     # Check if X11 is available (only needed for Docker on Linux)
     if [ "$USE_DOCKER" = true ] && [ -z "$DISPLAY" ]; then
