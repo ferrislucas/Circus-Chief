@@ -89,7 +89,7 @@
             {{ formatDate(dateToShow) }}
           </div>
           <!-- Archive button and star button (always visible on root sessions, not on child sessions) -->
-          <div v-if="!isChild" class="archive-actions">
+          <div v-if="!isChild && (showArchive || showUnarchive)" class="archive-actions">
             <button
               v-if="showArchive && canArchive"
               class="archive-btn"
