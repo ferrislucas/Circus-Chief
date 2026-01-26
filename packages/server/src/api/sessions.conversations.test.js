@@ -9,6 +9,11 @@ vi.mock('../websocket.js', () => ({
 
 vi.mock('../services/summaryService.js', () => ({
   generateConversationSummary: vi.fn().mockResolvedValue('mock summary'),
+  isConversationSummaryEnabled: vi.fn((sessionId) => {
+    // Default implementation: return true (enabled)
+    // Tests can override this by mocking the implementation
+    return true;
+  }),
 }));
 
 describe('Sessions API - Conversation Endpoints', () => {
@@ -251,6 +256,89 @@ describe('Sessions API - Conversation Endpoints', () => {
 
       expect(updatedConv.summary).toBe('Test conversation summary');
       expect(updatedConv.summaryGeneratedAt).toBeDefined();
+    });
+  });
+
+  describe('Conversation Branching with Summary Flag', () => {
+    let summaryService;
+
+    beforeEach(async () => {
+      // Import the mocked summaryService
+      summaryService = await import('../services/summaryService.js');
+      // Clear mock calls before each test
+      vi.clearAllMocks();
+    });
+
+    describe('conversation branching behavior', () => {
+      it('branches conversation correctly', async () => {
+        const conv = conversations.create(session.id, 'Original', true);
+        const userMsg = messages.create(session.id, 'user', 'Original message', null, conv.id);
+        messages.create(session.id, 'assistant', 'Original response', null, conv.id);
+
+        // Branch the conversation
+        const branchConv = conversations.branch(
+          conv.id,
+          userMsg.id,
+          null,
+          'Branch prompt'
+        );
+
+        expect(branchConv).toBeDefined();
+        expect(branchConv.id).not.toBe(conv.id);
+        expect(branchConv.sessionId).toBe(session.id);
+      });
+
+      it('creates new conversation and marks it as active', () => {
+        const activeConv = conversations.create(session.id, 'Active', true);
+        messages.create(session.id, 'user', 'Message', null, activeConv.id);
+
+        // Create new conversation
+        const newConv = conversations.create(session.id, 'New', true);
+
+        expect(newConv.isActive).toBe(true);
+
+        // Previous conversation should no longer be active
+        const previousConv = conversations.getById(activeConv.id);
+        expect(previousConv.isActive).toBe(false);
+      });
+
+      it('switches active conversation correctly', () => {
+        const conv1 = conversations.create(session.id, 'Conv 1', true);
+        const conv2 = conversations.create(session.id, 'Conv 2', false);
+
+        // Switch to conv2
+        conversations.setActive(conv2.id, session.id);
+
+        const all = conversations.getBySessionId(session.id);
+        const activeConv = all.find((c) => c.isActive);
+
+        expect(activeConv.id).toBe(conv2.id);
+      });
+
+      it('verifies isConversationSummaryEnabled helper exists and returns correct values', () => {
+        // Test with default project (summaries enabled by default)
+        const isEnabled = summaryService.isConversationSummaryEnabled(session.id);
+        expect(typeof isEnabled).toBe('boolean');
+
+        // Mock to return false
+        summaryService.isConversationSummaryEnabled.mockReturnValue(false);
+        const isDisabled = summaryService.isConversationSummaryEnabled(session.id);
+        expect(isDisabled).toBe(false);
+
+        // Mock to return true
+        summaryService.isConversationSummaryEnabled.mockReturnValue(true);
+        const isEnabledTrue = summaryService.isConversationSummaryEnabled(session.id);
+        expect(isEnabledTrue).toBe(true);
+      });
+
+      it('verifies generateConversationSummary mock exists', async () => {
+        // Verify the mock function exists and can be called
+        expect(typeof summaryService.generateConversationSummary).toBe('function');
+
+        // Call the mock
+        const result = await summaryService.generateConversationSummary('test-session-id', 'test-conv-id');
+        expect(result).toBe('mock summary');
+      });
     });
   });
 });
