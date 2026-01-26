@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS session_templates (
   thinking_enabled INTEGER,
   git_branch TEXT,
   git_mode TEXT,
+  model TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

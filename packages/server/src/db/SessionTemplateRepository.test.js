@@ -38,6 +38,7 @@ describe('SessionTemplateRepository', () => {
       expect(template.thinkingEnabled).toBeNull();
       expect(template.gitBranch).toBeNull();
       expect(template.gitMode).toBeNull();
+      expect(template.model).toBeNull();
       expect(template.createdAt).toBeTypeOf('number');
       expect(template.updatedAt).toBeTypeOf('number');
     });
@@ -68,12 +69,14 @@ describe('SessionTemplateRepository', () => {
         thinkingEnabled: true,
         gitBranch: 'feature-branch',
         gitMode: 'worktree',
+        model: 'claude-sonnet-4-5',
       });
 
       expect(template.nextTemplateId).toBe(otherTemplate.id);
       expect(template.thinkingEnabled).toBe(true);
       expect(template.gitBranch).toBe('feature-branch');
       expect(template.gitMode).toBe('worktree');
+      expect(template.model).toBe('claude-sonnet-4-5');
     });
 
     it('creates template with thinkingEnabled false', () => {
@@ -268,6 +271,20 @@ describe('SessionTemplateRepository', () => {
       const updated = repo.update(template.id, { gitMode: 'worktree' });
 
       expect(updated.gitMode).toBe('worktree');
+    });
+
+    it('updates model', () => {
+      const template = repo.create({ projectId: null, name: 'Test', prompt: 'Prompt' });
+      const updated = repo.update(template.id, { model: 'claude-opus-4-5' });
+
+      expect(updated.model).toBe('claude-opus-4-5');
+    });
+
+    it('clears model when set to null', () => {
+      const template = repo.create({ projectId: null, name: 'Test', prompt: 'Prompt', model: 'claude-sonnet-4-5' });
+      const updated = repo.update(template.id, { model: null });
+
+      expect(updated.model).toBeNull();
     });
 
     it('updates multiple fields at once', () => {

@@ -214,7 +214,7 @@ describe('SchedulerService', () => {
 
     it('updates session status and runs fresh session', async () => {
       scheduler.initialize(mockSessionManager);
-      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello' };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Hello', pendingModel: 'claude-sonnet-4-5' };
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp', systemPrompt: 'Be helpful' });
       messages.getBySessionId.mockReturnValue([]);
@@ -233,12 +233,12 @@ describe('SchedulerService', () => {
         sessionId: 'session-1',
         status: 'starting',
       });
-      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp', 'Be helpful', [], null);
+      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp', 'Be helpful', [], 'claude-sonnet-4-5');
     });
 
     it('uses gitWorktree for working directory when available', async () => {
       scheduler.initialize(mockSessionManager);
-      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', gitWorktree: '/tmp/worktree', pendingPrompt: 'Hello' };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', gitWorktree: '/tmp/worktree', pendingPrompt: 'Hello', pendingModel: null };
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp/main' });
       messages.getBySessionId.mockReturnValue([]);
@@ -254,7 +254,7 @@ describe('SchedulerService', () => {
     it('continues session when there are existing assistant messages', async () => {
       scheduler.initialize(mockSessionManager);
       mockSessionManager.continueSession = vi.fn().mockResolvedValue(undefined);
-      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Follow-up message' };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Follow-up message', pendingModel: 'claude-opus-4-5' };
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
       messages.getBySessionId.mockReturnValue([
@@ -265,7 +265,7 @@ describe('SchedulerService', () => {
 
       await scheduler.startScheduledSession(session);
 
-      expect(mockSessionManager.continueSession).toHaveBeenCalledWith('session-1', 'Follow-up message', '/tmp', undefined, []);
+      expect(mockSessionManager.continueSession).toHaveBeenCalledWith('session-1', 'Follow-up message', '/tmp', undefined, [], 'claude-opus-4-5');
       expect(mockSessionManager.runSession).not.toHaveBeenCalled();
     });
   });
