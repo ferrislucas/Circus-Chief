@@ -766,6 +766,41 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
 }
 
 /**
+ * Build a context string from previous conversation messages.
+ * Used when switching models mid-conversation to maintain context without resuming.
+ * @param {string} conversationId - The conversation ID
+ * @returns {string} Formatted conversation history as context, or empty string if no messages
+ */
+function buildConversationContextForModelSwitch(conversationId) {
+  const conversationMessages = messages.getByConversationId(conversationId);
+
+  // Don't include the last user message (that's the current prompt)
+  const previousMessages = conversationMessages.slice(0, -1);
+
+  if (previousMessages.length === 0) {
+    return '';
+  }
+
+  // Format messages as a readable transcript
+  const transcript = previousMessages.map(msg => {
+    const role = msg.role === 'user' ? 'User' : 'Assistant';
+    // Truncate very long messages to avoid context overflow
+    const content = msg.content.length > 10000
+      ? msg.content.substring(0, 10000) + '\n[... message truncated ...]'
+      : msg.content;
+    return `${role}: ${content}`;
+  }).join('\n\n');
+
+  return `<conversation_history>
+The following is the conversation history from this session. You switched to a different model mid-conversation, so you're seeing this context to maintain continuity. Continue naturally from where the conversation left off.
+
+${transcript}
+</conversation_history>
+
+`;
+}
+
+/**
  * Run a Claude session
  * @param {string} sessionId
  * @param {string} prompt
@@ -964,10 +999,28 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     const provider = resolveProviderFromModel(model);
     const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled);
 
+    // Check if model changed from the conversation's last model
+    // When model changes, we can't resume the previous session - thinking blocks and
+    // session context may be incompatible between different models/providers
+    const modelChanged = model && activeConversation.model && model !== activeConversation.model;
+    if (modelChanged) {
+      console.log(`[SESSION] Model changed from "${activeConversation.model}" to "${model}" - including conversation context`);
+    }
+
+    // Only resume if we have a session ID AND model hasn't changed
+    const canResume = activeConversation.claudeSessionId && !modelChanged;
+
+    // When model changes, include conversation history as context so the new model
+    // can continue naturally without needing to resume the incompatible session
+    const conversationContext = modelChanged
+      ? buildConversationContextForModelSwitch(activeConversation.id)
+      : '';
+    const promptWithContext = conversationContext + promptWithAttachments;
+
     const queryParams = isMockMode()
-      ? { prompt: promptWithAttachments }
+      ? { prompt: promptWithContext }
       : {
-          prompt: promptWithAttachments,
+          prompt: promptWithContext,
           options: {
             cwd: workingDirectory,
             abortController: controller,
@@ -975,8 +1028,8 @@ export async function continueSession(sessionId, content, workingDirectory, syst
             permissionMode: getPermissionModeForSession(session.mode),
             settingSources: ['project'],
             // Use conversation's claudeSessionId for context isolation
-            // Only pass resume if the conversation has an existing Claude session
-            ...(activeConversation.claudeSessionId && { resume: activeConversation.claudeSessionId }),
+            // Only pass resume if we have an existing session AND model hasn't changed
+            ...(canResume && { resume: activeConversation.claudeSessionId }),
             env: sessionEnv,
             spawnClaudeCodeProcess: createClaudeCodeSpawner(),
             model: model,
@@ -1111,10 +1164,28 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     const provider = resolveProviderFromModel(model);
     const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled);
 
+    // Check if model changed from the conversation's last model
+    // When model changes, we can't resume the previous session - thinking blocks and
+    // session context may be incompatible between different models/providers
+    const modelChanged = model && conversation.model && model !== conversation.model;
+    if (modelChanged) {
+      console.log(`[SESSION] Model changed from "${conversation.model}" to "${model}" - including conversation context`);
+    }
+
+    // Only resume if we have a session ID AND model hasn't changed
+    const canResume = conversation.claudeSessionId && !modelChanged;
+
+    // When model changes, include conversation history as context so the new model
+    // can continue naturally without needing to resume the incompatible session
+    const conversationContext = modelChanged
+      ? buildConversationContextForModelSwitch(conversationId)
+      : '';
+    const promptWithContext = conversationContext + lastUserMessage.content;
+
     const queryParams = isMockMode()
-      ? { prompt: lastUserMessage.content }
+      ? { prompt: promptWithContext }
       : {
-          prompt: lastUserMessage.content,
+          prompt: promptWithContext,
           options: {
             cwd: workingDirectory,
             abortController: controller,
@@ -1122,8 +1193,8 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
             permissionMode: getPermissionModeForSession(session.mode),
             settingSources: ['project'],
             // Use conversation's claudeSessionId for context isolation
-            // For new branches, this will be null (fresh session)
-            ...(conversation.claudeSessionId && { resume: conversation.claudeSessionId }),
+            // Only pass resume if we have an existing session AND model hasn't changed
+            ...(canResume && { resume: conversation.claudeSessionId }),
             env: sessionEnv,
             spawnClaudeCodeProcess: createClaudeCodeSpawner(),
             model: model,
