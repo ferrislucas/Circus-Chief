@@ -238,6 +238,9 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async sendMessage(sessionId, content, files = [], model = null) {
+    // [MODEL AUDIT] Log model in API request
+    console.log(`[MODEL AUDIT - ApiClient] sendMessage called with model: "${model}"`);
+
     // Use FormData if files are attached, otherwise JSON
     if (files && files.length > 0) {
       const formData = new FormData();

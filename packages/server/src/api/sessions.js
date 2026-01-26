@@ -320,6 +320,9 @@ router.post('/:id/message', upload.array('files', 10), handleUploadError, async 
   const model = req.body.model || null; // Model to use for this message
   const files = req.files || [];
 
+  // [MODEL AUDIT] Log model received from request
+  console.log(`[MODEL AUDIT - API] POST /sessions/${req.params.id}/message - model from request: "${model}"`);
+
   if (!content) {
     return res.status(400).json({ error: 'Content is required' });
   }
@@ -340,6 +343,9 @@ router.post('/:id/message', upload.array('files', 10), handleUploadError, async 
 
     // Store file attachments if any - saves to disk in workingDirectory/.attachments
     const messageAttachments = attachments.createBatch(session.id, null, files, workingDirectory);
+
+    // [MODEL AUDIT] Log model being passed to continueSession
+    console.log(`[MODEL AUDIT - API] Calling continueSession with model: "${model}"`);
 
     // Start continuation (non-blocking) - pass attachments for context and model
     continueSession(session.id, content, workingDirectory, project.systemPrompt, messageAttachments, model).catch((error) => {
