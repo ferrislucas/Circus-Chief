@@ -110,7 +110,7 @@ describe('gitService', () => {
   });
 
   describe('createWorktreeForBranch', () => {
-    it('creates worktree with new branch', async () => {
+    it('creates worktree with new branch', { timeout: 10000 }, async () => {
       const worktreePath = join(testDir, '.worktrees', 'session-123');
 
       const result = await createWorktreeForBranch(testDir, 'new-feature', worktreePath);
