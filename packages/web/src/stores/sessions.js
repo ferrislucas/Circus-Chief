@@ -14,7 +14,7 @@ export const useSessionsStore = defineStore('sessions', {
     conversations: [], // All conversations for current session
     activeConversationId: null, // Currently selected conversation ID
     workLogs: {}, // Keyed by messageId: { [messageId]: WorkLog[] }
-    partialThinking: null, // Current streaming thinking content
+    partialThinkingBySession: {}, // Keyed by sessionId: { [sessionId]: string | null }
     expandedSessions: new Set(), // Track which parent sessions are expanded
     statusFilter: null, // 'running' | 'idle' | null (null = show all)
     starredFilter: null, // 'starred' | 'unstarred' | null (null = show all)
@@ -44,6 +44,10 @@ export const useSessionsStore = defineStore('sessions', {
     },
     getUnassociatedWorkLogs: (state) => {
       return state.workLogs['_unassociated'] || [];
+    },
+    partialThinking: (state) => {
+      if (!state.currentSession?.id) return null;
+      return state.partialThinkingBySession[state.currentSession.id] || null;
     },
     activeConversation: (state) => {
       return state.conversations.find((c) => c.id === state.activeConversationId) || null;
@@ -1030,7 +1034,7 @@ export const useSessionsStore = defineStore('sessions', {
 
     clearWorkLogs() {
       this.workLogs = {};
-      this.partialThinking = null;
+      this.clearAllPartialThinking(); // Clear all sessions' partial thinking
     },
 
     // Associate unassociated work logs with a message ID
@@ -1047,14 +1051,29 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
-    // Set partial thinking content for streaming display
-    setPartialThinking(thinking) {
-      this.partialThinking = thinking;
+    // Set partial thinking content for streaming display (per-session)
+    setPartialThinking(thinking, sessionId = null) {
+      const id = sessionId || this.currentSession?.id;
+      if (!id) return;
+      this.partialThinkingBySession = {
+        ...this.partialThinkingBySession,
+        [id]: thinking,
+      };
     },
 
-    // Clear partial thinking when complete
-    clearPartialThinking() {
-      this.partialThinking = null;
+    // Clear partial thinking when complete (per-session)
+    clearPartialThinking(sessionId = null) {
+      const id = sessionId || this.currentSession?.id;
+      if (!id) return;
+      this.partialThinkingBySession = {
+        ...this.partialThinkingBySession,
+        [id]: null,
+      };
+    },
+
+    // Clear all partial thinking (for cleanup)
+    clearAllPartialThinking() {
+      this.partialThinkingBySession = {};
     },
 
     // ==================== USAGE ACTIONS ====================
@@ -1136,6 +1155,8 @@ export const useSessionsStore = defineStore('sessions', {
      */
     clearRunningUsage() {
       this.runningUsage = null;
+      // Also clear partial thinking for current session
+      this.clearPartialThinking();
     },
 
     updateSessionStatus(sessionId, status) {
@@ -1448,6 +1469,7 @@ export const useSessionsStore = defineStore('sessions', {
       try {
         // Clear stale streaming data from previous conversation
         this.runningUsage = null;
+        this.clearPartialThinking();
 
         // Update on server
         await api.updateConversation(sessionId, conversationId, { isActive: true });
@@ -1465,7 +1487,7 @@ export const useSessionsStore = defineStore('sessions', {
 
         // Clear work logs and thinking, then re-fetch for new conversation context
         this.workLogs = {};
-        this.partialThinking = null;
+        this.clearPartialThinking(sessionId);
         await this.fetchWorkLogs(sessionId);
       } catch (err) {
         this.error = err.message;
@@ -1562,7 +1584,7 @@ export const useSessionsStore = defineStore('sessions', {
 
         // 3. Clear work logs immediately (before async fetches)
         this.workLogs = {};
-        this.partialThinking = null;
+        this.clearPartialThinking(sessionId);
 
         // 4. Fetch messages and work logs in parallel WITHOUT blocking the return
         // This allows the UI to update immediately while data loads in the background
