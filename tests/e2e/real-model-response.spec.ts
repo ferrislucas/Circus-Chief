@@ -11,7 +11,7 @@ test.describe('Real Model Response Integration', () => {
   const BASE_URL = 'http://100.71.110.113:5005';
   const PROJECT_ID = 'f299073d-6db2-453e-9b6a-f4279fd625fb';
 
-  test('creates session and receives model response with random color', async ({ page }) => {
+  test.skip('creates session and receives model response with random color - TODO: fix hardcoded URL/port', async ({ page }) => {
     // Navigate to the sessions list for the project
     await page.goto(`${BASE_URL}/projects/${PROJECT_ID}/sessions`);
 
