@@ -217,6 +217,9 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   if (!mode && projectDefs?.mode) mode = projectDefs.mode;
   if (!mode) mode = systemDefaults.mode;
 
+  // Model for the first message (optional - SDK will use default if not provided)
+  const model = req.body.model || null;
+
   let thinkingEnabled = req.body.thinkingEnabled === true || req.body.thinkingEnabled === 'true';
   if (!thinkingEnabled && req.body.thinkingEnabled !== false && req.body.thinkingEnabled !== 'false') {
     // No explicit value provided, use defaults
@@ -339,7 +342,7 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
     if (startImmediately && !isScheduled) {
       // Start session manager (non-blocking) - pass attachments for context
       const { runSession } = await import('../services/sessionManager.js');
-      runSession(session.id, prompt, workingDirectory, project.systemPrompt, sessionAttachments, null).catch((error) => {
+      runSession(session.id, prompt, workingDirectory, project.systemPrompt, sessionAttachments, model).catch((error) => {
         console.error('Session error:', error);
         sessions.update(session.id, { status: 'error', error: error.message });
       });
