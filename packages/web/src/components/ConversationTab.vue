@@ -84,17 +84,6 @@
         </div>
       </div>
 
-      <!-- Jump to Claude's turn button - at bottom, only shows when at bottom and it's user's turn -->
-      <button
-        v-if="hasAssistantMessages && isNearBottom && isUsersTurn"
-        class="scroll-to-claude-btn"
-        @click="scrollToClaudesTurn"
-        title="Jump to Claude's response"
-        aria-label="Scroll to Claude's latest response"
-      >
-        ↑↑
-      </button>
-
       <!-- Jump to latest button (Slack-style) -->
       <button
         v-if="!isNearBottom && hasNewMessages"
@@ -105,6 +94,22 @@
           <path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         <span>New messages</span>
+      </button>
+    </div>
+
+    <!-- Token cost panel - aligned with scroll-to-claude-btn -->
+    <div class="conversation-controls-row">
+      <TokenCostPanel :session-id="sessionId" />
+
+      <!-- Jump to Claude's turn button - shows when at bottom and it's user's turn -->
+      <button
+        v-if="hasAssistantMessages && isNearBottom && isUsersTurn"
+        class="scroll-to-claude-btn"
+        @click="scrollToClaudesTurn"
+        title="Jump to Claude's response"
+        aria-label="Scroll to Claude's latest response"
+      >
+        ↑↑
       </button>
     </div>
 
@@ -280,6 +285,7 @@ import WorkLogPanel from './WorkLogPanel.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
 import ConversationPanel from './ConversationPanel.vue';
+import TokenCostPanel from './TokenCostPanel.vue';
 import RunningTokenDisplay from './RunningTokenDisplay.vue';
 import FileAttachment from './FileAttachment.vue';
 import ModelSelector from './ModelSelector.vue';
@@ -1014,6 +1020,16 @@ async function handleBranchCreate({ messageId, prompt }) {
   scroll-behavior: smooth;
 }
 
+.conversation-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  position: relative;
+  min-height: 32px;
+}
+
 .message {
   padding: 1rem;
   margin-bottom: 1rem;
@@ -1426,12 +1442,6 @@ async function handleBranchCreate({ messageId, prompt }) {
 }
 
 .scroll-to-claude-btn {
-  position: sticky;
-  bottom: 0.5rem;
-  z-index: 10;
-  margin-left: auto;
-  margin-right: 0.5rem;
-  margin-bottom: 0.5rem;
   padding: 0.375rem 0.75rem;
   background: rgba(31, 41, 55, 0.85);
   border: 1px solid rgba(75, 85, 99, 0.5);
