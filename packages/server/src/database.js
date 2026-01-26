@@ -18,6 +18,7 @@ export {
   CommandButtonRepository,
   CommandRunRepository,
   QuickResponseRepository,
+  ModelProviderRepository,
   // Singleton instances
   databaseManager,
   projects,
@@ -35,6 +36,7 @@ export {
   commandButtons,
   commandRuns,
   quickResponses,
+  modelProviders,
   // Legacy functions
   initDatabase,
   getDatabase,

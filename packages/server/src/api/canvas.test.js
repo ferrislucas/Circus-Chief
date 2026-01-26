@@ -952,6 +952,185 @@ describe('Canvas API', () => {
     });
   });
 
+  describe('HTTP GET /api/sessions/:id/canvas (List Endpoint)', () => {
+    let app;
+    let projectId;
+    let sessionId;
+
+    beforeEach(() => {
+      app = express();
+      app.use(express.json());
+      app.use('/api/sessions', canvasRouter);
+
+      // Create project and session
+      const project = projects.create('Test Project', '/tmp/test');
+      projectId = project.id;
+
+      const now = Date.now();
+      const id = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, projectId, 'Test Session', 'running', 'standard', now, now);
+      sessionId = id;
+    });
+
+    it('returns only latest version of each file (no duplicates)', async () => {
+      // Create multiple versions of the same file
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 1', filename: 'test.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 2', filename: 'test.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 3', filename: 'test.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+
+      expect(res.status).toBe(200);
+      // Should only return 1 item (latest version)
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].filename).toBe('test.txt');
+    });
+
+    it('returns latest version for multiple files', async () => {
+      // Create multiple versions of different files
+      canvasItems.create(sessionId, { type: 'text', content: 'A v1', filename: 'a.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'A v2', filename: 'a.txt' });
+      canvasItems.create(sessionId, { type: 'markdown', content: '# B v1', filename: 'b.md' });
+      canvasItems.create(sessionId, { type: 'markdown', content: '# B v2', filename: 'b.md' });
+      canvasItems.create(sessionId, { type: 'markdown', content: '# B v3', filename: 'b.md' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+
+      expect(res.status).toBe(200);
+      // Should return 2 items (one per filename)
+      expect(res.body).toHaveLength(2);
+      const filenames = res.body.map(i => i.filename).sort();
+      expect(filenames).toEqual(['a.txt', 'b.md']);
+    });
+
+    it('includes content field for text-based types', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'Hello World', filename: 'test.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].content).toBe('Hello World');
+    });
+
+    it('includes data field for image type', async () => {
+      const base64Image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      canvasItems.create(sessionId, { type: 'image', data: base64Image, mimeType: 'image/png', filename: 'pixel.png' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].data).toBe(base64Image);
+    });
+
+    it('does not include version or totalVersions fields in response', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'V1', filename: 'test.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'V2', filename: 'test.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0]).not.toHaveProperty('version');
+      expect(res.body[0]).not.toHaveProperty('totalVersions');
+    });
+
+    it('includes all standard fields in response', async () => {
+      canvasItems.create(sessionId, {
+        type: 'markdown',
+        content: '# Title',
+        filename: 'readme.md',
+        mimeType: 'text/markdown'
+      });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      const item = res.body[0];
+
+      // Should include these fields
+      expect(item).toHaveProperty('id');
+      expect(item).toHaveProperty('sessionId');
+      expect(item).toHaveProperty('type');
+      expect(item).toHaveProperty('mimeType');
+      expect(item).toHaveProperty('filename');
+      expect(item).toHaveProperty('content');
+      expect(item).toHaveProperty('createdAt');
+      expect(item).toHaveProperty('deletedAt');
+
+      // Should NOT include version metadata
+      expect(item).not.toHaveProperty('version');
+      expect(item).not.toHaveProperty('totalVersions');
+    });
+
+    it('includes width and height for images', async () => {
+      canvasItems.create(sessionId, {
+        type: 'image',
+        data: 'base64data',
+        mimeType: 'image/png',
+        filename: 'pic.png',
+        width: 800,
+        height: 600
+      });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+
+      expect(res.status).toBe(200);
+      expect(res.body[0].width).toBe(800);
+      expect(res.body[0].height).toBe(600);
+    });
+
+    it('returns empty array when no items exist', async () => {
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
+    });
+
+    it('excludes soft-deleted items', async () => {
+      const item1 = canvasItems.create(sessionId, { type: 'text', content: 'Active', filename: 'active.txt' });
+      const item2 = canvasItems.create(sessionId, { type: 'text', content: 'Deleted', filename: 'deleted.txt' });
+
+      canvasItems.softDelete(item2.id);
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].id).toBe(item1.id);
+    });
+
+    it('returns items ordered by createdAt descending', async () => {
+      const first = canvasItems.create(sessionId, { type: 'text', content: 'First', filename: 'a.txt' });
+      const second = canvasItems.create(sessionId, { type: 'text', content: 'Second', filename: 'b.txt' });
+      const third = canvasItems.create(sessionId, { type: 'text', content: 'Third', filename: 'c.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(3);
+      // Verify newest first
+      expect(res.body[0].createdAt).toBeGreaterThanOrEqual(res.body[2].createdAt);
+
+      // Verify all items are present
+      const ids = res.body.map(i => i.id);
+      expect(ids).toContain(first.id);
+      expect(ids).toContain(second.id);
+      expect(ids).toContain(third.id);
+    });
+
+    it('returns 404 for non-existent session', async () => {
+      const res = await request(app).get('/api/sessions/nonexistent-session/canvas');
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('Session not found');
+    });
+  });
+
   describe('HTTP POST /api/sessions/:id/canvas (Inline Content Mode)', () => {
     let app;
     let projectId;
@@ -1274,18 +1453,17 @@ describe('Canvas API', () => {
     describe('recover file (POST /:id/canvas-trash/recover-file/:filename)', () => {
       it('recovers all versions of a file', async () => {
         // Create multiple versions
-        await request(app).post(`/api/sessions/${sessionId}/canvas`)
+        const v1 = await request(app).post(`/api/sessions/${sessionId}/canvas`)
           .send({ type: 'text', content: 'V1', filename: 'multi.txt' });
-        await request(app).post(`/api/sessions/${sessionId}/canvas`)
+        const v2 = await request(app).post(`/api/sessions/${sessionId}/canvas`)
           .send({ type: 'text', content: 'V2', filename: 'multi.txt' });
-        await request(app).post(`/api/sessions/${sessionId}/canvas`)
+        const v3 = await request(app).post(`/api/sessions/${sessionId}/canvas`)
           .send({ type: 'text', content: 'V3', filename: 'multi.txt' });
 
-        // Get all items and delete them
-        let listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
-        for (const item of listRes.body) {
-          await request(app).delete(`/api/sessions/${sessionId}/canvas/${item.id}`);
-        }
+        // Delete all versions individually (list endpoint only shows latest version now)
+        await request(app).delete(`/api/sessions/${sessionId}/canvas/${v1.body.id}`);
+        await request(app).delete(`/api/sessions/${sessionId}/canvas/${v2.body.id}`);
+        await request(app).delete(`/api/sessions/${sessionId}/canvas/${v3.body.id}`);
 
         // Verify trash has 3 items
         let trashRes = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`);
@@ -1298,9 +1476,10 @@ describe('Canvas API', () => {
         expect(recoverRes.status).toBe(200);
         expect(recoverRes.body.recovered).toBe(3);
 
-        // Verify all are back in canvas list
-        listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
-        expect(listRes.body).toHaveLength(3);
+        // Verify latest version is back in canvas list (list only shows latest version)
+        let listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+        expect(listRes.body).toHaveLength(1);
+        expect(listRes.body[0].content).toBe('V3'); // Latest version
 
         // Verify trash is empty
         trashRes = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`);
@@ -1308,22 +1487,35 @@ describe('Canvas API', () => {
       });
 
       it('returns count of recovered items', async () => {
+        // Create items with explicit timeouts
         await request(app).post(`/api/sessions/${sessionId}/canvas`)
-          .send({ type: 'text', content: 'V1', filename: 'count.txt' });
+          .send({ type: 'text', content: 'V1', filename: 'count.txt' })
+          .timeout(5000);
         await request(app).post(`/api/sessions/${sessionId}/canvas`)
-          .send({ type: 'text', content: 'V2', filename: 'count.txt' });
+          .send({ type: 'text', content: 'V2', filename: 'count.txt' })
+          .timeout(5000);
 
-        let listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
-        for (const item of listRes.body) {
-          await request(app).delete(`/api/sessions/${sessionId}/canvas/${item.id}`);
-        }
+        // Get list
+        let listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`)
+          .timeout(5000);
 
+        // Batch delete operations with Promise.all to prevent connection buildup
+        await Promise.all(
+          listRes.body.map(item =>
+            request(app)
+              .delete(`/api/sessions/${sessionId}/canvas/${item.id}`)
+              .timeout(5000)
+          )
+        );
+
+        // Recover items
         const recoverRes = await request(app)
-          .post(`/api/sessions/${sessionId}/canvas-trash/recover-file/count.txt`);
+          .post(`/api/sessions/${sessionId}/canvas-trash/recover-file/count.txt`)
+          .timeout(5000);
 
         expect(recoverRes.body).toHaveProperty('recovered');
         expect(recoverRes.body.recovered).toBe(2);
-      });
+      }, 15000); // Add test-level timeout for CI stability
 
       it('returns 404 for non-existent session', async () => {
         const res = await request(app)

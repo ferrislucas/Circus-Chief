@@ -131,6 +131,10 @@
       <div class="input-controls">
         <div class="session-options">
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
+          <SlashCommandButton
+            v-if="workingDirectory"
+            @open="showSlashCommandWizard = true"
+          />
           <div class="thinking-toggle">
             <label class="toggle-switch">
               <input
@@ -271,6 +275,15 @@
       :sessionId="sessionId"
       @close="closeScheduleModal"
     />
+
+    <!-- Slash Command Wizard Modal -->
+    <SlashCommandWizard
+      v-model:isOpen="showSlashCommandWizard"
+      :sessionId="sessionId"
+      :workingDirectory="workingDirectory"
+      mode="execute"
+      @executed="handleSlashCommandExecuted"
+    />
   </div>
 </template>
 
@@ -297,7 +310,10 @@ import QuickResponseSettings from './QuickResponseSettings.vue';
 import BranchEditor from './BranchEditor.vue';
 import ScheduleSessionModal from './ScheduleSessionModal.vue';
 import ResizableTextarea from './ResizableTextarea.vue';
+import SlashCommandButton from './SlashCommandButton.vue';
+import SlashCommandWizard from './SlashCommandWizard.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
+import { useProjectsStore } from '../stores/projects.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -307,10 +323,12 @@ const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const quickResponsesStore = useQuickResponsesStore();
+const projectsStore = useProjectsStore();
 
 const input = ref('');
 const quickResponseSettingsOpen = ref(false);
 const showScheduleModal = ref(false);
+const showSlashCommandWizard = ref(false);
 const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
 const saveError = ref('');
 const textareaRef = ref(null);
@@ -399,6 +417,33 @@ const nextTemplate = computed(() => {
   return templatesStore.getTemplateById(templateId);
 });
 
+// Computed property to get the working directory for slash commands
+const workingDirectory = computed(() => {
+  const session = sessionsStore.currentSession;
+  if (!session) {
+    console.log('[workingDirectory] No current session');
+    return null;
+  }
+
+  // Use git worktree if available, otherwise get from project
+  if (session.gitWorktree) {
+    console.log('[workingDirectory] Using session.gitWorktree:', session.gitWorktree);
+    return session.gitWorktree;
+  }
+
+  // First try currentProject if it matches the session's project,
+  // then fall back to getProjectById (for direct session navigation or when
+  // currentProject is stale from a different project view)
+  let project = projectsStore.currentProject;
+  if ((!project || project.id !== session.projectId) && session.projectId) {
+    console.log('[workingDirectory] currentProject mismatch or null, falling back to getProjectById');
+    project = projectsStore.getProjectById(session.projectId);
+  }
+  const result = project?.workingDirectory || null;
+  console.log('[workingDirectory] Using project.workingDirectory:', result, 'from project:', project?.id);
+  return result;
+});
+
 // Subscribe to partial messages for streaming, work logs, and conversation events
 const {
   onPartial,
@@ -468,9 +513,18 @@ onMounted(async () => {
     await sessionsStore.fetchConversations(props.sessionId);
   }
 
-  // Fetch quick responses for the project
+  // Fetch quick responses and project data for the project
   if (sessionsStore.currentSession?.projectId) {
-    quickResponsesStore.fetchForProject(sessionsStore.currentSession.projectId);
+    const projectId = sessionsStore.currentSession.projectId;
+    quickResponsesStore.fetchForProject(projectId);
+
+    // Always fetch the project to ensure workingDirectory is available for slash commands
+    // This is especially important when navigating directly to a session URL
+    try {
+      await projectsStore.fetchProject(projectId);
+    } catch (err) {
+      console.error('Failed to fetch project:', err);
+    }
   }
 
   // Throttle partial text updates to reduce CPU load on iPad
@@ -906,6 +960,11 @@ function closeScheduleModal() {
 
 function handleScheduled() {
   closeScheduleModal();
+}
+
+function handleSlashCommandExecuted({ command, args }) {
+  // Scroll to bottom to show the new message being processed
+  scrollToBottom(true);
 }
 
 // Branching methods

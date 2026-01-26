@@ -26,6 +26,10 @@
         />
         <div class="attachment-row">
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
+          <SlashCommandButton
+            v-if="workingDirectory"
+            @open="showSlashCommandWizard = true"
+          />
         </div>
       </div>
 
@@ -64,7 +68,7 @@
           </div>
 
           <div class="model-selector-wrapper">
-            <ModelSelector v-model="model" />
+            <ModelSelector v-model="model" @update:providerId="providerId = $event" />
           </div>
         </div>
       </div>
@@ -167,6 +171,15 @@
         </p>
       </div>
     </form>
+
+    <!-- Slash Command Wizard Modal -->
+    <SlashCommandWizard
+      v-model:isOpen="showSlashCommandWizard"
+      :workingDirectory="workingDirectory || ''"
+      mode="insert"
+      :hide-builtin="true"
+      @insert="handleSlashCommandInsert"
+    />
   </div>
 </template>
 
@@ -187,6 +200,9 @@ import ModeSelector from '../components/ModeSelector.vue';
 import QuickResponsesPanel from '../components/QuickResponsesPanel.vue';
 import SchedulingOptions from '../components/SchedulingOptions.vue';
 import ResizableTextarea from '../components/ResizableTextarea.vue';
+import SlashCommandButton from '../components/SlashCommandButton.vue';
+import SlashCommandWizard from '../components/SlashCommandWizard.vue';
+import { useProjectsStore } from '../stores/projects.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -195,6 +211,7 @@ const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();
 const quickResponsesStore = useQuickResponsesStore();
+const projectsStore = useProjectsStore();
 
 const prompt = ref('');
 const promptHasContent = ref(false); // Tracks if textarea has content (for button disabled state)
@@ -203,8 +220,10 @@ let inputSyncTimer = null;
 let debounceTimer = null;
 const mode = ref('yolo');
 const model = ref(DEFAULT_MODEL);
+const providerId = ref(null);
 const loading = ref(false);
 const quickResponseSettingsOpen = ref(false);
+const showSlashCommandWizard = ref(false);
 
 // Track which fields are using project defaults
 const usingDefaults = ref({
@@ -246,6 +265,12 @@ const globalTemplates = computed(() => templatesStore.globalTemplates);
 const allTemplates = computed(() => [...projectTemplates.value, ...globalTemplates.value]);
 
 const storageKey = computed(() => `new-session-draft-${route.params.id}`);
+
+// Get working directory for slash commands
+const workingDirectory = computed(() => {
+  const project = projectsStore.getProjectById(route.params.id);
+  return project?.workingDirectory || null;
+});
 
 // Get available sessions that can be parents (completed sessions only)
 const availableSessions = computed(() => {
@@ -444,6 +469,23 @@ function resetBranchName() {
   quickWorktreeBranch.value = autoBranchName.value;
 }
 
+function handleSlashCommandInsert({ text }) {
+  // Insert the slash command text at the cursor position in the prompt field
+  const textarea = textareaRef.value;
+  if (textarea) {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const before = textarea.value.substring(0, start);
+    const after = textarea.value.substring(end);
+    textarea.value = before + text + after;
+    textarea.selectionStart = textarea.selectionEnd = start + text.length;
+
+    // Trigger input event to update prompt ref and UI
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    textarea.focus();
+  }
+}
+
 function handleQuickResponseInsert({ content, autoSubmit }) {
   // Destructure the quick response object to extract content and autoSubmit flag
   if (autoSubmit) {
@@ -493,6 +535,7 @@ async function handleSubmit() {
       prompt: currentPrompt,
       mode: mode.value,
       model: model.value,
+      providerId: providerId.value,
       thinkingEnabled: thinkingEnabled.value,
       startImmediately: startImmediately.value,
       gitMode: submitGitMode,
@@ -548,6 +591,9 @@ h1 {
 
 .attachment-row {
   margin-top: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
 }
 
 .git-loading {

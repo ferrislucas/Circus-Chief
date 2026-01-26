@@ -14,7 +14,7 @@
 
     <!-- Create Template Form -->
     <div v-if="showCreateForm" class="template-form card" data-testid="template-form">
-      <h3>{{ editingTemplate ? 'Edit Template' : 'Create Template' }}</h3>
+      <h3>Create Template</h3>
       <form @submit.prevent="handleSubmit">
         <div class="form-group">
           <label class="form-label">Name</label>
@@ -69,21 +69,11 @@
           </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Git Branch (Optional)</label>
-          <input
-            v-model="formData.gitBranch"
-            type="text"
-            class="form-input"
-            placeholder="Branch name"
-          />
-        </div>
-
         <div class="form-actions">
           <button type="button" class="btn" @click="cancelForm" data-testid="cancel-btn">Cancel</button>
           <button type="submit" class="btn btn-primary" :disabled="saving" data-testid="submit-btn">
             <span v-if="saving" class="loading-spinner"></span>
-            {{ editingTemplate ? 'Update' : 'Create' }}
+            Create
           </button>
         </div>
       </form>
@@ -101,22 +91,15 @@
       <div v-if="projectTemplates.length > 0" class="template-section">
         <h3 class="section-title">Project Templates</h3>
         <div class="templates-list">
-          <div v-for="template in projectTemplates" :key="template.id" class="template-card card" :data-testid="`template-card-${template.id}`">
+          <router-link
+            v-for="template in projectTemplates"
+            :key="template.id"
+            :to="`/projects/${projectId}/templates/${template.id}`"
+            class="template-card card"
+            :data-testid="`template-card-${template.id}`"
+          >
             <div class="template-header">
               <h4 class="template-name">{{ template.name }}</h4>
-              <div class="template-actions">
-                <button class="btn-icon" @click="editTemplate(template)" title="Edit" data-testid="edit-btn">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                  </svg>
-                </button>
-                <button class="btn-icon btn-icon-danger" @click="handleDelete(template)" title="Delete" data-testid="delete-btn">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                  </svg>
-                </button>
-              </div>
             </div>
             <p class="template-prompt">{{ truncatePrompt(template.prompt) }}</p>
             <div class="template-meta">
@@ -126,7 +109,7 @@
                 Chains to: {{ getTemplateName(template.nextTemplateId) }}
               </span>
             </div>
-          </div>
+          </router-link>
         </div>
       </div>
 
@@ -134,22 +117,15 @@
       <div v-if="globalTemplates.length > 0" class="template-section">
         <h3 class="section-title">Global Templates</h3>
         <div class="templates-list">
-          <div v-for="template in globalTemplates" :key="template.id" class="template-card card" :data-testid="`template-card-${template.id}`">
+          <router-link
+            v-for="template in globalTemplates"
+            :key="template.id"
+            :to="`/projects/${projectId}/templates/${template.id}`"
+            class="template-card card"
+            :data-testid="`template-card-${template.id}`"
+          >
             <div class="template-header">
               <h4 class="template-name">{{ template.name }}</h4>
-              <div class="template-actions">
-                <button class="btn-icon" @click="editTemplate(template)" title="Edit" data-testid="edit-btn">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                  </svg>
-                </button>
-                <button class="btn-icon btn-icon-danger" @click="handleDelete(template)" title="Delete" data-testid="delete-btn">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                  </svg>
-                </button>
-              </div>
             </div>
             <p class="template-prompt">{{ truncatePrompt(template.prompt) }}</p>
             <div class="template-meta">
@@ -160,7 +136,7 @@
                 Chains to: {{ getTemplateName(template.nextTemplateId) }}
               </span>
             </div>
-          </div>
+          </router-link>
         </div>
       </div>
 
@@ -188,7 +164,6 @@ const templatesStore = useTemplatesStore();
 const uiStore = useUiStore();
 
 const showCreateForm = ref(false);
-const editingTemplate = ref(null);
 const saving = ref(false);
 
 const formData = ref({
@@ -197,7 +172,6 @@ const formData = ref({
   isGlobal: false,
   nextTemplateId: null,
   thinkingEnabled: false,
-  gitBranch: '',
 });
 
 const loading = computed(() => templatesStore.loading);
@@ -206,10 +180,6 @@ const globalTemplates = computed(() => templatesStore.globalTemplates);
 
 const availableNextTemplates = computed(() => {
   const all = [...templatesStore.projectTemplates, ...templatesStore.globalTemplates];
-  // Exclude the current template being edited
-  if (editingTemplate.value) {
-    return all.filter((t) => t.id !== editingTemplate.value.id);
-  }
   return all;
 });
 
@@ -241,9 +211,7 @@ function resetForm() {
     isGlobal: false,
     nextTemplateId: null,
     thinkingEnabled: false,
-    gitBranch: '',
   };
-  editingTemplate.value = null;
 }
 
 function openCreateForm() {
@@ -253,19 +221,6 @@ function openCreateForm() {
 function cancelForm() {
   showCreateForm.value = false;
   resetForm();
-}
-
-function editTemplate(template) {
-  editingTemplate.value = template;
-  formData.value = {
-    name: template.name,
-    prompt: template.prompt,
-    isGlobal: !template.projectId,
-    nextTemplateId: template.nextTemplateId || null,
-    thinkingEnabled: template.thinkingEnabled || false,
-    gitBranch: template.gitBranch || '',
-  };
-  showCreateForm.value = true;
 }
 
 async function handleSubmit() {
@@ -278,13 +233,9 @@ async function handleSubmit() {
       prompt: formData.value.prompt,
       nextTemplateId: formData.value.nextTemplateId || undefined,
       thinkingEnabled: formData.value.thinkingEnabled || undefined,
-      gitBranch: formData.value.gitBranch || undefined,
     };
 
-    if (editingTemplate.value) {
-      await templatesStore.updateTemplate(editingTemplate.value.id, data);
-      uiStore.success('Template updated');
-    } else if (formData.value.isGlobal) {
+    if (formData.value.isGlobal) {
       await templatesStore.createGlobalTemplate(data);
       uiStore.success('Global template created');
     } else {
@@ -297,17 +248,6 @@ async function handleSubmit() {
     uiStore.error(err.message);
   } finally {
     saving.value = false;
-  }
-}
-
-async function handleDelete(template) {
-  if (!confirm(`Delete template "${template.name}"?`)) return;
-
-  try {
-    await templatesStore.deleteTemplate(template.id);
-    uiStore.success('Template deleted');
-  } catch (err) {
-    uiStore.error(err.message);
   }
 }
 </script>
@@ -414,12 +354,18 @@ async function handleDelete(template) {
 
 .template-card {
   padding: 1rem;
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.template-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .template-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
   margin-bottom: 0.5rem;
 }
 
@@ -427,32 +373,7 @@ async function handleDelete(template) {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-}
-
-.template-actions {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.btn-icon {
-  background: none;
-  border: none;
-  padding: 0.25rem;
-  cursor: pointer;
-  color: var(--color-text-soft);
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.btn-icon:hover {
-  background: var(--color-bg-soft);
   color: var(--color-text);
-}
-
-.btn-icon-danger:hover {
-  color: var(--color-error);
 }
 
 .template-prompt {
