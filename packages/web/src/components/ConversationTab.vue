@@ -788,6 +788,9 @@ async function handleSend() {
   const currentValue = textareaRef.value?.value || input.value;
   if (!currentValue.trim() || sending.value) return;
 
+  // [MODEL AUDIT] Log selected model when sending
+  console.log(`[MODEL AUDIT - Frontend] Sending message with model: "${selectedModel.value}"`);
+
   sending.value = true;
   try {
     await sessionsStore.sendMessage(props.sessionId, currentValue, attachedFiles.value, selectedModel.value);

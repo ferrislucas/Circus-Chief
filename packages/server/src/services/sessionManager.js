@@ -948,6 +948,9 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
  * @param {string|null} model - Model to use for this message
  */
 export async function continueSession(sessionId, content, workingDirectory, systemPrompt = null, fileAttachments = [], model = null) {
+  // [MODEL AUDIT] Log model received in continueSession
+  console.log(`[MODEL AUDIT - SessionManager] continueSession called with model: "${model}"`);
+
   // Check if session is already running
   if (activeSessions.has(sessionId)) {
     throw new Error('Session is already processing');
@@ -1003,6 +1006,15 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     // When model changes, we can't resume the previous session - thinking blocks and
     // session context may be incompatible between different models/providers
     const modelChanged = model && activeConversation.model && model !== activeConversation.model;
+
+    // [MODEL AUDIT] Log model change detection
+    console.log(`[MODEL AUDIT - SessionManager] Model change check:`, {
+      requestedModel: model,
+      conversationModel: activeConversation.model,
+      modelChanged,
+      conversationClaudeSessionId: activeConversation.claudeSessionId,
+    });
+
     if (modelChanged) {
       console.log(`[SESSION] Model changed from "${activeConversation.model}" to "${model}" - including conversation context`);
     }
@@ -1010,12 +1022,22 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     // Only resume if we have a session ID AND model hasn't changed
     const canResume = activeConversation.claudeSessionId && !modelChanged;
 
+    // [MODEL AUDIT] Log resume decision
+    console.log(`[MODEL AUDIT - SessionManager] Resume decision: canResume=${canResume}`);
+
     // When model changes, include conversation history as context so the new model
     // can continue naturally without needing to resume the incompatible session
     const conversationContext = modelChanged
       ? buildConversationContextForModelSwitch(activeConversation.id)
       : '';
     const promptWithContext = conversationContext + promptWithAttachments;
+
+    // [MODEL AUDIT] Log SDK query options
+    console.log(`[MODEL AUDIT - SessionManager] SDK query options:`, {
+      model: model,
+      resume: canResume ? activeConversation.claudeSessionId : null,
+      hasConversationContext: conversationContext.length > 0,
+    });
 
     const queryParams = isMockMode()
       ? { prompt: promptWithContext }
@@ -1365,15 +1387,24 @@ async function handleStreamEvent(sessionId, event) {
     case 'system': {
       // Store Claude's session info
       if (event.subtype === 'init') {
+        // [MODEL AUDIT] Log model reported by SDK in system.init
+        console.log(`[MODEL AUDIT - SDK Event] system.init received:`, {
+          sessionId,
+          sdkSessionId: event.session_id,
+          modelFromSDK: event.model,
+        });
+
         // Save Claude session ID to the active conversation for context isolation
         const activeConversation = conversations.getActiveBySessionId(sessionId);
         if (activeConversation) {
           conversations.update(activeConversation.id, {
             claudeSessionId: event.session_id,
           });
+          console.log(`[MODEL AUDIT - SDK Event] Updated conversation ${activeConversation.id} claudeSessionId to ${event.session_id}`);
         }
         // Track current model for this session (used when creating messages)
         currentModels.set(sessionId, event.model);
+        console.log(`[MODEL AUDIT - SDK Event] Set currentModels[${sessionId}] = "${event.model}"`);
         // Still update session's model and capture available slash commands
         sessions.update(sessionId, {
           model: event.model,
@@ -1404,7 +1435,10 @@ async function handleStreamEvent(sessionId, event) {
         const activeConversation = conversations.getActiveBySessionId(sessionId);
         const conversationId = activeConversation?.id || null;
         const currentModel = currentModels.get(sessionId) || null;
+        // [MODEL AUDIT] Log model being saved with message
+        console.log(`[MODEL AUDIT - Message Save] Creating assistant message with model: "${currentModel}"`);
         const message = messages.create(sessionId, 'assistant', textContent, toolUse, conversationId, currentModel);
+        console.log(`[MODEL AUDIT - Message Save] Created message ${message.id} in conversation ${conversationId} with model: "${currentModel}"`);
         console.log(`[SESSION] assistant event: created assistant message ${message.id} in conversation ${conversationId} with model ${currentModel}`);
 
         // Associate pending work logs with this message immediately
@@ -1629,6 +1663,13 @@ async function handleStreamEvent(sessionId, event) {
             model: Object.keys(event.modelUsage || {})[0] || null,
           };
 
+          // [MODEL AUDIT] Log model from result event
+          console.log(`[MODEL AUDIT - Result Event] Turn usage model extraction:`, {
+            modelUsageKeys: Object.keys(event.modelUsage || {}),
+            extractedModel: turnUsage.model,
+            rawModelUsage: event.modelUsage,
+          });
+
           // Get the conversation ID for this session's current turn
           const conversationId = activeConversationIds.get(sessionId);
           const currentConversation = conversationId ? conversations.getById(conversationId) : null;
@@ -1636,6 +1677,13 @@ async function handleStreamEvent(sessionId, event) {
           // Update conversation with cumulative usage (add to existing)
           let updatedConversation = null;
           if (currentConversation) {
+            // [MODEL AUDIT] Log conversation model before update
+            console.log(`[MODEL AUDIT - Conversation Update] Before updateUsage:`, {
+              conversationId,
+              currentConversationModel: currentConversation.model,
+              newModelFromUsage: turnUsage.model,
+            });
+
             const cumulativeConversationUsage = {
               inputTokens: (currentConversation.inputTokens || 0) + turnUsage.inputTokens,
               outputTokens: (currentConversation.outputTokens || 0) + turnUsage.outputTokens,
@@ -1647,6 +1695,11 @@ async function handleStreamEvent(sessionId, event) {
             };
 
             updatedConversation = conversations.updateUsage(conversationId, cumulativeConversationUsage);
+            // [MODEL AUDIT] Log conversation model after update
+            console.log(`[MODEL AUDIT - Conversation Update] After updateUsage:`, {
+              conversationId,
+              updatedConversationModel: updatedConversation?.model,
+            });
           }
 
           // Also update session-level usage (aggregate of all conversations) for backward compatibility
