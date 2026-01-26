@@ -1653,6 +1653,11 @@ async function handleStreamEvent(sessionId, event) {
             ? Object.values(event.modelUsage)[0]
             : null;
 
+          // Use the model from system.init (stored in currentModels) rather than modelUsage keys
+          // because modelUsage can contain multiple models when sub-agents are used (e.g., Opus using Haiku)
+          // and Object.keys()[0] would pick the wrong model
+          const primaryModel = currentModels.get(sessionId) || Object.keys(event.modelUsage || {})[0] || null;
+
           const turnUsage = {
             inputTokens: modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
             outputTokens: modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
@@ -1660,12 +1665,13 @@ async function handleStreamEvent(sessionId, event) {
             cacheCreationInputTokens: modelUsageEntry?.cacheCreationInputTokens || event.usage?.cache_creation_input_tokens || 0,
             webSearchRequests: modelUsageEntry?.webSearchRequests || 0,
             contextWindow: modelUsageEntry?.contextWindow || 200000,
-            model: Object.keys(event.modelUsage || {})[0] || null,
+            model: primaryModel,
           };
 
           // [MODEL AUDIT] Log model from result event
           console.log(`[MODEL AUDIT - Result Event] Turn usage model extraction:`, {
             modelUsageKeys: Object.keys(event.modelUsage || {}),
+            primaryModelFromInit: currentModels.get(sessionId),
             extractedModel: turnUsage.model,
             rawModelUsage: event.modelUsage,
           });
