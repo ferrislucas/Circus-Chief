@@ -21,6 +21,7 @@ import {
   callClaude,
   parsePrUrl,
   validatePrUrl,
+  isConversationSummaryEnabled,
 } from './summaryService.js';
 
 describe('summaryService', () => {
@@ -1786,6 +1787,41 @@ describe('summaryService', () => {
       );
       expect(result.valid).toBe(true);
       expect(result.mismatch).toBe(false);
+    });
+  });
+
+  describe('isConversationSummaryEnabled', () => {
+    it('returns true when conversation summaries are not disabled', () => {
+      const result = isConversationSummaryEnabled(sessionId);
+      expect(result).toBe(true);
+    });
+
+    it('returns false when conversation summaries are disabled for project', () => {
+      // Disable conversation summaries for the project
+      projects.update(projectId, { disableConversationSummaries: true });
+
+      const result = isConversationSummaryEnabled(sessionId);
+      expect(result).toBe(false);
+
+      // Re-enable for other tests
+      projects.update(projectId, { disableConversationSummaries: false });
+    });
+
+    it('returns false when session does not exist', () => {
+      const result = isConversationSummaryEnabled('non-existent-session-id');
+      expect(result).toBe(false);
+    });
+
+    it('returns false when project does not exist', () => {
+      // Create a session and delete its project to simulate orphaned session
+      const tempProject = projects.create('Temp Project', '/tmp/temp');
+      const orphanSession = sessions.create(tempProject.id, 'Orphan', 'Prompt', 'standard');
+
+      // Delete the project to make the session orphaned
+      projects.delete(tempProject.id);
+
+      const result = isConversationSummaryEnabled(orphanSession.id);
+      expect(result).toBe(false);
     });
   });
 });
