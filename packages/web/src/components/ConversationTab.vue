@@ -84,17 +84,6 @@
         </div>
       </div>
 
-      <!-- Jump to Claude's turn button - at bottom, only shows when at bottom and it's user's turn -->
-      <button
-        v-if="hasAssistantMessages && isNearBottom && isUsersTurn"
-        class="scroll-to-claude-btn"
-        @click="scrollToClaudesTurn"
-        title="Jump to Claude's response"
-        aria-label="Scroll to Claude's latest response"
-      >
-        ↑↑
-      </button>
-
       <!-- Jump to latest button (Slack-style) -->
       <button
         v-if="!isNearBottom && hasNewMessages"
@@ -108,16 +97,24 @@
       </button>
     </div>
 
+    <!-- Token cost panel - aligned with scroll-to-claude-btn -->
+    <div class="conversation-controls-row">
+      <TokenCostPanel :session-id="sessionId" />
+
+      <!-- Jump to Claude's turn button - shows when at bottom and it's user's turn -->
+      <button
+        v-if="hasAssistantMessages && isNearBottom && isUsersTurn"
+        class="scroll-to-claude-btn"
+        @click="scrollToClaudesTurn"
+        title="Jump to Claude's response"
+        aria-label="Scroll to Claude's latest response"
+      >
+        ↑
+      </button>
+    </div>
+
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
-
-    <!-- Quick Responses Panel - shows above the input when not running or for draft sessions -->
-    <QuickResponsesPanel
-      v-if="canSendMessage || isDraft"
-      :show-empty="true"
-      @insert="handleQuickResponseInsert"
-      @openSettings="quickResponseSettingsOpen = true"
-    />
 
     <form v-if="canSendMessage" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
       <ResizableTextarea
@@ -128,9 +125,44 @@
         @input="handleInput"
         @keydown="handleKeydown"
       />
+
+      <!-- Quick Responses Panel - shows below the textarea when not running or for draft sessions -->
+      <QuickResponsesPanel
+        v-if="canSendMessage || isDraft"
+        :show-empty="true"
+        @insert="handleQuickResponseInsert"
+        @openSettings="quickResponseSettingsOpen = true"
+      />
+
+      <!-- Send button row -->
+      <div class="send-button-row">
+        <div v-if="isDraft" class="draft-actions">
+          <button type="submit" class="btn btn-primary btn-send-full" :disabled="restarting || saveStatus === 'saving'">
+            <span v-if="restarting" class="loading-spinner"></span>
+            {{ restarting ? 'Sending...' : 'Send' }}
+          </button>
+        </div>
+        <template v-else>
+          <button type="submit" class="btn btn-primary btn-send-full" :disabled="isSendDisabled">
+            <span v-if="sending" class="loading-spinner"></span>
+            {{ sending ? 'Sending...' : 'Send' }}
+          </button>
+        </template>
+      </div>
+
       <div class="input-controls">
         <div class="session-options">
+          <div class="mode-switcher">
+            <ModeSelector :sessionId="sessionId" />
+          </div>
+
+          <ModelSelector :sessionId="sessionId" />
+
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
+          <SlashCommandButton
+            v-if="workingDirectory"
+            @open="showSlashCommandWizard = true"
+          />
           <div class="thinking-toggle">
             <label class="toggle-switch">
               <input
@@ -143,64 +175,21 @@
             </label>
             <span class="toggle-label">Thinking</span>
           </div>
-
-          <div class="mode-switcher">
-            <ModeSelector :sessionId="sessionId" />
-          </div>
-        </div>
-        <div class="input-actions">
-          <div v-if="isDraft" class="draft-actions">
-            <button
-              type="button"
-              class="btn btn-secondary btn-schedule"
-              @click="showScheduleModal = true"
-              :disabled="!inputHasContent"
-              title="Schedule this session to start later"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">
-                <circle cx="8" cy="8" r="6" stroke-width="1.5"/>
-                <path d="M8 5v3l2 2" stroke-width="1.5" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <button type="submit" class="btn btn-primary btn-send" :disabled="restarting || saveStatus === 'saving'">
-              <span v-if="restarting" class="loading-spinner"></span>
-              {{ restarting ? 'Starting...' : 'Start Session' }}
-            </button>
-          </div>
-          <template v-else>
-            <button
-              type="button"
-              class="btn btn-secondary btn-schedule"
-              @click="showScheduleModal = true"
-              :disabled="!inputHasContent || sessionsStore.currentSession?.status === 'scheduled'"
-              title="Schedule this message to be sent later"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">
-                <circle cx="8" cy="8" r="6" stroke-width="1.5"/>
-                <path d="M8 5v3l2 2" stroke-width="1.5" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <button type="submit" class="btn btn-primary btn-send" :disabled="isSendDisabled">
-              <span v-if="sending" class="loading-spinner"></span>
-              {{ sending ? 'Sending...' : 'Send' }}
-            </button>
-          </template>
         </div>
       </div>
-      <div class="model-row">
-        <ModelSelector :sessionId="sessionId" />
-      </div>
 
-      <!-- Template selector for chaining sessions -->
-      <div class="template-row">
-        <TemplateSelector
-          :session-id="sessionId"
-          :project-id="sessionsStore.currentSession?.projectId"
-          :current-template-id="sessionsStore.currentSession?.nextTemplateId"
-          :disabled="sessionsStore.currentSession?.status === 'running'"
-          @update:templateId="handleTemplateChange"
-        />
-      </div>
+      <!-- Orchestration Panel - shows after input controls -->
+      <OrchestrationPanel
+        v-if="canSendMessage || isDraft"
+        :session-id="sessionId"
+        :project-id="sessionsStore.currentSession?.projectId"
+        :current-template-id="sessionsStore.currentSession?.nextTemplateId"
+        :session-status="sessionsStore.currentSession?.status"
+        :is-draft="isDraft"
+        :input-has-content="inputHasContent"
+        @openSchedule="showScheduleModal = true"
+        @update:templateId="handleTemplateChange"
+      />
     </form>
 
     <div v-else-if="sessionsStore.currentSession?.status === 'running'" class="running-state">
@@ -210,7 +199,6 @@
           <span class="loading-spinner"></span>
           <span class="running-title">Claude is working...</span>
         </div>
-        <RunningTokenDisplay />
         <button type="button" class="btn btn-danger btn-stop" @click="handleStop" :disabled="stopping">
           <span v-if="stopping" class="loading-spinner"></span>
           Stop
@@ -271,6 +259,15 @@
       :sessionId="sessionId"
       @close="closeScheduleModal"
     />
+
+    <!-- Slash Command Wizard Modal -->
+    <SlashCommandWizard
+      v-model:isOpen="showSlashCommandWizard"
+      :sessionId="sessionId"
+      :workingDirectory="workingDirectory"
+      mode="execute"
+      @executed="handleSlashCommandExecuted"
+    />
   </div>
 </template>
 
@@ -287,7 +284,7 @@ import WorkLogPanel from './WorkLogPanel.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
 import ConversationPanel from './ConversationPanel.vue';
-import RunningTokenDisplay from './RunningTokenDisplay.vue';
+import TokenCostPanel from './TokenCostPanel.vue';
 import FileAttachment from './FileAttachment.vue';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';
@@ -297,7 +294,11 @@ import QuickResponseSettings from './QuickResponseSettings.vue';
 import BranchEditor from './BranchEditor.vue';
 import ScheduleSessionModal from './ScheduleSessionModal.vue';
 import ResizableTextarea from './ResizableTextarea.vue';
+import SlashCommandButton from './SlashCommandButton.vue';
+import SlashCommandWizard from './SlashCommandWizard.vue';
+import OrchestrationPanel from './OrchestrationPanel.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
+import { useProjectsStore } from '../stores/projects.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -307,10 +308,12 @@ const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const quickResponsesStore = useQuickResponsesStore();
+const projectsStore = useProjectsStore();
 
 const input = ref('');
 const quickResponseSettingsOpen = ref(false);
 const showScheduleModal = ref(false);
+const showSlashCommandWizard = ref(false);
 const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
 const saveError = ref('');
 const textareaRef = ref(null);
@@ -399,6 +402,33 @@ const nextTemplate = computed(() => {
   return templatesStore.getTemplateById(templateId);
 });
 
+// Computed property to get the working directory for slash commands
+const workingDirectory = computed(() => {
+  const session = sessionsStore.currentSession;
+  if (!session) {
+    console.log('[workingDirectory] No current session');
+    return null;
+  }
+
+  // Use git worktree if available, otherwise get from project
+  if (session.gitWorktree) {
+    console.log('[workingDirectory] Using session.gitWorktree:', session.gitWorktree);
+    return session.gitWorktree;
+  }
+
+  // First try currentProject if it matches the session's project,
+  // then fall back to getProjectById (for direct session navigation or when
+  // currentProject is stale from a different project view)
+  let project = projectsStore.currentProject;
+  if ((!project || project.id !== session.projectId) && session.projectId) {
+    console.log('[workingDirectory] currentProject mismatch or null, falling back to getProjectById');
+    project = projectsStore.getProjectById(session.projectId);
+  }
+  const result = project?.workingDirectory || null;
+  console.log('[workingDirectory] Using project.workingDirectory:', result, 'from project:', project?.id);
+  return result;
+});
+
 // Subscribe to partial messages for streaming, work logs, and conversation events
 const {
   onPartial,
@@ -468,9 +498,18 @@ onMounted(async () => {
     await sessionsStore.fetchConversations(props.sessionId);
   }
 
-  // Fetch quick responses for the project
+  // Fetch quick responses and project data for the project
   if (sessionsStore.currentSession?.projectId) {
-    quickResponsesStore.fetchForProject(sessionsStore.currentSession.projectId);
+    const projectId = sessionsStore.currentSession.projectId;
+    quickResponsesStore.fetchForProject(projectId);
+
+    // Always fetch the project to ensure workingDirectory is available for slash commands
+    // This is especially important when navigating directly to a session URL
+    try {
+      await projectsStore.fetchProject(projectId);
+    } catch (err) {
+      console.error('Failed to fetch project:', err);
+    }
   }
 
   // Throttle partial text updates to reduce CPU load on iPad
@@ -908,6 +947,11 @@ function handleScheduled() {
   closeScheduleModal();
 }
 
+function handleSlashCommandExecuted({ command, args }) {
+  // Scroll to bottom to show the new message being processed
+  scrollToBottom(true);
+}
+
 // Branching methods
 function openBranchEditor(messageId) {
   branchingMessageId.value = messageId;
@@ -968,10 +1012,20 @@ async function handleBranchCreate({ messageId, prompt }) {
   flex: 1;
   overflow-y: auto;
   max-height: 500px;
-  padding: 1rem 0;
+  padding: 0.25rem 0;
   position: relative;
   overflow-anchor: none; /* Prevent browser scroll anchoring issues during streaming */
   scroll-behavior: smooth;
+}
+
+.conversation-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  position: relative;
+  min-height: 32px;
 }
 
 .message {
@@ -1139,8 +1193,6 @@ async function handleBranchCreate({ messageId, prompt }) {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--color-border);
 }
 
 .input-form textarea {
@@ -1149,7 +1201,6 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 .input-controls {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   gap: 1rem;
 }
@@ -1157,8 +1208,9 @@ async function handleBranchCreate({ messageId, prompt }) {
 .session-options {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
+  gap: 1rem;
   flex-wrap: wrap;
+  flex: 1;
 }
 
 .thinking-toggle {
@@ -1231,28 +1283,28 @@ async function handleBranchCreate({ messageId, prompt }) {
   cursor: not-allowed;
 }
 
-.input-actions {
+.send-button-row {
+  padding-top: 0.75rem;
+  margin-bottom: 14px;
   display: flex;
+  justify-content: center;
+}
+
+.btn-send-full {
+  width: 100%;
+  min-height: 52px;
+  padding: 1rem 1.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 0.5rem;
 }
 
 .draft-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex: 1;
-}
-
-.model-row {
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--color-border);
-  margin-top: 0.75rem;
-}
-
-.template-row {
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--color-border);
-  margin-top: 0.75rem;
+  width: 100%;
 }
 
 .template-pending {
@@ -1288,44 +1340,6 @@ async function handleBranchCreate({ messageId, prompt }) {
   color: var(--color-text-soft);
   font-size: 0.75rem;
   font-style: italic;
-}
-
-.btn-send {
-  min-width: 100px;
-  min-height: 48px;
-  padding: 0.75rem 1.5rem;
-  font-size: 1rem;
-  font-weight: 600;
-}
-
-.btn-secondary {
-  background-color: var(--color-background-soft);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-soft);
-}
-
-.btn-secondary:hover {
-  background-color: var(--color-background-mute);
-}
-
-.btn-schedule {
-  min-width: 48px;
-  min-height: 48px;
-  padding: 0.75rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.btn-schedule:hover:not(:disabled) {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-
-.btn-schedule:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .status-message {
@@ -1426,12 +1440,6 @@ async function handleBranchCreate({ messageId, prompt }) {
 }
 
 .scroll-to-claude-btn {
-  position: sticky;
-  bottom: 0.5rem;
-  z-index: 10;
-  margin-left: auto;
-  margin-right: 0.5rem;
-  margin-bottom: 0.5rem;
   padding: 0.375rem 0.75rem;
   background: rgba(31, 41, 55, 0.85);
   border: 1px solid rgba(75, 85, 99, 0.5);
@@ -1448,7 +1456,7 @@ async function handleBranchCreate({ messageId, prompt }) {
   white-space: nowrap;
   line-height: 1;
   font-weight: 500;
-  width: fit-content;
+  min-width: 2rem;
 }
 
 .scroll-to-claude-btn:hover {
@@ -1588,11 +1596,6 @@ async function handleBranchCreate({ messageId, prompt }) {
   .session-options {
     width: 100%;
     justify-content: flex-start;
-  }
-
-  .input-actions {
-    width: 100%;
-    justify-content: flex-end;
   }
 
   /* Mobile adjustments for scroll-to-claude button */
