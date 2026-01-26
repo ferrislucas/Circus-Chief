@@ -52,10 +52,8 @@ const getStatusIcon = (status) => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--color-border);
-  margin-bottom: 0.75rem;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .button-status-indicator {
