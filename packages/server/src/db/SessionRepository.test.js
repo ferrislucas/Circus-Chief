@@ -108,7 +108,6 @@ describe('SessionRepository', () => {
       expect(session.error).toBeNull();
       expect(session.nextTemplateId).toBeNull();
       expect(session.parentSessionId).toBeNull();
-      expect(session.model).toBeNull();
     });
 
     it('creates session with archived set to false', () => {
@@ -119,11 +118,6 @@ describe('SessionRepository', () => {
     it('creates session with starred set to false by default', () => {
       const session = repo.create(projectId, 'Test', 'Prompt');
       expect(session.starred).toBe(false);
-    });
-
-    it('creates session with model', () => {
-      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, 'claude-opus-4-5-20251101');
-      expect(session.model).toBe('claude-opus-4-5-20251101');
     });
   });
 
@@ -520,15 +514,6 @@ describe('SessionRepository', () => {
       expect(updated.gitBranch).toBe('feature');
     });
 
-    it('updates model', () => {
-      const session = repo.create(projectId, 'Test', 'Prompt');
-      expect(session.model).toBeNull();
-
-      const updated = repo.update(session.id, { model: 'claude-haiku-4-5-20251001' });
-
-      expect(updated.model).toBe('claude-haiku-4-5-20251001');
-    });
-
     it('returns unchanged session when no updates provided', () => {
       const session = repo.create(projectId, 'Test', 'Prompt');
       const result = repo.update(session.id, {});
@@ -696,7 +681,7 @@ describe('SessionRepository', () => {
   describe('parent-child relationships', () => {
     it('creates a session with a parent', () => {
       const parentSession = repo.create(projectId, 'Parent', 'Parent prompt');
-      const childSession = repo.create(projectId, 'Child', 'Child prompt', 'standard', false, null, null, parentSession.id);
+      const childSession = repo.create(projectId, 'Child', 'Child prompt', 'standard', false, null, parentSession.id);
 
       expect(childSession.parentSessionId).toBe(parentSession.id);
     });
@@ -708,8 +693,8 @@ describe('SessionRepository', () => {
 
     it('getChildSessions returns all children of a parent', () => {
       const parent = repo.create(projectId, 'Parent', 'Parent prompt');
-      const child1 = repo.create(projectId, 'Child 1', 'Prompt 1', 'standard', false, null, null, parent.id);
-      const child2 = repo.create(projectId, 'Child 2', 'Prompt 2', 'standard', false, null, null, parent.id);
+      const child1 = repo.create(projectId, 'Child 1', 'Prompt 1', 'standard', false, null, parent.id);
+      const child2 = repo.create(projectId, 'Child 2', 'Prompt 2', 'standard', false, null, parent.id);
       const orphan = repo.create(projectId, 'Orphan', 'Orphan prompt');
 
       const children = repo.getChildSessions(parent.id);
@@ -739,12 +724,12 @@ describe('SessionRepository', () => {
 
     it('children are ordered by updatedAt DESC when fetched', async () => {
       const parent = repo.create(projectId, 'Parent', 'Parent prompt');
-      const child1 = repo.create(projectId, 'Child 1', 'Prompt 1', 'standard', false, null, null, parent.id);
+      const child1 = repo.create(projectId, 'Child 1', 'Prompt 1', 'standard', false, null, parent.id);
 
       // Wait to ensure different millisecond timestamps
       await new Promise((resolve) => setTimeout(resolve, 2));
 
-      const child2 = repo.create(projectId, 'Child 2', 'Prompt 2', 'standard', false, null, null, parent.id);
+      const child2 = repo.create(projectId, 'Child 2', 'Prompt 2', 'standard', false, null, parent.id);
 
       // Wait again before update to ensure different timestamp
       await new Promise((resolve) => setTimeout(resolve, 2));
@@ -942,7 +927,7 @@ describe('SessionRepository', () => {
 
   describe('duplicate', () => {
     it('should create a new session with same settings', () => {
-      const original = repo.create(projectId, 'Original Session', 'Prompt', 'plan', true, null, 'claude-opus-4-5-20251101');
+      const original = repo.create(projectId, 'Original Session', 'Prompt', 'plan', true);
 
       const duplicate = repo.duplicate(original.id);
 
@@ -950,7 +935,6 @@ describe('SessionRepository', () => {
       expect(duplicate.name).toBe('Original Session (Copy)');
       expect(duplicate.mode).toBe('plan');
       expect(duplicate.thinkingEnabled).toBe(true);
-      expect(duplicate.model).toBe('claude-opus-4-5-20251101');
       expect(duplicate.projectId).toBe(projectId);
     });
 
@@ -1065,10 +1049,10 @@ describe('SessionRepository', () => {
       const project1 = projectRepo.create('Project 1', '/tmp/p1');
       const project2 = projectRepo.create('Project 2', '/tmp/p2');
 
-      const session1 = repo.create(project1.id, 'Session 1', 'Prompt 1', 'standard', false, null, null, null, 'scheduled');
+      const session1 = repo.create(project1.id, 'Session 1', 'Prompt 1', 'standard', false, null, null, 'scheduled');
       repo.update(session1.id, { scheduledAt: Date.now() + 1000 });
 
-      const session2 = repo.create(project2.id, 'Session 2', 'Prompt 2', 'standard', false, null, null, null, 'scheduled');
+      const session2 = repo.create(project2.id, 'Session 2', 'Prompt 2', 'standard', false, null, null, 'scheduled');
       repo.update(session2.id, { scheduledAt: Date.now() + 2000 });
 
       const result = repo.getScheduledSessions();
@@ -1081,13 +1065,13 @@ describe('SessionRepository', () => {
     it('should return scheduled sessions sorted by scheduledAt (earliest first)', () => {
       const now = Date.now();
 
-      const session1 = repo.create(projectId, 'Session 1', 'Prompt 1', 'standard', false, null, null, null, 'scheduled');
+      const session1 = repo.create(projectId, 'Session 1', 'Prompt 1', 'standard', false, null, null, 'scheduled');
       repo.update(session1.id, { scheduledAt: now + 3000 }); // Latest
 
-      const session2 = repo.create(projectId, 'Session 2', 'Prompt 2', 'standard', false, null, null, null, 'scheduled');
+      const session2 = repo.create(projectId, 'Session 2', 'Prompt 2', 'standard', false, null, null, 'scheduled');
       repo.update(session2.id, { scheduledAt: now + 1000 }); // Earliest
 
-      const session3 = repo.create(projectId, 'Session 3', 'Prompt 3', 'standard', false, null, null, null, 'scheduled');
+      const session3 = repo.create(projectId, 'Session 3', 'Prompt 3', 'standard', false, null, null, 'scheduled');
       repo.update(session3.id, { scheduledAt: now + 2000 }); // Middle
 
       const result = repo.getScheduledSessions();
@@ -1102,10 +1086,10 @@ describe('SessionRepository', () => {
       const project1 = projectRepo.create('Project 1', '/tmp/p1');
       const project2 = projectRepo.create('Project 2', '/tmp/p2');
 
-      const session1 = repo.create(project1.id, 'Session 1', 'Prompt 1', 'standard', false, null, null, null, 'scheduled');
+      const session1 = repo.create(project1.id, 'Session 1', 'Prompt 1', 'standard', false, null, null, 'scheduled');
       repo.update(session1.id, { scheduledAt: Date.now() + 1000 });
 
-      const session2 = repo.create(project2.id, 'Session 2', 'Prompt 2', 'standard', false, null, null, null, 'scheduled');
+      const session2 = repo.create(project2.id, 'Session 2', 'Prompt 2', 'standard', false, null, null, 'scheduled');
       repo.update(session2.id, { scheduledAt: Date.now() + 2000 });
 
       const result = repo.getScheduledSessions(project1.id);
@@ -1116,11 +1100,11 @@ describe('SessionRepository', () => {
     });
 
     it('should exclude non-scheduled sessions', () => {
-      repo.create(projectId, 'Running', 'Prompt', 'standard', false, null, null, null, 'running');
-      repo.create(projectId, 'Completed', 'Prompt', 'standard', false, null, null, null, 'completed');
-      repo.create(projectId, 'Waiting', 'Prompt', 'standard', false, null, null, null, 'waiting');
+      repo.create(projectId, 'Running', 'Prompt', 'standard', false, null, null, 'running');
+      repo.create(projectId, 'Completed', 'Prompt', 'standard', false, null, null, 'completed');
+      repo.create(projectId, 'Waiting', 'Prompt', 'standard', false, null, null, 'waiting');
 
-      const scheduledSession = repo.create(projectId, 'Scheduled', 'Prompt', 'standard', false, null, null, null, 'scheduled');
+      const scheduledSession = repo.create(projectId, 'Scheduled', 'Prompt', 'standard', false, null, null, 'scheduled');
       repo.update(scheduledSession.id, { scheduledAt: Date.now() + 1000 });
 
       const result = repo.getScheduledSessions();
@@ -1130,10 +1114,10 @@ describe('SessionRepository', () => {
     });
 
     it('should exclude archived scheduled sessions', () => {
-      const session1 = repo.create(projectId, 'Session 1', 'Prompt 1', 'standard', false, null, null, null, 'scheduled');
+      const session1 = repo.create(projectId, 'Session 1', 'Prompt 1', 'standard', false, null, null, 'scheduled');
       repo.update(session1.id, { scheduledAt: Date.now() + 1000 });
 
-      const session2 = repo.create(projectId, 'Session 2', 'Prompt 2', 'standard', false, null, null, null, 'scheduled');
+      const session2 = repo.create(projectId, 'Session 2', 'Prompt 2', 'standard', false, null, null, 'scheduled');
       repo.update(session2.id, { scheduledAt: Date.now() + 2000, archived: true });
 
       const result = repo.getScheduledSessions();
@@ -1144,7 +1128,7 @@ describe('SessionRepository', () => {
 
     it('should include project name in results', () => {
       const project = projectRepo.create('My Project', '/tmp/project');
-      const session = repo.create(project.id, 'Session', 'Prompt', 'standard', false, null, null, null, 'scheduled');
+      const session = repo.create(project.id, 'Session', 'Prompt', 'standard', false, null, null, 'scheduled');
       repo.update(session.id, { scheduledAt: Date.now() + 1000 });
 
       const result = repo.getScheduledSessions();
@@ -1154,7 +1138,7 @@ describe('SessionRepository', () => {
     });
 
     it('should return empty array when no scheduled sessions exist', () => {
-      repo.create(projectId, 'Running', 'Prompt', 'standard', false, null, null, null, 'running');
+      repo.create(projectId, 'Running', 'Prompt', 'standard', false, null, null, 'running');
 
       const result = repo.getScheduledSessions();
 
@@ -1165,7 +1149,7 @@ describe('SessionRepository', () => {
       const project1 = projectRepo.create('Project 1', '/tmp/p1');
       const project2 = projectRepo.create('Project 2', '/tmp/p2');
 
-      const session = repo.create(project1.id, 'Session', 'Prompt', 'standard', false, null, null, null, 'scheduled');
+      const session = repo.create(project1.id, 'Session', 'Prompt', 'standard', false, null, null, 'scheduled');
       repo.update(session.id, { scheduledAt: Date.now() + 1000 });
 
       const result = repo.getScheduledSessions(project2.id);
