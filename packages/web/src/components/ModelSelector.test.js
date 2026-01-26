@@ -431,7 +431,6 @@ describe('ModelSelector', () => {
           id: 'anthropic-default',
           name: 'Anthropic (Official)',
           isBuiltIn: true,
-          isDefault: true,
           models: [
             { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', tier: 'haiku' },
             { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-5-20250929', displayName: 'Sonnet 4.5', tier: 'sonnet' },
@@ -460,7 +459,6 @@ describe('ModelSelector', () => {
           id: 'aws-bedrock',
           name: 'AWS Bedrock',
           isBuiltIn: false,
-          isDefault: false,
           models: [
             { id: 'bedrock-opus', modelId: 'anthropic.claude-3-opus-20240229-v1:0', displayName: 'Opus', tier: 'opus' },
             { id: 'bedrock-sonnet', modelId: 'anthropic.claude-3-sonnet-20240229-v1:0', displayName: 'Sonnet', tier: 'sonnet' },
@@ -489,7 +487,6 @@ describe('ModelSelector', () => {
           id: 'anthropic-default',
           name: 'Anthropic (Official)',
           isBuiltIn: true,
-          isDefault: true,
           models: [
             { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-5-20250929', displayName: 'Sonnet 4.5', tier: 'sonnet' },
           ],
@@ -498,7 +495,6 @@ describe('ModelSelector', () => {
           id: 'aws-bedrock',
           name: 'AWS Bedrock',
           isBuiltIn: false,
-          isDefault: false,
           models: [
             { id: 'bedrock-sonnet', modelId: 'anthropic.claude-3-sonnet-20240229-v1:0', displayName: 'Sonnet', tier: 'sonnet' },
           ],
