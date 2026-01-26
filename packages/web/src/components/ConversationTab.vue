@@ -173,29 +173,18 @@
         </div>
       </div>
 
-      <!-- Schedule button row -->
-      <div class="schedule-row">
-        <button
-          type="button"
-          class="btn btn-secondary btn-schedule"
-          @click="showScheduleModal = true"
-          :disabled="!inputHasContent || (!isDraft && sessionsStore.currentSession?.status === 'scheduled')"
-          :title="isDraft ? 'Schedule this session to start later' : 'Schedule this message to be sent later'"
-        >
-          Scheduling
-        </button>
-      </div>
-
-      <!-- Template selector for chaining sessions -->
-      <div class="template-row">
-        <TemplateSelector
-          :session-id="sessionId"
-          :project-id="sessionsStore.currentSession?.projectId"
-          :current-template-id="sessionsStore.currentSession?.nextTemplateId"
-          :disabled="sessionsStore.currentSession?.status === 'running'"
-          @update:templateId="handleTemplateChange"
-        />
-      </div>
+      <!-- Orchestration Panel - shows after input controls -->
+      <OrchestrationPanel
+        v-if="canSendMessage || isDraft"
+        :session-id="sessionId"
+        :project-id="sessionsStore.currentSession?.projectId"
+        :current-template-id="sessionsStore.currentSession?.nextTemplateId"
+        :session-status="sessionsStore.currentSession?.status"
+        :is-draft="isDraft"
+        :input-has-content="inputHasContent"
+        @openSchedule="showScheduleModal = true"
+        @update:templateId="handleTemplateChange"
+      />
     </form>
 
     <div v-else-if="sessionsStore.currentSession?.status === 'running'" class="running-state">
@@ -303,6 +292,7 @@ import ScheduleSessionModal from './ScheduleSessionModal.vue';
 import ResizableTextarea from './ResizableTextarea.vue';
 import SlashCommandButton from './SlashCommandButton.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
+import OrchestrationPanel from './OrchestrationPanel.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useProjectsStore } from '../stores/projects.js';
 
@@ -1303,20 +1293,6 @@ async function handleBranchCreate({ messageId, prompt }) {
   width: 100%;
 }
 
-.schedule-row {
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--color-border);
-  margin-top: 0.75rem;
-  display: flex;
-  justify-content: flex-start;
-}
-
-.template-row {
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--color-border);
-  margin-top: 0.75rem;
-}
-
 .template-pending {
   display: flex;
   align-items: center;
@@ -1350,36 +1326,6 @@ async function handleBranchCreate({ messageId, prompt }) {
   color: var(--color-text-soft);
   font-size: 0.75rem;
   font-style: italic;
-}
-
-.btn-secondary {
-  background-color: var(--color-background-soft);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-soft);
-}
-
-.btn-secondary:hover {
-  background-color: var(--color-background-mute);
-}
-
-.btn-schedule {
-  min-width: 48px;
-  min-height: 48px;
-  padding: 0.75rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.btn-schedule:hover:not(:disabled) {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-
-.btn-schedule:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .status-message {
