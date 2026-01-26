@@ -470,6 +470,9 @@ router.post('/:id/start', async (req, res) => {
     // Use gitWorktree if set, otherwise use project's working directory
     const workingDirectory = session.gitWorktree || project.workingDirectory;
 
+    // Model to use for this session (optional - SDK will use default if not provided)
+    const model = req.body.model || null;
+
     // Get or create the initial user message (prompt)
     let userMessages = allMessages.filter(msg => msg.role === 'user');
     let initialMessage;
@@ -530,7 +533,7 @@ router.post('/:id/start', async (req, res) => {
 
     // Start session manager (non-blocking)
     const { runSession } = await import('../services/sessionManager.js');
-    runSession(session.id, finalPrompt, workingDirectory, project.systemPrompt, sessionAttachments, null).catch((error) => {
+    runSession(session.id, finalPrompt, workingDirectory, project.systemPrompt, sessionAttachments, model).catch((error) => {
       console.error('Session error:', error);
       sessions.update(session.id, { status: 'error', error: error.message });
     });
