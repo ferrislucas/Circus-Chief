@@ -397,12 +397,10 @@ export class DatabaseManager {
         default_haiku_model TEXT,
         api_timeout_ms INTEGER,
         additional_env_vars TEXT,
-        is_default INTEGER NOT NULL DEFAULT 0,
         is_built_in INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
         updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
       );
-      CREATE INDEX IF NOT EXISTS idx_model_providers_default ON model_providers(is_default);
 
       CREATE TABLE IF NOT EXISTS provider_models (
         id TEXT PRIMARY KEY,
@@ -461,8 +459,8 @@ export class DatabaseManager {
       const now = Date.now();
       this.#db
         .prepare(
-          `INSERT INTO model_providers (id, name, is_default, is_built_in, created_at, updated_at)
-           VALUES (?, ?, 1, 1, ?, ?)`
+          `INSERT INTO model_providers (id, name, is_built_in, created_at, updated_at)
+           VALUES (?, ?, 1, ?, ?)`
         )
         .run(providerId, 'Anthropic (Official)', now, now);
     }
