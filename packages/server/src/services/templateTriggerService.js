@@ -160,7 +160,7 @@ export async function checkAndTriggerNextTemplate(sessionId) {
     });
 
     // Start the new session (non-blocking)
-    runSession(newSession.id, renderedPrompt, workingDirectory, project.systemPrompt).catch((error) => {
+    runSession(newSession.id, renderedPrompt, workingDirectory, project.systemPrompt, [], template.model).catch((error) => {
       console.error(`Template trigger: Error running session ${newSession.id}:`, error);
       const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
       // Broadcast error status to project subscribers for session list updates
