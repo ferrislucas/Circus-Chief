@@ -102,7 +102,7 @@ describe('Sessions API - hasResponses', () => {
   describe('Draft session detection with hasResponses', () => {
     it('draft session has waiting status and hasResponses=false', async () => {
       // Create a draft session (waiting status, no responses)
-      const draftSession = sessions.create(project.id, 'Draft Session', 'Draft prompt', 'standard', false, null, null, null, 'waiting');
+      const draftSession = sessions.create(project.id, 'Draft Session', 'Draft prompt', 'standard', false, null, null, 'waiting');
 
       const res = await request(app).get(`/api/sessions/${draftSession.id}`);
 

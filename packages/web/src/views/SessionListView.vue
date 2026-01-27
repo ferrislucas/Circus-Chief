@@ -11,7 +11,7 @@
           </a>
         </div>
       </div>
-      <router-link v-if="activeTab === 'sessions'" :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary">
+      <router-link v-if="activeTab === 'sessions'" :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary mobile-only">
         New Session
       </router-link>
     </div>
@@ -20,41 +20,46 @@
     <div class="tabs">
       <!-- Desktop tabs -->
       <div class="tabs-desktop">
-        <button
-          class="tab"
-          :class="{ active: activeTab === 'sessions' }"
-          @click="router.push(`/projects/${route.params.id}/sessions`)"
-        >
-          Sessions
-        </button>
-        <button
-          class="tab"
-          :class="{ active: activeTab === 'archived' }"
-          @click="router.push(`/projects/${route.params.id}/archived`)"
-        >
-          Archived
-        </button>
-        <button
-          class="tab"
-          :class="{ active: activeTab === 'templates' }"
-          @click="router.push(`/projects/${route.params.id}/templates`)"
-        >
-          Templates
-        </button>
-        <button
-          class="tab"
-          :class="{ active: activeTab === 'commands' }"
-          @click="router.push(`/projects/${route.params.id}/commands`)"
-        >
-          Commands
-        </button>
-        <button
-          class="tab"
-          :class="{ active: activeTab === 'scheduled' }"
-          @click="router.push(`/projects/${route.params.id}/scheduled`)"
-        >
-          Scheduled
-        </button>
+        <div class="tabs-left">
+          <button
+            class="tab"
+            :class="{ active: activeTab === 'sessions' }"
+            @click="router.push(`/projects/${route.params.id}/sessions`)"
+          >
+            Sessions
+          </button>
+          <button
+            class="tab"
+            :class="{ active: activeTab === 'archived' }"
+            @click="router.push(`/projects/${route.params.id}/archived`)"
+          >
+            Archived
+          </button>
+          <button
+            class="tab"
+            :class="{ active: activeTab === 'templates' }"
+            @click="router.push(`/projects/${route.params.id}/templates`)"
+          >
+            Templates
+          </button>
+          <button
+            class="tab"
+            :class="{ active: activeTab === 'commands' }"
+            @click="router.push(`/projects/${route.params.id}/commands`)"
+          >
+            Commands
+          </button>
+          <button
+            class="tab"
+            :class="{ active: activeTab === 'scheduled' }"
+            @click="router.push(`/projects/${route.params.id}/scheduled`)"
+          >
+            Scheduled
+          </button>
+        </div>
+        <router-link v-if="activeTab === 'sessions'" :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary desktop-only">
+          New Session
+        </router-link>
       </div>
 
       <!-- Mobile dropdown -->
@@ -801,6 +806,34 @@ onUnmounted(() => {
   margin-bottom: 1.5rem;
 }
 
+.tabs-desktop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.tabs-mobile {
+  display: none;
+  width: 100%;
+}
+
+.tab-select {
+  width: 100%;
+  padding: 0.75rem;
+  font-size: 0.9rem;
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+}
+
+.tabs-left {
+  display: flex;
+  gap: 0;
+}
+
 .tab {
   background: none;
   border: none;
@@ -991,6 +1024,45 @@ onUnmounted(() => {
   .page-header .btn {
     width: 100%;
     justify-content: center;
+  }
+
+  /* Hide desktop tabs on mobile */
+  .tabs-desktop {
+    display: none !important;
+  }
+
+  /* Show mobile tabs on mobile */
+  .tabs-mobile {
+    display: block;
+  }
+
+  /* Hide desktop-only elements on mobile */
+  .desktop-only {
+    display: none !important;
+  }
+}
+
+/* Responsive utility classes */
+.mobile-only {
+  display: block;
+}
+
+/* Hide desktop-only elements by default (mobile) */
+.desktop-only {
+  display: none;
+}
+
+/* Hide mobile-only elements on desktop */
+@media (min-width: 481px) {
+  .mobile-only {
+    display: none !important;
+  }
+}
+
+/* Show desktop-only elements on desktop */
+@media (min-width: 481px) {
+  .desktop-only {
+    display: inline-flex !important;
   }
 }
 </style>

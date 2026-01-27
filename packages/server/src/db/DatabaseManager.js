@@ -368,6 +368,18 @@ export class DatabaseManager {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN slash_commands TEXT');
     }
 
+    // Add pendingModel column to sessions table for storing model selected when creating scheduled/waiting sessions
+    if (!pendingPromptColumns.includes('pending_model')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN pending_model TEXT');
+    }
+
+    // Add model column to session_templates table for specifying model in template-triggered sessions
+    const templatesTableInfo = this.#db.prepare('PRAGMA table_info(session_templates)').all();
+    const templatesColumns = templatesTableInfo.map((col) => col.name);
+    if (!templatesColumns.includes('model')) {
+      this.#db.exec('ALTER TABLE session_templates ADD COLUMN model TEXT');
+    }
+
     // Add model column to conversation_messages table (Issue: track model per message)
     const msgModelTableInfo = this.#db.prepare('PRAGMA table_info(conversation_messages)').all();
     const msgModelColumns = msgModelTableInfo.map((col) => col.name);
@@ -397,12 +409,10 @@ export class DatabaseManager {
         default_haiku_model TEXT,
         api_timeout_ms INTEGER,
         additional_env_vars TEXT,
-        is_default INTEGER NOT NULL DEFAULT 0,
         is_built_in INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
         updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
       );
-      CREATE INDEX IF NOT EXISTS idx_model_providers_default ON model_providers(is_default);
 
       CREATE TABLE IF NOT EXISTS provider_models (
         id TEXT PRIMARY KEY,
@@ -461,8 +471,8 @@ export class DatabaseManager {
       const now = Date.now();
       this.#db
         .prepare(
-          `INSERT INTO model_providers (id, name, is_default, is_built_in, created_at, updated_at)
-           VALUES (?, ?, 1, 1, ?, ?)`
+          `INSERT INTO model_providers (id, name, is_built_in, created_at, updated_at)
+           VALUES (?, ?, 1, ?, ?)`
         )
         .run(providerId, 'Anthropic (Official)', now, now);
     }

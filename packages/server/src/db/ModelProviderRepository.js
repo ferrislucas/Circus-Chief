@@ -20,7 +20,6 @@ export class ModelProviderRepository extends BaseRepository {
       defaultHaikuModel: row.default_haiku_model,
       apiTimeoutMs: row.api_timeout_ms,
       additionalEnvVars: row.additional_env_vars ? JSON.parse(row.additional_env_vars) : null,
-      isDefault: row.is_default === 1,
       isBuiltIn: row.is_built_in === 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -203,30 +202,6 @@ export class ModelProviderRepository extends BaseRepository {
   }
 
   /**
-   * Set a provider as the default
-   * @param {string} id - Provider ID
-   * @returns {Object} - Updated provider
-   */
-  setDefault(id) {
-    // Unset current default
-    this.db.prepare('UPDATE model_providers SET is_default = 0 WHERE is_default = 1').run();
-
-    // Set new default
-    this.db.prepare('UPDATE model_providers SET is_default = 1, updated_at = ? WHERE id = ?').run(Date.now(), id);
-
-    return this.getById(id);
-  }
-
-  /**
-   * Get the default provider
-   * @returns {Object|null} - Default provider
-   */
-  getDefault() {
-    const row = this.db.prepare('SELECT * FROM model_providers WHERE is_default = 1').get();
-    return this.map(row);
-  }
-
-  /**
    * Get models for a provider
    * @param {string} providerId - Provider ID
    * @returns {Array<Object>} - Provider models
@@ -274,5 +249,44 @@ export class ModelProviderRepository extends BaseRepository {
    */
   removeModel(modelId) {
     this.db.prepare('DELETE FROM provider_models WHERE id = ?').run(modelId);
+  }
+
+  /**
+   * Get provider by model ID (the actual model string like "claude-opus-4-5-20251101")
+   * Returns the provider that owns this model, or null if not found (use Anthropic defaults)
+   * @param {string} modelId - The model ID string
+   * @returns {Object|null} - Provider object or null
+   */
+  getProviderByModelId(modelId) {
+    if (!modelId) return null;
+
+    // Tier names (sonnet, opus, haiku) default to Anthropic (SDK handles them)
+    const tierNames = ['sonnet', 'opus', 'haiku'];
+    if (tierNames.includes(modelId.toLowerCase())) {
+      return null; // Let SDK handle tier names
+    }
+
+    // Look up the model in provider_models table
+    const row = this.db
+      .prepare(
+        `SELECT mp.* FROM model_providers mp
+         JOIN provider_models pm ON mp.id = pm.provider_id
+         WHERE pm.model_id = ?`
+      )
+      .get(modelId);
+
+    if (!row) {
+      // Model not found in any provider - assume Anthropic default
+      return null;
+    }
+
+    const provider = ModelProviderRepository.#mapProvider(row);
+
+    // If it's the built-in Anthropic provider, return null to use SDK defaults
+    if (provider.isBuiltIn) {
+      return null;
+    }
+
+    return provider;
   }
 }

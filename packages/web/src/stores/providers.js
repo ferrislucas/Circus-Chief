@@ -11,7 +11,6 @@ export const useProvidersStore = defineStore('providers', {
   }),
 
   getters: {
-    defaultProvider: (state) => state.providers.find((p) => p.isDefault),
     customProviders: (state) => state.providers.filter((p) => !p.isBuiltIn),
     getById: (state) => (id) => state.providers.find((p) => p.id === id),
 
@@ -130,25 +129,6 @@ export const useProvidersStore = defineStore('providers', {
       try {
         await api.deleteProvider(id);
         this.providers = this.providers.filter((p) => p.id !== id);
-      } catch (err) {
-        this.error = err.message;
-        throw err;
-      } finally {
-        this.loading = false;
-      }
-    },
-
-    async setDefault(id) {
-      this.loading = true;
-      this.error = null;
-      try {
-        const updated = await api.setDefaultProvider(id);
-        // Update all providers - unset old default, set new default
-        this.providers = this.providers.map((p) => ({
-          ...p,
-          isDefault: p.id === id,
-        }));
-        return updated;
       } catch (err) {
         this.error = err.message;
         throw err;
