@@ -955,6 +955,30 @@ describe('ApiClient', () => {
       });
     });
 
+    describe('getAllCanvasItems', () => {
+      it('fetches all canvas items including all versions for session', async () => {
+        const mockItems = [
+          { id: '1', type: 'markdown', filename: 'doc.md', createdAt: 1000 },
+          { id: '2', type: 'markdown', filename: 'doc.md', createdAt: 2000 },
+          { id: '3', type: 'text', filename: 'notes.txt', createdAt: 3000 },
+        ];
+        mockFetch.mockReturnValue(mockResponse(mockItems));
+
+        const result = await client.getAllCanvasItems('sess-123');
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/canvas/all', expect.any(Object));
+        expect(result).toEqual(mockItems);
+      });
+
+      it('returns empty array when no canvas items exist', async () => {
+        mockFetch.mockReturnValue(mockResponse([]));
+
+        const result = await client.getAllCanvasItems('sess-123');
+
+        expect(result).toEqual([]);
+      });
+    });
+
     describe('uploadCanvasItem', () => {
       it('uploads file to canvas', async () => {
         const mockItem = { id: 'item-1', type: 'image', mimeType: 'image/png' };

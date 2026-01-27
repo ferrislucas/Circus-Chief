@@ -455,6 +455,15 @@ export class ApiClient {
   }
 
   /**
+   * Get all canvas items for a session (including all versions)
+   * @param {string} sessionId - Session ID
+   * @returns {Promise<Array>}
+   */
+  async getAllCanvasItems(sessionId) {
+    return this.#request('GET', `/sessions/${sessionId}/canvas/all`);
+  }
+
+  /**
    * Upload a file to the canvas
    * @param {string} sessionId - Session ID
    * @param {File} file - File to upload
