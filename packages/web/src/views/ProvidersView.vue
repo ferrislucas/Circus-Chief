@@ -29,7 +29,6 @@
         <div class="provider-header">
           <div class="provider-title">
             <h3>
-              <span v-if="provider.isDefault" class="default-badge" title="Default Provider">★</span>
               {{ provider.name }}
               <span v-if="provider.isBuiltIn" class="built-in-badge">Built-in</span>
             </h3>
@@ -243,11 +242,6 @@ async function deleteProvider() {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.default-badge {
-  color: var(--color-warning, #f59e0b);
-  font-size: 1.125rem;
 }
 
 .built-in-badge {

@@ -217,11 +217,8 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   if (!mode && projectDefs?.mode) mode = projectDefs.mode;
   if (!mode) mode = systemDefaults.mode;
 
-  let model = req.body.model;
-  if (!model && projectDefs?.model) model = projectDefs.model;
-
-  let providerId = req.body.providerId;
-  if (!providerId && projectDefs?.providerId) providerId = projectDefs.providerId;
+  // Model for the first message (optional - SDK will use default if not provided)
+  const model = req.body.model || null;
 
   let thinkingEnabled = req.body.thinkingEnabled === true || req.body.thinkingEnabled === 'true';
   if (!thinkingEnabled && req.body.thinkingEnabled !== false && req.body.thinkingEnabled !== 'false') {
@@ -296,7 +293,7 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   } else if (!startImmediately) {
     initialStatus = 'waiting';
   }
-  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, model, parentSessionId, initialStatus, providerId);
+  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, parentSessionId, initialStatus);
 
   // Set nextTemplateId if template was selected
   if (nextTemplateId) {
@@ -314,9 +311,10 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   if (maxTotalTokens !== undefined) schedulingUpdate.maxTotalTokens = maxTotalTokens;
   if (rescheduleAtTokenCount !== undefined) schedulingUpdate.rescheduleAtTokenCount = rescheduleAtTokenCount;
 
-  // For draft/waiting/scheduled sessions, set pendingPrompt so they can be edited before starting
+  // For draft/waiting/scheduled sessions, set pendingPrompt and pendingModel so they can be edited before starting
   if (initialStatus === 'waiting' || initialStatus === 'scheduled') {
     schedulingUpdate.pendingPrompt = prompt;
+    schedulingUpdate.pendingModel = model;
   }
 
   if (Object.keys(schedulingUpdate).length > 0) {

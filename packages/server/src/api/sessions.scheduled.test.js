@@ -20,13 +20,13 @@ describe('Sessions API - Scheduled Endpoints', () => {
   describe('GET /sessions/scheduled', () => {
     it('returns all scheduled sessions across all projects', () => {
       // Create scheduled sessions for both projects
-      const session1 = sessions.create(project1.id, 'Session 1', 'Prompt 1', 'standard', false, null, null, null, 'scheduled');
+      const session1 = sessions.create(project1.id, 'Session 1', 'Prompt 1', 'standard', false, null, null, 'scheduled');
       sessions.update(session1.id, { scheduledAt: Date.now() + 1000 }); // 1 second from now
 
-      const session2 = sessions.create(project2.id, 'Session 2', 'Prompt 2', 'standard', false, null, null, null, 'scheduled');
+      const session2 = sessions.create(project2.id, 'Session 2', 'Prompt 2', 'standard', false, null, null, 'scheduled');
       sessions.update(session2.id, { scheduledAt: Date.now() + 2000 }); // 2 seconds from now
 
-      const session3 = sessions.create(project1.id, 'Session 3', 'Prompt 3', 'standard', false, null, null, null, 'scheduled');
+      const session3 = sessions.create(project1.id, 'Session 3', 'Prompt 3', 'standard', false, null, null, 'scheduled');
       sessions.update(session3.id, { scheduledAt: Date.now() + 500 }); // 0.5 seconds from now
 
       // Get all scheduled sessions without filter
@@ -41,13 +41,13 @@ describe('Sessions API - Scheduled Endpoints', () => {
     it('returns scheduled sessions sorted by scheduledAt (earliest first)', () => {
       const now = Date.now();
 
-      const session1 = sessions.create(project1.id, 'Session 1', 'Prompt 1', 'standard', false, null, null, null, 'scheduled');
+      const session1 = sessions.create(project1.id, 'Session 1', 'Prompt 1', 'standard', false, null, null, 'scheduled');
       sessions.update(session1.id, { scheduledAt: now + 3000 }); // Latest
 
-      const session2 = sessions.create(project1.id, 'Session 2', 'Prompt 2', 'standard', false, null, null, null, 'scheduled');
+      const session2 = sessions.create(project1.id, 'Session 2', 'Prompt 2', 'standard', false, null, null, 'scheduled');
       sessions.update(session2.id, { scheduledAt: now + 1000 }); // Earliest
 
-      const session3 = sessions.create(project1.id, 'Session 3', 'Prompt 3', 'standard', false, null, null, null, 'scheduled');
+      const session3 = sessions.create(project1.id, 'Session 3', 'Prompt 3', 'standard', false, null, null, 'scheduled');
       sessions.update(session3.id, { scheduledAt: now + 2000 }); // Middle
 
       const result = sessions.getScheduledSessions();
@@ -59,10 +59,10 @@ describe('Sessions API - Scheduled Endpoints', () => {
     });
 
     it('filters scheduled sessions by project ID', () => {
-      const session1 = sessions.create(project1.id, 'Session 1', 'Prompt 1', 'standard', false, null, null, null, 'scheduled');
+      const session1 = sessions.create(project1.id, 'Session 1', 'Prompt 1', 'standard', false, null, null, 'scheduled');
       sessions.update(session1.id, { scheduledAt: Date.now() + 1000 });
 
-      const session2 = sessions.create(project2.id, 'Session 2', 'Prompt 2', 'standard', false, null, null, null, 'scheduled');
+      const session2 = sessions.create(project2.id, 'Session 2', 'Prompt 2', 'standard', false, null, null, 'scheduled');
       sessions.update(session2.id, { scheduledAt: Date.now() + 2000 });
 
       // Get scheduled sessions filtered by project1
@@ -74,11 +74,11 @@ describe('Sessions API - Scheduled Endpoints', () => {
     });
 
     it('excludes non-scheduled sessions', () => {
-      sessions.create(project1.id, 'Running', 'Prompt', 'standard', false, null, null, null, 'running');
-      sessions.create(project1.id, 'Completed', 'Prompt', 'standard', false, null, null, null, 'completed');
-      sessions.create(project1.id, 'Waiting', 'Prompt', 'standard', false, null, null, null, 'waiting');
+      sessions.create(project1.id, 'Running', 'Prompt', 'standard', false, null, null, 'running');
+      sessions.create(project1.id, 'Completed', 'Prompt', 'standard', false, null, null, 'completed');
+      sessions.create(project1.id, 'Waiting', 'Prompt', 'standard', false, null, null, 'waiting');
 
-      const scheduledSession = sessions.create(project1.id, 'Scheduled', 'Prompt', 'standard', false, null, null, null, 'scheduled');
+      const scheduledSession = sessions.create(project1.id, 'Scheduled', 'Prompt', 'standard', false, null, null, 'scheduled');
       sessions.update(scheduledSession.id, { scheduledAt: Date.now() + 1000 });
 
       const result = sessions.getScheduledSessions();
@@ -88,10 +88,10 @@ describe('Sessions API - Scheduled Endpoints', () => {
     });
 
     it('excludes archived scheduled sessions', () => {
-      const session1 = sessions.create(project1.id, 'Session 1', 'Prompt 1', 'standard', false, null, null, null, 'scheduled');
+      const session1 = sessions.create(project1.id, 'Session 1', 'Prompt 1', 'standard', false, null, null, 'scheduled');
       sessions.update(session1.id, { scheduledAt: Date.now() + 1000 });
 
-      const session2 = sessions.create(project1.id, 'Session 2', 'Prompt 2', 'standard', false, null, null, null, 'scheduled');
+      const session2 = sessions.create(project1.id, 'Session 2', 'Prompt 2', 'standard', false, null, null, 'scheduled');
       sessions.update(session2.id, { scheduledAt: Date.now() + 2000, archived: true });
 
       const result = sessions.getScheduledSessions();
@@ -101,7 +101,7 @@ describe('Sessions API - Scheduled Endpoints', () => {
     });
 
     it('includes project name in results', () => {
-      const session = sessions.create(project1.id, 'Session', 'Prompt', 'standard', false, null, null, null, 'scheduled');
+      const session = sessions.create(project1.id, 'Session', 'Prompt', 'standard', false, null, null, 'scheduled');
       sessions.update(session.id, { scheduledAt: Date.now() + 1000 });
 
       const result = sessions.getScheduledSessions();
@@ -111,7 +111,7 @@ describe('Sessions API - Scheduled Endpoints', () => {
     });
 
     it('returns empty array when no scheduled sessions exist', () => {
-      sessions.create(project1.id, 'Running', 'Prompt', 'standard', false, null, null, null, 'running');
+      sessions.create(project1.id, 'Running', 'Prompt', 'standard', false, null, null, 'running');
 
       const result = sessions.getScheduledSessions();
 
@@ -119,7 +119,7 @@ describe('Sessions API - Scheduled Endpoints', () => {
     });
 
     it('returns empty array when filtering by project with no scheduled sessions', () => {
-      const session = sessions.create(project1.id, 'Session', 'Prompt', 'standard', false, null, null, null, 'scheduled');
+      const session = sessions.create(project1.id, 'Session', 'Prompt', 'standard', false, null, null, 'scheduled');
       sessions.update(session.id, { scheduledAt: Date.now() + 1000 });
 
       const result = sessions.getScheduledSessions(project2.id);
