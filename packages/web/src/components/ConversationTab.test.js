@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
-import { nextTick } from 'vue';
+import { nextTick, reactive } from 'vue';
 
 // Mock the sessions store
 vi.mock('../stores/sessions.js', () => ({
@@ -1156,6 +1156,244 @@ describe('ConversationTab - Error Handling Improvements', () => {
 
       const textarea = wrapper.find('textarea');
       expect(textarea.attributes('placeholder')).toBe('Edit your prompt...');
+    });
+  });
+});
+
+/**
+ * Model Selector Initialization Tests
+ *
+ * These tests validate that the model selector is properly initialized from
+ * the active conversation's model, rather than defaulting to sonnet.
+ * This ensures users see the model that was actually used in the conversation.
+ */
+describe('ConversationTab - Model Selector Initialization', () => {
+  let mockSessionsStore;
+  let mockUiStore;
+  let consoleError;
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+
+    // Use reactive() so Vue's watchers can detect changes to activeConversation
+    mockSessionsStore = reactive({
+      messages: [],
+      currentSession: { id: 'sess-123', status: 'waiting', thinkingEnabled: false, mode: 'standard', projectId: 'proj-1' },
+      activeConversation: { id: 'conv-1', name: 'Test Conv', model: 'claude-opus-4-20250514' },
+      activeConversationId: 'conv-1',
+      conversations: [{ id: 'conv-1', name: 'Test Conv', isActive: true, model: 'claude-opus-4-20250514' }],
+      getWorkLogsForMessage: vi.fn().mockReturnValue([]),
+      getUnassociatedWorkLogs: [],
+      partialThinking: null,
+      isDraftSession: vi.fn().mockReturnValue(false),
+      isScheduledDraft: vi.fn().mockReturnValue(false),
+      fetchConversations: vi.fn().mockResolvedValue([]),
+      fetchWorkLogs: vi.fn().mockResolvedValue([]),
+      fetchMessages: vi.fn().mockResolvedValue([]),
+      sendMessage: vi.fn().mockResolvedValue(),
+      stopSession: vi.fn().mockResolvedValue(),
+      restartSession: vi.fn().mockResolvedValue(),
+      startSession: vi.fn().mockResolvedValue(),
+      updateSessionThinking: vi.fn().mockResolvedValue(),
+      updateSessionMode: vi.fn().mockResolvedValue(),
+      updateNextTemplate: vi.fn().mockResolvedValue(),
+      addWorkLog: vi.fn(),
+      associateWorkLogs: vi.fn(),
+      clearWorkLogs: vi.fn(),
+      clearConversations: vi.fn(),
+      addConversation: vi.fn(),
+      updateConversation: vi.fn(),
+      removeConversation: vi.fn(),
+      setPartialThinking: vi.fn(),
+      clearPartialThinking: vi.fn(),
+      finalizeUsage: vi.fn(),
+      updateRunningUsage: vi.fn(),
+    });
+
+    mockUiStore = {
+      error: vi.fn(),
+      success: vi.fn(),
+    };
+
+    vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    consoleError = console.error;
+    console.error = vi.fn();
+
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn().mockReturnValue(null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    console.error = consoleError;
+    vi.unstubAllGlobals();
+  });
+
+  function mountComponent(props = { sessionId: 'sess-123' }) {
+    return mount(ConversationTab, {
+      props,
+      global: {
+        stubs: {
+          ConversationSelector: { template: '<div class="conversation-selector-stub"></div>' },
+          TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
+          WorkLogPanel: { template: '<div class="work-log-panel-stub"></div>' },
+          LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
+          MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+          FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
+          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
+          QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
+          QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
+          ModelSelector: {
+            name: 'ModelSelector',
+            props: ['modelValue', 'disabled'],
+            emits: ['update:modelValue'],
+            template: '<div class="model-selector-stub" :data-model="modelValue"></div>',
+          },
+          TemplateSelector: { template: '<div class="template-selector-stub"></div>' },
+        },
+      },
+    });
+  }
+
+  async function flushAll(wrapper) {
+    await flushPromises();
+    await nextTick();
+    await wrapper.vm.$nextTick?.();
+  }
+
+  describe('Model initialization from active conversation', () => {
+    it('initializes selectedModel from activeConversation.model on mount', async () => {
+      mockSessionsStore.activeConversation = {
+        id: 'conv-1',
+        name: 'Test Conv',
+        model: 'claude-opus-4-20250514',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Check that the ModelSelector receives the correct model value
+      const modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('claude-opus-4-20250514');
+    });
+
+    it('uses sonnet model when activeConversation has sonnet', async () => {
+      mockSessionsStore.activeConversation = {
+        id: 'conv-1',
+        name: 'Test Conv',
+        model: 'claude-sonnet-4-20250514',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-20250514');
+    });
+
+    it('sends message with the model from activeConversation', async () => {
+      mockSessionsStore.activeConversation = {
+        id: 'conv-1',
+        name: 'Test Conv',
+        model: 'claude-opus-4-20250514',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      // Verify sendMessage was called with the correct model
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith(
+        'sess-123',
+        'Test message',
+        [],
+        'claude-opus-4-20250514'
+      );
+    });
+  });
+
+  describe('Model updates when conversation changes', () => {
+    it('updates selectedModel when activeConversation.model changes', async () => {
+      // Start with opus - set both activeConversation AND conversations array
+      mockSessionsStore.conversations = [{ id: 'conv-1', name: 'Test Conv', model: 'claude-opus-4-20250514', isActive: true }];
+      mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Verify initial model
+      let modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('claude-opus-4-20250514');
+
+      // Simulate conversation model update by reassigning the array (triggers Vue reactivity)
+      const updatedConv = { id: 'conv-1', name: 'Test Conv', model: 'claude-sonnet-4-20250514', isActive: true };
+      mockSessionsStore.conversations = [updatedConv];
+      mockSessionsStore.activeConversation = updatedConv;
+      await flushAll(wrapper);
+
+      // Verify model selector updated
+      modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-20250514');
+    });
+
+    it('updates selectedModel when switching to a different conversation', async () => {
+      // Start with conversation 1 using opus
+      mockSessionsStore.conversations = [
+        { id: 'conv-1', name: 'Conv 1', model: 'claude-opus-4-20250514', isActive: true },
+        { id: 'conv-2', name: 'Conv 2', model: 'claude-haiku-3-20250514', isActive: false },
+      ];
+      mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
+      mockSessionsStore.activeConversationId = 'conv-1';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Verify initial model
+      let modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('claude-opus-4-20250514');
+
+      // Switch to conversation 2 using haiku
+      mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
+      mockSessionsStore.activeConversationId = 'conv-2';
+      await flushAll(wrapper);
+
+      // Verify model selector updated to haiku
+      modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('claude-haiku-3-20250514');
+    });
+  });
+
+  describe('Handling null/undefined model', () => {
+    it('does not crash when activeConversation.model is null', async () => {
+      mockSessionsStore.activeConversation = {
+        id: 'conv-1',
+        name: 'Test Conv',
+        model: null,
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Should still render without errors
+      expect(wrapper.find('.model-selector-stub').exists()).toBe(true);
+    });
+
+    it('does not crash when activeConversation is null', async () => {
+      mockSessionsStore.activeConversation = null;
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Should still render without errors
+      expect(wrapper.find('.model-selector-stub').exists()).toBe(true);
     });
   });
 });

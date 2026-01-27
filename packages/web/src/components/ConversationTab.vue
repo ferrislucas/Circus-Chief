@@ -751,6 +751,20 @@ watch(
   }
 );
 
+// Update model selector when active conversation changes or its model is updated
+// This ensures the selector always reflects the model used in the current conversation
+// Watch both activeConversationId and conversations to catch all updates (including splice)
+watch(
+  [() => sessionsStore.activeConversationId, () => sessionsStore.conversations],
+  () => {
+    const model = sessionsStore.activeConversation?.model;
+    if (model) {
+      selectedModel.value = model;
+    }
+  },
+  { immediate: true }
+);
+
 function formatTime(timestamp) {
   return new Date(timestamp).toLocaleTimeString();
 }
