@@ -156,7 +156,7 @@
             <ModeSelector :sessionId="sessionId" />
           </div>
 
-          <ModelSelector :sessionId="sessionId" />
+          <ModelSelector v-model="selectedModel" />
 
           <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
           <SlashCommandButton
@@ -336,6 +336,7 @@ const attachedFiles = ref([]);
 const fileAttachment = ref(null);
 const branchingMessageId = ref(null); // Message ID currently being branched from
 const branchEditorRef = ref(null);
+const selectedModel = ref(null); // Currently selected model for next message
 let draftSaveTimer = null;
 
 const partialText = ref('');
@@ -750,6 +751,20 @@ watch(
   }
 );
 
+// Update model selector when active conversation changes or its model is updated
+// This ensures the selector always reflects the model used in the current conversation
+// Watch both activeConversationId and conversations to catch all updates (including splice)
+watch(
+  [() => sessionsStore.activeConversationId, () => sessionsStore.conversations],
+  () => {
+    const model = sessionsStore.activeConversation?.model;
+    if (model) {
+      selectedModel.value = model;
+    }
+  },
+  { immediate: true }
+);
+
 function formatTime(timestamp) {
   return new Date(timestamp).toLocaleTimeString();
 }
@@ -787,9 +802,12 @@ async function handleSend() {
   const currentValue = textareaRef.value?.value || input.value;
   if (!currentValue.trim() || sending.value) return;
 
+  // [MODEL AUDIT] Log selected model when sending
+  console.log(`[MODEL AUDIT - Frontend] Sending message with model: "${selectedModel.value}"`);
+
   sending.value = true;
   try {
-    await sessionsStore.sendMessage(props.sessionId, currentValue, attachedFiles.value);
+    await sessionsStore.sendMessage(props.sessionId, currentValue, attachedFiles.value, selectedModel.value);
     input.value = '';
     if (textareaRef.value) textareaRef.value.value = '';
     attachedFiles.value = [];
