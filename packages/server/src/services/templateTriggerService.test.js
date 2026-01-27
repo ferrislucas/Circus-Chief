@@ -470,7 +470,9 @@ Please review the above work.
         expect.any(String), // new session id
         expect.stringContaining('Follow up:'), // rendered prompt
         expect.stringContaining(tempDir), // working directory
-        null // system prompt (project has none)
+        null, // system prompt (project has none)
+        [], // attachments (empty for template-triggered sessions)
+        null // model (template has none set)
       );
     });
 
@@ -491,7 +493,9 @@ Please review the above work.
         expect.any(String),
         expect.stringContaining('Full summary of the parent session work'),
         expect.any(String),
-        null
+        null,
+        [], // attachments
+        null // model
       );
     });
 
