@@ -84,7 +84,7 @@ describe('sessionManager message model tracking', () => {
     });
 
     it('stores different models for different messages', async () => {
-      session = sessions.create(project.id, 'Test Session', 'prompt', 'standard', false, null, 'claude-opus-4-5-20251101');
+      session = sessions.create(project.id, 'Test Session', 'prompt', 'standard', false, null);
 
       // Response with opus
       mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-5-20251101'));
@@ -143,7 +143,7 @@ describe('sessionManager message model tracking', () => {
 
   describe('continueSession model tracking', () => {
     it('tracks model from system.init event in continueSession', async () => {
-      session = sessions.create(project.id, 'Test Session', 'prompt', 'standard', false, null, 'claude-opus-4-5-20251101');
+      session = sessions.create(project.id, 'Test Session', 'prompt', 'standard', false, null);
       sessions.update(session.id, { claudeSessionId: 'claude-session-123' });
 
       mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-5-20251101'));
