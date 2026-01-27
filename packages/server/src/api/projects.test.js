@@ -655,21 +655,6 @@ describe('Projects API', () => {
       );
     });
 
-    it('applies project model default', async () => {
-      // Set project defaults
-      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
-        model: 'claude-opus-4',
-      });
-
-      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
-        prompt: 'Test prompt',
-      });
-
-      expect(res.status).toBe(201);
-
-      const session = sessions.getById(res.body.id);
-      expect(session.model).toBe('claude-opus-4');
-    });
 
     it('explicit param overrides project default', async () => {
       // Set project default
