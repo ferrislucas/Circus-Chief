@@ -32,7 +32,6 @@ export const ProviderResponse = z.object({
   defaultHaikuModel: z.string().nullable(),
   apiTimeoutMs: z.number().nullable(),
   additionalEnvVars: z.record(z.string()).nullable(),
-  isDefault: z.boolean(),
   isBuiltIn: z.boolean(),
   createdAt: z.number(),
   updatedAt: z.number(),
