@@ -426,7 +426,7 @@ describe('ApiClient', () => {
 
         expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/message', expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ content: 'Hello' }),
+          body: JSON.stringify({ content: 'Hello', model: null }),
         }));
       });
 
@@ -450,7 +450,7 @@ describe('ApiClient', () => {
 
         expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/message', expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ content: 'Hello' }),
+          body: JSON.stringify({ content: 'Hello', model: null }),
         }));
       });
 

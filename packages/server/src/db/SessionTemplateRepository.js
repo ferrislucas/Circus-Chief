@@ -19,6 +19,7 @@ export class SessionTemplateRepository extends BaseRepository {
       thinkingEnabled: row.thinking_enabled === null ? null : Boolean(row.thinking_enabled),
       gitBranch: row.git_branch,
       gitMode: row.git_mode,
+      model: row.model || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -34,6 +35,7 @@ export class SessionTemplateRepository extends BaseRepository {
    * @param {boolean|null} data.thinkingEnabled
    * @param {string|null} data.gitBranch
    * @param {string|null} data.gitMode
+   * @param {string|null} data.model
    * @returns {Object}
    */
   create(data) {
@@ -41,8 +43,8 @@ export class SessionTemplateRepository extends BaseRepository {
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO session_templates (id, project_id, name, prompt, next_template_id, thinking_enabled, git_branch, git_mode, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO session_templates (id, project_id, name, prompt, next_template_id, thinking_enabled, git_branch, git_mode, model, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -53,6 +55,7 @@ export class SessionTemplateRepository extends BaseRepository {
         data.thinkingEnabled === null || data.thinkingEnabled === undefined ? null : (data.thinkingEnabled ? 1 : 0),
         data.gitBranch || null,
         data.gitMode || null,
+        data.model || null,
         now,
         now
       );
@@ -92,6 +95,10 @@ export class SessionTemplateRepository extends BaseRepository {
     if (data.gitMode !== undefined) {
       updates.push('git_mode = ?');
       values.push(data.gitMode);
+    }
+    if (data.model !== undefined) {
+      updates.push('model = ?');
+      values.push(data.model);
     }
 
     if (updates.length === 0) return this.getById(id);
