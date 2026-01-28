@@ -8,11 +8,11 @@ import * as ghService from './ghService.js';
 // Debounce timers per session
 const debounceTimers = new Map();
 
-// Debounce delay in milliseconds (5 seconds - reduced from 15s for faster feedback)
-const DEBOUNCE_DELAY = 5000;
+// Debounce delay in milliseconds (60 seconds - optimized for token efficiency)
+const DEBOUNCE_DELAY = 60000;
 
-// Maximum number of recent messages to include in generation
-const MAX_MESSAGES = 50;
+// Maximum number of recent messages to include in generation (optimized for token efficiency)
+const MAX_MESSAGES = 15;
 
 // Maximum retry attempts for failed parsing
 const MAX_RETRIES = 2;
@@ -169,9 +169,9 @@ function formatMessages(messageList) {
       const role = msg.role === 'user' ? 'User' : 'Assistant';
       let content = msg.content;
 
-      // Truncate very long messages
-      if (content.length > 2000) {
-        content = content.substring(0, 2000) + '... [truncated]';
+      // Truncate very long messages (optimized for token efficiency)
+      if (content.length > 750) {
+        content = content.substring(0, 750) + '... [truncated]';
       }
 
       // Add tool use info if present
@@ -806,6 +806,19 @@ function parseConversationSummaryResponse(responseText) {
     // If parsing fails, return the raw text truncated
     return textToParse.substring(0, 200);
   }
+}
+
+/**
+ * Check if conversation summaries are enabled for a session
+ * @param {string} sessionId - The session ID
+ * @returns {boolean} True if conversation summaries are enabled
+ */
+export function isConversationSummaryEnabled(sessionId) {
+  const session = sessions.getById(sessionId);
+  if (!session) return false;
+
+  const project = projects.getById(session.projectId);
+  return !project?.disableConversationSummaries;
 }
 
 /**

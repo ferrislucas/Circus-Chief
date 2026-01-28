@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { readFileSync, existsSync } from 'fs';
 import { extname, resolve, normalize } from 'path';
-import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons, commandRuns } from '../database.js';
+import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons, commandRuns, modelProviders } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession, continueSessionWithExistingMessage } from '../services/sessionManager.js';
 import { getChanges, getChangesBranch } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -317,7 +317,11 @@ router.post('/:id/message', upload.array('files', 10), handleUploadError, async 
   }
 
   const content = req.body.content;
+  const model = req.body.model || null; // Model to use for this message
   const files = req.files || [];
+
+  // [MODEL AUDIT] Log model received from request
+  console.log(`[MODEL AUDIT - API] POST /sessions/${req.params.id}/message - model from request: "${model}"`);
 
   if (!content) {
     return res.status(400).json({ error: 'Content is required' });
@@ -340,8 +344,11 @@ router.post('/:id/message', upload.array('files', 10), handleUploadError, async 
     // Store file attachments if any - saves to disk in workingDirectory/.attachments
     const messageAttachments = attachments.createBatch(session.id, null, files, workingDirectory);
 
-    // Start continuation (non-blocking) - pass attachments for context
-    continueSession(session.id, content, workingDirectory, project.systemPrompt, messageAttachments).catch((error) => {
+    // [MODEL AUDIT] Log model being passed to continueSession
+    console.log(`[MODEL AUDIT - API] Calling continueSession with model: "${model}"`);
+
+    // Start continuation (non-blocking) - pass attachments for context and model
+    continueSession(session.id, content, workingDirectory, project.systemPrompt, messageAttachments, model).catch((error) => {
       console.error('Continue session error:', error);
     });
     res.json({ success: true });
@@ -469,6 +476,9 @@ router.post('/:id/start', async (req, res) => {
     // Use gitWorktree if set, otherwise use project's working directory
     const workingDirectory = session.gitWorktree || project.workingDirectory;
 
+    // Model to use for this session (optional - SDK will use default if not provided)
+    const model = req.body.model || null;
+
     // Get or create the initial user message (prompt)
     let userMessages = allMessages.filter(msg => msg.role === 'user');
     let initialMessage;
@@ -529,7 +539,7 @@ router.post('/:id/start', async (req, res) => {
 
     // Start session manager (non-blocking)
     const { runSession } = await import('../services/sessionManager.js');
-    runSession(session.id, finalPrompt, workingDirectory, project.systemPrompt, sessionAttachments, session.model).catch((error) => {
+    runSession(session.id, finalPrompt, workingDirectory, project.systemPrompt, sessionAttachments, model).catch((error) => {
       console.error('Session error:', error);
       sessions.update(session.id, { status: 'error', error: error.message });
     });
@@ -638,7 +648,7 @@ router.post('/:id/conversations', async (req, res) => {
 
   // Auto-generate summary for the current active conversation before creating new one
   const previousActive = conversations.getActiveBySessionId(req.params.id);
-  if (previousActive && !previousActive.summary) {
+  if (previousActive && !previousActive.summary && summaryService.isConversationSummaryEnabled(req.params.id)) {
     // Generate summary in background (don't block the request)
     summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
       console.error('Failed to generate conversation summary:', err);
@@ -690,7 +700,8 @@ router.patch('/:id/conversations/:convId', async (req, res) => {
   // If switching to this conversation, generate summary for the previous active one
   if (isActive && !conversation.isActive) {
     const previousActive = conversations.getActiveBySessionId(req.params.id);
-    if (previousActive && previousActive.id !== req.params.convId && !previousActive.summary) {
+    if (previousActive && previousActive.id !== req.params.convId && !previousActive.summary &&
+        summaryService.isConversationSummaryEnabled(req.params.id)) {
       // Generate summary in background
       summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
         console.error('Failed to generate conversation summary:', err);
@@ -800,6 +811,15 @@ router.post('/:id/conversations/:convId/branch', async (req, res) => {
       prompt
     );
 
+    // Generate summary for the previous active conversation before branching
+    const previousActive = conversations.getActiveBySessionId(req.params.id);
+    if (previousActive && !previousActive.summary && summaryService.isConversationSummaryEnabled(req.params.id)) {
+      // Generate summary in background (don't block the request)
+      summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
+        console.error('Failed to generate conversation summary:', err);
+      });
+    }
+
     // Broadcast the new conversation to session subscribers
     broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CONVERSATION_CREATED, {
       sessionId: req.params.id,
@@ -873,6 +893,7 @@ router.patch('/:id', (req, res) => {
     mode,
     nextTemplateId,
     model,
+    providerId,
     prUrl,
     // Scheduling fields
     scheduledAt,
@@ -916,11 +937,17 @@ router.patch('/:id', (req, res) => {
     updateData.nextTemplateId = nextTemplateId;
   }
   if (model !== undefined) {
-    const validModels = ['claude-sonnet-4-5-20250929', 'claude-opus-4-5-20251101', 'claude-haiku-4-5-20251001'];
-    if (!validModels.includes(model)) {
-      return res.status(400).json({ error: 'Invalid model. Must be one of: ' + validModels.join(', ') });
-    }
     updateData.model = model;
+  }
+  // Provider ID - allow setting, updating, or clearing (null clears it to use Anthropic)
+  if (providerId !== undefined) {
+    if (providerId !== null) {
+      const provider = modelProviders.getById(providerId);
+      if (!provider) {
+        return res.status(400).json({ error: 'Provider not found' });
+      }
+    }
+    updateData.providerId = providerId;
   }
   // PR URL - allow setting, updating, or clearing (null or empty string clears it)
   if (prUrl !== undefined) {

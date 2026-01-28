@@ -39,53 +39,6 @@
       </div>
     </div>
 
-    <!-- Conversations Section -->
-    <div class="conversations-section">
-      <h3>Conversations</h3>
-
-      <div v-if="loadingConversations" class="loading-state">
-        <span class="loading-spinner"></span>
-        Loading conversations...
-      </div>
-
-      <div v-else-if="conversations.length === 0" class="empty-conversations">
-        <p>No conversations yet.</p>
-      </div>
-
-      <div v-else class="conversation-cards">
-        <div
-          v-for="conv in conversations"
-          :key="conv.id"
-          :class="['conversation-card card', { active: conv.isActive }]"
-        >
-          <div class="conv-header">
-            <span class="conv-number">{{ getConversationNumber(conv.id) }}.</span>
-            <span class="conv-name">{{ conv.name || 'Untitled' }}</span>
-            <span v-if="conv.isActive" class="active-badge">Active</span>
-            <span class="conv-meta">{{ conv.messageCount || 0 }} msgs</span>
-          </div>
-
-          <div class="conv-summary">
-            <template v-if="conv.summary">
-              {{ conv.summary }}
-            </template>
-            <template v-else-if="conv.isActive">
-              <span class="pending-summary">Summary will generate when conversation ends</span>
-            </template>
-            <template v-else>
-              <span class="pending-summary">No summary available</span>
-            </template>
-          </div>
-
-          <div class="conv-footer">
-            <button class="btn-link" @click="viewConversation(conv.id)">
-              View Conversation
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Session Summary Section (existing) -->
     <div v-if="loading" class="loading-state">
       <span class="loading-spinner"></span>
@@ -185,6 +138,53 @@
           <span v-if="generatingManual" class="loading-spinner"></span>
           Regenerate
         </button>
+      </div>
+    </div>
+
+    <!-- Conversations Section -->
+    <div class="conversations-section">
+      <h3>Conversations</h3>
+
+      <div v-if="loadingConversations" class="loading-state">
+        <span class="loading-spinner"></span>
+        Loading conversations...
+      </div>
+
+      <div v-else-if="conversations.length === 0" class="empty-conversations">
+        <p>No conversations yet.</p>
+      </div>
+
+      <div v-else class="conversation-cards">
+        <div
+          v-for="conv in conversations"
+          :key="conv.id"
+          :class="['conversation-card card', { active: conv.isActive }]"
+        >
+          <div class="conv-header">
+            <span class="conv-number">{{ getConversationNumber(conv.id) }}.</span>
+            <span class="conv-name">{{ conv.name || 'Untitled' }}</span>
+            <span v-if="conv.isActive" class="active-badge">Active</span>
+            <span class="conv-meta">{{ conv.messageCount || 0 }} msgs</span>
+          </div>
+
+          <div class="conv-summary">
+            <template v-if="conv.summary">
+              {{ conv.summary }}
+            </template>
+            <template v-else-if="conv.isActive">
+              <span class="pending-summary">Summary will generate when conversation ends</span>
+            </template>
+            <template v-else>
+              <span class="pending-summary">No summary available</span>
+            </template>
+          </div>
+
+          <div class="conv-footer">
+            <button class="btn-link" @click="viewConversation(conv.id)">
+              View Conversation
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
