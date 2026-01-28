@@ -24,6 +24,7 @@
     "liquidjs": "^10.24.0",
     "multer": "^1.4.5-lts.1",
     "ws": "^8.18.0",
+    "yaml": "^2.8.2",
     "zod": "^4.2.1"
   },
   "devDependencies": {

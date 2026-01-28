@@ -1,31 +1,31 @@
 <template>
   <div class="model-selector">
-    <label for="model-select" class="model-label">Model:</label>
     <select
       id="model-select"
       :value="selectedModel"
       @change="handleModelChange($event.target.value)"
-      :disabled="disabled || togglingModel"
+      :disabled="disabled"
       class="model-select"
     >
-      <option v-for="m in models" :key="m.id" :value="m.id">
-        {{ m.name }}
-      </option>
+      <optgroup v-for="provider in providersStore.providers" :key="provider.id" :label="provider.name">
+        <option
+          v-for="model in provider.models"
+          :key="model.id"
+          :value="model.modelId"
+          :data-provider-id="provider.id"
+        >
+          {{ provider.isBuiltIn ? model.displayName : model.modelId }}
+        </option>
+      </optgroup>
     </select>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, toRef } from 'vue';
-import { CLAUDE_MODELS } from '@claudetools/shared';
-import { useSessionsStore } from '../stores/sessions.js';
-import { useUiStore } from '../stores/ui.js';
+import { ref, computed, watch, toRef, onMounted } from 'vue';
+import { useProvidersStore } from '../stores/providers.js';
 
 const props = defineProps({
-  sessionId: {
-    type: String,
-    default: null,
-  },
   modelValue: {
     type: String,
     default: null,
@@ -38,54 +38,67 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue']);
 
-const sessionsStore = useSessionsStore();
-const uiStore = useUiStore();
-const models = CLAUDE_MODELS;
-const togglingModel = ref(false);
+const providersStore = useProvidersStore();
 
-// Use store state when sessionId provided, otherwise use modelValue prop
-const currentModel = computed(() => {
-  if (props.sessionId) {
-    return sessionsStore.currentSession?.model;
+// Check if providers have models loaded
+// Providers may have been fetched without models (e.g., from ProvidersView)
+const providersHaveModels = computed(() => {
+  return providersStore.providers.length > 0 &&
+    providersStore.providers.some(p => p.models && p.models.length > 0);
+});
+
+// Get default model from first available provider
+const defaultModel = computed(() => {
+  // Prefer built-in Anthropic provider's sonnet model
+  const builtIn = providersStore.providers.find(p => p.isBuiltIn);
+  if (builtIn?.models?.length) {
+    // Find sonnet tier if available, otherwise first model
+    const sonnet = builtIn.models.find(m => m.tier === 'sonnet');
+    return sonnet?.modelId || builtIn.models[0].modelId;
   }
-  return props.modelValue;
+  // Fallback to first provider's first model
+  const firstProvider = providersStore.providers[0];
+  return firstProvider?.models?.[0]?.modelId || null;
+});
+
+// Fetch providers with models on mount
+onMounted(async () => {
+  // Fetch if no providers OR if providers exist but don't have models loaded
+  if (providersStore.providers.length === 0 || !providersHaveModels.value) {
+    await providersStore.fetchProvidersWithModels();
+  }
+
+  // If no model is selected yet, emit the default
+  if (!props.modelValue && defaultModel.value) {
+    emit('update:modelValue', defaultModel.value);
+  }
 });
 
 // Local state for optimistic UI updates - provides immediate visual feedback
-const selectedModel = ref(currentModel.value);
+const selectedModel = ref(props.modelValue);
 
 // Watch for external changes to keep local selection in sync
-// Create a ref from the modelValue prop for reliable reactivity tracking
 const modelValueRef = toRef(props, 'modelValue');
-
-// Watch both the computed and the prop ref to ensure we catch all changes
-watch([currentModel, modelValueRef], ([newCurrentModel]) => {
-  selectedModel.value = newCurrentModel;
+watch(modelValueRef, (newModel) => {
+  selectedModel.value = newModel;
 }, { flush: 'sync' });
 
-async function handleModelChange(id) {
-  if (togglingModel.value) return;
-  if (selectedModel.value === id) return;
+// Also watch for default model becoming available (after providers load)
+watch(defaultModel, (newDefault) => {
+  if (!selectedModel.value && newDefault) {
+    selectedModel.value = newDefault;
+    emit('update:modelValue', newDefault);
+  }
+});
+
+function handleModelChange(modelId) {
+  if (selectedModel.value === modelId) return;
 
   // Immediate visual feedback - update UI right away
-  selectedModel.value = id;
+  selectedModel.value = modelId;
 
-  if (props.sessionId) {
-    // Session context: update store asynchronously
-    togglingModel.value = true;
-    try {
-      await sessionsStore.updateSessionModel(props.sessionId, id);
-    } catch (err) {
-      // Revert selection on error
-      selectedModel.value = currentModel.value;
-      uiStore.error(err.message);
-    } finally {
-      togglingModel.value = false;
-    }
-  } else {
-    // Form context: emit for v-model
-    emit('update:modelValue', id);
-  }
+  // Emit for v-model
+  emit('update:modelValue', modelId);
 }
 </script>
 
@@ -94,11 +107,6 @@ async function handleModelChange(id) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.model-label {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
 }
 
 .model-select {

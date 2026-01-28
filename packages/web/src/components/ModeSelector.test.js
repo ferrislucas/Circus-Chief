@@ -37,11 +37,6 @@ describe('ModeSelector', () => {
   };
 
   describe('rendering', () => {
-    it('renders mode label', () => {
-      const wrapper = mountComponent();
-      expect(wrapper.find('.mode-label').text()).toBe('Mode:');
-    });
-
     it('renders a select dropdown', () => {
       const wrapper = mountComponent();
       expect(wrapper.find('select').exists()).toBe(true);

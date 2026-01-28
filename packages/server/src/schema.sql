@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS projects (
   pr_poll_interval INTEGER NOT NULL DEFAULT 60000,  -- PR status poll interval in ms (default 1 minute)
   disable_session_summaries INTEGER NOT NULL DEFAULT 0,  -- Disable automatic session summary generation
   disable_conversation_summaries INTEGER NOT NULL DEFAULT 0,  -- Disable automatic conversation summary generation
+  repo_url TEXT,  -- GitHub repository URL for PR validation
+  summary_debounce_ms INTEGER NOT NULL DEFAULT 60000,  -- Summary generation debounce delay in ms (default 60 seconds)
+  session_title_prompt TEXT,  -- Custom prompt for generating session titles
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -24,6 +27,7 @@ CREATE TABLE IF NOT EXISTS session_templates (
   thinking_enabled INTEGER,
   git_branch TEXT,
   git_mode TEXT,
+  model TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -43,7 +47,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   error TEXT,
   cost_usd REAL DEFAULT 0,
   claude_session_id TEXT,
-  model TEXT,
   next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
   parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
@@ -222,6 +225,33 @@ CREATE TABLE IF NOT EXISTS quick_responses (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
+-- Model providers (custom API endpoints for Claude)
+CREATE TABLE IF NOT EXISTS model_providers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  base_url TEXT,
+  auth_token TEXT,
+  default_opus_model TEXT,
+  default_sonnet_model TEXT,
+  default_haiku_model TEXT,
+  api_timeout_ms INTEGER,
+  additional_env_vars TEXT,
+  is_built_in INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
+-- Provider models (custom models available per provider)
+CREATE TABLE IF NOT EXISTS provider_models (
+  id TEXT PRIMARY KEY,
+  provider_id TEXT NOT NULL REFERENCES model_providers(id) ON DELETE CASCADE,
+  model_id TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  description TEXT,
+  tier TEXT CHECK(tier IN ('opus', 'sonnet', 'haiku', 'custom')),
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
@@ -252,3 +282,4 @@ CREATE INDEX IF NOT EXISTS idx_command_runs_button ON command_runs(button_id);
 CREATE INDEX IF NOT EXISTS idx_command_runs_status ON command_runs(status);
 CREATE INDEX IF NOT EXISTS idx_quick_responses_project ON quick_responses(project_id);
 CREATE INDEX IF NOT EXISTS idx_quick_responses_sort ON quick_responses(project_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
