@@ -119,14 +119,16 @@ export async function checkAndTriggerNextTemplate(sessionId) {
       renderedPrompt,
       mode, // Use mode from template or parent
       thinkingEnabled,
-      gitBranch
+      gitBranch,
+      null, // parentSessionId - will be set below
+      'starting',
+      model // Use model from template or parent
     );
 
     // Set the parent session reference and inherit the template's next template for chaining
     sessions.update(newSession.id, {
       parentSessionId: session.id,
       nextTemplateId: template.nextTemplateId || null,
-      model, // Set model from template
     });
 
     // Determine working directory: inherit from parent if it has a worktree

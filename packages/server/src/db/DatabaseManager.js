@@ -380,7 +380,7 @@ export class DatabaseManager {
       this.#db.exec('ALTER TABLE session_templates ADD COLUMN model TEXT');
     }
     if (!templatesColumns.includes('mode')) {
-      this.#db.exec('ALTER TABLE session_templates ADD COLUMN mode TEXT DEFAULT "yolo" CHECK(mode IN ("plan", "standard", "yolo"))');
+      this.#db.exec('ALTER TABLE session_templates ADD COLUMN mode TEXT DEFAULT \'yolo\' CHECK(mode IN (\'plan\', \'standard\', \'yolo\'))');
     }
 
     // Add model column to conversation_messages table (Issue: track model per message)
