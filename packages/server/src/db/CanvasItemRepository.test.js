@@ -42,6 +42,8 @@ describe('CanvasItemRepository', () => {
       expect(item.type).toBe('markdown');
       expect(item.content).toBe('# Hello World');
       expect(item.createdAt).toBeTypeOf('number');
+      expect(item.updatedAt).toBeTypeOf('number');
+      expect(item.updatedAt).toBe(item.createdAt);
     });
 
     it('creates canvas item with label', () => {
@@ -495,6 +497,19 @@ describe('CanvasItemRepository', () => {
         const recoveredItem = repo.recover(item.id);
 
         expect(recoveredItem.deletedAt).toBeNull();
+      });
+
+      it('updates updatedAt timestamp when recovering', async () => {
+        const item = repo.create(sessionId, { type: 'text', content: 'To recover' });
+        const originalUpdatedAt = item.updatedAt;
+
+        // Add a small delay to ensure timestamp difference
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        repo.softDelete(item.id);
+        const recoveredItem = repo.recover(item.id);
+
+        expect(recoveredItem.updatedAt).toBeGreaterThan(originalUpdatedAt);
       });
 
       it('returns the recovered item', () => {

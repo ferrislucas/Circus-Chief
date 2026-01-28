@@ -11,7 +11,10 @@
           ← Canvas
         </button>
         <span class="breadcrumb-separator">/</span>
-        <span class="viewer-filename">{{ item.filename || 'Untitled' }}</span>
+        <div class="viewer-filename-wrapper">
+          <span class="viewer-filename">{{ item.filename || 'Untitled' }}</span>
+          <span class="viewer-meta">{{ formatLastModified(item.updatedAt) }}</span>
+        </div>
       </div>
 
       <div class="viewer-header-right">
@@ -358,6 +361,22 @@ function formatRelativeTime(timestamp) {
   return 'just now';
 }
 
+function formatLastModified(timestamp) {
+  if (!timestamp) return '';
+  const now = Date.now();
+  const diff = now - timestamp;
+
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `Modified ${days}d ago`;
+  if (hours > 0) return `Modified ${hours}h ago`;
+  if (minutes > 0) return `Modified ${minutes}m ago`;
+  return 'Modified just now';
+}
+
 function formatJson(data) {
   try {
     return JSON.stringify(JSON.parse(data), null, 2);
@@ -429,14 +448,32 @@ function selectVersion(itemId) {
   font-size: 0.875rem;
 }
 
+.viewer-filename-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
 .viewer-filename {
   font-weight: 600;
   font-size: 1rem;
-  min-width: 0;
-  flex: 1;
   word-break: break-word;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.viewer-meta {
+  color: var(--color-text-soft);
+  font-size: 0.75rem;
+  font-weight: 400;
+  margin-top: 0.125rem;
+}
+
+@media (max-width: 640px) {
+  .viewer-meta {
+    font-size: 0.6875rem;
+  }
 }
 
 /* Version dropdown */
