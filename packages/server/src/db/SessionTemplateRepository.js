@@ -58,7 +58,7 @@ export class SessionTemplateRepository extends BaseRepository {
         data.gitBranch || null,
         data.gitMode || null,
         data.model || null,
-        data.mode || null,
+        data.mode !== undefined && data.mode !== null ? data.mode : 'yolo',
         now,
         now
       );
