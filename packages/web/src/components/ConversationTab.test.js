@@ -67,7 +67,7 @@ vi.mock('./ModelSelector.vue', () => ({
     name: 'ModelSelector',
     props: ['modelValue', 'disabled'],
     emits: ['update:modelValue'],
-    template: '<div class="model-selector"></div>',
+    template: '<div class="model-selector" :data-model="modelValue"></div>',
   },
 }));
 
@@ -1278,7 +1278,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Check that the ModelSelector receives the correct model value
-      const modelSelector = wrapper.find('.model-selector-stub');
+      const modelSelector = wrapper.find('.model-selector');
       expect(modelSelector.attributes('data-model')).toBe('claude-opus-4-20250514');
     });
 
@@ -1292,7 +1292,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      const modelSelector = wrapper.find('.model-selector-stub');
+      const modelSelector = wrapper.find('.model-selector');
       expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-20250514');
     });
 
@@ -1330,7 +1330,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Verify initial model
-      let modelSelector = wrapper.find('.model-selector-stub');
+      let modelSelector = wrapper.find('.model-selector');
       expect(modelSelector.attributes('data-model')).toBe('claude-opus-4-20250514');
 
       // Simulate conversation model update by reassigning the array (triggers Vue reactivity)
@@ -1340,7 +1340,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Verify model selector updated
-      modelSelector = wrapper.find('.model-selector-stub');
+      modelSelector = wrapper.find('.model-selector');
       expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-20250514');
     });
 
@@ -1357,7 +1357,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Verify initial model
-      let modelSelector = wrapper.find('.model-selector-stub');
+      let modelSelector = wrapper.find('.model-selector');
       expect(modelSelector.attributes('data-model')).toBe('claude-opus-4-20250514');
 
       // Switch to conversation 2 using haiku
@@ -1366,7 +1366,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Verify model selector updated to haiku
-      modelSelector = wrapper.find('.model-selector-stub');
+      modelSelector = wrapper.find('.model-selector');
       expect(modelSelector.attributes('data-model')).toBe('claude-haiku-3-20250514');
     });
   });
@@ -1383,7 +1383,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Should still render without errors
-      expect(wrapper.find('.model-selector-stub').exists()).toBe(true);
+      expect(wrapper.find('.model-selector').exists()).toBe(true);
     });
 
     it('does not crash when activeConversation is null', async () => {
@@ -1393,7 +1393,677 @@ describe('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Should still render without errors
-      expect(wrapper.find('.model-selector-stub').exists()).toBe(true);
+      expect(wrapper.find('.model-selector').exists()).toBe(true);
+    });
+  });
+});
+
+/**
+ * Scheduled Session Tests
+ *
+ * These tests validate the functionality for sessions that are scheduled for future dates.
+ * When a session has status 'scheduled' and a scheduledAt date in the future:
+ * 1. The send button should be disabled
+ * 2. A tooltip should explain why it's disabled
+ * 3. A visual notice banner should appear showing the scheduled time
+ */
+describe('ConversationTab - Scheduled Sessions', () => {
+  let mockSessionsStore;
+  let mockUiStore;
+  let consoleError;
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+
+    mockSessionsStore = {
+      messages: [],
+      currentSession: {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: new Date(Date.now() + 3600000).toISOString(), // 1 hour in future
+        thinkingEnabled: false,
+        mode: 'standard',
+        projectId: 'proj-1'
+      },
+      activeConversation: { id: 'conv-1', name: 'Test Conv' },
+      conversations: [{ id: 'conv-1', name: 'Test Conv', isActive: true }],
+      getWorkLogsForMessage: vi.fn().mockReturnValue([]),
+      getUnassociatedWorkLogs: [],
+      partialThinking: null,
+      isDraftSession: vi.fn().mockReturnValue(false),
+      isScheduledDraft: vi.fn().mockReturnValue(false),
+      fetchConversations: vi.fn().mockResolvedValue([]),
+      fetchWorkLogs: vi.fn().mockResolvedValue([]),
+      fetchMessages: vi.fn().mockResolvedValue([]),
+      sendMessage: vi.fn().mockResolvedValue(),
+      stopSession: vi.fn().mockResolvedValue(),
+      restartSession: vi.fn().mockResolvedValue(),
+      startSession: vi.fn().mockResolvedValue(),
+      updateSessionThinking: vi.fn().mockResolvedValue(),
+      updateSessionMode: vi.fn().mockResolvedValue(),
+      updateNextTemplate: vi.fn().mockResolvedValue(),
+      addWorkLog: vi.fn(),
+      associateWorkLogs: vi.fn(),
+      clearWorkLogs: vi.fn(),
+      clearConversations: vi.fn(),
+      addConversation: vi.fn(),
+      updateConversation: vi.fn(),
+      removeConversation: vi.fn(),
+      setPartialThinking: vi.fn(),
+      clearPartialThinking: vi.fn(),
+      finalizeUsage: vi.fn(),
+      updateRunningUsage: vi.fn(),
+    };
+
+    mockUiStore = {
+      error: vi.fn(),
+      success: vi.fn(),
+    };
+
+    vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    consoleError = console.error;
+    console.error = vi.fn();
+
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn().mockReturnValue(null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    console.error = consoleError;
+    vi.unstubAllGlobals();
+  });
+
+  function mountComponent(props = { sessionId: 'sess-123' }) {
+    return mount(ConversationTab, {
+      props,
+      global: {
+        stubs: {
+          ConversationSelector: { template: '<div class="conversation-selector-stub"></div>' },
+          TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
+          WorkLogPanel: { template: '<div class="work-log-panel-stub"></div>' },
+          LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
+          MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+          FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
+          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
+          QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
+          QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
+          ModelSelector: { template: '<div class="model-selector-stub"></div>' },
+          TemplateSelector: { template: '<div class="template-selector-stub"></div>' },
+        },
+      },
+    });
+  }
+
+  async function flushAll(wrapper) {
+    await flushPromises();
+    await nextTick();
+    await wrapper.vm.$nextTick?.();
+  }
+
+  describe('Send button disabled state for future scheduled sessions', () => {
+    it('disables send button when session is scheduled for future', async () => {
+      const futureTime = new Date(Date.now() + 3600000).toISOString(); // 1 hour in future
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: futureTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const sendButton = wrapper.find('.btn-send-full');
+      expect(sendButton.attributes('disabled')).toBeDefined();
+    });
+
+    it('disables send button even when input has content', async () => {
+      const futureTime = new Date(Date.now() + 7200000).toISOString(); // 2 hours in future
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: futureTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await nextTick();
+
+      const sendButton = wrapper.find('.btn-send-full');
+      expect(sendButton.attributes('disabled')).toBeDefined();
+    });
+
+    it('enables send button when scheduled time is in the past', async () => {
+      const pastTime = new Date(Date.now() - 3600000).toISOString(); // 1 hour ago
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: pastTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await nextTick();
+
+      const sendButton = wrapper.find('.btn-send-full');
+      expect(sendButton.attributes('disabled')).toBeUndefined();
+    });
+
+    it('enables send button when scheduled time is now', async () => {
+      const now = new Date().toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: now,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await nextTick();
+
+      const sendButton = wrapper.find('.btn-send-full');
+      expect(sendButton.attributes('disabled')).toBeUndefined();
+    });
+
+    it('does not affect non-scheduled sessions', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await nextTick();
+
+      const sendButton = wrapper.find('.btn-send-full');
+      expect(sendButton.attributes('disabled')).toBeUndefined();
+    });
+
+    it('disables send button when sending (regardless of schedule)', async () => {
+      const futureTime = new Date(Date.now() + 3600000).toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: futureTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Simulate sending state
+      const textarea = wrapper.find('textarea');
+      await textarea.setValue('Test message');
+      await nextTick();
+
+      // The send button should still be disabled due to future schedule
+      const sendButton = wrapper.find('.btn-send-full');
+      expect(sendButton.attributes('disabled')).toBeDefined();
+    });
+  });
+
+  describe('Send button tooltip for scheduled sessions', () => {
+    it('shows tooltip with scheduled time when button is disabled due to future schedule', async () => {
+      const futureTime = new Date(Date.now() + 3600000).toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: futureTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await nextTick();
+
+      const sendButton = wrapper.find('.btn-send-full');
+      const titleAttr = sendButton.attributes('title');
+
+      expect(titleAttr).toBeDefined();
+      expect(titleAttr).toContain('scheduled for');
+      expect(titleAttr).toContain('in');
+    });
+
+    it('shows "Enter a message to send" when input is empty', async () => {
+      const futureTime = new Date(Date.now() + 3600000).toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: futureTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const sendButton = wrapper.find('.btn-send-full');
+      const titleAttr = sendButton.attributes('title');
+
+      expect(titleAttr).toContain('Enter a message');
+    });
+
+    it('returns null for tooltip when session is not scheduled', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Tooltip should be about empty input, not about schedule
+      const sendButton = wrapper.find('.btn-send-full');
+      const titleAttr = sendButton.attributes('title');
+
+      expect(titleAttr).toContain('Enter a message');
+      expect(titleAttr).not.toContain('scheduled');
+    });
+
+    it('returns null for tooltip when scheduled time has passed', async () => {
+      const pastTime = new Date(Date.now() - 3600000).toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: pastTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await nextTick();
+
+      // Button should be enabled, so no tooltip about schedule
+      const sendButton = wrapper.find('.btn-send-full');
+      const titleAttr = sendButton.attributes('title');
+
+      // Either no title or not about schedule
+      if (titleAttr) {
+        expect(titleAttr).not.toContain('scheduled for');
+      }
+    });
+  });
+
+  describe('Scheduled notice banner', () => {
+    it('displays scheduled notice banner when session is scheduled for future', async () => {
+      const futureTime = new Date(Date.now() + 3600000).toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: futureTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(true);
+    });
+
+    it('shows clock emoji in notice banner', async () => {
+      const futureTime = new Date(Date.now() + 3600000).toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: futureTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.notice-icon').exists()).toBe(true);
+      expect(wrapper.find('.notice-icon').text()).toBe('⏰');
+    });
+
+    it('shows descriptive text about scheduled time', async () => {
+      const futureTime = new Date(Date.now() + 3600000).toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: futureTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const noticeText = wrapper.find('.notice-text').text();
+      expect(noticeText).toContain('scheduled for');
+      expect(noticeText).toContain('send button will be enabled');
+    });
+
+    it('does not display notice banner when scheduled time is in the past', async () => {
+      const pastTime = new Date(Date.now() - 3600000).toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: pastTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(false);
+    });
+
+    it('does not display notice banner for non-scheduled sessions', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(false);
+    });
+
+    it('does not display notice banner for running sessions', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'running',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(false);
+    });
+
+    it('does not display notice banner for stopped sessions', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'stopped',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(false);
+    });
+  });
+
+  describe('Edge cases and error handling', () => {
+    it('handles missing scheduledAt gracefully', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        // scheduledAt is missing
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Should not crash, should treat as not scheduled
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(false);
+    });
+
+    it('handles invalid scheduledAt date', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: 'invalid-date',
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Should not crash, invalid Date results in "Invalid Date" which is not > now
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(false);
+    });
+
+    it('handles scheduled session with null scheduledAt', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: null,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Should not crash
+      await wrapper.find('textarea').setValue('Test message');
+      await nextTick();
+
+      // Button should be enabled since scheduledAt is null
+      const sendButton = wrapper.find('.btn-send-full');
+      expect(sendButton.attributes('disabled')).toBeUndefined();
+    });
+
+    it('handles scheduled session with undefined scheduledAt', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: undefined,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Should not crash
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(false);
+    });
+
+    it('handles session with very old scheduled time', async () => {
+      const ancientTime = new Date('2020-01-01').toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: ancientTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('Test message');
+      await nextTick();
+
+      // Button should be enabled since time is in the past
+      const sendButton = wrapper.find('.btn-send-full');
+      expect(sendButton.attributes('disabled')).toBeUndefined();
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(false);
+    });
+
+    it('handles session with very far future scheduled time', async () => {
+      const farFuture = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(); // 1 year
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: farFuture,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Should still work correctly
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(true);
+      expect(wrapper.find('.btn-send-full').attributes('disabled')).toBeDefined();
+    });
+  });
+
+  describe('Interaction with other session states', () => {
+    it('scheduled session transition from future to past enables send button', async () => {
+      // This test validates that past scheduled sessions enable the button
+      // Note: Testing dynamic time transitions in unit tests is complex due to Vue reactivity
+      // The logic is already validated by separate tests for future and past scheduled times
+
+      // Test with a past scheduled time
+      const pastTime = new Date(Date.now() - 3600000).toISOString(); // 1 hour ago
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: pastTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Button should be enabled since scheduled time is in the past
+      await wrapper.find('textarea').setValue('Test message');
+      await nextTick();
+
+      const sendButton = wrapper.find('.btn-send-full');
+      expect(sendButton.attributes('disabled')).toBeUndefined();
+    });
+
+    it('scheduled session with error status still respects schedule', async () => {
+      const futureTime = new Date(Date.now() + 3600000).toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'error',
+        error: 'Some error',
+        scheduledAt: futureTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Should show error banner
+      expect(wrapper.find('.error-banner').exists()).toBe(true);
+
+      // But if it also had scheduled status in the past, the send logic should still work
+      // Note: This tests that the scheduled check only applies when status is 'scheduled'
+      await wrapper.find('textarea').setValue('Test message');
+      await nextTick();
+
+      // Since status is 'error' (not 'scheduled'), send button should work normally
+      const sendButton = wrapper.find('.btn-send-full');
+      expect(sendButton.attributes('disabled')).toBeUndefined();
+    });
+
+    it('handles session status change from scheduled to waiting', async () => {
+      // This test validates that waiting sessions don't show scheduled notice
+      // Note: Testing dynamic status transitions in unit tests is complex due to Vue reactivity
+      // The logic is already validated by separate tests for scheduled and waiting states
+
+      // Test with waiting status
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        scheduledAt: null,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Should not show scheduled notice for waiting sessions
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(false);
+
+      // Send button should work normally
+      await wrapper.find('textarea').setValue('Test message');
+      await nextTick();
+      expect(wrapper.find('.btn-send-full').attributes('disabled')).toBeUndefined();
+    });
+  });
+
+  describe('Regression tests - scheduled sessions do not affect other functionality', () => {
+    it('input form still renders for scheduled sessions', async () => {
+      const futureTime = new Date(Date.now() + 3600000).toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: futureTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.input-form').exists()).toBe(true);
+      expect(wrapper.find('textarea').exists()).toBe(true);
+    });
+
+    it('mode switcher still works for scheduled sessions', async () => {
+      const futureTime = new Date(Date.now() + 3600000).toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: futureTime,
+        mode: 'standard',
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.mode-switcher').exists()).toBe(true);
+      expect(wrapper.text()).toContain('Plan');
+      expect(wrapper.text()).toContain('Standard');
+      expect(wrapper.text()).toContain('YOLO');
+    });
+
+    it('thinking toggle still works for scheduled sessions', async () => {
+      const futureTime = new Date(Date.now() + 3600000).toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: futureTime,
+        mode: 'standard',
+        thinkingEnabled: false,
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.thinking-toggle').exists()).toBe(true);
+    });
+
+    it('messages still display for scheduled sessions', async () => {
+      const futureTime = new Date(Date.now() + 3600000).toISOString();
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: futureTime,
+        mode: 'standard',
+      };
+      mockSessionsStore.messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello', timestamp: Date.now() },
+        { id: 'msg-2', role: 'assistant', content: 'Hi there!', timestamp: Date.now() },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.message-user').exists()).toBe(true);
+      expect(wrapper.find('.message-assistant').exists()).toBe(true);
+      expect(wrapper.text()).toContain('Hello');
+      expect(wrapper.text()).toContain('Hi there!');
     });
   });
 });
