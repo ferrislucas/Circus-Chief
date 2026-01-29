@@ -444,9 +444,10 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
     }
 
     // Check if session summaries are disabled for this project
+    // Skip this check if force=true (manual regeneration should always work)
     const project = projects.getById(session.projectId);
-    if (project?.disableSessionSummaries) {
-      console.log(`[SummaryService] Session summaries disabled for project ${session.projectId}, skipping generation`);
+    if (!force && project?.disableSessionSummaries) {
+      console.log(`[SummaryService] Session summaries disabled for project ${session.projectId}, skipping automatic generation`);
       return null;
     }
 
