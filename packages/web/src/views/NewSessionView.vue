@@ -6,6 +6,27 @@
     <h1>New Session</h1>
 
     <form @submit.prevent="handleSubmit" class="form card">
+      <!-- NEW: Start From Template selector - populates all fields -->
+      <div v-if="allTemplates.length > 0" class="form-group template-prefill-section">
+        <label class="form-label" for="start-from-template">Start From Template (optional)</label>
+        <select id="start-from-template" v-model="startFromTemplateId" class="form-input" @change="handleStartFromTemplateChange">
+          <option :value="null">Select a template to pre-fill the form...</option>
+          <optgroup v-if="projectTemplates.length" label="Project Templates">
+            <option v-for="template in projectTemplates" :key="template.id" :value="template.id">
+              {{ template.name }}
+            </option>
+          </optgroup>
+          <optgroup v-if="globalTemplates.length" label="Global Templates">
+            <option v-for="template in globalTemplates" :key="template.id" :value="template.id">
+              {{ template.name }}
+            </option>
+          </optgroup>
+        </select>
+        <p class="form-help">
+          Selecting a template will populate all form fields below. You can still edit before starting.
+        </p>
+      </div>
+
       <!-- Quick Responses Panel - shows quick response templates above the prompt -->
       <QuickResponsesPanel
         :show-empty="true"
@@ -136,9 +157,9 @@
         Loading git info...
       </div>
 
-      <!-- Session Template (optional) -->
+      <!-- Next Template (optional) -->
       <div v-if="allTemplates.length > 0" class="form-group">
-        <label class="form-label" for="template">Session Template (optional)</label>
+        <label class="form-label" for="template">Next Template (optional)</label>
         <select id="template" v-model="selectedTemplateId" class="form-input">
           <option :value="null">None - single session</option>
           <optgroup v-if="projectTemplates.length" label="Project Templates">
@@ -153,7 +174,7 @@
           </optgroup>
         </select>
         <p class="form-help">
-          When selected, the template's settings are applied and a new session will automatically start when Claude finishes.
+          After this session completes, the selected template will automatically start a new session.
         </p>
       </div>
 
@@ -247,6 +268,7 @@ const gitStatus = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
 const selectedTemplateId = ref(null);
+const startFromTemplateId = ref(null);
 const parentSessionId = ref(null);
 const startImmediately = ref(true);
 const schedulingData = ref({
@@ -518,6 +540,43 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
   }
 }
 
+function handleStartFromTemplateChange() {
+  if (!startFromTemplateId.value) return;
+
+  const template = templatesStore.getTemplateById(startFromTemplateId.value);
+  if (!template) return;
+
+  // Populate prompt
+  prompt.value = template.prompt;
+  if (textareaRef.value) {
+    textareaRef.value.value = template.prompt;
+    textareaRef.value.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // Populate other fields from template
+  if (template.thinkingEnabled !== null && template.thinkingEnabled !== undefined) {
+    thinkingEnabled.value = template.thinkingEnabled;
+  }
+  if (template.model) {
+    model.value = template.model;
+  }
+  if (template.mode) {
+    mode.value = template.mode;
+  }
+  if (template.gitBranch) {
+    quickWorktreeBranch.value = template.gitBranch;
+    editingBranch.value = true; // Mark as edited so it doesn't auto-regenerate
+  }
+  if (template.gitMode) {
+    quickGitMode.value = template.gitMode;
+  }
+
+  // IMPORTANT: Also set the "Next Template" dropdown to the template's nextTemplateId
+  if (template.nextTemplateId) {
+    selectedTemplateId.value = template.nextTemplateId;
+  }
+}
+
 async function handleSubmit() {
   // Read directly from textarea in case debounce timer hasn't fired
   const currentPrompt = textareaRef.value?.value || prompt.value;
@@ -587,6 +646,14 @@ h1 {
   margin: 0.5rem 0 0;
   font-size: 0.75rem;
   color: var(--color-text-soft);
+}
+
+.template-prefill-section {
+  background-color: var(--color-bg-soft);
+  padding: 1rem;
+  border-radius: 0.5rem;
+  border: 1px dashed var(--color-border);
+  margin-bottom: 1rem;
 }
 
 .attachment-row {

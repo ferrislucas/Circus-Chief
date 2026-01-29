@@ -106,6 +106,8 @@ export async function checkAndTriggerNextTemplate(sessionId) {
     const thinkingEnabled = template.thinkingEnabled !== null ? template.thinkingEnabled : session.thinkingEnabled;
     const gitBranch = template.gitBranch || session.gitBranch;
     const gitMode = template.gitMode || null;
+    const model = template.model || session.model;
+    const mode = template.mode || session.mode;
 
     // Generate a name for the new session
     const newSessionName = `${template.name} (from: ${session.name})`;
@@ -115,9 +117,12 @@ export async function checkAndTriggerNextTemplate(sessionId) {
       session.projectId,
       newSessionName,
       renderedPrompt,
-      session.mode, // Inherit mode from parent
+      mode, // Use mode from template or parent
       thinkingEnabled,
-      gitBranch
+      gitBranch,
+      null, // parentSessionId - will be set below
+      'starting',
+      model // Use model from template or parent
     );
 
     // Set the parent session reference and inherit the template's next template for chaining

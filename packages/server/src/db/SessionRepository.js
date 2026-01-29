@@ -21,6 +21,7 @@ export class SessionRepository extends BaseRepository {
       name: row.name,
       status: row.status,
       mode: row.mode,
+      model: row.model,
       thinkingEnabled: Boolean(row.thinking_enabled),
       archived: Boolean(row.archived),
       starred: Boolean(row.starred),
@@ -57,15 +58,15 @@ export class SessionRepository extends BaseRepository {
     };
   }
 
-  create(projectId, name, prompt, mode = 'standard', thinkingEnabled = false, gitBranch = null, parentSessionId = null, status = 'starting') {
+  create(projectId, name, prompt, mode = 'standard', thinkingEnabled = false, gitBranch = null, parentSessionId = null, status = 'starting', model = null) {
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, projectId, name, status, mode, thinkingEnabled ? 1 : 0, gitBranch, parentSessionId, now, now);
+      .run(id, projectId, name, status, mode, thinkingEnabled ? 1 : 0, gitBranch, parentSessionId, model, now, now);
 
     // Create initial conversation
     const conversation = conversations.create(id, 'Initial', true);
@@ -211,6 +212,10 @@ export class SessionRepository extends BaseRepository {
     if (data.thinkingEnabled !== undefined) {
       updates.push('thinking_enabled = ?');
       values.push(data.thinkingEnabled ? 1 : 0);
+    }
+    if (data.model !== undefined) {
+      updates.push('model = ?');
+      values.push(data.model);
     }
     if (data.nextTemplateId !== undefined) {
       updates.push('next_template_id = ?');
