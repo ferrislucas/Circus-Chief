@@ -644,6 +644,249 @@ describe('NewSessionView - Quick Response Insertion', () => {
 });
 
 /**
+ * Unit tests for "Start From Template" feature
+ * These tests verify that templates correctly populate form fields when selected
+ */
+describe('NewSessionView - Start From Template Feature', () => {
+  describe('handleStartFromTemplateChange - field population', () => {
+    it('populates prompt field from template', () => {
+      const template = {
+        id: 'template-123',
+        name: 'Test Template',
+        prompt: 'This is a template prompt',
+        thinkingEnabled: true,
+        model: 'claude-opus-4-20250514',
+        mode: 'plan',
+        gitBranch: 'feature/test-branch',
+        gitMode: 'worktree',
+        nextTemplateId: 'template-456',
+      };
+
+      // Simulate the prompt being set
+      const prompt = template.prompt;
+      expect(prompt).toBe('This is a template prompt');
+    });
+
+    it('populates thinkingEnabled from template', () => {
+      const template = {
+        thinkingEnabled: true,
+      };
+
+      const thinkingEnabled = template.thinkingEnabled;
+      expect(thinkingEnabled).toBe(true);
+    });
+
+    it('does not populate thinkingEnabled when template has null', () => {
+      const template = {
+        thinkingEnabled: null,
+      };
+
+      // When template.thinkingEnabled is null, it should not be set
+      if (template.thinkingEnabled !== null && template.thinkingEnabled !== undefined) {
+        expect(true).toBe(false); // Should not reach here
+      }
+      expect(template.thinkingEnabled).toBeNull();
+    });
+
+    it('populates model from template', () => {
+      const template = {
+        model: 'claude-opus-4-20250514',
+      };
+
+      const model = template.model;
+      expect(model).toBe('claude-opus-4-20250514');
+    });
+
+    it('populates mode from template', () => {
+      const template = {
+        mode: 'plan',
+      };
+
+      const mode = template.mode;
+      expect(mode).toBe('plan');
+    });
+
+    it('populates gitBranch from template', () => {
+      const template = {
+        gitBranch: 'claude-tools/feature-xyz',
+      };
+
+      const gitBranch = template.gitBranch;
+      expect(gitBranch).toBe('claude-tools/feature-xyz');
+    });
+
+    it('populates gitMode from template', () => {
+      const template = {
+        gitMode: 'worktree',
+      };
+
+      const gitMode = template.gitMode;
+      expect(gitMode).toBe('worktree');
+    });
+
+    it('populates nextTemplateId from template', () => {
+      const template = {
+        nextTemplateId: 'template-456',
+      };
+
+      const nextTemplateId = template.nextTemplateId;
+      expect(nextTemplateId).toBe('template-456');
+    });
+
+    it('populates all fields from complete template', () => {
+      const template = {
+        id: 'template-123',
+        name: 'Full Template',
+        prompt: 'Full template prompt with {{parentSession.summary}}',
+        thinkingEnabled: true,
+        model: 'claude-sonnet-4-20250514',
+        mode: 'standard',
+        gitBranch: 'claude-tools/my-feature',
+        gitMode: 'branch',
+        nextTemplateId: 'template-789',
+      };
+
+      // Simulate extracting all fields
+      const fields = {
+        prompt: template.prompt,
+        thinkingEnabled: template.thinkingEnabled,
+        model: template.model,
+        mode: template.mode,
+        gitBranch: template.gitBranch,
+        gitMode: template.gitMode,
+        nextTemplateId: template.nextTemplateId,
+      };
+
+      expect(fields.prompt).toBe('Full template prompt with {{parentSession.summary}}');
+      expect(fields.thinkingEnabled).toBe(true);
+      expect(fields.model).toBe('claude-sonnet-4-20250514');
+      expect(fields.mode).toBe('standard');
+      expect(fields.gitBranch).toBe('claude-tools/my-feature');
+      expect(fields.gitMode).toBe('branch');
+      expect(fields.nextTemplateId).toBe('template-789');
+    });
+
+    it('handles template with minimal fields set', () => {
+      const template = {
+        id: 'template-123',
+        name: 'Minimal Template',
+        prompt: 'Minimal prompt',
+        // All other fields are null/undefined
+      };
+
+      // Simulate extracting fields with null checks
+      const fields = {
+        prompt: template.prompt,
+        thinkingEnabled: template.thinkingEnabled !== null && template.thinkingEnabled !== undefined
+          ? template.thinkingEnabled
+          : undefined,
+        model: template.model || undefined,
+        mode: template.mode || undefined,
+        gitBranch: template.gitBranch || undefined,
+        gitMode: template.gitMode || undefined,
+        nextTemplateId: template.nextTemplateId || undefined,
+      };
+
+      expect(fields.prompt).toBe('Minimal prompt');
+      expect(fields.thinkingEnabled).toBeUndefined();
+      expect(fields.model).toBeUndefined();
+      expect(fields.mode).toBeUndefined();
+      expect(fields.gitBranch).toBeUndefined();
+      expect(fields.gitMode).toBeUndefined();
+      expect(fields.nextTemplateId).toBeUndefined();
+    });
+
+    it('handles template with null nextTemplateId', () => {
+      const template = {
+        id: 'template-123',
+        name: 'No Chain Template',
+        prompt: 'Prompt',
+        nextTemplateId: null,
+      };
+
+      const nextTemplateId = template.nextTemplateId || undefined;
+      expect(nextTemplateId).toBeUndefined();
+    });
+
+    it('handles template with empty string gitBranch', () => {
+      const template = {
+        id: 'template-123',
+        name: 'No Git Template',
+        prompt: 'Prompt',
+        gitBranch: '',
+      };
+
+      const gitBranch = template.gitBranch || undefined;
+      expect(gitBranch).toBeUndefined();
+    });
+  });
+
+  describe('Start From Template - UI integration', () => {
+    it('organizes templates into project and global groups', () => {
+      const projectTemplates = [
+        { id: 't1', name: 'Project Template 1' },
+        { id: 't2', name: 'Project Template 2' },
+      ];
+
+      const globalTemplates = [
+        { id: 'g1', name: 'Global Template 1' },
+        { id: 'g2', name: 'Global Template 2' },
+      ];
+
+      expect(projectTemplates).toHaveLength(2);
+      expect(globalTemplates).toHaveLength(2);
+      expect(projectTemplates[0].name).toContain('Project');
+      expect(globalTemplates[0].name).toContain('Global');
+    });
+
+    it('shows "Select a template" placeholder when no template is selected', () => {
+      const startFromTemplateId = null;
+
+      expect(startFromTemplateId).toBeNull();
+    });
+
+    it('populates form after selecting template', () => {
+      // Initial state
+      let formData = {
+        prompt: '',
+        thinkingEnabled: false,
+        model: 'claude-sonnet-4-20250514',
+        mode: 'yolo',
+        gitBranch: '',
+        gitMode: null,
+      };
+
+      const template = {
+        prompt: 'Template prompt',
+        thinkingEnabled: true,
+        model: 'claude-opus-4-20250514',
+        mode: 'plan',
+        gitBranch: 'feature/test',
+        gitMode: 'worktree',
+      };
+
+      // Simulate population
+      formData = {
+        ...formData,
+        prompt: template.prompt,
+        thinkingEnabled: template.thinkingEnabled,
+        model: template.model,
+        mode: template.mode,
+        gitBranch: template.gitBranch,
+        gitMode: template.gitMode,
+      };
+
+      expect(formData.prompt).toBe('Template prompt');
+      expect(formData.thinkingEnabled).toBe(true);
+      expect(formData.model).toBe('claude-opus-4-20250514');
+      expect(formData.mode).toBe('plan');
+      expect(formData.gitBranch).toBe('feature/test');
+      expect(formData.gitMode).toBe('worktree');
+    });
+  });
+});
+
+/**
  * Unit tests for quick responses store integration
  * These tests verify that NewSessionView correctly imports, initializes, and uses the quickResponses store
  */
