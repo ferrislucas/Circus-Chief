@@ -67,7 +67,7 @@ vi.mock('./ModelSelector.vue', () => ({
     name: 'ModelSelector',
     props: ['modelValue', 'disabled'],
     emits: ['update:modelValue'],
-    template: '<div class="model-selector" :data-model="modelValue"></div>',
+    template: '<div class="model-selector-stub" :data-model="modelValue"></div>',
   },
 }));
 
@@ -1246,8 +1246,15 @@ describe('ConversationTab - Model Selector Initialization', () => {
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
           TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
+          TokenCostPanel: { template: '<div class="token-cost-panel-stub"></div>' },
           QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
           QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
+          ResizableTextarea: {
+            template: '<textarea class="resizable-textarea-stub"></textarea>',
+            props: ['minHeight', 'placeholder'],
+          },
+          ModeSelector: { template: '<div class="mode-selector-stub"></div>' },
+          SlashCommandButton: { template: '<div class="slash-command-button-stub"></div>' },
           ModelSelector: {
             name: 'ModelSelector',
             props: ['modelValue', 'disabled'],
