@@ -1160,14 +1160,14 @@ describe('ConversationTab - Error Handling Improvements', () => {
   });
 });
 
+
 /**
- * Model Selector Initialization Tests
+ * Model Selector Tests
  *
- * These tests validate that the model selector is properly initialized from
- * the active conversation's model, rather than defaulting to sonnet.
- * This ensures users see the model that was actually used in the conversation.
+ * These tests validate that the model selector works correctly with active conversations.
  */
-describe('ConversationTab - Model Selector Initialization', () => {
+
+describe('ConversationTab - Model Selector', () => {
   let mockSessionsStore;
   let mockUiStore;
   let consoleError;
@@ -1273,6 +1273,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
     await wrapper.vm.$nextTick?.();
   }
 
+<<<<<<< HEAD
   describe('Model initialization from active conversation', () => {
     it('initializes selectedModel from activeConversation.model on mount', async () => {
       mockSessionsStore.activeConversation = {
