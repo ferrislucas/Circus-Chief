@@ -1273,7 +1273,6 @@ describe('ConversationTab - Model Selector', () => {
     await wrapper.vm.$nextTick?.();
   }
 
-<<<<<<< HEAD
   describe('Model initialization from active conversation', () => {
     it('initializes selectedModel from activeConversation.model on mount', async () => {
       mockSessionsStore.activeConversation = {
