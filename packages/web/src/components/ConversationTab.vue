@@ -998,7 +998,6 @@ async function handleBranchCreate({ messageId, prompt }) {
 
     branchCreated = true;
     closeBranchEditor();
-    uiStore.success('Branch created - Claude is responding');
 
     // Scroll to show the new content
     scrollToBottom(true);
