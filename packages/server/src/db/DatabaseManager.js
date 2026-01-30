@@ -217,13 +217,11 @@ export class DatabaseManager {
     const canvasUpdatedAtColumns = canvasUpdatedAtTableInfo.map((col) => col.name);
 
     if (!canvasUpdatedAtColumns.includes('updated_at')) {
-      this.#db.exec(
-        'ALTER TABLE canvas_items ADD COLUMN updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)'
-      );
+      // SQLite doesn't allow non-constant defaults in ALTER TABLE ADD COLUMN
+      // Add column without NOT NULL first, then update existing rows, then we rely on app logic
+      this.#db.exec('ALTER TABLE canvas_items ADD COLUMN updated_at INTEGER');
       // Update existing rows to set updated_at = created_at
-      this.#db.exec(
-        'UPDATE canvas_items SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = 0'
-      );
+      this.#db.exec('UPDATE canvas_items SET updated_at = created_at WHERE updated_at IS NULL');
     }
 
     // Add claude_session_id column to conversations table for per-conversation context isolation
