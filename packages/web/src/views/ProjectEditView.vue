@@ -39,16 +39,25 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="systemPrompt">System Prompt</label>
+        <label class="form-label" for="systemPrompt">
+          System Prompt
+          <button
+            type="button"
+            class="btn-link"
+            @click="systemPrompt = defaultSystemPrompt"
+            v-if="systemPrompt !== defaultSystemPrompt"
+          >
+            Reset to Default
+          </button>
+        </label>
         <textarea
           id="systemPrompt"
           v-model="systemPrompt"
           class="form-input form-textarea"
           rows="8"
-          :placeholder="defaultSystemPrompt"
         ></textarea>
         <p class="form-help">
-          Customize the system prompt for the AI agent. Leave empty to use the default prompt shown above.
+          Customize the system prompt for the AI agent. The default prompt is pre-filled above.
         </p>
       </div>
 
@@ -233,8 +242,11 @@ import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useUiStore } from '../stores/ui.js';
 import PathChooser from '../components/PathChooser.vue';
 import QuickResponseSettings from '../components/QuickResponseSettings.vue';
-import { DEFAULT_SYSTEM_PROMPT as defaultSystemPrompt } from '@claudetools/shared/constants';
+import { DEFAULT_SYSTEM_PROMPT, DEFAULT_SESSION_TITLE_PROMPT } from '@claudetools/shared/constants';
 import { CLAUDE_MODELS } from '@claudetools/shared/types';
+
+const defaultSystemPrompt = DEFAULT_SYSTEM_PROMPT;
+const defaultSessionTitlePrompt = DEFAULT_SESSION_TITLE_PROMPT;
 
 const route = useRoute();
 const router = useRouter();
@@ -274,7 +286,7 @@ watch(() => projectsStore.currentProject, (project) => {
     name.value = project.name;
     workingDirectory.value = project.workingDirectory;
     repoUrl.value = project.repoUrl || '';
-    systemPrompt.value = project.systemPrompt || '';
+    systemPrompt.value = project.systemPrompt || defaultSystemPrompt;
     onSessionCreated.value = project.onSessionCreated || '';
     onSessionDeleted.value = project.onSessionDeleted || '';
   }
@@ -297,11 +309,12 @@ async function handleSubmit() {
 
   try {
     // Update project
+    // Save null if value equals default (to avoid storing redundant data)
     await projectsStore.updateProject(route.params.id, {
       name: name.value,
       workingDirectory: workingDirectory.value,
       repoUrl: repoUrl.value || null,
-      systemPrompt: systemPrompt.value || null,
+      systemPrompt: systemPrompt.value === defaultSystemPrompt ? null : systemPrompt.value,
       onSessionCreated: onSessionCreated.value || null,
       onSessionDeleted: onSessionDeleted.value || null,
     });
@@ -454,5 +467,20 @@ select.form-input {
   background-repeat: no-repeat;
   background-position: right 0.75rem center;
   padding-right: 2.5rem;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  padding: 0;
+  margin-left: 0.5rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.btn-link:hover {
+  color: var(--color-primary-hover);
 }
 </style>
