@@ -45,6 +45,17 @@ describe('Projects Contracts', () => {
       expect(valid.success).toBe(true);
       expect(valid.data.systemPrompt).toBe('You are helpful');
     });
+
+    it('allows systemPrompt to be null', () => {
+      const valid = CreateProjectRequest.safeParse({
+        name: 'Test Project',
+        workingDirectory: '/tmp/test',
+        systemPrompt: null,
+      });
+
+      expect(valid.success).toBe(true);
+      expect(valid.data.systemPrompt).toBeNull();
+    });
   });
 
   describe('UpdateProjectRequest', () => {
