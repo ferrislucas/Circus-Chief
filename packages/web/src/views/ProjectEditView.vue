@@ -210,58 +210,6 @@
         </button>
       </details>
 
-      <details class="advanced-settings">
-        <summary>Summary Settings</summary>
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input
-              type="checkbox"
-              v-model="disableSessionSummaries"
-            />
-            Disable session summaries
-          </label>
-          <p class="form-help">
-            When enabled, automatic session summaries will not be generated. Session summaries provide an overview of what was accomplished.
-          </p>
-        </div>
-
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input
-              type="checkbox"
-              v-model="disableConversationSummaries"
-            />
-            Disable conversation summaries
-          </label>
-          <p class="form-help">
-            When enabled, automatic conversation summaries will not be generated when switching between conversations.
-          </p>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="sessionTitlePrompt">
-            Custom Session Title Prompt
-            <button
-              type="button"
-              class="btn-link"
-              @click="sessionTitlePrompt = defaultSessionTitlePrompt"
-              v-if="sessionTitlePrompt !== defaultSessionTitlePrompt"
-            >
-              Reset to Default
-            </button>
-          </label>
-          <textarea
-            id="sessionTitlePrompt"
-            v-model="sessionTitlePrompt"
-            class="form-input form-textarea-small"
-            rows="6"
-          ></textarea>
-          <p class="form-help">
-            Customize how session titles are generated when creating summaries. The default strategic goal-focused guidelines are pre-filled above.
-          </p>
-        </div>
-      </details>
-
       <div v-if="error" class="error-message">{{ error }}</div>
 
       <div class="form-actions">
@@ -313,9 +261,6 @@ const repoUrl = ref('');
 const systemPrompt = ref('');
 const onSessionCreated = ref('');
 const onSessionDeleted = ref('');
-const disableSessionSummaries = ref(false);
-const disableConversationSummaries = ref(false);
-const sessionTitlePrompt = ref('');
 
 // Session defaults refs
 const defaultMode = ref('');
@@ -344,9 +289,6 @@ watch(() => projectsStore.currentProject, (project) => {
     systemPrompt.value = project.systemPrompt || defaultSystemPrompt;
     onSessionCreated.value = project.onSessionCreated || '';
     onSessionDeleted.value = project.onSessionDeleted || '';
-    disableSessionSummaries.value = project.disableSessionSummaries || false;
-    disableConversationSummaries.value = project.disableConversationSummaries || false;
-    sessionTitlePrompt.value = project.sessionTitlePrompt || defaultSessionTitlePrompt;
   }
 }, { immediate: true });
 
@@ -375,9 +317,6 @@ async function handleSubmit() {
       systemPrompt: systemPrompt.value === defaultSystemPrompt ? null : systemPrompt.value,
       onSessionCreated: onSessionCreated.value || null,
       onSessionDeleted: onSessionDeleted.value || null,
-      disableSessionSummaries: disableSessionSummaries.value,
-      disableConversationSummaries: disableConversationSummaries.value,
-      sessionTitlePrompt: sessionTitlePrompt.value === defaultSessionTitlePrompt ? null : sessionTitlePrompt.value,
     });
 
     // Update defaults
