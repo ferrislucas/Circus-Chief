@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS session_templates (
   git_branch TEXT,
   git_mode TEXT,
   model TEXT,
+  mode TEXT DEFAULT 'yolo' CHECK(mode IN ('plan', 'standard', 'yolo')),
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

@@ -555,9 +555,9 @@ onMounted(async () => {
   // Note: Partial thinking is displayed in LiveWorkLogPanel which has its own scroll management
   unsubThinkingPartial = onThinkingPartial((thinking) => {
     if (thinking === null) {
-      sessionsStore.clearPartialThinking();
+      sessionsStore.clearPartialThinking(props.sessionId);
     } else {
-      sessionsStore.setPartialThinking(thinking);
+      sessionsStore.setPartialThinking(thinking, props.sessionId);
     }
   });
 
@@ -753,11 +753,10 @@ watch(
 
 // Update model selector when active conversation changes or its model is updated
 // This ensures the selector always reflects the model used in the current conversation
-// Watch both activeConversationId and conversations to catch all updates (including splice)
+// Watch activeConversation.model directly to properly detect updates when conversations are spliced
 watch(
-  [() => sessionsStore.activeConversationId, () => sessionsStore.conversations],
-  () => {
-    const model = sessionsStore.activeConversation?.model;
+  () => sessionsStore.activeConversation?.model,
+  (model) => {
     if (model) {
       selectedModel.value = model;
     }

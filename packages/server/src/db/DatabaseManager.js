@@ -393,6 +393,9 @@ export class DatabaseManager {
     if (!templatesColumns.includes('model')) {
       this.#db.exec('ALTER TABLE session_templates ADD COLUMN model TEXT');
     }
+    if (!templatesColumns.includes('mode')) {
+      this.#db.exec('ALTER TABLE session_templates ADD COLUMN mode TEXT DEFAULT \'yolo\' CHECK(mode IN (\'plan\', \'standard\', \'yolo\'))');
+    }
 
     // Add model column to conversation_messages table (Issue: track model per message)
     const msgModelTableInfo = this.#db.prepare('PRAGMA table_info(conversation_messages)').all();
