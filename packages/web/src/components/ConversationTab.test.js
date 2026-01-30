@@ -67,7 +67,7 @@ vi.mock('./ModelSelector.vue', () => ({
     name: 'ModelSelector',
     props: ['modelValue', 'disabled'],
     emits: ['update:modelValue'],
-    template: '<div class="model-selector-stub" :data-model="modelValue"></div>',
+    template: '<div class="model-selector" :data-model="modelValue"></div>',
   },
 }));
 
