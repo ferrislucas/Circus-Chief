@@ -578,7 +578,8 @@ describe('Sessions Store', () => {
         ];
         store.activeConversationId = 'conv-1';
         store.workLogs = { 'msg-old': [{ id: 'old-log' }] };
-        store.partialThinking = 'some thinking';
+        store.currentSession = { id: 'session-1' };
+        store.partialThinkingBySession = { 'session-1': 'some thinking' };
 
         api.updateConversation.mockResolvedValue({ id: 'conv-2', isActive: true });
         api.getConversationMessages.mockResolvedValue([{ id: 'msg-1', content: 'Hello' }]);
@@ -3697,6 +3698,7 @@ describe('Sessions Store', () => {
 
       store.conversations = [mainConversation];
       store.activeConversationId = 'conv-main';
+      store.currentSession = { id: 'session-1' };
       store.messages = [
         { id: 'msg-1', role: 'user', content: 'Hello' },
         { id: 'msg-2', role: 'assistant', content: 'Hi there' },
@@ -3889,10 +3891,258 @@ describe('Sessions Store', () => {
       // Wait for background fetch to complete
       await new Promise(resolve => setTimeout(resolve, 150));
 
-      // Messages should NOT be updated because we switched conversations
-      // The background fetch checks if activeConversationId still matches before updating
-      expect(store.messages).toEqual([{ id: 'msg-1', role: 'user', content: 'Original' }]);
-      expect(store.messages).not.toEqual(branchMessages);
+      // Messages should NOT be updated by the background fetch because we switched conversations
+      // The messages array was cleared when branching, and should remain empty (or unchanged)
+      expect(store.messages).toEqual([]);
+    });
+  });
+
+  describe('partial thinking (per-session)', () => {
+    describe('partialThinking getter', () => {
+      it('returns null when no current session', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+        store.partialThinkingBySession = {};
+
+        expect(store.partialThinking).toBeNull();
+      });
+
+      it('returns null when current session has no thinking stored', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+        store.partialThinkingBySession = {};
+
+        expect(store.partialThinking).toBeNull();
+      });
+
+      it('returns thinking for current session', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+        store.partialThinkingBySession = {
+          'session-1': 'Current thinking content',
+          'session-2': 'Other session thinking',
+        };
+
+        expect(store.partialThinking).toBe('Current thinking content');
+      });
+
+      it('returns null when current session thinking is explicitly null', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+        store.partialThinkingBySession = {
+          'session-1': null,
+        };
+
+        expect(store.partialThinking).toBeNull();
+      });
+    });
+
+    describe('setPartialThinking', () => {
+      it('sets thinking for specified session', () => {
+        const store = useSessionsStore();
+
+        store.setPartialThinking('Test thinking', 'session-1');
+
+        expect(store.partialThinkingBySession['session-1']).toBe('Test thinking');
+      });
+
+      it('sets thinking for current session when sessionId not provided', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+
+        store.setPartialThinking('Test thinking');
+
+        expect(store.partialThinkingBySession['session-1']).toBe('Test thinking');
+      });
+
+      it('does nothing when sessionId not provided and no current session', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+        store.partialThinkingBySession = {};
+
+        store.setPartialThinking('Test thinking');
+
+        expect(store.partialThinkingBySession).toEqual({});
+      });
+
+      it('creates new object reference for reactivity', () => {
+        const store = useSessionsStore();
+        store.partialThinkingBySession = { 'session-1': 'Old thinking' };
+
+        const originalRef = store.partialThinkingBySession;
+
+        store.setPartialThinking('New thinking', 'session-1');
+
+        // Should be a new object for Vue reactivity
+        expect(store.partialThinkingBySession).not.toBe(originalRef);
+        expect(store.partialThinkingBySession['session-1']).toBe('New thinking');
+      });
+
+      it('preserves thinking for other sessions', () => {
+        const store = useSessionsStore();
+        store.partialThinkingBySession = {
+          'session-1': 'Thinking 1',
+          'session-2': 'Thinking 2',
+        };
+
+        store.setPartialThinking('Updated thinking', 'session-1');
+
+        expect(store.partialThinkingBySession['session-1']).toBe('Updated thinking');
+        expect(store.partialThinkingBySession['session-2']).toBe('Thinking 2');
+      });
+    });
+
+    describe('clearPartialThinking', () => {
+      it('clears thinking for specified session', () => {
+        const store = useSessionsStore();
+        store.partialThinkingBySession = {
+          'session-1': 'Some thinking',
+        };
+
+        store.clearPartialThinking('session-1');
+
+        expect(store.partialThinkingBySession['session-1']).toBeNull();
+      });
+
+      it('clears thinking for current session when sessionId not provided', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+        store.partialThinkingBySession = {
+          'session-1': 'Some thinking',
+        };
+
+        store.clearPartialThinking();
+
+        expect(store.partialThinkingBySession['session-1']).toBeNull();
+      });
+
+      it('does nothing when sessionId not provided and no current session', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+        store.partialThinkingBySession = {
+          'session-1': 'Some thinking',
+        };
+
+        store.clearPartialThinking();
+
+        // Should not modify anything
+        expect(store.partialThinkingBySession['session-1']).toBe('Some thinking');
+      });
+
+      it('creates new object reference for reactivity', () => {
+        const store = useSessionsStore();
+        store.partialThinkingBySession = { 'session-1': 'Thinking' };
+
+        const originalRef = store.partialThinkingBySession;
+
+        store.clearPartialThinking('session-1');
+
+        // Should be a new object for Vue reactivity
+        expect(store.partialThinkingBySession).not.toBe(originalRef);
+        expect(store.partialThinkingBySession['session-1']).toBeNull();
+      });
+    });
+
+    describe('clearAllPartialThinking', () => {
+      it('clears all sessions thinking', () => {
+        const store = useSessionsStore();
+        store.partialThinkingBySession = {
+          'session-1': 'Thinking 1',
+          'session-2': 'Thinking 2',
+          'session-3': 'Thinking 3',
+        };
+
+        store.clearAllPartialThinking();
+
+        expect(store.partialThinkingBySession).toEqual({});
+      });
+
+      it('works when already empty', () => {
+        const store = useSessionsStore();
+        store.partialThinkingBySession = {};
+
+        store.clearAllPartialThinking();
+
+        expect(store.partialThinkingBySession).toEqual({});
+      });
+    });
+
+    describe('isolation between sessions', () => {
+      it('maintains separate thinking for multiple sessions', () => {
+        const store = useSessionsStore();
+
+        store.setPartialThinking('Session 1 thinking', 'session-1');
+        store.setPartialThinking('Session 2 thinking', 'session-2');
+        store.setPartialThinking('Session 3 thinking', 'session-3');
+
+        expect(store.partialThinkingBySession['session-1']).toBe('Session 1 thinking');
+        expect(store.partialThinkingBySession['session-2']).toBe('Session 2 thinking');
+        expect(store.partialThinkingBySession['session-3']).toBe('Session 3 thinking');
+      });
+
+      it('clearing one session does not affect others', () => {
+        const store = useSessionsStore();
+        store.partialThinkingBySession = {
+          'session-1': 'Thinking 1',
+          'session-2': 'Thinking 2',
+          'session-3': 'Thinking 3',
+        };
+
+        store.clearPartialThinking('session-2');
+
+        expect(store.partialThinkingBySession['session-1']).toBe('Thinking 1');
+        expect(store.partialThinkingBySession['session-2']).toBeNull();
+        expect(store.partialThinkingBySession['session-3']).toBe('Thinking 3');
+      });
+
+      it('switching current session returns correct thinking', () => {
+        const store = useSessionsStore();
+        store.partialThinkingBySession = {
+          'session-1': 'Session 1 thinking',
+          'session-2': 'Session 2 thinking',
+        };
+
+        // Start with session-1 as current
+        store.currentSession = { id: 'session-1' };
+        expect(store.partialThinking).toBe('Session 1 thinking');
+
+        // Switch to session-2
+        store.currentSession = { id: 'session-2' };
+        expect(store.partialThinking).toBe('Session 2 thinking');
+
+        // Switch back to session-1
+        store.currentSession = { id: 'session-1' };
+        expect(store.partialThinking).toBe('Session 1 thinking');
+      });
+
+      it('no thinking leak between sessions - regression test', () => {
+        const store = useSessionsStore();
+
+        // Set thinking for session-1
+        store.setPartialThinking('Session 1 thinking', 'session-1');
+        store.currentSession = { id: 'session-1' };
+        expect(store.partialThinking).toBe('Session 1 thinking');
+
+        // Switch to session-2 which has no thinking
+        store.currentSession = { id: 'session-2' };
+        expect(store.partialThinking).toBeNull();
+
+        // Set thinking for session-2
+        store.setPartialThinking('Session 2 thinking', 'session-2');
+        expect(store.partialThinking).toBe('Session 2 thinking');
+
+        // Switch back to session-1 - should still have its original thinking
+        store.currentSession = { id: 'session-1' };
+        expect(store.partialThinking).toBe('Session 1 thinking');
+
+        // Clear thinking for session-1
+        store.clearPartialThinking('session-1');
+        expect(store.partialThinking).toBeNull();
+
+        // Session-2 should still have its thinking
+        store.currentSession = { id: 'session-2' };
+        expect(store.partialThinking).toBe('Session 2 thinking');
+      });
     });
   });
 });

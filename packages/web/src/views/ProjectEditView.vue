@@ -39,16 +39,25 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="systemPrompt">System Prompt</label>
+        <label class="form-label" for="systemPrompt">
+          System Prompt
+          <button
+            type="button"
+            class="btn-link"
+            @click="systemPrompt = defaultSystemPrompt"
+            v-if="systemPrompt !== defaultSystemPrompt"
+          >
+            Reset to Default
+          </button>
+        </label>
         <textarea
           id="systemPrompt"
           v-model="systemPrompt"
           class="form-input form-textarea"
           rows="8"
-          :placeholder="defaultSystemPrompt"
         ></textarea>
         <p class="form-help">
-          Customize the system prompt for the AI agent. Leave empty to use the default prompt shown above.
+          Customize the system prompt for the AI agent. The default prompt is pre-filled above.
         </p>
       </div>
 
@@ -230,16 +239,25 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="sessionTitlePrompt">Custom Session Title Prompt</label>
+          <label class="form-label" for="sessionTitlePrompt">
+            Custom Session Title Prompt
+            <button
+              type="button"
+              class="btn-link"
+              @click="sessionTitlePrompt = defaultSessionTitlePrompt"
+              v-if="sessionTitlePrompt !== defaultSessionTitlePrompt"
+            >
+              Reset to Default
+            </button>
+          </label>
           <textarea
             id="sessionTitlePrompt"
             v-model="sessionTitlePrompt"
             class="form-input form-textarea-small"
             rows="6"
-            placeholder="Guidelines for generating session titles:&#10;- The title should capture the SESSION'S STRATEGIC GOAL, not current tactical activity&#10;- Focus on WHAT the user wants to achieve&#10;- NOT the current step (e.g., 'Fix TypeScript error')&#10;- If a PR was created, format as 'PR #N: &lt;goal&gt;'&#10;- Keep titles concise (max 60 characters)"
           ></textarea>
           <p class="form-help">
-            Customize how session titles are generated when creating summaries. Leave empty to use the default strategic goal-focused guidelines.
+            Customize how session titles are generated when creating summaries. The default strategic goal-focused guidelines are pre-filled above.
           </p>
         </div>
       </details>
@@ -276,8 +294,11 @@ import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useUiStore } from '../stores/ui.js';
 import PathChooser from '../components/PathChooser.vue';
 import QuickResponseSettings from '../components/QuickResponseSettings.vue';
-import { DEFAULT_SYSTEM_PROMPT as defaultSystemPrompt } from '@claudetools/shared/constants';
+import { DEFAULT_SYSTEM_PROMPT, DEFAULT_SESSION_TITLE_PROMPT } from '@claudetools/shared/constants';
 import { CLAUDE_MODELS } from '@claudetools/shared/types';
+
+const defaultSystemPrompt = DEFAULT_SYSTEM_PROMPT;
+const defaultSessionTitlePrompt = DEFAULT_SESSION_TITLE_PROMPT;
 
 const route = useRoute();
 const router = useRouter();
@@ -320,12 +341,12 @@ watch(() => projectsStore.currentProject, (project) => {
     name.value = project.name;
     workingDirectory.value = project.workingDirectory;
     repoUrl.value = project.repoUrl || '';
-    systemPrompt.value = project.systemPrompt || '';
+    systemPrompt.value = project.systemPrompt || defaultSystemPrompt;
     onSessionCreated.value = project.onSessionCreated || '';
     onSessionDeleted.value = project.onSessionDeleted || '';
     disableSessionSummaries.value = project.disableSessionSummaries || false;
     disableConversationSummaries.value = project.disableConversationSummaries || false;
-    sessionTitlePrompt.value = project.sessionTitlePrompt || '';
+    sessionTitlePrompt.value = project.sessionTitlePrompt || defaultSessionTitlePrompt;
   }
 }, { immediate: true });
 
@@ -346,16 +367,17 @@ async function handleSubmit() {
 
   try {
     // Update project
+    // Save null if value equals default (to avoid storing redundant data)
     await projectsStore.updateProject(route.params.id, {
       name: name.value,
       workingDirectory: workingDirectory.value,
       repoUrl: repoUrl.value || null,
-      systemPrompt: systemPrompt.value || null,
+      systemPrompt: systemPrompt.value === defaultSystemPrompt ? null : systemPrompt.value,
       onSessionCreated: onSessionCreated.value || null,
       onSessionDeleted: onSessionDeleted.value || null,
       disableSessionSummaries: disableSessionSummaries.value,
       disableConversationSummaries: disableConversationSummaries.value,
-      sessionTitlePrompt: sessionTitlePrompt.value || null,
+      sessionTitlePrompt: sessionTitlePrompt.value === defaultSessionTitlePrompt ? null : sessionTitlePrompt.value,
     });
 
     // Update defaults
@@ -506,5 +528,20 @@ select.form-input {
   background-repeat: no-repeat;
   background-position: right 0.75rem center;
   padding-right: 2.5rem;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  padding: 0;
+  margin-left: 0.5rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.btn-link:hover {
+  color: var(--color-primary-hover);
 }
 </style>
