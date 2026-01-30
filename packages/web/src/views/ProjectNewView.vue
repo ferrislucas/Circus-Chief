@@ -23,16 +23,25 @@
       <details class="advanced-settings">
         <summary>Advanced Settings</summary>
         <div class="form-group">
-          <label class="form-label" for="systemPrompt">System Prompt</label>
+          <label class="form-label" for="systemPrompt">
+            System Prompt
+            <button
+              type="button"
+              class="btn-link"
+              @click="systemPrompt = defaultSystemPrompt"
+              v-if="systemPrompt !== defaultSystemPrompt"
+            >
+              Reset to Default
+            </button>
+          </label>
           <textarea
             id="systemPrompt"
             v-model="systemPrompt"
             class="form-input form-textarea"
             rows="8"
-            :placeholder="defaultSystemPrompt"
           ></textarea>
           <p class="form-help">
-            Customize the system prompt for the AI agent. Leave empty to use the default prompt shown above.
+            Customize the system prompt for the AI agent. The default prompt is pre-filled above.
           </p>
         </div>
 
@@ -84,15 +93,17 @@ import { useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useUiStore } from '../stores/ui.js';
 import PathChooser from '../components/PathChooser.vue';
-import { DEFAULT_SYSTEM_PROMPT as defaultSystemPrompt } from '@claudetools/shared/constants';
+import { DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared/constants';
 
 const router = useRouter();
 const projectsStore = useProjectsStore();
 const uiStore = useUiStore();
 
+const defaultSystemPrompt = DEFAULT_SYSTEM_PROMPT;
+
 const name = ref('');
 const workingDirectory = ref('');
-const systemPrompt = ref('');
+const systemPrompt = ref(DEFAULT_SYSTEM_PROMPT);
 const onSessionCreated = ref('');
 const onSessionDeleted = ref('');
 const loading = ref(false);
@@ -103,10 +114,11 @@ async function handleSubmit() {
   error.value = null;
 
   try {
+    // Save null if value equals default (to avoid storing redundant data)
     const project = await projectsStore.createProject({
       name: name.value,
       workingDirectory: workingDirectory.value,
-      systemPrompt: systemPrompt.value || undefined,
+      systemPrompt: systemPrompt.value === defaultSystemPrompt ? null : systemPrompt.value,
       onSessionCreated: onSessionCreated.value || undefined,
       onSessionDeleted: onSessionDeleted.value || undefined,
     });
@@ -175,5 +187,20 @@ h1 {
   font-family: monospace;
   font-size: 0.875rem;
   line-height: 1.5;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  padding: 0;
+  margin-left: 0.5rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.btn-link:hover {
+  color: var(--color-primary-hover);
 }
 </style>
