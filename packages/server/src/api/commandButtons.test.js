@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
-import { projects, sessions, commandButtons, commandRuns } from '../database.js';
+import { projects, sessions, commandButtons } from '../database.js';
 
 // Mock websocket before importing the router
 vi.mock('../websocket.js', () => ({
