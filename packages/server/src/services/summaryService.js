@@ -444,9 +444,10 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
     }
 
     // Check if session summaries are disabled for this project
+    // Skip this check if force=true (manual regeneration should always work)
     const project = projects.getById(session.projectId);
-    if (project?.disableSessionSummaries) {
-      console.log(`[SummaryService] Session summaries disabled for project ${session.projectId}, skipping generation`);
+    if (!force && project?.disableSessionSummaries) {
+      console.log(`[SummaryService] Session summaries disabled for project ${session.projectId}, skipping automatic generation`);
       return null;
     }
 
@@ -806,6 +807,19 @@ function parseConversationSummaryResponse(responseText) {
     // If parsing fails, return the raw text truncated
     return textToParse.substring(0, 200);
   }
+}
+
+/**
+ * Check if conversation summaries are enabled for a session
+ * @param {string} sessionId - The session ID
+ * @returns {boolean} True if conversation summaries are enabled
+ */
+export function isConversationSummaryEnabled(sessionId) {
+  const session = sessions.getById(sessionId);
+  if (!session) return false;
+
+  const project = projects.getById(session.projectId);
+  return !project?.disableConversationSummaries;
 }
 
 /**

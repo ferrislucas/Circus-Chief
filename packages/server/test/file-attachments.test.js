@@ -167,7 +167,7 @@ describe('File Attachments API', () => {
             mimeType: 'text/plain',
           }),
         ]),
-        undefined // model
+        null // model (passed per-message now, not from session)
       );
     });
 
@@ -469,7 +469,8 @@ describe('File Attachments API', () => {
             filename: 'test.txt',
             mimeType: 'text/plain',
           }),
-        ])
+        ]),
+        null // model (passed per-message now)
       );
     });
 
@@ -616,7 +617,8 @@ describe('File Attachments API', () => {
         'Using worktree',
         '/tmp/worktree/session-123', // Should use gitWorktree, not project.workingDirectory
         null,
-        expect.any(Array)
+        expect.any(Array),
+        null // model
       );
     });
 
@@ -634,7 +636,8 @@ describe('File Attachments API', () => {
         'Form-data without files',
         expect.any(String),
         null,
-        [] // Empty attachments
+        [], // Empty attachments
+        null // model
       );
     });
   });

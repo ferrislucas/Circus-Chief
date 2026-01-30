@@ -104,21 +104,6 @@ router.delete('/:id', (req, res) => {
   }
 });
 
-// POST /api/providers/:id/default - Set provider as default
-router.post('/:id/default', (req, res) => {
-  try {
-    const provider = modelProviders.getById(req.params.id);
-    if (!provider) {
-      return res.status(404).json({ error: 'Provider not found' });
-    }
-
-    const updated = modelProviders.setDefault(req.params.id);
-    res.json(redactAuthToken(updated));
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // POST /api/providers/test - Test provider configuration (before saving)
 router.post('/test', async (req, res) => {
   const result = TestConnectionRequest.safeParse(req.body);
