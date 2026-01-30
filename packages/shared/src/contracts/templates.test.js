@@ -24,6 +24,8 @@ describe('CreateSessionTemplateRequest', () => {
       thinkingEnabled: true,
       gitBranch: 'feature/test',
       gitMode: 'worktree',
+      model: 'claude-sonnet-4-20250514',
+      mode: 'plan',
     });
     expect(result.success).toBe(true);
   });
@@ -78,6 +80,46 @@ describe('CreateSessionTemplateRequest', () => {
       gitMode: null,
     });
     expect(result.success).toBe(true);
+  });
+
+  it('validates model field', () => {
+    const result = CreateSessionTemplateRequest.safeParse({
+      name: 'Template',
+      prompt: 'Prompt',
+      model: 'claude-opus-4-20250514',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates mode enum', () => {
+    expect(
+      CreateSessionTemplateRequest.safeParse({
+        name: 'Test',
+        prompt: 'Test',
+        mode: 'plan',
+      }).success
+    ).toBe(true);
+    expect(
+      CreateSessionTemplateRequest.safeParse({
+        name: 'Test',
+        prompt: 'Test',
+        mode: 'standard',
+      }).success
+    ).toBe(true);
+    expect(
+      CreateSessionTemplateRequest.safeParse({
+        name: 'Test',
+        prompt: 'Test',
+        mode: 'yolo',
+      }).success
+    ).toBe(true);
+    expect(
+      CreateSessionTemplateRequest.safeParse({
+        name: 'Test',
+        prompt: 'Test',
+        mode: 'invalid',
+      }).success
+    ).toBe(false);
   });
 
   it('validates nextTemplateId as UUID', () => {
@@ -146,6 +188,43 @@ describe('UpdateSessionTemplateRequest', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('validates model update', () => {
+    const result = UpdateSessionTemplateRequest.safeParse({
+      model: 'claude-sonnet-4-20250514',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates mode update', () => {
+    const result = UpdateSessionTemplateRequest.safeParse({
+      mode: 'plan',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates mode enum in update', () => {
+    expect(
+      UpdateSessionTemplateRequest.safeParse({
+        mode: 'plan',
+      }).success
+    ).toBe(true);
+    expect(
+      UpdateSessionTemplateRequest.safeParse({
+        mode: 'standard',
+      }).success
+    ).toBe(true);
+    expect(
+      UpdateSessionTemplateRequest.safeParse({
+        mode: 'yolo',
+      }).success
+    ).toBe(true);
+    expect(
+      UpdateSessionTemplateRequest.safeParse({
+        mode: 'invalid',
+      }).success
+    ).toBe(false);
+  });
 });
 
 describe('SessionTemplateResponse', () => {
@@ -158,6 +237,8 @@ describe('SessionTemplateResponse', () => {
     thinkingEnabled: null,
     gitBranch: null,
     gitMode: null,
+    model: null,
+    mode: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -190,6 +271,33 @@ describe('SessionTemplateResponse', () => {
       thinkingEnabled: true,
       gitBranch: 'feature/test',
       gitMode: 'worktree',
+      model: 'claude-sonnet-4-20250514',
+      mode: 'plan',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates template with model set', () => {
+    const result = SessionTemplateResponse.safeParse({
+      ...validTemplate,
+      model: 'claude-opus-4-20250514',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates template with mode set', () => {
+    const result = SessionTemplateResponse.safeParse({
+      ...validTemplate,
+      mode: 'standard',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates template with both model and mode set', () => {
+    const result = SessionTemplateResponse.safeParse({
+      ...validTemplate,
+      model: 'claude-sonnet-4-20250514',
+      mode: 'yolo',
     });
     expect(result.success).toBe(true);
   });
@@ -212,6 +320,8 @@ describe('SessionTemplateListResponse', () => {
         thinkingEnabled: null,
         gitBranch: null,
         gitMode: null,
+        model: null,
+        mode: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       },
@@ -224,6 +334,8 @@ describe('SessionTemplateListResponse', () => {
         thinkingEnabled: true,
         gitBranch: 'main',
         gitMode: 'branch',
+        model: 'claude-sonnet-4-20250514',
+        mode: 'plan',
         createdAt: Date.now(),
         updatedAt: Date.now(),
       },
@@ -253,6 +365,8 @@ describe('AvailableTemplatesResponse', () => {
           thinkingEnabled: null,
           gitBranch: null,
           gitMode: null,
+          model: null,
+          mode: null,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -275,6 +389,8 @@ describe('AvailableTemplatesResponse', () => {
           thinkingEnabled: null,
           gitBranch: null,
           gitMode: null,
+          model: null,
+          mode: null,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -293,6 +409,8 @@ describe('AvailableTemplatesResponse', () => {
       thinkingEnabled: null,
       gitBranch: null,
       gitMode: null,
+      model: null,
+      mode: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };

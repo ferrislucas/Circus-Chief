@@ -7,6 +7,8 @@ export const CreateSessionTemplateRequest = z.object({
   thinkingEnabled: z.boolean().nullable().optional(),
   gitBranch: z.string().nullable().optional(),
   gitMode: z.enum(['branch', 'worktree']).nullable().optional(),
+  model: z.string().optional(),
+  mode: z.enum(['plan', 'standard', 'yolo']).optional(),
 });
 
 export const UpdateSessionTemplateRequest = z.object({
@@ -16,6 +18,8 @@ export const UpdateSessionTemplateRequest = z.object({
   thinkingEnabled: z.boolean().nullable().optional(),
   gitBranch: z.string().nullable().optional(),
   gitMode: z.enum(['branch', 'worktree']).nullable().optional(),
+  model: z.string().optional(),
+  mode: z.enum(['plan', 'standard', 'yolo']).optional(),
 });
 
 export const SessionTemplateResponse = z.object({
@@ -27,6 +31,8 @@ export const SessionTemplateResponse = z.object({
   thinkingEnabled: z.boolean().nullable(),
   gitBranch: z.string().nullable(),
   gitMode: z.string().nullable(),
+  model: z.string().nullable(),
+  mode: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
