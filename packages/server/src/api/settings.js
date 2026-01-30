@@ -68,4 +68,62 @@ router.delete('/token-weights', (req, res) => {
   }
 });
 
+/**
+ * GET /api/settings/summary
+ * Get summary settings
+ */
+router.get('/summary', (req, res) => {
+  try {
+    const summarySettings = settings.getSummarySettings();
+    res.json(summarySettings);
+  } catch (error) {
+    console.error('Error getting summary settings:', error);
+    res.status(500).json({ error: 'Failed to get summary settings' });
+  }
+});
+
+/**
+ * PUT /api/settings/summary
+ * Update summary settings
+ */
+router.put('/summary', (req, res) => {
+  try {
+    const { disableSessionSummaries, disableConversationSummaries, sessionTitlePrompt } = req.body;
+
+    // Validate that all required fields are present
+    if (typeof disableSessionSummaries !== 'boolean' ||
+        typeof disableConversationSummaries !== 'boolean' ||
+        typeof sessionTitlePrompt !== 'string') {
+      return res.status(400).json({
+        error: 'Invalid summary settings. disableSessionSummaries and disableConversationSummaries must be booleans, sessionTitlePrompt must be a string'
+      });
+    }
+
+    const updatedSettings = settings.setSummarySettings({
+      disableSessionSummaries,
+      disableConversationSummaries,
+      sessionTitlePrompt,
+    });
+
+    res.json(updatedSettings);
+  } catch (error) {
+    console.error('Error updating summary settings:', error);
+    res.status(500).json({ error: 'Failed to update summary settings' });
+  }
+});
+
+/**
+ * DELETE /api/settings/summary
+ * Reset summary settings to defaults
+ */
+router.delete('/summary', (req, res) => {
+  try {
+    const defaults = settings.resetSummarySettings();
+    res.json(defaults);
+  } catch (error) {
+    console.error('Error resetting summary settings:', error);
+    res.status(500).json({ error: 'Failed to reset summary settings' });
+  }
+});
+
 export default router;
