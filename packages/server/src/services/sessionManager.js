@@ -114,11 +114,7 @@ function getApiBaseUrl() {
  * @param {Error} error - Error that occurred
  * @returns {boolean} True if should reschedule
  */
-function shouldRescheduleOnError(session, error) {
-  if (!session.autoRescheduleEnabled) {
-    return false;
-  }
-
+export function shouldRescheduleOnError(session, error) {
   const errorMessage = error.message.toLowerCase();
 
   // Check for token limit errors
@@ -129,9 +125,13 @@ function shouldRescheduleOnError(session, error) {
       errorMessage.includes('max_tokens') ||
       errorMessage.includes('context window')
     ) {
-      console.log('[SessionManager] Token limit error detected, checking if should reschedule');
+      console.log('[SessionManager] Token limit error detected, rescheduling will be attempted');
+      console.log('[SessionManager] Error:', error.message);
+      console.log('[SessionManager] Session config: rescheduleOnTokenLimit=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
       return true;
     }
+  } else {
+    console.log('[SessionManager] rescheduleOnTokenLimit is false, skipping token limit rescheduling');
   }
 
   // Check for service errors
@@ -145,11 +145,17 @@ function shouldRescheduleOnError(session, error) {
       errorMessage.includes('service unavailable') ||
       errorMessage.includes('too many requests')
     ) {
-      console.log('[SessionManager] Service error detected, checking if should reschedule');
+      console.log('[SessionManager] Service error detected, rescheduling will be attempted');
+      console.log('[SessionManager] Error:', error.message);
+      console.log('[SessionManager] Session config: rescheduleOnServiceError=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
       return true;
     }
+  } else {
+    console.log('[SessionManager] rescheduleOnServiceError is false, skipping service error rescheduling');
   }
 
+  console.log('[SessionManager] Error does not match any rescheduling triggers');
+  console.log('[SessionManager] Session config: rescheduleOnTokenLimit=', session.rescheduleOnTokenLimit, ', rescheduleOnServiceError=', session.rescheduleOnServiceError);
   return false;
 }
 
@@ -159,9 +165,9 @@ function shouldRescheduleOnError(session, error) {
  * @param {string} sessionId - Session ID
  * @returns {Promise<boolean>} True if rescheduled
  */
-async function _checkProactiveReschedule(sessionId) {
+export async function _checkProactiveReschedule(sessionId) {
   const session = sessions.getById(sessionId);
-  if (!session || !session.autoRescheduleEnabled || !session.rescheduleAtTokenCount) {
+  if (!session || !session.rescheduleAtTokenCount) {
     return false;
   }
 

@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const CreateProjectRequest = z.object({
   name: z.string().min(1),
   workingDirectory: z.string().min(1),
-  systemPrompt: z.string().optional(),
+  systemPrompt: z.string().nullable().optional(),
   onSessionCreated: z.string().nullable().optional(),
   onSessionDeleted: z.string().nullable().optional(),
   prPollInterval: z.number().int().min(10000).optional(), // Min 10 seconds
