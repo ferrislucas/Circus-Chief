@@ -1,7 +1,6 @@
 <template>
   <div class="container">
     <div class="page-header">
-      <h1>Model Providers</h1>
       <button class="btn btn-primary" @click="openCreateModal">
         <span>+ Add Provider</span>
       </button>
@@ -189,13 +188,9 @@ async function deleteProvider() {
 <style scoped>
 .page-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   margin-bottom: 0.5rem;
-}
-
-.page-header h1 {
-  margin: 0;
 }
 
 .page-description {
