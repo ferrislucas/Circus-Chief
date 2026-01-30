@@ -1560,11 +1560,14 @@ export const useSessionsStore = defineStore('sessions', {
         }));
         this.activeConversationId = branchConversation.id;
 
-        // 3. Clear work logs immediately (before async fetches)
+        // 3. IMMEDIATELY clear messages to trigger UI update
+        this.messages = [];
+
+        // 4. Clear work logs immediately (before async fetches)
         this.workLogs = {};
         this.partialThinking = null;
 
-        // 4. Fetch messages and work logs in parallel WITHOUT blocking the return
+        // 5. Fetch messages and work logs in parallel WITHOUT blocking the return
         // This allows the UI to update immediately while data loads in the background
         Promise.all([
           api.getConversationMessages(sessionId, branchConversation.id)
@@ -1585,7 +1588,7 @@ export const useSessionsStore = defineStore('sessions', {
             })
         ]);
 
-        // 5. Return immediately after optimistic update
+        // 6. Return immediately after optimistic update
         return branchConversation;
       } catch (err) {
         this.error = err.message;
