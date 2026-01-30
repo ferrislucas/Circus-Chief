@@ -1,5 +1,5 @@
 <template>
-  <div class="model-selector">
+  <div class="model-selector" :data-model="selectedModel">
     <select
       id="model-select"
       :value="selectedModel"

@@ -143,11 +143,25 @@
           </button>
         </div>
         <template v-else>
-          <button type="submit" class="btn btn-primary btn-send-full" :disabled="isSendDisabled">
+          <button
+            type="submit"
+            class="btn btn-primary btn-send-full"
+            :disabled="isSendDisabled"
+            :title="sendButtonDisabledReason"
+          >
             <span v-if="sending" class="loading-spinner"></span>
             {{ sending ? 'Sending...' : 'Send' }}
           </button>
         </template>
+      </div>
+
+      <!-- Visual indicator for future scheduled sessions -->
+      <div v-if="isSessionScheduledForFuture" class="scheduled-notice">
+        <span class="notice-icon">⏰</span>
+        <span class="notice-text">
+          This session is scheduled for {{ formatDistanceToNow(new Date(sessionsStore.currentSession.scheduledAt), { addSuffix: true }) }}.
+          The send button will be enabled at that time.
+        </span>
       </div>
 
       <div class="input-controls">
@@ -273,6 +287,7 @@
 
 <script setup>
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
+import { formatDistanceToNow } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useTemplatesStore } from '../stores/templates.js';
@@ -388,7 +403,42 @@ const inputHasContent = computed(() => {
 
 // Computed for send button disabled state - avoids re-evaluating on every render
 const isSendDisabled = computed(() => {
+  // If session is scheduled for a future date, disable the send button
+  if (sessionsStore.currentSession?.status === 'scheduled') {
+    const scheduledTime = new Date(sessionsStore.currentSession.scheduledAt);
+    const now = new Date();
+    if (scheduledTime > now) {
+      return true; // Disable - scheduled for future
+    }
+  }
+
+  // Existing logic
   return !inputHasContent.value || sending.value;
+});
+
+// Computed property for send button disabled reason tooltip
+const sendButtonDisabledReason = computed(() => {
+  if (!inputHasContent.value) {
+    return 'Enter a message to send';
+  }
+  if (sending.value) {
+    return 'Message is being sent...';
+  }
+  if (sessionsStore.currentSession?.status === 'scheduled') {
+    const scheduledTime = new Date(sessionsStore.currentSession.scheduledAt);
+    const now = new Date();
+    if (scheduledTime > now) {
+      return `Session is scheduled for ${formatDistanceToNow(scheduledTime, { addSuffix: true })}`;
+    }
+  }
+  return null;
+});
+
+// Computed property to check if session is scheduled for the future
+const isSessionScheduledForFuture = computed(() => {
+  if (sessionsStore.currentSession?.status !== 'scheduled') return false;
+  const scheduledTime = new Date(sessionsStore.currentSession.scheduledAt);
+  return scheduledTime > new Date();
 });
 
 // Check if there are any assistant messages for the scroll-to-claude button
@@ -1000,7 +1050,6 @@ async function handleBranchCreate({ messageId, prompt }) {
 
     branchCreated = true;
     closeBranchEditor();
-    uiStore.success('Branch created - Claude is responding');
 
     // Scroll to show the new content
     scrollToBottom(true);
@@ -1322,6 +1371,33 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 .draft-actions {
   width: 100%;
+}
+
+.scheduled-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+  background: linear-gradient(135deg, rgba(34, 197, 255, 0.1) 0%, rgba(34, 197, 255, 0.05) 100%);
+  border: 1px solid rgba(34, 197, 255, 0.3);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.notice-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.notice-text {
+  color: var(--color-text);
+  line-height: 1.4;
+}
+
+.notice-text strong {
+  color: var(--color-primary);
+  font-weight: 600;
 }
 
 .template-pending {

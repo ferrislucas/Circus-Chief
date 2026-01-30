@@ -3,43 +3,29 @@ import { CreateCanvasItemRequest, CanvasItemResponse } from './canvas.js';
 
 describe('Canvas Contracts', () => {
   describe('CreateCanvasItemRequest', () => {
-    it('accepts code type', () => {
+    it('accepts filePath', () => {
       const result = CreateCanvasItemRequest.safeParse({
-        type: 'code',
-        content: 'const x = 1;',
-        filename: 'test.js',
+        filePath: '/path/to/file.txt',
       });
       expect(result.success).toBe(true);
     });
 
-    it('accepts all valid types', () => {
-      const types = ['image', 'markdown', 'text', 'json', 'pdf', 'code'];
-      for (const type of types) {
-        const result = CreateCanvasItemRequest.safeParse({ type });
-        expect(result.success).toBe(true);
-      }
-    });
-
-    it('rejects invalid type', () => {
-      const result = CreateCanvasItemRequest.safeParse({
-        type: 'invalid',
-      });
+    it('rejects missing filePath', () => {
+      const result = CreateCanvasItemRequest.safeParse({});
       expect(result.success).toBe(false);
     });
 
-    it('accepts optional fields', () => {
+    it('accepts empty filePath (schema allows it)', () => {
       const result = CreateCanvasItemRequest.safeParse({
-        type: 'code',
-        content: 'const x = 1;',
-        filename: 'test.js',
-        mimeType: 'text/javascript',
-        label: 'My code file',
+        filePath: '',
       });
       expect(result.success).toBe(true);
     });
   });
 
   describe('CanvasItemResponse', () => {
+    const now = Date.now();
+
     it('accepts code type in response', () => {
       const result = CanvasItemResponse.safeParse({
         id: '123e4567-e89b-12d3-a456-426614174000',
@@ -49,10 +35,10 @@ describe('Canvas Contracts', () => {
         data: null,
         mimeType: 'text/javascript',
         filename: 'test.js',
-        label: null,
         width: null,
         height: null,
-        createdAt: Date.now(),
+        createdAt: now,
+        updatedAt: now,
       });
       expect(result.success).toBe(true);
     });
@@ -68,10 +54,10 @@ describe('Canvas Contracts', () => {
           data: null,
           mimeType: null,
           filename: null,
-          label: null,
           width: null,
           height: null,
-          createdAt: Date.now(),
+          createdAt: now,
+          updatedAt: now,
         });
         expect(result.success).toBe(true);
       }
@@ -86,12 +72,45 @@ describe('Canvas Contracts', () => {
         data: null,
         mimeType: null,
         filename: null,
-        label: null,
         width: null,
         height: null,
-        createdAt: Date.now(),
+        createdAt: now,
+        updatedAt: now,
       });
       expect(result.success).toBe(false);
+    });
+
+    it('rejects missing updatedAt', () => {
+      const result = CanvasItemResponse.safeParse({
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        sessionId: null,
+        type: 'text',
+        content: null,
+        data: null,
+        mimeType: null,
+        filename: null,
+        width: null,
+        height: null,
+        createdAt: now,
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('accepts optional sessionId as null', () => {
+      const result = CanvasItemResponse.safeParse({
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        sessionId: null,
+        type: 'text',
+        content: 'some content',
+        data: null,
+        mimeType: 'text/plain',
+        filename: 'test.txt',
+        width: null,
+        height: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      expect(result.success).toBe(true);
     });
   });
 });

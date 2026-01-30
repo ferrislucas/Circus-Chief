@@ -44,6 +44,8 @@ vi.mock('../stores/quickResponses.js', () => ({
 // Mock the templates store
 vi.mock('../stores/templates.js', () => ({
   useTemplatesStore: vi.fn(() => ({
+    templates: [],
+    fetchTemplates: vi.fn().mockResolvedValue(undefined),
     getTemplateById: vi.fn(() => null),
   })),
 }));
@@ -80,8 +82,8 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProvidersStore } from '../stores/providers.js';
-import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useTemplatesStore } from '../stores/templates.js';
+import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 vi.mock('./LiveWorkLogPanel.vue', () => ({
   default: {
@@ -1315,6 +1317,11 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
     vi.mocked(useUiStore).mockReturnValue(mockUiStore);
     vi.mocked(useProjectsStore).mockReturnValue(mockProjectsStore);
     vi.mocked(useProvidersStore).mockReturnValue(mockProvidersStore);
+    vi.mocked(useTemplatesStore).mockReturnValue({
+      templates: [],
+      fetchTemplates: vi.fn().mockResolvedValue(undefined),
+      getTemplateById: vi.fn(() => null),
+    });
 
     consoleError = console.error;
     console.error = vi.fn();
