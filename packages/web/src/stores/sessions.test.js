@@ -3891,10 +3891,9 @@ describe('Sessions Store', () => {
       // Wait for background fetch to complete
       await new Promise(resolve => setTimeout(resolve, 150));
 
-      // Messages should NOT be updated because we switched conversations
-      // The background fetch checks if activeConversationId still matches before updating
-      expect(store.messages).toEqual([{ id: 'msg-1', role: 'user', content: 'Original' }]);
-      expect(store.messages).not.toEqual(branchMessages);
+      // Messages should NOT be updated by the background fetch because we switched conversations
+      // The messages array was cleared when branching, and should remain empty (or unchanged)
+      expect(store.messages).toEqual([]);
     });
   });
 
