@@ -80,7 +80,7 @@
       <span v-if="item.versionCount > 1" class="version-badge">
         v{{ item.versionCount }}
       </span>
-      <span class="file-time">{{ formatRelativeTime(item.createdAt) }}</span>
+      <span class="file-time">{{ formatRelativeTime(item.updatedAt) }}</span>
       <span class="file-arrow">&#8250;</span>
     </div>
   </div>
@@ -514,6 +514,10 @@ defineExpose({
     flex: 1;
     min-width: 0;
     word-break: break-word;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .file-type {
@@ -521,7 +525,7 @@ defineExpose({
   }
 
   .file-time {
-    display: none;
+    font-size: 0.6875rem;
   }
 
   .btn-menu {

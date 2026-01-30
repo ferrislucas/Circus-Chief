@@ -32,6 +32,7 @@ export class CanvasItemRepository extends BaseRepository {
       height: row.height,
       deletedAt: row.deleted_at,
       createdAt: row.created_at,
+      updatedAt: row.updated_at,
     };
   }
 
@@ -47,8 +48,8 @@ export class CanvasItemRepository extends BaseRepository {
 
     this.db
       .prepare(
-        `INSERT INTO canvas_items (id, session_id, type, content, data, mime_type, filename, width, height, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO canvas_items (id, session_id, type, content, data, mime_type, filename, width, height, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -60,6 +61,7 @@ export class CanvasItemRepository extends BaseRepository {
         data.filename || null,
         data.width || null,
         data.height || null,
+        now,
         now
       );
     return this.getById(id);
@@ -146,9 +148,10 @@ export class CanvasItemRepository extends BaseRepository {
    * @returns {Object} The recovered item
    */
   recover(itemId) {
+    const now = Date.now();
     this.db
-      .prepare('UPDATE canvas_items SET deleted_at = NULL WHERE id = ?')
-      .run(itemId);
+      .prepare('UPDATE canvas_items SET deleted_at = NULL, updated_at = ? WHERE id = ?')
+      .run(now, itemId);
     return this.getById(itemId);
   }
 
@@ -158,9 +161,10 @@ export class CanvasItemRepository extends BaseRepository {
    * @param {string} filename
    */
   recoverByFilename(sessionId, filename) {
+    const now = Date.now();
     this.db
-      .prepare('UPDATE canvas_items SET deleted_at = NULL WHERE session_id = ? AND filename = ? AND deleted_at IS NOT NULL')
-      .run(sessionId, filename);
+      .prepare('UPDATE canvas_items SET deleted_at = NULL, updated_at = ? WHERE session_id = ? AND filename = ? AND deleted_at IS NOT NULL')
+      .run(now, sessionId, filename);
   }
 
   /**
@@ -224,13 +228,14 @@ export class CanvasItemRepository extends BaseRepository {
       return 0;
     }
 
+    const now = Date.now();
     const placeholders = itemIds.map(() => '?').join(',');
 
     const updateStmt = this.db.prepare(
-      `UPDATE canvas_items SET deleted_at = NULL WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL`
+      `UPDATE canvas_items SET deleted_at = NULL, updated_at = ? WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL`
     );
 
-    const result = updateStmt.run(...itemIds);
+    const result = updateStmt.run(now, ...itemIds);
     return result.changes || 0;
   }
 
