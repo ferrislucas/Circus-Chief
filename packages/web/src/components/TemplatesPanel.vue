@@ -60,6 +60,24 @@
           <p class="form-help">Chain another template to run after this one completes.</p>
         </div>
 
+        <div class="form-group">
+          <label class="form-label">Model</label>
+          <select v-model="formData.model" class="form-input">
+            <option v-for="m in CLAUDE_MODELS" :key="m.id" :value="m.id">
+              {{ m.name }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Mode</label>
+          <select v-model="formData.mode" class="form-input">
+            <option value="plan">Plan</option>
+            <option value="standard">Standard</option>
+            <option value="yolo">YOLO</option>
+          </select>
+        </div>
+
         <div class="form-row">
           <div class="form-group">
             <label class="form-check">
@@ -105,6 +123,8 @@
             <div class="template-meta">
               <span v-if="template.thinkingEnabled" class="meta-badge">Thinking</span>
               <span v-if="template.gitBranch" class="meta-badge">{{ template.gitBranch }}</span>
+              <span v-if="template.model" class="meta-badge">{{ getModelName(template.model) }}</span>
+              <span v-if="template.mode" class="meta-badge">{{ template.mode }}</span>
               <span v-if="template.nextTemplateId" class="meta-badge meta-badge-chain">
                 Chains to: {{ getTemplateName(template.nextTemplateId) }}
               </span>
@@ -132,6 +152,8 @@
               <span class="meta-badge meta-badge-global">Global</span>
               <span v-if="template.thinkingEnabled" class="meta-badge">Thinking</span>
               <span v-if="template.gitBranch" class="meta-badge">{{ template.gitBranch }}</span>
+              <span v-if="template.model" class="meta-badge">{{ getModelName(template.model) }}</span>
+              <span v-if="template.mode" class="meta-badge">{{ template.mode }}</span>
               <span v-if="template.nextTemplateId" class="meta-badge meta-badge-chain">
                 Chains to: {{ getTemplateName(template.nextTemplateId) }}
               </span>
@@ -155,6 +177,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
+import { CLAUDE_MODELS } from '@claudetools/shared';
 
 const props = defineProps({
   projectId: { type: String, required: true },
@@ -172,6 +195,9 @@ const formData = ref({
   isGlobal: false,
   nextTemplateId: null,
   thinkingEnabled: false,
+  gitBranch: '',
+  model: 'claude-sonnet-4-20250514',
+  mode: 'yolo',
 });
 
 const loading = computed(() => templatesStore.loading);
@@ -204,6 +230,11 @@ function getTemplateName(templateId) {
   return template?.name || 'Unknown';
 }
 
+function getModelName(modelId) {
+  const model = CLAUDE_MODELS.find(m => m.id === modelId);
+  return model?.name || modelId;
+}
+
 function resetForm() {
   formData.value = {
     name: '',
@@ -211,6 +242,9 @@ function resetForm() {
     isGlobal: false,
     nextTemplateId: null,
     thinkingEnabled: false,
+    gitBranch: '',
+    model: 'claude-sonnet-4-20250514',
+    mode: 'yolo',
   };
 }
 
@@ -233,6 +267,9 @@ async function handleSubmit() {
       prompt: formData.value.prompt,
       nextTemplateId: formData.value.nextTemplateId || undefined,
       thinkingEnabled: formData.value.thinkingEnabled || undefined,
+      gitBranch: formData.value.gitBranch || undefined,
+      model: formData.value.model || undefined,
+      mode: formData.value.mode || undefined,
     };
 
     if (formData.value.isGlobal) {

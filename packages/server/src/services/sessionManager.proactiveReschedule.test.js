@@ -80,17 +80,22 @@ describe('sessionManager - Proactive Rescheduling', () => {
   });
 
   describe('proactive reschedule conditions', () => {
-    it('does not reschedule when autoRescheduleEnabled is false', async () => {
+    it('reschedules when rescheduleAtTokenCount is set, regardless of autoRescheduleEnabled', async () => {
+      // After fix: autoRescheduleEnabled no longer blocks proactive rescheduling
+      // Only rescheduleAtTokenCount matters
       setupSessionForReschedule(session.id, {
-        autoRescheduleEnabled: false,
+        autoRescheduleEnabled: false, // This should NOT prevent rescheduling anymore
         rescheduleAtTokenCount: 100000,
         inputTokens: 80000,
-        outputTokens: 30000,
+        outputTokens: 30000, // Total: 110000, exceeds threshold
       });
 
       await continueSession(session.id, 'Continue', tempDir);
 
-      expect(mockSchedulerService.rescheduleSession).not.toHaveBeenCalled();
+      expect(mockSchedulerService.rescheduleSession).toHaveBeenCalledWith(
+        session.id,
+        expect.stringContaining('Token threshold reached')
+      );
     });
 
     it('does not reschedule when rescheduleAtTokenCount is null', async () => {

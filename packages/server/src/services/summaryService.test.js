@@ -1824,4 +1824,216 @@ describe('summaryService', () => {
       expect(result).toBe(false);
     });
   });
+
+  describe('force parameter bypasses disableSessionSummaries', () => {
+    it('regenerateSummary works even when disableSessionSummaries is true', async () => {
+      // Disable session summaries for the project
+      projects.update(projectId, { disableSessionSummaries: true });
+
+      // regenerateSummary passes force=true, so it should work
+      const result = await summaryService.regenerateSummary(sessionId);
+
+      expect(result).not.toBeNull();
+      expect(result.sessionId).toBe(sessionId);
+      expect(result.shortSummary).toBeDefined();
+      expect(result.fullSummary).toBeDefined();
+
+      // Verify it was actually stored in the database
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).not.toBeNull();
+    });
+
+    it('generateSummary with force=true works even when disableSessionSummaries is true', async () => {
+      // Disable session summaries for the project
+      projects.update(projectId, { disableSessionSummaries: true });
+
+      // Call generateSummary with force=true
+      const result = await summaryService.generateSummary(sessionId, 0, true);
+
+      expect(result).not.toBeNull();
+      expect(result.sessionId).toBe(sessionId);
+
+      // Verify it was actually stored
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).not.toBeNull();
+    });
+
+    it('generateSummary without force respects disableSessionSummaries when true', async () => {
+      // Disable session summaries for the project
+      projects.update(projectId, { disableSessionSummaries: true });
+
+      // Call generateSummary without force (default is false)
+      const result = await summaryService.generateSummary(sessionId);
+
+      expect(result).toBeNull();
+
+      // Verify nothing was stored
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).toBeNull();
+    });
+
+    it('generateSummary without force works when disableSessionSummaries is false', async () => {
+      // Ensure summaries are enabled
+      projects.update(projectId, { disableSessionSummaries: false });
+
+      // Call generateSummary without force
+      const result = await summaryService.generateSummary(sessionId);
+
+      expect(result).not.toBeNull();
+      expect(result.sessionId).toBe(sessionId);
+    });
+
+    it('onSessionActivity respects disableSessionSummaries (does not generate)', async () => {
+      vi.useFakeTimers();
+
+      // Disable session summaries
+      projects.update(projectId, { disableSessionSummaries: true });
+
+      // Trigger activity (should schedule generation but skip due to disabled flag)
+      summaryService.onSessionActivity(sessionId);
+
+      // Fast-forward past the debounce delay
+      await vi.advanceTimersByTimeAsync(60000);
+      await vi.runAllTimersAsync();
+
+      // Summary should NOT have been generated
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).toBeNull();
+
+      vi.useRealTimers();
+    });
+
+    it('onSessionActivity generates when disableSessionSummaries is false', async () => {
+      vi.useFakeTimers();
+
+      // Ensure summaries are enabled
+      projects.update(projectId, { disableSessionSummaries: false });
+
+      // Trigger activity
+      summaryService.onSessionActivity(sessionId);
+
+      // Fast-forward past the debounce delay
+      await vi.advanceTimersByTimeAsync(60000);
+      await vi.runAllTimersAsync();
+
+      // Summary SHOULD have been generated
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).not.toBeNull();
+
+      vi.useRealTimers();
+    });
+
+    it('getSummary with generateIfMissing=true respects disableSessionSummaries', async () => {
+      // Disable session summaries
+      projects.update(projectId, { disableSessionSummaries: true });
+
+      // getSummary with generateIfMissing=true should still respect the disable flag
+      const result = await summaryService.getSummary(sessionId, true);
+
+      expect(result).toBeNull();
+
+      // Verify nothing was stored
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).toBeNull();
+    });
+
+    it('getSummary with generateIfMissing=true generates when enabled', async () => {
+      // Ensure summaries are enabled
+      projects.update(projectId, { disableSessionSummaries: false });
+
+      const result = await summaryService.getSummary(sessionId, true);
+
+      expect(result).not.toBeNull();
+      expect(result.sessionId).toBe(sessionId);
+    });
+
+    it('onSessionComplete bypasses disableSessionSummaries (uses force=true)', async () => {
+      // Disable session summaries
+      projects.update(projectId, { disableSessionSummaries: true });
+
+      // onSessionComplete should generate anyway (it uses force=true)
+      summaryService.onSessionComplete(sessionId);
+
+      // Wait for async generation
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Summary SHOULD have been generated despite being disabled
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).not.toBeNull();
+    });
+
+    it('manual regeneration can override disabled setting while auto-generation cannot', async () => {
+      // Disable session summaries
+      projects.update(projectId, { disableSessionSummaries: true });
+
+      // Try automatic generation via onSessionActivity - should be skipped
+      summaryService.onSessionActivity(sessionId);
+
+      // Wait a bit to ensure debounce would have fired if not disabled
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Clean up the debounce timer to avoid interfering with next test
+      summaryService.cleanupSession(sessionId);
+
+      let stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).toBeNull(); // Auto-generation skipped
+
+      // Now try manual regeneration via regenerateSummary - should work
+      const result = await summaryService.regenerateSummary(sessionId);
+      expect(result).not.toBeNull();
+
+      stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).not.toBeNull(); // Manual generation worked
+    });
+
+    it('logs appropriate message when force bypasses disabled setting', async () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      // Disable session summaries
+      projects.update(projectId, { disableSessionSummaries: true });
+
+      // Call with force=true
+      await summaryService.generateSummary(sessionId, 0, true);
+
+      // Should NOT log the "disabled" message since force=true bypasses it
+      const disabledCalls = consoleSpy.mock.calls.filter((call) =>
+        call[0]?.includes?.('Session summaries disabled')
+      );
+      expect(disabledCalls.length).toBe(0);
+
+      // But should log success
+      const successCalls = consoleSpy.mock.calls.filter((call) =>
+        call[0]?.includes?.('Successfully generated summary')
+      );
+      expect(successCalls.length).toBeGreaterThan(0);
+
+      consoleSpy.mockRestore();
+
+      // Re-enable for other tests
+      projects.update(projectId, { disableSessionSummaries: false });
+    });
+
+    it('logs disabled message when force=false and setting is enabled', async () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      // Disable session summaries
+      projects.update(projectId, { disableSessionSummaries: true });
+
+      // Call without force (default false)
+      await summaryService.generateSummary(sessionId);
+
+      // Should log the "disabled" message (single string argument)
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[SummaryService] Session summaries disabled')
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('skipping automatic generation')
+      );
+
+      consoleSpy.mockRestore();
+
+      // Re-enable for other tests
+      projects.update(projectId, { disableSessionSummaries: false });
+    });
+  });
 });
