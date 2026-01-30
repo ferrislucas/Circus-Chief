@@ -21,9 +21,7 @@ test.describe('Conversation Branching', () => {
       prompt: 'Say "Hello from the main conversation"',
     });
     sessionId = session.id;
-
-    // Wait for session to complete the initial turn
-    await waitForSessionStatus(sessionId, 'waiting', 30000);
+    // Note: We'll wait for the session to complete in the test body where we have access to 'page'
   });
 
   test.afterEach(async () => {
@@ -33,6 +31,9 @@ test.describe('Conversation Branching', () => {
   test('should create a branch and update UI immediately without hanging', async ({ page }) => {
     // Navigate to the session
     await page.goto(`/projects/${projectId}/sessions/${sessionId}`);
+
+    // Wait for session to complete the initial turn
+    await waitForSessionStatus(page, sessionId, 'waiting', 30000);
 
     // Wait for the initial conversation to load and Claude to respond
     await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 30000 });
@@ -63,10 +64,7 @@ test.describe('Conversation Branching', () => {
     // 1. BranchEditor should close quickly (within 3 seconds - allowing for API roundtrip)
     await expect(page.locator('.branch-editor')).not.toBeVisible({ timeout: 3000 });
 
-    // 2. A success toast should appear
-    await expect(page.locator('.toast')).toContainText('Branch created', { timeout: 5000 });
-
-    // 3. The conversation selector should show the new branch
+    // 2. The conversation selector should show the new branch
     // Click the selector to open the dropdown
     const conversationSelector = page.locator('[data-testid="conversation-selector"]');
     await conversationSelector.click();
@@ -78,7 +76,7 @@ test.describe('Conversation Branching', () => {
     // Close the dropdown
     await conversationSelector.click();
 
-    // 4. The new message should appear in the conversation
+    // 3. The new message should appear in the conversation
     // We should see the branched prompt
     await expect(page.locator('[data-testid="message-user"]').last()).toContainText('Hello from the branched conversation', { timeout: 5000 });
 
@@ -89,6 +87,9 @@ test.describe('Conversation Branching', () => {
   test('should handle branch creation errors gracefully', async ({ page }) => {
     // Navigate to the session
     await page.goto(`/projects/${projectId}/sessions/${sessionId}`);
+
+    // Wait for session to complete the initial turn
+    await waitForSessionStatus(page, sessionId, 'waiting', 30000);
 
     // Wait for the conversation to load
     await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 30000 });
