@@ -201,49 +201,6 @@
         </button>
       </details>
 
-      <details class="advanced-settings">
-        <summary>Summary Settings</summary>
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input
-              type="checkbox"
-              v-model="disableSessionSummaries"
-            />
-            Disable session summaries
-          </label>
-          <p class="form-help">
-            When enabled, automatic session summaries will not be generated. Session summaries provide an overview of what was accomplished.
-          </p>
-        </div>
-
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input
-              type="checkbox"
-              v-model="disableConversationSummaries"
-            />
-            Disable conversation summaries
-          </label>
-          <p class="form-help">
-            When enabled, automatic conversation summaries will not be generated when switching between conversations.
-          </p>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="sessionTitlePrompt">Custom Session Title Prompt</label>
-          <textarea
-            id="sessionTitlePrompt"
-            v-model="sessionTitlePrompt"
-            class="form-input form-textarea-small"
-            rows="6"
-            placeholder="Guidelines for generating session titles:&#10;- The title should capture the SESSION'S STRATEGIC GOAL, not current tactical activity&#10;- Focus on WHAT the user wants to achieve&#10;- NOT the current step (e.g., 'Fix TypeScript error')&#10;- If a PR was created, format as 'PR #N: &lt;goal&gt;'&#10;- Keep titles concise (max 60 characters)"
-          ></textarea>
-          <p class="form-help">
-            Customize how session titles are generated when creating summaries. Leave empty to use the default strategic goal-focused guidelines.
-          </p>
-        </div>
-      </details>
-
       <div v-if="error" class="error-message">{{ error }}</div>
 
       <div class="form-actions">
@@ -292,9 +249,6 @@ const repoUrl = ref('');
 const systemPrompt = ref('');
 const onSessionCreated = ref('');
 const onSessionDeleted = ref('');
-const disableSessionSummaries = ref(false);
-const disableConversationSummaries = ref(false);
-const sessionTitlePrompt = ref('');
 
 // Session defaults refs
 const defaultMode = ref('');
@@ -323,9 +277,6 @@ watch(() => projectsStore.currentProject, (project) => {
     systemPrompt.value = project.systemPrompt || '';
     onSessionCreated.value = project.onSessionCreated || '';
     onSessionDeleted.value = project.onSessionDeleted || '';
-    disableSessionSummaries.value = project.disableSessionSummaries || false;
-    disableConversationSummaries.value = project.disableConversationSummaries || false;
-    sessionTitlePrompt.value = project.sessionTitlePrompt || '';
   }
 }, { immediate: true });
 
@@ -353,9 +304,6 @@ async function handleSubmit() {
       systemPrompt: systemPrompt.value || null,
       onSessionCreated: onSessionCreated.value || null,
       onSessionDeleted: onSessionDeleted.value || null,
-      disableSessionSummaries: disableSessionSummaries.value,
-      disableConversationSummaries: disableConversationSummaries.value,
-      sessionTitlePrompt: sessionTitlePrompt.value || null,
     });
 
     // Update defaults

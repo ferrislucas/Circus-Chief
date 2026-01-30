@@ -1073,6 +1073,34 @@ export class ApiClient {
     return this.#request('DELETE', '/settings/token-weights');
   }
 
+  /**
+   * Get summary settings
+   * @returns {Promise<{disableSessionSummaries: boolean, disableConversationSummaries: boolean, sessionTitlePrompt: string}>}
+   */
+  async getSummarySettings() {
+    return this.#request('GET', '/settings/summary');
+  }
+
+  /**
+   * Update summary settings
+   * @param {Object} settings - Summary settings
+   * @param {boolean} settings.disableSessionSummaries - Disable session summaries
+   * @param {boolean} settings.disableConversationSummaries - Disable conversation summaries
+   * @param {string} settings.sessionTitlePrompt - Custom session title prompt
+   * @returns {Promise<{disableSessionSummaries: boolean, disableConversationSummaries: boolean, sessionTitlePrompt: string}>}
+   */
+  async updateSummarySettings(settings) {
+    return this.#request('PUT', '/settings/summary', settings);
+  }
+
+  /**
+   * Reset summary settings to defaults
+   * @returns {Promise<{disableSessionSummaries: boolean, disableConversationSummaries: boolean, sessionTitlePrompt: string}>}
+   */
+  async resetSummarySettings() {
+    return this.#request('DELETE', '/settings/summary');
+  }
+
   // Model Providers
 
   /**

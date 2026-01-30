@@ -5,6 +5,11 @@ import { DEFAULT_TOKEN_COST_WEIGHTS } from '@claudetools/shared';
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
     tokenCostWeights: { ...DEFAULT_TOKEN_COST_WEIGHTS },
+    summarySettings: {
+      disableSessionSummaries: false,
+      disableConversationSummaries: false,
+      sessionTitlePrompt: '',
+    },
     loading: false,
     error: null,
   }),
@@ -63,6 +68,65 @@ export const useSettingsStore = defineStore('settings', {
       try {
         const defaults = await api.resetTokenCostWeights();
         this.tokenCostWeights = defaults;
+        return defaults;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    /**
+     * Fetch summary settings from the server
+     */
+    async fetchSummarySettings() {
+      this.loading = true;
+      this.error = null;
+      try {
+        const settings = await api.getSummarySettings();
+        this.summarySettings = settings;
+      } catch (err) {
+        this.error = err.message;
+        // Fall back to defaults on error
+        this.summarySettings = {
+          disableSessionSummaries: false,
+          disableConversationSummaries: false,
+          sessionTitlePrompt: '',
+        };
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    /**
+     * Update summary settings
+     * @param {Object} settings - Summary settings
+     */
+    async updateSummarySettings(settings) {
+      this.loading = true;
+      this.error = null;
+      try {
+        const updated = await api.updateSummarySettings(settings);
+        this.summarySettings = updated;
+        return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    /**
+     * Reset summary settings to defaults
+     */
+    async resetSummarySettings() {
+      this.loading = true;
+      this.error = null;
+      try {
+        const defaults = await api.resetSummarySettings();
+        this.summarySettings = defaults;
         return defaults;
       } catch (err) {
         this.error = err.message;

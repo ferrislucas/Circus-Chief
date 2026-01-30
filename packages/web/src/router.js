@@ -72,9 +72,22 @@ const routes = [
     component: () => import('./views/SessionDetailView.vue'),
   },
   {
-    path: '/settings/providers',
-    name: 'Providers',
-    component: () => import('./views/ProvidersView.vue'),
+    path: '/settings',
+    name: 'Settings',
+    component: () => import('./views/SettingsView.vue'),
+    redirect: '/settings/providers',
+    children: [
+      {
+        path: 'providers',
+        name: 'Providers',
+        component: () => import('./views/ProvidersView.vue'),
+      },
+      {
+        path: 'summary',
+        name: 'SummarySettings',
+        component: () => import('./views/SummarySettingsView.vue'),
+      },
+    ],
   },
 ];
 
