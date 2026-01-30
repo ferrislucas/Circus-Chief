@@ -555,9 +555,9 @@ onMounted(async () => {
   // Note: Partial thinking is displayed in LiveWorkLogPanel which has its own scroll management
   unsubThinkingPartial = onThinkingPartial((thinking) => {
     if (thinking === null) {
-      sessionsStore.clearPartialThinking();
+      sessionsStore.clearPartialThinking(props.sessionId);
     } else {
-      sessionsStore.setPartialThinking(thinking);
+      sessionsStore.setPartialThinking(thinking, props.sessionId);
     }
   });
 
