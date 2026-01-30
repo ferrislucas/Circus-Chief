@@ -212,8 +212,35 @@ router.get('/runs', (req, res) => {
     return res.status(404).json({ error: 'Session not found' });
   }
 
+  // Get running + recent (last hour) from commandRunner
   const activeRuns = commandRunner.getRunsBySession(sessionId);
-  res.json(activeRuns);
+
+  // Also get latest run per button (for historical context beyond 1 hour)
+  const latestRuns = commandRuns.getLatestRunsForSession(sessionId);
+
+  // Merge, preferring activeRuns data (more current output)
+  // Use buttonId as the key to avoid duplicates
+  const runMap = new Map();
+
+  // First add latest runs from database
+  for (const run of latestRuns) {
+    runMap.set(run.buttonId, {
+      runId: run.id,
+      buttonId: run.buttonId,
+      status: run.status,
+      output: run.output,
+      exitCode: run.exitCode,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt,
+    });
+  }
+
+  // Override with active/recent runs (they're more current)
+  for (const run of activeRuns) {
+    runMap.set(run.buttonId, run);
+  }
+
+  res.json(Array.from(runMap.values()));
 });
 
 // GET /api/sessions/:sessionId/command-buttons/runs/:runId - Get single run by ID
