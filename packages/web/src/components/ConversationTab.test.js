@@ -1456,8 +1456,8 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
 
       // Verify model selector updated to the new model
       // This verifies that watching activeConversation?.model works even with splice operations
-      modelSelector = wrapper.find('.model-selector-stub');
-      expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-20250514');
+      modelSelect = wrapper.find('.model-selector-stub');
+      expect(modelSelect.attributes('data-model')).toBe('claude-sonnet-4-20250514');
     });
 
     it('updates selectedModel when active conversation is replaced in conversations array via splice', async () => {
@@ -1494,8 +1494,8 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Verify the model selector detected the change
-      modelSelector = wrapper.find('.model-selector-stub');
-      expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-20250514');
+      modelSelect = wrapper.find('.model-selector-stub');
+      expect(modelSelect.attributes('data-model')).toBe('claude-sonnet-4-20250514');
     });
 
     it('updates selectedModel when non-active conversation is updated via splice then becomes active', async () => {
