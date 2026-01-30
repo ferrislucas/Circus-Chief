@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS session_templates (
   git_branch TEXT,
   git_mode TEXT,
   model TEXT,
+  mode TEXT DEFAULT 'yolo' CHECK(mode IN ('plan', 'standard', 'yolo')),
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -98,7 +99,8 @@ CREATE TABLE IF NOT EXISTS canvas_items (
   width INTEGER,
   height INTEGER,
   deleted_at INTEGER,     -- null = active, timestamp = soft deleted
-  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
 -- Session notes

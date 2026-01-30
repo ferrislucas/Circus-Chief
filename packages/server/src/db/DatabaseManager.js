@@ -212,6 +212,20 @@ export class DatabaseManager {
     // Drop label column from canvas_items table
     this.#migrateCanvasItemsDropLabel();
 
+    // Add updated_at column to canvas_items table for last modified tracking
+    const canvasUpdatedAtTableInfo = this.#db.prepare('PRAGMA table_info(canvas_items)').all();
+    const canvasUpdatedAtColumns = canvasUpdatedAtTableInfo.map((col) => col.name);
+
+    if (!canvasUpdatedAtColumns.includes('updated_at')) {
+      this.#db.exec(
+        'ALTER TABLE canvas_items ADD COLUMN updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)'
+      );
+      // Update existing rows to set updated_at = created_at
+      this.#db.exec(
+        'UPDATE canvas_items SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = 0'
+      );
+    }
+
     // Add claude_session_id column to conversations table for per-conversation context isolation
     const conversationsTableInfo = this.#db.prepare('PRAGMA table_info(conversations)').all();
     const conversationsColumns = conversationsTableInfo.map((col) => col.name);
@@ -378,6 +392,9 @@ export class DatabaseManager {
     const templatesColumns = templatesTableInfo.map((col) => col.name);
     if (!templatesColumns.includes('model')) {
       this.#db.exec('ALTER TABLE session_templates ADD COLUMN model TEXT');
+    }
+    if (!templatesColumns.includes('mode')) {
+      this.#db.exec('ALTER TABLE session_templates ADD COLUMN mode TEXT DEFAULT \'yolo\' CHECK(mode IN (\'plan\', \'standard\', \'yolo\'))');
     }
 
     // Add model column to conversation_messages table (Issue: track model per message)

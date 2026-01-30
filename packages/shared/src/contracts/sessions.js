@@ -47,6 +47,7 @@ export const SessionResponse = z.object({
   name: z.string(),
   status: z.enum(['starting', 'running', 'waiting', 'stopped', 'completed', 'error', 'scheduled']),
   mode: z.enum(['plan', 'standard', 'yolo']),
+  model: z.string().nullable(),
   thinkingEnabled: z.boolean(),
   gitBranch: z.string().nullable(),
   gitWorktree: z.string().nullable(),

@@ -15,6 +15,7 @@ export const CanvasItemResponse = z.object({
   width: z.number().nullable(),
   height: z.number().nullable(),
   createdAt: z.number(),
+  updatedAt: z.number(),
 });
 
 export const CanvasListResponse = z.array(CanvasItemResponse);
