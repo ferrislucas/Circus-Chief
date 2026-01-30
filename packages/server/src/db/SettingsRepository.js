@@ -2,6 +2,7 @@ import { databaseManager } from './DatabaseManager.js';
 import { DEFAULT_TOKEN_COST_WEIGHTS } from '@claudetools/shared';
 
 const TOKEN_WEIGHTS_KEY = 'token_cost_weights';
+const SUMMARY_SETTINGS_KEY = 'summary_settings';
 
 /**
  * Settings repository for managing application-wide settings
@@ -101,5 +102,66 @@ export class SettingsRepository {
   resetTokenCostWeights() {
     this.delete(TOKEN_WEIGHTS_KEY);
     return { ...DEFAULT_TOKEN_COST_WEIGHTS };
+  }
+
+  // Summary Settings
+
+  /**
+   * Get summary settings with defaults
+   * @returns {Object} Summary settings
+   */
+  getSummarySettings() {
+    const value = this.get(SUMMARY_SETTINGS_KEY);
+    if (!value) {
+      return {
+        disableSessionSummaries: false,
+        disableConversationSummaries: false,
+        sessionTitlePrompt: '',
+      };
+    }
+    try {
+      const parsed = JSON.parse(value);
+      return {
+        disableSessionSummaries: parsed.disableSessionSummaries || false,
+        disableConversationSummaries: parsed.disableConversationSummaries || false,
+        sessionTitlePrompt: parsed.sessionTitlePrompt || '',
+      };
+    } catch {
+      return {
+        disableSessionSummaries: false,
+        disableConversationSummaries: false,
+        sessionTitlePrompt: '',
+      };
+    }
+  }
+
+  /**
+   * Set summary settings
+   * @param {Object} settings - Summary settings
+   * @param {boolean} settings.disableSessionSummaries - Disable session summaries
+   * @param {boolean} settings.disableConversationSummaries - Disable conversation summaries
+   * @param {string} settings.sessionTitlePrompt - Custom session title prompt
+   */
+  setSummarySettings(settings) {
+    const validated = {
+      disableSessionSummaries: Boolean(settings.disableSessionSummaries),
+      disableConversationSummaries: Boolean(settings.disableConversationSummaries),
+      sessionTitlePrompt: String(settings.sessionTitlePrompt || ''),
+    };
+    this.set(SUMMARY_SETTINGS_KEY, JSON.stringify(validated));
+    return validated;
+  }
+
+  /**
+   * Reset summary settings to defaults
+   * @returns {Object} The default settings
+   */
+  resetSummarySettings() {
+    this.delete(SUMMARY_SETTINGS_KEY);
+    return {
+      disableSessionSummaries: false,
+      disableConversationSummaries: false,
+      sessionTitlePrompt: '',
+    };
   }
 }
