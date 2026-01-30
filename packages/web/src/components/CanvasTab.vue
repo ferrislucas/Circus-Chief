@@ -146,10 +146,6 @@ const selectedItem = computed(() => {
   if (selectedItemId.value) {
     return canvasStore.items.find((i) => i.id === selectedItemId.value);
   }
-  // Otherwise, if there's only one file group, use the first (latest) item
-  if (groupedItems.value.length === 1) {
-    return groupedItems.value[0];
-  }
   return null;
 });
 
@@ -160,10 +156,9 @@ const selectedVersions = computed(() => {
     .filter((i) => (i.filename || i.id) === key)
     .sort((a, b) => b.createdAt - a.createdAt);
 });
-
 const shouldShowViewer = computed(() => {
-  // Show viewer if an item is explicitly selected OR if there's only one file group
-  return selectedItemId.value !== null || groupedItems.value.length === 1;
+  // Show viewer only if an item is explicitly selected
+  return selectedItemId.value !== null;
 });
 
 const showBackButton = computed(() => {
