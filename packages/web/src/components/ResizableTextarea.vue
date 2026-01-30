@@ -3,8 +3,9 @@
     <textarea
       ref="textareaRef"
       v-bind="$attrs"
+      :value="modelValue"
       :style="{ height: currentHeight ? currentHeight + 'px' : undefined }"
-      @input="$emit('input', $event)"
+      @input="handleInput"
     />
     <div
       class="resize-handle"
@@ -20,9 +21,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, watch, onMounted, onUnmounted } from 'vue';
 
 const props = defineProps({
+  modelValue: {
+    type: String,
+    default: ''
+  },
   minHeight: {
     type: Number,
     default: 80
@@ -33,11 +38,23 @@ const props = defineProps({
   }
 });
 
-defineEmits(['input']);
+const emit = defineEmits(['update:modelValue', 'input']);
+
+function handleInput(event) {
+  emit('update:modelValue', event.target.value);
+  emit('input', event);
+}
 
 const textareaRef = ref(null);
 const currentHeight = ref(null);
 let isResizing = false;
+
+// Watch for external modelValue changes and update textarea
+watch(() => props.modelValue, (newValue) => {
+  if (textareaRef.value && textareaRef.value.value !== newValue) {
+    textareaRef.value.value = newValue;
+  }
+});
 
 function startResize(event) {
   if (!textareaRef.value) return;
