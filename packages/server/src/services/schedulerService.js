@@ -125,7 +125,8 @@ class SchedulerService {
         prompt,
         workingDirectory,
         project.systemPrompt,
-        sessionAttachments
+        sessionAttachments,
+        session.pendingModel
       );
     } else {
       // Fresh session - initial run
@@ -160,7 +161,7 @@ class SchedulerService {
         workingDirectory,
         project.systemPrompt,
         sessionAttachments,
-        session.model
+        session.pendingModel
       );
     }
   }

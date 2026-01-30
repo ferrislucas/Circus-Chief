@@ -88,7 +88,7 @@
           <div class="session-date">
             {{ formatDate(dateToShow) }}
           </div>
-          <!-- Archive button (always visible on root sessions, not on child sessions) -->
+          <!-- Archive button and star button (always visible on root sessions, not on child sessions) -->
           <div v-if="!isChild && (showArchive || showUnarchive)" class="archive-actions">
             <button
               v-if="showArchive && canArchive"
@@ -113,6 +113,19 @@
                 <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path>
                 <path d="M12 11v6"></path>
                 <path d="M9 14l3-3 3 3"></path>
+              </svg>
+            </button>
+            <!-- Star button in actions (for mobile layout) -->
+            <button
+              class="star-btn star-btn-mobile"
+              :title="session.starred ? 'Unstar session' : 'Star session'"
+              @click.stop.prevent="onStarClick"
+            >
+              <svg v-if="session.starred" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
+              </svg>
+              <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
               </svg>
             </button>
           </div>
@@ -561,6 +574,11 @@ const formatScheduledTime = (timestamp) => {
   background-color: var(--color-bg-soft);
 }
 
+/* Hide mobile star button on desktop */
+.star-btn-mobile {
+  display: none;
+}
+
 .archive-actions {
   display: flex;
   gap: 0.25rem;
@@ -863,6 +881,11 @@ const formatScheduledTime = (timestamp) => {
     gap: 0.5rem;
   }
 
+  /* Hide star button in header row on mobile */
+  .session-header-row > .star-btn {
+    display: none;
+  }
+
   /* Reduce card padding for compact display */
   .session-card {
     padding: 0.75rem;
@@ -898,9 +921,21 @@ const formatScheduledTime = (timestamp) => {
     justify-content: space-between;
   }
 
-  /* Limit summary to 1 line on very small screens */
+  /* Group archive actions and mobile star button together */
+  .archive-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  /* Show star button in actions area on mobile */
+  .star-btn-mobile {
+    display: flex !important;
+  }
+
+  /* Limit summary to 3 lines on very small screens */
   .summary-text {
-    -webkit-line-clamp: 1;
+    -webkit-line-clamp: 3;
   }
 
   .session-card.is-child {

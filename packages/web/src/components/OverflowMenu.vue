@@ -31,10 +31,11 @@
           role="none"
         >
           <button
-            :class="['menu-item', { 'is-danger': item.isDanger, 'is-highlighted': highlightedIndex === index }]"
+            :class="['menu-item', { 'is-danger': item.isDanger, 'is-highlighted': highlightedIndex === index, 'is-disabled': isDeleting }]"
             role="menuitem"
+            :disabled="isDeleting"
             @click="handleItemClick(item, index)"
-            @mouseenter="highlightedIndex = index"
+            @mouseenter="!isDeleting && (highlightedIndex = index)"
             @mouseleave="highlightedIndex = null"
           >
             <span v-if="item.icon" class="menu-item-icon">{{ item.icon }}</span>
@@ -44,14 +45,16 @@
         <li v-if="showDivider" role="none" class="menu-divider"></li>
         <li role="none">
           <button
-            :class="['menu-item', 'is-danger', { 'is-highlighted': highlightedIndex === items.length }]"
+            :class="['menu-item', 'is-danger', { 'is-highlighted': highlightedIndex === items.length, 'is-disabled': isDeleting }]"
             role="menuitem"
+            :disabled="isDeleting"
             @click="handleDelete"
-            @mouseenter="highlightedIndex = items.length"
+            @mouseenter="!isDeleting && (highlightedIndex = items.length)"
             @mouseleave="highlightedIndex = null"
           >
-            <span class="menu-item-icon">🗑</span>
-            <span class="menu-item-text">{{ deleteText }}</span>
+            <span v-if="isDeleting" class="menu-item-spinner"></span>
+            <span v-else class="menu-item-icon">🗑</span>
+            <span class="menu-item-text">{{ isDeleting ? 'Deleting...' : deleteText }}</span>
           </button>
         </li>
       </ul>
@@ -82,6 +85,10 @@ const props = defineProps({
     default: null
   },
   isArchived: {
+    type: Boolean,
+    default: false
+  },
+  isDeleting: {
     type: Boolean,
     default: false
   },
@@ -293,9 +300,36 @@ onUnmounted(() => {
   background: rgba(248, 113, 113, 0.1);
 }
 
+.menu-item.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.menu-item.is-disabled:hover {
+  background: transparent;
+}
+
 .menu-item-icon {
   font-size: 1rem;
   flex-shrink: 0;
+}
+
+.menu-item-spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(248, 113, 113, 0.3);
+  border-top-color: #f87171;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .menu-item-text {

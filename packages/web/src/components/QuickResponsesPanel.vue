@@ -18,6 +18,7 @@
         <span class="panel-title">Quick Responses</span>
       </div>
       <button
+        v-if="isExpanded"
         type="button"
         class="settings-button"
         @click.stop="$emit('openSettings')"
@@ -38,7 +39,6 @@
     <!-- Empty state (shown when expanded) -->
     <div v-else-if="!hasResponses && isExpanded" class="empty-state">
       <span class="empty-text">No quick responses yet</span>
-      <button type="button" class="add-button" @click="$emit('openSettings')">+ Add Quick Response</button>
     </div>
 
     <!-- Responses content (collapsible) -->
@@ -227,21 +227,6 @@ function handleClick(response) {
 .empty-text {
   font-size: 0.875rem;
   color: var(--color-text-soft);
-}
-
-.add-button {
-  background: var(--color-accent);
-  color: var(--color-background);
-  border: none;
-  padding: 0.5rem 1rem;
-  border-radius: var(--border-radius);
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.add-button:hover {
-  opacity: 0.9;
 }
 
 .responses-content {

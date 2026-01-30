@@ -114,11 +114,7 @@ function getApiBaseUrl() {
  * @param {Error} error - Error that occurred
  * @returns {boolean} True if should reschedule
  */
-function shouldRescheduleOnError(session, error) {
-  if (!session.autoRescheduleEnabled) {
-    return false;
-  }
-
+export function shouldRescheduleOnError(session, error) {
   const errorMessage = error.message.toLowerCase();
 
   // Check for token limit errors
@@ -129,9 +125,13 @@ function shouldRescheduleOnError(session, error) {
       errorMessage.includes('max_tokens') ||
       errorMessage.includes('context window')
     ) {
-      console.log('[SessionManager] Token limit error detected, checking if should reschedule');
+      console.log('[SessionManager] Token limit error detected, rescheduling will be attempted');
+      console.log('[SessionManager] Error:', error.message);
+      console.log('[SessionManager] Session config: rescheduleOnTokenLimit=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
       return true;
     }
+  } else {
+    console.log('[SessionManager] rescheduleOnTokenLimit is false, skipping token limit rescheduling');
   }
 
   // Check for service errors
@@ -145,11 +145,17 @@ function shouldRescheduleOnError(session, error) {
       errorMessage.includes('service unavailable') ||
       errorMessage.includes('too many requests')
     ) {
-      console.log('[SessionManager] Service error detected, checking if should reschedule');
+      console.log('[SessionManager] Service error detected, rescheduling will be attempted');
+      console.log('[SessionManager] Error:', error.message);
+      console.log('[SessionManager] Session config: rescheduleOnServiceError=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
       return true;
     }
+  } else {
+    console.log('[SessionManager] rescheduleOnServiceError is false, skipping service error rescheduling');
   }
 
+  console.log('[SessionManager] Error does not match any rescheduling triggers');
+  console.log('[SessionManager] Session config: rescheduleOnTokenLimit=', session.rescheduleOnTokenLimit, ', rescheduleOnServiceError=', session.rescheduleOnServiceError);
   return false;
 }
 
@@ -159,9 +165,9 @@ function shouldRescheduleOnError(session, error) {
  * @param {string} sessionId - Session ID
  * @returns {Promise<boolean>} True if rescheduled
  */
-async function _checkProactiveReschedule(sessionId) {
+export async function _checkProactiveReschedule(sessionId) {
   const session = sessions.getById(sessionId);
-  if (!session || !session.autoRescheduleEnabled || !session.rescheduleAtTokenCount) {
+  if (!session || !session.rescheduleAtTokenCount) {
     return false;
   }
 
@@ -524,7 +530,7 @@ curl -X POST ${apiUrl}/api/projects/${projectId}/sessions \\
   -H "Content-Type: application/json" \\
   -d '{"prompt": "Your task description here", "name": "Optional session name"}'
 \`\`\`
-Optional fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`gitBranch\`, \`gitMode\`
+Optional fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`gitBranch\`, \`gitMode\`, \`parentSessionId\` (to create a child session)
 
 ### Send a Follow-up Message to a Session
 \`\`\`bash
@@ -623,61 +629,13 @@ curl -X POST ${apiUrl}/api/sessions/<session_id>/summary
 }
 
 /**
- * Resolve the provider for a session
- * Follows the chain: session.providerId → project defaults → global default
- * @param {Object} session - Session object
+ * Resolve the provider for a given model ID
+ * Looks up which provider owns the model, or returns null for Anthropic defaults
+ * @param {string|null} modelId - The model ID to look up
  * @returns {Object|null} Provider object or null if using Anthropic default
  */
-function resolveProvider(session) {
-  // If session has a provider ID, use it
-  if (session.providerId) {
-    return modelProviders.getById(session.providerId);
-  }
-
-  // Otherwise, get the default provider
-  const defaultProvider = modelProviders.getDefault();
-
-  // If it's the built-in Anthropic provider, return null (use SDK defaults)
-  if (defaultProvider && defaultProvider.isBuiltIn) {
-    return null;
-  }
-
-  return defaultProvider;
-}
-
-/**
- * Resolve the effective model ID to use for a session
- * For custom providers, maps session model tiers (sonnet, opus, haiku) to provider-specific model IDs
- * @param {string|null} sessionModel - Model from session (e.g., "sonnet", "opus", "haiku", or specific ID)
- * @param {Object|null} provider - Provider object from resolveProvider()
- * @returns {string|null} Effective model ID to pass to query(), or null to use SDK defaults
- */
-function resolveEffectiveModel(sessionModel, provider) {
-  // If no custom provider, use the session model as-is
-  // The SDK will handle translating "sonnet" to the actual Anthropic model ID
-  if (!provider) {
-    return sessionModel;
-  }
-
-  // For custom providers, map model tiers to provider's custom model IDs
-  // This ensures the correct model ID (e.g., "GLM-4.7") is passed instead of just "sonnet"
-  const modelLower = sessionModel?.toLowerCase() || '';
-
-  // Handle tier-based model names
-  if (modelLower === 'sonnet' || modelLower === '' || !sessionModel) {
-    // Default to provider's sonnet model (or null if not configured)
-    return provider.defaultSonnetModel || null;
-  }
-  if (modelLower === 'opus') {
-    return provider.defaultOpusModel || null;
-  }
-  if (modelLower === 'haiku') {
-    return provider.defaultHaikuModel || null;
-  }
-
-  // If it's already a specific model ID (not a tier name), use it as-is
-  // This allows users to specify custom model IDs directly
-  return sessionModel;
+function resolveProviderFromModel(modelId) {
+  return modelProviders.getProviderByModelId(modelId);
 }
 
 /**
@@ -734,16 +692,14 @@ function buildProviderEnv(provider) {
 }
 
 /**
- * Build environment variables for Claude SDK based on session settings.
+ * Build environment variables for Claude SDK based on provider and session settings.
  * Always returns a robust env with Node in PATH to prevent ENOENT errors.
- * @param {Object} session
+ * @param {Object|null} provider - Provider object or null for Anthropic defaults
+ * @param {boolean} thinkingEnabled - Whether thinking mode is enabled
  * @returns {Object}
  */
-function buildSessionEnv(session) {
+function buildSessionEnv(provider, thinkingEnabled = false) {
   const baseEnv = createRobustEnv(process.env);
-
-  // Resolve provider and build provider env
-  const provider = resolveProvider(session);
   const providerEnv = buildProviderEnv(provider);
 
   // Combine all env vars
@@ -761,7 +717,7 @@ function buildSessionEnv(session) {
   }
 
   // Add thinking tokens if enabled
-  if (session.thinkingEnabled) {
+  if (thinkingEnabled) {
     sessionEnv.MAX_THINKING_TOKENS = '10240';
   }
 
@@ -816,6 +772,41 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
 }
 
 /**
+ * Build a context string from previous conversation messages.
+ * Used when switching models mid-conversation to maintain context without resuming.
+ * @param {string} conversationId - The conversation ID
+ * @returns {string} Formatted conversation history as context, or empty string if no messages
+ */
+function buildConversationContextForModelSwitch(conversationId) {
+  const conversationMessages = messages.getByConversationId(conversationId);
+
+  // Don't include the last user message (that's the current prompt)
+  const previousMessages = conversationMessages.slice(0, -1);
+
+  if (previousMessages.length === 0) {
+    return '';
+  }
+
+  // Format messages as a readable transcript
+  const transcript = previousMessages.map(msg => {
+    const role = msg.role === 'user' ? 'User' : 'Assistant';
+    // Truncate very long messages to avoid context overflow
+    const content = msg.content.length > 10000
+      ? msg.content.substring(0, 10000) + '\n[... message truncated ...]'
+      : msg.content;
+    return `${role}: ${content}`;
+  }).join('\n\n');
+
+  return `<conversation_history>
+The following is the conversation history from this session. You switched to a different model mid-conversation, so you're seeing this context to maintain continuity. Continue naturally from where the conversation left off.
+
+${transcript}
+</conversation_history>
+
+`;
+}
+
+/**
  * Run a Claude session
  * @param {string} sessionId
  * @param {string} prompt
@@ -854,14 +845,9 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     // Choose between mock and real query based on environment
     const queryFn = isMockMode() ? mockQuery : query;
 
-    // Resolve provider and build environment variables
-    const provider = resolveProvider(session);
-    const sessionEnv = buildSessionEnv(session);
-
-    // Use model from parameter or session record, then resolve to effective model ID
-    // For custom providers, this maps "sonnet" → provider.defaultSonnetModel (e.g., "GLM-4.7")
-    const sessionModel = model || session.model;
-    const effectiveModel = resolveEffectiveModel(sessionModel, provider);
+    // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
+    const provider = resolveProviderFromModel(model);
+    const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled);
 
     const queryParams = isMockMode()
       ? { prompt: promptWithAttachments }
@@ -875,7 +861,7 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
             settingSources: ['project'],
             env: sessionEnv,
             spawnClaudeCodeProcess: createClaudeCodeSpawner(),
-            model: effectiveModel,
+            model: model,
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
@@ -965,8 +951,12 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
  * @param {string} workingDirectory
  * @param {string|null} systemPrompt - Custom system prompt from project settings
  * @param {Array} fileAttachments - File attachments for context
+ * @param {string|null} model - Model to use for this message
  */
-export async function continueSession(sessionId, content, workingDirectory, systemPrompt = null, fileAttachments = []) {
+export async function continueSession(sessionId, content, workingDirectory, systemPrompt = null, fileAttachments = [], model = null) {
+  // [MODEL AUDIT] Log model received in continueSession
+  console.log(`[MODEL AUDIT - SessionManager] continueSession called with model: "${model}"`);
+
   // Check if session is already running
   if (activeSessions.has(sessionId)) {
     throw new Error('Session is already processing');
@@ -1014,18 +1004,51 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     // Choose between mock and real query based on environment
     const queryFn = isMockMode() ? mockQuery : query;
 
-    // Resolve provider and build environment variables
-    const provider = resolveProvider(session);
-    const sessionEnv = buildSessionEnv(session);
+    // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
+    const provider = resolveProviderFromModel(model);
+    const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled);
 
-    // Resolve effective model ID for custom providers
-    // This maps "sonnet" → provider.defaultSonnetModel (e.g., "GLM-4.7")
-    const effectiveModel = resolveEffectiveModel(session.model, provider);
+    // Check if model changed from the conversation's last model
+    // When model changes, we can't resume the previous session - thinking blocks and
+    // session context may be incompatible between different models/providers
+    const modelChanged = model && activeConversation.model && model !== activeConversation.model;
+
+    // [MODEL AUDIT] Log model change detection
+    console.log(`[MODEL AUDIT - SessionManager] Model change check:`, {
+      requestedModel: model,
+      conversationModel: activeConversation.model,
+      modelChanged,
+      conversationClaudeSessionId: activeConversation.claudeSessionId,
+    });
+
+    if (modelChanged) {
+      console.log(`[SESSION] Model changed from "${activeConversation.model}" to "${model}" - including conversation context`);
+    }
+
+    // Only resume if we have a session ID AND model hasn't changed
+    const canResume = activeConversation.claudeSessionId && !modelChanged;
+
+    // [MODEL AUDIT] Log resume decision
+    console.log(`[MODEL AUDIT - SessionManager] Resume decision: canResume=${canResume}`);
+
+    // When model changes, include conversation history as context so the new model
+    // can continue naturally without needing to resume the incompatible session
+    const conversationContext = modelChanged
+      ? buildConversationContextForModelSwitch(activeConversation.id)
+      : '';
+    const promptWithContext = conversationContext + promptWithAttachments;
+
+    // [MODEL AUDIT] Log SDK query options
+    console.log(`[MODEL AUDIT - SessionManager] SDK query options:`, {
+      model: model,
+      resume: canResume ? activeConversation.claudeSessionId : null,
+      hasConversationContext: conversationContext.length > 0,
+    });
 
     const queryParams = isMockMode()
-      ? { prompt: promptWithAttachments }
+      ? { prompt: promptWithContext }
       : {
-          prompt: promptWithAttachments,
+          prompt: promptWithContext,
           options: {
             cwd: workingDirectory,
             abortController: controller,
@@ -1033,11 +1056,11 @@ export async function continueSession(sessionId, content, workingDirectory, syst
             permissionMode: getPermissionModeForSession(session.mode),
             settingSources: ['project'],
             // Use conversation's claudeSessionId for context isolation
-            // Only pass resume if the conversation has an existing Claude session
-            ...(activeConversation.claudeSessionId && { resume: activeConversation.claudeSessionId }),
+            // Only pass resume if we have an existing session AND model hasn't changed
+            ...(canResume && { resume: activeConversation.claudeSessionId }),
             env: sessionEnv,
             spawnClaudeCodeProcess: createClaudeCodeSpawner(),
-            model: effectiveModel,
+            model: model,
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
@@ -1118,8 +1141,9 @@ export async function continueSession(sessionId, content, workingDirectory, syst
  * @param {string} conversationId - The conversation to continue (must have an existing user message)
  * @param {string} workingDirectory
  * @param {string|null} systemPrompt - Custom system prompt from project settings
+ * @param {string|null} model - Model to use for this message
  */
-export async function continueSessionWithExistingMessage(sessionId, conversationId, workingDirectory, systemPrompt = null) {
+export async function continueSessionWithExistingMessage(sessionId, conversationId, workingDirectory, systemPrompt = null, model = null) {
   // Check if session is already running
   if (activeSessions.has(sessionId)) {
     throw new Error('Session is already processing');
@@ -1164,18 +1188,32 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     // Choose between mock and real query based on environment
     const queryFn = isMockMode() ? mockQuery : query;
 
-    // Resolve provider and build environment variables
-    const provider = resolveProvider(session);
-    const sessionEnv = buildSessionEnv(session);
+    // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
+    const provider = resolveProviderFromModel(model);
+    const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled);
 
-    // Resolve effective model ID for custom providers
-    // This maps "sonnet" → provider.defaultSonnetModel (e.g., "GLM-4.7")
-    const effectiveModel = resolveEffectiveModel(session.model, provider);
+    // Check if model changed from the conversation's last model
+    // When model changes, we can't resume the previous session - thinking blocks and
+    // session context may be incompatible between different models/providers
+    const modelChanged = model && conversation.model && model !== conversation.model;
+    if (modelChanged) {
+      console.log(`[SESSION] Model changed from "${conversation.model}" to "${model}" - including conversation context`);
+    }
+
+    // Only resume if we have a session ID AND model hasn't changed
+    const canResume = conversation.claudeSessionId && !modelChanged;
+
+    // When model changes, include conversation history as context so the new model
+    // can continue naturally without needing to resume the incompatible session
+    const conversationContext = modelChanged
+      ? buildConversationContextForModelSwitch(conversationId)
+      : '';
+    const promptWithContext = conversationContext + lastUserMessage.content;
 
     const queryParams = isMockMode()
-      ? { prompt: lastUserMessage.content }
+      ? { prompt: promptWithContext }
       : {
-          prompt: lastUserMessage.content,
+          prompt: promptWithContext,
           options: {
             cwd: workingDirectory,
             abortController: controller,
@@ -1183,11 +1221,11 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
             permissionMode: getPermissionModeForSession(session.mode),
             settingSources: ['project'],
             // Use conversation's claudeSessionId for context isolation
-            // For new branches, this will be null (fresh session)
-            ...(conversation.claudeSessionId && { resume: conversation.claudeSessionId }),
+            // Only pass resume if we have an existing session AND model hasn't changed
+            ...(canResume && { resume: conversation.claudeSessionId }),
             env: sessionEnv,
             spawnClaudeCodeProcess: createClaudeCodeSpawner(),
-            model: effectiveModel,
+            model: model,
             systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
           },
         };
@@ -1355,15 +1393,24 @@ async function handleStreamEvent(sessionId, event) {
     case 'system': {
       // Store Claude's session info
       if (event.subtype === 'init') {
+        // [MODEL AUDIT] Log model reported by SDK in system.init
+        console.log(`[MODEL AUDIT - SDK Event] system.init received:`, {
+          sessionId,
+          sdkSessionId: event.session_id,
+          modelFromSDK: event.model,
+        });
+
         // Save Claude session ID to the active conversation for context isolation
         const activeConversation = conversations.getActiveBySessionId(sessionId);
         if (activeConversation) {
           conversations.update(activeConversation.id, {
             claudeSessionId: event.session_id,
           });
+          console.log(`[MODEL AUDIT - SDK Event] Updated conversation ${activeConversation.id} claudeSessionId to ${event.session_id}`);
         }
         // Track current model for this session (used when creating messages)
         currentModels.set(sessionId, event.model);
+        console.log(`[MODEL AUDIT - SDK Event] Set currentModels[${sessionId}] = "${event.model}"`);
         // Still update session's model and capture available slash commands
         sessions.update(sessionId, {
           model: event.model,
@@ -1394,7 +1441,10 @@ async function handleStreamEvent(sessionId, event) {
         const activeConversation = conversations.getActiveBySessionId(sessionId);
         const conversationId = activeConversation?.id || null;
         const currentModel = currentModels.get(sessionId) || null;
+        // [MODEL AUDIT] Log model being saved with message
+        console.log(`[MODEL AUDIT - Message Save] Creating assistant message with model: "${currentModel}"`);
         const message = messages.create(sessionId, 'assistant', textContent, toolUse, conversationId, currentModel);
+        console.log(`[MODEL AUDIT - Message Save] Created message ${message.id} in conversation ${conversationId} with model: "${currentModel}"`);
         console.log(`[SESSION] assistant event: created assistant message ${message.id} in conversation ${conversationId} with model ${currentModel}`);
 
         // Associate pending work logs with this message immediately
@@ -1609,6 +1659,11 @@ async function handleStreamEvent(sessionId, event) {
             ? Object.values(event.modelUsage)[0]
             : null;
 
+          // Use the model from system.init (stored in currentModels) rather than modelUsage keys
+          // because modelUsage can contain multiple models when sub-agents are used (e.g., Opus using Haiku)
+          // and Object.keys()[0] would pick the wrong model
+          const primaryModel = currentModels.get(sessionId) || Object.keys(event.modelUsage || {})[0] || null;
+
           const turnUsage = {
             inputTokens: modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
             outputTokens: modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
@@ -1616,8 +1671,16 @@ async function handleStreamEvent(sessionId, event) {
             cacheCreationInputTokens: modelUsageEntry?.cacheCreationInputTokens || event.usage?.cache_creation_input_tokens || 0,
             webSearchRequests: modelUsageEntry?.webSearchRequests || 0,
             contextWindow: modelUsageEntry?.contextWindow || 200000,
-            model: Object.keys(event.modelUsage || {})[0] || null,
+            model: primaryModel,
           };
+
+          // [MODEL AUDIT] Log model from result event
+          console.log(`[MODEL AUDIT - Result Event] Turn usage model extraction:`, {
+            modelUsageKeys: Object.keys(event.modelUsage || {}),
+            primaryModelFromInit: currentModels.get(sessionId),
+            extractedModel: turnUsage.model,
+            rawModelUsage: event.modelUsage,
+          });
 
           // Get the conversation ID for this session's current turn
           const conversationId = activeConversationIds.get(sessionId);
@@ -1626,6 +1689,13 @@ async function handleStreamEvent(sessionId, event) {
           // Update conversation with cumulative usage (add to existing)
           let updatedConversation = null;
           if (currentConversation) {
+            // [MODEL AUDIT] Log conversation model before update
+            console.log(`[MODEL AUDIT - Conversation Update] Before updateUsage:`, {
+              conversationId,
+              currentConversationModel: currentConversation.model,
+              newModelFromUsage: turnUsage.model,
+            });
+
             const cumulativeConversationUsage = {
               inputTokens: (currentConversation.inputTokens || 0) + turnUsage.inputTokens,
               outputTokens: (currentConversation.outputTokens || 0) + turnUsage.outputTokens,
@@ -1637,6 +1707,11 @@ async function handleStreamEvent(sessionId, event) {
             };
 
             updatedConversation = conversations.updateUsage(conversationId, cumulativeConversationUsage);
+            // [MODEL AUDIT] Log conversation model after update
+            console.log(`[MODEL AUDIT - Conversation Update] After updateUsage:`, {
+              conversationId,
+              updatedConversationModel: updatedConversation?.model,
+            });
           }
 
           // Also update session-level usage (aggregate of all conversations) for backward compatibility

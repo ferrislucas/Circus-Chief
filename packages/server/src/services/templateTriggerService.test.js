@@ -366,10 +366,15 @@ Please review the above work.
       });
       templateId = template.id;
 
-      // Create parent session with nextTemplateId
+      // Create parent session with nextTemplateId and model
       const session = sessions.create(projectId, 'Parent Session', 'Initial prompt', 'standard');
       parentSessionId = session.id;
-      sessions.update(parentSessionId, { nextTemplateId: templateId, status: 'stopped' });
+      sessions.update(parentSessionId, {
+        nextTemplateId: templateId,
+        status: 'stopped',
+        model: 'claude-sonnet-4-20250514',
+        mode: 'plan'
+      });
     });
 
     afterEach(() => {
@@ -470,7 +475,9 @@ Please review the above work.
         expect.any(String), // new session id
         expect.stringContaining('Follow up:'), // rendered prompt
         expect.stringContaining(tempDir), // working directory
-        null // system prompt (project has none)
+        null, // system prompt (project has none)
+        [], // attachments (empty for template-triggered sessions)
+        null // model (template has none set, so parent's model is not passed directly)
       );
     });
 
@@ -491,8 +498,91 @@ Please review the above work.
         expect.any(String),
         expect.stringContaining('Full summary of the parent session work'),
         expect.any(String),
-        null
+        null,
+        [], // attachments
+        null // model (template has none set)
       );
+    });
+
+    it('uses model from template when set', async () => {
+      // Update template to have a model
+      sessionTemplates.update(templateId, { model: 'claude-opus-4-20250514' });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      // Verify the broadcasted session has the template's model
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+
+      expect(sessionCreatedCalls.length).toBe(1);
+      expect(sessionCreatedCalls[0][2].session.model).toBe('claude-opus-4-20250514');
+    });
+
+    it('inherits model from parent session when template has no model', async () => {
+      // Template has no model set (null)
+      // Parent session has model: 'claude-sonnet-4-20250514'
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      // Verify the broadcasted session has the parent's model
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+
+      expect(sessionCreatedCalls.length).toBe(1);
+      expect(sessionCreatedCalls[0][2].session.model).toBe('claude-sonnet-4-20250514');
+    });
+
+    it('uses mode from template when set', async () => {
+      // Update template to have a different mode
+      sessionTemplates.update(templateId, { mode: 'standard' });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      // Verify the broadcasted session has the template's mode
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+
+      expect(sessionCreatedCalls.length).toBe(1);
+      expect(sessionCreatedCalls[0][2].session.mode).toBe('standard');
+    });
+
+    it('inherits mode from parent session when template has no mode', async () => {
+      // Template has no mode set (defaults to 'yolo' in DB)
+      // But the service should use template.mode if it exists, or fall back to session.mode
+      // Parent session has mode: 'plan'
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      // Verify the broadcasted session has the template's mode (or parent's if template is null)
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+
+      expect(sessionCreatedCalls.length).toBe(1);
+      // Template defaults to 'yolo', so the new session should have 'yolo' mode
+      expect(sessionCreatedCalls[0][2].session.mode).toBe('yolo');
+    });
+
+    it('uses both model and mode from template when both are set', async () => {
+      // Update template to have both model and mode
+      sessionTemplates.update(templateId, {
+        model: 'claude-opus-4-20250514',
+        mode: 'plan'
+      });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      // Verify the broadcasted session was created with both values
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+
+      expect(sessionCreatedCalls.length).toBe(1);
+      expect(sessionCreatedCalls[0][2].session.model).toBe('claude-opus-4-20250514');
+      expect(sessionCreatedCalls[0][2].session.mode).toBe('plan');
     });
 
     it('getRootSession walks up a multi-level chain correctly', () => {
