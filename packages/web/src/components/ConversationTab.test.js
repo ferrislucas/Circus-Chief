@@ -67,7 +67,7 @@ vi.mock('./ModelSelector.vue', () => ({
     name: 'ModelSelector',
     props: ['modelValue', 'disabled'],
     emits: ['update:modelValue'],
-    template: '<div class="model-selector"></div>',
+    template: '<div class="model-selector" :data-model="modelValue"></div>',
   },
 }));
 
@@ -1274,12 +1274,6 @@ describe('ConversationTab - Model Selector Initialization', () => {
           TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
           QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
           QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
-          ModelSelector: {
-            name: 'ModelSelector',
-            props: ['modelValue', 'disabled'],
-            emits: ['update:modelValue'],
-            template: '<div class="model-selector-stub" :data-model="modelValue"></div>',
-          },
           TemplateSelector: { template: '<div class="template-selector-stub"></div>' },
         },
       },
@@ -1304,7 +1298,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Check that the ModelSelector receives the correct model value
-      const modelSelector = wrapper.find('.model-selector-stub');
+      const modelSelector = wrapper.find('.model-selector');
       expect(modelSelector.attributes('data-model')).toBe('claude-opus-4-20250514');
     });
 
@@ -1318,7 +1312,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      const modelSelector = wrapper.find('.model-selector-stub');
+      const modelSelector = wrapper.find('.model-selector');
       expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-20250514');
     });
 
@@ -1356,7 +1350,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Verify initial model
-      let modelSelector = wrapper.find('.model-selector-stub');
+      let modelSelector = wrapper.find('.model-selector');
       expect(modelSelector.attributes('data-model')).toBe('claude-opus-4-20250514');
 
       // Simulate conversation model update by reassigning the array (triggers Vue reactivity)
@@ -1366,7 +1360,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Verify model selector updated
-      modelSelector = wrapper.find('.model-selector-stub');
+      modelSelector = wrapper.find('.model-selector');
       expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-20250514');
     });
 
@@ -1383,7 +1377,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Verify initial model
-      let modelSelector = wrapper.find('.model-selector-stub');
+      let modelSelector = wrapper.find('.model-selector');
       expect(modelSelector.attributes('data-model')).toBe('claude-opus-4-20250514');
 
       // Switch to conversation 2 using haiku
@@ -1392,7 +1386,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Verify model selector updated to haiku
-      modelSelector = wrapper.find('.model-selector-stub');
+      modelSelector = wrapper.find('.model-selector');
       expect(modelSelector.attributes('data-model')).toBe('claude-haiku-3-20250514');
     });
   });
@@ -1409,7 +1403,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Should still render without errors
-      expect(wrapper.find('.model-selector-stub').exists()).toBe(true);
+      expect(wrapper.find('.model-selector').exists()).toBe(true);
     });
 
     it('does not crash when activeConversation is null', async () => {
@@ -1419,7 +1413,7 @@ describe('ConversationTab - Model Selector Initialization', () => {
       await flushAll(wrapper);
 
       // Should still render without errors
-      expect(wrapper.find('.model-selector-stub').exists()).toBe(true);
+      expect(wrapper.find('.model-selector').exists()).toBe(true);
     });
   });
 });
