@@ -9,6 +9,7 @@ export const useSettingsStore = defineStore('settings', {
       disableSessionSummaries: false,
       disableConversationSummaries: false,
       sessionTitlePrompt: '',
+      defaultSessionTitlePrompt: '', // Default prompt from server
     },
     loading: false,
     error: null,
@@ -93,6 +94,7 @@ export const useSettingsStore = defineStore('settings', {
           disableSessionSummaries: false,
           disableConversationSummaries: false,
           sessionTitlePrompt: '',
+          defaultSessionTitlePrompt: '',
         };
       } finally {
         this.loading = false;

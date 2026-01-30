@@ -33,15 +33,15 @@
 
     <div class="form-group">
       <label class="form-label" for="sessionTitlePrompt">Custom Session Title Prompt</label>
-      <textarea
+      <ResizableTextarea
         id="sessionTitlePrompt"
         v-model="sessionTitlePrompt"
         class="form-input form-textarea-small"
-        rows="6"
-        placeholder="Guidelines for generating session titles:&#10;- The title should capture the SESSION'S STRATEGIC GOAL, not current tactical activity&#10;- Focus on WHAT the user wants to achieve&#10;- NOT the current step (e.g., 'Fix TypeScript error')&#10;- If a PR was created, format as 'PR #N: &lt;goal&gt;'&#10;- Keep titles concise (max 60 characters)"
-      ></textarea>
+        :min-height="120"
+        :max-height="400"
+      />
       <p class="form-help">
-        Customize how session titles are generated when creating summaries. Leave empty to use the default strategic goal-focused guidelines.
+        Customize how session titles are generated. Edit the prompt above or reset to defaults.
       </p>
     </div>
 
@@ -63,6 +63,7 @@
 import { ref, onMounted } from 'vue';
 import { useSettingsStore } from '../stores/settings.js';
 import { useUiStore } from '../stores/ui.js';
+import ResizableTextarea from '../components/ResizableTextarea.vue';
 
 const settingsStore = useSettingsStore();
 const uiStore = useUiStore();
@@ -83,7 +84,8 @@ watch(() => settingsStore.summarySettings, (settings) => {
   if (settings) {
     disableSessionSummaries.value = settings.disableSessionSummaries;
     disableConversationSummaries.value = settings.disableConversationSummaries;
-    sessionTitlePrompt.value = settings.sessionTitlePrompt || '';
+    // Use saved prompt, or fall back to default for editing
+    sessionTitlePrompt.value = settings.sessionTitlePrompt || settings.defaultSessionTitlePrompt || '';
   }
 }, { immediate: true });
 
@@ -147,7 +149,6 @@ async function handleReset() {
 }
 
 .form-textarea-small {
-  resize: vertical;
   min-height: 120px;
   font-family: monospace;
   font-size: 0.875rem;

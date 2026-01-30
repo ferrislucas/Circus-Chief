@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { settings } from '../db/index.js';
+import { DEFAULT_SESSION_TITLE_PROMPT } from '../services/summaryService.js';
 
 const router = Router();
 
@@ -75,7 +76,11 @@ router.delete('/token-weights', (req, res) => {
 router.get('/summary', (req, res) => {
   try {
     const summarySettings = settings.getSummarySettings();
-    res.json(summarySettings);
+    // Include the default prompt for UI display/editing
+    res.json({
+      ...summarySettings,
+      defaultSessionTitlePrompt: DEFAULT_SESSION_TITLE_PROMPT,
+    });
   } catch (error) {
     console.error('Error getting summary settings:', error);
     res.status(500).json({ error: 'Failed to get summary settings' });
@@ -105,7 +110,11 @@ router.put('/summary', (req, res) => {
       sessionTitlePrompt,
     });
 
-    res.json(updatedSettings);
+    // Include the default prompt for UI display/editing
+    res.json({
+      ...updatedSettings,
+      defaultSessionTitlePrompt: DEFAULT_SESSION_TITLE_PROMPT,
+    });
   } catch (error) {
     console.error('Error updating summary settings:', error);
     res.status(500).json({ error: 'Failed to update summary settings' });
@@ -119,7 +128,11 @@ router.put('/summary', (req, res) => {
 router.delete('/summary', (req, res) => {
   try {
     const defaults = settings.resetSummarySettings();
-    res.json(defaults);
+    // Include the default prompt for UI display/editing
+    res.json({
+      ...defaults,
+      defaultSessionTitlePrompt: DEFAULT_SESSION_TITLE_PROMPT,
+    });
   } catch (error) {
     console.error('Error resetting summary settings:', error);
     res.status(500).json({ error: 'Failed to reset summary settings' });
