@@ -224,4 +224,165 @@ describe('CanvasFileViewer', () => {
       expect(wrapper.find('.viewer-json').exists()).toBe(true);
     });
   });
+
+  describe('formatLastModified display', () => {
+    it('displays empty string when updatedAt is null', () => {
+      const wrapper = mountComponent({
+        item: {
+          id: '1',
+          filename: 'test.txt',
+          type: 'text',
+          content: 'Content',
+          createdAt: Date.now(),
+          updatedAt: null,
+        },
+      });
+
+      const metaElement = wrapper.find('.viewer-meta');
+      expect(metaElement.exists()).toBe(true);
+      expect(metaElement.text()).toBe('');
+    });
+
+    it('displays "Modified just now" for very recent timestamps', () => {
+      const now = Date.now();
+      const wrapper = mountComponent({
+        item: {
+          id: '1',
+          filename: 'test.txt',
+          type: 'text',
+          content: 'Content',
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      const metaElement = wrapper.find('.viewer-meta');
+      expect(metaElement.exists()).toBe(true);
+      expect(metaElement.text()).toBe('Modified just now');
+    });
+
+    it('displays "Modified Xm ago" for minutes old', () => {
+      const now = Date.now();
+      const fiveMinutesAgo = now - 5 * 60 * 1000;
+      const wrapper = mountComponent({
+        item: {
+          id: '1',
+          filename: 'test.txt',
+          type: 'text',
+          content: 'Content',
+          createdAt: fiveMinutesAgo,
+          updatedAt: fiveMinutesAgo,
+        },
+      });
+
+      const metaElement = wrapper.find('.viewer-meta');
+      expect(metaElement.text()).toBe('Modified 5m ago');
+    });
+
+    it('displays "Modified Xh ago" for hours old', () => {
+      const now = Date.now();
+      const twoHoursAgo = now - 2 * 60 * 60 * 1000;
+      const wrapper = mountComponent({
+        item: {
+          id: '1',
+          filename: 'test.txt',
+          type: 'text',
+          content: 'Content',
+          createdAt: twoHoursAgo,
+          updatedAt: twoHoursAgo,
+        },
+      });
+
+      const metaElement = wrapper.find('.viewer-meta');
+      expect(metaElement.text()).toBe('Modified 2h ago');
+    });
+
+    it('displays "Modified Xd ago" for days old', () => {
+      const now = Date.now();
+      const threeDaysAgo = now - 3 * 24 * 60 * 60 * 1000;
+      const wrapper = mountComponent({
+        item: {
+          id: '1',
+          filename: 'test.txt',
+          type: 'text',
+          content: 'Content',
+          createdAt: threeDaysAgo,
+          updatedAt: threeDaysAgo,
+        },
+      });
+
+      const metaElement = wrapper.find('.viewer-meta');
+      expect(metaElement.text()).toBe('Modified 3d ago');
+    });
+
+    it('handles edge case of exactly 1 minute', () => {
+      const now = Date.now();
+      const oneMinuteAgo = now - 60 * 1000;
+      const wrapper = mountComponent({
+        item: {
+          id: '1',
+          filename: 'test.txt',
+          type: 'text',
+          content: 'Content',
+          createdAt: oneMinuteAgo,
+          updatedAt: oneMinuteAgo,
+        },
+      });
+
+      const metaElement = wrapper.find('.viewer-meta');
+      expect(metaElement.text()).toBe('Modified 1m ago');
+    });
+
+    it('handles edge case of exactly 1 hour', () => {
+      const now = Date.now();
+      const oneHourAgo = now - 60 * 60 * 1000;
+      const wrapper = mountComponent({
+        item: {
+          id: '1',
+          filename: 'test.txt',
+          type: 'text',
+          content: 'Content',
+          createdAt: oneHourAgo,
+          updatedAt: oneHourAgo,
+        },
+      });
+
+      const metaElement = wrapper.find('.viewer-meta');
+      expect(metaElement.text()).toBe('Modified 1h ago');
+    });
+
+    it('updates display when item changes', async () => {
+      const now = Date.now();
+      const wrapper = mountComponent({
+        item: {
+          id: '1',
+          filename: 'test.txt',
+          type: 'text',
+          content: 'Content',
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      // Initially shows "just now"
+      expect(wrapper.find('.viewer-meta').text()).toBe('Modified just now');
+
+      // Update to an older timestamp
+      const oneHourAgo = now - 60 * 60 * 1000;
+      await wrapper.setProps({
+        item: {
+          id: '1',
+          filename: 'test.txt',
+          type: 'text',
+          content: 'Content',
+          createdAt: oneHourAgo,
+          updatedAt: oneHourAgo,
+        },
+      });
+      await flushAll(wrapper);
+
+      // Should now show "1h ago"
+      expect(wrapper.find('.viewer-meta').text()).toBe('Modified 1h ago');
+    });
+  });
 });
