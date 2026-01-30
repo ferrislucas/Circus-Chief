@@ -70,6 +70,7 @@ describe('SessionTemplateRepository', () => {
         gitBranch: 'feature-branch',
         gitMode: 'worktree',
         model: 'claude-sonnet-4-5',
+        mode: 'plan',
       });
 
       expect(template.nextTemplateId).toBe(otherTemplate.id);
@@ -77,6 +78,7 @@ describe('SessionTemplateRepository', () => {
       expect(template.gitBranch).toBe('feature-branch');
       expect(template.gitMode).toBe('worktree');
       expect(template.model).toBe('claude-sonnet-4-5');
+      expect(template.mode).toBe('plan');
     });
 
     it('creates template with thinkingEnabled false', () => {
@@ -88,6 +90,38 @@ describe('SessionTemplateRepository', () => {
       });
 
       expect(template.thinkingEnabled).toBe(false);
+    });
+
+    it('creates template with mode plan', () => {
+      const template = repo.create({
+        projectId: null,
+        name: 'Plan Mode',
+        prompt: 'Prompt',
+        mode: 'plan',
+      });
+
+      expect(template.mode).toBe('plan');
+    });
+
+    it('creates template with mode standard', () => {
+      const template = repo.create({
+        projectId: null,
+        name: 'Standard Mode',
+        prompt: 'Prompt',
+        mode: 'standard',
+      });
+
+      expect(template.mode).toBe('standard');
+    });
+
+    it('defaults mode to yolo when not provided', () => {
+      const template = repo.create({
+        projectId: null,
+        name: 'Default Mode',
+        prompt: 'Prompt',
+      });
+
+      expect(template.mode).toBe('yolo');
     });
   });
 
@@ -285,6 +319,20 @@ describe('SessionTemplateRepository', () => {
       const updated = repo.update(template.id, { model: null });
 
       expect(updated.model).toBeNull();
+    });
+
+    it('updates mode', () => {
+      const template = repo.create({ projectId: null, name: 'Test', prompt: 'Prompt', mode: 'yolo' });
+      const updated = repo.update(template.id, { mode: 'plan' });
+
+      expect(updated.mode).toBe('plan');
+    });
+
+    it('clears mode when set to null', () => {
+      const template = repo.create({ projectId: null, name: 'Test', prompt: 'Prompt', mode: 'standard' });
+      const updated = repo.update(template.id, { mode: null });
+
+      expect(updated.mode).toBeNull();
     });
 
     it('updates multiple fields at once', () => {

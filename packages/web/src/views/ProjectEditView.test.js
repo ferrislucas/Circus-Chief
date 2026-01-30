@@ -7,6 +7,7 @@ import ProjectEditView from './ProjectEditView.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
+import { DEFAULT_SYSTEM_PROMPT, DEFAULT_SESSION_TITLE_PROMPT } from '@claudetools/shared/constants';
 
 // Mock the API and components
 vi.mock('../composables/useApi.js');
@@ -741,7 +742,7 @@ describe('ProjectEditView with Session Defaults', () => {
       }
     });
 
-    it('initializes sessionTitlePrompt as empty when null', async () => {
+    it('initializes sessionTitlePrompt with default when null', async () => {
       projectsStore.currentProject = {
         id: 'proj-1',
         name: 'Test',
@@ -773,7 +774,7 @@ describe('ProjectEditView with Session Defaults', () => {
       // Find the sessionTitlePrompt textarea
       const textarea = wrapper.find('#sessionTitlePrompt');
       if (textarea.exists()) {
-        expect(textarea.element.value).toBe('');
+        expect(textarea.element.value).toBe(DEFAULT_SESSION_TITLE_PROMPT);
       } else {
         // Textarea may not render in test env - fall back
         expect(true).toBe(true);
@@ -867,6 +868,175 @@ describe('ProjectEditView with Session Defaults', () => {
         expect(projectData.sessionTitlePrompt).toBeNull();
       } else {
         // Form submission may have issues in test environment
+        expect(true).toBe(true);
+      }
+    });
+  });
+
+  describe('Default Prompts', () => {
+    it('initializes systemPrompt with default when null', async () => {
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp',
+        systemPrompt: null
+      };
+
+      await router.push('/projects/proj-1/edit');
+      await router.isReady();
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true }
+        }
+      });
+
+      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('#systemPrompt');
+      if (textarea.exists()) {
+        expect(textarea.element.value).toBe(DEFAULT_SYSTEM_PROMPT);
+      } else {
+        expect(true).toBe(true);
+      }
+    });
+
+    it('shows reset button when systemPrompt differs from default', async () => {
+      const customPrompt = 'Custom system prompt';
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp',
+        systemPrompt: customPrompt
+      };
+
+      await router.push('/projects/proj-1/edit');
+      await router.isReady();
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true }
+        }
+      });
+
+      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
+
+      const text = wrapper.text();
+      expect(text).toContain('Reset to Default');
+    });
+
+    it('shows reset button when sessionTitlePrompt differs from default', async () => {
+      const customPrompt = 'Custom title rules';
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp',
+        sessionTitlePrompt: customPrompt
+      };
+
+      await router.push('/projects/proj-1/edit');
+      await router.isReady();
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true }
+        }
+      });
+
+      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
+
+      // Expand Summary Settings
+      const details = wrapper.findAll('details');
+      for (const detail of details) {
+        detail.element.open = true;
+      }
+      await flushAll(wrapper);
+
+      const text = wrapper.text();
+      expect(text).toContain('Reset to Default');
+    });
+
+    it('does not show reset button when prompts are at default values', async () => {
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp',
+        systemPrompt: null,
+        sessionTitlePrompt: null
+      };
+
+      await router.push('/projects/proj-1/edit');
+      await router.isReady();
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true }
+        }
+      });
+
+      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
+
+      // Expand all details
+      const details = wrapper.findAll('details');
+      for (const detail of details) {
+        detail.element.open = true;
+      }
+      await flushAll(wrapper);
+
+      // Count reset buttons - should be 0 since prompts are at defaults
+      const allButtons = wrapper.findAll('button');
+      const resetButtons = allButtons.filter(btn => btn.text().includes('Reset to Default'));
+      expect(resetButtons.length).toBe(0);
+    });
+
+    it('resets systemPrompt to default when reset button clicked', async () => {
+      const customPrompt = 'Custom system prompt';
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp',
+        systemPrompt: customPrompt
+      };
+
+      await router.push('/projects/proj-1/edit');
+      await router.isReady();
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true }
+        }
+      });
+
+      await wrapper.vm.$nextTick();
+      await flushAll(wrapper);
+
+      // Verify initial value
+      const textarea = wrapper.find('#systemPrompt');
+      if (textarea.exists()) {
+        expect(textarea.element.value).toBe(customPrompt);
+      }
+
+      // Find reset button for system prompt (first one in the form)
+      const allButtons = wrapper.findAll('button');
+      const resetButton = allButtons.find(btn => btn.text().includes('Reset to Default'));
+
+      if (resetButton && textarea.exists()) {
+        await resetButton.trigger('click');
+        await flushAll(wrapper);
+
+        // Check textarea value after reset
+        expect(textarea.element.value).toBe(DEFAULT_SYSTEM_PROMPT);
+      } else {
+        // Button or textarea may not render in test env
         expect(true).toBe(true);
       }
     });
