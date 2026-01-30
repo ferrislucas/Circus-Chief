@@ -44,6 +44,8 @@ vi.mock('../stores/quickResponses.js', () => ({
 // Mock the templates store
 vi.mock('../stores/templates.js', () => ({
   useTemplatesStore: vi.fn(() => ({
+    templates: [],
+    fetchTemplates: vi.fn().mockResolvedValue(undefined),
     getTemplateById: vi.fn(() => null),
   })),
 }));
@@ -81,7 +83,13 @@ import { useUiStore } from '../stores/ui.js';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProvidersStore } from '../stores/providers.js';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
+<<<<<<< HEAD
 import { useTemplatesStore } from '../stores/templates.js';
+=======
+import { useProvidersStore } from '../stores/providers.js';
+import { useTemplatesStore } from '../stores/templates.js';
+import { useProjectsStore } from '../stores/projects.js';
+>>>>>>> test: add additional mocks for ConversationTab test suite
 
 vi.mock('./LiveWorkLogPanel.vue', () => ({
   default: {
@@ -1287,8 +1295,24 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
 
     vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
     vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+<<<<<<< HEAD
     vi.mocked(useProjectsStore).mockReturnValue(mockProjectsStore);
     vi.mocked(useProvidersStore).mockReturnValue(mockProvidersStore);
+=======
+    vi.mocked(useProvidersStore).mockReturnValue({
+      providers: [],
+      fetchProviders: vi.fn(),
+    });
+    vi.mocked(useTemplatesStore).mockReturnValue({
+      templates: [],
+      fetchTemplates: vi.fn(),
+    });
+    vi.mocked(useProjectsStore).mockReturnValue({
+      projects: [],
+      fetchProjects: vi.fn(),
+      getProjectById: vi.fn(() => null),
+    });
+>>>>>>> test: add additional mocks for ConversationTab test suite
 
     consoleError = console.error;
     console.error = vi.fn();
@@ -1322,11 +1346,22 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
           QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
           // Don't stub ModelSelector - test the real component
           TemplateSelector: { template: '<div class="template-selector-stub"></div>' },
+<<<<<<< HEAD
           OrchestrationPanel: { template: '<div class="orchestration-panel-stub"></div>' },
           ResizableTextarea: { template: '<textarea class="resizable-textarea-stub"></textarea>' },
           BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
           ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
           SlashCommandButton: { template: '<div class="slash-command-button-stub"></div>' },
+=======
+          ModeSelector: { template: '<div class="mode-selector-stub"></div>' },
+          ResizableTextarea: { template: '<textarea class="resizable-textarea-stub"></textarea>' },
+          SlashCommandButton: { template: '<div class="slash-command-button-stub"></div>' },
+          OrchestrationPanel: { template: '<div class="orchestration-panel-stub"></div>' },
+          ConversationPanel: { template: '<div class="conversation-panel-stub"></div>' },
+          TokenCostPanel: { template: '<div class="token-cost-panel-stub"></div>' },
+          BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
+          ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
+>>>>>>> test: add additional mocks for ConversationTab test suite
           SlashCommandWizard: { template: '<div class="slash-command-wizard-stub"></div>' },
         },
       },
