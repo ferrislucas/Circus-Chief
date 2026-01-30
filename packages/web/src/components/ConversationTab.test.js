@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
-import { nextTick, reactive } from 'vue';
+import { nextTick, reactive, h } from 'vue';
 
 // Mock the sessions store
 vi.mock('../stores/sessions.js', () => ({
@@ -41,6 +41,22 @@ vi.mock('../stores/quickResponses.js', () => ({
   })),
 }));
 
+// Mock the projects store
+vi.mock('../stores/projects.js', () => ({
+  useProjectsStore: vi.fn(() => ({
+    currentProject: null,
+    getProjectById: vi.fn(() => null),
+    fetchProject: vi.fn().mockResolvedValue(),
+  })),
+}));
+
+// Mock the templates store
+vi.mock('../stores/templates.js', () => ({
+  useTemplatesStore: vi.fn(() => ({
+    getTemplateById: vi.fn(() => null),
+  })),
+}));
+
 // Mock WebSocket composable
 vi.mock('../composables/useWebSocket.js', () => ({
   useSessionSubscription: vi.fn(() => ({
@@ -56,12 +72,26 @@ vi.mock('../composables/useWebSocket.js', () => ({
   })),
 }));
 
+// Mock API composable
+vi.mock('../composables/useApi.js', () => ({
+  api: {
+    updateSessionPendingPrompt: vi.fn().mockResolvedValue(),
+  },
+}));
+
+// Mock submit shortcut composable
+vi.mock('../composables/useSubmitShortcut.js', () => ({
+  useSubmitShortcut: vi.fn(() => vi.fn()),
+}));
+
 import ConversationTab from './ConversationTab.vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProvidersStore } from '../stores/providers.js';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
+import { useProjectsStore } from '../stores/projects.js';
+import { useTemplatesStore } from '../stores/templates.js';
 
 vi.mock('./LiveWorkLogPanel.vue', () => ({
   default: {
@@ -87,7 +117,7 @@ vi.mock('./ModelSelector.vue', () => ({
     name: 'ModelSelector',
     props: ['modelValue', 'disabled'],
     emits: ['update:modelValue'],
-    template: '<div class="model-selector"></div>',
+    template: '<div class="model-selector-stub" :data-model="modelValue"></div>',
   },
 }));
 
@@ -178,6 +208,7 @@ describe.skip('ConversationTab', () => {
           LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           FileAttachment: { template: '<div class="file-attachment-stub"></div>' },
+          ModelSelector: { template: '<div class="model-selector-stub" :data-model="modelValue"></div>' },
           // Issue #175 - TokenUsagePanel is now rendered in ConversationTab
           TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
         },
@@ -1180,8 +1211,9 @@ describe('ConversationTab - Error Handling Improvements', () => {
   });
 });
 
+
 /**
- * Model Selector Initialization Tests
+ * Model Selector Tests
  *
  * These tests validate that the model selector is properly initialized from
  * the active conversation's model, rather than defaulting to sonnet.
@@ -1288,17 +1320,24 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
       props,
       global: {
         stubs: {
-          ConversationSelector: { template: '<div class="conversation-selector-stub"></div>' },
+          ConversationPanel: { template: '<div class="conversation-panel-stub"></div>' },
           TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
           WorkLogPanel: { template: '<div class="work-log-panel-stub"></div>' },
           LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
           TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
+          TokenCostPanel: { template: '<div class="token-cost-panel-stub"></div>' },
           QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
           QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
           // Don't stub ModelSelector - test the real component
           TemplateSelector: { template: '<div class="template-selector-stub"></div>' },
+          OrchestrationPanel: { template: '<div class="orchestration-panel-stub"></div>' },
+          ResizableTextarea: { template: '<textarea class="resizable-textarea-stub"></textarea>' },
+          BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
+          ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
+          SlashCommandButton: { template: '<div class="slash-command-button-stub"></div>' },
+          SlashCommandWizard: { template: '<div class="slash-command-wizard-stub"></div>' },
         },
       },
     });
@@ -1341,7 +1380,6 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
       const modelSelector = wrapper.find('.model-selector-stub');
       expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-20250514');
     });
-
     it('sends message with the model from activeConversation', async () => {
       mockSessionsStore.activeConversation = {
         id: 'conv-1',
