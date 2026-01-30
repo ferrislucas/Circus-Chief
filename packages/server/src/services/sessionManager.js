@@ -530,7 +530,7 @@ curl -X POST ${apiUrl}/api/projects/${projectId}/sessions \\
   -H "Content-Type: application/json" \\
   -d '{"prompt": "Your task description here", "name": "Optional session name"}'
 \`\`\`
-Optional fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`gitBranch\`, \`gitMode\`
+Optional fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`gitBranch\`, \`gitMode\`, \`parentSessionId\` (to create a child session)
 
 ### Send a Follow-up Message to a Session
 \`\`\`bash
