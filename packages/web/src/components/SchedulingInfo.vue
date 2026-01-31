@@ -35,7 +35,7 @@
     </div>
   </div>
 
-  <!-- Auto-Reschedule Info (for running/waiting sessions) -->
+  <!-- Auto-Reschedule Info (for running/waiting sessions with auto-reschedule enabled) -->
   <div
     v-else-if="(session.status === 'running' || session.status === 'waiting') && session.autoRescheduleEnabled"
     class="auto-reschedule-panel"
@@ -90,6 +90,18 @@
         Disable Auto-Reschedule
       </button>
     </div>
+  </div>
+
+  <!-- Configure Auto-Reschedule CTA (for running/waiting/completed/error sessions without auto-reschedule) -->
+  <div
+    v-else-if="['running', 'waiting', 'completed', 'error'].includes(session.status) && !session.autoRescheduleEnabled"
+    class="configure-reschedule-panel"
+  >
+    <button @click="showEditModal = true" class="configure-btn" title="Configure auto-reschedule settings">
+      <span class="configure-icon">🔄</span>
+      <span class="configure-text">Configure Auto-Reschedule</span>
+      <span class="configure-arrow">→</span>
+    </button>
   </div>
 
   <!-- Edit Modal -->
@@ -200,6 +212,55 @@ onUnmounted(() => {
   border-radius: var(--border-radius, 6px);
   padding: 1.5rem;
   margin-bottom: 1rem;
+}
+
+.configure-reschedule-panel {
+  margin-bottom: 1rem;
+}
+
+.configure-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: var(--color-background, rgba(255, 255, 255, 0.02));
+  border: 1px dashed rgba(34, 197, 255, 0.3);
+  border-radius: var(--border-radius, 6px);
+  color: var(--color-text-soft);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.9rem;
+}
+
+.configure-btn:hover {
+  background: rgba(34, 197, 255, 0.08);
+  border-color: rgba(34, 197, 255, 0.5);
+  color: var(--color-text);
+}
+
+.configure-icon {
+  font-size: 1rem;
+  opacity: 0.7;
+}
+
+.configure-btn:hover .configure-icon {
+  opacity: 1;
+}
+
+.configure-text {
+  flex: 1;
+  text-align: left;
+}
+
+.configure-arrow {
+  opacity: 0.5;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.configure-btn:hover .configure-arrow {
+  opacity: 1;
+  transform: translateX(2px);
 }
 
 .info-header {
