@@ -45,16 +45,6 @@
           </p>
         </div>
 
-        <!-- Scope Field -->
-        <div class="form-group">
-          <label for="scope">Scope</label>
-          <select id="scope" v-model="formData.isGlobal" class="form-input" disabled>
-            <option :value="false">Project Only</option>
-            <option :value="true">Global (all projects)</option>
-          </select>
-          <p class="form-help">Scope cannot be changed after creation</p>
-        </div>
-
         <!-- Next Template Field -->
         <div class="form-group">
           <label for="nextTemplate">Next Template (Optional)</label>
@@ -111,17 +101,6 @@
             placeholder="e.g., feature/my-feature"
           />
           <p class="form-help">Git branch to use when creating sessions from this template</p>
-        </div>
-
-        <!-- Git Mode Field -->
-        <div class="form-group">
-          <label for="gitMode">Git Mode (Optional)</label>
-          <select id="gitMode" v-model="formData.gitMode" class="form-input">
-            <option :value="null">None</option>
-            <option value="branch">Branch</option>
-            <option value="worktree">Worktree</option>
-          </select>
-          <p class="form-help">How to handle git isolation for sessions from this template</p>
         </div>
 
         <!-- Form Actions -->
@@ -195,7 +174,6 @@ const formData = ref({
   model: DEFAULT_MODEL,
   mode: 'yolo',
   gitBranch: '',
-  gitMode: null,
 });
 
 const projectId = computed(() => route.params.projectId);
@@ -223,7 +201,6 @@ const loadTemplate = async () => {
         model: template.model || DEFAULT_MODEL,
         mode: template.mode || 'yolo',
         gitBranch: template.gitBranch || '',
-        gitMode: template.gitMode || null,
       };
     }
   } catch (err) {
@@ -246,7 +223,6 @@ const onSubmit = async () => {
       model: formData.value.model === DEFAULT_MODEL ? undefined : formData.value.model,
       mode: formData.value.mode === 'yolo' ? undefined : formData.value.mode,
       gitBranch: formData.value.gitBranch || undefined,
-      gitMode: formData.value.gitMode || undefined,
     };
 
     await templatesStore.updateTemplate(templateId.value, data);

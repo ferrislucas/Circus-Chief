@@ -71,7 +71,6 @@ describe('TemplateDetailView - New Form Fields', () => {
       model: DEFAULT_MODEL,
       mode: 'yolo',
       gitBranch: '',
-      gitMode: null,
     });
 
     await router.push({ path: '/projects/proj-1/templates/template-1' });
@@ -149,35 +148,6 @@ describe('TemplateDetailView - New Form Fields', () => {
       const gitBranchHelp = helpText.find((p) => p.text().includes('Git branch to use'));
       expect(gitBranchHelp.exists()).toBe(true);
     });
-
-    it('displays git mode dropdown with all options', async () => {
-      const wrapper = mount(TemplateDetailView, {
-        global: {
-          plugins: [pinia, router],
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-
-      // Find git mode select
-      const gitModeSelect = wrapper.find('#gitMode');
-      expect(gitModeSelect.exists()).toBe(true);
-
-      // Check git mode options
-      const options = gitModeSelect.findAll('option');
-      expect(options.length).toBe(3);
-      expect(options[0].text()).toBe('None');
-      expect(options[1].attributes('value')).toBe('branch');
-      expect(options[1].text()).toBe('Branch');
-      expect(options[2].attributes('value')).toBe('worktree');
-      expect(options[2].text()).toBe('Worktree');
-
-      // Check for help text
-      const helpText = wrapper.findAll('p.form-help');
-      const gitModeHelp = helpText.find((p) => p.text().includes('How to handle git isolation'));
-      expect(gitModeHelp.exists()).toBe(true);
-    });
   });
 
   describe('Loading Template Data', () => {
@@ -191,7 +161,6 @@ describe('TemplateDetailView - New Form Fields', () => {
         model: null,
         mode: null,
         gitBranch: null,
-        gitMode: null,
       });
 
       const wrapper = mount(TemplateDetailView, {
@@ -214,12 +183,6 @@ describe('TemplateDetailView - New Form Fields', () => {
 
       const gitBranchInput = wrapper.find('#gitBranch');
       expect(gitBranchInput.element.value).toBe('');
-
-      // When gitMode is null, the component shows the first "None" option
-      // The value might be the text "None" or empty string depending on browser
-      const gitModeSelect = wrapper.find('#gitMode');
-      const gitModeValue = gitModeSelect.element.value;
-      expect(['', 'None']).toContain(gitModeValue);
     });
   });
 
@@ -306,33 +269,6 @@ describe('TemplateDetailView - New Form Fields', () => {
       expect(callArgs[1].gitBranch).toBe('feature/new-feature');
     });
 
-    it('submits form with git mode when provided', async () => {
-      const wrapper = mount(TemplateDetailView, {
-        global: {
-          plugins: [pinia, router],
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-      await flushPromises();
-      await nextTick();
-
-      // Set git mode
-      const gitModeSelect = wrapper.find('#gitMode');
-      await gitModeSelect.setValue('branch');
-
-      // Submit form
-      const form = wrapper.find('form');
-      await form.trigger('submit.prevent');
-      await flushPromises();
-
-      // Verify updateTemplate was called
-      expect(templatesStore.updateTemplate).toHaveBeenCalled();
-      const callArgs = templatesStore.updateTemplate.mock.calls[0];
-      expect(callArgs[1].gitMode).toBe('branch');
-    });
-
     it('submits form with all new fields', async () => {
       const wrapper = mount(TemplateDetailView, {
         global: {
@@ -355,9 +291,6 @@ describe('TemplateDetailView - New Form Fields', () => {
       const gitBranchInput = wrapper.find('#gitBranch');
       await gitBranchInput.setValue('develop');
 
-      const gitModeSelect = wrapper.find('#gitMode');
-      await gitModeSelect.setValue('worktree');
-
       // Submit form
       const form = wrapper.find('form');
       await form.trigger('submit.prevent');
@@ -369,7 +302,6 @@ describe('TemplateDetailView - New Form Fields', () => {
       expect(callArgs[1].model).toBe('claude-sonnet-4-5-20250929');
       expect(callArgs[1].mode).toBe('standard');
       expect(callArgs[1].gitBranch).toBe('develop');
-      expect(callArgs[1].gitMode).toBe('worktree');
     });
 
     it('omits default values from submission', async () => {
@@ -398,8 +330,6 @@ describe('TemplateDetailView - New Form Fields', () => {
       expect(callArgs[1].mode).toBeUndefined();
       // empty string should be omitted
       expect(callArgs[1].gitBranch).toBeUndefined();
-      // null should be omitted
-      expect(callArgs[1].gitMode).toBeUndefined();
     });
   });
 
@@ -456,24 +386,6 @@ describe('TemplateDetailView - New Form Fields', () => {
       await gitBranchInput.setValue('feature/my-new-feature');
 
       expect(gitBranchInput.element.value).toBe('feature/my-new-feature');
-    });
-
-    it('allows changing git mode', async () => {
-      const wrapper = mount(TemplateDetailView, {
-        global: {
-          plugins: [pinia, router],
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-      await flushPromises();
-      await nextTick();
-
-      const gitModeSelect = wrapper.find('#gitMode');
-      await gitModeSelect.setValue('worktree');
-
-      expect(gitModeSelect.element.value).toBe('worktree');
     });
   });
 });
