@@ -470,7 +470,7 @@ describe('CanvasTab', () => {
       expect(wrapper.text()).toContain('doc2.txt');
     });
 
-    it('shows viewer with back button when explicitly selected', async () => {
+    it('shows viewer when explicitly selected (no back button with single item)', async () => {
       api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'doc.txt', type: 'text', content: 'Hello', createdAt: 1000 },
       ]);
@@ -485,9 +485,8 @@ describe('CanvasTab', () => {
       // Viewer should be shown with explicit selection
       expect(wrapper.find('.canvas-file-viewer').exists()).toBe(true);
       expect(wrapper.text()).toContain('doc.txt');
-      // Back button should be visible (breadcrumb-back class)
-      expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
-      expect(wrapper.text()).toContain('← Canvas');
+      // Back button should NOT be visible with only one item (nowhere to go back to)
+      expect(wrapper.find('.breadcrumb-back').exists()).toBe(false);
     });
 
     it('shows back button when item is explicitly selected from multiple items', async () => {
