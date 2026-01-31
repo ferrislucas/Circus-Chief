@@ -5,6 +5,7 @@ import { useCanvasStore } from './canvas.js';
 vi.mock('../composables/useApi.js', () => ({
   api: {
     getCanvasItems: vi.fn(),
+    getAllCanvasItems: vi.fn(),
     uploadCanvasItem: vi.fn(),
     deleteCanvasItem: vi.fn(),
     getCanvasTrash: vi.fn(),
@@ -263,7 +264,7 @@ describe('Canvas Store', () => {
     it('refreshes both items and trashedItems', async () => {
       const store = useCanvasStore();
       api.recoverCanvasFile.mockResolvedValue({ recovered: 2 });
-      api.getCanvasItems.mockResolvedValue([
+      api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'recovered.txt' },
         { id: '2', filename: 'recovered.txt' },
       ]);
@@ -272,7 +273,7 @@ describe('Canvas Store', () => {
       await store.recoverFile('session-1', 'recovered.txt');
 
       expect(api.recoverCanvasFile).toHaveBeenCalledWith('session-1', 'recovered.txt');
-      expect(api.getCanvasItems).toHaveBeenCalledWith('session-1');
+      expect(api.getAllCanvasItems).toHaveBeenCalledWith('session-1');
       expect(api.getCanvasTrash).toHaveBeenCalledWith('session-1');
       expect(store.items).toHaveLength(2);
       expect(store.trashedItems).toHaveLength(0);

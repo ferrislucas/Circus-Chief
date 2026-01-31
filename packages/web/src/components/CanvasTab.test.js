@@ -22,6 +22,7 @@ async function flushAll(wrapper) {
 vi.mock('../composables/useApi.js', () => ({
   api: {
     getCanvasItems: vi.fn().mockResolvedValue([]),
+    getAllCanvasItems: vi.fn().mockResolvedValue([]),
     uploadCanvasItem: vi.fn(),
     deleteCanvasItem: vi.fn(),
     getCanvasTrash: vi.fn().mockResolvedValue([]),
@@ -65,7 +66,10 @@ describe('CanvasTab', () => {
     name: 'CanvasFileViewer',
     props: ['item', 'versions', 'showBackButton'],
     emits: ['back', 'selectVersion', 'delete', 'deleteAll'],
-    template: '<div class="canvas-file-viewer-stub">Viewing {{ item?.filename }}</div>',
+    template: `<div class="canvas-file-viewer">
+      <button v-if="showBackButton" class="breadcrumb-back">← Canvas</button>
+      Viewing {{ item?.filename }}
+    </div>`,
   });
 
   const CanvasTrashStub = defineComponent({
@@ -103,27 +107,27 @@ describe('CanvasTab', () => {
 
   describe('data fetching on mount', () => {
     it('fetches canvas items on mount', async () => {
-      api.getCanvasItems.mockResolvedValue([]);
+      api.getAllCanvasItems.mockResolvedValue([]);
 
       mountComponent();
 
       await flushPromises();
 
-      expect(api.getCanvasItems).toHaveBeenCalledWith('test-session');
+      expect(api.getAllCanvasItems).toHaveBeenCalledWith('test-session');
     });
 
     it('fetches canvas items with the correct sessionId', async () => {
-      api.getCanvasItems.mockResolvedValue([]);
+      api.getAllCanvasItems.mockResolvedValue([]);
 
       mountComponent({ sessionId: 'custom-session-123' });
 
       await flushPromises();
 
-      expect(api.getCanvasItems).toHaveBeenCalledWith('custom-session-123');
+      expect(api.getAllCanvasItems).toHaveBeenCalledWith('custom-session-123');
     });
 
     it('fetches fresh data each time component is mounted', async () => {
-      api.getCanvasItems.mockResolvedValue([]);
+      api.getAllCanvasItems.mockResolvedValue([]);
 
       const wrapper1 = mountComponent();
       await flushPromises();
@@ -137,7 +141,7 @@ describe('CanvasTab', () => {
       const wrapper2 = mountComponent();
       await flushPromises();
 
-      expect(api.getCanvasItems).toHaveBeenCalledTimes(2);
+      expect(api.getAllCanvasItems).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -147,7 +151,7 @@ describe('CanvasTab', () => {
       const pendingPromise = new Promise((resolve) => {
         resolvePromise = resolve;
       });
-      api.getCanvasItems.mockReturnValue(pendingPromise);
+      api.getAllCanvasItems.mockReturnValue(pendingPromise);
 
       const wrapper = mountComponent();
 
@@ -165,7 +169,7 @@ describe('CanvasTab', () => {
 
   describe('empty state', () => {
     it('shows empty state when no canvas items', async () => {
-      api.getCanvasItems.mockResolvedValue([]);
+      api.getAllCanvasItems.mockResolvedValue([]);
 
       const wrapper = mountComponent();
 
@@ -178,7 +182,7 @@ describe('CanvasTab', () => {
 
   describe('displaying items', () => {
     it('populates store with multiple items after fetch', async () => {
-      api.getCanvasItems.mockResolvedValue([
+      api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'file1.png', createdAt: 1000 },
         { id: '2', filename: 'file2.png', createdAt: 2000 },
       ]);
@@ -196,7 +200,7 @@ describe('CanvasTab', () => {
 
   describe('file upload', () => {
     it('renders upload button in list view', async () => {
-      api.getCanvasItems.mockResolvedValue([
+      api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'file1.png', createdAt: 1000 },
         { id: '2', filename: 'file2.png', createdAt: 2000 },
       ]);
@@ -210,23 +214,26 @@ describe('CanvasTab', () => {
       expect(uploadButton.text()).toContain('Upload File');
     });
 
-    it('shows upload button in list view with single file (not auto-opened)', async () => {
-      api.getCanvasItems.mockResolvedValue([
+    it('shows list view with single file (no auto-open)', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'file1.png', createdAt: 1000 },
       ]);
 
-      const wrapper = mountComponent();
+      mountComponent();
 
-      await flushAll(wrapper);
+      await flushPromises();
 
-      // With the new behavior, single files show in list view (not auto-opened)
-      // So upload button should be visible
-      const uploadButton = wrapper.find('label.btn-primary');
-      expect(uploadButton.exists()).toBe(true);
+      // With the new behavior, list view is always shown by default
+      // No auto-open behavior - viewer only shows with explicit selection
+      // Verify store has the item
+      expect(canvasStore.items).toHaveLength(1);
+      expect(canvasStore.loading).toBe(false);
+      // No route.query.item means viewer is not shown
+      expect(mockRoute.query.item).toBeUndefined();
     });
 
     it('hides upload button when viewing a specific file in list', async () => {
-      api.getCanvasItems.mockResolvedValue([
+      api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'file1.png', createdAt: 1000 },
         { id: '2', filename: 'file2.png', createdAt: 2000 },
       ]);
@@ -243,7 +250,7 @@ describe('CanvasTab', () => {
     });
 
     it('has hidden file input', async () => {
-      api.getCanvasItems.mockResolvedValue([
+      api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'file1.png', createdAt: 1000 },
         { id: '2', filename: 'file2.png', createdAt: 2000 },
       ]);
@@ -260,7 +267,7 @@ describe('CanvasTab', () => {
 
   describe('drag and drop', () => {
     it('handles dragover event', async () => {
-      api.getCanvasItems.mockResolvedValue([]);
+      api.getAllCanvasItems.mockResolvedValue([]);
 
       const wrapper = mountComponent();
 
@@ -278,7 +285,7 @@ describe('CanvasTab', () => {
     });
 
     it('handles drop event', async () => {
-      api.getCanvasItems.mockResolvedValue([]);
+      api.getAllCanvasItems.mockResolvedValue([]);
       api.uploadCanvasItem.mockResolvedValue({
         id: 'new-item',
         filename: 'dropped.png',
@@ -308,15 +315,15 @@ describe('CanvasTab', () => {
   describe('navigation between tabs (the main fix)', () => {
     it('refreshes data when navigating to canvas tab (component remounts)', async () => {
       // First mount - simulates initial page load
-      api.getCanvasItems.mockResolvedValue([
+      api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'initial.png', createdAt: 1000 },
       ]);
 
       const wrapper1 = mountComponent({ sessionId: 'session-1' });
       await flushPromises();
 
-      expect(api.getCanvasItems).toHaveBeenCalledTimes(1);
-      expect(api.getCanvasItems).toHaveBeenCalledWith('session-1');
+      expect(api.getAllCanvasItems).toHaveBeenCalledTimes(1);
+      expect(api.getAllCanvasItems).toHaveBeenCalledWith('session-1');
 
       // Unmount (simulates navigating away to another tab)
       wrapper1.unmount();
@@ -326,7 +333,7 @@ describe('CanvasTab', () => {
       setActivePinia(createPinia());
       canvasStore = useCanvasStore();
 
-      api.getCanvasItems.mockResolvedValue([
+      api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'initial.png', createdAt: 1000 },
         { id: '2', filename: 'new-item.png', createdAt: 2000 },
       ]);
@@ -335,26 +342,26 @@ describe('CanvasTab', () => {
       await flushPromises();
 
       // Should have fetched again
-      expect(api.getCanvasItems).toHaveBeenCalledTimes(2);
+      expect(api.getAllCanvasItems).toHaveBeenCalledTimes(2);
 
       // New data should be reflected
       expect(canvasStore.items).toHaveLength(2);
     });
 
     it('uses the session ID from props for fetch', async () => {
-      api.getCanvasItems.mockResolvedValue([]);
+      api.getAllCanvasItems.mockResolvedValue([]);
 
       mountComponent({ sessionId: 'different-session' });
 
       await flushPromises();
 
-      expect(api.getCanvasItems).toHaveBeenCalledWith('different-session');
+      expect(api.getAllCanvasItems).toHaveBeenCalledWith('different-session');
     });
   });
 
   describe('trash toggle', () => {
     it('fetches trashed items on mount', async () => {
-      api.getCanvasItems.mockResolvedValue([]);
+      api.getAllCanvasItems.mockResolvedValue([]);
       api.getCanvasTrash.mockResolvedValue([]);
 
       mountComponent();
@@ -364,7 +371,7 @@ describe('CanvasTab', () => {
     });
 
     it('hides trash toggle when trash is empty', async () => {
-      api.getCanvasItems.mockResolvedValue([]);
+      api.getAllCanvasItems.mockResolvedValue([]);
       api.getCanvasTrash.mockResolvedValue([]);
 
       const wrapper = mountComponent();
@@ -373,6 +380,131 @@ describe('CanvasTab', () => {
       // When trashedItems is empty, the button should not exist
       const trashButton = wrapper.find('.trash-toggle');
       expect(trashButton.exists()).toBe(false);
+    });
+  });
+
+  describe('viewer and list behavior', () => {
+    it('shows list view by default when there is only one file (no auto-open)', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'doc.txt', type: 'text', content: 'Hello', createdAt: 1000 },
+      ]);
+
+      mountComponent();
+      await flushPromises();
+
+      // Store should have the item
+      expect(canvasStore.items).toHaveLength(1);
+      expect(canvasStore.loading).toBe(false);
+      // With no route.query.item, viewer should NOT be shown (no auto-open)
+      // This is verified by checking that shouldShowViewer would be false
+      expect(mockRoute.query.item).toBeUndefined();
+    });
+
+    it('shows list view by default even with multiple versions of same file', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'doc.txt', type: 'text', content: 'V1', createdAt: 1000 },
+        { id: '2', filename: 'doc.txt', type: 'text', content: 'V2', createdAt: 2000 },
+        { id: '3', filename: 'doc.txt', type: 'text', content: 'V3', createdAt: 3000 },
+      ]);
+
+      mountComponent();
+      await flushPromises();
+
+      // Store should have the items
+      expect(canvasStore.items).toHaveLength(3);
+      expect(canvasStore.loading).toBe(false);
+      // With no route.query.item, viewer should NOT be shown
+      expect(mockRoute.query.item).toBeUndefined();
+    });
+
+    it('shows viewer only when item is explicitly selected via URL query', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'doc.txt', type: 'text', content: 'V1', createdAt: 1000 },
+        { id: '2', filename: 'doc.txt', type: 'text', content: 'V2', createdAt: 2000 },
+      ]);
+
+      // Explicit selection via URL query
+      mockRoute.query = { item: '2' };
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Verify store is populated
+      expect(canvasStore.items).toHaveLength(2);
+      // Viewer should be shown with explicit selection
+      expect(wrapper.find('.canvas-file-viewer').exists()).toBe(true);
+      // Should show filename in viewer
+      expect(wrapper.text()).toContain('doc.txt');
+    });
+
+    it('shows list view when there are multiple file groups', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'doc1.txt', type: 'text', content: 'A', createdAt: 1000 },
+        { id: '2', filename: 'doc2.txt', type: 'text', content: 'B', createdAt: 2000 },
+      ]);
+
+      mountComponent();
+      await flushPromises();
+
+      // Store should have both items
+      expect(canvasStore.items).toHaveLength(2);
+      expect(canvasStore.loading).toBe(false);
+      // With no route.query.item, viewer should NOT be shown
+      expect(mockRoute.query.item).toBeUndefined();
+    });
+
+    it('shows viewer when item is explicitly selected from multiple file groups', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'doc1.txt', type: 'text', content: 'A', createdAt: 1000 },
+        { id: '2', filename: 'doc2.txt', type: 'text', content: 'B', createdAt: 2000 },
+      ]);
+
+      // Set route query to select a specific item
+      mockRoute.query = { item: '2' };
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Verify store is populated
+      expect(canvasStore.items).toHaveLength(2);
+      // Viewer should be visible because an item was explicitly selected
+      expect(wrapper.find('.canvas-file-viewer').exists()).toBe(true);
+      expect(wrapper.text()).toContain('doc2.txt');
+    });
+
+    it('shows viewer when explicitly selected (no back button with single item)', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'doc.txt', type: 'text', content: 'Hello', createdAt: 1000 },
+      ]);
+
+      // Explicit selection required to show viewer
+      mockRoute.query = { item: '1' };
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Verify store is populated
+      expect(canvasStore.items).toHaveLength(1);
+      // Viewer should be shown with explicit selection
+      expect(wrapper.find('.canvas-file-viewer').exists()).toBe(true);
+      expect(wrapper.text()).toContain('doc.txt');
+      // Back button should NOT be visible with only one item (nowhere to go back to)
+      expect(wrapper.find('.breadcrumb-back').exists()).toBe(false);
+    });
+
+    it('shows back button when item is explicitly selected from multiple items', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'doc1.txt', type: 'text', content: 'A', createdAt: 1000 },
+        { id: '2', filename: 'doc2.txt', type: 'text', content: 'B', createdAt: 2000 },
+      ]);
+
+      mockRoute.query = { item: '2' };
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Verify store is populated
+      expect(canvasStore.items).toHaveLength(2);
+      // Back button should be present when viewing an item
+      expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
+      expect(wrapper.text()).toContain('← Canvas');
+      expect(wrapper.text()).toContain('doc2.txt');
     });
   });
 });
