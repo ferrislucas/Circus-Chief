@@ -80,6 +80,50 @@
           </label>
         </div>
 
+        <!-- Model Field -->
+        <div class="form-group">
+          <label for="model">Model</label>
+          <select id="model" v-model="formData.model" class="form-input">
+            <option v-for="m in CLAUDE_MODELS" :key="m.id" :value="m.id">
+              {{ m.name }}
+            </option>
+          </select>
+        </div>
+
+        <!-- Mode Field -->
+        <div class="form-group">
+          <label for="mode">Mode</label>
+          <select id="mode" v-model="formData.mode" class="form-input">
+            <option value="plan">Plan</option>
+            <option value="standard">Standard</option>
+            <option value="yolo">YOLO</option>
+          </select>
+        </div>
+
+        <!-- Git Branch Field -->
+        <div class="form-group">
+          <label for="gitBranch">Git Branch (Optional)</label>
+          <input
+            id="gitBranch"
+            v-model="formData.gitBranch"
+            type="text"
+            class="form-input"
+            placeholder="e.g., feature/my-feature"
+          />
+          <p class="form-help">Git branch to use when creating sessions from this template</p>
+        </div>
+
+        <!-- Git Mode Field -->
+        <div class="form-group">
+          <label for="gitMode">Git Mode (Optional)</label>
+          <select id="gitMode" v-model="formData.gitMode" class="form-input">
+            <option :value="null">None</option>
+            <option value="branch">Branch</option>
+            <option value="worktree">Worktree</option>
+          </select>
+          <p class="form-help">How to handle git isolation for sessions from this template</p>
+        </div>
+
         <!-- Form Actions -->
         <div class="form-actions">
           <button type="button" class="btn btn-outline-secondary" @click="onCancel">
@@ -129,6 +173,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
 import { api } from '../api/index.js';
+import { CLAUDE_MODELS, DEFAULT_MODEL } from '@claudetools/shared';
 
 const route = useRoute();
 const router = useRouter();
@@ -147,6 +192,10 @@ const formData = ref({
   isGlobal: false,
   nextTemplateId: null,
   thinkingEnabled: false,
+  model: DEFAULT_MODEL,
+  mode: 'yolo',
+  gitBranch: '',
+  gitMode: null,
 });
 
 const projectId = computed(() => route.params.projectId);
@@ -171,6 +220,10 @@ const loadTemplate = async () => {
         isGlobal: !template.projectId,
         nextTemplateId: template.nextTemplateId || null,
         thinkingEnabled: template.thinkingEnabled || false,
+        model: template.model || DEFAULT_MODEL,
+        mode: template.mode || 'yolo',
+        gitBranch: template.gitBranch || '',
+        gitMode: template.gitMode || null,
       };
     }
   } catch (err) {
@@ -190,6 +243,10 @@ const onSubmit = async () => {
       prompt: formData.value.prompt,
       nextTemplateId: formData.value.nextTemplateId || undefined,
       thinkingEnabled: formData.value.thinkingEnabled || undefined,
+      model: formData.value.model === DEFAULT_MODEL ? undefined : formData.value.model,
+      mode: formData.value.mode === 'yolo' ? undefined : formData.value.mode,
+      gitBranch: formData.value.gitBranch || undefined,
+      gitMode: formData.value.gitMode || undefined,
     };
 
     await templatesStore.updateTemplate(templateId.value, data);
