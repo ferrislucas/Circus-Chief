@@ -297,6 +297,20 @@ router.get('/:id/canvas', (req, res) => {
   res.json(items);
 });
 
+// GET /api/sessions/:id/canvas/all - List ALL canvas items (including all versions)
+// Returns all versions of each file for the frontend UI
+router.get('/:id/canvas/all', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Get ALL versions (not just latest)
+  const items = canvasItems.getBySessionId(req.params.id);
+
+  res.json(items);
+});
+
 // GET /api/sessions/:id/canvas/file/:filename/history/:version - Get historical version of canvas file
 // Uses standard versioning: version 1 = oldest, version N = latest (where N = totalVersions)
 // NOTE: This route must be defined BEFORE the main file route to match correctly
