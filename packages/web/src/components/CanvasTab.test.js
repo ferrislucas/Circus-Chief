@@ -66,7 +66,10 @@ describe('CanvasTab', () => {
     name: 'CanvasFileViewer',
     props: ['item', 'versions', 'showBackButton'],
     emits: ['back', 'selectVersion', 'delete', 'deleteAll'],
-    template: '<div class="canvas-file-viewer-stub">Viewing {{ item?.filename }} (back: {{ showBackButton }})</div>',
+    template: `<div class="canvas-file-viewer">
+      <button v-if="showBackButton" class="breadcrumb-back">← Canvas</button>
+      Viewing {{ item?.filename }}
+    </div>`,
   });
 
   const CanvasTrashStub = defineComponent({
