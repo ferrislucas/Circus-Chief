@@ -90,19 +90,6 @@
           </select>
         </div>
 
-        <!-- Git Branch Field -->
-        <div class="form-group">
-          <label for="gitBranch">Git Branch (Optional)</label>
-          <input
-            id="gitBranch"
-            v-model="formData.gitBranch"
-            type="text"
-            class="form-input"
-            placeholder="e.g., feature/my-feature"
-          />
-          <p class="form-help">Git branch to use when creating sessions from this template</p>
-        </div>
-
         <!-- Form Actions -->
         <div class="form-actions">
           <button type="button" class="btn btn-outline-secondary" @click="onCancel">
@@ -173,7 +160,6 @@ const formData = ref({
   thinkingEnabled: false,
   model: DEFAULT_MODEL,
   mode: 'yolo',
-  gitBranch: '',
 });
 
 const projectId = computed(() => route.params.projectId);
@@ -200,7 +186,6 @@ const loadTemplate = async () => {
         thinkingEnabled: template.thinkingEnabled || false,
         model: template.model || DEFAULT_MODEL,
         mode: template.mode || 'yolo',
-        gitBranch: template.gitBranch || '',
       };
     }
   } catch (err) {
@@ -222,7 +207,6 @@ const onSubmit = async () => {
       thinkingEnabled: formData.value.thinkingEnabled || undefined,
       model: formData.value.model === DEFAULT_MODEL ? undefined : formData.value.model,
       mode: formData.value.mode === 'yolo' ? undefined : formData.value.mode,
-      gitBranch: formData.value.gitBranch || undefined,
     };
 
     await templatesStore.updateTemplate(templateId.value, data);
