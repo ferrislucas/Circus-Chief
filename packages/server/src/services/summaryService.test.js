@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { projects, sessions, messages, sessionSummaries } from '../database.js';
+import { projects, sessions, messages, sessionSummaries, settings } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 
 // Mock the websocket module to avoid WebSocket server dependency
@@ -50,8 +50,8 @@ describe('summaryService', () => {
   });
 
   describe('constants', () => {
-    it('has a 60 second debounce delay', () => {
-      expect(DEBOUNCE_DELAY).toBe(60000);
+    it('has a 30 second debounce delay', () => {
+      expect(DEBOUNCE_DELAY).toBe(30000);
     });
 
     it('has a maximum of 15 messages', () => {
@@ -1439,8 +1439,8 @@ describe('summaryService', () => {
 
   describe('disable flags', () => {
     it('skips session summary generation when disableSessionSummaries is true', async () => {
-      // Update project to disable session summaries
-      projects.update(projectId, { disableSessionSummaries: true });
+      // Update global settings to disable session summaries
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       const result = await summaryService.generateSummary(sessionId);
 
@@ -1449,8 +1449,8 @@ describe('summaryService', () => {
     });
 
     it('generates session summary when disableSessionSummaries is false', async () => {
-      // Ensure project has summaries enabled
-      projects.update(projectId, { disableSessionSummaries: false });
+      // Ensure global settings have summaries enabled
+      settings.setSummarySettings({ disableSessionSummaries: false });
 
       const result = await summaryService.generateSummary(sessionId);
 
@@ -1462,7 +1462,7 @@ describe('summaryService', () => {
       const { conversations } = await import('../database.js');
 
       // Update project to disable conversation summaries
-      projects.update(projectId, { disableConversationSummaries: true });
+      settings.setSummarySettings({ disableConversationSummaries: true });
 
       // Create a conversation
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
@@ -1480,7 +1480,7 @@ describe('summaryService', () => {
       const { conversations } = await import('../database.js');
 
       // Ensure project has conversation summaries enabled
-      projects.update(projectId, { disableConversationSummaries: false });
+      settings.setSummarySettings({ disableConversationSummaries: false });
 
       // Create a conversation
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
@@ -1497,7 +1497,7 @@ describe('summaryService', () => {
     it('logs message when skipping session summary due to disabled flag', async () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       await summaryService.generateSummary(sessionId);
 
@@ -1512,7 +1512,7 @@ describe('summaryService', () => {
       const { conversations } = await import('../database.js');
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-      projects.update(projectId, { disableConversationSummaries: true });
+      settings.setSummarySettings({ disableConversationSummaries: true });
 
       const conversation = conversations.create(sessionId, 'Test', true);
       messages.create(sessionId, 'user', 'Hello', null, conversation.id);
@@ -1530,7 +1530,7 @@ describe('summaryService', () => {
     it('allows session summary but disables conversation summary independently', async () => {
       const { conversations } = await import('../database.js');
 
-      projects.update(projectId, {
+      settings.setSummarySettings({
         disableSessionSummaries: false,
         disableConversationSummaries: true,
       });
@@ -1551,7 +1551,7 @@ describe('summaryService', () => {
     it('allows conversation summary but disables session summary independently', async () => {
       const { conversations } = await import('../database.js');
 
-      projects.update(projectId, {
+      settings.setSummarySettings({
         disableSessionSummaries: true,
         disableConversationSummaries: false,
       });
@@ -1798,13 +1798,13 @@ describe('summaryService', () => {
 
     it('returns false when conversation summaries are disabled for project', () => {
       // Disable conversation summaries for the project
-      projects.update(projectId, { disableConversationSummaries: true });
+      settings.setSummarySettings({ disableConversationSummaries: true });
 
       const result = isConversationSummaryEnabled(sessionId);
       expect(result).toBe(false);
 
       // Re-enable for other tests
-      projects.update(projectId, { disableConversationSummaries: false });
+      settings.setSummarySettings({ disableConversationSummaries: false });
     });
 
     it('returns false when session does not exist', () => {
@@ -1828,7 +1828,7 @@ describe('summaryService', () => {
   describe('force parameter bypasses disableSessionSummaries', () => {
     it('regenerateSummary works even when disableSessionSummaries is true', async () => {
       // Disable session summaries for the project
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // regenerateSummary passes force=true, so it should work
       const result = await summaryService.regenerateSummary(sessionId);
@@ -1845,7 +1845,7 @@ describe('summaryService', () => {
 
     it('generateSummary with force=true works even when disableSessionSummaries is true', async () => {
       // Disable session summaries for the project
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // Call generateSummary with force=true
       const result = await summaryService.generateSummary(sessionId, 0, true);
@@ -1860,7 +1860,7 @@ describe('summaryService', () => {
 
     it('generateSummary without force respects disableSessionSummaries when true', async () => {
       // Disable session summaries for the project
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // Call generateSummary without force (default is false)
       const result = await summaryService.generateSummary(sessionId);
@@ -1874,7 +1874,7 @@ describe('summaryService', () => {
 
     it('generateSummary without force works when disableSessionSummaries is false', async () => {
       // Ensure summaries are enabled
-      projects.update(projectId, { disableSessionSummaries: false });
+      settings.setSummarySettings({ disableSessionSummaries: false });
 
       // Call generateSummary without force
       const result = await summaryService.generateSummary(sessionId);
@@ -1887,7 +1887,7 @@ describe('summaryService', () => {
       vi.useFakeTimers();
 
       // Disable session summaries
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // Trigger activity (should schedule generation but skip due to disabled flag)
       summaryService.onSessionActivity(sessionId);
@@ -1907,7 +1907,7 @@ describe('summaryService', () => {
       vi.useFakeTimers();
 
       // Ensure summaries are enabled
-      projects.update(projectId, { disableSessionSummaries: false });
+      settings.setSummarySettings({ disableSessionSummaries: false });
 
       // Trigger activity
       summaryService.onSessionActivity(sessionId);
@@ -1925,7 +1925,7 @@ describe('summaryService', () => {
 
     it('getSummary with generateIfMissing=true respects disableSessionSummaries', async () => {
       // Disable session summaries
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // getSummary with generateIfMissing=true should still respect the disable flag
       const result = await summaryService.getSummary(sessionId, true);
@@ -1939,7 +1939,7 @@ describe('summaryService', () => {
 
     it('getSummary with generateIfMissing=true generates when enabled', async () => {
       // Ensure summaries are enabled
-      projects.update(projectId, { disableSessionSummaries: false });
+      settings.setSummarySettings({ disableSessionSummaries: false });
 
       const result = await summaryService.getSummary(sessionId, true);
 
@@ -1949,7 +1949,7 @@ describe('summaryService', () => {
 
     it('onSessionComplete bypasses disableSessionSummaries (uses force=true)', async () => {
       // Disable session summaries
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // onSessionComplete should generate anyway (it uses force=true)
       summaryService.onSessionComplete(sessionId);
@@ -1964,7 +1964,7 @@ describe('summaryService', () => {
 
     it('manual regeneration can override disabled setting while auto-generation cannot', async () => {
       // Disable session summaries
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // Try automatic generation via onSessionActivity - should be skipped
       summaryService.onSessionActivity(sessionId);
@@ -1990,7 +1990,7 @@ describe('summaryService', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       // Disable session summaries
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // Call with force=true
       await summaryService.generateSummary(sessionId, 0, true);
@@ -2010,14 +2010,14 @@ describe('summaryService', () => {
       consoleSpy.mockRestore();
 
       // Re-enable for other tests
-      projects.update(projectId, { disableSessionSummaries: false });
+      settings.setSummarySettings({ disableSessionSummaries: false });
     });
 
     it('logs disabled message when force=false and setting is enabled', async () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       // Disable session summaries
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // Call without force (default false)
       await summaryService.generateSummary(sessionId);
@@ -2033,7 +2033,7 @@ describe('summaryService', () => {
       consoleSpy.mockRestore();
 
       // Re-enable for other tests
-      projects.update(projectId, { disableSessionSummaries: false });
+      settings.setSummarySettings({ disableSessionSummaries: false });
     });
   });
 });
