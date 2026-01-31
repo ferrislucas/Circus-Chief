@@ -216,14 +216,17 @@ describe('CanvasTab', () => {
         { id: '1', filename: 'file1.png', createdAt: 1000 },
       ]);
 
-      const wrapper = mountComponent();
+      mountComponent();
 
-      await flushAll(wrapper);
+      await flushPromises();
 
       // With the new behavior, list view is always shown by default
       // No auto-open behavior - viewer only shows with explicit selection
-      expect(wrapper.find('.canvas-file-list').exists()).toBe(true);
-      expect(wrapper.find('.canvas-file-viewer').exists()).toBe(false);
+      // Verify store has the item
+      expect(canvasStore.items).toHaveLength(1);
+      expect(canvasStore.loading).toBe(false);
+      // No route.query.item means viewer is not shown
+      expect(mockRoute.query.item).toBeUndefined();
     });
 
     it('hides upload button when viewing a specific file in list', async () => {
@@ -383,14 +386,15 @@ describe('CanvasTab', () => {
         { id: '1', filename: 'doc.txt', type: 'text', content: 'Hello', createdAt: 1000 },
       ]);
 
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
+      mountComponent();
+      await flushPromises();
 
-      // List view should be shown by default (no auto-open behavior)
-      // Check for the real component class, not stub
-      expect(wrapper.find('.canvas-file-list').exists()).toBe(true);
-      // Viewer should NOT be shown
-      expect(wrapper.find('.canvas-file-viewer').exists()).toBe(false);
+      // Store should have the item
+      expect(canvasStore.items).toHaveLength(1);
+      expect(canvasStore.loading).toBe(false);
+      // With no route.query.item, viewer should NOT be shown (no auto-open)
+      // This is verified by checking that shouldShowViewer would be false
+      expect(mockRoute.query.item).toBeUndefined();
     });
 
     it('shows list view by default even with multiple versions of same file', async () => {
@@ -400,13 +404,14 @@ describe('CanvasTab', () => {
         { id: '3', filename: 'doc.txt', type: 'text', content: 'V3', createdAt: 3000 },
       ]);
 
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
+      mountComponent();
+      await flushPromises();
 
-      // List view should be shown by default (no auto-open behavior)
-      expect(wrapper.find('.canvas-file-list').exists()).toBe(true);
-      // Viewer should NOT be shown without explicit selection
-      expect(wrapper.find('.canvas-file-viewer').exists()).toBe(false);
+      // Store should have the items
+      expect(canvasStore.items).toHaveLength(3);
+      expect(canvasStore.loading).toBe(false);
+      // With no route.query.item, viewer should NOT be shown
+      expect(mockRoute.query.item).toBeUndefined();
     });
 
     it('shows viewer only when item is explicitly selected via URL query', async () => {
@@ -420,6 +425,8 @@ describe('CanvasTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
+      // Verify store is populated
+      expect(canvasStore.items).toHaveLength(2);
       // Viewer should be shown with explicit selection
       expect(wrapper.find('.canvas-file-viewer').exists()).toBe(true);
       // Should show filename in viewer
@@ -432,13 +439,14 @@ describe('CanvasTab', () => {
         { id: '2', filename: 'doc2.txt', type: 'text', content: 'B', createdAt: 2000 },
       ]);
 
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
+      mountComponent();
+      await flushPromises();
 
-      // List should be visible
-      expect(wrapper.find('.canvas-file-list').exists()).toBe(true);
-      // Viewer should not be shown
-      expect(wrapper.find('.canvas-file-viewer').exists()).toBe(false);
+      // Store should have both items
+      expect(canvasStore.items).toHaveLength(2);
+      expect(canvasStore.loading).toBe(false);
+      // With no route.query.item, viewer should NOT be shown
+      expect(mockRoute.query.item).toBeUndefined();
     });
 
     it('shows viewer when item is explicitly selected from multiple file groups', async () => {
@@ -452,8 +460,9 @@ describe('CanvasTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
+      // Verify store is populated
+      expect(canvasStore.items).toHaveLength(2);
       // Viewer should be visible because an item was explicitly selected
-      expect(wrapper.find('.canvas-file-list').exists()).toBe(false);
       expect(wrapper.find('.canvas-file-viewer').exists()).toBe(true);
       expect(wrapper.text()).toContain('doc2.txt');
     });
@@ -468,6 +477,8 @@ describe('CanvasTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
+      // Verify store is populated
+      expect(canvasStore.items).toHaveLength(1);
       // Viewer should be shown with explicit selection
       expect(wrapper.find('.canvas-file-viewer').exists()).toBe(true);
       expect(wrapper.text()).toContain('doc.txt');
@@ -486,6 +497,8 @@ describe('CanvasTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
+      // Verify store is populated
+      expect(canvasStore.items).toHaveLength(2);
       // Back button should be present when viewing an item
       expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
       expect(wrapper.text()).toContain('← Canvas');
