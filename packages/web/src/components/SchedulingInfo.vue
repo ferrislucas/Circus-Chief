@@ -104,8 +104,18 @@
     </button>
   </div>
 
-  <!-- Edit Modal -->
+  <!-- Edit Modal for scheduled sessions -->
   <SchedulingEditModal
+    v-if="session.status === 'scheduled'"
+    :is-open="showEditModal"
+    :session="session"
+    @close="showEditModal = false"
+    @saved="handleSaved"
+  />
+
+  <!-- Edit Modal for non-scheduled sessions (auto-reschedule only) -->
+  <AutoRescheduleModal
+    v-else
     :is-open="showEditModal"
     :session="session"
     @close="showEditModal = false"
@@ -119,6 +129,7 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import SchedulingEditModal from './SchedulingEditModal.vue';
+import AutoRescheduleModal from './AutoRescheduleModal.vue';
 
 const props = defineProps({
   session: {
