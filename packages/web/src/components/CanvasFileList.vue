@@ -514,10 +514,6 @@ defineExpose({
     flex: 1;
     min-width: 0;
     word-break: break-word;
-    max-width: 120px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .file-type {
