@@ -3,7 +3,7 @@
     <div v-if="isOpen" class="modal-backdrop" @click.self="close">
       <div class="modal-content">
         <div class="modal-header">
-          <h2 class="modal-title">Edit Scheduling Settings</h2>
+          <h2 class="modal-title">{{ modalTitle }}</h2>
           <button @click="close" class="close-btn" aria-label="Close">&times;</button>
         </div>
 
@@ -152,6 +152,13 @@ const minDateTime = computed(() => {
   const now = new Date();
   now.setMinutes(now.getMinutes() + 1);
   return now.toISOString().slice(0, 16);
+});
+
+const modalTitle = computed(() => {
+  if (props.session?.status === 'scheduled') {
+    return 'Edit Scheduling Settings';
+  }
+  return 'Auto-Reschedule Settings';
 });
 
 function close() {
