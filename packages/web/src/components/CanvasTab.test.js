@@ -211,7 +211,7 @@ describe('CanvasTab', () => {
       expect(uploadButton.text()).toContain('Upload File');
     });
 
-    it('shows upload button in viewer header with single file (auto-opened)', async () => {
+    it('shows list view with single file (no auto-open)', async () => {
       api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'file1.png', createdAt: 1000 },
       ]);
@@ -220,10 +220,10 @@ describe('CanvasTab', () => {
 
       await flushAll(wrapper);
 
-      // With the new behavior, single files are auto-opened in viewer
-      // Viewer should be showing (no list view since only one item)
-      expect(wrapper.text()).toContain('file1.png');
-      expect(wrapper.find('.canvas-file-list-stub').exists()).toBe(false);
+      // With the new behavior, list view is always shown by default
+      // No auto-open behavior - viewer only shows with explicit selection
+      expect(wrapper.find('.canvas-file-list').exists()).toBe(true);
+      expect(wrapper.find('.canvas-file-viewer').exists()).toBe(false);
     });
 
     it('hides upload button when viewing a specific file in list', async () => {
@@ -377,8 +377,8 @@ describe('CanvasTab', () => {
     });
   });
 
-  describe('auto-show viewer with single file group', () => {
-    it('shows viewer directly when there is only one file group (no explicit selection)', async () => {
+  describe('viewer and list behavior', () => {
+    it('shows list view by default when there is only one file (no auto-open)', async () => {
       api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'doc.txt', type: 'text', content: 'Hello', createdAt: 1000 },
       ]);
@@ -386,13 +386,14 @@ describe('CanvasTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // Viewer should be visible (no list view)
-      expect(wrapper.find('.canvas-list').exists()).toBe(false);
-      // Should show viewer section with filename
-      expect(wrapper.text()).toContain('doc.txt');
+      // List view should be shown by default (no auto-open behavior)
+      // Check for the real component class, not stub
+      expect(wrapper.find('.canvas-file-list').exists()).toBe(true);
+      // Viewer should NOT be shown
+      expect(wrapper.find('.canvas-file-viewer').exists()).toBe(false);
     });
 
-    it('shows viewer with latest version when multiple versions exist', async () => {
+    it('shows list view by default even with multiple versions of same file', async () => {
       api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'doc.txt', type: 'text', content: 'V1', createdAt: 1000 },
         { id: '2', filename: 'doc.txt', type: 'text', content: 'V2', createdAt: 2000 },
@@ -402,22 +403,27 @@ describe('CanvasTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // Viewer should be visible with latest content
-      expect(wrapper.text()).toContain('V3');
-      expect(wrapper.find('.canvas-list').exists()).toBe(false);
+      // List view should be shown by default (no auto-open behavior)
+      expect(wrapper.find('.canvas-file-list').exists()).toBe(true);
+      // Viewer should NOT be shown without explicit selection
+      expect(wrapper.find('.canvas-file-viewer').exists()).toBe(false);
     });
 
-    it('shows version dropdown when single file group has multiple versions', async () => {
+    it('shows viewer only when item is explicitly selected via URL query', async () => {
       api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'doc.txt', type: 'text', content: 'V1', createdAt: 1000 },
         { id: '2', filename: 'doc.txt', type: 'text', content: 'V2', createdAt: 2000 },
       ]);
 
+      // Explicit selection via URL query
+      mockRoute.query = { item: '2' };
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // Should show version dropdown
-      expect(wrapper.find('.version-dropdown').exists()).toBe(true);
+      // Viewer should be shown with explicit selection
+      expect(wrapper.find('.canvas-file-viewer').exists()).toBe(true);
+      // Should show filename in viewer
+      expect(wrapper.text()).toContain('doc.txt');
     });
 
     it('shows list view when there are multiple file groups', async () => {
@@ -429,15 +435,13 @@ describe('CanvasTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // List should be visible with both files
-      const text = wrapper.text();
-      expect(text).toContain('doc1.txt');
-      expect(text).toContain('doc2.txt');
-      // Viewer should not be shown (no "Viewing" text)
-      expect(text).not.toContain('Viewing');
+      // List should be visible
+      expect(wrapper.find('.canvas-file-list').exists()).toBe(true);
+      // Viewer should not be shown
+      expect(wrapper.find('.canvas-file-viewer').exists()).toBe(false);
     });
 
-    it('shows viewer when item is explicitly selected even with multiple file groups', async () => {
+    it('shows viewer when item is explicitly selected from multiple file groups', async () => {
       api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'doc1.txt', type: 'text', content: 'A', createdAt: 1000 },
         { id: '2', filename: 'doc2.txt', type: 'text', content: 'B', createdAt: 2000 },
@@ -449,23 +453,27 @@ describe('CanvasTab', () => {
       await flushAll(wrapper);
 
       // Viewer should be visible because an item was explicitly selected
-      expect(wrapper.find('.canvas-list').exists()).toBe(false);
+      expect(wrapper.find('.canvas-file-list').exists()).toBe(false);
+      expect(wrapper.find('.canvas-file-viewer').exists()).toBe(true);
       expect(wrapper.text()).toContain('doc2.txt');
     });
 
-    it('hides back button when showing single file group (no list to go back to)', async () => {
+    it('shows viewer with back button when explicitly selected', async () => {
       api.getAllCanvasItems.mockResolvedValue([
         { id: '1', filename: 'doc.txt', type: 'text', content: 'Hello', createdAt: 1000 },
       ]);
 
+      // Explicit selection required to show viewer
+      mockRoute.query = { item: '1' };
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // Note: The showBackButton prop is passed but not actually used in CanvasFileViewer
-      // This is existing behavior - the back button is always shown
-      // The important thing is that the viewer is shown with the correct item
+      // Viewer should be shown with explicit selection
+      expect(wrapper.find('.canvas-file-viewer').exists()).toBe(true);
       expect(wrapper.text()).toContain('doc.txt');
-      expect(wrapper.text()).toContain('Hello');
+      // Back button should be visible (breadcrumb-back class)
+      expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
+      expect(wrapper.text()).toContain('← Canvas');
     });
 
     it('shows back button when item is explicitly selected from multiple items', async () => {
@@ -478,8 +486,10 @@ describe('CanvasTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // Back button should be present when viewing one of multiple items
+      // Back button should be present when viewing an item
+      expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
       expect(wrapper.text()).toContain('← Canvas');
+      expect(wrapper.text()).toContain('doc2.txt');
     });
   });
 });
