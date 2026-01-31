@@ -153,11 +153,13 @@
       </div>
 
       <div class="tab-content">
-        <SummaryTab v-if="activeTab === 'summary'" :session-id="route.params.id" />
-        <ConversationTab v-else-if="activeTab === 'conversation'" :session-id="route.params.id" />
-        <ChangesTab v-else-if="activeTab === 'changes'" :session-id="route.params.id" @update:file-count="changesFileCount = $event" />
-        <CanvasTab v-else-if="activeTab === 'canvas'" :session-id="route.params.id" />
-        <CommandsTab v-else-if="activeTab === 'commands'" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
+        <!-- CRITICAL: :key ensures components remount when navigating between sessions,
+             preventing stale WebSocket handlers from capturing the wrong sessionId -->
+        <SummaryTab v-if="activeTab === 'summary'" :key="route.params.id" :session-id="route.params.id" />
+        <ConversationTab v-else-if="activeTab === 'conversation'" :key="route.params.id" :session-id="route.params.id" />
+        <ChangesTab v-else-if="activeTab === 'changes'" :key="route.params.id" :session-id="route.params.id" @update:file-count="changesFileCount = $event" />
+        <CanvasTab v-else-if="activeTab === 'canvas'" :key="route.params.id" :session-id="route.params.id" />
+        <CommandsTab v-else-if="activeTab === 'commands'" :key="route.params.id" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
       </div>
 
       <!-- Child sessions panel (if this session has children) -->
@@ -358,9 +360,13 @@ function cleanup() {
 async function initializeSession(sessionId) {
   // STEP 1: Create new subscription for this session
   currentSubscription = useSessionSubscription(sessionId);
-  const { unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onConversationUpdated, onUsageUpdate, onChangesUpdate, onCommandOutput, onCommandComplete, onCommandError } = currentSubscription;
+  const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onConversationUpdated, onUsageUpdate, onChangesUpdate, onCommandOutput, onCommandComplete, onCommandError } = currentSubscription;
 
-  // STEP 2: Ensure subscribed to WebSocket
+  // STEP 2: Subscribe via the subscription object AND await connection
+  // CRITICAL: We must call subscribe() to set thisInstanceSubscribed = true,
+  // otherwise unsubscribe() in cleanup() does nothing and we leak subscriptions.
+  // ensureSubscribed() waits for the WebSocket connection before resolving.
+  subscribe();
   try {
     await ensureSubscribed(sessionId);
   } catch (error) {
