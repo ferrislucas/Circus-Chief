@@ -4,7 +4,6 @@
       ref="textareaRef"
       v-bind="$attrs"
       :value="modelValue"
-      :style="{ height: currentHeight ? currentHeight + 'px' : undefined }"
       @input="handleInput"
     />
     <div
@@ -46,7 +45,6 @@ function handleInput(event) {
 }
 
 const textareaRef = ref(null);
-const currentHeight = ref(null);
 let isResizing = false;
 
 // Watch for external modelValue changes and update textarea
@@ -81,7 +79,8 @@ function startResize(event) {
       newHeight = Math.min(props.maxHeight, newHeight);
     }
 
-    currentHeight.value = newHeight;
+    // Directly manipulate DOM to avoid Vue re-render
+    textareaRef.value.style.height = newHeight + 'px';
   };
 
   const stopResize = () => {
