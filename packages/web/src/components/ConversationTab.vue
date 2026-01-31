@@ -287,6 +287,7 @@
 
 <script setup>
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import { formatDistanceToNow } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
@@ -324,6 +325,8 @@ const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const quickResponsesStore = useQuickResponsesStore();
 const projectsStore = useProjectsStore();
+const router = useRouter();
+const route = useRoute();
 
 const input = ref('');
 const quickResponseSettingsOpen = ref(false);
@@ -639,6 +642,13 @@ onMounted(async () => {
   // Fetch initial work logs
   await sessionsStore.fetchWorkLogs(props.sessionId);
 
+  // Check for conversation ID in query parameter
+  const convId = route.query.conv;
+  if (convId && convId !== sessionsStore.activeConversationId) {
+    // Switch to the specified conversation
+    await sessionsStore.switchConversation(props.sessionId, convId);
+  }
+
   // Scroll to bottom on initial load
   scrollToBottom(true);
 });
@@ -797,6 +807,16 @@ watch(
       // This prevents the UI from showing stale messages from a previous conversation
       console.log(`[CONV] activeConversationId changed to ${newConvId}, refetching messages`);
       await sessionsStore.fetchMessages(props.sessionId, false);
+    }
+  }
+);
+
+// Watch for conversation query parameter changes
+watch(
+  () => route.query.conv,
+  async (newConvId, oldConvId) => {
+    if (newConvId && newConvId !== oldConvId && newConvId !== sessionsStore.activeConversationId) {
+      await sessionsStore.switchConversation(props.sessionId, newConvId);
     }
   }
 );
@@ -1040,7 +1060,7 @@ async function handleBranchCreate({ messageId, prompt }) {
       throw new Error('A prompt is required');
     }
 
-    await sessionsStore.branchConversation(
+    const branchConversation = await sessionsStore.branchConversation(
       props.sessionId,
       activeConv.id,
       messageId,
@@ -1049,10 +1069,15 @@ async function handleBranchCreate({ messageId, prompt }) {
     );
 
     branchCreated = true;
-    closeBranchEditor();
 
-    // Scroll to show the new content
-    scrollToBottom(true);
+    // Navigate to the new conversation using query parameter
+    // This forces a clean UI reset
+    router.push({
+      path: `/sessions/${props.sessionId}/conversation`,
+      query: { conv: branchConversation.id }
+    });
+
+    closeBranchEditor();
   } catch (err) {
     uiStore.error(err.message);
   } finally {
