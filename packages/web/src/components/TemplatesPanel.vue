@@ -177,7 +177,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
-import { CLAUDE_MODELS } from '@claudetools/shared';
+import { CLAUDE_MODELS, DEFAULT_MODEL } from '@claudetools/shared';
 
 const props = defineProps({
   projectId: { type: String, required: true },
@@ -196,7 +196,7 @@ const formData = ref({
   nextTemplateId: null,
   thinkingEnabled: false,
   gitBranch: '',
-  model: 'claude-sonnet-4-20250514',
+  model: DEFAULT_MODEL,
   mode: 'yolo',
 });
 
@@ -243,7 +243,7 @@ function resetForm() {
     nextTemplateId: null,
     thinkingEnabled: false,
     gitBranch: '',
-    model: 'claude-sonnet-4-20250514',
+    model: DEFAULT_MODEL,
     mode: 'yolo',
   };
 }
@@ -268,8 +268,9 @@ async function handleSubmit() {
       nextTemplateId: formData.value.nextTemplateId || undefined,
       thinkingEnabled: formData.value.thinkingEnabled || undefined,
       gitBranch: formData.value.gitBranch || undefined,
-      model: formData.value.model || undefined,
-      mode: formData.value.mode || undefined,
+      // Send undefined if model/mode equal the defaults
+      model: formData.value.model === DEFAULT_MODEL ? undefined : formData.value.model,
+      mode: formData.value.mode === 'yolo' ? undefined : formData.value.mode,
     };
 
     if (formData.value.isGlobal) {
@@ -287,6 +288,13 @@ async function handleSubmit() {
     saving.value = false;
   }
 }
+
+// Expose for testing
+defineExpose({
+  formData,
+  getModelName,
+  resetForm,
+});
 </script>
 
 <style scoped>
