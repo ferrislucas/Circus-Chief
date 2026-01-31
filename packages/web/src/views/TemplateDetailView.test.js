@@ -70,7 +70,6 @@ describe('TemplateDetailView - New Form Fields', () => {
       thinkingEnabled: false,
       model: DEFAULT_MODEL,
       mode: 'yolo',
-      gitBranch: '',
     });
 
     await router.push({ path: '/projects/proj-1/templates/template-1' });
@@ -126,28 +125,6 @@ describe('TemplateDetailView - New Form Fields', () => {
       expect(options[2].attributes('value')).toBe('yolo');
       expect(options[2].text()).toBe('YOLO');
     });
-
-    it('displays git branch input field', async () => {
-      const wrapper = mount(TemplateDetailView, {
-        global: {
-          plugins: [pinia, router],
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-
-      // Find git branch input
-      const gitBranchInput = wrapper.find('#gitBranch');
-      expect(gitBranchInput.exists()).toBe(true);
-      expect(gitBranchInput.attributes('type')).toBe('text');
-      expect(gitBranchInput.attributes('placeholder')).toBe('e.g., feature/my-feature');
-
-      // Check for help text
-      const helpText = wrapper.findAll('p.form-help');
-      const gitBranchHelp = helpText.find((p) => p.text().includes('Git branch to use'));
-      expect(gitBranchHelp.exists()).toBe(true);
-    });
   });
 
   describe('Loading Template Data', () => {
@@ -160,7 +137,6 @@ describe('TemplateDetailView - New Form Fields', () => {
         projectId: 'proj-1',
         model: null,
         mode: null,
-        gitBranch: null,
       });
 
       const wrapper = mount(TemplateDetailView, {
@@ -180,9 +156,6 @@ describe('TemplateDetailView - New Form Fields', () => {
 
       const modeSelect = wrapper.find('#mode');
       expect(modeSelect.element.value).toBe('yolo');
-
-      const gitBranchInput = wrapper.find('#gitBranch');
-      expect(gitBranchInput.element.value).toBe('');
     });
   });
 
@@ -242,33 +215,6 @@ describe('TemplateDetailView - New Form Fields', () => {
       expect(callArgs[1].mode).toBe('plan');
     });
 
-    it('submits form with git branch when provided', async () => {
-      const wrapper = mount(TemplateDetailView, {
-        global: {
-          plugins: [pinia, router],
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-      await flushPromises();
-      await nextTick();
-
-      // Set git branch
-      const gitBranchInput = wrapper.find('#gitBranch');
-      await gitBranchInput.setValue('feature/new-feature');
-
-      // Submit form
-      const form = wrapper.find('form');
-      await form.trigger('submit.prevent');
-      await flushPromises();
-
-      // Verify updateTemplate was called
-      expect(templatesStore.updateTemplate).toHaveBeenCalled();
-      const callArgs = templatesStore.updateTemplate.mock.calls[0];
-      expect(callArgs[1].gitBranch).toBe('feature/new-feature');
-    });
-
     it('submits form with all new fields', async () => {
       const wrapper = mount(TemplateDetailView, {
         global: {
@@ -288,9 +234,6 @@ describe('TemplateDetailView - New Form Fields', () => {
       const modeSelect = wrapper.find('#mode');
       await modeSelect.setValue('standard');
 
-      const gitBranchInput = wrapper.find('#gitBranch');
-      await gitBranchInput.setValue('develop');
-
       // Submit form
       const form = wrapper.find('form');
       await form.trigger('submit.prevent');
@@ -301,7 +244,6 @@ describe('TemplateDetailView - New Form Fields', () => {
       const callArgs = templatesStore.updateTemplate.mock.calls[0];
       expect(callArgs[1].model).toBe('claude-sonnet-4-5-20250929');
       expect(callArgs[1].mode).toBe('standard');
-      expect(callArgs[1].gitBranch).toBe('develop');
     });
 
     it('omits default values from submission', async () => {
@@ -328,8 +270,6 @@ describe('TemplateDetailView - New Form Fields', () => {
       expect(callArgs[1].model).toBeUndefined();
       // yolo should be omitted
       expect(callArgs[1].mode).toBeUndefined();
-      // empty string should be omitted
-      expect(callArgs[1].gitBranch).toBeUndefined();
     });
   });
 
@@ -368,24 +308,6 @@ describe('TemplateDetailView - New Form Fields', () => {
       await modeSelect.setValue('plan');
 
       expect(modeSelect.element.value).toBe('plan');
-    });
-
-    it('allows entering git branch', async () => {
-      const wrapper = mount(TemplateDetailView, {
-        global: {
-          plugins: [pinia, router],
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-      await flushPromises();
-      await nextTick();
-
-      const gitBranchInput = wrapper.find('#gitBranch');
-      await gitBranchInput.setValue('feature/my-new-feature');
-
-      expect(gitBranchInput.element.value).toBe('feature/my-new-feature');
     });
   });
 });
