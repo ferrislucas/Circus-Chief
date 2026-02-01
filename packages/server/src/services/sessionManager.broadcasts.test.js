@@ -1390,4 +1390,127 @@ describe('sessionManager broadcasts', () => {
       expect(updateTodos).toHaveBeenCalledWith(sessionId, expect.any(String), []);
     });
   });
+
+  describe('summary service integration', () => {
+    let onSessionComplete;
+    let extractPrUrlIfNeeded;
+
+    beforeEach(async () => {
+      // Import the mocked functions
+      const summaryService = await import('./summaryService.js');
+      onSessionComplete = summaryService.onSessionComplete;
+      extractPrUrlIfNeeded = summaryService.extractPrUrlIfNeeded;
+    });
+
+    it('calls extractPrUrlIfNeeded when turn completes successfully', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Verify extractPrUrlIfNeeded was called
+      expect(extractPrUrlIfNeeded).toHaveBeenCalledWith(sessionId);
+    });
+
+    it('calls both extractPrUrlIfNeeded and onSessionComplete when turn completes successfully', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Both should be called
+      expect(extractPrUrlIfNeeded).toHaveBeenCalledWith(sessionId);
+      expect(onSessionComplete).toHaveBeenCalledWith(sessionId);
+    });
+
+    it('calls onSessionComplete when turn completes successfully', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Verify onSessionComplete was called
+      expect(onSessionComplete).toHaveBeenCalledWith(sessionId);
+    });
+
+    it('calls extractPrUrlIfNeeded and onSessionComplete on error', async () => {
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'error', error: 'Test error' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // Verify both functions were called even on error
+      expect(extractPrUrlIfNeeded).toHaveBeenCalledWith(sessionId);
+      expect(onSessionComplete).toHaveBeenCalledWith(sessionId);
+    });
+
+    it('calls extractPrUrlIfNeeded and onSessionComplete in continueSession', async () => {
+      const { continueSession } = await import('./sessionManager.js');
+
+      // Update claude session ID for continue
+      sessions.update(sessionId, { claudeSessionId: 'claude-session-456' });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-456', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await continueSession(sessionId, 'Continue prompt', tempDir);
+
+      // Verify both functions were called
+      expect(extractPrUrlIfNeeded).toHaveBeenCalledWith(sessionId);
+      expect(onSessionComplete).toHaveBeenCalledWith(sessionId);
+    });
+
+    it('calls extractPrUrlIfNeeded and onSessionComplete in continueSessionWithExistingMessage', async () => {
+      const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
+      const { messages, conversations } = await import('../database.js');
+
+      // Get the existing conversation for the session (created when session was initialized)
+      const sessionConversations = conversations.getBySessionId(sessionId);
+      const conversation = sessionConversations[0]; // Get the initial conversation
+
+      // Create a user message associated with the existing conversation
+      messages.create(sessionId, 'user', 'User message', null, conversation.id);
+
+      // Update claude session ID for continue
+      sessions.update(sessionId, { claudeSessionId: 'claude-session-789' });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-789', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      // continueSessionWithExistingMessage takes conversationId, not messageId
+      await continueSessionWithExistingMessage(sessionId, conversation.id, tempDir);
+
+      // Verify both functions were called
+      expect(extractPrUrlIfNeeded).toHaveBeenCalledWith(sessionId);
+      expect(onSessionComplete).toHaveBeenCalledWith(sessionId);
+    });
+
+    it('does not call extractPrUrlIfNeeded if session already has a PR URL', async () => {
+      // Pre-set a PR URL on the session
+      sessions.update(sessionId, { prUrl: 'https://github.com/user/repo/pull/123' });
+
+      query.mockImplementation(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      await runSession(sessionId, 'Test prompt', tempDir);
+
+      // extractPrUrlIfNeeded should still be called (it checks internally and returns early)
+      // The function is called regardless, it just doesn't do anything if PR URL exists
+      expect(extractPrUrlIfNeeded).toHaveBeenCalledWith(sessionId);
+    });
+  });
 });

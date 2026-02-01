@@ -806,12 +806,14 @@ watch(
 
 // Update model selector when active conversation changes or its model is updated
 // This ensures the selector always reflects the model used in the current conversation
-// Watch activeConversation.model directly to properly detect updates when conversations are spliced
+// Watch the entire conversation object (not just .model) to detect all changes including conversation switches
 watch(
-  () => sessionsStore.activeConversation?.model,
-  (model) => {
-    if (model) {
-      selectedModel.value = model;
+  () => sessionsStore.activeConversation,
+  (conv) => {
+    if (conv) {
+      // Always sync to conversation's model
+      // If no model yet (new conversation), this will be null and ModelSelector handles default
+      selectedModel.value = conv.model || null;
     }
   },
   { immediate: true }
