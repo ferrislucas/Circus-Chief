@@ -289,6 +289,7 @@
 
 <script setup>
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import { formatDistanceToNow } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
@@ -329,6 +330,8 @@ const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();
 const quickResponsesStore = useQuickResponsesStore();
 const projectsStore = useProjectsStore();
+const router = useRouter();
+const route = useRoute();
 
 const input = ref('');
 const quickResponseSettingsOpen = ref(false);
@@ -651,6 +654,13 @@ onMounted(async () => {
   // Fetch initial work logs
   await sessionsStore.fetchWorkLogs(props.sessionId);
 
+  // Check for conversation ID in query parameter
+  const convId = route.query.conv;
+  if (convId && convId !== sessionsStore.activeConversationId) {
+    // Switch to the specified conversation
+    await sessionsStore.switchConversation(props.sessionId, convId);
+  }
+
   // Scroll to bottom on initial load
   scrollToBottom(true);
 });
@@ -837,6 +847,16 @@ function getProjectDefaultModel() {
   return defaults?.model || null;
 }
 
+// Watch for conversation query parameter changes
+watch(
+  () => route.query.conv,
+  async (newConvId, oldConvId) => {
+    if (newConvId && newConvId !== oldConvId && newConvId !== sessionsStore.activeConversationId) {
+      await sessionsStore.switchConversation(props.sessionId, newConvId);
+    }
+  }
+);
+
 // Update model selector when active conversation changes or its model is updated
 // This ensures the selector always reflects the model used in the current conversation
 // Watch the entire conversation object (not just .model) to detect all changes including conversation switches
@@ -912,21 +932,18 @@ async function handleSend() {
 }
 
 function handleQuickResponseInsert({ content, autoSubmit }) {
+  // Combine existing message with quick response content
+  const currentValue = input.value.trim();
+  const newValue = currentValue ? currentValue + '\n\n' + content : content;
+  input.value = newValue;
+
   if (autoSubmit) {
     // Auto-submit: send immediately
-    input.value = content;
     nextTick(() => {
       handleSend();
     });
   } else {
     // Insert content into input field for editing
-    const currentValue = input.value.trim();
-    const newValue = currentValue ? currentValue + '\n\n' + content : content;
-
-    // Update reactive state
-    input.value = newValue;
-
-    // Ensure DOM updates and focus
     nextTick(() => {
       if (textareaRef.value) {
         // Update textarea DOM element
@@ -1081,7 +1098,7 @@ async function handleBranchCreate({ messageId, prompt }) {
       throw new Error('A prompt is required');
     }
 
-    await sessionsStore.branchConversation(
+    const branchConversation = await sessionsStore.branchConversation(
       props.sessionId,
       activeConv.id,
       messageId,
@@ -1090,10 +1107,15 @@ async function handleBranchCreate({ messageId, prompt }) {
     );
 
     branchCreated = true;
-    closeBranchEditor();
 
-    // Scroll to show the new content
-    scrollToBottom(true);
+    // Navigate to the new conversation using query parameter
+    // This forces a clean UI reset
+    router.push({
+      path: `/sessions/${props.sessionId}/conversation`,
+      query: { conv: branchConversation.id }
+    });
+
+    closeBranchEditor();
   } catch (err) {
     uiStore.error(err.message);
   } finally {

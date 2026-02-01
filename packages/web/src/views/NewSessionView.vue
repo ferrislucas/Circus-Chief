@@ -522,34 +522,27 @@ function handleSlashCommandInsert({ text }) {
 }
 
 function handleQuickResponseInsert({ content, autoSubmit }) {
-  // Destructure the quick response object to extract content and autoSubmit flag
-  if (autoSubmit) {
-    // Auto-submit: set the content and immediately submit the form
-    const textarea = textareaRef.value;
-    if (textarea) {
-      textarea.value = content;
-      // Trigger input event to update prompt ref
-      textarea.dispatchEvent(new Event('input', { bubbles: true }));
-      // Submit the form in the next tick to ensure state is synchronized
-      setTimeout(() => {
-        handleSubmit();
-      }, 0);
-    }
-  } else {
-    // Non-auto-submit: insert content at cursor position and allow user to edit
-    const textarea = textareaRef.value;
-    if (textarea) {
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const before = textarea.value.substring(0, start);
-      const after = textarea.value.substring(end);
-      textarea.value = before + content + after;
-      textarea.selectionStart = textarea.selectionEnd = start + content.length;
+  const textarea = textareaRef.value;
+  if (!textarea) return;
 
-      // Trigger input event to update prompt ref and UI
-      textarea.dispatchEvent(new Event('input', { bubbles: true }));
-      textarea.focus();
-    }
+  // Combine existing message with quick response content
+  const existingText = textarea.value.trim();
+  const newContent = existingText
+    ? `${existingText}\n\n${content}`
+    : content;
+
+  textarea.value = newContent;
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+
+  if (autoSubmit) {
+    // Auto-submit: submit the form
+    setTimeout(() => {
+      handleSubmit();
+    }, 0);
+  } else {
+    // Non-auto-submit: focus textarea for further editing
+    textarea.selectionStart = textarea.selectionEnd = newContent.length;
+    textarea.focus();
   }
 }
 
