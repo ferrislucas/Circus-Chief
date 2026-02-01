@@ -9,7 +9,7 @@ import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
-import { upload, handleUploadError } from '../middleware/upload.js';
+import { upload, handleUploadError, uploadMiddleware } from '../middleware/upload.js';
 
 const router = Router();
 
@@ -198,7 +198,7 @@ router.get('/:id/sessions', (req, res) => {
 
 // POST /api/projects/:id/sessions - Create session
 // Supports both JSON and multipart/form-data (for file attachments)
-router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async (req, res) => {
+router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, async (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
