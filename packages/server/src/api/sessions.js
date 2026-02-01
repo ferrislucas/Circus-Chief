@@ -9,8 +9,7 @@ import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
 import * as summaryService from '../services/summaryService.js';
 import { executeHookAsync } from '../services/hookService.js';
-// eslint-disable-next-line no-unused-vars -- upload is used as middleware in router.post()
-import { upload, handleUploadError } from '../middleware/upload.js';
+import { upload as _upload, handleUploadError } from '../middleware/upload.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { duplicateSession } from '../services/sessionDuplicator.js';
@@ -311,7 +310,7 @@ router.post('/:id/work-logs', (req, res) => {
 
 // POST /api/sessions/:id/message - Send follow-up message
 // Supports both JSON and multipart/form-data (for file attachments)
-router.post('/:id/message', upload.array('files', 10), handleUploadError, async (req, res) => {
+router.post('/:id/message', _upload.array('files', 10), handleUploadError, async (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
