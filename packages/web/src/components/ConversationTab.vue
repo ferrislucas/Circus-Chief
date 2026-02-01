@@ -86,7 +86,7 @@
 
       <!-- Jump to latest button (Slack-style) -->
       <button
-        v-if="!isNearBottom && hasNewMessages"
+        v-if="!isNearBottom && hasNewMessages && sessionsStore.messages.length > 0"
         class="jump-to-latest"
         @click="scrollToBottom(true)"
       >
@@ -790,7 +790,10 @@ watch(
   () => sessionsStore.activeConversationId,
   async (newConvId, oldConvId) => {
     if (newConvId && newConvId !== oldConvId) {
-      // Wait a tick for any pending message updates to complete
+      // Reset scroll state when switching conversations
+      hasNewMessages.value = false;
+      isNearBottom.value = true;
+
       await nextTick();
 
       // Always refetch when conversation changes - no status check
