@@ -75,9 +75,9 @@ describe('SchedulingEditModal.vue', () => {
       global: {
         stubs: {
           Teleport: { template: '<div><slot /></div>' },
-          ModelSelector: { template: '<div class="model-selector"></div>' },
-          ModeSelector: { template: '<div class="mode-selector"></div>' },
-          TemplateSelector: { template: '<div class="template-selector"></div>' },
+          ModelSelector: { name: 'ModelSelector', template: '<div class="model-selector"></div>' },
+          ModeSelector: { name: 'ModeSelector', template: '<div class="mode-selector"></div>' },
+          TemplateSelector: { name: 'TemplateSelector', template: '<div class="template-selector"></div>' },
         },
       },
     });
