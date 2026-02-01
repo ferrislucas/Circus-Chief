@@ -4,9 +4,6 @@
     <div class="info-header">
       <span class="info-icon">⏰</span>
       <h3 class="info-title">Scheduled Session</h3>
-      <button @click="showEditModal = true" class="edit-btn" title="Edit schedule">
-        ✏️
-      </button>
     </div>
 
     <div class="info-content">
