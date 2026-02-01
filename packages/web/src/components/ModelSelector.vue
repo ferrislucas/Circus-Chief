@@ -71,10 +71,8 @@ onMounted(async () => {
     await providersStore.fetchProvidersWithModels();
   }
 
-  // Only set default on initial mount if no model was provided
-  if (!hasInitialized.value && props.modelValue === null && defaultModel.value) {
-    emit('update:modelValue', defaultModel.value);
-  }
+  // Don't emit default - let parent component control model selection
+  // This prevents overriding project defaults with the component's internal default
   hasInitialized.value = true;
 });
 
