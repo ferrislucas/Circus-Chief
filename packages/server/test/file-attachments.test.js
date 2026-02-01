@@ -52,6 +52,8 @@ import sessionsRouter from '../src/api/sessions.js';
 import projectsRouter from '../src/api/projects.js';
 import { runSession, continueSession } from '../src/services/sessionManager.js';
 import { setupGitForSession } from '../src/services/gitSessionSetup.js';
+import { removeWorktree } from '../src/services/gitService.js';
+import { executeHookAsync } from '../src/services/hookService.js';
 
 describe('File Attachments API', () => {
   let app;
@@ -972,6 +974,102 @@ describe('File Attachments API', () => {
 
       // Delete session should not throw
       await request(app).delete(`/api/sessions/${session.id}`).expect(204);
+    });
+  });
+
+  describe('Child Session Deletion Behavior', () => {
+    it('should NOT remove worktree when deleting a child session', async () => {
+      // Create parent session with worktree
+      const parentSession = sessions.create(project.id, 'Parent Session', 'prompt', 'standard');
+      const worktreePath = join(testTempDir, '.worktrees', parentSession.id);
+      sessions.update(parentSession.id, { gitWorktree: worktreePath });
+
+      // Create child session (params: projectId, name, prompt, mode, thinkingEnabled, gitBranch, parentSessionId)
+      const childSession = sessions.create(project.id, 'Child Session', 'child prompt', 'standard', false, null, parentSession.id);
+      sessions.update(childSession.id, { gitWorktree: worktreePath });
+
+      // Delete child session
+      await request(app).delete(`/api/sessions/${childSession.id}`).expect(204);
+
+      // Verify removeWorktree was NOT called
+      expect(removeWorktree).not.toHaveBeenCalled();
+    });
+
+    it('should remove worktree when deleting a parent session', async () => {
+      // Create parent session with worktree
+      const parentSession = sessions.create(project.id, 'Parent Session', 'prompt', 'standard');
+      const worktreePath = join(testTempDir, '.worktrees', parentSession.id);
+      sessions.update(parentSession.id, { gitWorktree: worktreePath });
+
+      // Delete parent session
+      await request(app).delete(`/api/sessions/${parentSession.id}`).expect(204);
+
+      // Verify removeWorktree WAS called
+      expect(removeWorktree).toHaveBeenCalledWith(
+        testTempDir,
+        worktreePath,
+        true
+      );
+    });
+
+    it('should NOT execute onSessionDeleted hook when deleting a child session', async () => {
+      // Update project to have onSessionDeleted hook
+      projects.update(project.id, {
+        onSessionDeleted: 'echo "cleanup"',
+      });
+
+      // Create parent session
+      const parentSession = sessions.create(project.id, 'Parent Session', 'prompt', 'standard');
+
+      // Create child session (params: projectId, name, prompt, mode, thinkingEnabled, gitBranch, parentSessionId)
+      const childSession = sessions.create(project.id, 'Child Session', 'child prompt', 'standard', false, null, parentSession.id);
+
+      // Delete child session
+      await request(app).delete(`/api/sessions/${childSession.id}`).expect(204);
+
+      // Verify executeHookAsync was NOT called
+      expect(executeHookAsync).not.toHaveBeenCalled();
+    });
+
+    it('should execute onSessionDeleted hook when deleting a parent session', async () => {
+      // Update project to have onSessionDeleted hook
+      projects.update(project.id, {
+        onSessionDeleted: 'echo "cleanup"',
+      });
+
+      // Create parent session
+      const parentSession = sessions.create(project.id, 'Parent Session', 'prompt', 'standard');
+
+      // Delete parent session
+      await request(app).delete(`/api/sessions/${parentSession.id}`).expect(204);
+
+      // Verify executeHookAsync WAS called
+      expect(executeHookAsync).toHaveBeenCalledWith(
+        'echo "cleanup"',
+        testTempDir,
+        {
+          sessionId: parentSession.id,
+          projectId: project.id,
+          sessionName: 'Parent Session',
+        }
+      );
+    });
+
+    it('should still delete child session from database', async () => {
+      // Create parent session
+      const parentSession = sessions.create(project.id, 'Parent Session', 'prompt', 'standard');
+
+      // Create child session (params: projectId, name, prompt, mode, thinkingEnabled, gitBranch, parentSessionId)
+      const childSession = sessions.create(project.id, 'Child Session', 'child prompt', 'standard', false, null, parentSession.id);
+
+      // Verify child session exists
+      expect(sessions.getById(childSession.id)).toBeDefined();
+
+      // Delete child session
+      await request(app).delete(`/api/sessions/${childSession.id}`).expect(204);
+
+      // Verify child session is deleted from database
+      expect(sessions.getById(childSession.id)).toBeNull();
     });
   });
 });

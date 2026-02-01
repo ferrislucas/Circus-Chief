@@ -1,6 +1,6 @@
 <template>
   <div class="app">
-    <header class="app-header">
+    <header class="app-header" ref="headerRef">
       <div class="container">
         <router-link to="/" class="logo">
           <img src="/logo.png" alt="ClaudeTools.io Logo" class="logo-image" />
@@ -32,7 +32,56 @@
 </template>
 
 <script setup>
+import { ref, onMounted, onUnmounted } from 'vue';
 import ToastContainer from './components/ToastContainer.vue';
+
+const headerRef = ref(null);
+let resizeObserver = null;
+
+function updateHeaderHeight() {
+  if (headerRef.value) {
+    const height = headerRef.value.offsetHeight;
+    document.documentElement.style.setProperty('--header-height-computed', `${height}px`);
+  }
+}
+
+// Double RAF ensures layout is settled on iOS Safari
+// WebKit needs TWO frame callbacks to guarantee layout is complete
+function measureAfterLayout() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      updateHeaderHeight();
+    });
+  });
+}
+
+onMounted(() => {
+  // Initial measurement after layout settles (critical for iOS Safari)
+  measureAfterLayout();
+
+  // ResizeObserver catches actual header size changes
+  // More reliable than resize event for element-specific changes
+  if (typeof ResizeObserver !== 'undefined' && headerRef.value) {
+    resizeObserver = new ResizeObserver(() => {
+      updateHeaderHeight();
+    });
+    resizeObserver.observe(headerRef.value);
+  }
+
+  // Fallback for browsers without ResizeObserver + handles viewport changes
+  window.addEventListener('resize', updateHeaderHeight);
+
+  // Re-measure on orientation change (safe areas change on iPad)
+  window.addEventListener('orientationchange', measureAfterLayout);
+});
+
+onUnmounted(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+  }
+  window.removeEventListener('resize', updateHeaderHeight);
+  window.removeEventListener('orientationchange', measureAfterLayout);
+});
 </script>
 
 <style scoped>
