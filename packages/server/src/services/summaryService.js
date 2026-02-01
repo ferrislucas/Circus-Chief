@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { sessions, messages, sessionSummaries, conversations, projects } from '../database.js';
+import { sessions, messages, sessionSummaries, conversations, projects, settings } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as ghService from './ghService.js';
@@ -8,8 +8,8 @@ import * as ghService from './ghService.js';
 // Debounce timers per session
 const debounceTimers = new Map();
 
-// Debounce delay in milliseconds (60 seconds - optimized for token efficiency)
-const DEBOUNCE_DELAY = 60000;
+// Debounce delay in milliseconds (30 seconds - optimized for token efficiency and responsiveness)
+const DEBOUNCE_DELAY = 30000;
 
 // Maximum number of recent messages to include in generation (optimized for token efficiency)
 const MAX_MESSAGES = 15;
@@ -301,6 +301,70 @@ ${sessionTitlePrompt}`;
 }
 
 /**
+ * Extract PR URL from session messages by scanning for GitHub PR links
+ * @param {string} sessionId - The session ID
+ * @returns {string|null} - The PR URL if found, null otherwise
+ */
+function extractPrUrlFromMessages(sessionId) {
+  const allMessages = messages.getBySessionId(sessionId);
+  if (!allMessages || allMessages.length === 0) return null;
+
+  // Get recent messages (last 20) to scan for PR URLs
+  const recentMessages = allMessages.slice(-20);
+
+  // GitHub PR URL pattern: https://github.com/{owner}/{repo}/pull/{number}
+  const prUrlPattern = /https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/g;
+
+  // Scan messages in reverse order (most recent first) to find the latest PR URL
+  for (let i = recentMessages.length - 1; i >= 0; i--) {
+    const message = recentMessages[i];
+    const matches = message.content?.match(prUrlPattern);
+
+    if (matches && matches.length > 0) {
+      // Return the most recent PR URL found
+      return matches[matches.length - 1];
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extract PR URL from recent messages immediately after a turn completes.
+ * This is lightweight (no Claude API call) - just scans messages for URLs.
+ * @param {string} sessionId - The session ID
+ */
+export async function extractPrUrlIfNeeded(sessionId) {
+  const session = sessions.getById(sessionId);
+  if (!session) return;
+
+  // Skip if session already has a PR URL
+  if (session.prUrl) return;
+
+  // Extract PR URL from messages
+  const prUrl = extractPrUrlFromMessages(sessionId);
+  if (prUrl) {
+    sessions.update(sessionId, { prUrl });
+    console.log(`[SummaryService] Extracted PR URL for session ${sessionId}: ${prUrl}`);
+
+    // Broadcast session update so UI shows PR URL immediately
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      sessionId,
+      session: sessions.getById(sessionId),
+    });
+
+    // Also broadcast to project subscribers
+    if (session.projectId) {
+      broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: session.projectId,
+        sessionId,
+        session: sessions.getById(sessionId),
+      });
+    }
+  }
+}
+
+/**
  * Parse a GitHub PR URL into components
  * @param {string} prUrl - GitHub PR URL
  * @returns {Object|null} - { owner, repo, number } or null if invalid format
@@ -443,11 +507,11 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
       return null;
     }
 
-    // Check if session summaries are disabled for this project
+    // Check if session summaries are disabled globally
     // Skip this check if force=true (manual regeneration should always work)
-    const project = projects.getById(session.projectId);
-    if (!force && project?.disableSessionSummaries) {
-      console.log(`[SummaryService] Session summaries disabled for project ${session.projectId}, skipping automatic generation`);
+    const globalSettings = settings.getSummarySettings();
+    if (!force && globalSettings?.disableSessionSummaries) {
+      console.log(`[SummaryService] Session summaries disabled globally, skipping automatic generation`);
       return null;
     }
 
@@ -484,8 +548,8 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
     // Build child session context for workflow-aware summaries
     const childContext = buildChildSessionContext(sessionId);
 
-    // Build prompt with project-specific title prompt and child context
-    const prompt = buildIncrementalPrompt(existingSummary, recentMessages, session.status, project?.sessionTitlePrompt, childContext);
+    // Build prompt with global title prompt and child context
+    const prompt = buildIncrementalPrompt(existingSummary, recentMessages, session.status, globalSettings?.sessionTitlePrompt, childContext);
 
     // Call Claude via SDK (or mock in test mode)
     const responseText = await callClaude(prompt, recentMessages, session.status);
@@ -518,6 +582,7 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
     const prUrl = summaryData.prUrl || session.prUrl;
     if (prUrl) {
       // Validate PR URL against project repository
+      const project = projects.getById(session.projectId);
       const projectRepoUrl = project?.repoUrl;
       const validation = validatePrUrl(prUrl, projectRepoUrl);
 
@@ -546,6 +611,7 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
     const summary = sessionSummaries.upsert(sessionId, summaryData);
 
     // Auto-populate project repo URL if not already set
+    const project = projects.getById(session.projectId);
     if (!project.repoUrl && (summaryData.prUrl || summaryData.repositoryUrl)) {
       let extractedRepoUrl = summaryData.repositoryUrl;
 
@@ -818,8 +884,8 @@ export function isConversationSummaryEnabled(sessionId) {
   const session = sessions.getById(sessionId);
   if (!session) return false;
 
-  const project = projects.getById(session.projectId);
-  return !project?.disableConversationSummaries;
+  const globalSettings = settings.getSummarySettings();
+  return !globalSettings?.disableConversationSummaries;
 }
 
 /**
@@ -837,10 +903,10 @@ export async function generateConversationSummary(sessionId, conversationId) {
       return null;
     }
 
-    // Check if conversation summaries are disabled for this project
-    const project = projects.getById(session.projectId);
-    if (project?.disableConversationSummaries) {
-      console.log(`[SummaryService] Conversation summaries disabled for project ${session.projectId}, skipping generation`);
+    // Check if conversation summaries are disabled globally
+    const globalSettings = settings.getSummarySettings();
+    if (globalSettings?.disableConversationSummaries) {
+      console.log(`[SummaryService] Conversation summaries disabled globally, skipping generation`);
       return null;
     }
 
