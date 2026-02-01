@@ -9,8 +9,7 @@ import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
-// eslint-disable-next-line no-unused-vars -- upload IS used on line 201, false positive in CI
-import { upload, handleUploadError } from '../middleware/upload.js';
+import { handleUploadError, uploadMiddleware } from '../middleware/upload.js';
 
 const router = Router();
 
@@ -199,7 +198,7 @@ router.get('/:id/sessions', (req, res) => {
 
 // POST /api/projects/:id/sessions - Create session
 // Supports both JSON and multipart/form-data (for file attachments)
-router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async (req, res) => {
+router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, async (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
