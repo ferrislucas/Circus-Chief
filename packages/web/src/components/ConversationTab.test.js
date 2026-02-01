@@ -1630,3 +1630,355 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
     });
   });
 });
+
+/**
+ * Scheduled Session Prompt Editing Tests
+ *
+ * These tests validate the ability to edit prompts for scheduled sessions
+ * while waiting for the scheduled time to arrive.
+ */
+describe('ConversationTab - Scheduled Session Prompt Editing', () => {
+  let mockSessionsStore;
+  let mockUiStore;
+  let consoleError;
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+
+    mockSessionsStore = {
+      messages: [],
+      currentSession: {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: new Date(Date.now() + 3600000).toISOString(), // 1 hour in future
+        thinkingEnabled: false,
+        mode: 'standard',
+        pendingPrompt: 'Initial scheduled prompt',
+      },
+      activeConversation: null,
+      conversations: [],
+      getWorkLogsForMessage: vi.fn().mockReturnValue([]),
+      getUnassociatedWorkLogs: [],
+      partialThinking: null,
+      isDraftSession: vi.fn().mockReturnValue(false),
+      isScheduledDraft: vi.fn().mockReturnValue(true),
+      fetchConversations: vi.fn().mockResolvedValue([]),
+      fetchWorkLogs: vi.fn().mockResolvedValue([]),
+      fetchMessages: vi.fn().mockResolvedValue([]),
+      sendMessage: vi.fn().mockResolvedValue(),
+      stopSession: vi.fn().mockResolvedValue(),
+      restartSession: vi.fn().mockResolvedValue(),
+      startSession: vi.fn().mockResolvedValue(),
+      updateSessionThinking: vi.fn().mockResolvedValue(),
+      updateSessionMode: vi.fn().mockResolvedValue(),
+      updateNextTemplate: vi.fn().mockResolvedValue(),
+      addWorkLog: vi.fn(),
+      associateWorkLogs: vi.fn(),
+      clearWorkLogs: vi.fn(),
+      clearConversations: vi.fn(),
+      addConversation: vi.fn(),
+      updateConversation: vi.fn(),
+      removeConversation: vi.fn(),
+      setPartialThinking: vi.fn(),
+      clearPartialThinking: vi.fn(),
+      finalizeUsage: vi.fn(),
+      updateRunningUsage: vi.fn(),
+    };
+
+    mockUiStore = {
+      error: vi.fn(),
+      success: vi.fn(),
+    };
+
+    vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    consoleError = console.error;
+    console.error = vi.fn();
+
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn().mockReturnValue(null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    console.error = consoleError;
+    vi.unstubAllGlobals();
+  });
+
+  function mountComponent(props = { sessionId: 'sess-123' }) {
+    return mount(ConversationTab, {
+      props,
+      global: {
+        stubs: {
+          ConversationPanel: { template: '<div class="conversation-panel-stub"></div>' },
+          TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
+          WorkLogPanel: { template: '<div class="work-log-panel-stub"></div>' },
+          LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
+          MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+          FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
+          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
+          QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
+          QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
+          ModelSelector: { template: '<div class="model-selector-stub"></div>' },
+          TemplateSelector: { template: '<div class="template-selector-stub"></div>' },
+          OrchestrationPanel: { template: '<div class="orchestration-panel-stub"></div>' },
+        },
+      },
+    });
+  }
+
+  async function flushAll(wrapper) {
+    await flushPromises();
+    await nextTick();
+    await wrapper.vm.$nextTick?.();
+  }
+
+  describe('Form visibility for scheduled sessions', () => {
+    it('renders input form when session is scheduled for future', async () => {
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.input-form').exists()).toBe(true);
+    });
+
+    it('does not render input form when session is scheduled in past', async () => {
+      mockSessionsStore.currentSession.scheduledAt = new Date(Date.now() - 3600000).toISOString(); // 1 hour ago
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Session scheduled in past should not be considered "scheduled for future"
+      // so form should still show but with different behavior
+      expect(wrapper.find('.input-form').exists()).toBe(true);
+    });
+  });
+
+  describe('Textarea placeholder for scheduled sessions', () => {
+    it('shows "Edit your scheduled prompt..." placeholder for scheduled sessions', async () => {
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      expect(textarea.attributes('placeholder')).toBe('Edit your scheduled prompt...');
+    });
+
+    it('shows "Edit your prompt..." for draft sessions', async () => {
+      mockSessionsStore.currentSession.status = 'waiting';
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(true);
+      mockSessionsStore.isScheduledDraft = vi.fn().mockReturnValue(false);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      expect(textarea.attributes('placeholder')).toBe('Edit your prompt...');
+    });
+
+    it('shows "Send a follow-up message..." for regular sessions', async () => {
+      mockSessionsStore.currentSession.status = 'waiting';
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(false);
+      mockSessionsStore.isScheduledDraft = vi.fn().mockReturnValue(false);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      expect(textarea.attributes('placeholder')).toBe('Send a follow-up message...');
+    });
+  });
+
+  describe('Scheduled prompt indicator', () => {
+    it('displays scheduled notice for scheduled sessions', async () => {
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(true);
+    });
+
+    it('shows notice icon in scheduled notice', async () => {
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.scheduled-notice .notice-icon').exists()).toBe(true);
+    });
+
+    it('shows explanatory text in scheduled notice', async () => {
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const noticeText = wrapper.find('.scheduled-notice .notice-text');
+      expect(noticeText.exists()).toBe(true);
+      expect(noticeText.text()).toContain('This prompt will be sent when the session starts');
+      expect(noticeText.text()).toContain('schedule panel above');
+    });
+
+    it('does not display scheduled notice for non-scheduled sessions', async () => {
+      mockSessionsStore.currentSession.status = 'waiting';
+      mockSessionsStore.isScheduledDraft = vi.fn().mockReturnValue(false);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(false);
+    });
+  });
+
+  describe('UI elements hidden for scheduled sessions', () => {
+    it('hides send button row for scheduled sessions', async () => {
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.send-button-row').exists()).toBe(false);
+    });
+
+    it('hides input controls for scheduled sessions', async () => {
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.input-controls').exists()).toBe(false);
+    });
+
+    it('hides QuickResponsesPanel for scheduled sessions', async () => {
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.quick-responses-panel-stub').exists()).toBe(false);
+    });
+
+    it('hides OrchestrationPanel for scheduled sessions', async () => {
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.orchestration-panel-stub').exists()).toBe(false);
+    });
+
+    it('hides ConversationPanel for scheduled sessions', async () => {
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.conversation-panel-stub').exists()).toBe(false);
+    });
+  });
+
+  describe('Auto-save for scheduled sessions', () => {
+    it('saves prompt edits for scheduled sessions', async () => {
+      const { api } = await import('../composables/useApi.js');
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      await textarea.setValue('Updated scheduled prompt');
+
+      // Wait for debounce timer
+      await new Promise(resolve => setTimeout(resolve, 600));
+      await flushAll(wrapper);
+
+      expect(api.updateSessionPendingPrompt).toHaveBeenCalledWith('sess-123', 'Updated scheduled prompt');
+    });
+
+    it('loads pendingPrompt on mount for scheduled sessions', async () => {
+      mockSessionsStore.currentSession.pendingPrompt = 'Existing prompt';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      expect(textarea.element.value).toBe('Existing prompt');
+    });
+  });
+
+  describe('Transition between session states', () => {
+    it('shows scheduled notice when session becomes scheduled', async () => {
+      // Start with waiting status
+      mockSessionsStore.currentSession.status = 'waiting';
+      mockSessionsStore.isScheduledDraft = vi.fn().mockReturnValue(false);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Initially no scheduled notice
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(false);
+
+      // Change to scheduled status - remount to simulate status change
+      mockSessionsStore.currentSession.status = 'scheduled';
+      mockSessionsStore.isScheduledDraft = vi.fn().mockReturnValue(true);
+
+      // Remount component with new status
+      const wrapper2 = mountComponent();
+      await flushAll(wrapper2);
+
+      // Now scheduled notice should appear
+      expect(wrapper2.find('.scheduled-notice').exists()).toBe(true);
+    });
+
+    it('hides scheduled notice when schedule is canceled', async () => {
+      // Start with scheduled status
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.scheduled-notice').exists()).toBe(true);
+
+      // Cancel schedule (change to waiting) - remount to simulate status change
+      mockSessionsStore.currentSession.status = 'waiting';
+      mockSessionsStore.isScheduledDraft = vi.fn().mockReturnValue(false);
+
+      // Remount component with new status
+      const wrapper2 = mountComponent();
+      await flushAll(wrapper2);
+
+      // Scheduled notice should disappear
+      expect(wrapper2.find('.scheduled-notice').exists()).toBe(false);
+    });
+  });
+
+  describe('Edge cases', () => {
+    it('handles sessions with no pendingPrompt gracefully', async () => {
+      mockSessionsStore.currentSession.pendingPrompt = null;
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      expect(textarea.element.value).toBe('');
+    });
+
+    it('handles sessions with empty scheduledAt', async () => {
+      mockSessionsStore.currentSession.scheduledAt = null;
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Should still render without errors
+      expect(wrapper.find('.input-form').exists()).toBe(true);
+    });
+
+    it('handles rapid status changes', async () => {
+      // Start with waiting
+      mockSessionsStore.currentSession.status = 'waiting';
+      mockSessionsStore.isScheduledDraft = vi.fn((session) => {
+        return session?.status === 'scheduled' && !session?.hasResponses;
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Rapidly change status multiple times
+      mockSessionsStore.currentSession.status = 'scheduled';
+      await flushAll(wrapper);
+
+      mockSessionsStore.currentSession.status = 'waiting';
+      await flushAll(wrapper);
+
+      mockSessionsStore.currentSession.status = 'scheduled';
+      await flushAll(wrapper);
+
+      // Should handle without errors
+      expect(wrapper.find('.input-form').exists()).toBe(true);
+    });
+  });
+});

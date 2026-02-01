@@ -116,15 +116,24 @@
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
 
-    <form v-if="canSendMessage && !isScheduledForFuture" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
+    <form v-if="canSendMessage || isScheduledForFuture" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
       <ResizableTextarea
         ref="textareaRef"
         class="form-input form-textarea"
-        :placeholder="(isDraft || isScheduledDraft) ? 'Edit your prompt...' : 'Send a follow-up message...'"
+        :placeholder="isScheduledForFuture ? 'Edit your scheduled prompt...' : (isDraft || isScheduledDraft) ? 'Edit your prompt...' : 'Send a follow-up message...'"
         :min-height="80"
         @input="handleInput"
         @keydown="handleKeydown"
       />
+
+      <!-- Scheduled prompt indicator -->
+      <div v-if="isScheduledForFuture" class="scheduled-notice">
+        <span class="notice-icon">📋</span>
+        <span class="notice-text">
+          This prompt will be sent when the session starts.
+          Use the schedule panel above to modify timing.
+        </span>
+      </div>
 
       <!-- Quick Responses Panel - shows below the textarea when not running or for draft sessions -->
       <QuickResponsesPanel
