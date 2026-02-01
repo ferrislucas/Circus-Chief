@@ -45,6 +45,33 @@
           @update:templateId="handleTemplateChange"
         />
       </div>
+
+      <!-- Auto-Reschedule row -->
+      <div class="auto-reschedule-row">
+        <div class="auto-reschedule-content">
+          <span class="reschedule-icon">🔄</span>
+          <span class="reschedule-label">Auto-Reschedule</span>
+          <button
+            v-if="autoRescheduleEnabled"
+            type="button"
+            class="btn btn-tertiary btn-status"
+            @click.stop="$emit('openAutoReschedule')"
+            title="Edit auto-reschedule settings"
+          >
+            <span class="status-badge">✓ Enabled</span>
+            <span class="edit-link">Edit</span>
+          </button>
+          <button
+            v-else
+            type="button"
+            class="btn btn-secondary btn-configure"
+            @click.stop="$emit('openAutoReschedule')"
+            title="Configure auto-reschedule settings"
+          >
+            Configure
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -65,11 +92,12 @@ const props = defineProps({
   sessionStatus: { type: String, default: 'waiting' },
   isDraft: { type: Boolean, default: false },
   inputHasContent: { type: Boolean, default: false },
+  autoRescheduleEnabled: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['openSchedule', 'update:templateId']);
+const emit = defineEmits(['openSchedule', 'update:templateId', 'openAutoReschedule']);
 
-const isExpanded = ref(false);
+const isExpanded = ref(props.autoRescheduleEnabled);
 
 function toggle() {
   isExpanded.value = !isExpanded.value;
@@ -200,5 +228,81 @@ function handleTemplateChange(templateId) {
   font-size: 0.75rem;
   color: var(--color-text-soft);
   font-style: italic;
+}
+
+.auto-reschedule-row {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+  margin-top: 0.75rem;
+}
+
+.auto-reschedule-content {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.reschedule-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.reschedule-label {
+  font-size: 0.9rem;
+  color: var(--color-text);
+  flex: 1;
+}
+
+.btn-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  background: rgba(34, 197, 255, 0.1);
+  border: 1px solid rgba(34, 197, 255, 0.3);
+  border-radius: 0.375rem;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-status:hover {
+  background: rgba(34, 197, 255, 0.15);
+  border-color: rgba(34, 197, 255, 0.5);
+  color: var(--color-text);
+}
+
+.status-badge {
+  font-size: 0.8rem;
+  color: var(--color-text-soft);
+}
+
+.edit-link {
+  font-size: 0.8rem;
+  text-decoration: underline;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.btn-status:hover .edit-link {
+  opacity: 1;
+}
+
+.btn-configure {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  background: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-soft);
+  cursor: pointer;
+  border-radius: 0.375rem;
+  transition: all 0.15s;
+}
+
+.btn-configure:hover {
+  background: var(--color-background-mute);
+  border-color: rgba(34, 197, 255, 0.5);
+  color: var(--color-text);
 }
 </style>
