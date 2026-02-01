@@ -41,6 +41,21 @@ h1 {
   gap: 0.25rem;
   border-bottom: 1px solid var(--color-border);
   margin-bottom: 1.5rem;
+  /* Sticky positioning - accounts for header + safe area on iOS */
+  position: -webkit-sticky; /* Safari prefix */
+  position: sticky;
+  /* Default for phones/small screens */
+  top: 51px;
+  background-color: var(--color-background);
+  z-index: 99;
+  padding: 0.5rem 0.5rem 0 0.5rem;
+}
+
+/* iPad and larger screens - account for safe area */
+@media (min-width: 768px) {
+  .tabs {
+    top: 80px;
+  }
 }
 
 .tab {
