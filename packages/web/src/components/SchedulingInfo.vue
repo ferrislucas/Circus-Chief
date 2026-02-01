@@ -92,18 +92,6 @@
     </div>
   </div>
 
-  <!-- Configure Auto-Reschedule CTA (for running/waiting/completed/error sessions without auto-reschedule) -->
-  <div
-    v-else-if="['running', 'waiting', 'completed', 'error'].includes(session.status) && !session.autoRescheduleEnabled"
-    class="configure-reschedule-panel"
-  >
-    <button @click="showEditModal = true" class="configure-btn" title="Configure auto-reschedule settings">
-      <span class="configure-icon">🔄</span>
-      <span class="configure-text">Configure Auto-Reschedule</span>
-      <span class="configure-arrow">→</span>
-    </button>
-  </div>
-
   <!-- Edit Modal for scheduled sessions -->
   <SchedulingEditModal
     v-if="session.status === 'scheduled'"
