@@ -3,7 +3,7 @@
     <div v-if="isOpen" class="modal-backdrop" @click.self="close">
       <div class="modal-content">
         <div class="modal-header">
-          <h2 class="modal-title">{{ modalTitle }}</h2>
+          <h2 class="modal-title">Auto-Reschedule Settings</h2>
           <button @click="close" class="close-btn" aria-label="Close">&times;</button>
         </div>
 
@@ -11,53 +11,6 @@
           <!-- Error message -->
           <div v-if="error" class="error-message">
             {{ error }}
-          </div>
-
-          <!-- Session Settings Section -->
-          <div class="form-section">
-            <h3 class="section-title">Session Settings</h3>
-
-            <div class="form-group">
-              <label class="form-label">Model</label>
-              <ModelSelector v-model="form.model" />
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Mode</label>
-              <ModeSelector v-model="form.mode" />
-            </div>
-
-            <div class="form-group">
-              <label class="toggle-switch">
-                <input type="checkbox" v-model="form.thinkingEnabled" />
-                <span class="toggle-slider"></span>
-                <span class="toggle-label">Extended Thinking</span>
-              </label>
-            </div>
-          </div>
-
-          <!-- Schedule Time (only for scheduled sessions) -->
-          <div v-if="session?.status === 'scheduled'" class="form-group">
-            <label for="scheduled-at" class="form-label">Scheduled Time</label>
-            <input
-              id="scheduled-at"
-              type="datetime-local"
-              v-model="form.scheduledAtLocal"
-              :min="minDateTime"
-              class="form-input"
-            />
-          </div>
-
-          <!-- Next Template Section (for scheduled sessions) -->
-          <div v-if="session?.status === 'scheduled'" class="form-section">
-            <h3 class="section-title">Template Chain</h3>
-            <TemplateSelector
-              :session-id="session.id"
-              :project-id="session.projectId"
-              :current-template-id="form.nextTemplateId"
-              :disabled="loading"
-              @update:templateId="handleTemplateChange"
-            />
           </div>
 
           <!-- Auto-Reschedule Settings -->
@@ -146,7 +99,7 @@
         <div class="modal-footer">
           <button @click="close" class="btn btn-secondary">Cancel</button>
           <button @click="handleSave" class="btn btn-primary" :disabled="loading">
-            {{ loading ? 'Updating...' : 'Update' }}
+            {{ loading ? 'Saving...' : 'Save' }}
           </button>
         </div>
       </div>
@@ -155,12 +108,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch } from 'vue';
+import { ref, reactive, watch } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
-import ModelSelector from './ModelSelector.vue';
-import ModeSelector from './ModeSelector.vue';
-import TemplateSelector from './TemplateSelector.vue';
 
 const props = defineProps({
   isOpen: Boolean,
@@ -175,14 +125,6 @@ const loading = ref(false);
 const error = ref(null);
 
 const form = reactive({
-  scheduledAtLocal: '',
-  // Session settings
-  model: null,
-  mode: 'standard',
-  thinkingEnabled: false,
-  // Template chaining
-  nextTemplateId: null,
-  // Scheduling options
   autoRescheduleEnabled: false,
   rescheduleDelayMinutes: 15,
   rescheduleOnTokenLimit: true,
@@ -193,36 +135,8 @@ const form = reactive({
   resetRescheduleCount: false,
 });
 
-const minDateTime = computed(() => {
-  const now = new Date();
-  now.setMinutes(now.getMinutes() + 1);
-  return now.toISOString().slice(0, 16);
-});
-
-const modalTitle = computed(() => {
-  if (props.session?.status === 'scheduled') {
-    return 'Edit Scheduling Settings';
-  }
-  return 'Auto-Reschedule Settings';
-});
-
 function close() {
   emit('close');
-}
-
-function handleTemplateChange(templateId) {
-  form.nextTemplateId = templateId;
-}
-
-function convertToLocalDatetime(timestamp) {
-  if (!timestamp) return '';
-  const date = new Date(timestamp);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
 async function handleSave() {
@@ -231,13 +145,6 @@ async function handleSave() {
 
   try {
     const updateData = {
-      // Session settings
-      model: form.model,
-      mode: form.mode,
-      thinkingEnabled: form.thinkingEnabled,
-      // Template chaining
-      nextTemplateId: form.nextTemplateId,
-      // Scheduling options
       autoRescheduleEnabled: form.autoRescheduleEnabled,
       rescheduleDelayMinutes: form.rescheduleDelayMinutes,
       rescheduleOnTokenLimit: form.rescheduleOnTokenLimit,
@@ -246,11 +153,6 @@ async function handleSave() {
       maxTotalTokens: form.maxTotalTokens || null,
       rescheduleAtTokenCount: form.rescheduleAtTokenCount || null,
     };
-
-    // Update scheduled time if changed
-    if (props.session?.status === 'scheduled' && form.scheduledAtLocal) {
-      updateData.scheduledAt = new Date(form.scheduledAtLocal).getTime();
-    }
 
     // Reset reschedule count if requested
     if (form.resetRescheduleCount) {
@@ -277,14 +179,6 @@ watch(
   (isOpen) => {
     if (isOpen && props.session) {
       error.value = null; // Clear any previous errors
-      form.scheduledAtLocal = convertToLocalDatetime(props.session.scheduledAt);
-      // Session settings
-      form.model = props.session.model || null;
-      form.mode = props.session.mode || 'standard';
-      form.thinkingEnabled = props.session.thinkingEnabled || false;
-      // Template chaining
-      form.nextTemplateId = props.session.nextTemplateId || null;
-      // Scheduling options
       form.autoRescheduleEnabled = props.session.autoRescheduleEnabled || false;
       form.rescheduleDelayMinutes = props.session.rescheduleDelayMinutes || 15;
       form.rescheduleOnTokenLimit = props.session.rescheduleOnTokenLimit ?? true;
@@ -357,23 +251,6 @@ watch(
   overflow-y: auto;
   min-height: 0;
   padding: 1.5rem;
-}
-
-.form-section {
-  margin-bottom: 1.5rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.form-section:last-of-type {
-  border-bottom: none;
-}
-
-.section-title {
-  margin: 0 0 1rem 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--color-text);
 }
 
 .error-message {
