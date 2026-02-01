@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { projects, sessions, messages, sessionSummaries } from '../database.js';
+import { projects, sessions, messages, sessionSummaries, settings } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 
 // Mock the websocket module to avoid WebSocket server dependency
@@ -50,8 +50,8 @@ describe('summaryService', () => {
   });
 
   describe('constants', () => {
-    it('has a 60 second debounce delay', () => {
-      expect(DEBOUNCE_DELAY).toBe(60000);
+    it('has a 30 second debounce delay', () => {
+      expect(DEBOUNCE_DELAY).toBe(30000);
     });
 
     it('has a maximum of 15 messages', () => {
@@ -1439,8 +1439,8 @@ describe('summaryService', () => {
 
   describe('disable flags', () => {
     it('skips session summary generation when disableSessionSummaries is true', async () => {
-      // Update project to disable session summaries
-      projects.update(projectId, { disableSessionSummaries: true });
+      // Update global settings to disable session summaries
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       const result = await summaryService.generateSummary(sessionId);
 
@@ -1449,8 +1449,8 @@ describe('summaryService', () => {
     });
 
     it('generates session summary when disableSessionSummaries is false', async () => {
-      // Ensure project has summaries enabled
-      projects.update(projectId, { disableSessionSummaries: false });
+      // Ensure global settings have summaries enabled
+      settings.setSummarySettings({ disableSessionSummaries: false });
 
       const result = await summaryService.generateSummary(sessionId);
 
@@ -1462,7 +1462,7 @@ describe('summaryService', () => {
       const { conversations } = await import('../database.js');
 
       // Update project to disable conversation summaries
-      projects.update(projectId, { disableConversationSummaries: true });
+      settings.setSummarySettings({ disableConversationSummaries: true });
 
       // Create a conversation
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
@@ -1480,7 +1480,7 @@ describe('summaryService', () => {
       const { conversations } = await import('../database.js');
 
       // Ensure project has conversation summaries enabled
-      projects.update(projectId, { disableConversationSummaries: false });
+      settings.setSummarySettings({ disableConversationSummaries: false });
 
       // Create a conversation
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
@@ -1497,7 +1497,7 @@ describe('summaryService', () => {
     it('logs message when skipping session summary due to disabled flag', async () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       await summaryService.generateSummary(sessionId);
 
@@ -1512,7 +1512,7 @@ describe('summaryService', () => {
       const { conversations } = await import('../database.js');
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-      projects.update(projectId, { disableConversationSummaries: true });
+      settings.setSummarySettings({ disableConversationSummaries: true });
 
       const conversation = conversations.create(sessionId, 'Test', true);
       messages.create(sessionId, 'user', 'Hello', null, conversation.id);
@@ -1530,7 +1530,7 @@ describe('summaryService', () => {
     it('allows session summary but disables conversation summary independently', async () => {
       const { conversations } = await import('../database.js');
 
-      projects.update(projectId, {
+      settings.setSummarySettings({
         disableSessionSummaries: false,
         disableConversationSummaries: true,
       });
@@ -1551,7 +1551,7 @@ describe('summaryService', () => {
     it('allows conversation summary but disables session summary independently', async () => {
       const { conversations } = await import('../database.js');
 
-      projects.update(projectId, {
+      settings.setSummarySettings({
         disableSessionSummaries: true,
         disableConversationSummaries: false,
       });
@@ -1798,13 +1798,13 @@ describe('summaryService', () => {
 
     it('returns false when conversation summaries are disabled for project', () => {
       // Disable conversation summaries for the project
-      projects.update(projectId, { disableConversationSummaries: true });
+      settings.setSummarySettings({ disableConversationSummaries: true });
 
       const result = isConversationSummaryEnabled(sessionId);
       expect(result).toBe(false);
 
       // Re-enable for other tests
-      projects.update(projectId, { disableConversationSummaries: false });
+      settings.setSummarySettings({ disableConversationSummaries: false });
     });
 
     it('returns false when session does not exist', () => {
@@ -1828,7 +1828,7 @@ describe('summaryService', () => {
   describe('force parameter bypasses disableSessionSummaries', () => {
     it('regenerateSummary works even when disableSessionSummaries is true', async () => {
       // Disable session summaries for the project
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // regenerateSummary passes force=true, so it should work
       const result = await summaryService.regenerateSummary(sessionId);
@@ -1845,7 +1845,7 @@ describe('summaryService', () => {
 
     it('generateSummary with force=true works even when disableSessionSummaries is true', async () => {
       // Disable session summaries for the project
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // Call generateSummary with force=true
       const result = await summaryService.generateSummary(sessionId, 0, true);
@@ -1860,7 +1860,7 @@ describe('summaryService', () => {
 
     it('generateSummary without force respects disableSessionSummaries when true', async () => {
       // Disable session summaries for the project
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // Call generateSummary without force (default is false)
       const result = await summaryService.generateSummary(sessionId);
@@ -1874,7 +1874,7 @@ describe('summaryService', () => {
 
     it('generateSummary without force works when disableSessionSummaries is false', async () => {
       // Ensure summaries are enabled
-      projects.update(projectId, { disableSessionSummaries: false });
+      settings.setSummarySettings({ disableSessionSummaries: false });
 
       // Call generateSummary without force
       const result = await summaryService.generateSummary(sessionId);
@@ -1887,7 +1887,7 @@ describe('summaryService', () => {
       vi.useFakeTimers();
 
       // Disable session summaries
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // Trigger activity (should schedule generation but skip due to disabled flag)
       summaryService.onSessionActivity(sessionId);
@@ -1907,7 +1907,7 @@ describe('summaryService', () => {
       vi.useFakeTimers();
 
       // Ensure summaries are enabled
-      projects.update(projectId, { disableSessionSummaries: false });
+      settings.setSummarySettings({ disableSessionSummaries: false });
 
       // Trigger activity
       summaryService.onSessionActivity(sessionId);
@@ -1925,7 +1925,7 @@ describe('summaryService', () => {
 
     it('getSummary with generateIfMissing=true respects disableSessionSummaries', async () => {
       // Disable session summaries
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // getSummary with generateIfMissing=true should still respect the disable flag
       const result = await summaryService.getSummary(sessionId, true);
@@ -1939,7 +1939,7 @@ describe('summaryService', () => {
 
     it('getSummary with generateIfMissing=true generates when enabled', async () => {
       // Ensure summaries are enabled
-      projects.update(projectId, { disableSessionSummaries: false });
+      settings.setSummarySettings({ disableSessionSummaries: false });
 
       const result = await summaryService.getSummary(sessionId, true);
 
@@ -1949,7 +1949,7 @@ describe('summaryService', () => {
 
     it('onSessionComplete bypasses disableSessionSummaries (uses force=true)', async () => {
       // Disable session summaries
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // onSessionComplete should generate anyway (it uses force=true)
       summaryService.onSessionComplete(sessionId);
@@ -1964,7 +1964,7 @@ describe('summaryService', () => {
 
     it('manual regeneration can override disabled setting while auto-generation cannot', async () => {
       // Disable session summaries
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // Try automatic generation via onSessionActivity - should be skipped
       summaryService.onSessionActivity(sessionId);
@@ -1990,7 +1990,7 @@ describe('summaryService', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       // Disable session summaries
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // Call with force=true
       await summaryService.generateSummary(sessionId, 0, true);
@@ -2010,14 +2010,14 @@ describe('summaryService', () => {
       consoleSpy.mockRestore();
 
       // Re-enable for other tests
-      projects.update(projectId, { disableSessionSummaries: false });
+      settings.setSummarySettings({ disableSessionSummaries: false });
     });
 
     it('logs disabled message when force=false and setting is enabled', async () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       // Disable session summaries
-      projects.update(projectId, { disableSessionSummaries: true });
+      settings.setSummarySettings({ disableSessionSummaries: true });
 
       // Call without force (default false)
       await summaryService.generateSummary(sessionId);
@@ -2033,7 +2033,279 @@ describe('summaryService', () => {
       consoleSpy.mockRestore();
 
       // Re-enable for other tests
-      projects.update(projectId, { disableSessionSummaries: false });
+      settings.setSummarySettings({ disableSessionSummaries: false });
+    });
+  });
+
+  describe('PR URL extraction from messages', () => {
+    it('extracts PR URL from user message containing GitHub PR link', async () => {
+      // Add a message with a PR URL
+      messages.create(sessionId, 'user', 'Check out this PR: https://github.com/anthropics/claudetools.io/pull/123');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBe('https://github.com/anthropics/claudetools.io/pull/123');
+    });
+
+    it('extracts PR URL from assistant message containing GitHub PR link', async () => {
+      messages.create(sessionId, 'assistant', 'I created a PR: https://github.com/user/repo/pull/456');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBe('https://github.com/user/repo/pull/456');
+    });
+
+    it('extracts most recent PR URL when multiple are present', async () => {
+      messages.create(sessionId, 'user', 'First PR: https://github.com/user/repo/pull/100');
+      messages.create(sessionId, 'assistant', 'Second PR: https://github.com/user/repo/pull/200');
+      messages.create(sessionId, 'user', 'Third PR: https://github.com/user/repo/pull/300');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBe('https://github.com/user/repo/pull/300');
+    });
+
+    it('extracts PR URL from messages with multiple PR URLs in one message', async () => {
+      messages.create(
+        sessionId,
+        'user',
+        'Related PRs: https://github.com/user/repo/pull/100 and https://github.com/user/repo/pull/200'
+      );
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      // Should return the last PR URL mentioned in the message
+      expect(session.prUrl).toBe('https://github.com/user/repo/pull/200');
+    });
+
+    it('does not extract when no PR URL is present', async () => {
+      messages.create(sessionId, 'user', 'Just a regular message without PR links');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBeNull();
+    });
+
+    it('does not overwrite existing PR URL', async () => {
+      // Set an existing PR URL
+      sessions.update(sessionId, { prUrl: 'https://github.com/existing/repo/pull/999' });
+
+      // Add a message with a different PR URL
+      messages.create(sessionId, 'user', 'New PR: https://github.com/user/repo/pull/111');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      // Should keep the existing PR URL
+      expect(session.prUrl).toBe('https://github.com/existing/repo/pull/999');
+    });
+
+    it('scans only recent messages (last 20)', async () => {
+      // Create 25 messages, only the most recent one (within last 20) has a PR URL
+      for (let i = 0; i < 24; i++) {
+        messages.create(sessionId, 'user', `Message ${i}`);
+      }
+      // This PR URL is within the last 20 messages
+      messages.create(sessionId, 'user', 'Latest PR: https://github.com/user/repo/pull/999');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBe('https://github.com/user/repo/pull/999');
+    });
+
+    it('finds PR URL when it appears in multiple formats', async () => {
+      messages.create(
+        sessionId,
+        'assistant',
+        'PR at https://github.com/my-org/my-repo/pull/12345 is ready for review'
+      );
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBe('https://github.com/my-org/my-repo/pull/12345');
+    });
+
+    it('handles PR URL with hyphens in owner and repo names', async () => {
+      messages.create(sessionId, 'user', 'PR: https://github.com/my-org-name/my-repo-name/pull/42');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBe('https://github.com/my-org-name/my-repo-name/pull/42');
+    });
+
+    it('returns early if session does not exist', async () => {
+      // Should not throw for non-existent session
+      await expect(summaryService.extractPrUrlIfNeeded('non-existent-session')).resolves.toBeUndefined();
+    });
+
+    it('logs when PR URL is extracted', async () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      messages.create(sessionId, 'user', 'PR: https://github.com/user/repo/pull/789');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[SummaryService] Extracted PR URL for session')
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('https://github.com/user/repo/pull/789')
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it('broadcasts session update when PR URL is extracted', async () => {
+      messages.create(sessionId, 'user', 'PR: https://github.com/user/repo/pull/999');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        sessionId,
+        'session:updated',
+        expect.objectContaining({
+          sessionId,
+          session: expect.objectContaining({
+            prUrl: 'https://github.com/user/repo/pull/999',
+          }),
+        })
+      );
+    });
+
+    it('broadcasts to project subscribers when PR URL is extracted', async () => {
+      messages.create(sessionId, 'user', 'PR: https://github.com/user/repo/pull/888');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        'session:updated',
+        expect.objectContaining({
+          projectId,
+          sessionId,
+          session: expect.objectContaining({
+            prUrl: 'https://github.com/user/repo/pull/888',
+          }),
+        })
+      );
+    });
+
+    it('does not broadcast when no PR URL is found', async () => {
+      messages.create(sessionId, 'user', 'Regular message without PR');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      // Should not have been called since no PR URL was found
+      const sessionUpdatedCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === 'session:updated'
+      );
+      expect(sessionUpdatedCalls.length).toBe(0);
+    });
+
+    it('ignores non-GitHub URLs', async () => {
+      messages.create(sessionId, 'user', 'Check https://gitlab.com/user/repo/merge_requests/123');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBeNull();
+    });
+
+    it('ignores GitHub issue URLs', async () => {
+      messages.create(sessionId, 'user', 'Issue: https://github.com/user/repo/issues/123');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBeNull();
+    });
+
+    it('ignores GitHub repo URLs without PR number', async () => {
+      messages.create(sessionId, 'user', 'Repo: https://github.com/user/repo');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBeNull();
+    });
+
+    it('handles empty message content gracefully', async () => {
+      // Create a message with empty content
+      const { conversations } = await import('../database.js');
+      const conversation = conversations.create(sessionId, 'Test', true);
+      messages.create(sessionId, 'user', '', null, conversation.id);
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBeNull();
+    });
+  });
+
+  describe('PR URL extraction edge cases', () => {
+    it('handles messages with tool use and PR URL in text', async () => {
+      messages.create(
+        sessionId,
+        'assistant',
+        'I created PR https://github.com/user/repo/pull/555 for this feature',
+        [{ name: 'Write', input: { path: '/tmp/file.js' } }]
+      );
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBe('https://github.com/user/repo/pull/555');
+    });
+
+    it('scans messages in reverse order (most recent first)', async () => {
+      // Add multiple messages with PR URLs
+      messages.create(sessionId, 'user', 'PR 1: https://github.com/user/repo/pull/111');
+      messages.create(sessionId, 'assistant', 'PR 2: https://github.com/user/repo/pull/222');
+      messages.create(sessionId, 'user', 'PR 3: https://github.com/user/repo/pull/333');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      // Should find PR 333 (most recent) first
+      expect(session.prUrl).toBe('https://github.com/user/repo/pull/333');
+    });
+
+    it('handles very long messages with PR URL', async () => {
+      const longContent = 'A'.repeat(5000) + ' https://github.com/user/repo/pull/777 ' + 'B'.repeat(5000);
+      messages.create(sessionId, 'user', longContent);
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBe('https://github.com/user/repo/pull/777');
+    });
+
+    it('findes PR URL with trailing slash or query parameters', async () => {
+      messages.create(sessionId, 'user', 'See https://github.com/user/repo/pull/123');
+
+      await summaryService.extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBe('https://github.com/user/repo/pull/123');
+    });
+
+    it('works with session that has no messages', async () => {
+      // Create a session without messages (manually via database)
+      const { sessions: sessionsRepo } = await import('../database.js');
+      const emptySession = sessionsRepo.create(projectId, 'Empty Session', 'Prompt', 'standard');
+
+      await summaryService.extractPrUrlIfNeeded(emptySession.id);
+
+      const session = sessionsRepo.getById(emptySession.id);
+      expect(session.prUrl).toBeNull();
     });
   });
 });

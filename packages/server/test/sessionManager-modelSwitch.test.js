@@ -17,6 +17,7 @@ vi.mock('../src/websocket.js', () => ({
 vi.mock('../src/services/summaryService.js', () => ({
   onSessionActivity: vi.fn(),
   onSessionComplete: vi.fn(),
+  extractPrUrlIfNeeded: vi.fn(),
 }));
 
 // Import after mocking
