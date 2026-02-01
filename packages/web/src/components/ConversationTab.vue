@@ -1,7 +1,7 @@
 <template>
   <div class="conversation-tab">
     <!-- Unified Conversation Panel - selector + BTE cost display -->
-    <ConversationPanel :session-id="sessionId" />
+    <ConversationPanel v-if="!isScheduledForFuture" :session-id="sessionId" />
 
     <div class="messages" ref="messagesContainer">
       <!-- Hide messages for draft and scheduled sessions (only show in input field) -->
@@ -116,7 +116,7 @@
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
 
-    <form v-if="canSendMessage" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
+    <form v-if="canSendMessage && !isScheduledForFuture" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
       <ResizableTextarea
         ref="textareaRef"
         class="form-input form-textarea"
@@ -128,14 +128,14 @@
 
       <!-- Quick Responses Panel - shows below the textarea when not running or for draft sessions -->
       <QuickResponsesPanel
-        v-if="canSendMessage || isDraft"
+        v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
         :show-empty="true"
         @insert="handleQuickResponseInsert"
         @openSettings="quickResponseSettingsOpen = true"
       />
 
       <!-- Send button row -->
-      <div class="send-button-row">
+      <div v-if="!isScheduledForFuture" class="send-button-row">
         <div v-if="isDraft" class="draft-actions">
           <button type="submit" class="btn btn-primary btn-send-full" :disabled="restarting || saveStatus === 'saving'">
             <span v-if="restarting" class="loading-spinner"></span>
@@ -155,16 +155,7 @@
         </template>
       </div>
 
-      <!-- Visual indicator for future scheduled sessions -->
-      <div v-if="isSessionScheduledForFuture" class="scheduled-notice">
-        <span class="notice-icon">⏰</span>
-        <span class="notice-text">
-          This session is scheduled for {{ formatDistanceToNow(new Date(sessionsStore.currentSession.scheduledAt), { addSuffix: true }) }}.
-          The send button will be enabled at that time.
-        </span>
-      </div>
-
-      <div class="input-controls">
+      <div v-if="!isScheduledForFuture" class="input-controls">
         <div class="session-options">
           <div class="mode-switcher">
             <ModeSelector :sessionId="sessionId" />
@@ -194,7 +185,7 @@
 
       <!-- Orchestration Panel - shows after input controls -->
       <OrchestrationPanel
-        v-if="canSendMessage || isDraft"
+        v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
         :session-id="sessionId"
         :project-id="sessionsStore.currentSession?.projectId"
         :current-template-id="sessionsStore.currentSession?.nextTemplateId"
@@ -439,6 +430,12 @@ const isSessionScheduledForFuture = computed(() => {
   if (sessionsStore.currentSession?.status !== 'scheduled') return false;
   const scheduledTime = new Date(sessionsStore.currentSession.scheduledAt);
   return scheduledTime > new Date();
+});
+
+// Computed property to check if this is a scheduled session for the future (for UI hiding)
+// This is different from isSessionScheduledForFuture which is used for the send button tooltip
+const isScheduledForFuture = computed(() => {
+  return sessionsStore.isScheduledDraft(sessionsStore.currentSession);
 });
 
 // Check if there are any assistant messages for the scroll-to-claude button
