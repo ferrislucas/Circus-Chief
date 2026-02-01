@@ -70,44 +70,6 @@ describe('ProjectRepository', () => {
       expect(project.prPollInterval).toBe(30000);
     });
 
-    it('creates project with disableSessionSummaries false by default', () => {
-      const project = repo.create('Test Project', '/tmp/test');
-
-      expect(project.disableSessionSummaries).toBe(false);
-    });
-
-    it('creates project with disableConversationSummaries false by default', () => {
-      const project = repo.create('Test Project', '/tmp/test');
-
-      expect(project.disableConversationSummaries).toBe(false);
-    });
-
-    it('creates project with disableSessionSummaries set to true', () => {
-      const project = repo.create('Test Project', '/tmp/test', null, {
-        disableSessionSummaries: true,
-      });
-
-      expect(project.disableSessionSummaries).toBe(true);
-    });
-
-    it('creates project with disableConversationSummaries set to true', () => {
-      const project = repo.create('Test Project', '/tmp/test', null, {
-        disableConversationSummaries: true,
-      });
-
-      expect(project.disableConversationSummaries).toBe(true);
-    });
-
-    it('creates project with both summary flags disabled', () => {
-      const project = repo.create('Test Project', '/tmp/test', null, {
-        disableSessionSummaries: true,
-        disableConversationSummaries: true,
-      });
-
-      expect(project.disableSessionSummaries).toBe(true);
-      expect(project.disableConversationSummaries).toBe(true);
-    });
-
     it('creates project with repoUrl null by default', () => {
       const project = repo.create('Test Project', '/tmp/test');
 
@@ -126,12 +88,10 @@ describe('ProjectRepository', () => {
       const project = repo.create('Test Project', '/tmp/test', null, {
         repoUrl: 'https://github.com/user/repo',
         prPollInterval: 30000,
-        disableSessionSummaries: true,
       });
 
       expect(project.repoUrl).toBe('https://github.com/user/repo');
       expect(project.prPollInterval).toBe(30000);
-      expect(project.disableSessionSummaries).toBe(true);
     });
 
     it('creates project with summaryDebounceMs default of 60000', () => {
@@ -284,54 +244,6 @@ describe('ProjectRepository', () => {
       });
 
       expect(updated.prPollInterval).toBe(120000);
-    });
-
-    it('updates disableSessionSummaries', () => {
-      const project = repo.create('Test', '/tmp/test');
-      expect(project.disableSessionSummaries).toBe(false);
-
-      const updated = repo.update(project.id, {
-        disableSessionSummaries: true,
-      });
-
-      expect(updated.disableSessionSummaries).toBe(true);
-    });
-
-    it('updates disableConversationSummaries', () => {
-      const project = repo.create('Test', '/tmp/test');
-      expect(project.disableConversationSummaries).toBe(false);
-
-      const updated = repo.update(project.id, {
-        disableConversationSummaries: true,
-      });
-
-      expect(updated.disableConversationSummaries).toBe(true);
-    });
-
-    it('toggles disableSessionSummaries back to false', () => {
-      const project = repo.create('Test', '/tmp/test', null, {
-        disableSessionSummaries: true,
-      });
-      expect(project.disableSessionSummaries).toBe(true);
-
-      const updated = repo.update(project.id, {
-        disableSessionSummaries: false,
-      });
-
-      expect(updated.disableSessionSummaries).toBe(false);
-    });
-
-    it('toggles disableConversationSummaries back to false', () => {
-      const project = repo.create('Test', '/tmp/test', null, {
-        disableConversationSummaries: true,
-      });
-      expect(project.disableConversationSummaries).toBe(true);
-
-      const updated = repo.update(project.id, {
-        disableConversationSummaries: false,
-      });
-
-      expect(updated.disableConversationSummaries).toBe(false);
     });
 
     it('updates repoUrl', () => {
