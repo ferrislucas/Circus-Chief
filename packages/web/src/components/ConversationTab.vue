@@ -127,15 +127,6 @@
         @keydown="handleKeydown"
       />
 
-      <!-- Scheduled prompt indicator -->
-      <div v-if="isScheduledForFuture" class="scheduled-notice">
-        <span class="notice-icon">📋</span>
-        <span class="notice-text">
-          This prompt will be sent when the session starts.
-          Use the schedule panel above to modify timing.
-        </span>
-      </div>
-
       <!-- Quick Responses Panel - shows below the textarea when not running or for draft sessions -->
       <QuickResponsesPanel
         v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
@@ -1378,33 +1369,6 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 .draft-actions {
   width: 100%;
-}
-
-.scheduled-notice {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  margin-bottom: 0.75rem;
-  background: linear-gradient(135deg, rgba(34, 197, 255, 0.1) 0%, rgba(34, 197, 255, 0.05) 100%);
-  border: 1px solid rgba(34, 197, 255, 0.3);
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
-}
-
-.notice-icon {
-  font-size: 1rem;
-  flex-shrink: 0;
-}
-
-.notice-text {
-  color: var(--color-text);
-  line-height: 1.4;
-}
-
-.notice-text strong {
-  color: var(--color-primary);
-  font-weight: 600;
 }
 
 .template-pending {
