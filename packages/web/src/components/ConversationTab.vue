@@ -870,6 +870,13 @@ watch(
         sessionsStore.currentSession?.model ||
         getProjectDefaultModel() ||
         'sonnet';
+    } else {
+      // No active conversation yet - use session/project default
+      // This ensures the model selector always shows a selected model even before
+      // conversations are fetched or when there's no active conversation
+      selectedModel.value = sessionsStore.currentSession?.model ||
+        getProjectDefaultModel() ||
+        'sonnet';
     }
   },
   { immediate: true }
