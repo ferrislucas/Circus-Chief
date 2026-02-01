@@ -36,6 +36,9 @@
                 @click.stop.prevent="selectedButtonForModal = indicator"
               >{{ getStatusIcon(indicator.status) }}</span>
 
+              <span v-if="getTemplateName(session.nextTemplateId)" class="child-session-next-template">
+                → {{ getTemplateName(session.nextTemplateId) }}
+              </span>
               <span class="child-session-date">{{ formatDate(session.createdAt) }}</span>
             </div>
           </div>
@@ -63,6 +66,7 @@
 import { ref } from 'vue';
 import PrIndicators from './PrIndicators.vue';
 import ButtonStatusModal from './ButtonStatusModal.vue';
+import { useTemplatesStore } from '../stores/templates.js';
 
 const selectedButtonForModal = ref(null);
 
@@ -85,7 +89,14 @@ const props = defineProps({
   },
 });
 
+const templatesStore = useTemplatesStore();
 const isExpanded = ref(true);
+
+const getTemplateName = (templateId) => {
+  if (!templateId) return null;
+  const template = templatesStore.getTemplateById(templateId);
+  return template?.name || null;
+};
 
 const formatDate = (timestamp) => {
   if (!timestamp) return '';
@@ -224,6 +235,12 @@ const getStatusIcon = (status) => {
 
 .child-session-date {
   opacity: 0.7;
+}
+
+.child-session-next-template {
+  color: var(--color-primary, #06b6d4);
+  font-size: 0.7rem;
+  font-weight: 500;
 }
 
 .child-session-arrow {
