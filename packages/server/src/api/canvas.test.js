@@ -1131,6 +1131,132 @@ describe('Canvas API', () => {
     });
   });
 
+  describe('HTTP GET /api/sessions/:id/canvas/all (List All Versions Endpoint)', () => {
+    let app;
+    let projectId;
+    let sessionId;
+
+    beforeEach(() => {
+      app = express();
+      app.use(express.json());
+      app.use('/api/sessions', canvasRouter);
+
+      // Create project and session
+      const project = projects.create('Test Project', '/tmp/test');
+      projectId = project.id;
+
+      const now = Date.now();
+      const id = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, projectId, 'Test Session', 'running', 'standard', now, now);
+      sessionId = id;
+    });
+
+    it('returns all versions of each file (including duplicates)', async () => {
+      // Create multiple versions of the same file
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 1', filename: 'test.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 2', filename: 'test.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 3', filename: 'test.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/all`);
+
+      expect(res.status).toBe(200);
+      // Should return all 3 versions (not just latest)
+      expect(res.body).toHaveLength(3);
+      expect(res.body[0].filename).toBe('test.txt');
+      expect(res.body[1].filename).toBe('test.txt');
+      expect(res.body[2].filename).toBe('test.txt');
+    });
+
+    it('returns all versions for multiple files', async () => {
+      // Create multiple versions of different files
+      canvasItems.create(sessionId, { type: 'text', content: 'A v1', filename: 'a.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'A v2', filename: 'a.txt' });
+      canvasItems.create(sessionId, { type: 'markdown', content: '# B v1', filename: 'b.md' });
+      canvasItems.create(sessionId, { type: 'markdown', content: '# B v2', filename: 'b.md' });
+      canvasItems.create(sessionId, { type: 'markdown', content: '# B v3', filename: 'b.md' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/all`);
+
+      expect(res.status).toBe(200);
+      // Should return all 5 versions (not just latest per file)
+      expect(res.body).toHaveLength(5);
+      const filenames = res.body.map(i => i.filename);
+      expect(filenames.filter(f => f === 'a.txt')).toHaveLength(2);
+      expect(filenames.filter(f => f === 'b.md')).toHaveLength(3);
+    });
+
+    it('returns items ordered by createdAt descending (newest first)', async () => {
+      const item1 = canvasItems.create(sessionId, { type: 'text', content: 'First', filename: 'a.txt' });
+      // Small delay to ensure different timestamps
+      const item2 = canvasItems.create(sessionId, { type: 'text', content: 'Second', filename: 'a.txt' });
+      const item3 = canvasItems.create(sessionId, { type: 'text', content: 'Third', filename: 'a.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/all`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(3);
+      // Verify newest first
+      expect(res.body[0].createdAt).toBeGreaterThanOrEqual(res.body[1].createdAt);
+      expect(res.body[1].createdAt).toBeGreaterThanOrEqual(res.body[2].createdAt);
+
+      // Verify all versions are present
+      const ids = res.body.map(i => i.id);
+      expect(ids).toContain(item1.id);
+      expect(ids).toContain(item2.id);
+      expect(ids).toContain(item3.id);
+    });
+
+    it('includes content field for text-based types', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'Hello World', filename: 'hello.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/all`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].content).toBe('Hello World');
+    });
+
+    it('includes data field for image type', async () => {
+      const base64Image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      canvasItems.create(sessionId, { type: 'image', data: base64Image, mimeType: 'image/png', filename: 'pixel.png' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/all`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].data).toBe(base64Image);
+    });
+
+    it('returns empty array when no items exist', async () => {
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/all`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
+    });
+
+    it('excludes soft-deleted items', async () => {
+      const item1 = canvasItems.create(sessionId, { type: 'text', content: 'Active', filename: 'active.txt' });
+      const item2 = canvasItems.create(sessionId, { type: 'text', content: 'Deleted', filename: 'deleted.txt' });
+
+      canvasItems.softDelete(item2.id);
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/all`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].id).toBe(item1.id);
+    });
+
+    it('returns 404 for non-existent session', async () => {
+      const res = await request(app).get('/api/sessions/nonexistent-session/canvas/all');
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('Session not found');
+    });
+  });
+
   describe('HTTP POST /api/sessions/:id/canvas (Inline Content Mode)', () => {
     let app;
     let projectId;

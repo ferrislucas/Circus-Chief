@@ -142,8 +142,11 @@ const selectedItemId = computed(() => route.query.item || null);
 const groupedItems = computed(() => canvasStore.groupedItems);
 
 const selectedItem = computed(() => {
-  if (!selectedItemId.value) return null;
-  return canvasStore.items.find((i) => i.id === selectedItemId.value);
+  // If an item is explicitly selected, find it
+  if (selectedItemId.value) {
+    return canvasStore.items.find((i) => i.id === selectedItemId.value);
+  }
+  return null;
 });
 
 const selectedVersions = computed(() => {
@@ -153,8 +156,8 @@ const selectedVersions = computed(() => {
     .filter((i) => (i.filename || i.id) === key)
     .sort((a, b) => b.createdAt - a.createdAt);
 });
-
 const shouldShowViewer = computed(() => {
+  // Show viewer only if an item is explicitly selected
   return selectedItemId.value !== null;
 });
 

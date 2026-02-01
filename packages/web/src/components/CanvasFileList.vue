@@ -48,21 +48,21 @@
         </button>
 
         <Transition name="fade">
-          <div v-if="openMenuItemId === item.id" class="menu-overlay" @click="closeMenu"></div>
+          <div v-if="openMenuItemId === item.id" class="menu-overlay" @click.stop="closeMenu"></div>
         </Transition>
 
         <Transition name="slide">
           <ul v-if="openMenuItemId === item.id" class="file-menu-items" role="menu">
             <li role="none">
-              <button class="menu-item" role="menuitem" @click.stop="handleMenuCopyContents(item)">
-                <span class="menu-item-icon">📋</span>
-                <span class="menu-item-text">Copy file contents</span>
-              </button>
-            </li>
-            <li role="none">
               <button class="menu-item" role="menuitem" @click.stop="handleMenuCopyFilename(item)">
                 <span class="menu-item-icon">📝</span>
                 <span class="menu-item-text">Copy filename</span>
+              </button>
+            </li>
+            <li role="none">
+              <button class="menu-item" role="menuitem" @click.stop="handleMenuCopyContents(item)">
+                <span class="menu-item-icon">📋</span>
+                <span class="menu-item-text">Copy file contents</span>
               </button>
             </li>
             <li role="none" class="menu-divider"></li>
@@ -76,7 +76,6 @@
         </Transition>
       </div>
 
-      <span class="file-type">{{ item.type }}</span>
       <span v-if="item.versionCount > 1" class="version-badge">
         v{{ item.versionCount }}
       </span>
@@ -282,13 +281,6 @@ defineExpose({
   min-width: 0;
   font-weight: 500;
   word-break: break-word;
-}
-
-.file-type {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  color: var(--color-text-soft);
-  flex-shrink: 0;
 }
 
 .version-badge {
@@ -514,14 +506,6 @@ defineExpose({
     flex: 1;
     min-width: 0;
     word-break: break-word;
-    max-width: 120px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .file-type {
-    display: none;
   }
 
   .file-time {
