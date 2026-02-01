@@ -18,8 +18,6 @@ export class ProjectRepository extends BaseRepository {
       onSessionCreated: row.on_session_created,
       onSessionDeleted: row.on_session_deleted,
       prPollInterval: row.pr_poll_interval,
-      disableSessionSummaries: row.disable_session_summaries === 1,
-      disableConversationSummaries: row.disable_conversation_summaries === 1,
       repoUrl: row.repo_url,
       summaryDebounceMs: row.summary_debounce_ms || 60000,
       sessionTitlePrompt: row.session_title_prompt || null,
@@ -35,16 +33,14 @@ export class ProjectRepository extends BaseRepository {
       onSessionCreated = null,
       onSessionDeleted = null,
       prPollInterval = 60000,
-      disableSessionSummaries = false,
-      disableConversationSummaries = false,
       repoUrl = null,
       summaryDebounceMs = 60000,  // 60 seconds for token efficiency
       sessionTitlePrompt = null,
     } = options;
     this.db
       .prepare(
-        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, pr_poll_interval, disable_session_summaries, disable_conversation_summaries, repo_url, summary_debounce_ms, session_title_prompt, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, pr_poll_interval, repo_url, summary_debounce_ms, session_title_prompt, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -54,8 +50,6 @@ export class ProjectRepository extends BaseRepository {
         onSessionCreated,
         onSessionDeleted,
         prPollInterval,
-        disableSessionSummaries ? 1 : 0,
-        disableConversationSummaries ? 1 : 0,
         repoUrl,
         summaryDebounceMs,
         sessionTitlePrompt,
@@ -97,14 +91,6 @@ export class ProjectRepository extends BaseRepository {
     if (data.prPollInterval !== undefined) {
       updates.push('pr_poll_interval = ?');
       values.push(data.prPollInterval);
-    }
-    if (data.disableSessionSummaries !== undefined) {
-      updates.push('disable_session_summaries = ?');
-      values.push(data.disableSessionSummaries ? 1 : 0);
-    }
-    if (data.disableConversationSummaries !== undefined) {
-      updates.push('disable_conversation_summaries = ?');
-      values.push(data.disableConversationSummaries ? 1 : 0);
     }
     if (data.repoUrl !== undefined) {
       updates.push('repo_url = ?');

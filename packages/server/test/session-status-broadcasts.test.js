@@ -19,6 +19,7 @@ vi.mock('../src/services/todoStore.js', () => ({
 vi.mock('../src/services/summaryService.js', () => ({
   onSessionActivity: vi.fn(),
   onSessionComplete: vi.fn(),
+  extractPrUrlIfNeeded: vi.fn(),
 }));
 
 // Import the mocked functions for assertions
