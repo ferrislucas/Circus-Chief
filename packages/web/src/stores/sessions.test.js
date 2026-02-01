@@ -570,13 +570,14 @@ describe('Sessions Store', () => {
         expect(store.messages).toEqual([{ id: 'msg-1', content: 'Hello' }]);
       });
 
-      it('clears work logs and re-fetches them when switching conversations', async () => {
+      it('clears work logs and messages immediately when switching conversations', async () => {
         const store = useSessionsStore();
         store.conversations = [
           { id: 'conv-1', isActive: true },
           { id: 'conv-2', isActive: false },
         ];
         store.activeConversationId = 'conv-1';
+        store.messages = [{ id: 'old-msg', content: 'Old message' }];
         store.workLogs = { 'msg-old': [{ id: 'old-log' }] };
         store.currentSession = { id: 'session-1' };
         store.partialThinkingBySession = { 'session-1': 'some thinking' };
@@ -589,6 +590,8 @@ describe('Sessions Store', () => {
 
         await store.switchConversation('session-1', 'conv-2');
 
+        // Messages should be cleared immediately
+        expect(store.messages).toEqual([{ id: 'msg-1', content: 'Hello' }]);
         // Work logs should have been re-fetched
         expect(api.getSessionWorkLogs).toHaveBeenCalledWith('session-1');
         // New work logs should be present
