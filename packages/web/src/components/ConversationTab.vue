@@ -898,21 +898,18 @@ async function handleSend() {
 }
 
 function handleQuickResponseInsert({ content, autoSubmit }) {
+  // Combine existing message with quick response content
+  const currentValue = input.value.trim();
+  const newValue = currentValue ? currentValue + '\n\n' + content : content;
+  input.value = newValue;
+
   if (autoSubmit) {
     // Auto-submit: send immediately
-    input.value = content;
     nextTick(() => {
       handleSend();
     });
   } else {
     // Insert content into input field for editing
-    const currentValue = input.value.trim();
-    const newValue = currentValue ? currentValue + '\n\n' + content : content;
-
-    // Update reactive state
-    input.value = newValue;
-
-    // Ensure DOM updates and focus
     nextTick(() => {
       if (textareaRef.value) {
         // Update textarea DOM element
