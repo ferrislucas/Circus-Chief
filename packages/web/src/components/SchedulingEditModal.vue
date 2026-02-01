@@ -48,6 +48,18 @@
             />
           </div>
 
+          <!-- Next Template Section (for scheduled sessions) -->
+          <div v-if="session?.status === 'scheduled'" class="form-section">
+            <h3 class="section-title">Template Chain</h3>
+            <TemplateSelector
+              :session-id="session.id"
+              :project-id="session.projectId"
+              :current-template-id="form.nextTemplateId"
+              :disabled="loading"
+              @update:templateId="handleTemplateChange"
+            />
+          </div>
+
           <!-- Auto-Reschedule Settings -->
           <div class="form-group">
               <label class="toggle-switch">
@@ -148,6 +160,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';
+import TemplateSelector from './TemplateSelector.vue';
 
 const props = defineProps({
   isOpen: Boolean,
@@ -167,6 +180,8 @@ const form = reactive({
   model: null,
   mode: 'standard',
   thinkingEnabled: false,
+  // Template chaining
+  nextTemplateId: null,
   // Scheduling options
   autoRescheduleEnabled: false,
   rescheduleDelayMinutes: 15,
@@ -195,6 +210,10 @@ function close() {
   emit('close');
 }
 
+function handleTemplateChange(templateId) {
+  form.nextTemplateId = templateId;
+}
+
 function convertToLocalDatetime(timestamp) {
   if (!timestamp) return '';
   const date = new Date(timestamp);
@@ -216,6 +235,8 @@ async function handleSave() {
       model: form.model,
       mode: form.mode,
       thinkingEnabled: form.thinkingEnabled,
+      // Template chaining
+      nextTemplateId: form.nextTemplateId,
       // Scheduling options
       autoRescheduleEnabled: form.autoRescheduleEnabled,
       rescheduleDelayMinutes: form.rescheduleDelayMinutes,
@@ -261,6 +282,8 @@ watch(
       form.model = props.session.model || null;
       form.mode = props.session.mode || 'standard';
       form.thinkingEnabled = props.session.thinkingEnabled || false;
+      // Template chaining
+      form.nextTemplateId = props.session.nextTemplateId || null;
       // Scheduling options
       form.autoRescheduleEnabled = props.session.autoRescheduleEnabled || false;
       form.rescheduleDelayMinutes = props.session.rescheduleDelayMinutes || 15;
