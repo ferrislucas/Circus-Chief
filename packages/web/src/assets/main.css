@@ -266,11 +266,20 @@ input, textarea, select {
   border-bottom: 1px solid var(--color-border);
   margin-bottom: 1rem;
   /* Sticky positioning - accounts for header + safe area on iOS */
+  position: -webkit-sticky; /* Safari prefix */
   position: sticky;
-  top: var(--header-height-with-safe-area, 3rem);
+  /* Default for phones/small screens */
+  top: 51px;
   background-color: var(--color-background);
   z-index: 99;
   padding: 0.5rem 0.5rem 0 0.5rem; /* Add horizontal padding to prevent cut-off */
+}
+
+/* iPad and larger screens - account for safe area */
+@media (min-width: 768px) {
+  .tabs {
+    top: 80px;
+  }
 }
 
 .tab {
