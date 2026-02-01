@@ -193,7 +193,9 @@
         :session-status="sessionsStore.currentSession?.status"
         :is-draft="isDraft"
         :input-has-content="inputHasContent"
+        :auto-reschedule-enabled="sessionsStore.currentSession?.autoRescheduleEnabled"
         @openSchedule="showScheduleModal = true"
+        @openAutoReschedule="showAutoRescheduleModal = true"
         @update:templateId="handleTemplateChange"
       />
     </form>
@@ -266,6 +268,14 @@
       @close="closeScheduleModal"
     />
 
+    <!-- Auto-Reschedule Modal -->
+    <AutoRescheduleModal
+      :is-open="showAutoRescheduleModal"
+      :session="sessionsStore.currentSession"
+      @close="showAutoRescheduleModal = false"
+      @saved="showAutoRescheduleModal = false"
+    />
+
     <!-- Slash Command Wizard Modal -->
     <SlashCommandWizard
       v-model:isOpen="showSlashCommandWizard"
@@ -300,6 +310,7 @@ import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
 import BranchEditor from './BranchEditor.vue';
 import ScheduleSessionModal from './ScheduleSessionModal.vue';
+import AutoRescheduleModal from './AutoRescheduleModal.vue';
 import ResizableTextarea from './ResizableTextarea.vue';
 import SlashCommandButton from './SlashCommandButton.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
@@ -320,6 +331,7 @@ const projectsStore = useProjectsStore();
 const input = ref('');
 const quickResponseSettingsOpen = ref(false);
 const showScheduleModal = ref(false);
+const showAutoRescheduleModal = ref(false);
 const showSlashCommandWizard = ref(false);
 const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
 const saveError = ref('');
