@@ -270,7 +270,7 @@ describe('CommandRunRepository', () => {
     });
 
     it('returns runs regardless of age (no time limit)', () => {
-      const run = repository.create({ id: 'old-run', sessionId: testSessionId, buttonId: testButtonId });
+      repository.create({ id: 'old-run', sessionId: testSessionId, buttonId: testButtonId });
       repository.complete('old-run', 0, 'old output');
 
       // Simulate old run by manually updating started_at and completed_at
@@ -375,7 +375,6 @@ describe('CommandRunRepository', () => {
   });
 
   describe('getLatestRunsForProject', () => {
-    let projectId2;
     let sessionId2;
     let button2Id;
 
@@ -386,7 +385,6 @@ describe('CommandRunRepository', () => {
       const buttonRepository = new CommandButtonRepository();
 
       const project2 = projectRepository.create('Test Project 2', '/tmp/test2');
-      projectId2 = project2.id;
 
       const session2 = sessionRepository.create(project2.id, 'Test Session 2', 'Test prompt');
       sessionId2 = session2.id;
