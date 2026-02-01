@@ -218,7 +218,9 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   if (!mode) mode = systemDefaults.mode;
 
   // Model for the first message (optional - SDK will use default if not provided)
-  const model = req.body.model || null;
+  let model = req.body.model;
+  if (!model && projectDefs?.model) model = projectDefs.model;
+  if (!model) model = systemDefaults.model || null;
 
   let thinkingEnabled = req.body.thinkingEnabled === true || req.body.thinkingEnabled === 'true';
   if (!thinkingEnabled && req.body.thinkingEnabled !== false && req.body.thinkingEnabled !== 'false') {
@@ -293,7 +295,7 @@ router.post('/:id/sessions', upload.array('files', 10), handleUploadError, async
   } else if (!startImmediately) {
     initialStatus = 'waiting';
   }
-  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, parentSessionId, initialStatus);
+  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, parentSessionId, initialStatus, model);
 
   // Set nextTemplateId if template was selected
   if (nextTemplateId) {
