@@ -550,6 +550,108 @@ describe('NewSessionView - Quick Response Insertion', () => {
 
       expect(textarea.value).toBe(content);
     });
+
+    it('combines existing text with quick response content when auto-submitting', async () => {
+      const form = document.createElement('form');
+      const textarea = document.createElement('textarea');
+      textarea.id = 'prompt';
+      textarea.value = 'Please review this code';  // User's existing text
+      form.appendChild(textarea);
+      document.body.appendChild(form);
+
+      const submitHandler = vi.fn((e) => e.preventDefault());
+      form.addEventListener('submit', submitHandler);
+
+      // Simulate auto-submit quick response insertion
+      const quickResponseContent = 'Focus on security issues';
+      const existingText = textarea.value.trim();
+      const combinedContent = existingText
+        ? `${existingText}\n\n${quickResponseContent}`
+        : quickResponseContent;
+
+      textarea.value = combinedContent;
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          form.dispatchEvent(new Event('submit'));
+
+          // ASSERTION: Combined content includes both existing text AND quick response
+          expect(textarea.value).toBe('Please review this code\n\nFocus on security issues');
+          expect(submitHandler).toHaveBeenCalled();
+
+          document.body.removeChild(form);
+          resolve();
+        }, 0);
+      });
+    });
+
+    it('uses only quick response content when input is empty', async () => {
+      const form = document.createElement('form');
+      const textarea = document.createElement('textarea');
+      textarea.id = 'prompt';
+      textarea.value = '';  // Empty input
+      form.appendChild(textarea);
+      document.body.appendChild(form);
+
+      const submitHandler = vi.fn((e) => e.preventDefault());
+      form.addEventListener('submit', submitHandler);
+
+      const quickResponseContent = 'Start a new task';
+      const existingText = textarea.value.trim();
+      const combinedContent = existingText
+        ? `${existingText}\n\n${quickResponseContent}`
+        : quickResponseContent;
+
+      textarea.value = combinedContent;
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          form.dispatchEvent(new Event('submit'));
+
+          // ASSERTION: Only quick response content, no leading newlines
+          expect(textarea.value).toBe('Start a new task');
+          expect(submitHandler).toHaveBeenCalled();
+
+          document.body.removeChild(form);
+          resolve();
+        }, 0);
+      });
+    });
+
+    it('treats whitespace-only input as empty when combining', async () => {
+      const form = document.createElement('form');
+      const textarea = document.createElement('textarea');
+      textarea.id = 'prompt';
+      textarea.value = '   \n\n  ';  // Whitespace only
+      form.appendChild(textarea);
+      document.body.appendChild(form);
+
+      const submitHandler = vi.fn((e) => e.preventDefault());
+      form.addEventListener('submit', submitHandler);
+
+      const quickResponseContent = 'Execute command';
+      const existingText = textarea.value.trim();  // Becomes empty string
+      const combinedContent = existingText
+        ? `${existingText}\n\n${quickResponseContent}`
+        : quickResponseContent;
+
+      textarea.value = combinedContent;
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          form.dispatchEvent(new Event('submit'));
+
+          // ASSERTION: Whitespace is trimmed, only quick response content
+          expect(textarea.value).toBe('Execute command');
+
+          document.body.removeChild(form);
+          resolve();
+        }, 0);
+      });
+    });
   });
 
   describe('handleQuickResponseInsert - data structure handling', () => {
