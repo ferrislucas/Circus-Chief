@@ -73,11 +73,7 @@
         <!-- Model Field -->
         <div class="form-group">
           <label for="model">Model</label>
-          <select id="model" v-model="formData.model" class="form-input">
-            <option v-for="m in CLAUDE_MODELS" :key="m.id" :value="m.id">
-              {{ m.name }}
-            </option>
-          </select>
+          <ModelSelector v-model="formData.model" />
         </div>
 
         <!-- Mode Field -->
@@ -139,7 +135,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
 import { api } from '../api/index.js';
-import { CLAUDE_MODELS, DEFAULT_MODEL } from '@claudetools/shared';
+import ModelSelector from '../components/ModelSelector.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -158,7 +154,7 @@ const formData = ref({
   isGlobal: false,
   nextTemplateId: null,
   thinkingEnabled: false,
-  model: DEFAULT_MODEL,
+  model: null,
   mode: 'yolo',
 });
 
@@ -184,7 +180,7 @@ const loadTemplate = async () => {
         isGlobal: !template.projectId,
         nextTemplateId: template.nextTemplateId || null,
         thinkingEnabled: template.thinkingEnabled || false,
-        model: template.model || DEFAULT_MODEL,
+        model: template.model || null,
         mode: template.mode || 'yolo',
       };
     }
@@ -205,8 +201,8 @@ const onSubmit = async () => {
       prompt: formData.value.prompt,
       nextTemplateId: formData.value.nextTemplateId || undefined,
       thinkingEnabled: formData.value.thinkingEnabled || undefined,
-      model: formData.value.model === DEFAULT_MODEL ? undefined : formData.value.model,
-      mode: formData.value.mode === 'yolo' ? undefined : formData.value.mode,
+      model: formData.value.model,
+      mode: formData.value.mode,
     };
 
     await templatesStore.updateTemplate(templateId.value, data);
