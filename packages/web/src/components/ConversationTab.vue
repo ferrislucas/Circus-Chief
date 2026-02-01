@@ -293,6 +293,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useTemplatesStore } from '../stores/templates.js';
+import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import { api } from '../composables/useApi.js';
@@ -325,6 +326,7 @@ const props = defineProps({
 const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
+const defaultsStore = useProjectDefaultsStore();
 const quickResponsesStore = useQuickResponsesStore();
 const projectsStore = useProjectsStore();
 
@@ -826,6 +828,15 @@ watch(
   }
 );
 
+// Helper function to get project default model with fallback
+function getProjectDefaultModel() {
+  const projectId = sessionsStore.currentSession?.projectId;
+  if (!projectId) return null;
+
+  const defaults = defaultsStore.getDefaultsForProject(projectId);
+  return defaults?.model || null;
+}
+
 // Update model selector when active conversation changes or its model is updated
 // This ensures the selector always reflects the model used in the current conversation
 // Watch the entire conversation object (not just .model) to detect all changes including conversation switches
@@ -833,9 +844,12 @@ watch(
   () => sessionsStore.activeConversation,
   (conv) => {
     if (conv) {
-      // Always sync to conversation's model
-      // If no model yet (new conversation), this will be null and ModelSelector handles default
-      selectedModel.value = conv.model || null;
+      // Inherit model from conversation, or fall back to session/project default
+      // This prevents ModelSelector from auto-emitting its default before we can set the right one
+      selectedModel.value = conv.model ||
+        sessionsStore.currentSession?.model ||
+        getProjectDefaultModel() ||
+        'sonnet';
     }
   },
   { immediate: true }

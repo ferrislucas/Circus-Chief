@@ -424,7 +424,7 @@ onMounted(async () => {
     });
   }
 
-  // Fetch project defaults
+  // Fetch project defaults FIRST to ensure model is set before ModelSelector renders
   try {
     await defaultsStore.fetchDefaults(projectId);
     const defaults = defaultsStore.getDefaultsForProject(projectId);
@@ -437,6 +437,10 @@ onMounted(async () => {
       }
       if (defaults.model) {
         model.value = defaults.model;
+        usingDefaults.value.model = true;
+      } else {
+        // No project default set, use system default
+        model.value = 'sonnet';
         usingDefaults.value.model = true;
       }
       if (defaults.thinkingEnabled !== null && defaults.thinkingEnabled !== undefined) {
@@ -455,10 +459,19 @@ onMounted(async () => {
         quickWorktreeBranch.value = defaults.gitBranch;
         usingDefaults.value.quickWorktreeBranch = true;
       }
+    } else {
+      // No defaults at all, use system default for model
+      model.value = 'sonnet';
+      usingDefaults.value.model = true;
     }
   } catch (err) {
     // Defaults fetching is optional, don't block on error
     console.warn('Failed to fetch project defaults:', err);
+    // Ensure we still have a system default
+    if (!model.value) {
+      model.value = 'sonnet';
+      usingDefaults.value.model = true;
+    }
   }
 
   loadingGit.value = true;

@@ -274,6 +274,92 @@ describe('ModelSelector', () => {
     });
   });
 
+  describe('default model behavior', () => {
+    it('should NOT emit default model when mounted with null modelValue (project defaults not yet loaded)', async () => {
+      // This test surfaces a bug where ModelSelector overrides null modelValue with a default
+      // before project defaults have a chance to load and set the correct model (e.g., opus)
+      //
+      // The race condition:
+      // 1. Parent component (NewSessionView) mounts with model = null
+      // 2. ModelSelector mounts and sees modelValue === null
+      // 3. ModelSelector emits a default model BEFORE parent can set model from project defaults
+      // 4. Project defaults load and try to set model = 'opus', but the emit already happened
+      //
+      // This causes sessions to always start with the default model (e.g., sonnet) even when
+      // the project has a different default model configured (e.g., opus)
+      const onUpdateModelValue = vi.fn();
+
+      // Mount with null - simulating parent hasn't fetched project defaults yet
+      const wrapper = mount(ModelSelector, {
+        props: { modelValue: null },
+        attrs: { 'onUpdate:modelValue': onUpdateModelValue },
+      });
+
+      await flushAll(wrapper);
+
+      // BUG: This test will FAIL because ModelSelector currently emits a default on null
+      // The expected behavior is that ModelSelector should NOT override null - let parent control
+      expect(onUpdateModelValue).not.toHaveBeenCalled();
+    });
+
+    it('should respect modelValue when parent sets it after mount', async () => {
+      // Simulate the race condition timeline:
+      // 1. ModelSelector mounts with null
+      // 2. Parent fetches defaults and sets model to 'opus'
+      const onUpdateModelValue = vi.fn();
+
+      // Mount with null initially
+      const wrapper = mount(ModelSelector, {
+        props: { modelValue: null },
+        attrs: { 'onUpdate:modelValue': onUpdateModelValue },
+      });
+      await flushAll(wrapper);
+
+      // Parent sets model from project defaults (simulating defaults fetch completing)
+      await wrapper.setProps({ modelValue: opus.id });
+      await flushAll(wrapper);
+
+      // The select should show opus, not sonnet
+      const select = wrapper.find('select');
+      expect(select.element.value).toBe(opus.id);
+    });
+
+    it('should NOT emit default when conversation has null model (new conversation bug)', async () => {
+      // This test surfaces the bug that occurs when creating a new conversation:
+      //
+      // In ConversationTab.vue, when a new conversation is created:
+      // 1. The new conversation has model: null (no model set yet)
+      // 2. The watcher sets selectedModel.value = conv.model || null → null
+      // 3. ModelSelector sees modelValue === null and emits a default (sonnet)
+      //
+      // This is a bug because:
+      // - The user might have a project default model (e.g., opus)
+      // - The conversation should inherit the project/session default model
+      // - Instead, it always gets sonnet because ModelSelector overrides null
+      //
+      // See ConversationTab.vue lines 832-842:
+      // watch(() => sessionsStore.activeConversation, (conv) => {
+      //   if (conv) {
+      //     // If no model yet (new conversation), this will be null and ModelSelector handles default
+      //     selectedModel.value = conv.model || null;  // ← This triggers the bug
+      //   }
+      // });
+      const onUpdateModelValue = vi.fn();
+
+      // Simulate switching to a new conversation that has no model set
+      const wrapper = mount(ModelSelector, {
+        props: { modelValue: null }, // New conversation has null model
+        attrs: { 'onUpdate:modelValue': onUpdateModelValue },
+      });
+      await flushAll(wrapper);
+
+      // BUG: ModelSelector emits a default model even though the parent should control this
+      // Expected: no emit, let the parent (ConversationTab) handle model inheritance
+      // Actual: emits haiku/sonnet, overriding any project defaults
+      expect(onUpdateModelValue).not.toHaveBeenCalled();
+    });
+  });
+
   describe('provider-based model display', () => {
     it('displays displayName for built-in provider models', async () => {
       const providersStore = useProvidersStore();
