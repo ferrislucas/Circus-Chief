@@ -12,7 +12,12 @@
       <div class="workflow-session-name">{{ session.name }}</div>
       <div class="workflow-session-meta">
         <span class="workflow-session-summary">{{ summaryText }}</span>
-        <span class="workflow-session-date">{{ formatDate(session.createdAt) }}</span>
+        <div class="workflow-session-meta-right">
+          <span v-if="nextTemplateName" class="workflow-session-next">
+            Next: {{ nextTemplateName }}
+          </span>
+          <span class="workflow-session-date">{{ formatDate(displayDate) }}</span>
+        </div>
       </div>
     </router-link>
   </div>
@@ -20,6 +25,9 @@
 
 <script setup>
 import { computed } from 'vue';
+import { useTemplatesStore } from '../stores/templates.js';
+
+const templatesStore = useTemplatesStore();
 
 const props = defineProps({
   session: {
@@ -46,8 +54,23 @@ const statusLabel = computed(() => {
   if (status === 'running' || status === 'starting') return '● Running';
   if (status === 'scheduled') return '⏰ Scheduled';
   if (status === 'error') return '⚠ Error';
-  if (status === 'waiting') return '⏸ Waiting';
+  // Remove "waiting" status - don't show a label for waiting sessions
   return null;
+});
+
+const displayDate = computed(() => {
+  // For scheduled sessions, show when they're scheduled to run
+  if (props.session.status === 'scheduled' && props.session.scheduledAt) {
+    return props.session.scheduledAt;
+  }
+  // For all other sessions, show creation time
+  return props.session.createdAt;
+});
+
+const nextTemplateName = computed(() => {
+  if (!props.session.nextTemplateId) return null;
+  const template = templatesStore.getTemplateById(props.session.nextTemplateId);
+  return template?.name || null;
 });
 
 const formatDate = (timestamp) => {
@@ -116,10 +139,6 @@ const formatDate = (timestamp) => {
   color: var(--color-error, #f85149);
 }
 
-.workflow-session-status.status-waiting {
-  color: var(--color-warning, #d29922);
-}
-
 .workflow-session-name {
   font-size: 0.875rem;
   font-weight: 500;
@@ -143,6 +162,18 @@ const formatDate = (timestamp) => {
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-right: 0.5rem;
+}
+
+.workflow-session-meta-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.workflow-session-next {
+  font-size: 0.7rem;
+  color: var(--color-primary, #06b6d4);
 }
 
 .workflow-session-date {

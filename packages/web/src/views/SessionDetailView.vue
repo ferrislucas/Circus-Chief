@@ -108,9 +108,6 @@
         </div>
       </div>
 
-      <!-- Scheduling Info Panel -->
-      <SchedulingInfo v-if="sessionsStore.currentSession" :session="sessionsStore.currentSession" />
-
       <div class="tabs">
         <router-link
           :to="`/projects/${sessionsStore.currentSession.projectId}/sessions`"
@@ -151,6 +148,9 @@
           </select>
         </div>
       </div>
+
+      <!-- Scheduling Info Panel -->
+      <SchedulingInfo v-if="sessionsStore.currentSession" :session="sessionsStore.currentSession" />
 
       <div class="tab-content">
         <!-- CRITICAL: :key ensures components remount when navigating between sessions,

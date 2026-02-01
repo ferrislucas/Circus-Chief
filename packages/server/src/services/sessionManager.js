@@ -937,8 +937,10 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
         return; // Session was rescheduled, don't continue with normal completion
       }
 
+      // Extract PR URL immediately (lightweight, no API call)
+      summaryService.extractPrUrlIfNeeded(sessionId);
       // Trigger summary generation when session completes a turn
-      summaryService.onSessionActivity(sessionId);
+      summaryService.onSessionComplete(sessionId);
 
       // Broadcast changes update when turn completes (real-time indicator)
       const currentSession = sessions.getById(sessionId);
@@ -1127,8 +1129,10 @@ export async function continueSession(sessionId, content, workingDirectory, syst
         return; // Session was rescheduled, don't continue with normal completion
       }
 
+      // Extract PR URL immediately (lightweight, no API call)
+      summaryService.extractPrUrlIfNeeded(sessionId);
       // Trigger summary generation when session completes a turn
-      summaryService.onSessionActivity(sessionId);
+      summaryService.onSessionComplete(sessionId);
 
       // Broadcast changes update when turn completes (real-time indicator)
       const currentSession = sessions.getById(sessionId);
@@ -1303,8 +1307,10 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
         return; // Session was rescheduled, don't continue with normal completion
       }
 
+      // Extract PR URL immediately (lightweight, no API call)
+      summaryService.extractPrUrlIfNeeded(sessionId);
       // Trigger summary generation when session completes a turn
-      summaryService.onSessionActivity(sessionId);
+      summaryService.onSessionComplete(sessionId);
 
       // Broadcast changes update when turn completes (real-time indicator)
       const currentSession = sessions.getById(sessionId);
@@ -1785,6 +1791,7 @@ async function handleStreamEvent(sessionId, event) {
               cacheCreationInputTokens: updatedConversation.cacheCreationInputTokens,
               webSearchRequests: updatedConversation.webSearchRequests,
               contextWindow: updatedConversation.contextWindow,
+              model: updatedConversation.model,  // Include model for robustness
             } : cumulativeSessionUsage,
             turnUsage,
             isFinal: true,
