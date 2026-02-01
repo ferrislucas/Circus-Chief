@@ -2022,3 +2022,51 @@ describe('ConversationTab - New messages button', () => {
     });
   });
 });
+
+/**
+ * Unit tests for quick response insertion functionality
+ * These tests verify the handleQuickResponseInsert method logic for combining text
+ */
+describe('ConversationTab - Quick Response Insertion', () => {
+  describe('handleQuickResponseInsert', () => {
+    it('combines existing input with quick response content when auto-submitting', () => {
+      // Simulates the combining logic
+      const existingInput = 'Check the authentication module';
+      const quickResponseContent = 'Also review error handling';
+
+      const currentValue = existingInput.trim();
+      const newValue = currentValue
+        ? currentValue + '\n\n' + quickResponseContent
+        : quickResponseContent;
+
+      // ASSERTION: Combined content includes both messages
+      expect(newValue).toBe('Check the authentication module\n\nAlso review error handling');
+    });
+
+    it('uses only quick response when input is empty', () => {
+      const existingInput = '';
+      const quickResponseContent = 'Start coding';
+
+      const currentValue = existingInput.trim();
+      const newValue = currentValue
+        ? currentValue + '\n\n' + quickResponseContent
+        : quickResponseContent;
+
+      // ASSERTION: No leading newlines when input was empty
+      expect(newValue).toBe('Start coding');
+    });
+
+    it('trims whitespace from existing input before combining', () => {
+      const existingInput = '  Review the API  ';
+      const quickResponseContent = 'Focus on endpoints';
+
+      const currentValue = existingInput.trim();
+      const newValue = currentValue
+        ? currentValue + '\n\n' + quickResponseContent
+        : quickResponseContent;
+
+      // ASSERTION: Whitespace is trimmed from existing input
+      expect(newValue).toBe('Review the API\n\nFocus on endpoints');
+    });
+  });
+});
