@@ -76,11 +76,17 @@ test.describe('Conversation Branching', () => {
     // Close the dropdown
     await conversationSelector.click();
 
-    // 3. The new message should appear in the conversation
+    // 3. The URL should contain the new conversation ID in the query parameter
+    // This ensures proper navigation and UI reset after branching
+    await page.waitForURL(/conv=.+/, { timeout: 5000 });
+    const url = page.url();
+    expect(url).toMatch(/\?conv=[a-f0-9-]+/);
+
+    // 4. The new message should appear in the conversation
     // We should see the branched prompt
     await expect(page.locator('[data-testid="message-user"]').last()).toContainText('Hello from the branched conversation', { timeout: 5000 });
 
-    // That's enough - we've verified the UI doesn't hang and updates immediately
+    // That's enough - we've verified the UI doesn't hang, URL is updated, and conversation content loads
     // The actual Claude response is not critical for this bug fix
   });
 

@@ -895,6 +895,7 @@ router.patch('/:id', (req, res) => {
     model,
     providerId,
     prUrl,
+    pendingModel,
     // Scheduling fields
     scheduledAt,
     autoRescheduleEnabled,
@@ -938,6 +939,9 @@ router.patch('/:id', (req, res) => {
   }
   if (model !== undefined) {
     updateData.model = model;
+  }
+  if (pendingModel !== undefined) {
+    updateData.pendingModel = pendingModel;
   }
   // Provider ID - allow setting, updating, or clearing (null clears it to use Anthropic)
   if (providerId !== undefined) {
@@ -1165,6 +1169,7 @@ router.post('/:id/schedule', async (req, res) => {
 
   const {
     scheduledAt,
+    pendingModel,
     autoRescheduleEnabled,
     rescheduleDelayMinutes,
     rescheduleOnTokenLimit,
@@ -1224,6 +1229,9 @@ router.post('/:id/schedule', async (req, res) => {
     }
     if (rescheduleAtTokenCount !== undefined) {
       updateData.rescheduleAtTokenCount = rescheduleAtTokenCount ? parseInt(rescheduleAtTokenCount, 10) : null;
+    }
+    if (pendingModel !== undefined) {
+      updateData.pendingModel = pendingModel;
     }
 
     const updated = sessions.update(req.params.id, updateData);
@@ -1288,8 +1296,8 @@ router.delete('/:id', async (req, res) => {
   // Clean up summary service debounce timers
   summaryService.cleanupSession(req.params.id);
 
-  // Remove git worktree if session has one
-  if (session.gitWorktree && project) {
+  // Remove git worktree if session has one (skip for child sessions - they may share parent's worktree)
+  if (session.gitWorktree && project && !session.parentSessionId) {
     try {
       await gitService.removeWorktree(project.workingDirectory, session.gitWorktree, true);
     } catch (error) {
@@ -1322,8 +1330,8 @@ router.delete('/:id', async (req, res) => {
   sessions.delete(req.params.id);
 
   // Execute on_session_deleted hook if configured (non-blocking)
-  // Use session's worktree directory if available, otherwise project directory
-  if (project?.onSessionDeleted) {
+  // Skip for child sessions - they share parent's resources and shouldn't trigger teardown
+  if (project?.onSessionDeleted && !session.parentSessionId) {
     const hookWorkingDirectory = session.gitWorktree || project.workingDirectory;
     executeHookAsync(project.onSessionDeleted, hookWorkingDirectory, {
       sessionId: session.id,

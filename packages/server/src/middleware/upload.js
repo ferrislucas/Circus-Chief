@@ -72,3 +72,23 @@ export function handleUploadError(err, req, res, next) {
   }
   next();
 }
+
+/**
+ * Wrapper that makes multer skip processing for non-multipart requests
+ * This allows the same route to handle both JSON and multipart/form-data requests
+ */
+export function uploadMiddleware(fieldName, maxCount) {
+  return (req, res, next) => {
+    // Check if the request is multipart/form-data
+    const contentType = req.get('content-type');
+
+    if (!contentType || !contentType.startsWith('multipart/form-data')) {
+      // Not a multipart request, skip multer processing
+      req.files = [];
+      return next();
+    }
+
+    // Multipart request, use multer to process
+    upload.array(fieldName, maxCount)(req, res, next);
+  };
+}
