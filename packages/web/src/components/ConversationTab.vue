@@ -193,7 +193,9 @@
         :session-status="sessionsStore.currentSession?.status"
         :is-draft="isDraft"
         :input-has-content="inputHasContent"
+        :auto-reschedule-enabled="sessionsStore.currentSession?.autoRescheduleEnabled"
         @openSchedule="showScheduleModal = true"
+        @openAutoReschedule="showAutoRescheduleModal = true"
         @update:templateId="handleTemplateChange"
       />
     </form>
@@ -266,6 +268,14 @@
       @close="closeScheduleModal"
     />
 
+    <!-- Auto-Reschedule Modal -->
+    <AutoRescheduleModal
+      :is-open="showAutoRescheduleModal"
+      :session="sessionsStore.currentSession"
+      @close="showAutoRescheduleModal = false"
+      @saved="showAutoRescheduleModal = false"
+    />
+
     <!-- Slash Command Wizard Modal -->
     <SlashCommandWizard
       v-model:isOpen="showSlashCommandWizard"
@@ -300,6 +310,7 @@ import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
 import BranchEditor from './BranchEditor.vue';
 import ScheduleSessionModal from './ScheduleSessionModal.vue';
+import AutoRescheduleModal from './AutoRescheduleModal.vue';
 import ResizableTextarea from './ResizableTextarea.vue';
 import SlashCommandButton from './SlashCommandButton.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
@@ -320,6 +331,7 @@ const projectsStore = useProjectsStore();
 const input = ref('');
 const quickResponseSettingsOpen = ref(false);
 const showScheduleModal = ref(false);
+const showAutoRescheduleModal = ref(false);
 const showSlashCommandWizard = ref(false);
 const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
 const saveError = ref('');
@@ -752,6 +764,8 @@ watch(
   async (newStatus, oldStatus) => {
     if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
       console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
+      // Clear any lingering streaming state (Step 2 - safety net)
+      partialText.value = '';
       // Fetch messages first, then work logs - this ensures messages are visible
       await sessionsStore.fetchMessages(props.sessionId, false);
       await sessionsStore.fetchWorkLogs(props.sessionId);
@@ -788,6 +802,16 @@ watch(
   () => sessionsStore.activeConversationId,
   async (newConvId, oldConvId) => {
     if (newConvId && newConvId !== oldConvId) {
+      // Clear streaming message state from previous conversation (Step 1)
+      partialText.value = '';
+
+      // Clear throttle timer to prevent stale partial updates (Step 3)
+      if (partialThrottleTimer) {
+        clearTimeout(partialThrottleTimer);
+        partialThrottleTimer = null;
+      }
+      pendingPartialText = null;
+
       // Reset scroll state when switching conversations
       hasNewMessages.value = false;
       isNearBottom.value = true;

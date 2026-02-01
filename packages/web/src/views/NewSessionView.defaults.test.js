@@ -166,7 +166,7 @@ describe('NewSessionView - Defaults Integration', () => {
         thinkingEnabled: null,
       };
 
-      let model = 'claude-sonnet-4-5-20250929'; // DEFAULT_MODEL
+      let model = null; // Start with null, let defaults or ModelSelector set it
       if (defaults.model) {
         model = defaults.model;
       }
