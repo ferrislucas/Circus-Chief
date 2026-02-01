@@ -5,7 +5,7 @@ import { ref, reactive } from 'vue';
 import TemplatesPanel from './TemplatesPanel.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
-import { CLAUDE_MODELS } from '@claudetools/shared';
+import { useProvidersStore } from '../stores/providers.js';
 
 // Mock the router
 const mockRouter = {
@@ -26,9 +26,25 @@ vi.mock('../stores/ui.js', () => ({
   useUiStore: vi.fn(),
 }));
 
+// Mock the providers store
+vi.mock('../stores/providers.js', () => ({
+  useProvidersStore: vi.fn(),
+}));
+
+// Mock ModelSelector component
+vi.mock('./ModelSelector.vue', () => ({
+  default: {
+    name: 'ModelSelector',
+    template: '<div class="model-selector-mock"></div>',
+    props: ['modelValue'],
+    emits: ['update:modelValue'],
+  },
+}));
+
 describe('TemplatesPanel - Model and Mode Selectors', () => {
   let templatesStoreMock;
   let uiStoreMock;
+  let providersStoreMock;
   let pinia;
   let projectTemplates;
   let globalTemplates;
@@ -63,9 +79,26 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       error: vi.fn(),
     };
 
+    // Setup providers store mock
+    providersStoreMock = reactive({
+      providers: [
+        {
+          id: 'anthropic',
+          name: 'Anthropic',
+          isBuiltIn: true,
+          models: [
+            { modelId: 'claude-opus-4-20250514', displayName: 'Opus 4', tier: 'opus' },
+            { modelId: 'claude-sonnet-4-5-20250929', displayName: 'Sonnet 4.5', tier: 'sonnet' },
+            { modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', tier: 'haiku' },
+          ],
+        },
+      ],
+    });
+
     // Register mocks
     useTemplatesStore.mockReturnValue(templatesStoreMock);
     useUiStore.mockReturnValue(uiStoreMock);
+    useProvidersStore.mockReturnValue(providersStoreMock);
   });
 
   describe('Model Selector', () => {
@@ -85,7 +118,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       expect(modelLabel).toContain('Model');
     });
 
-    it('renders all CLAUDE_MODELS as options', async () => {
+    it('renders ModelSelector component', async () => {
       const wrapper = mount(TemplatesPanel, {
         props: { projectId: 'proj-1' },
         global: {
@@ -98,24 +131,12 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       await wrapper.find('[data-testid="new-template-btn"]').trigger('click');
       await wrapper.vm.$nextTick();
 
-      // Find the model select (should be in the form)
-      const modelSelects = wrapper.findAll('select');
-      const modelSelect = modelSelects.find(select => {
-        const options = select.findAll('option');
-        return options.length === CLAUDE_MODELS.length;
-      });
-
-      expect(modelSelect).toBeTruthy();
-      if (modelSelect) {
-        const options = modelSelect.findAll('option');
-        expect(options.length).toBe(CLAUDE_MODELS.length);
-
-        // Check that first option is Haiku 4.5
-        expect(options[0].text()).toBe('Haiku 4.5');
-      }
+      // Find the ModelSelector component
+      const modelSelector = wrapper.findComponent({ name: 'ModelSelector' });
+      expect(modelSelector.exists()).toBe(true);
     });
 
-    it('pre-selects claude-opus-4-5-20251101 as default model', () => {
+    it('initializes model as null (no default selected)', () => {
       const wrapper = mount(TemplatesPanel, {
         props: { projectId: 'proj-1' },
         global: {
@@ -124,8 +145,8 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
         },
       });
 
-      // The component's formData should have the default model
-      expect(wrapper.vm.formData.model).toBe('claude-opus-4-5-20251101');
+      // The component's formData should have null for model
+      expect(wrapper.vm.formData.model).toBeNull();
     });
 
     it('updates formData.model when different model is selected', async () => {
@@ -267,7 +288,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       );
     });
 
-    it('sends undefined when model equals default', async () => {
+    it('sends the model value as-is', async () => {
       templatesStoreMock.createProjectTemplate.mockResolvedValue({});
 
       const wrapper = mount(TemplatesPanel, {
@@ -281,10 +302,10 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       // Open create form
       await wrapper.find('[data-testid="new-template-btn"]').trigger('click');
 
-      // Set form data with default model
+      // Set form data with a specific model
       wrapper.vm.formData.name = 'Test Template';
       wrapper.vm.formData.prompt = 'Test prompt';
-      wrapper.vm.formData.model = 'claude-opus-4-5-20251101'; // default
+      wrapper.vm.formData.model = 'claude-opus-4-20250514';
 
       // Submit form
       await wrapper.find('form').trigger('submit');
@@ -293,7 +314,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       expect(templatesStoreMock.createProjectTemplate).toHaveBeenCalledWith(
         'proj-1',
         expect.objectContaining({
-          model: undefined, // Should be undefined when equal to default
+          model: 'claude-opus-4-20250514', // Should send the actual value
         })
       );
     });
@@ -467,8 +488,8 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
         },
       });
 
-      const modelName = wrapper.vm.getModelName('claude-opus-4-5-20251101');
-      expect(modelName).toBe('Opus 4.5');
+      const modelName = wrapper.vm.getModelName('claude-opus-4-20250514');
+      expect(modelName).toBe('Opus 4');
     });
 
     it('returns model ID for unknown model ID', () => {
@@ -499,7 +520,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
   });
 
   describe('Form Reset', () => {
-    it('resets model to default after cancel', () => {
+    it('resets model to null after cancel', () => {
       const wrapper = mount(TemplatesPanel, {
         props: { projectId: 'proj-1' },
         global: {
@@ -514,7 +535,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       // Reset form
       wrapper.vm.resetForm();
 
-      expect(wrapper.vm.formData.model).toBe('claude-opus-4-5-20251101');
+      expect(wrapper.vm.formData.model).toBeNull();
     });
 
     it('resets mode to default after cancel', () => {
@@ -537,7 +558,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
   });
 
   describe('Form Initialization', () => {
-    it('initializes formData with default model and mode', () => {
+    it('initializes formData with null model and default mode', () => {
       const wrapper = mount(TemplatesPanel, {
         props: { projectId: 'proj-1' },
         global: {
@@ -553,7 +574,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
         nextTemplateId: null,
         thinkingEnabled: false,
         gitBranch: '',
-        model: 'claude-opus-4-5-20251101',
+        model: null,
         mode: 'yolo',
       });
     });
