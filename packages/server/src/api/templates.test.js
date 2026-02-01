@@ -63,6 +63,8 @@ describe('Templates API', () => {
         thinkingEnabled: true,
         gitBranch: 'feature-branch',
         gitMode: 'worktree',
+        model: 'claude-sonnet-4-20250514',
+        mode: 'plan',
       });
 
       expect(res.status).toBe(201);
@@ -70,6 +72,8 @@ describe('Templates API', () => {
       expect(res.body.thinkingEnabled).toBe(true);
       expect(res.body.gitBranch).toBe('feature-branch');
       expect(res.body.gitMode).toBe('worktree');
+      expect(res.body.model).toBe('claude-sonnet-4-20250514');
+      expect(res.body.mode).toBe('plan');
     });
 
     it('returns 400 for missing name', async () => {
@@ -168,6 +172,87 @@ describe('Templates API', () => {
       });
 
       expect(res.status).toBe(404);
+    });
+
+    it('updates model field', async () => {
+      const template = sessionTemplates.create({
+        projectId: null,
+        name: 'Template',
+        prompt: 'Prompt',
+      });
+
+      const res = await request(app).patch(`/api/templates/${template.id}`).send({
+        model: 'claude-opus-4-20250514',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.model).toBe('claude-opus-4-20250514');
+    });
+
+    it('updates mode field', async () => {
+      const template = sessionTemplates.create({
+        projectId: null,
+        name: 'Template',
+        prompt: 'Prompt',
+      });
+
+      const res = await request(app).patch(`/api/templates/${template.id}`).send({
+        mode: 'standard',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.mode).toBe('standard');
+    });
+
+    it('updates gitBranch field', async () => {
+      const template = sessionTemplates.create({
+        projectId: null,
+        name: 'Template',
+        prompt: 'Prompt',
+      });
+
+      const res = await request(app).patch(`/api/templates/${template.id}`).send({
+        gitBranch: 'feature/new-feature',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.gitBranch).toBe('feature/new-feature');
+    });
+
+    it('updates gitMode field', async () => {
+      const template = sessionTemplates.create({
+        projectId: null,
+        name: 'Template',
+        prompt: 'Prompt',
+      });
+
+      const res = await request(app).patch(`/api/templates/${template.id}`).send({
+        gitMode: 'branch',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.gitMode).toBe('branch');
+    });
+
+    it('updates all new fields together', async () => {
+      const template = sessionTemplates.create({
+        projectId: null,
+        name: 'Template',
+        prompt: 'Prompt',
+      });
+
+      const res = await request(app).patch(`/api/templates/${template.id}`).send({
+        model: 'claude-sonnet-4-20250514',
+        mode: 'plan',
+        gitBranch: 'develop',
+        gitMode: 'worktree',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.model).toBe('claude-sonnet-4-20250514');
+      expect(res.body.mode).toBe('plan');
+      expect(res.body.gitBranch).toBe('develop');
+      expect(res.body.gitMode).toBe('worktree');
     });
   });
 
