@@ -9,7 +9,7 @@ import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
-import { upload, handleUploadError, uploadMiddleware } from '../middleware/upload.js';
+import { handleUploadError, uploadMiddleware } from '../middleware/upload.js';
 
 const router = Router();
 
