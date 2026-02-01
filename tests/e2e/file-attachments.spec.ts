@@ -21,6 +21,15 @@ async function prepareSessionForTest(page: any, sessionId: string) {
   await page.waitForTimeout(500);
 }
 
+// Helper to prepare session for UI testing (non-draft status)
+async function prepareSessionForUITest(page: any, sessionId: string) {
+  // Set session to stopped status so it's not considered a draft
+  // and messages (including attachments) will be visible in the conversation view
+  await updateSessionStatus(sessionId, 'stopped');
+  // Wait for status to be reflected
+  await page.waitForTimeout(500);
+}
+
 test.describe('File Attachments - Session Creation', () => {
   let project: any;
 
@@ -221,7 +230,7 @@ test.describe('File Attachments - UI Display', () => {
     );
 
     await navigateAndWait(page, `/sessions/${session.id}/conversation`);
-    await prepareSessionForTest(page, session.id);
+    await prepareSessionForUITest(page, session.id);
     await page.reload();
     await page.waitForLoadState('networkidle');
 
@@ -241,7 +250,7 @@ test.describe('File Attachments - UI Display', () => {
     );
 
     await navigateAndWait(page, `/sessions/${session.id}/conversation`);
-    await prepareSessionForTest(page, session.id);
+    await prepareSessionForUITest(page, session.id);
     await page.reload();
     await page.waitForLoadState('networkidle');
 

@@ -128,7 +128,8 @@ test.describe('Session Management', () => {
 
   test('can create a new session', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('text=New Session');
+    // Click the visible desktop "New Session" button (mobile-only button is hidden)
+    await page.locator('.desktop-only:has-text("New Session")').click();
 
     await expect(page).toHaveURL(`/projects/${project.id}/sessions/new`);
 
