@@ -1791,6 +1791,7 @@ async function handleStreamEvent(sessionId, event) {
               cacheCreationInputTokens: updatedConversation.cacheCreationInputTokens,
               webSearchRequests: updatedConversation.webSearchRequests,
               contextWindow: updatedConversation.contextWindow,
+              model: updatedConversation.model,  // Include model for robustness
             } : cumulativeSessionUsage,
             turnUsage,
             isFinal: true,

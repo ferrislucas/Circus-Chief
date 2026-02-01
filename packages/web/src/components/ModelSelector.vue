@@ -61,6 +61,9 @@ const defaultModel = computed(() => {
   return firstProvider?.models?.[0]?.modelId || null;
 });
 
+// Track if we've already initialized (to prevent default model from overriding after init)
+const hasInitialized = ref(false);
+
 // Fetch providers with models on mount
 onMounted(async () => {
   // Fetch if no providers OR if providers exist but don't have models loaded
@@ -68,10 +71,11 @@ onMounted(async () => {
     await providersStore.fetchProvidersWithModels();
   }
 
-  // If no model is selected yet, emit the default
-  if (!props.modelValue && defaultModel.value) {
+  // Only set default on initial mount if no model was provided
+  if (!hasInitialized.value && props.modelValue === null && defaultModel.value) {
     emit('update:modelValue', defaultModel.value);
   }
+  hasInitialized.value = true;
 });
 
 // Local state for optimistic UI updates - provides immediate visual feedback
@@ -83,13 +87,8 @@ watch(modelValueRef, (newModel) => {
   selectedModel.value = newModel;
 }, { flush: 'sync' });
 
-// Also watch for default model becoming available (after providers load)
-watch(defaultModel, (newDefault) => {
-  if (!selectedModel.value && newDefault) {
-    selectedModel.value = newDefault;
-    emit('update:modelValue', newDefault);
-  }
-});
+// NOTE: Removed defaultModel watcher - it should not override after initialization
+// The default is now only applied once during onMounted (see above)
 
 function handleModelChange(modelId) {
   if (selectedModel.value === modelId) return;

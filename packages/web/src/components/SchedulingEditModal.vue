@@ -13,6 +13,29 @@
             {{ error }}
           </div>
 
+          <!-- Session Settings Section -->
+          <div class="form-section">
+            <h3 class="section-title">Session Settings</h3>
+
+            <div class="form-group">
+              <label class="form-label">Model</label>
+              <ModelSelector v-model="form.model" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Mode</label>
+              <ModeSelector v-model="form.mode" />
+            </div>
+
+            <div class="form-group">
+              <label class="toggle-switch">
+                <input type="checkbox" v-model="form.thinkingEnabled" />
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Extended Thinking</span>
+              </label>
+            </div>
+          </div>
+
           <!-- Schedule Time (only for scheduled sessions) -->
           <div v-if="session?.status === 'scheduled'" class="form-group">
             <label for="scheduled-at" class="form-label">Scheduled Time</label>
@@ -123,6 +146,8 @@
 import { ref, reactive, computed, watch } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
+import ModelSelector from './ModelSelector.vue';
+import ModeSelector from './ModeSelector.vue';
 
 const props = defineProps({
   isOpen: Boolean,
@@ -138,6 +163,11 @@ const error = ref(null);
 
 const form = reactive({
   scheduledAtLocal: '',
+  // Session settings
+  model: null,
+  mode: 'standard',
+  thinkingEnabled: false,
+  // Scheduling options
   autoRescheduleEnabled: false,
   rescheduleDelayMinutes: 15,
   rescheduleOnTokenLimit: true,
@@ -175,6 +205,11 @@ async function handleSave() {
 
   try {
     const updateData = {
+      // Session settings
+      model: form.model,
+      mode: form.mode,
+      thinkingEnabled: form.thinkingEnabled,
+      // Scheduling options
       autoRescheduleEnabled: form.autoRescheduleEnabled,
       rescheduleDelayMinutes: form.rescheduleDelayMinutes,
       rescheduleOnTokenLimit: form.rescheduleOnTokenLimit,
@@ -215,6 +250,11 @@ watch(
     if (isOpen && props.session) {
       error.value = null; // Clear any previous errors
       form.scheduledAtLocal = convertToLocalDatetime(props.session.scheduledAt);
+      // Session settings
+      form.model = props.session.model || null;
+      form.mode = props.session.mode || 'standard';
+      form.thinkingEnabled = props.session.thinkingEnabled || false;
+      // Scheduling options
       form.autoRescheduleEnabled = props.session.autoRescheduleEnabled || false;
       form.rescheduleDelayMinutes = props.session.rescheduleDelayMinutes || 15;
       form.rescheduleOnTokenLimit = props.session.rescheduleOnTokenLimit ?? true;
@@ -287,6 +327,23 @@ watch(
   overflow-y: auto;
   min-height: 0;
   padding: 1.5rem;
+}
+
+.form-section {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.form-section:last-of-type {
+  border-bottom: none;
+}
+
+.section-title {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
 }
 
 .error-message {
