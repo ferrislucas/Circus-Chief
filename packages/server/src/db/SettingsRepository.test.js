@@ -246,4 +246,206 @@ describe('SettingsRepository', () => {
       expect(repo.get('token_cost_weights')).toBeNull();
     });
   });
+
+  describe('getSummarySettings', () => {
+    it('returns default settings when not set', () => {
+      const settings = repo.getSummarySettings();
+
+      expect(settings).toEqual({
+        disableSessionSummaries: false,
+        disableConversationSummaries: false,
+        sessionTitlePrompt: '',
+      });
+    });
+
+    it('returns saved custom settings', () => {
+      const customSettings = {
+        disableSessionSummaries: true,
+        disableConversationSummaries: false,
+        sessionTitlePrompt: 'Custom prompt',
+      };
+      repo.setSummarySettings(customSettings);
+
+      const retrieved = repo.getSummarySettings();
+      expect(retrieved).toEqual(customSettings);
+    });
+
+    it('merges partial settings with defaults', () => {
+      // Manually set incomplete settings (simulating corruption/migration)
+      repo.set('summary_settings', JSON.stringify({ disableSessionSummaries: true }));
+
+      const settings = repo.getSummarySettings();
+      expect(settings.disableSessionSummaries).toBe(true);
+      expect(settings.disableConversationSummaries).toBe(false);
+      expect(settings.sessionTitlePrompt).toBe('');
+    });
+
+    it('returns defaults when stored value is invalid JSON', () => {
+      repo.set('summary_settings', 'invalid-json{');
+      const settings = repo.getSummarySettings();
+      expect(settings).toEqual({
+        disableSessionSummaries: false,
+        disableConversationSummaries: false,
+        sessionTitlePrompt: '',
+      });
+    });
+
+    it('does not mutate default settings', () => {
+      const settings = repo.getSummarySettings();
+      settings.disableSessionSummaries = true;
+
+      const newSettings = repo.getSummarySettings();
+      expect(newSettings.disableSessionSummaries).toBe(false);
+    });
+
+    it('coerces values to correct types', () => {
+      repo.set('summary_settings', JSON.stringify({
+        disableSessionSummaries: 1, // truthy number
+        disableConversationSummaries: '', // falsy string
+        sessionTitlePrompt: 123, // number
+      }));
+
+      const settings = repo.getSummarySettings();
+      // getSummarySettings returns truthy/falsy values as-is (uses || operator)
+      expect(settings.disableSessionSummaries).toBe(1);
+      expect(settings.disableConversationSummaries).toBe(false);
+      expect(settings.sessionTitlePrompt).toBe(123);
+    });
+  });
+
+  describe('setSummarySettings', () => {
+    it('saves and returns custom settings', () => {
+      const customSettings = {
+        disableSessionSummaries: true,
+        disableConversationSummaries: true,
+        sessionTitlePrompt: 'Test prompt',
+      };
+      const saved = repo.setSummarySettings(customSettings);
+
+      expect(saved).toEqual(customSettings);
+      expect(repo.getSummarySettings()).toEqual(customSettings);
+    });
+
+    it('validates and coerces disableSessionSummaries to boolean', () => {
+      const saved = repo.setSummarySettings({
+        disableSessionSummaries: 'true',
+        disableConversationSummaries: false,
+        sessionTitlePrompt: '',
+      });
+
+      expect(saved.disableSessionSummaries).toBe(true);
+      expect(typeof saved.disableSessionSummaries).toBe('boolean');
+    });
+
+    it('validates and coerces disableConversationSummaries to boolean', () => {
+      const saved = repo.setSummarySettings({
+        disableSessionSummaries: false,
+        disableConversationSummaries: 1,
+        sessionTitlePrompt: '',
+      });
+
+      expect(saved.disableConversationSummaries).toBe(true);
+      expect(typeof saved.disableConversationSummaries).toBe('boolean');
+    });
+
+    it('converts sessionTitlePrompt to string', () => {
+      const saved = repo.setSummarySettings({
+        disableSessionSummaries: false,
+        disableConversationSummaries: false,
+        sessionTitlePrompt: 12345,
+      });
+
+      expect(saved.sessionTitlePrompt).toBe('12345');
+      expect(typeof saved.sessionTitlePrompt).toBe('string');
+    });
+
+    it('handles null and undefined values', () => {
+      const saved = repo.setSummarySettings({
+        disableSessionSummaries: null,
+        disableConversationSummaries: undefined,
+        sessionTitlePrompt: null,
+      });
+
+      expect(saved.disableSessionSummaries).toBe(false);
+      expect(saved.disableConversationSummaries).toBe(false);
+      // null is converted to empty string via `|| ''` in implementation
+      expect(saved.sessionTitlePrompt).toBe('');
+    });
+
+    it('persists settings across repository instances', () => {
+      const customSettings = {
+        disableSessionSummaries: true,
+        disableConversationSummaries: false,
+        sessionTitlePrompt: 'Cross-instance test',
+      };
+      repo.setSummarySettings(customSettings);
+
+      // Create new repository instance
+      const newRepo = new SettingsRepository();
+      expect(newRepo.getSummarySettings()).toEqual(customSettings);
+    });
+
+    it('updates existing settings', () => {
+      repo.setSummarySettings({
+        disableSessionSummaries: false,
+        disableConversationSummaries: false,
+        sessionTitlePrompt: 'Original',
+      });
+
+      const updated = repo.setSummarySettings({
+        disableSessionSummaries: true,
+        disableConversationSummaries: true,
+        sessionTitlePrompt: 'Updated',
+      });
+
+      expect(updated.disableSessionSummaries).toBe(true);
+      expect(updated.disableConversationSummaries).toBe(true);
+      expect(updated.sessionTitlePrompt).toBe('Updated');
+      expect(repo.getSummarySettings()).toEqual(updated);
+    });
+  });
+
+  describe('resetSummarySettings', () => {
+    it('deletes custom settings and returns defaults', () => {
+      // Set custom settings
+      repo.setSummarySettings({
+        disableSessionSummaries: true,
+        disableConversationSummaries: true,
+        sessionTitlePrompt: 'Custom prompt',
+      });
+
+      // Reset to defaults
+      const defaults = repo.resetSummarySettings();
+
+      expect(defaults).toEqual({
+        disableSessionSummaries: false,
+        disableConversationSummaries: false,
+        sessionTitlePrompt: '',
+      });
+      expect(repo.getSummarySettings()).toEqual(defaults);
+    });
+
+    it('returns defaults even if no custom settings were set', () => {
+      const defaults = repo.resetSummarySettings();
+      expect(defaults).toEqual({
+        disableSessionSummaries: false,
+        disableConversationSummaries: false,
+        sessionTitlePrompt: '',
+      });
+    });
+
+    it('actually deletes the setting from database', () => {
+      repo.setSummarySettings({
+        disableSessionSummaries: true,
+        disableConversationSummaries: false,
+        sessionTitlePrompt: 'Test',
+      });
+
+      expect(repo.get('summary_settings')).not.toBeNull();
+
+      repo.resetSummarySettings();
+
+      expect(repo.get('summary_settings')).toBeNull();
+    });
+  });
 });

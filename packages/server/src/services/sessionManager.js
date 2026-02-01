@@ -114,17 +114,68 @@ function getApiBaseUrl() {
  * @param {Error} error - Error that occurred
  * @returns {boolean} True if should reschedule
  */
-export function shouldRescheduleOnError(session, error) {
+/**
+ * Check if error message matches token limit patterns
+ * @param {string} message - Error message to check
+ * @returns {boolean} True if matches token limit error
+ */
+function matchesTokenLimitError(message) {
+  const patterns = [
+    'token',
+    'context length',
+    'max_tokens',
+    'context window',
+    'limit',           // catches "You've hit your limit"
+    'quota',
+    'rate limit',
+    'exceeded',        // catches usage exceeded messages
+    'cap',             // catches usage cap messages
+  ];
+
+  return patterns.some(pattern => message.includes(pattern));
+}
+
+/**
+ * Check if error message matches service error patterns
+ * @param {string} message - Error message to check
+ * @returns {boolean} True if matches service error
+ */
+function matchesServiceError(message) {
+  const patterns = [
+    'overloaded',
+    'rate limit',
+    '503',
+    '529',
+    'unavailable',
+    'service unavailable',
+    'too many requests',
+  ];
+
+  return patterns.some(pattern => message.includes(pattern));
+}
+
+/**
+ * Get the last assistant message for a session
+ * @param {string} sessionId - Session ID
+ * @returns {object|null} Last assistant message or null
+ */
+function getLastAssistantMessage(sessionId) {
+  try {
+    const sessionMessages = messages.getBySessionId(sessionId);
+    const assistantMessages = sessionMessages.filter(msg => msg.role === 'assistant');
+    return assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1] : null;
+  } catch (error) {
+    console.error('[SessionManager] Error getting last assistant message:', error);
+    return null;
+  }
+}
+
+export function shouldRescheduleOnError(session, error, sessionId = null) {
   const errorMessage = error.message.toLowerCase();
 
-  // Check for token limit errors
+  // Check exception message first (existing behavior)
   if (session.rescheduleOnTokenLimit) {
-    if (
-      errorMessage.includes('token') ||
-      errorMessage.includes('context length') ||
-      errorMessage.includes('max_tokens') ||
-      errorMessage.includes('context window')
-    ) {
+    if (matchesTokenLimitError(errorMessage)) {
       console.log('[SessionManager] Token limit error detected, rescheduling will be attempted');
       console.log('[SessionManager] Error:', error.message);
       console.log('[SessionManager] Session config: rescheduleOnTokenLimit=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
@@ -134,17 +185,8 @@ export function shouldRescheduleOnError(session, error) {
     console.log('[SessionManager] rescheduleOnTokenLimit is false, skipping token limit rescheduling');
   }
 
-  // Check for service errors
   if (session.rescheduleOnServiceError) {
-    if (
-      errorMessage.includes('overloaded') ||
-      errorMessage.includes('rate limit') ||
-      errorMessage.includes('503') ||
-      errorMessage.includes('529') ||
-      errorMessage.includes('unavailable') ||
-      errorMessage.includes('service unavailable') ||
-      errorMessage.includes('too many requests')
-    ) {
+    if (matchesServiceError(errorMessage)) {
       console.log('[SessionManager] Service error detected, rescheduling will be attempted');
       console.log('[SessionManager] Error:', error.message);
       console.log('[SessionManager] Session config: rescheduleOnServiceError=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
@@ -152,6 +194,32 @@ export function shouldRescheduleOnError(session, error) {
     }
   } else {
     console.log('[SessionManager] rescheduleOnServiceError is false, skipping service error rescheduling');
+  }
+
+  // NEW: Also check last assistant message if available
+  if (sessionId) {
+    const lastAssistantMessage = getLastAssistantMessage(sessionId);
+    if (lastAssistantMessage) {
+      const messageContent = lastAssistantMessage.content.toLowerCase();
+
+      if (session.rescheduleOnTokenLimit) {
+        if (matchesTokenLimitError(messageContent)) {
+          console.log('[SessionManager] Token limit detected in assistant message, rescheduling');
+          console.log('[SessionManager] Assistant message:', lastAssistantMessage.content);
+          console.log('[SessionManager] Session config: rescheduleOnTokenLimit=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
+          return true;
+        }
+      }
+
+      if (session.rescheduleOnServiceError) {
+        if (matchesServiceError(messageContent)) {
+          console.log('[SessionManager] Service error detected in assistant message, rescheduling');
+          console.log('[SessionManager] Assistant message:', lastAssistantMessage.content);
+          console.log('[SessionManager] Session config: rescheduleOnServiceError=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
+          return true;
+        }
+      }
+    }
   }
 
   console.log('[SessionManager] Error does not match any rescheduling triggers');
@@ -937,8 +1005,10 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
         return; // Session was rescheduled, don't continue with normal completion
       }
 
+      // Extract PR URL immediately (lightweight, no API call)
+      summaryService.extractPrUrlIfNeeded(sessionId);
       // Trigger summary generation when session completes a turn
-      summaryService.onSessionActivity(sessionId);
+      summaryService.onSessionComplete(sessionId);
 
       // Broadcast changes update when turn completes (real-time indicator)
       const currentSession = sessions.getById(sessionId);
@@ -955,7 +1025,7 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     if (!controller.signal.aborted) {
       // Check if we should reschedule instead of marking as error
       const session = sessions.getById(sessionId);
-      if (session && shouldRescheduleOnError(session, error)) {
+      if (session && shouldRescheduleOnError(session, error, sessionId)) {
         const rescheduled = await schedulerService.rescheduleSession(sessionId, error.message);
         if (rescheduled) {
           console.log(`[SessionManager] Session ${sessionId} rescheduled due to error`);
@@ -1127,8 +1197,10 @@ export async function continueSession(sessionId, content, workingDirectory, syst
         return; // Session was rescheduled, don't continue with normal completion
       }
 
+      // Extract PR URL immediately (lightweight, no API call)
+      summaryService.extractPrUrlIfNeeded(sessionId);
       // Trigger summary generation when session completes a turn
-      summaryService.onSessionActivity(sessionId);
+      summaryService.onSessionComplete(sessionId);
 
       // Broadcast changes update when turn completes (real-time indicator)
       const currentSession = sessions.getById(sessionId);
@@ -1145,7 +1217,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     if (!controller.signal.aborted) {
       // Check if we should reschedule instead of marking as error
       const session = sessions.getById(sessionId);
-      if (session && shouldRescheduleOnError(session, error)) {
+      if (session && shouldRescheduleOnError(session, error, sessionId)) {
         const rescheduled = await schedulerService.rescheduleSession(sessionId, error.message);
         if (rescheduled) {
           console.log(`[SessionManager] Session ${sessionId} rescheduled due to error`);
@@ -1303,8 +1375,10 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
         return; // Session was rescheduled, don't continue with normal completion
       }
 
+      // Extract PR URL immediately (lightweight, no API call)
+      summaryService.extractPrUrlIfNeeded(sessionId);
       // Trigger summary generation when session completes a turn
-      summaryService.onSessionActivity(sessionId);
+      summaryService.onSessionComplete(sessionId);
 
       // Broadcast changes update when turn completes (real-time indicator)
       const currentSession = sessions.getById(sessionId);
@@ -1321,7 +1395,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     if (!controller.signal.aborted) {
       // Check if we should reschedule instead of marking as error
       const session = sessions.getById(sessionId);
-      if (session && shouldRescheduleOnError(session, error)) {
+      if (session && shouldRescheduleOnError(session, error, sessionId)) {
         const rescheduled = await schedulerService.rescheduleSession(sessionId, error.message);
         if (rescheduled) {
           console.log(`[SessionManager] Session ${sessionId} rescheduled due to error`);
@@ -1785,6 +1859,7 @@ async function handleStreamEvent(sessionId, event) {
               cacheCreationInputTokens: updatedConversation.cacheCreationInputTokens,
               webSearchRequests: updatedConversation.webSearchRequests,
               contextWindow: updatedConversation.contextWindow,
+              model: updatedConversation.model,  // Include model for robustness
             } : cumulativeSessionUsage,
             turnUsage,
             isFinal: true,

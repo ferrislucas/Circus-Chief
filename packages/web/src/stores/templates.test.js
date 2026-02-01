@@ -167,6 +167,40 @@ describe('Templates Store', () => {
         expect(store.projectTemplates[0]).toEqual(newTemplate);
       });
 
+      it('creates template with all optional fields', async () => {
+        const store = useTemplatesStore();
+        const newTemplate = {
+          id: '1',
+          name: 'New Template',
+          projectId: 'proj-123',
+          model: 'claude-sonnet-4-20250514',
+          mode: 'plan',
+          gitBranch: 'feature/test',
+          gitMode: 'worktree',
+        };
+        api.createProjectTemplate.mockResolvedValue(newTemplate);
+
+        const result = await store.createProjectTemplate('proj-123', {
+          name: 'New Template',
+          prompt: 'Do something',
+          model: 'claude-sonnet-4-20250514',
+          mode: 'plan',
+          gitBranch: 'feature/test',
+          gitMode: 'worktree',
+        });
+
+        expect(api.createProjectTemplate).toHaveBeenCalledWith('proj-123', {
+          name: 'New Template',
+          prompt: 'Do something',
+          model: 'claude-sonnet-4-20250514',
+          mode: 'plan',
+          gitBranch: 'feature/test',
+          gitMode: 'worktree',
+        });
+        expect(result).toEqual(newTemplate);
+        expect(store.projectTemplates[0]).toEqual(newTemplate);
+      });
+
       it('adds new template at the beginning of list', async () => {
         const store = useTemplatesStore();
         store.projectTemplates = [{ id: 'existing', name: 'Existing' }];
@@ -249,6 +283,41 @@ describe('Templates Store', () => {
         expect(api.updateTemplate).toHaveBeenCalledWith('1', { name: 'Updated' });
         expect(result).toEqual(updated);
         expect(store.projectTemplates[0].name).toBe('Updated');
+      });
+
+      it('updates template with new fields', async () => {
+        const store = useTemplatesStore();
+        store.projectTemplates = [{ id: '1', name: 'Original', prompt: 'Original prompt' }];
+
+        const updated = {
+          id: '1',
+          name: 'Updated',
+          prompt: 'Updated prompt',
+          model: 'claude-sonnet-4-20250514',
+          mode: 'plan',
+          gitBranch: 'develop',
+          gitMode: 'branch',
+        };
+        api.updateTemplate.mockResolvedValue(updated);
+
+        const result = await store.updateTemplate('1', {
+          model: 'claude-sonnet-4-20250514',
+          mode: 'plan',
+          gitBranch: 'develop',
+          gitMode: 'branch',
+        });
+
+        expect(api.updateTemplate).toHaveBeenCalledWith('1', {
+          model: 'claude-sonnet-4-20250514',
+          mode: 'plan',
+          gitBranch: 'develop',
+          gitMode: 'branch',
+        });
+        expect(result).toEqual(updated);
+        expect(store.projectTemplates[0].model).toBe('claude-sonnet-4-20250514');
+        expect(store.projectTemplates[0].mode).toBe('plan');
+        expect(store.projectTemplates[0].gitBranch).toBe('develop');
+        expect(store.projectTemplates[0].gitMode).toBe('branch');
       });
 
       it('updates template in global list', async () => {
