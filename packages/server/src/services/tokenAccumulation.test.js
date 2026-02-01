@@ -23,6 +23,7 @@ vi.mock('../websocket.js', () => ({
 vi.mock('./summaryService.js', () => ({
   onSessionActivity: vi.fn(),
   onSessionComplete: vi.fn(),
+  extractPrUrlIfNeeded: vi.fn(),
   generateSummaryNow: vi.fn().mockResolvedValue({ id: 'summary-1' }),
 }));
 

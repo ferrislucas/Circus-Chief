@@ -54,15 +54,15 @@
         <Transition name="slide">
           <ul v-if="openMenuItemId === item.id" class="file-menu-items" role="menu">
             <li role="none">
-              <button class="menu-item" role="menuitem" @click.stop="handleMenuCopyContents(item)">
-                <span class="menu-item-icon">📋</span>
-                <span class="menu-item-text">Copy file contents</span>
-              </button>
-            </li>
-            <li role="none">
               <button class="menu-item" role="menuitem" @click.stop="handleMenuCopyFilename(item)">
                 <span class="menu-item-icon">📝</span>
                 <span class="menu-item-text">Copy filename</span>
+              </button>
+            </li>
+            <li role="none">
+              <button class="menu-item" role="menuitem" @click.stop="handleMenuCopyContents(item)">
+                <span class="menu-item-icon">📋</span>
+                <span class="menu-item-text">Copy file contents</span>
               </button>
             </li>
             <li role="none" class="menu-divider"></li>
