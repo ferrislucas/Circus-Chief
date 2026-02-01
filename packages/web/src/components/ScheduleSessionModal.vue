@@ -20,9 +20,6 @@
             />
             <p class="form-help">The message you've typed will be sent at this time</p>
           </div>
-
-          <!-- Scheduling Options (collapsible) -->
-          <SchedulingOptions v-model="form.scheduling" :hide-scheduled-at="true" />
         </div>
 
         <div class="modal-footer">
@@ -40,7 +37,6 @@ import { ref, reactive, computed, watch, nextTick } from 'vue';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionsStore } from '../stores/sessions.js';
-import SchedulingOptions from './SchedulingOptions.vue';
 
 const props = defineProps({
   isOpen: Boolean,
@@ -55,15 +51,6 @@ const loading = ref(false);
 
 const form = reactive({
   scheduledAtLocal: '',
-  scheduling: {
-    autoRescheduleEnabled: false,
-    rescheduleDelayMinutes: 15,
-    rescheduleOnTokenLimit: true,
-    rescheduleOnServiceError: true,
-    maxRescheduleCount: null,
-    maxTotalTokens: null,
-    rescheduleAtTokenCount: null,
-  },
 });
 
 // Calculate min datetime (now + 1 minute)
@@ -89,10 +76,7 @@ async function handleSchedule() {
 
   const scheduledAt = new Date(form.scheduledAtLocal).getTime();
 
-  const payload = {
-    scheduledAt,
-    ...form.scheduling,
-  };
+  const payload = { scheduledAt };
 
   // Close modal immediately for better UX
   close();
@@ -116,15 +100,6 @@ watch(
   (isOpen) => {
     if (isOpen) {
       form.scheduledAtLocal = '';
-      form.scheduling = {
-        autoRescheduleEnabled: false,
-        rescheduleDelayMinutes: 15,
-        rescheduleOnTokenLimit: true,
-        rescheduleOnServiceError: true,
-        maxRescheduleCount: null,
-        maxTotalTokens: null,
-        rescheduleAtTokenCount: null,
-      };
     }
   }
 );

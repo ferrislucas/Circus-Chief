@@ -62,11 +62,7 @@
 
         <div class="form-group">
           <label class="form-label">Model</label>
-          <select v-model="formData.model" class="form-input">
-            <option v-for="m in CLAUDE_MODELS" :key="m.id" :value="m.id">
-              {{ m.name }}
-            </option>
-          </select>
+          <ModelSelector v-model="formData.model" />
         </div>
 
         <div class="form-group">
@@ -177,7 +173,8 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
-import { CLAUDE_MODELS } from '@claudetools/shared';
+import { useProvidersStore } from '../stores/providers.js';
+import ModelSelector from './ModelSelector.vue';
 
 const props = defineProps({
   projectId: { type: String, required: true },
@@ -185,6 +182,7 @@ const props = defineProps({
 
 const templatesStore = useTemplatesStore();
 const uiStore = useUiStore();
+const providersStore = useProvidersStore();
 
 const showCreateForm = ref(false);
 const saving = ref(false);
@@ -196,7 +194,7 @@ const formData = ref({
   nextTemplateId: null,
   thinkingEnabled: false,
   gitBranch: '',
-  model: 'claude-sonnet-4-20250514',
+  model: null,
   mode: 'yolo',
 });
 
@@ -209,7 +207,11 @@ const availableNextTemplates = computed(() => {
   return all;
 });
 
-onMounted(() => {
+onMounted(async () => {
+  // Ensure providers with models are loaded
+  if (providersStore.providers.length === 0) {
+    await providersStore.fetchProvidersWithModels();
+  }
   templatesStore.fetchProjectTemplates(props.projectId);
 });
 
@@ -231,8 +233,14 @@ function getTemplateName(templateId) {
 }
 
 function getModelName(modelId) {
-  const model = CLAUDE_MODELS.find(m => m.id === modelId);
-  return model?.name || modelId;
+  // Search through all providers and their models
+  for (const provider of providersStore.providers) {
+    const model = provider.models?.find(m => m.modelId === modelId);
+    if (model) {
+      return provider.isBuiltIn ? model.displayName : model.modelId;
+    }
+  }
+  return modelId;
 }
 
 function resetForm() {
@@ -243,7 +251,7 @@ function resetForm() {
     nextTemplateId: null,
     thinkingEnabled: false,
     gitBranch: '',
-    model: 'claude-sonnet-4-20250514',
+    model: null,
     mode: 'yolo',
   };
 }
@@ -268,8 +276,8 @@ async function handleSubmit() {
       nextTemplateId: formData.value.nextTemplateId || undefined,
       thinkingEnabled: formData.value.thinkingEnabled || undefined,
       gitBranch: formData.value.gitBranch || undefined,
-      model: formData.value.model || undefined,
-      mode: formData.value.mode || undefined,
+      model: formData.value.model,
+      mode: formData.value.mode === 'yolo' ? undefined : formData.value.mode,
     };
 
     if (formData.value.isGlobal) {
@@ -287,6 +295,13 @@ async function handleSubmit() {
     saving.value = false;
   }
 }
+
+// Expose for testing
+defineExpose({
+  formData,
+  getModelName,
+  resetForm,
+});
 </script>
 
 <style scoped>
