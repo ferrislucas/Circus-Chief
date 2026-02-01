@@ -1478,9 +1478,15 @@ export const useSessionsStore = defineStore('sessions', {
 
       this.error = null;
       try {
-        // Clear stale streaming data from previous conversation
+        // Clear ALL stale streaming data from previous conversation
         this.runningUsage = null;
         this.clearPartialThinking();
+
+        // Clear messages immediately before fetching new ones
+        this.messages = [];
+
+        // Clear work logs
+        this.workLogs = {};
 
         // Update on server
         await api.updateConversation(sessionId, conversationId, { isActive: true });
@@ -1496,8 +1502,7 @@ export const useSessionsStore = defineStore('sessions', {
         const messages = await api.getConversationMessages(sessionId, conversationId);
         this.messages = messages;
 
-        // Clear work logs and thinking, then re-fetch for new conversation context
-        this.workLogs = {};
+        // Clear partial thinking and re-fetch work logs for new conversation context
         this.clearPartialThinking(sessionId);
         await this.fetchWorkLogs(sessionId);
       } catch (err) {
