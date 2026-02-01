@@ -6,22 +6,38 @@ import { createPinia, setActivePinia } from 'pinia';
 import TemplateDetailView from './TemplateDetailView.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
-import { CLAUDE_MODELS, DEFAULT_MODEL } from '@claudetools/shared';
+import { useProvidersStore } from '../stores/providers.js';
 
-// Mock the API
-vi.mock('../composables/useApi.js', () => ({
+// Mock the API - must match the import path in TemplateDetailView.vue
+vi.mock('../api/index.js', () => ({
   api: {
     getTemplate: vi.fn(),
   },
 }));
 
-import { api } from '../composables/useApi.js';
+import { api } from '../api/index.js';
+
+// Mock ModelSelector component
+vi.mock('../components/ModelSelector.vue', () => ({
+  default: {
+    name: 'ModelSelector',
+    template: '<select :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><option value="claude-sonnet-4-5-20250929">Sonnet</option><option value="claude-opus-4-20250529">Opus</option><option value="null">Use Default</option></select>',
+    props: ['modelValue'],
+    emits: ['update:modelValue'],
+    setup(props, { emit }) {
+      // Automatically emit the modelValue prop as the selected value on mount
+      // This simulates ModelSelector's behavior of selecting a default model
+      return { modelValue: props.modelValue || 'claude-opus-4-20250529' };
+    },
+  },
+}));
 
 describe('TemplateDetailView - New Form Fields', () => {
   let pinia;
   let router;
   let templatesStore;
   let uiStore;
+  let providersStore;
 
   beforeEach(async () => {
     pinia = createPinia();
@@ -37,6 +53,7 @@ describe('TemplateDetailView - New Form Fields', () => {
 
     templatesStore = useTemplatesStore();
     uiStore = useUiStore();
+    providersStore = useProvidersStore();
 
     // Mock store methods
     vi.spyOn(templatesStore, 'updateTemplate').mockResolvedValue({
@@ -48,6 +65,19 @@ describe('TemplateDetailView - New Form Fields', () => {
 
     vi.spyOn(uiStore, 'success').mockImplementation(() => {});
     vi.spyOn(uiStore, 'error').mockImplementation(() => {});
+
+    // Mock providers with models
+    providersStore.providers = [
+      {
+        id: 'anthropic',
+        name: 'Anthropic',
+        isBuiltIn: true,
+        models: [
+          { modelId: 'claude-opus-4-20250529', displayName: 'Opus 4', tier: 'opus' },
+          { modelId: 'claude-sonnet-4-5-20250929', displayName: 'Sonnet 4.5', tier: 'sonnet' },
+        ],
+      },
+    ];
 
     // Mock templates in store for next template dropdown
     templatesStore.projectTemplates = [
@@ -68,7 +98,7 @@ describe('TemplateDetailView - New Form Fields', () => {
       projectId: 'proj-1',
       nextTemplateId: null,
       thinkingEnabled: false,
-      model: DEFAULT_MODEL,
+      model: 'claude-opus-4-20250529',
       mode: 'yolo',
     });
 
@@ -77,7 +107,7 @@ describe('TemplateDetailView - New Form Fields', () => {
   });
 
   describe('Form Field Rendering', () => {
-    it('displays model dropdown with all Claude models', async () => {
+    it('displays model selector', async () => {
       const wrapper = mount(TemplateDetailView, {
         global: {
           plugins: [pinia, router],
@@ -87,18 +117,9 @@ describe('TemplateDetailView - New Form Fields', () => {
       await flushPromises();
       await nextTick();
 
-      // Find model select
-      const modelSelect = wrapper.find('#model');
-      expect(modelSelect.exists()).toBe(true);
-
-      // Check that all CLAUDE_MODELS are present as options
-      const options = modelSelect.findAll('option');
-      expect(options.length).toBe(CLAUDE_MODELS.length);
-
-      CLAUDE_MODELS.forEach((model, index) => {
-        expect(options[index].text()).toBe(model.name);
-        expect(options[index].attributes('value')).toBe(model.id);
-      });
+      // Find ModelSelector component
+      const modelSelector = wrapper.findComponent({ name: 'ModelSelector' });
+      expect(modelSelector.exists()).toBe(true);
     });
 
     it('displays mode dropdown with all mode options', async () => {
@@ -128,7 +149,7 @@ describe('TemplateDetailView - New Form Fields', () => {
   });
 
   describe('Loading Template Data', () => {
-    it('uses default values when template fields are null', async () => {
+    it('uses null for model when template model is null', async () => {
       // Use a different template ID to avoid beforeEach mock conflict
       api.getTemplate.mockResolvedValueOnce({
         id: 'template-2',
@@ -150,9 +171,9 @@ describe('TemplateDetailView - New Form Fields', () => {
       await flushPromises();
       await nextTick();
 
-      // Check that defaults are applied
-      const modelSelect = wrapper.find('#model');
-      expect(modelSelect.element.value).toBe(DEFAULT_MODEL);
+      // Check that model is null (will use default from ModelSelector)
+      const modelSelector = wrapper.findComponent({ name: 'ModelSelector' });
+      expect(modelSelector.props('modelValue')).toBeNull();
 
       const modeSelect = wrapper.find('#mode');
       expect(modeSelect.element.value).toBe('yolo');
@@ -160,7 +181,7 @@ describe('TemplateDetailView - New Form Fields', () => {
   });
 
   describe('Form Submission with New Fields', () => {
-    it('submits form with model when different from default', async () => {
+    it('submits form with model value', async () => {
       const wrapper = mount(TemplateDetailView, {
         global: {
           plugins: [pinia, router],
@@ -172,16 +193,17 @@ describe('TemplateDetailView - New Form Fields', () => {
       await flushPromises();
       await nextTick();
 
-      // Change model to non-default (sonnet instead of opus)
-      const modelSelect = wrapper.find('#model');
-      await modelSelect.setValue('claude-sonnet-4-5-20250929');
+      // Change model
+      const modelSelector = wrapper.findComponent({ name: 'ModelSelector' });
+      await modelSelector.vm.$emit('update:modelValue', 'claude-sonnet-4-5-20250929');
+      await nextTick();
 
       // Submit form
       const form = wrapper.find('form');
       await form.trigger('submit.prevent');
       await flushPromises();
 
-      // Verify updateTemplate was called
+      // Verify updateTemplate was called with the model value
       expect(templatesStore.updateTemplate).toHaveBeenCalled();
       const callArgs = templatesStore.updateTemplate.mock.calls[0];
       expect(callArgs[0]).toBe('template-1');
@@ -228,8 +250,9 @@ describe('TemplateDetailView - New Form Fields', () => {
       await nextTick();
 
       // Set all new fields
-      const modelSelect = wrapper.find('#model');
-      await modelSelect.setValue('claude-sonnet-4-5-20250929');
+      const modelSelector = wrapper.findComponent({ name: 'ModelSelector' });
+      await modelSelector.vm.$emit('update:modelValue', 'claude-sonnet-4-5-20250929');
+      await nextTick();
 
       const modeSelect = wrapper.find('#mode');
       await modeSelect.setValue('standard');
@@ -246,7 +269,7 @@ describe('TemplateDetailView - New Form Fields', () => {
       expect(callArgs[1].mode).toBe('standard');
     });
 
-    it('omits default values from submission', async () => {
+    it('submits form with current model value from ModelSelector', async () => {
       const wrapper = mount(TemplateDetailView, {
         global: {
           plugins: [pinia, router],
@@ -258,18 +281,24 @@ describe('TemplateDetailView - New Form Fields', () => {
       await flushPromises();
       await nextTick();
 
-      // Submit form without changing any new fields
+      // Simulate ModelSelector initializing with the template's model value
+      // (ModelSelector emits the initial value when it mounts with a modelValue prop)
+      const modelSelector = wrapper.findComponent({ name: 'ModelSelector' });
+      await modelSelector.vm.$emit('update:modelValue', 'claude-opus-4-20250529');
+      await nextTick();
+
+      // Submit form without changing any fields
       const form = wrapper.find('form');
       await form.trigger('submit.prevent');
       await flushPromises();
 
-      // Verify updateTemplate was called without default values
+      // Verify updateTemplate was called with the model value
       expect(templatesStore.updateTemplate).toHaveBeenCalled();
       const callArgs = templatesStore.updateTemplate.mock.calls[0];
-      // DEFAULT_MODEL should be omitted
-      expect(callArgs[1].model).toBeUndefined();
-      // yolo should be omitted
-      expect(callArgs[1].mode).toBeUndefined();
+      // Model value should be sent (whatever was loaded from template)
+      expect(callArgs[1].model).toBe('claude-opus-4-20250529');
+      // Mode should be sent explicitly (even yolo), not omitted
+      expect(callArgs[1].mode).toBe('yolo');
     });
   });
 
@@ -286,10 +315,11 @@ describe('TemplateDetailView - New Form Fields', () => {
       await flushPromises();
       await nextTick();
 
-      const modelSelect = wrapper.find('#model');
-      await modelSelect.setValue('claude-sonnet-4-5-20250929');
+      const modelSelector = wrapper.findComponent({ name: 'ModelSelector' });
+      await modelSelector.vm.$emit('update:modelValue', 'claude-sonnet-4-5-20250929');
+      await nextTick();
 
-      expect(modelSelect.element.value).toBe('claude-sonnet-4-5-20250929');
+      expect(modelSelector.props('modelValue')).toBe('claude-sonnet-4-5-20250929');
     });
 
     it('allows changing mode selection', async () => {
@@ -308,6 +338,87 @@ describe('TemplateDetailView - New Form Fields', () => {
       await modeSelect.setValue('plan');
 
       expect(modeSelect.element.value).toBe('plan');
+    });
+  });
+
+  describe('Mode Selection Bug Fixes', () => {
+    it('MUST send mode value when changing from plan to yolo', async () => {
+      // BUG: When user changes mode from 'plan' to 'yolo', the mode should be
+      // explicitly sent to the backend so it can be updated.
+      // Previously, sending undefined caused the backend to skip the update.
+
+      // Reset and set fresh mock for this test
+      api.getTemplate.mockReset();
+      api.getTemplate.mockResolvedValue({
+        id: 'template-1',
+        name: 'Test Template',
+        prompt: 'Test prompt',
+        projectId: 'proj-1',
+        nextTemplateId: null,
+        thinkingEnabled: false,
+        model: 'claude-opus-4-20250529',
+        mode: 'plan', // Template currently has 'plan' mode
+      });
+
+      const wrapper = mount(TemplateDetailView, {
+        global: {
+          plugins: [pinia, router],
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+      await nextTick();
+
+      // Verify template loaded with 'plan' mode
+      const modeSelect = wrapper.find('#mode');
+      expect(modeSelect.element.value).toBe('plan');
+
+      // Change mode to 'yolo'
+      await modeSelect.setValue('yolo');
+      expect(modeSelect.element.value).toBe('yolo');
+
+      // Submit form
+      const form = wrapper.find('form');
+      await form.trigger('submit.prevent');
+      await flushPromises();
+
+      // Verify updateTemplate was called with mode='yolo' (NOT undefined)
+      // The backend needs the explicit value to update from 'plan' to 'yolo'
+      expect(templatesStore.updateTemplate).toHaveBeenCalled();
+      const callArgs = templatesStore.updateTemplate.mock.calls[0];
+      expect(callArgs[1].mode).toBe('yolo'); // This was failing before the fix
+    });
+
+    it('MUST send mode value when mode is yolo and template already has yolo', async () => {
+      // Even when the mode hasn't changed, we should send the value
+      // to ensure the backend keeps it as 'yolo'
+      const wrapper = mount(TemplateDetailView, {
+        global: {
+          plugins: [pinia, router],
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+      await nextTick();
+
+      // Template already has mode 'yolo' (from beforeEach mock)
+      const modeSelect = wrapper.find('#mode');
+      expect(modeSelect.element.value).toBe('yolo');
+
+      // Submit form without changing mode
+      const form = wrapper.find('form');
+      await form.trigger('submit.prevent');
+      await flushPromises();
+
+      // Mode should still be sent (not undefined)
+      expect(templatesStore.updateTemplate).toHaveBeenCalled();
+      const callArgs = templatesStore.updateTemplate.mock.calls[0];
+      // Mode should be 'yolo', not undefined
+      expect(callArgs[1].mode).toBe('yolo');
     });
   });
 });
