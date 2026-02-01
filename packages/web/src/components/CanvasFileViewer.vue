@@ -3,14 +3,15 @@
     <!-- Header -->
     <div class="viewer-header">
       <div class="viewer-header-left">
-        <!-- Breadcrumb navigation - always visible -->
+        <!-- Breadcrumb navigation - only visible when there are multiple items to go back to -->
         <button
+          v-if="showBackButton"
           class="breadcrumb-back"
           @click="handleBack"
         >
           ← Canvas
         </button>
-        <span class="breadcrumb-separator">/</span>
+        <span v-if="showBackButton" class="breadcrumb-separator">/</span>
         <div class="viewer-filename-wrapper">
           <span class="viewer-filename">{{ item.filename || 'Untitled' }}</span>
           <span class="viewer-meta">{{ formatLastModified(item.updatedAt) }}</span>

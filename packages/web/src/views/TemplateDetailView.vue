@@ -45,16 +45,6 @@
           </p>
         </div>
 
-        <!-- Scope Field -->
-        <div class="form-group">
-          <label for="scope">Scope</label>
-          <select id="scope" v-model="formData.isGlobal" class="form-input" disabled>
-            <option :value="false">Project Only</option>
-            <option :value="true">Global (all projects)</option>
-          </select>
-          <p class="form-help">Scope cannot be changed after creation</p>
-        </div>
-
         <!-- Next Template Field -->
         <div class="form-group">
           <label for="nextTemplate">Next Template (Optional)</label>
@@ -78,6 +68,22 @@
             />
             <span>Enable Extended Thinking</span>
           </label>
+        </div>
+
+        <!-- Model Field -->
+        <div class="form-group">
+          <label for="model">Model</label>
+          <ModelSelector v-model="formData.model" />
+        </div>
+
+        <!-- Mode Field -->
+        <div class="form-group">
+          <label for="mode">Mode</label>
+          <select id="mode" v-model="formData.mode" class="form-input">
+            <option value="plan">Plan</option>
+            <option value="standard">Standard</option>
+            <option value="yolo">YOLO</option>
+          </select>
         </div>
 
         <!-- Form Actions -->
@@ -129,6 +135,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
 import { api } from '../api/index.js';
+import ModelSelector from '../components/ModelSelector.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -147,6 +154,8 @@ const formData = ref({
   isGlobal: false,
   nextTemplateId: null,
   thinkingEnabled: false,
+  model: null,
+  mode: 'yolo',
 });
 
 const projectId = computed(() => route.params.projectId);
@@ -171,6 +180,8 @@ const loadTemplate = async () => {
         isGlobal: !template.projectId,
         nextTemplateId: template.nextTemplateId || null,
         thinkingEnabled: template.thinkingEnabled || false,
+        model: template.model || null,
+        mode: template.mode || 'yolo',
       };
     }
   } catch (err) {
@@ -190,6 +201,8 @@ const onSubmit = async () => {
       prompt: formData.value.prompt,
       nextTemplateId: formData.value.nextTemplateId || undefined,
       thinkingEnabled: formData.value.thinkingEnabled || undefined,
+      model: formData.value.model,
+      mode: formData.value.mode,
     };
 
     await templatesStore.updateTemplate(templateId.value, data);

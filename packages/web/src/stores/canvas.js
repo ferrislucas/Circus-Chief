@@ -72,7 +72,7 @@ export const useCanvasStore = defineStore('canvas', {
       this.loading = true;
       this.error = null;
       try {
-        this.items = await api.getCanvasItems(sessionId);
+        this.items = await api.getAllCanvasItems(sessionId);
       } catch (err) {
         this.error = err.message;
       } finally {
