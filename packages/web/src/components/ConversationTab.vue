@@ -754,6 +754,8 @@ watch(
   async (newStatus, oldStatus) => {
     if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
       console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
+      // Clear any lingering streaming state (Step 2 - safety net)
+      partialText.value = '';
       // Fetch messages first, then work logs - this ensures messages are visible
       await sessionsStore.fetchMessages(props.sessionId, false);
       await sessionsStore.fetchWorkLogs(props.sessionId);
@@ -790,6 +792,16 @@ watch(
   () => sessionsStore.activeConversationId,
   async (newConvId, oldConvId) => {
     if (newConvId && newConvId !== oldConvId) {
+      // Clear streaming message state from previous conversation (Step 1)
+      partialText.value = '';
+
+      // Clear throttle timer to prevent stale partial updates (Step 3)
+      if (partialThrottleTimer) {
+        clearTimeout(partialThrottleTimer);
+        partialThrottleTimer = null;
+      }
+      pendingPartialText = null;
+
       // Reset scroll state when switching conversations
       hasNewMessages.value = false;
       isNearBottom.value = true;
