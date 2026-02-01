@@ -895,6 +895,7 @@ router.patch('/:id', (req, res) => {
     model,
     providerId,
     prUrl,
+    pendingModel,
     // Scheduling fields
     scheduledAt,
     autoRescheduleEnabled,
@@ -938,6 +939,9 @@ router.patch('/:id', (req, res) => {
   }
   if (model !== undefined) {
     updateData.model = model;
+  }
+  if (pendingModel !== undefined) {
+    updateData.pendingModel = pendingModel;
   }
   // Provider ID - allow setting, updating, or clearing (null clears it to use Anthropic)
   if (providerId !== undefined) {
@@ -1165,6 +1169,7 @@ router.post('/:id/schedule', async (req, res) => {
 
   const {
     scheduledAt,
+    pendingModel,
     autoRescheduleEnabled,
     rescheduleDelayMinutes,
     rescheduleOnTokenLimit,
@@ -1224,6 +1229,9 @@ router.post('/:id/schedule', async (req, res) => {
     }
     if (rescheduleAtTokenCount !== undefined) {
       updateData.rescheduleAtTokenCount = rescheduleAtTokenCount ? parseInt(rescheduleAtTokenCount, 10) : null;
+    }
+    if (pendingModel !== undefined) {
+      updateData.pendingModel = pendingModel;
     }
 
     const updated = sessions.update(req.params.id, updateData);
