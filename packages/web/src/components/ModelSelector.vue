@@ -1,8 +1,8 @@
 <template>
-  <div class="model-selector" :data-model="selectedModel">
+  <div class="model-selector" :data-model="effectiveSelectedModel">
     <select
       id="model-select"
-      :value="selectedModel"
+      :value="effectiveSelectedModel"
       @change="handleModelChange($event.target.value)"
       :disabled="disabled"
       class="model-select"
@@ -47,6 +47,24 @@ const providersHaveModels = computed(() => {
     providersStore.providers.some(p => p.models && p.models.length > 0);
 });
 
+// Get all valid model IDs from all providers
+const validModelIds = computed(() => {
+  const ids = new Set();
+  for (const provider of providersStore.providers) {
+    if (provider.models) {
+      for (const model of provider.models) {
+        ids.add(model.modelId);
+      }
+    }
+  }
+  return ids;
+});
+
+// Check if a model ID is valid (exists as an option)
+function isValidModelId(modelId) {
+  return modelId && validModelIds.value.has(modelId);
+}
+
 // Get default model from first available provider
 const defaultModel = computed(() => {
   // Prefer built-in Anthropic provider's sonnet model
@@ -76,20 +94,88 @@ onMounted(async () => {
   hasInitialized.value = true;
 });
 
+// Helper to convert tier names (e.g., 'sonnet') to full model IDs
+// This handles legacy/shorthand values that don't match actual option values
+function resolveModelId(modelValue) {
+  if (!modelValue) return null;
+
+  // If it's already a full model ID (contains 'claude-'), use as-is
+  if (modelValue.includes('claude-')) {
+    return modelValue;
+  }
+
+  // It's a tier name like 'sonnet', 'opus', 'haiku' - find matching model
+  const builtIn = providersStore.providers.find(p => p.isBuiltIn);
+  if (builtIn?.models?.length) {
+    const match = builtIn.models.find(m => m.tier === modelValue);
+    if (match) {
+      return match.modelId;
+    }
+  }
+
+  // Fallback: return as-is (will show empty if no match, but at least we tried)
+  return modelValue;
+}
+
 // Local state for optimistic UI updates - provides immediate visual feedback
-const selectedModel = ref(props.modelValue);
+const selectedModel = ref(resolveModelId(props.modelValue));
+
+// Computed that ALWAYS returns a valid model ID for the select element
+// This ensures the select never shows empty, even before providers load
+const effectiveSelectedModel = computed(() => {
+  // First, try the current selectedModel if it's valid
+  if (selectedModel.value && isValidModelId(selectedModel.value)) {
+    return selectedModel.value;
+  }
+  // Fall back to default model
+  if (defaultModel.value) {
+    return defaultModel.value;
+  }
+  // Last resort: return whatever we have (will show empty if no options loaded yet)
+  return selectedModel.value;
+});
 
 // Watch for external changes to keep local selection in sync
 const modelValueRef = toRef(props, 'modelValue');
 watch(modelValueRef, (newModel) => {
-  selectedModel.value = newModel;
+  selectedModel.value = resolveModelId(newModel);
 }, { flush: 'sync' });
+
+// Also watch providers - when they load, we may need to resolve tier names
+// Use immediate: true to run on mount when providers might already be loaded
+watch(() => providersStore.providers, () => {
+  // Skip if no models loaded yet - wait for models to be available
+  if (!providersHaveModels.value) return;
+
+  // First, try to resolve the model ID from props
+  let resolvedModel = null;
+  if (props.modelValue) {
+    resolvedModel = resolveModelId(props.modelValue);
+  }
+
+  // Check if resolved model is valid (exists as an option)
+  if (resolvedModel && isValidModelId(resolvedModel)) {
+    if (selectedModel.value !== resolvedModel) {
+      selectedModel.value = resolvedModel;
+      // Emit the resolved value back to parent if it changed
+      if (resolvedModel !== props.modelValue) {
+        emit('update:modelValue', resolvedModel);
+      }
+    }
+  } else if (defaultModel.value) {
+    // Model is invalid or not provided - use default
+    if (selectedModel.value !== defaultModel.value) {
+      selectedModel.value = defaultModel.value;
+      emit('update:modelValue', defaultModel.value);
+    }
+  }
+}, { deep: true, immediate: true });
 
 // NOTE: Removed defaultModel watcher - it should not override after initialization
 // The default is now only applied once during onMounted (see above)
 
 function handleModelChange(modelId) {
-  if (selectedModel.value === modelId) return;
+  if (effectiveSelectedModel.value === modelId) return;
 
   // Immediate visual feedback - update UI right away
   selectedModel.value = modelId;
