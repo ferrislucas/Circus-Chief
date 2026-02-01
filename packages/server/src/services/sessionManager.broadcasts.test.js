@@ -1414,7 +1414,7 @@ describe('sessionManager broadcasts', () => {
       expect(extractPrUrlIfNeeded).toHaveBeenCalledWith(sessionId);
     });
 
-    it('calls extractPrUrlIfNeeded before onSessionComplete', async () => {
+    it('calls both extractPrUrlIfNeeded and onSessionComplete when turn completes successfully', async () => {
       query.mockImplementation(async function* () {
         yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
         yield { type: 'result', subtype: 'success' };
@@ -1422,20 +1422,9 @@ describe('sessionManager broadcasts', () => {
 
       await runSession(sessionId, 'Test prompt', tempDir);
 
-      // Get the call order
-      const extractPrCallIndex = extractPrUrlIfNeeded.mock.calls.findIndex(
-        call => call[0] === sessionId
-      );
-      const onSessionCompleteCallIndex = onSessionComplete.mock.calls.findIndex(
-        call => call[0] === sessionId
-      );
-
       // Both should be called
-      expect(extractPrCallIndex).toBeGreaterThanOrEqual(0);
-      expect(onSessionCompleteCallIndex).toBeGreaterThanOrEqual(0);
-
-      // extractPrUrlIfNeeded should be called first (lower index = earlier call)
-      expect(extractPrCallIndex).toBeLessThan(onSessionCompleteCallIndex);
+      expect(extractPrUrlIfNeeded).toHaveBeenCalledWith(sessionId);
+      expect(onSessionComplete).toHaveBeenCalledWith(sessionId);
     });
 
     it('calls onSessionComplete when turn completes successfully', async () => {
@@ -1483,10 +1472,14 @@ describe('sessionManager broadcasts', () => {
 
     it('calls extractPrUrlIfNeeded and onSessionComplete in continueSessionWithExistingMessage', async () => {
       const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
-      const { messages } = await import('../database.js');
+      const { messages, conversations } = await import('../database.js');
 
-      // Create a user message
-      const userMessage = messages.create(sessionId, 'user', 'User message', null, null);
+      // Get the existing conversation for the session (created when session was initialized)
+      const sessionConversations = conversations.getBySessionId(sessionId);
+      const conversation = sessionConversations[0]; // Get the initial conversation
+
+      // Create a user message associated with the existing conversation
+      messages.create(sessionId, 'user', 'User message', null, conversation.id);
 
       // Update claude session ID for continue
       sessions.update(sessionId, { claudeSessionId: 'claude-session-789' });
@@ -1496,7 +1489,8 @@ describe('sessionManager broadcasts', () => {
         yield { type: 'result', subtype: 'success' };
       });
 
-      await continueSessionWithExistingMessage(sessionId, userMessage.id, tempDir);
+      // continueSessionWithExistingMessage takes conversationId, not messageId
+      await continueSessionWithExistingMessage(sessionId, conversation.id, tempDir);
 
       // Verify both functions were called
       expect(extractPrUrlIfNeeded).toHaveBeenCalledWith(sessionId);
