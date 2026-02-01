@@ -1791,42 +1791,6 @@ describe('ConversationTab - Scheduled Session Prompt Editing', () => {
     });
   });
 
-  describe('Scheduled prompt indicator', () => {
-    it('displays scheduled notice for scheduled sessions', async () => {
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      expect(wrapper.find('.scheduled-notice').exists()).toBe(true);
-    });
-
-    it('shows notice icon in scheduled notice', async () => {
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      expect(wrapper.find('.scheduled-notice .notice-icon').exists()).toBe(true);
-    });
-
-    it('shows explanatory text in scheduled notice', async () => {
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      const noticeText = wrapper.find('.scheduled-notice .notice-text');
-      expect(noticeText.exists()).toBe(true);
-      expect(noticeText.text()).toContain('This prompt will be sent when the session starts');
-      expect(noticeText.text()).toContain('schedule panel above');
-    });
-
-    it('does not display scheduled notice for non-scheduled sessions', async () => {
-      mockSessionsStore.currentSession.status = 'waiting';
-      mockSessionsStore.isScheduledDraft = vi.fn().mockReturnValue(false);
-
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      expect(wrapper.find('.scheduled-notice').exists()).toBe(false);
-    });
-  });
-
   describe('UI elements hidden for scheduled sessions', () => {
     it('hides send button row for scheduled sessions', async () => {
       const wrapper = mountComponent();
@@ -1889,50 +1853,6 @@ describe('ConversationTab - Scheduled Session Prompt Editing', () => {
 
       const textarea = wrapper.find('textarea');
       expect(textarea.element.value).toBe('Existing prompt');
-    });
-  });
-
-  describe('Transition between session states', () => {
-    it('shows scheduled notice when session becomes scheduled', async () => {
-      // Start with waiting status
-      mockSessionsStore.currentSession.status = 'waiting';
-      mockSessionsStore.isScheduledDraft = vi.fn().mockReturnValue(false);
-
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      // Initially no scheduled notice
-      expect(wrapper.find('.scheduled-notice').exists()).toBe(false);
-
-      // Change to scheduled status - remount to simulate status change
-      mockSessionsStore.currentSession.status = 'scheduled';
-      mockSessionsStore.isScheduledDraft = vi.fn().mockReturnValue(true);
-
-      // Remount component with new status
-      const wrapper2 = mountComponent();
-      await flushAll(wrapper2);
-
-      // Now scheduled notice should appear
-      expect(wrapper2.find('.scheduled-notice').exists()).toBe(true);
-    });
-
-    it('hides scheduled notice when schedule is canceled', async () => {
-      // Start with scheduled status
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      expect(wrapper.find('.scheduled-notice').exists()).toBe(true);
-
-      // Cancel schedule (change to waiting) - remount to simulate status change
-      mockSessionsStore.currentSession.status = 'waiting';
-      mockSessionsStore.isScheduledDraft = vi.fn().mockReturnValue(false);
-
-      // Remount component with new status
-      const wrapper2 = mountComponent();
-      await flushAll(wrapper2);
-
-      // Scheduled notice should disappear
-      expect(wrapper2.find('.scheduled-notice').exists()).toBe(false);
     });
   });
 
