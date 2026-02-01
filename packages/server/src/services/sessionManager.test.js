@@ -6,6 +6,7 @@ import {
   getSessionAttachmentsContext,
   PLAN_MODE_PROMPT,
   continueSession,
+  shouldRescheduleOnError,
 } from './sessionManager.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { AttachmentRepository } from '../db/AttachmentRepository.js';
@@ -818,6 +819,310 @@ describe('sessionManager', () => {
           rmSync(tempDir, { recursive: true, force: true });
         }
       }
+    });
+  });
+});
+
+describe('shouldRescheduleOnError', () => {
+  let messageRepo;
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+
+  beforeEach(() => {
+    messageRepo = new MessageRepository();
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+
+    tempDir = mkdtempSync(join(tmpdir(), 'reschedule-test-'));
+    const project = projectRepo.create('Test Project', tempDir);
+
+    // Create a session with reschedule options enabled
+    session = sessionRepo.create(project.id, 'Test Session', 'Test prompt', 'standard');
+    sessionRepo.update(session.id, {
+      rescheduleOnTokenLimit: true,
+      rescheduleOnServiceError: true,
+      rescheduleDelayMinutes: 15,
+    });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  describe('token limit errors', () => {
+    it('detects token limit in exception message (existing behavior)', () => {
+      const error = new Error('Context length exceeded');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(true);
+    });
+
+    it('detects token limit with "token" keyword in exception', () => {
+      const error = new Error('Token limit reached');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(true);
+    });
+
+    it('detects token limit with "max_tokens" in exception', () => {
+      const error = new Error('max_tokens exceeded');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(true);
+    });
+
+    it('detects "You\'ve hit your limit" in assistant message (NEW behavior)', () => {
+      // Create an assistant message with token limit text
+      const conversationRepo = new ConversationRepository();
+      const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+      messageRepo.create(session.id, 'assistant', "You've hit your limit · resets 12am (America/Chicago)", null, conversation.id);
+
+      // Error is generic, but assistant message contains the limit info
+      const error = new Error('Claude Code process exited with code 1');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(true);
+    });
+
+    it('detects "limit" keyword in assistant message', () => {
+      const conversationRepo = new ConversationRepository();
+      const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+      messageRepo.create(session.id, 'assistant', 'You have reached your daily limit', null, conversation.id);
+
+      const error = new Error('Claude Code process exited with code 1');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(true);
+    });
+
+    it('detects "quota" in assistant message', () => {
+      const conversationRepo = new ConversationRepository();
+      const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+      messageRepo.create(session.id, 'assistant', 'API quota exceeded for this month', null, conversation.id);
+
+      const error = new Error('Claude Code process exited with code 1');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(true);
+    });
+
+    it('detects "usage cap" in assistant message', () => {
+      const conversationRepo = new ConversationRepository();
+      const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+      messageRepo.create(session.id, 'assistant', 'You have hit your usage cap', null, conversation.id);
+
+      const error = new Error('Claude Code process exited with code 1');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(true);
+    });
+
+    it('does not reschedule when rescheduleOnTokenLimit is false', () => {
+      sessionRepo.update(session.id, { rescheduleOnTokenLimit: false });
+      const updatedSession = sessionRepo.getById(session.id);
+
+      const error = new Error('Context length exceeded');
+      const result = shouldRescheduleOnError(updatedSession, error, session.id);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('service errors', () => {
+    it('detects service error in exception message (existing behavior)', () => {
+      const error = new Error('Service unavailable (503)');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(true);
+    });
+
+    it('detects "overloaded" in exception message', () => {
+      const error = new Error('Service overloaded, please retry');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(true);
+    });
+
+    it('detects service error in assistant message (NEW behavior)', () => {
+      const conversationRepo = new ConversationRepository();
+      const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+      messageRepo.create(session.id, 'assistant', 'Service is currently overloaded, please try again later', null, conversation.id);
+
+      const error = new Error('Claude Code process exited with code 1');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(true);
+    });
+
+    it('detects 529 status in assistant message', () => {
+      const conversationRepo = new ConversationRepository();
+      const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+      messageRepo.create(session.id, 'assistant', 'Service returned 529 status', null, conversation.id);
+
+      const error = new Error('Claude Code process exited with code 1');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(true);
+    });
+
+    it('does not reschedule when rescheduleOnServiceError is false', () => {
+      sessionRepo.update(session.id, { rescheduleOnServiceError: false });
+      const updatedSession = sessionRepo.getById(session.id);
+
+      const error = new Error('Service unavailable (503)');
+      const result = shouldRescheduleOnError(updatedSession, error, session.id);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('non-reschedulable errors', () => {
+    it('does not reschedule on permission errors', () => {
+      const conversationRepo = new ConversationRepository();
+      const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+      messageRepo.create(session.id, 'assistant', 'Permission denied to access file', null, conversation.id);
+
+      const error = new Error('Permission denied');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(false);
+    });
+
+    it('does not reschedule on file not found errors', () => {
+      const conversationRepo = new ConversationRepository();
+      const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+      messageRepo.create(session.id, 'assistant', 'File not found: missing.txt', null, conversation.id);
+
+      const error = new Error('Claude Code process exited with code 1');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(false);
+    });
+
+    it('does not reschedule on generic errors without patterns', () => {
+      const error = new Error('Unknown error occurred');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('edge cases', () => {
+    it('falls back to exception check when no assistant messages exist', () => {
+      // No assistant messages created
+      const error = new Error('Context length exceeded');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      // Should still detect token limit from exception
+      expect(result).toBe(true);
+    });
+
+    it('handles missing sessionId gracefully', () => {
+      const error = new Error('Context length exceeded');
+
+      // sessionId is null - should still work with exception check
+      const result = shouldRescheduleOnError(session, error, null);
+
+      expect(result).toBe(true);
+    });
+
+    it('ignores user messages when checking for errors', () => {
+      const conversationRepo = new ConversationRepository();
+      const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+      // Create a user message with "limit" keyword
+      messageRepo.create(session.id, 'user', 'What is the character limit?', null, conversation.id);
+
+      const error = new Error('Claude Code process exited with code 1');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      // Should not reschedule based on user message
+      expect(result).toBe(false);
+    });
+
+    it('checks most recent assistant message when multiple exist', () => {
+      const conversationRepo = new ConversationRepository();
+      const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+      // Create multiple assistant messages
+      messageRepo.create(session.id, 'assistant', 'Hello, how can I help?', null, conversation.id);
+
+      messageRepo.create(session.id, 'assistant', "You've hit your limit · resets 12am", null, conversation.id);
+
+      const error = new Error('Claude Code process exited with code 1');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      // Should detect from the most recent message
+      expect(result).toBe(true);
+    });
+
+    it('prioritizes exception message over assistant message', () => {
+      const conversationRepo = new ConversationRepository();
+      const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+      // Assistant message has no error indicators
+      messageRepo.create(session.id, 'assistant', 'Hello, how can I help you today?', null, conversation.id);
+
+      // Exception message has token limit
+      const error = new Error('Context length exceeded');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      // Should detect from exception message
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('error pattern matching', () => {
+    it('matches multiple error pattern variations', () => {
+      const patterns = [
+        'Token limit reached',
+        'context window exceeded',
+        'max_tokens limit hit',
+        'You have exceeded your quota',
+        'Rate limit exceeded',
+        'Usage cap reached',
+      ];
+
+      patterns.forEach((pattern) => {
+        const error = new Error(pattern);
+        const result = shouldRescheduleOnError(session, error, session.id);
+        expect(result).toBe(true);
+      });
+    });
+
+    it('matches service error variations', () => {
+      const patterns = [
+        'Service unavailable',
+        'Server is overloaded',
+        '503 Service Unavailable',
+        '529 Too many requests',
+        'Rate limit hit, please retry',
+      ];
+
+      patterns.forEach((pattern) => {
+        const error = new Error(pattern);
+        const result = shouldRescheduleOnError(session, error, session.id);
+        expect(result).toBe(true);
+      });
+    });
+
+    it('is case-insensitive when matching patterns', () => {
+      const error = new Error('TOKEN LIMIT EXCEEDED');
+      const result = shouldRescheduleOnError(session, error, session.id);
+
+      expect(result).toBe(true);
     });
   });
 });

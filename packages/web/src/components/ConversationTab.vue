@@ -1,7 +1,7 @@
 <template>
   <div class="conversation-tab">
     <!-- Unified Conversation Panel - selector + BTE cost display -->
-    <ConversationPanel :session-id="sessionId" />
+    <ConversationPanel v-if="!isScheduledForFuture" :session-id="sessionId" />
 
     <div class="messages" ref="messagesContainer">
       <!-- Hide messages for draft and scheduled sessions (only show in input field) -->
@@ -86,7 +86,7 @@
 
       <!-- Jump to latest button (Slack-style) -->
       <button
-        v-if="!isNearBottom && hasNewMessages"
+        v-if="!isNearBottom && hasNewMessages && sessionsStore.messages.length > 0"
         class="jump-to-latest"
         @click="scrollToBottom(true)"
       >
@@ -116,11 +116,12 @@
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
 
-    <form v-if="canSendMessage" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
+    <form v-if="canSendMessage || isScheduledForFuture" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
       <ResizableTextarea
         ref="textareaRef"
+        v-model="input"
         class="form-input form-textarea"
-        :placeholder="(isDraft || isScheduledDraft) ? 'Edit your prompt...' : 'Send a follow-up message...'"
+        :placeholder="isScheduledForFuture ? 'Edit your scheduled prompt...' : (isDraft || isScheduledDraft) ? 'Edit your prompt...' : 'Send a follow-up message...'"
         :min-height="80"
         @input="handleInput"
         @keydown="handleKeydown"
@@ -128,14 +129,14 @@
 
       <!-- Quick Responses Panel - shows below the textarea when not running or for draft sessions -->
       <QuickResponsesPanel
-        v-if="canSendMessage || isDraft"
+        v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
         :show-empty="true"
         @insert="handleQuickResponseInsert"
         @openSettings="quickResponseSettingsOpen = true"
       />
 
       <!-- Send button row -->
-      <div class="send-button-row">
+      <div v-if="!isScheduledForFuture" class="send-button-row">
         <div v-if="isDraft" class="draft-actions">
           <button type="submit" class="btn btn-primary btn-send-full" :disabled="restarting || saveStatus === 'saving'">
             <span v-if="restarting" class="loading-spinner"></span>
@@ -155,16 +156,7 @@
         </template>
       </div>
 
-      <!-- Visual indicator for future scheduled sessions -->
-      <div v-if="isSessionScheduledForFuture" class="scheduled-notice">
-        <span class="notice-icon">⏰</span>
-        <span class="notice-text">
-          This session is scheduled for {{ formatDistanceToNow(new Date(sessionsStore.currentSession.scheduledAt), { addSuffix: true }) }}.
-          The send button will be enabled at that time.
-        </span>
-      </div>
-
-      <div class="input-controls">
+      <div v-if="!isScheduledForFuture" class="input-controls">
         <div class="session-options">
           <div class="mode-switcher">
             <ModeSelector :sessionId="sessionId" />
@@ -194,14 +186,16 @@
 
       <!-- Orchestration Panel - shows after input controls -->
       <OrchestrationPanel
-        v-if="canSendMessage || isDraft"
+        v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
         :session-id="sessionId"
         :project-id="sessionsStore.currentSession?.projectId"
         :current-template-id="sessionsStore.currentSession?.nextTemplateId"
         :session-status="sessionsStore.currentSession?.status"
         :is-draft="isDraft"
         :input-has-content="inputHasContent"
+        :auto-reschedule-enabled="sessionsStore.currentSession?.autoRescheduleEnabled"
         @openSchedule="showScheduleModal = true"
+        @openAutoReschedule="showAutoRescheduleModal = true"
         @update:templateId="handleTemplateChange"
       />
     </form>
@@ -274,6 +268,14 @@
       @close="closeScheduleModal"
     />
 
+    <!-- Auto-Reschedule Modal -->
+    <AutoRescheduleModal
+      :is-open="showAutoRescheduleModal"
+      :session="sessionsStore.currentSession"
+      @close="showAutoRescheduleModal = false"
+      @saved="showAutoRescheduleModal = false"
+    />
+
     <!-- Slash Command Wizard Modal -->
     <SlashCommandWizard
       v-model:isOpen="showSlashCommandWizard"
@@ -309,6 +311,7 @@ import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
 import BranchEditor from './BranchEditor.vue';
 import ScheduleSessionModal from './ScheduleSessionModal.vue';
+import AutoRescheduleModal from './AutoRescheduleModal.vue';
 import ResizableTextarea from './ResizableTextarea.vue';
 import SlashCommandButton from './SlashCommandButton.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
@@ -331,6 +334,7 @@ const route = useRoute();
 const input = ref('');
 const quickResponseSettingsOpen = ref(false);
 const showScheduleModal = ref(false);
+const showAutoRescheduleModal = ref(false);
 const showSlashCommandWizard = ref(false);
 const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
 const saveError = ref('');
@@ -442,6 +446,12 @@ const isSessionScheduledForFuture = computed(() => {
   if (sessionsStore.currentSession?.status !== 'scheduled') return false;
   const scheduledTime = new Date(sessionsStore.currentSession.scheduledAt);
   return scheduledTime > new Date();
+});
+
+// Computed property to check if this is a scheduled session for the future (for UI hiding)
+// This is different from isSessionScheduledForFuture which is used for the send button tooltip
+const isScheduledForFuture = computed(() => {
+  return sessionsStore.isScheduledDraft(sessionsStore.currentSession);
 });
 
 // Check if there are any assistant messages for the scroll-to-claude button
@@ -764,6 +774,8 @@ watch(
   async (newStatus, oldStatus) => {
     if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
       console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
+      // Clear any lingering streaming state (Step 2 - safety net)
+      partialText.value = '';
       // Fetch messages first, then work logs - this ensures messages are visible
       await sessionsStore.fetchMessages(props.sessionId, false);
       await sessionsStore.fetchWorkLogs(props.sessionId);
@@ -800,7 +812,20 @@ watch(
   () => sessionsStore.activeConversationId,
   async (newConvId, oldConvId) => {
     if (newConvId && newConvId !== oldConvId) {
-      // Wait a tick for any pending message updates to complete
+      // Clear streaming message state from previous conversation (Step 1)
+      partialText.value = '';
+
+      // Clear throttle timer to prevent stale partial updates (Step 3)
+      if (partialThrottleTimer) {
+        clearTimeout(partialThrottleTimer);
+        partialThrottleTimer = null;
+      }
+      pendingPartialText = null;
+
+      // Reset scroll state when switching conversations
+      hasNewMessages.value = false;
+      isNearBottom.value = true;
+
       await nextTick();
 
       // Always refetch when conversation changes - no status check
@@ -823,12 +848,14 @@ watch(
 
 // Update model selector when active conversation changes or its model is updated
 // This ensures the selector always reflects the model used in the current conversation
-// Watch activeConversation.model directly to properly detect updates when conversations are spliced
+// Watch the entire conversation object (not just .model) to detect all changes including conversation switches
 watch(
-  () => sessionsStore.activeConversation?.model,
-  (model) => {
-    if (model) {
-      selectedModel.value = model;
+  () => sessionsStore.activeConversation,
+  (conv) => {
+    if (conv) {
+      // Always sync to conversation's model
+      // If no model yet (new conversation), this will be null and ModelSelector handles default
+      selectedModel.value = conv.model || null;
     }
   },
   { immediate: true }
@@ -1396,33 +1423,6 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 .draft-actions {
   width: 100%;
-}
-
-.scheduled-notice {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  margin-bottom: 0.75rem;
-  background: linear-gradient(135deg, rgba(34, 197, 255, 0.1) 0%, rgba(34, 197, 255, 0.05) 100%);
-  border: 1px solid rgba(34, 197, 255, 0.3);
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
-}
-
-.notice-icon {
-  font-size: 1rem;
-  flex-shrink: 0;
-}
-
-.notice-text {
-  color: var(--color-text);
-  line-height: 1.4;
-}
-
-.notice-text strong {
-  color: var(--color-primary);
-  font-weight: 600;
 }
 
 .template-pending {
