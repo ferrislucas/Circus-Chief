@@ -9,6 +9,7 @@ import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+// eslint-disable-next-line no-unused-vars -- upload IS used on line 201, false positive in CI
 import { upload, handleUploadError } from '../middleware/upload.js';
 
 const router = Router();
