@@ -3,6 +3,17 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { nextTick, reactive, h } from 'vue';
 
+// Mock vue-router
+vi.mock('vue-router', () => ({
+  useRouter: vi.fn(() => ({
+    push: vi.fn().mockResolvedValue(undefined),
+  })),
+  useRoute: vi.fn(() => ({
+    query: {},
+    params: {},
+  })),
+}));
+
 // Mock the sessions store
 vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: vi.fn(),
