@@ -19,6 +19,9 @@
             <div class="child-session-name">{{ session.name }}</div>
             <div class="child-session-meta">
               <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
+              <span v-if="getTemplateName(session.nextTemplateId)" class="child-session-next-template">
+                → {{ getTemplateName(session.nextTemplateId) }}
+              </span>
               <span class="child-session-date">{{ formatDate(session.createdAt) }}</span>
             </div>
           </div>
@@ -35,6 +38,7 @@
 
 <script setup>
 import { ref } from 'vue';
+import { useTemplatesStore } from '../stores/templates.js';
 
 defineProps({
   sessions: {
@@ -47,7 +51,14 @@ defineProps({
   },
 });
 
+const templatesStore = useTemplatesStore();
 const isExpanded = ref(true);
+
+const getTemplateName = (templateId) => {
+  if (!templateId) return null;
+  const template = templatesStore.getTemplateById(templateId);
+  return template?.name || null;
+};
 
 const formatDate = (timestamp) => {
   if (!timestamp) return '';
@@ -157,6 +168,12 @@ const formatDate = (timestamp) => {
 
 .child-session-date {
   opacity: 0.7;
+}
+
+.child-session-next-template {
+  color: var(--color-primary, #06b6d4);
+  font-size: 0.7rem;
+  font-weight: 500;
 }
 
 .child-session-arrow {
