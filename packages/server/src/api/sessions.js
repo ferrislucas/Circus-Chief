@@ -9,6 +9,7 @@ import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
 import * as summaryService from '../services/summaryService.js';
 import { executeHookAsync } from '../services/hookService.js';
+// eslint-disable-next-line no-unused-vars -- upload is used as middleware in router.post()
 import { upload, handleUploadError } from '../middleware/upload.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { databaseManager } from '../db/DatabaseManager.js';
