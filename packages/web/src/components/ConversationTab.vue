@@ -119,6 +119,7 @@
     <form v-if="canSendMessage || isScheduledForFuture" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
       <ResizableTextarea
         ref="textareaRef"
+        v-model="input"
         class="form-input form-textarea"
         :placeholder="isScheduledForFuture ? 'Edit your scheduled prompt...' : (isDraft || isScheduledDraft) ? 'Edit your prompt...' : 'Send a follow-up message...'"
         :min-height="80"
