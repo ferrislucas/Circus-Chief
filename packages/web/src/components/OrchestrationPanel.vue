@@ -97,7 +97,7 @@ const props = defineProps({
 
 const emit = defineEmits(['openSchedule', 'update:templateId', 'openAutoReschedule']);
 
-const isExpanded = ref(props.autoRescheduleEnabled);
+const isExpanded = ref(props.autoRescheduleEnabled || !!props.currentTemplateId);
 
 function toggle() {
   isExpanded.value = !isExpanded.value;
