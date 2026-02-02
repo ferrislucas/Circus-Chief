@@ -167,6 +167,8 @@
         v-if="childSessions.length > 0"
         :sessions="childSessions"
         :parent-session-id="currentSessionId"
+        :summaries="childSessionSummaries"
+        :command-buttons="commandButtons"
       />
     </template>
   </div>
@@ -264,6 +266,16 @@ const canArchive = computed(() => {
   return status && status !== 'running';
 });
 
+// Child session summaries for PR indicators
+const childSessionSummaries = ref({});
+
+// Command buttons for child session indicators
+const commandButtons = computed(() => {
+  const projectId = sessionsStore.currentSession?.projectId;
+  if (!projectId) return [];
+  return commandButtonsStore.getButtonsByProjectId(projectId);
+});
+
 const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
   { id: 'conversation', label: 'Conversations' },
@@ -289,6 +301,21 @@ const isDeleting = ref(false);
 // PR URL editing state
 const isEditingPrUrl = ref(false);
 const editPrUrlValue = ref('');
+
+// Fetch summaries for child sessions
+async function fetchChildSummaries() {
+  const children = sessionsStore.getChildSessions(route.params.id);
+  for (const child of children) {
+    if (!childSessionSummaries.value[child.id]) {
+      try {
+        const summary = await api.getSessionSummary(child.id);
+        childSessionSummaries.value[child.id] = summary;
+      } catch (e) {
+        // Ignore - summary may not exist
+      }
+    }
+  }
+}
 
 // Check for file system changes (staged, unstaged, untracked)
 async function checkForChanges() {
@@ -387,6 +414,9 @@ async function initializeSession(sessionId) {
       console.debug('Failed to fetch command buttons:', error);
     }
   }
+
+  // Fetch summaries for child sessions
+  await fetchChildSummaries();
 
   // STEP 4: Register all handlers
   cleanups.push(
