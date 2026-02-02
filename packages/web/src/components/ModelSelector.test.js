@@ -274,6 +274,30 @@ describe('ModelSelector', () => {
     });
   });
 
+  describe('default model behavior', () => {
+    it('should respect modelValue when parent sets it after mount', async () => {
+      // Simulate the race condition timeline:
+      // 1. ModelSelector mounts with null
+      // 2. Parent fetches defaults and sets model to 'opus'
+      const onUpdateModelValue = vi.fn();
+
+      // Mount with null initially
+      const wrapper = mount(ModelSelector, {
+        props: { modelValue: null },
+        attrs: { 'onUpdate:modelValue': onUpdateModelValue },
+      });
+      await flushAll(wrapper);
+
+      // Parent sets model from project defaults (simulating defaults fetch completing)
+      await wrapper.setProps({ modelValue: opus.id });
+      await flushAll(wrapper);
+
+      // The select should show opus, not sonnet
+      const select = wrapper.find('select');
+      expect(select.element.value).toBe(opus.id);
+    });
+  });
+
   describe('provider-based model display', () => {
     it('displays displayName for built-in provider models', async () => {
       const providersStore = useProvidersStore();
