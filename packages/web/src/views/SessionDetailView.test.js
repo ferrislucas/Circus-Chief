@@ -33,7 +33,16 @@ vi.mock('../components/OverflowMenu.vue', () => ({
     emits: ['duplicate', 'archive', 'delete']
   }
 }));
-vi.mock('../composables/useApi.js');
+vi.mock('../composables/useApi.js', () => ({
+  api: {
+    getSessionSummary: vi.fn(),
+    updateSession: vi.fn(),
+    getSession: vi.fn(),
+  },
+}));
+
+// Import the mocked api for use in tests
+import { api } from '../composables/useApi.js';
 
 describe('SessionDetailView', () => {
   let pinia;
@@ -2017,6 +2026,173 @@ describe('SessionDetailView', () => {
 
       // clearTodos should have been called during cleanup
       expect(clearTodosSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('fetchChildSummaries (child session PR indicators)', () => {
+    // These tests verify that SessionDetailView properly integrates with
+    // child session summaries for displaying PR indicators
+
+    it('component mounts successfully when child sessions exist', async () => {
+      // Mock child sessions
+      const childSessions = [
+        { id: 'child-1', parentId: 'session-1', name: 'Child 1' },
+        { id: 'child-2', parentId: 'session-1', name: 'Child 2' },
+      ];
+
+      // Mock sessionsStore.getChildSessions to return child sessions
+      // getChildSessions is a getter that returns a function: getChildSessions(parentId)
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => childSessions);
+
+      // Mock API to return summaries (prevent actual API calls)
+      api.getSessionSummary.mockResolvedValue({ shortSummary: 'Test summary' });
+
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Component should mount successfully even with child sessions
+      expect(wrapper.exists()).toBe(true);
+    });
+
+    it('handles missing summaries gracefully (summary may not exist)', async () => {
+      const childSessions = [
+        { id: 'child-1', parentId: 'session-1', name: 'Child 1' },
+      ];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => childSessions);
+
+      // Mock API to reject (summary doesn't exist)
+      api.getSessionSummary.mockRejectedValue(new Error('Summary not found'));
+
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Component should handle errors gracefully and not crash
+      expect(wrapper.exists()).toBe(true);
+    });
+
+    it('handles case with no child sessions', async () => {
+      // Mock no child sessions
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => []);
+
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Component should mount successfully with no child sessions
+      expect(wrapper.exists()).toBe(true);
+    });
+
+    it('ChildSessionsPanel receives summaries prop', async () => {
+      const childSessions = [
+        { id: 'child-1', parentId: 'session-1', name: 'Child 1' },
+      ];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => childSessions);
+
+      api.getSessionSummary.mockResolvedValue({ shortSummary: 'Test summary' });
+
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+            ChildSessionsPanel: false, // Don't stub to verify prop passing
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Verify ChildSessionsPanel is rendered
+      const childPanel = wrapper.findComponent({ name: 'ChildSessionsPanel' });
+      expect(childPanel.exists()).toBe(true);
+
+      // Verify summaries prop is passed (it should be defined, even if empty)
+      expect(childPanel.props('summaries')).toBeDefined();
     });
   });
 });

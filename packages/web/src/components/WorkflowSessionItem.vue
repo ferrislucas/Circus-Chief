@@ -13,6 +13,18 @@
       <div class="workflow-session-meta">
         <span class="workflow-session-summary">{{ summaryText }}</span>
         <div class="workflow-session-meta-right">
+          <!-- PR Indicators -->
+          <PrIndicators v-if="prUrl" :pr-url="prUrl" :summary="prSummary" />
+
+          <!-- Command button status indicators -->
+          <span
+            v-for="indicator in buttonStatusesToDisplay"
+            :key="indicator.buttonId"
+            :class="['button-status-indicator', `button-status-${indicator.status}`]"
+            :title="indicator.label"
+            @click.stop.prevent="selectedButtonForModal = indicator"
+          >{{ getStatusIcon(indicator.status) }}</span>
+
           <span v-if="nextTemplateName" class="workflow-session-next">
             Next: {{ nextTemplateName }}
           </span>
@@ -21,13 +33,25 @@
       </div>
     </router-link>
   </div>
+
+  <!-- Button Status Modal -->
+  <ButtonStatusModal
+    v-if="selectedButtonForModal"
+    :button="{ label: selectedButtonForModal.label, command: selectedButtonForModal.command }"
+    :latest-run="selectedButtonForModal.latestRun"
+    :is-open="!!selectedButtonForModal"
+    @close="selectedButtonForModal = null"
+  />
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useTemplatesStore } from '../stores/templates.js';
+import PrIndicators from './PrIndicators.vue';
+import ButtonStatusModal from './ButtonStatusModal.vue';
 
 const templatesStore = useTemplatesStore();
+const selectedButtonForModal = ref(null);
 
 const props = defineProps({
   session: {
@@ -41,6 +65,22 @@ const props = defineProps({
   depth: {
     type: Number,
     default: 1,
+  },
+  prUrl: {
+    type: String,
+    default: null,
+  },
+  prSummary: {
+    type: Object,
+    default: null,
+  },
+  latestCommandRuns: {
+    type: Array,
+    default: () => [],
+  },
+  commandButtons: {
+    type: Array,
+    default: () => [],
   },
 });
 
@@ -80,6 +120,34 @@ const formatDate = (timestamp) => {
   const diffMs = now - date;
   if (diffMs < 86400000) return `at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+};
+
+const buttonStatusesToDisplay = computed(() => {
+  const buttonMap = Object.fromEntries(props.commandButtons.map(b => [b.id, b]));
+  return props.latestCommandRuns
+    .filter(run => buttonMap[run.buttonId]?.showOnList)
+    .map(run => ({
+      buttonId: run.buttonId,
+      label: buttonMap[run.buttonId].label,
+      command: buttonMap[run.buttonId].command,
+      status: run.status,
+      latestRun: run,
+    }));
+});
+
+const getStatusIcon = (status) => {
+  switch (status) {
+    case 'running':
+      return '⊙';
+    case 'success':
+      return '✓';
+    case 'error':
+      return '✕';
+    case 'killed':
+      return '✕';
+    default:
+      return '';
+  }
 };
 </script>
 
@@ -178,5 +246,54 @@ const formatDate = (timestamp) => {
 
 .workflow-session-date {
   flex-shrink: 0;
+}
+
+.button-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  margin-left: 0.5rem;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid transparent;
+  font-size: 0.875rem;
+}
+
+.button-status-indicator:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+}
+
+.button-status-running {
+  background-color: rgba(210, 153, 34, 0.3);
+  color: #d29922;
+  border-color: #d29922;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.button-status-success {
+  background-color: rgba(63, 185, 80, 0.3);
+  color: #3fb950;
+  border-color: #3fb950;
+}
+
+.button-status-error {
+  background-color: rgba(248, 81, 73, 0.3);
+  color: #f85149;
+  border-color: #f85149;
+}
+
+.button-status-killed {
+  background-color: rgba(248, 81, 73, 0.3);
+  color: #f85149;
+  border-color: #f85149;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 </style>
