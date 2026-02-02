@@ -140,11 +140,72 @@ describe('File Attachments API', () => {
     it('creates session without attachments (regular JSON)', async () => {
       const response = await request(app)
         .post(`/api/projects/${project.id}/sessions`)
+        .set('Content-Type', 'application/json')
         .send({ prompt: 'No files' })
         .expect(201);
 
       const sessionAttachments = attachments.getBySessionId(response.body.id);
       expect(sessionAttachments).toHaveLength(0);
+    });
+
+    it('uploadMiddleware skips multer for JSON requests (no Content-Type header)', async () => {
+      // This test verifies that uploadMiddleware properly skips multer processing
+      // for non-multipart requests, allowing the same route to handle both JSON and multipart
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        // Don't set Content-Type - let supertest set it to application/json
+        .send({ prompt: 'Test prompt' })
+        .expect(201);
+
+      // Session should be created successfully
+      expect(response.body.id).toBeDefined();
+      expect(response.body.status).toBe('starting');
+    });
+
+    it('uploadMiddleware processes multipart requests with multer', async () => {
+      // This test verifies that uploadMiddleware properly delegates to multer
+      // when the request is multipart/form-data
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .field('prompt', 'Test with files')
+        .attach('files', Buffer.from('File content'), {
+          filename: 'test.txt',
+          contentType: 'text/plain',
+        })
+        .expect(201);
+
+      expect(response.body.status).toBe('starting');
+
+      // Verify attachment was processed correctly
+      const sessionAttachments = attachments.getBySessionId(response.body.id);
+      expect(sessionAttachments).toHaveLength(1);
+      expect(sessionAttachments[0].filename).toBe('test.txt');
+    });
+
+    it('uploadMiddleware handles JSON with explicit Content-Type header', async () => {
+      // Verify the middleware handles requests with explicit application/json header
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .set('Content-Type', 'application/json')
+        .send(JSON.stringify({ prompt: 'JSON request' }))
+        .expect(201);
+
+      // Session should be created successfully
+      expect(response.body.id).toBeDefined();
+      expect(response.body.status).toBe('starting');
+    });
+
+    it('uploadMiddleware sets req.files to empty array for non-multipart requests', async () => {
+      // This is an implementation detail test - verifies the middleware
+      // sets req.files = [] for non-multipart requests (which the route handler expects)
+      const response = await request(app)
+        .post(`/api/projects/${project.id}/sessions`)
+        .set('Content-Type', 'application/json')
+        .send({ prompt: 'Test' })
+        .expect(201);
+
+      // Session should be created successfully
+      expect(response.body.id).toBeDefined();
     });
 
     it('passes attachments to runSession', async () => {

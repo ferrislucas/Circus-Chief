@@ -192,6 +192,10 @@
           :session="child"
           :summaries="summaries"
           :depth="getSessionDepth(child.id)"
+          :pr-url="child.prUrl"
+          :pr-summary="summaries[child.id]"
+          :latest-command-runs="child.latestCommandRuns || []"
+          :command-buttons="commandButtons"
         />
       </div>
     </div>
@@ -356,6 +360,12 @@ const buttonStatusesToDisplay = computed(() => {
       status: run.status,
       latestRun: run,
     }));
+});
+
+const commandButtons = computed(() => {
+  const projectId = props.session.projectId;
+  if (!projectId) return [];
+  return commandButtonsStore.getButtonsByProjectId(projectId);
 });
 
 const getStatusIcon = (status) => {
