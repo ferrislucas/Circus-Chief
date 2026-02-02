@@ -746,6 +746,54 @@ describe('Projects API', () => {
       expect(session.thinkingEnabled).toBe(false); // System default
       expect(session.status).toBe('starting'); // startImmediately default is true
     });
+
+    it('applies project model default when no param provided', async () => {
+      // Set project defaults with opus as the default model
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        model: 'opus',
+      });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+      });
+
+      expect(res.status).toBe(201);
+
+      const session = sessions.getById(res.body.id);
+      // Session should have the project default model, not 'sonnet'
+      expect(session.model).toBe('opus');
+    });
+
+    it('explicit model param overrides project model default', async () => {
+      // Set project default to opus
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        model: 'opus',
+      });
+
+      // Create session with explicit model
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+        model: 'haiku',
+      });
+
+      expect(res.status).toBe(201);
+
+      const session = sessions.getById(res.body.id);
+      expect(session.model).toBe('haiku'); // Param overrides default
+    });
+
+    it('session model is null when no project default and no param', async () => {
+      // Don't set any project defaults - system default for model is null
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+      });
+
+      expect(res.status).toBe(201);
+
+      const session = sessions.getById(res.body.id);
+      // System default for model is null - SDK decides
+      expect(session.model).toBeNull();
+    });
   });
 
   describe('GET /api/projects/:id/sessions with latestCommandRuns', () => {
