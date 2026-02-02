@@ -7,18 +7,6 @@
       :class="{ 'parent-card': hasChildren && isExpanded, 'is-child': isChild }"
     >
       <div class="session-header-row">
-        <!-- Expand toggle for sessions with children -->
-        <div v-if="hasChildren" class="expand-toggle">
-          <button
-            class="expand-btn"
-            @click.prevent="toggleExpand"
-            :aria-label="isExpanded ? 'Collapse sessions' : 'Expand sessions'"
-            :title="isExpanded ? 'Collapse' : 'Expand'"
-          >
-            {{ isExpanded ? '▼' : '▶' }}
-          </button>
-        </div>
-
         <!-- Star button (always visible on root sessions, not on child sessions) -->
         <button
           v-if="!isChild"
@@ -166,10 +154,6 @@
 
     <!-- Expanded workflow sessions panel -->
     <div v-if="hasChildren && isExpanded && !isChild" class="workflow-sessions-panel">
-      <div class="workflow-sessions-header">
-        WORKFLOW SESSIONS
-      </div>
-
       <div class="workflow-sessions-list">
         <!-- Root session entry -->
         <div class="workflow-session-item root-session">
@@ -465,33 +449,6 @@ const formatScheduledTime = (timestamp) => {
   align-items: flex-start;
 }
 
-.expand-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  flex-shrink: 0;
-}
-
-.expand-btn {
-  background: none;
-  border: none;
-  color: var(--color-text-soft);
-  cursor: pointer;
-  padding: 0;
-  width: 1.25rem;
-  height: 1.25rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.875rem;
-  transition: color 0.15s;
-  flex-shrink: 0;
-}
-
-.expand-btn:hover {
-  color: var(--color-text);
-}
-
 .child-count {
   font-size: 0.75rem;
   color: var(--color-text-soft);
@@ -739,15 +696,6 @@ const formatScheduledTime = (timestamp) => {
   border-bottom-right-radius: 6px;
   background: var(--color-background-secondary, rgba(0, 0, 0, 0.1));
   animation: slideIn 0.2s ease-out;
-}
-
-.workflow-sessions-header {
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--color-text-soft);
-  padding: 0.75rem 1rem 0.5rem;
-  letter-spacing: 0.05em;
-  border-bottom: 1px solid var(--color-border);
 }
 
 .workflow-sessions-list {
