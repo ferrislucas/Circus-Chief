@@ -827,3 +827,91 @@ export async function cleanupProviders() {
     }
   }
 }
+
+// ============================================================
+// Session PR Data Helpers
+// ============================================================
+
+/**
+ * Update session with PR data
+ */
+export async function updateSessionWithPR(sessionId: string, prData: {
+  prUrl?: string;
+  prState?: 'open' | 'merged' | 'closed' | 'draft';
+  hasMergeConflicts?: boolean;
+  ciStatus?: 'success' | 'failure' | 'pending';
+}) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(prData),
+  });
+  if (!response.ok) throw new Error('Failed to update session PR data');
+  return response.json();
+}
+
+/**
+ * Get session summary
+ */
+export async function getSessionSummary(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/summary`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+/**
+ * Set session summary (for testing PR indicators that depend on summary data)
+ */
+export async function setSessionSummary(sessionId: string, summaryData: {
+  shortSummary?: string;
+  longSummary?: string;
+  prNumber?: string;
+  prState?: string;
+  hasMergeConflicts?: boolean;
+  ciStatus?: string;
+}) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/summary`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(summaryData),
+  });
+  if (!response.ok) throw new Error('Failed to set session summary');
+  return response.json();
+}
+
+// ============================================================
+// Child Session Helpers
+// ============================================================
+
+/**
+ * Create a child session (session with a parent)
+ */
+export async function seedChildSession(
+  projectId: string,
+  parentSessionId: string,
+  data: { prompt: string; name?: string; mode?: string }
+) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...data,
+      parentSessionId,
+      startImmediately: false,
+    }),
+  });
+  if (!response.ok) throw new Error('Failed to seed child session');
+  const session = await response.json();
+  // Track for scoped cleanup
+  createdResources.sessions.add(session.id);
+  return session;
+}
+
+/**
+ * Get child sessions for a parent session
+ */
+export async function getChildSessions(parentSessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${parentSessionId}/children`);
+  if (!response.ok) return [];
+  return response.json();
+}
