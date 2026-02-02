@@ -508,11 +508,11 @@ export class CommandRunner {
       }
     }
 
-    // Add recent completed runs from database (last 1 hour)
+    // Add latest completed runs from database (one per button, no time limit)
     // Note: commandRuns might not be available in test environments
-    if (commandRuns && typeof commandRuns.getRecentBySessionId === 'function') {
+    if (commandRuns && typeof commandRuns.getLatestRunsForSession === 'function') {
       try {
-        const dbRuns = commandRuns.getRecentBySessionId(sessionId, 3600000, false);
+        const dbRuns = commandRuns.getLatestRunsForSession(sessionId);
         for (const dbRun of dbRuns) {
           // Don't duplicate running processes
           const isRunningInMemory = runs.some((r) => r.runId === dbRun.id);

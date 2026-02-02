@@ -9,7 +9,7 @@ import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
 import * as summaryService from '../services/summaryService.js';
 import { executeHookAsync } from '../services/hookService.js';
-import { upload, handleUploadError } from '../middleware/upload.js';
+import { upload as _upload, handleUploadError } from '../middleware/upload.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { duplicateSession } from '../services/sessionDuplicator.js';
@@ -310,7 +310,7 @@ router.post('/:id/work-logs', (req, res) => {
 
 // POST /api/sessions/:id/message - Send follow-up message
 // Supports both JSON and multipart/form-data (for file attachments)
-router.post('/:id/message', upload.array('files', 10), handleUploadError, async (req, res) => {
+router.post('/:id/message', _upload.array('files', 10), handleUploadError, async (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
@@ -895,6 +895,7 @@ router.patch('/:id', (req, res) => {
     model,
     providerId,
     prUrl,
+    pendingModel,
     // Scheduling fields
     scheduledAt,
     autoRescheduleEnabled,
@@ -938,6 +939,9 @@ router.patch('/:id', (req, res) => {
   }
   if (model !== undefined) {
     updateData.model = model;
+  }
+  if (pendingModel !== undefined) {
+    updateData.pendingModel = pendingModel;
   }
   // Provider ID - allow setting, updating, or clearing (null clears it to use Anthropic)
   if (providerId !== undefined) {
@@ -1165,6 +1169,7 @@ router.post('/:id/schedule', async (req, res) => {
 
   const {
     scheduledAt,
+    pendingModel,
     autoRescheduleEnabled,
     rescheduleDelayMinutes,
     rescheduleOnTokenLimit,
@@ -1224,6 +1229,9 @@ router.post('/:id/schedule', async (req, res) => {
     }
     if (rescheduleAtTokenCount !== undefined) {
       updateData.rescheduleAtTokenCount = rescheduleAtTokenCount ? parseInt(rescheduleAtTokenCount, 10) : null;
+    }
+    if (pendingModel !== undefined) {
+      updateData.pendingModel = pendingModel;
     }
 
     const updated = sessions.update(req.params.id, updateData);
