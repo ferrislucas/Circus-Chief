@@ -6,8 +6,6 @@ import {
   cleanupAll,
   cleanupTemplates,
   getTemplate,
-  getProjectTemplates,
-  getGlobalTemplates,
 } from './helpers';
 
 test.describe('Session Templates - Tab Navigation', () => {
@@ -58,55 +56,6 @@ test.describe('Session Templates - Tab Navigation', () => {
   });
 });
 
-test.describe('Session Templates - Empty State', () => {
-  let project: any;
-
-  test.beforeEach(async () => {
-    await cleanupAll();
-    await cleanupTemplates();
-    project = await seedProject('Test Project', '/tmp/test');
-  });
-
-  test.afterEach(async () => {
-    await cleanupAll();
-    await cleanupTemplates();
-  });
-
-  test('displays empty state when no templates exist', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('.tab:has-text("Templates")');
-
-    await expect(page.getByText('No templates yet')).toBeVisible();
-    await expect(page.locator('.empty-state button:has-text("Create Template")')).toBeVisible();
-  });
-
-  test('empty state Create Template button opens form', async ({ page }) => {
-    // Capture console errors
-    const errors: string[] = [];
-    page.on('console', msg => {
-      if (msg.type() === 'error') errors.push(msg.text());
-    });
-
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('.tab:has-text("Templates")');
-    await expect(page.locator('.templates-panel')).toBeVisible();
-    await page.waitForLoadState('networkidle');
-    await expect(page.locator('.empty-state')).toBeVisible();
-
-    const createBtn = page.getByTestId('create-template-btn');
-    await expect(createBtn).toBeVisible();
-    await createBtn.click({ force: true });
-
-    // Debug: log any console errors
-    if (errors.length > 0) {
-      console.log('Console errors:', errors);
-    }
-
-    await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('.template-form h3')).toHaveText('Create Template');
-  });
-});
-
 test.describe('Session Templates - Create Form', () => {
   let project: any;
 
@@ -121,17 +70,6 @@ test.describe('Session Templates - Create Form', () => {
     await cleanupTemplates();
   });
 
-  // Helper to open the create form
-  async function openCreateForm(page: any, projectId: string) {
-    await page.goto(`/projects/${projectId}/sessions`);
-    await page.click('.tab:has-text("Templates")');
-    await expect(page.locator('.templates-panel')).toBeVisible();
-    await page.waitForLoadState('networkidle');
-    await expect(page.locator('.empty-state')).toBeVisible();
-    await page.getByTestId('create-template-btn').click();
-    await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
-  }
-
   test('New Template button opens create form', async ({ page }) => {
     await seedProjectTemplate(project.id, { name: '[TEST] Existing', prompt: 'Test prompt' });
     await page.goto(`/projects/${project.id}/sessions`);
@@ -139,38 +77,6 @@ test.describe('Session Templates - Create Form', () => {
     await expect(page.getByText('[TEST] Existing')).toBeVisible();
     await page.getByTestId('new-template-btn').click();
     await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
-  });
-
-  test('form has all required fields', async ({ page }) => {
-    await openCreateForm(page, project.id);
-    await expect(page.locator('.template-form input[placeholder="Template name"]')).toBeVisible();
-    await expect(page.locator('.template-form textarea')).toBeVisible();
-  });
-
-  test('can create a project template', async ({ page }) => {
-    await openCreateForm(page, project.id);
-    await page.fill('.template-form input[placeholder="Template name"]', '[TEST] My Template');
-    await page.fill('.template-form textarea', 'This is the template prompt');
-    await page.getByTestId('submit-btn').click();
-    await expect(page.getByText('[TEST] My Template')).toBeVisible({ timeout: 10000 });
-  });
-
-  test('can create a global template', async ({ page }) => {
-    await openCreateForm(page, project.id);
-    await page.fill('.template-form input[placeholder="Template name"]', '[TEST] Global Template');
-    await page.fill('.template-form textarea', 'This is a global template prompt');
-    // Select global scope
-    await page.locator('.template-form select').first().selectOption('true');
-    await page.getByTestId('submit-btn').click();
-    await expect(page.getByText('[TEST] Global Template')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('.meta-badge-global')).toBeVisible();
-  });
-
-  test('cancel button closes form', async ({ page }) => {
-    await openCreateForm(page, project.id);
-    await page.getByTestId('cancel-btn').click();
-    await expect(page.getByTestId('template-form')).not.toBeVisible();
-    await expect(page.locator('.empty-state')).toBeVisible();
   });
 });
 

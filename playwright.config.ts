@@ -15,10 +15,10 @@ function getBaseURL(): string {
 
 export default defineConfig({
   testDir: './tests/e2e',
-  fullyParallel: false, // Disable parallel to prevent race conditions between tests
+  fullyParallel: true, // Enable parallel execution for faster test runs
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 1, // Retry flaky tests
-  workers: 1,
+  workers: 4, // Run tests in parallel across 4 workers
   reporter: 'list',
   timeout: 30000, // Increase default timeout for slow tests
   expect: {

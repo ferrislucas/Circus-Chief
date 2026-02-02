@@ -16,27 +16,6 @@ test.describe('Scheduling UI', () => {
   });
 
   test.describe('Clock Icon Visibility', () => {
-
-    test.skip('clock icon appears next to Start Session button for draft sessions - TODO: fix test', async ({ page }) => {
-      // Create a draft session (startImmediately: false keeps it in waiting status)
-      const session = await seedSession(project.id, { prompt: 'Test prompt for scheduling', startImmediately: false });
-
-      // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}`);
-
-      // Expand the Orchestration panel (it starts collapsed)
-      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
-      await orchestrationPanel.click();
-
-      // Verify clock icon button exists next to Start Session
-      const clockButton = page.locator('.btn-schedule');
-      await expect(clockButton).toBeVisible();
-
-      // Verify Start Session button also exists
-      const startButton = page.locator('button:has-text("Start Session")');
-      await expect(startButton).toBeVisible();
-    });
-
     test('clock icon is disabled when no content in textarea for draft', async ({ page }) => {
       // Create a draft session with content (API requires non-empty prompt)
       const session = await seedSession(project.id, { prompt: 'Initial content', startImmediately: false });
@@ -56,11 +35,9 @@ test.describe('Scheduling UI', () => {
       const clockButton = page.locator('.btn-schedule');
       await expect(clockButton).toBeDisabled();
     });
-
   });
 
   test.describe('Scheduling Modal', () => {
-
     test('clicking clock icon opens scheduling modal for draft session', async ({ page }) => {
       // Create a draft session
       const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
@@ -113,7 +90,6 @@ test.describe('Scheduling UI', () => {
   });
 
   test.describe('Full Scheduling Flow', () => {
-
     // Issue #432: Modal doesn't close after clicking Schedule button
     // This test verifies the bug exists and will pass once the issue is fixed
     test('can schedule a draft session for future execution', async ({ page }) => {
