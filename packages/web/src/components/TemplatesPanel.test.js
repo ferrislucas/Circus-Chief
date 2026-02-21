@@ -88,7 +88,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
           isBuiltIn: true,
           models: [
             { modelId: 'claude-opus-4-20250514', displayName: 'Opus 4', tier: 'opus' },
-            { modelId: 'claude-sonnet-4-5-20250929', displayName: 'Sonnet 4.5', tier: 'sonnet' },
+            { modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
             { modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', tier: 'haiku' },
           ],
         },
@@ -270,7 +270,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       // Set form data
       wrapper.vm.formData.name = 'Global Template';
       wrapper.vm.formData.prompt = 'Global prompt';
-      wrapper.vm.formData.model = 'claude-sonnet-4-5-20250929';
+      wrapper.vm.formData.model = 'claude-sonnet-4-6';
       wrapper.vm.formData.mode = 'standard';
       wrapper.vm.formData.isGlobal = true;
 
@@ -282,7 +282,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
         expect.objectContaining({
           name: 'Global Template',
           prompt: 'Global prompt',
-          model: 'claude-sonnet-4-5-20250929',
+          model: 'claude-sonnet-4-6',
           mode: 'standard',
         })
       );
@@ -370,7 +370,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
           id: 'tpl-1',
           name: 'Test Template',
           prompt: 'Test prompt',
-          model: 'claude-opus-4-5-20251101',
+          model: 'claude-opus-4-6',
           mode: 'plan',
           thinkingEnabled: false,
           gitBranch: null,
@@ -381,7 +381,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       await wrapper.vm.$nextTick();
 
       const text = wrapper.text();
-      expect(text).toContain('Opus 4.5');
+      expect(text).toContain('Opus 4.6');
     });
 
     it('displays mode badge on project template card', async () => {
@@ -399,7 +399,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
           id: 'tpl-1',
           name: 'Test Template',
           prompt: 'Test prompt',
-          model: 'claude-sonnet-4-5-20250929',
+          model: 'claude-sonnet-4-6',
           mode: 'plan',
           thinkingEnabled: false,
           gitBranch: null,
@@ -428,7 +428,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
           id: 'tpl-1',
           name: 'Test Template',
           prompt: 'Test prompt',
-          model: 'claude-opus-4-5-20251101',
+          model: 'claude-opus-4-6',
           mode: 'standard',
           thinkingEnabled: true,
           gitBranch: 'feature/test',
@@ -439,7 +439,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       await wrapper.vm.$nextTick();
 
       const text = wrapper.text();
-      expect(text).toContain('Opus 4.5');
+      expect(text).toContain('Opus 4.6');
       expect(text).toContain('standard');
       expect(text).toContain('Thinking');
       expect(text).toContain('feature/test');
@@ -460,7 +460,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
           id: 'tpl-2',
           name: 'Global Template',
           prompt: 'Global prompt',
-          model: 'claude-sonnet-4-5-20250929',
+          model: 'claude-sonnet-4-6',
           mode: 'yolo',
           thinkingEnabled: false,
           gitBranch: null,
@@ -473,7 +473,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
 
       const text = wrapper.text();
       expect(text).toContain('Global');
-      expect(text).toContain('Sonnet 4.5');
+      expect(text).toContain('Sonnet 4.6');
       expect(text).toContain('yolo');
     });
   });
@@ -530,7 +530,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       });
 
       // Change model
-      wrapper.vm.formData.model = 'claude-sonnet-4-5-20250929';
+      wrapper.vm.formData.model = 'claude-sonnet-4-6';
 
       // Reset form
       wrapper.vm.resetForm();
@@ -600,7 +600,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       // Set form data
       wrapper.vm.formData.name = 'Test Template';
       wrapper.vm.formData.prompt = 'Test prompt';
-      wrapper.vm.formData.model = 'claude-opus-4-5-20251101';
+      wrapper.vm.formData.model = 'claude-opus-4-6';
       wrapper.vm.formData.mode = 'plan';
 
       // Submit form

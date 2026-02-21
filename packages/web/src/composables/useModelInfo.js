@@ -7,8 +7,8 @@ import { CLAUDE_MODELS, DEFAULT_MODEL } from '@claudetools/shared';
 export function useModelInfo() {
   /**
    * Get human-readable display name for a model ID
-   * @param {string|null} modelId - The model ID (e.g., 'claude-opus-4-5-20251101')
-   * @returns {string} - The display name (e.g., 'Opus 4.5') or 'Default' if null
+   * @param {string|null} modelId - The model ID (e.g., 'claude-opus-4-6')
+   * @returns {string} - The display name (e.g., 'Opus 4.6') or 'Default' if null
    */
   function getModelDisplayName(modelId) {
     if (!modelId) {

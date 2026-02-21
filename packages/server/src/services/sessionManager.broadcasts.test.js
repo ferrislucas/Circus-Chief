@@ -302,12 +302,12 @@ describe('sessionManager broadcasts', () => {
 
     it('uses modelUsage when available in result', async () => {
       query.mockImplementation(async function* () {
-        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-sonnet-4-5-20250929' };
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-sonnet-4-6' };
         yield {
           type: 'result',
           subtype: 'success',
           modelUsage: {
-            'claude-sonnet-4-5-20250929': {
+            'claude-sonnet-4-6': {
               inputTokens: 500,
               outputTokens: 250,
               cacheReadInputTokens: 100,

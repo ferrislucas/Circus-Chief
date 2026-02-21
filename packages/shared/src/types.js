@@ -7,7 +7,7 @@
  */
 
 /**
- * @typedef {'claude-sonnet-4-5-20250929' | 'claude-opus-4-5-20251101' | 'claude-haiku-4-5-20251001'} ClaudeModel
+ * @typedef {'claude-sonnet-4-6' | 'claude-opus-4-6' | 'claude-haiku-4-5-20251001'} ClaudeModel
  */
 
 /**
@@ -110,7 +110,7 @@ export const TOOL_TEMPLATE_PAYLOAD_TYPES = ['command', 'prompt'];
 
 export const CLAUDE_MODELS = [
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', description: 'Fast & lightweight' },
-  { id: 'claude-sonnet-4-5-20250929', name: 'Sonnet 4.5', description: 'Balanced' },
-  { id: 'claude-opus-4-5-20251101', name: 'Opus 4.5', description: 'Most capable (default)' },
+  { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', description: 'Balanced' },
+  { id: 'claude-opus-4-6', name: 'Opus 4.6', description: 'Most capable (default)' },
 ];
-export const DEFAULT_MODEL = 'claude-opus-4-5-20251101';
+export const DEFAULT_MODEL = 'claude-opus-4-6';

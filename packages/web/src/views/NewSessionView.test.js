@@ -88,7 +88,7 @@ vi.mock('@claudetools/shared', async (importOriginal) => {
   return {
     ...actual,
     generateWorktreeBranch: vi.fn(() => 'generated-branch'),
-    DEFAULT_MODEL: 'claude-sonnet-4-5-20250929',
+    DEFAULT_MODEL: 'claude-sonnet-4-6',
   };
 });
 

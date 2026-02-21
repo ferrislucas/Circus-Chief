@@ -444,7 +444,7 @@ Settings page for managing providers:
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ ★ Anthropic (Built-in)                          DEFAULT │ │
 │ │   Uses official Anthropic API                           │ │
-│ │   Models: Opus 4.5, Sonnet 4.5, Haiku 4.5              │ │
+│ │   Models: Opus 4.6, Sonnet 4.6, Haiku 4.5              │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │   AWS Bedrock                    [Edit] [Delete] [Set ★]│ │
@@ -522,8 +522,8 @@ Modify to:
 │ Model                                                    ▼  │
 ├─────────────────────────────────────────────────────────────┤
 │ ── Anthropic (Default) ──                                   │
-│   ○ Opus 4.5 (Most capable)                                │
-│   ● Sonnet 4.5 (Balanced)                                  │
+│   ○ Opus 4.6 (Most capable)                                │
+│   ● Sonnet 4.6 (Balanced)                                  │
 │   ○ Haiku 4.5 (Fast)                                       │
 │ ── AWS Bedrock ──                                          │
 │   ○ anthropic.claude-3-opus                                │

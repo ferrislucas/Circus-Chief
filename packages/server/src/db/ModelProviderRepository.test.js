@@ -203,6 +203,64 @@ describe('ModelProviderRepository', () => {
       // Cleanup
       repo.delete(provider.id);
     });
+
+    it('updates existing provider_models entry when default model changes', () => {
+      // Create provider with initial model
+      const provider = repo.create({
+        name: 'Model Update Test',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+        defaultSonnetModel: 'old-sonnet-v1',
+      });
+
+      // Verify initial model was created
+      let models = repo.getModels(provider.id);
+      expect(models.some((m) => m.modelId === 'old-sonnet-v1')).toBe(true);
+
+      // Update to new model - this should UPDATE the existing entry, not ignore it
+      repo.update(provider.id, {
+        defaultSonnetModel: 'new-sonnet-v2',
+      });
+
+      // Verify the model was updated (not ignored)
+      models = repo.getModels(provider.id);
+      const sonnetModel = models.find((m) => m.tier === 'sonnet');
+
+      expect(sonnetModel).toBeDefined();
+      expect(sonnetModel.modelId).toBe('new-sonnet-v2');
+      // Old model should no longer exist
+      expect(models.some((m) => m.modelId === 'old-sonnet-v1')).toBe(false);
+
+      // Cleanup
+      repo.delete(provider.id);
+    });
+
+    it('updates multiple default models in single update', () => {
+      const provider = repo.create({
+        name: 'Multi Update Test',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+        defaultSonnetModel: 'sonnet-v1',
+        defaultOpusModel: 'opus-v1',
+        defaultHaikuModel: 'haiku-v1',
+      });
+
+      // Update all three models at once
+      repo.update(provider.id, {
+        defaultSonnetModel: 'sonnet-v2',
+        defaultOpusModel: 'opus-v2',
+        defaultHaikuModel: 'haiku-v2',
+      });
+
+      const models = repo.getModels(provider.id);
+
+      expect(models.find((m) => m.tier === 'sonnet').modelId).toBe('sonnet-v2');
+      expect(models.find((m) => m.tier === 'opus').modelId).toBe('opus-v2');
+      expect(models.find((m) => m.tier === 'haiku').modelId).toBe('haiku-v2');
+
+      // Cleanup
+      repo.delete(provider.id);
+    });
   });
 
   describe('delete', () => {

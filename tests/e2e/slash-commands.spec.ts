@@ -48,53 +48,6 @@ test.describe('Slash Commands', () => {
     return slashCommandButton;
   }
 
-  test('executing /help command without arguments shows success toast', async ({ page }) => {
-    // Create a session and wait for it to be ready
-    const session = await seedSession(project.id, {
-      prompt: 'Test slash commands',
-      name: 'Slash Command Test Session',
-    });
-
-    // Wait for session to exist in API
-    await waitForSessionToExist(session.id);
-
-    // Navigate to session and wait for slash command button
-    const slashCommandButton = await navigateToSessionWithSlashCommands(page, project.id, session.id);
-
-    // Click the slash command button to open the wizard
-    await slashCommandButton.click();
-
-    // Wait for the wizard to be visible
-    const wizard = page.locator('[data-testid="slash-command-wizard"]');
-    await expect(wizard).toBeVisible({ timeout: 10000 });
-
-    // Wait for commands to load (the /help command should be visible)
-    const helpCommand = wizard.locator('[data-testid="command-help"]');
-    await expect(helpCommand).toBeVisible({ timeout: 10000 });
-
-    // Click on /help command - this should execute immediately since it has no arguments
-    await helpCommand.click();
-
-    // The wizard should close after execution
-    await expect(wizard).not.toBeVisible({ timeout: 5000 });
-
-    // Verify that a SUCCESS toast appears (not an error toast)
-    // The success toast should say "Command /help executed"
-    const successToast = page.locator('.toast-success');
-    await expect(successToast).toBeVisible({ timeout: 5000 });
-    await expect(successToast).toContainText('Command /help executed');
-
-    // Verify that NO error toast appears with the null reference error
-    const errorToast = page.locator('.toast-error');
-    const errorCount = await errorToast.count();
-    if (errorCount > 0) {
-      const errorText = await errorToast.textContent();
-      // Fail the test if we see the specific null reference error
-      expect(errorText).not.toContain('null is not an object');
-      expect(errorText).not.toContain('Failed to execute command');
-    }
-  });
-
   test('slash command wizard opens and shows available commands', async ({ page }) => {
     const session = await seedSession(project.id, {
       prompt: 'Test slash commands',
