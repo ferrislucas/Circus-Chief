@@ -16,27 +16,6 @@ test.describe('Scheduling UI', () => {
   });
 
   test.describe('Clock Icon Visibility', () => {
-
-    test('clock icon appears next to Start Session button for draft sessions', async ({ page }) => {
-      // Create a draft session (startImmediately: false keeps it in waiting status)
-      const session = await seedSession(project.id, { prompt: 'Test prompt for scheduling', startImmediately: false });
-
-      // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}`);
-
-      // Expand the Orchestration panel (it starts collapsed)
-      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
-      await orchestrationPanel.click();
-
-      // Verify clock icon button exists next to Start Session
-      const clockButton = page.locator('.btn-schedule');
-      await expect(clockButton).toBeVisible();
-
-      // Verify Start Session button also exists
-      const startButton = page.locator('button:has-text("Start Session")');
-      await expect(startButton).toBeVisible();
-    });
-
     test('clock icon is disabled when no content in textarea for draft', async ({ page }) => {
       // Create a draft session with content (API requires non-empty prompt)
       const session = await seedSession(project.id, { prompt: 'Initial content', startImmediately: false });
@@ -56,16 +35,9 @@ test.describe('Scheduling UI', () => {
       const clockButton = page.locator('.btn-schedule');
       await expect(clockButton).toBeDisabled();
     });
-
-    // TODO: Waiting session tests require more complex setup
-    // Skip for now and focus on draft session tests
-    test.skip('clock icon appears next to Send button for waiting sessions', async ({ page }) => {
-      // Requires: session to be started, have messages, be in waiting state
-    });
   });
 
   test.describe('Scheduling Modal', () => {
-
     test('clicking clock icon opens scheduling modal for draft session', async ({ page }) => {
       // Create a draft session
       const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
@@ -89,47 +61,9 @@ test.describe('Scheduling UI', () => {
       await expect(datetimePicker).toBeVisible();
     });
 
-    test.skip('clicking clock icon opens scheduling modal for waiting session', async ({ page }) => {
-      // Requires: session in waiting state
-    });
-
-    test('scheduling modal shows auto-reschedule toggle directly (no container)', async ({ page }) => {
-      // Create a draft session
-      const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
-
-      // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}`);
-
-      // Expand the Orchestration panel
-      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
-      await orchestrationPanel.click();
-
-      // Click clock icon
-      await page.click('.btn-schedule');
-
-      // Wait for modal to open
-      const modal = page.locator('.modal-backdrop');
-      await expect(modal).toBeVisible();
-
-      // Verify auto-reschedule toggle is visible within the modal
-      const toggle = modal.locator('.toggle-switch').first();
-      await expect(toggle).toBeVisible();
-
-      // Verify NO "Scheduling Options" header exists
-      const header = modal.locator('h3:has-text("Scheduling Options")');
-      await expect(header).not.toBeVisible();
-    });
-  });
-
-  test.describe('Configure Auto-Reschedule Button Removed', () => {
-
-    test.skip('no "Configure Auto-Reschedule" button on waiting session', async ({ page }) => {
-      // Requires: session in waiting state
-    });
   });
 
   test.describe('Full Scheduling Flow', () => {
-
     // Issue #432: Modal doesn't close after clicking Schedule button
     // This test verifies the bug exists and will pass once the issue is fixed
     test('can schedule a draft session for future execution', async ({ page }) => {

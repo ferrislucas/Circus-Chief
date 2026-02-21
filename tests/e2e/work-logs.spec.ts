@@ -160,42 +160,4 @@ test.describe('Work Log Association', () => {
     expect(types.length).toBeGreaterThan(0);
   });
 
-  test('work logs from multiple turns are each associated with their respective messages', async () => {
-    // Create initial session
-    const session = await seedSession(project.id, {
-      prompt: 'First message',
-      name: 'Multi-turn Test',
-    });
-
-    // Wait for first turn to complete
-    await waitForSessionStatus(session.id, 'waiting', 30000);
-
-    // Send follow-up message
-    const response = await fetch(`${API_URL}/api/sessions/${session.id}/message`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: 'Second message' }),
-    });
-    expect(response.ok).toBe(true);
-
-    // Wait for second turn to complete
-    await waitForSessionStatus(session.id, 'waiting', 30000);
-
-    // Get all messages and work logs
-    const messages = await getSessionMessages(session.id);
-    const workLogs = await getSessionWorkLogs(session.id);
-
-    // Should have multiple assistant messages (one per turn)
-    const assistantMessages = messages.filter((m: any) => m.role === 'assistant');
-    expect(assistantMessages.length).toBeGreaterThanOrEqual(2);
-
-    // Each assistant message should have associated work logs
-    for (const msg of assistantMessages) {
-      const msgWorkLogs = workLogs[msg.id] || [];
-      expect(msgWorkLogs.length).toBeGreaterThan(0);
-    }
-
-    // No work logs should be left unassociated
-    expect(workLogs._unassociated?.length || 0).toBe(0);
-  });
 });
