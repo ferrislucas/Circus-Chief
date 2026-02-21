@@ -4,6 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import {
   parseCommandFile,
+  parseSkillFile,
   getCommands,
   getCommand,
   getCommandBody,
@@ -349,6 +350,311 @@ Say: $ARGUMENTS`
       await expect(buildCommandString(testDir, 'nonexistent', {})).rejects.toThrow(
         'Command not found: nonexistent'
       );
+    });
+  });
+
+  describe('parseSkillFile', () => {
+    it('parses a skill file with full frontmatter', () => {
+      const content = `---
+name: my-skill
+description: A test skill
+argument-hint: "[filename]"
+user-invocable: true
+disable-model-invocation: false
+---
+Process the file: $ARGUMENTS`;
+
+      const result = parseSkillFile(content, 'fallback-name');
+
+      expect(result.name).toBe('my-skill');
+      expect(result.description).toBe('A test skill');
+      expect(result.argumentHint).toBe('[filename]');
+      expect(result.userInvocable).toBe(true);
+      expect(result.disableModelInvocation).toBe(false);
+      expect(result.body).toBe('Process the file: $ARGUMENTS');
+    });
+
+    it('uses directory name as fallback when name not specified', () => {
+      const content = `---
+description: A skill without name
+---
+Body content`;
+
+      const result = parseSkillFile(content, 'directory-name');
+
+      expect(result.name).toBe('directory-name');
+    });
+
+    it('handles skill without frontmatter', () => {
+      const content = 'Just a body, no frontmatter';
+
+      const result = parseSkillFile(content, 'my-skill');
+
+      expect(result.name).toBe('my-skill');
+      expect(result.description).toBe('');
+      expect(result.body).toBe('Just a body, no frontmatter');
+    });
+
+    it('handles malformed frontmatter gracefully', () => {
+      const content = `---
+name: incomplete`;
+
+      const result = parseSkillFile(content, 'fallback');
+
+      expect(result.name).toBe('fallback');
+      expect(result.body).toBe(content.trim());
+    });
+
+    it('defaults user-invocable to true', () => {
+      const content = `---
+name: test
+---
+body`;
+
+      const result = parseSkillFile(content, 'test');
+
+      expect(result.userInvocable).toBe(true);
+    });
+
+    it('respects user-invocable: false', () => {
+      const content = `---
+name: hidden
+user-invocable: false
+---
+body`;
+
+      const result = parseSkillFile(content, 'hidden');
+
+      expect(result.userInvocable).toBe(false);
+    });
+
+    it('defaults disable-model-invocation to false', () => {
+      const content = `---
+name: test
+---
+body`;
+
+      const result = parseSkillFile(content, 'test');
+
+      expect(result.disableModelInvocation).toBe(false);
+    });
+
+    it('respects disable-model-invocation: true', () => {
+      const content = `---
+name: user-only
+disable-model-invocation: true
+---
+body`;
+
+      const result = parseSkillFile(content, 'user-only');
+
+      expect(result.disableModelInvocation).toBe(true);
+    });
+  });
+
+  describe('skill discovery', () => {
+    let skillsDir;
+
+    beforeEach(async () => {
+      // Clear and recreate skills directory
+      skillsDir = join(testDir, '.claude', 'skills');
+      await rm(skillsDir, { recursive: true, force: true });
+    });
+
+    it('discovers skills from .claude/skills/', async () => {
+      await mkdir(join(skillsDir, 'my-skill'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'my-skill', 'SKILL.md'),
+        `---
+name: my-skill
+description: A test skill
+argument-hint: "[filename]"
+---
+Process the file: $ARGUMENTS`
+      );
+
+      const commands = await getCommands(testDir);
+      const skill = commands.find((c) => c.name === 'my-skill');
+
+      expect(skill).toBeDefined();
+      expect(skill.isSkill).toBe(true);
+      expect(skill.source).toBe('project-skill');
+      expect(skill.argumentHint).toBe('[filename]');
+      expect(skill.arguments).toEqual([]);
+    });
+
+    it('filters out skills with user-invocable: false', async () => {
+      await mkdir(join(skillsDir, 'hidden-skill'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'hidden-skill', 'SKILL.md'),
+        `---
+name: hidden-skill
+user-invocable: false
+---
+This skill is model-only`
+      );
+
+      const commands = await getCommands(testDir);
+
+      expect(commands.find((c) => c.name === 'hidden-skill')).toBeUndefined();
+    });
+
+    it('returns empty array when .claude/skills/ does not exist', async () => {
+      // Don't create skills directory
+      const commands = await getCommands(testDir);
+      const skills = commands.filter((c) => c.isSkill);
+
+      expect(skills).toEqual([]);
+    });
+
+    it('ignores directories without SKILL.md', async () => {
+      await mkdir(join(skillsDir, 'incomplete-skill'), { recursive: true });
+      await writeFile(join(skillsDir, 'incomplete-skill', 'README.md'), 'Not a skill');
+
+      const commands = await getCommands(testDir);
+
+      expect(commands.find((c) => c.name === 'incomplete-skill')).toBeUndefined();
+    });
+
+    it('ignores files in skills directory (only directories)', async () => {
+      await mkdir(skillsDir, { recursive: true });
+      await writeFile(join(skillsDir, 'not-a-skill.md'), 'This is a file, not a directory');
+
+      const commands = await getCommands(testDir);
+      const skills = commands.filter((c) => c.isSkill);
+
+      expect(skills).toEqual([]);
+    });
+
+    it('command takes precedence over skill with same name', async () => {
+      // Create a command
+      await mkdir(projectCommandsDir, { recursive: true });
+      await writeFile(
+        join(projectCommandsDir, 'deploy.md'),
+        `---
+description: Deploy command
+---
+Deploy now`
+      );
+
+      // Create a skill with the same name
+      await mkdir(join(skillsDir, 'deploy'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'deploy', 'SKILL.md'),
+        `---
+name: deploy
+description: Deploy skill
+---
+Deploy skill body`
+      );
+
+      const commands = await getCommands(testDir);
+      const deployItems = commands.filter((c) => c.name === 'deploy');
+
+      expect(deployItems).toHaveLength(1);
+      expect(deployItems[0].source).toBe('project'); // Command, not skill
+      expect(deployItems[0].isSkill).toBeUndefined();
+    });
+
+    it('uses directory name when skill name not specified', async () => {
+      await mkdir(join(skillsDir, 'auto-named'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'auto-named', 'SKILL.md'),
+        `---
+description: No name specified
+---
+Body`
+      );
+
+      const commands = await getCommands(testDir);
+      const skill = commands.find((c) => c.name === 'auto-named');
+
+      expect(skill).toBeDefined();
+      expect(skill.name).toBe('auto-named');
+    });
+  });
+
+  describe('buildCommandString with skills', () => {
+    let skillsDir;
+
+    beforeEach(async () => {
+      skillsDir = join(testDir, '.claude', 'skills');
+      await rm(skillsDir, { recursive: true, force: true });
+    });
+
+    it('substitutes $ARGUMENTS in skill body', async () => {
+      await mkdir(join(skillsDir, 'process'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'process', 'SKILL.md'),
+        `---
+name: process
+---
+Process these: $ARGUMENTS`
+      );
+
+      const result = await buildCommandString(testDir, 'process', { _raw: 'file1.txt file2.txt' });
+
+      expect(result).toBe('Process these: file1.txt file2.txt');
+    });
+
+    it('substitutes positional args $0, $1, $2', async () => {
+      await mkdir(join(skillsDir, 'copy'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'copy', 'SKILL.md'),
+        `---
+name: copy
+---
+Copy $0 to $1`
+      );
+
+      const result = await buildCommandString(testDir, 'copy', { _raw: 'source.txt dest.txt' });
+
+      expect(result).toBe('Copy source.txt to dest.txt');
+    });
+
+    it('handles ${ARGUMENTS} brace syntax', async () => {
+      await mkdir(join(skillsDir, 'echo'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'echo', 'SKILL.md'),
+        `---
+name: echo
+---
+Echo: \${ARGUMENTS}`
+      );
+
+      const result = await buildCommandString(testDir, 'echo', { _raw: 'hello world' });
+
+      expect(result).toBe('Echo: hello world');
+    });
+
+    it('handles empty arguments', async () => {
+      await mkdir(join(skillsDir, 'simple'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'simple', 'SKILL.md'),
+        `---
+name: simple
+---
+Args: $ARGUMENTS (end)`
+      );
+
+      const result = await buildCommandString(testDir, 'simple', { _raw: '' });
+
+      expect(result).toBe('Args:  (end)');
+    });
+
+    it('handles multiple positional arguments', async () => {
+      await mkdir(join(skillsDir, 'multi'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'multi', 'SKILL.md'),
+        `---
+name: multi
+---
+First: $0, Second: $1, Third: $2, All: $ARGUMENTS`
+      );
+
+      const result = await buildCommandString(testDir, 'multi', { _raw: 'one two three' });
+
+      expect(result).toBe('First: one, Second: two, Third: three, All: one two three');
     });
   });
 });
