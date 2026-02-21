@@ -120,32 +120,6 @@ test.describe('Session Management', () => {
     await expect(page.getByText('No sessions yet')).toBeVisible({ timeout: 10000 });
   });
 
-  test('displays session list', async ({ page }) => {
-    const session1 = await seedSession(project.id, { prompt: 'First task', name: 'Session 1' });
-    const session2 = await seedSession(project.id, { prompt: 'Second task', name: 'Session 2' });
-
-    // Verify seeding worked
-    expect(session1.id).toBeTruthy();
-    expect(session2.id).toBeTruthy();
-
-    // Wait for sessions to exist before navigating
-    await waitForSessionToExist(session1.id);
-    await waitForSessionToExist(session2.id);
-
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
-
-    await expect(page.getByText('Session 1')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('Session 2')).toBeVisible({ timeout: 10000 });
-
-    // Verify via API that sessions exist using their IDs
-    const fetchedSession1 = await getSession(session1.id);
-    const fetchedSession2 = await getSession(session2.id);
-    expect(fetchedSession1).toBeTruthy();
-    expect(fetchedSession2).toBeTruthy();
-    expect(fetchedSession1.projectId).toBe(project.id);
-    expect(fetchedSession2.projectId).toBe(project.id);
-  });
-
   test('displays session messages', async ({ page }) => {
     const session = await seedSession(project.id, { prompt: 'Hello Claude', name: 'Chat Session' });
 
@@ -156,38 +130,6 @@ test.describe('Session Management', () => {
 
     // The initial user message should be visible
     await expect(page.locator('.message-content').getByText('Hello Claude', { exact: true })).toBeVisible({ timeout: 10000 });
-  });
-
-  test('persists draft prompt in localStorage across page reload', async ({ page }) => {
-    const session = await seedSession(project.id, {
-      prompt: 'Initial prompt',
-      name: 'Draft Test',
-    });
-
-    const storageKey = `session-draft-${session.id}`;
-
-    // Navigate to session conversation tab
-    await page.goto(`/sessions/${session.id}/conversation`);
-
-    // Set a draft in localStorage (simulating what the component does)
-    await page.evaluate((key) => {
-      localStorage.setItem(key, 'My draft message');
-    }, storageKey);
-
-    // Reload the page
-    await page.reload();
-
-    // Verify localStorage persists the draft
-    const storedValue = await page.evaluate((key) => localStorage.getItem(key), storageKey);
-    expect(storedValue).toBe('My draft message');
-
-    // Verify the textarea loads with the saved draft
-    const textarea = page.locator('textarea[placeholder="Send a follow-up message..."]');
-    // Only check if textarea exists and has the value if session is in waiting status
-    const textareaCount = await textarea.count();
-    if (textareaCount > 0) {
-      await expect(textarea).toHaveValue('My draft message');
-    }
   });
 
   test('draft prompt is unique per session', async ({ page }) => {

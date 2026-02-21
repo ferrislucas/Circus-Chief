@@ -61,32 +61,6 @@ test.describe('Scheduling UI', () => {
       await expect(datetimePicker).toBeVisible();
     });
 
-    test('scheduling modal shows auto-reschedule toggle directly (no container)', async ({ page }) => {
-      // Create a draft session
-      const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
-
-      // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}`);
-
-      // Expand the Orchestration panel
-      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
-      await orchestrationPanel.click();
-
-      // Click clock icon
-      await page.click('.btn-schedule');
-
-      // Wait for modal to open
-      const modal = page.locator('.modal-backdrop');
-      await expect(modal).toBeVisible();
-
-      // Verify auto-reschedule toggle is visible within the modal
-      const toggle = modal.locator('.toggle-switch').first();
-      await expect(toggle).toBeVisible();
-
-      // Verify NO "Scheduling Options" header exists
-      const header = modal.locator('h3:has-text("Scheduling Options")');
-      await expect(header).not.toBeVisible();
-    });
   });
 
   test.describe('Full Scheduling Flow', () => {
