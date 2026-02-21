@@ -91,22 +91,23 @@ export class ModelProviderRepository extends BaseRepository {
    */
   #syncDefaultModels(providerId, { defaultOpusModel, defaultSonnetModel, defaultHaikuModel }) {
     const now = Date.now();
-    const insertModel = this.db.prepare(
-      `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+    // Use REPLACE to update existing models when default model IDs change
+    const upsertModel = this.db.prepare(
+      `INSERT OR REPLACE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     );
 
     if (defaultOpusModel) {
       const modelId = `${providerId}-opus`;
-      insertModel.run(modelId, providerId, defaultOpusModel, 'Opus', 'Most capable model', 'opus', now);
+      upsertModel.run(modelId, providerId, defaultOpusModel, 'Opus', 'Most capable model', 'opus', now);
     }
     if (defaultSonnetModel) {
       const modelId = `${providerId}-sonnet`;
-      insertModel.run(modelId, providerId, defaultSonnetModel, 'Sonnet', 'Balanced model', 'sonnet', now);
+      upsertModel.run(modelId, providerId, defaultSonnetModel, 'Sonnet', 'Balanced model', 'sonnet', now);
     }
     if (defaultHaikuModel) {
       const modelId = `${providerId}-haiku`;
-      insertModel.run(modelId, providerId, defaultHaikuModel, 'Haiku', 'Fast & lightweight model', 'haiku', now);
+      upsertModel.run(modelId, providerId, defaultHaikuModel, 'Haiku', 'Fast & lightweight model', 'haiku', now);
     }
   }
 
