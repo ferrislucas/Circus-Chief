@@ -21,7 +21,7 @@ import { api } from '../api/index.js';
 vi.mock('../components/ModelSelector.vue', () => ({
   default: {
     name: 'ModelSelector',
-    template: '<select :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><option value="claude-sonnet-4-5-20250929">Sonnet</option><option value="claude-opus-4-20250529">Opus</option><option value="null">Use Default</option></select>',
+    template: '<select :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><option value="claude-sonnet-4-6">Sonnet</option><option value="claude-opus-4-20250529">Opus</option><option value="null">Use Default</option></select>',
     props: ['modelValue'],
     emits: ['update:modelValue'],
     setup(props, { emit }) {
@@ -74,7 +74,7 @@ describe('TemplateDetailView - New Form Fields', () => {
         isBuiltIn: true,
         models: [
           { modelId: 'claude-opus-4-20250529', displayName: 'Opus 4', tier: 'opus' },
-          { modelId: 'claude-sonnet-4-5-20250929', displayName: 'Sonnet 4.5', tier: 'sonnet' },
+          { modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
         ],
       },
     ];
@@ -195,7 +195,7 @@ describe('TemplateDetailView - New Form Fields', () => {
 
       // Change model
       const modelSelector = wrapper.findComponent({ name: 'ModelSelector' });
-      await modelSelector.vm.$emit('update:modelValue', 'claude-sonnet-4-5-20250929');
+      await modelSelector.vm.$emit('update:modelValue', 'claude-sonnet-4-6');
       await nextTick();
 
       // Submit form
@@ -207,7 +207,7 @@ describe('TemplateDetailView - New Form Fields', () => {
       expect(templatesStore.updateTemplate).toHaveBeenCalled();
       const callArgs = templatesStore.updateTemplate.mock.calls[0];
       expect(callArgs[0]).toBe('template-1');
-      expect(callArgs[1].model).toBe('claude-sonnet-4-5-20250929');
+      expect(callArgs[1].model).toBe('claude-sonnet-4-6');
     });
 
     it('submits form with mode when different from default', async () => {
@@ -251,7 +251,7 @@ describe('TemplateDetailView - New Form Fields', () => {
 
       // Set all new fields
       const modelSelector = wrapper.findComponent({ name: 'ModelSelector' });
-      await modelSelector.vm.$emit('update:modelValue', 'claude-sonnet-4-5-20250929');
+      await modelSelector.vm.$emit('update:modelValue', 'claude-sonnet-4-6');
       await nextTick();
 
       const modeSelect = wrapper.find('#mode');
@@ -265,7 +265,7 @@ describe('TemplateDetailView - New Form Fields', () => {
       // Verify updateTemplate was called with all new fields
       expect(templatesStore.updateTemplate).toHaveBeenCalled();
       const callArgs = templatesStore.updateTemplate.mock.calls[0];
-      expect(callArgs[1].model).toBe('claude-sonnet-4-5-20250929');
+      expect(callArgs[1].model).toBe('claude-sonnet-4-6');
       expect(callArgs[1].mode).toBe('standard');
     });
 
@@ -316,10 +316,10 @@ describe('TemplateDetailView - New Form Fields', () => {
       await nextTick();
 
       const modelSelector = wrapper.findComponent({ name: 'ModelSelector' });
-      await modelSelector.vm.$emit('update:modelValue', 'claude-sonnet-4-5-20250929');
+      await modelSelector.vm.$emit('update:modelValue', 'claude-sonnet-4-6');
       await nextTick();
 
-      expect(modelSelector.props('modelValue')).toBe('claude-sonnet-4-5-20250929');
+      expect(modelSelector.props('modelValue')).toBe('claude-sonnet-4-6');
     });
 
     it('allows changing mode selection', async () => {

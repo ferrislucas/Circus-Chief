@@ -420,7 +420,7 @@ async function* mockQuery({ prompt }) {
     type: 'system',
     subtype: 'init',
     session_id: 'mock-session-' + Date.now(),
-    model: 'claude-sonnet-4-5-20250929',
+    model: 'claude-sonnet-4-6',
   };
 
   // Small delay to simulate processing

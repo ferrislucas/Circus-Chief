@@ -252,7 +252,7 @@ export class ModelProviderRepository extends BaseRepository {
   }
 
   /**
-   * Get provider by model ID (the actual model string like "claude-opus-4-5-20251101")
+   * Get provider by model ID (the actual model string like "claude-opus-4-6")
    * Returns the provider that owns this model, or null if not found (use Anthropic defaults)
    * @param {string} modelId - The model ID string
    * @returns {Object|null} - Provider object or null
