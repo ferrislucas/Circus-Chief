@@ -373,7 +373,7 @@ describe('ApiClient', () => {
         const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
         const sessionData = {
           prompt: 'Hello',
-          model: 'claude-opus-4-5-20251101',
+          model: 'claude-opus-4-6',
           files: [file],
         };
 
@@ -382,7 +382,7 @@ describe('ApiClient', () => {
         const callArgs = mockFetch.mock.calls[0];
         expect(callArgs[1].body).toBeInstanceOf(FormData);
         const formData = callArgs[1].body;
-        expect(formData.get('model')).toBe('claude-opus-4-5-20251101');
+        expect(formData.get('model')).toBe('claude-opus-4-6');
       });
 
       it('includes model in JSON when no files', async () => {

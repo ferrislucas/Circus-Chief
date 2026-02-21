@@ -136,7 +136,7 @@ vi.mock('@claudetools/shared', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    DEFAULT_MODEL: 'claude-sonnet-4-5-20250929',
+    DEFAULT_MODEL: 'claude-sonnet-4-6',
   };
 });
 
@@ -1314,7 +1314,7 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
           name: 'Anthropic',
           isBuiltIn: true,
           models: [
-            { id: 'claude-sonnet-4-5-20250929', modelId: 'claude-sonnet-4-5-20250929', displayName: 'Claude Sonnet 4.5', tier: 'sonnet' },
+            { id: 'claude-sonnet-4-6', modelId: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', tier: 'sonnet' },
             { id: 'claude-opus-4-20250514', modelId: 'claude-opus-4-20250514', displayName: 'Claude Opus 4', tier: 'opus' },
             { id: 'claude-haiku-3-20250514', modelId: 'claude-haiku-3-20250514', displayName: 'Claude Haiku 3', tier: 'haiku' },
           ],

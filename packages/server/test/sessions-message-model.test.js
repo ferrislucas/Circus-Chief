@@ -96,7 +96,7 @@ describe('Sessions API - Model Parameter', () => {
     it('passes model to continueSession when provided', async () => {
       const response = await request(app)
         .post(`/api/sessions/${session.id}/message`)
-        .send({ content: 'Test message', model: 'claude-opus-4-5-20251101' })
+        .send({ content: 'Test message', model: 'claude-opus-4-6' })
         .expect(200);
 
       expect(response.body.success).toBe(true);
@@ -108,7 +108,7 @@ describe('Sessions API - Model Parameter', () => {
         testTempDir,
         null, // systemPrompt
         [], // attachments
-        'claude-opus-4-5-20251101' // model
+        'claude-opus-4-6' // model
       );
     });
 
@@ -135,7 +135,7 @@ describe('Sessions API - Model Parameter', () => {
       const response = await request(app)
         .post(`/api/sessions/${session.id}/message`)
         .field('content', 'Test message')
-        .field('model', 'claude-sonnet-4-5-20250929')
+        .field('model', 'claude-sonnet-4-6')
         .attach('files', Buffer.from('test content'), {
           filename: 'test.txt',
           contentType: 'text/plain',
@@ -151,7 +151,7 @@ describe('Sessions API - Model Parameter', () => {
         testTempDir,
         null,
         expect.any(Array), // attachments
-        'claude-sonnet-4-5-20250929'
+        'claude-sonnet-4-6'
       );
     });
 
@@ -195,7 +195,7 @@ describe('Sessions API - Model Parameter', () => {
       // First message with opus
       await request(app)
         .post(`/api/sessions/${session.id}/message`)
-        .send({ content: 'First message', model: 'claude-opus-4-5-20251101' })
+        .send({ content: 'First message', model: 'claude-opus-4-6' })
         .expect(200);
 
       expect(continueSession).toHaveBeenLastCalledWith(
@@ -204,13 +204,13 @@ describe('Sessions API - Model Parameter', () => {
         testTempDir,
         null,
         [],
-        'claude-opus-4-5-20251101'
+        'claude-opus-4-6'
       );
 
       // Second message with sonnet
       await request(app)
         .post(`/api/sessions/${session.id}/message`)
-        .send({ content: 'Second message', model: 'claude-sonnet-4-5-20250929' })
+        .send({ content: 'Second message', model: 'claude-sonnet-4-6' })
         .expect(200);
 
       expect(continueSession).toHaveBeenLastCalledWith(
@@ -219,7 +219,7 @@ describe('Sessions API - Model Parameter', () => {
         testTempDir,
         null,
         [],
-        'claude-sonnet-4-5-20250929'
+        'claude-sonnet-4-6'
       );
     });
   });
@@ -236,7 +236,7 @@ describe('Sessions API - Model Parameter', () => {
     it('passes model to runSession when provided', async () => {
       const response = await request(app)
         .post(`/api/sessions/${session.id}/start`)
-        .send({ model: 'claude-opus-4-5-20251101' })
+        .send({ model: 'claude-opus-4-6' })
         .expect(200);
 
       // Response includes success and session object
@@ -250,7 +250,7 @@ describe('Sessions API - Model Parameter', () => {
         testTempDir,
         null, // systemPrompt
         expect.any(Array), // attachments
-        'claude-opus-4-5-20251101' // model
+        'claude-opus-4-6' // model
       );
     });
 

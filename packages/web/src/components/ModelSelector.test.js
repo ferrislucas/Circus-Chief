@@ -310,21 +310,21 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           models: [
             { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', tier: 'haiku' },
-            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-5-20250929', displayName: 'Sonnet 4.5', tier: 'sonnet' },
-            { id: 'anthropic-opus', modelId: 'claude-opus-4-5-20251101', displayName: 'Opus 4.5', tier: 'opus' },
+            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+            { id: 'anthropic-opus', modelId: 'claude-opus-4-6', displayName: 'Opus 4.6', tier: 'opus' },
           ],
         },
       ];
 
-      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-5-20250929' });
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-6' });
       await flushAll(wrapper);
 
       const options = wrapper.findAll('option');
 
       // Built-in provider should show displayName
       expect(options[0].text()).toBe('Haiku 4.5');
-      expect(options[1].text()).toBe('Sonnet 4.5');
-      expect(options[2].text()).toBe('Opus 4.5');
+      expect(options[1].text()).toBe('Sonnet 4.6');
+      expect(options[2].text()).toBe('Opus 4.6');
     });
 
     it('displays modelId for custom provider models', async () => {
@@ -365,7 +365,7 @@ describe('ModelSelector', () => {
           name: 'Anthropic (Official)',
           isBuiltIn: true,
           models: [
-            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-5-20250929', displayName: 'Sonnet 4.5', tier: 'sonnet' },
+            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
           ],
         },
         {
@@ -378,13 +378,13 @@ describe('ModelSelector', () => {
         },
       ];
 
-      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-5-20250929' });
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-6' });
       await flushAll(wrapper);
 
       const options = wrapper.findAll('option');
 
       // Built-in provider shows displayName
-      expect(options[0].text()).toBe('Sonnet 4.5');
+      expect(options[0].text()).toBe('Sonnet 4.6');
 
       // Custom provider shows modelId
       expect(options[1].text()).toBe('anthropic.claude-3-sonnet-20240229-v1:0');

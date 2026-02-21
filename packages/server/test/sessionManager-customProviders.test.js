@@ -235,13 +235,13 @@ describe('sessionManager custom provider integration', () => {
 
     it('passes specific Anthropic model ID as-is', async () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
-      mockQuery.mockImplementation(() => createMockQueryResponse('claude-sonnet-4-5-20250929'));
+      mockQuery.mockImplementation(() => createMockQueryResponse('claude-sonnet-4-6'));
 
-      await runSession(session.id, 'test prompt', '/tmp/test', null, [], 'claude-sonnet-4-5-20250929');
+      await runSession(session.id, 'test prompt', '/tmp/test', null, [], 'claude-sonnet-4-6');
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
-      expect(queryParams.options.model).toBe('claude-sonnet-4-5-20250929');
+      expect(queryParams.options.model).toBe('claude-sonnet-4-6');
     });
 
     it('does not set custom env vars when using default Anthropic models', async () => {

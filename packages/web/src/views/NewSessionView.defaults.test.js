@@ -92,7 +92,7 @@ vi.mock('@claudetools/shared', async (importOriginal) => {
   return {
     ...actual,
     generateWorktreeBranch: vi.fn(() => 'generated-branch'),
-    DEFAULT_MODEL: 'claude-sonnet-4-5-20250929',
+    DEFAULT_MODEL: 'claude-sonnet-4-6',
   };
 });
 
@@ -246,11 +246,11 @@ describe('NewSessionView - Defaults Integration', () => {
 
       // All should use fallback/system defaults
       let mode = defaults.mode || 'yolo';
-      let model = defaults.model || 'claude-sonnet-4-5-20250929';
+      let model = defaults.model || 'claude-sonnet-4-6';
       let thinkingEnabled = false;
 
       expect(mode).toBe('yolo');
-      expect(model).toBe('claude-sonnet-4-5-20250929');
+      expect(model).toBe('claude-sonnet-4-6');
       expect(thinkingEnabled).toBe(false);
     });
   });
@@ -372,7 +372,7 @@ describe('NewSessionView - Defaults Integration', () => {
 
     it('resets model to default value', () => {
       const defaults = { model: 'claude-opus-4' };
-      const systemDefaults = 'claude-sonnet-4-5-20250929';
+      const systemDefaults = 'claude-sonnet-4-6';
 
       let model = 'claude-haiku-3-5-20241022'; // User override
       const result = defaults.model || systemDefaults;
@@ -567,12 +567,12 @@ describe('NewSessionView - Defaults Integration', () => {
     it('continues with form without defaults on fetch error', () => {
       // Default values should be used
       const fallbackMode = 'yolo';
-      const fallbackModel = 'claude-sonnet-4-5-20250929';
+      const fallbackModel = 'claude-sonnet-4-6';
       const fallbackThinking = false;
       const fallbackStartImmediate = true;
 
       expect(fallbackMode).toBe('yolo');
-      expect(fallbackModel).toBe('claude-sonnet-4-5-20250929');
+      expect(fallbackModel).toBe('claude-sonnet-4-6');
       expect(fallbackThinking).toBe(false);
       expect(fallbackStartImmediate).toBe(true);
     });
@@ -590,11 +590,11 @@ describe('NewSessionView - Defaults Integration', () => {
       const defaults = {};
 
       const mode = defaults.mode || 'yolo';
-      const model = defaults.model || 'claude-sonnet-4-5-20250929';
+      const model = defaults.model || 'claude-sonnet-4-6';
       const thinkingEnabled = false;
 
       expect(mode).toBe('yolo');
-      expect(model).toBe('claude-sonnet-4-5-20250929');
+      expect(model).toBe('claude-sonnet-4-6');
       expect(thinkingEnabled).toBe(false);
     });
 

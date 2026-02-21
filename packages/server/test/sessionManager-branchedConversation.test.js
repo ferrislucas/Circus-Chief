@@ -46,7 +46,7 @@ describe('sessionManager branched conversations', () => {
   });
 
   // Helper to create async generator that simulates SDK response
-  async function* createMockQueryResponse(modelName = 'claude-opus-4-5-20251101') {
+  async function* createMockQueryResponse(modelName = 'claude-opus-4-6') {
     yield {
       type: 'system',
       subtype: 'init',
@@ -75,11 +75,11 @@ describe('sessionManager branched conversations', () => {
       session = sessions.create(project.id, 'Test Session', 'initial prompt', 'standard');
 
       // Create original conversation
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
-      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-5-20251101');
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
+      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-6');
 
       const originalConversation = conversations.getActiveBySessionId(session.id);
-      conversations.update(originalConversation.id, { model: 'claude-opus-4-5-20251101' });
+      conversations.update(originalConversation.id, { model: 'claude-opus-4-6' });
 
       // Get the first user message to branch from
       const convMessages = messages.getByConversationId(originalConversation.id);
@@ -102,12 +102,12 @@ describe('sessionManager branched conversations', () => {
       session = sessions.create(project.id, 'Test Session', 'initial prompt', 'standard');
 
       // Create normal conversation
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
-      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-5-20251101');
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
+      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-6');
 
       const conv = conversations.getActiveBySessionId(session.id);
       conversations.update(conv.id, {
-        model: 'claude-opus-4-5-20251101',
+        model: 'claude-opus-4-6',
         claudeSessionId: conv.claudeSessionId // Use the actual session ID from runSession
       });
 
@@ -124,15 +124,15 @@ describe('sessionManager branched conversations', () => {
       session = sessions.create(project.id, 'Test Session', 'initial prompt', 'standard');
 
       // Create original conversation with multiple messages
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
-      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-5-20251101');
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
+      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-6');
 
       originalConversation = conversations.getActiveBySessionId(session.id);
-      conversations.update(originalConversation.id, { model: 'claude-opus-4-5-20251101' });
+      conversations.update(originalConversation.id, { model: 'claude-opus-4-6' });
 
       // Add a second exchange
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
-      await continueSession(session.id, 'follow-up message', '/tmp/test', null, [], 'claude-opus-4-5-20251101');
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
+      await continueSession(session.id, 'follow-up message', '/tmp/test', null, [], 'claude-opus-4-6');
     });
 
     it('includes conversation history in prompt for branched conversation', async () => {
@@ -153,13 +153,13 @@ describe('sessionManager branched conversations', () => {
       const branchMessage = branchedMessages.find(m => m.role === 'user' && m.content === 'New branch message');
 
       // Continue with the branched conversation using existing message
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
       await continueSessionWithExistingMessage(
         session.id,
         branchedConv.id,
         '/tmp/test',
         null,
-        'claude-opus-4-5-20251101'
+        'claude-opus-4-6'
       );
 
       expect(mockQuery).toHaveBeenCalledTimes(3); // Initial, second message, branched
@@ -186,13 +186,13 @@ describe('sessionManager branched conversations', () => {
       const branchedMessages = messages.getByConversationId(branchedConv.id);
       const branchMessage = branchedMessages.find(m => m.role === 'user');
 
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
       await continueSessionWithExistingMessage(
         session.id,
         branchedConv.id,
         '/tmp/test',
         null,
-        'claude-opus-4-5-20251101'
+        'claude-opus-4-6'
       );
 
       const branchedCallParams = mockQuery.mock.calls[2][0];
@@ -216,13 +216,13 @@ describe('sessionManager branched conversations', () => {
       const branchedMessages = messages.getByConversationId(branchedConv.id);
       const branchMessage = branchedMessages.find(m => m.role === 'user');
 
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
       await continueSessionWithExistingMessage(
         session.id,
         branchedConv.id,
         '/tmp/test',
         null,
-        'claude-opus-4-5-20251101'
+        'claude-opus-4-6'
       );
 
       const branchedCallParams = mockQuery.mock.calls[2][0];
@@ -245,13 +245,13 @@ describe('sessionManager branched conversations', () => {
         newConv.id
       );
 
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
       await continueSessionWithExistingMessage(
         session.id,
         newConv.id,
         '/tmp/test',
         null,
-        'claude-opus-4-5-20251101'
+        'claude-opus-4-6'
       );
 
       const callParams = mockQuery.mock.calls[2][0];
@@ -266,15 +266,15 @@ describe('sessionManager branched conversations', () => {
       session = sessions.create(project.id, 'Test Session', 'initial prompt', 'standard');
 
       // Create conversation with multiple exchanges
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
-      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-5-20251101');
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
+      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-6');
 
       const conv = conversations.getActiveBySessionId(session.id);
-      conversations.update(conv.id, { model: 'claude-opus-4-5-20251101' });
+      conversations.update(conv.id, { model: 'claude-opus-4-6' });
 
       // Add second exchange
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
-      await continueSession(session.id, 'follow-up message', '/tmp/test', null, [], 'claude-opus-4-5-20251101');
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
+      await continueSession(session.id, 'follow-up message', '/tmp/test', null, [], 'claude-opus-4-6');
 
       // Get the second user message to branch from (so there's history before it)
       const convMessages = messages.getByConversationId(conv.id);
@@ -291,13 +291,13 @@ describe('sessionManager branched conversations', () => {
       const branchedMessages = messages.getByConversationId(branchedConv.id);
       const branchMessage = branchedMessages.find(m => m.role === 'user' && m.content === 'Branch message');
 
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
       await continueSessionWithExistingMessage(
         session.id,
         branchedConv.id,
         '/tmp/test',
         null,
-        'claude-opus-4-5-20251101'
+        'claude-opus-4-6'
       );
 
       const branchedCallParams = mockQuery.mock.calls[2][0];
@@ -316,15 +316,15 @@ describe('sessionManager branched conversations', () => {
       // Create session with the long message as initial prompt
       session = sessions.create(project.id, 'Test Session', longMessage, 'standard');
 
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
-      await runSession(session.id, longMessage, '/tmp/test', null, [], 'claude-opus-4-5-20251101');
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
+      await runSession(session.id, longMessage, '/tmp/test', null, [], 'claude-opus-4-6');
 
       const conv = conversations.getActiveBySessionId(session.id);
-      conversations.update(conv.id, { model: 'claude-opus-4-5-20251101' });
+      conversations.update(conv.id, { model: 'claude-opus-4-6' });
 
       // Add a second message to branch from (so the long message is in the history)
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
-      await continueSession(session.id, 'Second message', '/tmp/test', null, [], 'claude-opus-4-5-20251101');
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
+      await continueSession(session.id, 'Second message', '/tmp/test', null, [], 'claude-opus-4-6');
 
       // Create branched conversation from the second message
       const convMessages = messages.getByConversationId(conv.id);
@@ -340,13 +340,13 @@ describe('sessionManager branched conversations', () => {
       const branchedMessages = messages.getByConversationId(branchedConv.id);
       const branchMessage = branchedMessages.find(m => m.role === 'user' && m.content === 'Short branch');
 
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
       await continueSessionWithExistingMessage(
         session.id,
         branchedConv.id,
         '/tmp/test',
         null,
-        'claude-opus-4-5-20251101'
+        'claude-opus-4-6'
       );
 
       const branchedCallParams = mockQuery.mock.calls[2][0];
@@ -363,14 +363,14 @@ describe('sessionManager branched conversations', () => {
       session = sessions.create(project.id, 'Test Session', 'initial prompt', 'standard');
 
       // Create normal conversation
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
-      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-5-20251101');
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
+      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-6');
 
       const conv = conversations.getActiveBySessionId(session.id);
       // Update model but keep the claudeSessionId
       const originalSessionId = conv.claudeSessionId;
       conversations.update(conv.id, {
-        model: 'claude-opus-4-5-20251101',
+        model: 'claude-opus-4-6',
         claudeSessionId: originalSessionId
       });
 
@@ -378,13 +378,13 @@ describe('sessionManager branched conversations', () => {
       const userMessage = convMessages.find(m => m.role === 'user');
 
       // Continue with existing message on normal conversation
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
       await continueSessionWithExistingMessage(
         session.id,
         conv.id,
         '/tmp/test',
         null,
-        'claude-opus-4-5-20251101'
+        'claude-opus-4-6'
       );
 
       const callParams = mockQuery.mock.calls[1][0];
@@ -401,11 +401,11 @@ describe('sessionManager branched conversations', () => {
       session = sessions.create(project.id, 'Test Session', 'initial prompt', 'standard');
 
       // Create original conversation
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
-      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-5-20251101');
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
+      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-6');
 
       const originalConv = conversations.getActiveBySessionId(session.id);
-      conversations.update(originalConv.id, { model: 'claude-opus-4-5-20251101' });
+      conversations.update(originalConv.id, { model: 'claude-opus-4-6' });
 
       // Get first message to branch from
       const convMessages = messages.getByConversationId(originalConv.id);
@@ -422,13 +422,13 @@ describe('sessionManager branched conversations', () => {
       const branchedMessages = messages.getByConversationId(branchedConv.id);
       const branchMessage = branchedMessages.find(m => m.role === 'user');
 
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
       await continueSessionWithExistingMessage(
         session.id,
         branchedConv.id,
         '/tmp/test',
         null,
-        'claude-opus-4-5-20251101'
+        'claude-opus-4-6'
       );
 
       const callParams = mockQuery.mock.calls[1][0];
@@ -441,11 +441,11 @@ describe('sessionManager branched conversations', () => {
       session = sessions.create(project.id, 'Test Session', 'initial prompt', 'standard');
 
       // Create original conversation
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
-      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-5-20251101');
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
+      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-6');
 
       const originalConv = conversations.getActiveBySessionId(session.id);
-      conversations.update(originalConv.id, { model: 'claude-opus-4-5-20251101' });
+      conversations.update(originalConv.id, { model: 'claude-opus-4-6' });
 
       // Create branched conversation
       const convMessages = messages.getByConversationId(originalConv.id);
@@ -464,13 +464,13 @@ describe('sessionManager branched conversations', () => {
       // Now give the branched conversation a claudeSessionId (simulating that it was run)
       conversations.update(branchedConv.id, { claudeSessionId: 'branched-session-456' });
 
-      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-5-20251101'));
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
       await continueSessionWithExistingMessage(
         session.id,
         branchedConv.id,
         '/tmp/test',
         null,
-        'claude-opus-4-5-20251101'
+        'claude-opus-4-6'
       );
 
       const callParams = mockQuery.mock.calls[1][0];

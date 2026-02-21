@@ -484,12 +484,12 @@ describe('DatabaseManager', () => {
       // Insert message with model
       expect(() => {
         db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
-          .run('msg-1', 'sess-msg-model', 'assistant', 'Response', 'claude-opus-4-5-20251101', now);
+          .run('msg-1', 'sess-msg-model', 'assistant', 'Response', 'claude-opus-4-6', now);
       }).not.toThrow();
 
       // Verify the insert worked
       const msg = db.prepare('SELECT * FROM conversation_messages WHERE id = ?').get('msg-1');
-      expect(msg.model).toBe('claude-opus-4-5-20251101');
+      expect(msg.model).toBe('claude-opus-4-6');
       expect(msg.content).toBe('Response');
     });
 
@@ -527,20 +527,20 @@ describe('DatabaseManager', () => {
 
       // Insert messages with different models
       db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
-        .run('msg-a1', 'sess-msg-diff-models', 'assistant', 'Answer 1', 'claude-opus-4-5-20251101', now);
+        .run('msg-a1', 'sess-msg-diff-models', 'assistant', 'Answer 1', 'claude-opus-4-6', now);
       db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
         .run('msg-a2', 'sess-msg-diff-models', 'assistant', 'Answer 2', 'claude-haiku-4-5-20251001', now);
       db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
-        .run('msg-a3', 'sess-msg-diff-models', 'assistant', 'Answer 3', 'claude-sonnet-4-5-20250929', now);
+        .run('msg-a3', 'sess-msg-diff-models', 'assistant', 'Answer 3', 'claude-sonnet-4-6', now);
 
       // Verify each message has correct model
       const msg1 = db.prepare('SELECT model FROM conversation_messages WHERE id = ?').get('msg-a1');
       const msg2 = db.prepare('SELECT model FROM conversation_messages WHERE id = ?').get('msg-a2');
       const msg3 = db.prepare('SELECT model FROM conversation_messages WHERE id = ?').get('msg-a3');
 
-      expect(msg1.model).toBe('claude-opus-4-5-20251101');
+      expect(msg1.model).toBe('claude-opus-4-6');
       expect(msg2.model).toBe('claude-haiku-4-5-20251001');
-      expect(msg3.model).toBe('claude-sonnet-4-5-20250929');
+      expect(msg3.model).toBe('claude-sonnet-4-6');
     });
 
     it('preserves model when selecting messages', () => {
@@ -557,7 +557,7 @@ describe('DatabaseManager', () => {
       db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
         .run('msg-u1', 'sess-msg-select-model', 'user', 'Question', null, now);
       db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
-        .run('msg-a1', 'sess-msg-select-model', 'assistant', 'Answer', 'claude-opus-4-5-20251101', now);
+        .run('msg-a1', 'sess-msg-select-model', 'assistant', 'Answer', 'claude-opus-4-6', now);
 
       // Select all messages for session
       const messages = db.prepare('SELECT * FROM conversation_messages WHERE session_id = ? ORDER BY timestamp ASC')
@@ -567,7 +567,7 @@ describe('DatabaseManager', () => {
       expect(messages[0].role).toBe('user');
       expect(messages[0].model).toBeNull();
       expect(messages[1].role).toBe('assistant');
-      expect(messages[1].model).toBe('claude-opus-4-5-20251101');
+      expect(messages[1].model).toBe('claude-opus-4-6');
     });
   });
 });
