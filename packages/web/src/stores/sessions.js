@@ -335,7 +335,6 @@ export const useSessionsStore = defineStore('sessions', {
             cacheCreationInputTokens: conv.cacheCreationInputTokens || 0,
             webSearchRequests: conv.webSearchRequests || 0,
             contextWindow: conv.contextWindow || 200000,
-            model: conv.model,
           }
         : null;
     },
