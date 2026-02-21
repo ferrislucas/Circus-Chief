@@ -154,15 +154,15 @@ describe('Sessions Store', () => {
     it('updates model in currentSession', async () => {
       const store = useSessionsStore();
 
-      store.currentSession = { id: 'session-1', model: 'claude-sonnet-4-5-20250929' };
-      store.sessions = [{ id: 'session-1', model: 'claude-sonnet-4-5-20250929' }];
+      store.currentSession = { id: 'session-1', model: 'claude-sonnet-4-6' };
+      store.sessions = [{ id: 'session-1', model: 'claude-sonnet-4-6' }];
 
-      api.updateSession.mockResolvedValue({ id: 'session-1', model: 'claude-opus-4-5-20251101' });
+      api.updateSession.mockResolvedValue({ id: 'session-1', model: 'claude-opus-4-6' });
 
-      await store.updateSessionModel('session-1', 'claude-opus-4-5-20251101');
+      await store.updateSessionModel('session-1', 'claude-opus-4-6');
 
-      expect(store.currentSession.model).toBe('claude-opus-4-5-20251101');
-      expect(store.sessions[0].model).toBe('claude-opus-4-5-20251101');
+      expect(store.currentSession.model).toBe('claude-opus-4-6');
+      expect(store.sessions[0].model).toBe('claude-opus-4-6');
     });
 
     it('updates model in sessions list when currentSession is different', async () => {
@@ -170,16 +170,16 @@ describe('Sessions Store', () => {
 
       store.currentSession = { id: 'session-2', model: 'claude-haiku-4-5-20251001' };
       store.sessions = [
-        { id: 'session-1', model: 'claude-sonnet-4-5-20250929' },
+        { id: 'session-1', model: 'claude-sonnet-4-6' },
         { id: 'session-2', model: 'claude-haiku-4-5-20251001' },
       ];
 
-      api.updateSession.mockResolvedValue({ id: 'session-1', model: 'claude-opus-4-5-20251101' });
+      api.updateSession.mockResolvedValue({ id: 'session-1', model: 'claude-opus-4-6' });
 
-      await store.updateSessionModel('session-1', 'claude-opus-4-5-20251101');
+      await store.updateSessionModel('session-1', 'claude-opus-4-6');
 
       // Session 1 should be updated
-      expect(store.sessions[0].model).toBe('claude-opus-4-5-20251101');
+      expect(store.sessions[0].model).toBe('claude-opus-4-6');
       // Session 2 (currentSession) should be unchanged
       expect(store.currentSession.model).toBe('claude-haiku-4-5-20251001');
     });
@@ -187,14 +187,14 @@ describe('Sessions Store', () => {
     it('throws error and sets store error on API failure', async () => {
       const store = useSessionsStore();
 
-      store.currentSession = { id: 'session-1', model: 'claude-sonnet-4-5-20250929' };
+      store.currentSession = { id: 'session-1', model: 'claude-sonnet-4-6' };
 
       api.updateSession.mockRejectedValue(new Error('API Error'));
 
-      await expect(store.updateSessionModel('session-1', 'claude-opus-4-5-20251101')).rejects.toThrow('API Error');
+      await expect(store.updateSessionModel('session-1', 'claude-opus-4-6')).rejects.toThrow('API Error');
 
       expect(store.error).toBe('API Error');
-      expect(store.currentSession.model).toBe('claude-sonnet-4-5-20250929');
+      expect(store.currentSession.model).toBe('claude-sonnet-4-6');
     });
   });
 

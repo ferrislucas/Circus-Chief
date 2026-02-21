@@ -201,7 +201,7 @@ describe.skip('API Broadcast Tests', () => {
     it('broadcasts SESSION_UPDATED when model changes', async () => {
       await request(app)
         .patch(`/api/sessions/${session.id}`)
-        .send({ model: 'claude-opus-4-5-20251101' })
+        .send({ model: 'claude-opus-4-6' })
         .expect(200);
 
       expect(broadcastToProject).toHaveBeenCalledWith(
@@ -209,7 +209,7 @@ describe.skip('API Broadcast Tests', () => {
         WS_MESSAGE_TYPES.SESSION_UPDATED,
         expect.objectContaining({
           session: expect.objectContaining({
-            model: 'claude-opus-4-5-20251101',
+            model: 'claude-opus-4-6',
           }),
         })
       );

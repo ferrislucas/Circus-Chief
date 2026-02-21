@@ -468,6 +468,9 @@ export class DatabaseManager {
         this.#db.exec('ALTER TABLE project_session_defaults ADD COLUMN provider_id TEXT REFERENCES model_providers(id)');
       }
     }
+
+    // Migrate built-in models to 4.6 versions
+    this.#updateBuiltInModels();
   }
 
   /**
@@ -495,8 +498,8 @@ export class DatabaseManager {
     // Seed default Anthropic models if they don't exist
     const defaultModels = [
       { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', description: 'Fast & lightweight', tier: 'haiku' },
-      { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-5-20250929', displayName: 'Sonnet 4.5', description: 'Balanced', tier: 'sonnet' },
-      { id: 'anthropic-opus', modelId: 'claude-opus-4-5-20251101', displayName: 'Opus 4.5', description: 'Most capable (default)', tier: 'opus' },
+      { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', description: 'Balanced', tier: 'sonnet' },
+      { id: 'anthropic-opus', modelId: 'claude-opus-4-6', displayName: 'Opus 4.6', description: 'Most capable (default)', tier: 'opus' },
     ];
 
     const insertModel = this.#db.prepare(
@@ -543,6 +546,33 @@ export class DatabaseManager {
         insertModel.run(`${provider.id}-haiku`, provider.id, provider.default_haiku_model, 'Haiku', 'Fast & lightweight model', 'haiku', now);
       }
     }
+  }
+
+  /**
+   * Update built-in models to 4.6 versions
+   * Migrates existing provider_models entries from 4.5 to 4.6
+   * @private
+   */
+  #updateBuiltInModels() {
+    const providerId = 'anthropic-default';
+
+    // Update Sonnet from 4.5 to 4.6
+    this.#db
+      .prepare(
+        `UPDATE provider_models
+         SET model_id = ?, display_name = ?
+         WHERE provider_id = ? AND id = ?`
+      )
+      .run('claude-sonnet-4-6', 'Sonnet 4.6', providerId, 'anthropic-sonnet');
+
+    // Update Opus from 4.5 to 4.6
+    this.#db
+      .prepare(
+        `UPDATE provider_models
+         SET model_id = ?, display_name = ?
+         WHERE provider_id = ? AND id = ?`
+      )
+      .run('claude-opus-4-6', 'Opus 4.6', providerId, 'anthropic-opus');
   }
 
   /**
