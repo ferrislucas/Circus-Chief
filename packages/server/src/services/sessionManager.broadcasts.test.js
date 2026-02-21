@@ -790,7 +790,7 @@ describe('sessionManager broadcasts', () => {
       expect(activeConversation.cacheCreationInputTokens).toBe(50);
     });
 
-    it('stores model in conversation when modelUsage is available', async () => {
+    it('stores requested model in session (not conversation) when model is provided', async () => {
       const { conversations } = await import('../database.js');
 
       query.mockImplementation(async function* () {
@@ -811,11 +811,18 @@ describe('sessionManager broadcasts', () => {
         };
       });
 
-      await runSession(sessionId, 'Test prompt', tempDir);
+      // Pass user-requested model (short format) to runSession
+      await runSession(sessionId, 'Test prompt', tempDir, null, [], 'claude-sonnet-4-6');
 
+      // session.model should be the user-requested short format
+      const session = sessions.getById(sessionId);
+      expect(session.model).toBe('claude-sonnet-4-6');
+
+      // conversation.model should NOT be set (model tracking moved to session level)
       const activeConversation = conversations.getActiveBySessionId(sessionId);
       expect(activeConversation).not.toBeNull();
-      expect(activeConversation.model).toBe('claude-sonnet-4-20250514');
+      expect(activeConversation.model).toBeNull();
+      // Usage stats are still tracked on the conversation
       expect(activeConversation.contextWindow).toBe(200000);
       expect(activeConversation.webSearchRequests).toBe(1);
     });

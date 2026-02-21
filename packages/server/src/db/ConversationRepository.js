@@ -254,7 +254,6 @@ export class ConversationRepository extends BaseRepository {
    * @param {number} usage.cacheCreationInputTokens
    * @param {number} usage.webSearchRequests
    * @param {number} usage.contextWindow
-   * @param {string} [usage.model]
    * @returns {Object|null} Updated conversation or null if not found
    */
   updateUsage(id, usage) {
@@ -273,7 +272,6 @@ export class ConversationRepository extends BaseRepository {
           cache_creation_input_tokens = ?,
           web_search_requests = ?,
           context_window = ?,
-          model = COALESCE(?, model),
           updated_at = ?
         WHERE id = ?`
       )
@@ -284,7 +282,6 @@ export class ConversationRepository extends BaseRepository {
         usage.cacheCreationInputTokens,
         usage.webSearchRequests,
         usage.contextWindow,
-        usage.model || null,
         now,
         id
       );

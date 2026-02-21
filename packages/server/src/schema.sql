@@ -70,7 +70,6 @@ CREATE TABLE IF NOT EXISTS conversations (
   cache_creation_input_tokens INTEGER DEFAULT 0,
   web_search_requests INTEGER DEFAULT 0,
   context_window INTEGER DEFAULT 200000,
-  model TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

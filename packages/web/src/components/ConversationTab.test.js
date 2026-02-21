@@ -1382,10 +1382,12 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
   }
 
   describe('Model initialization from active conversation', () => {
-    it('initializes selectedModel from activeConversation.model on mount', async () => {
-      mockSessionsStore.activeConversation = {
-        id: 'conv-1',
-        name: 'Test Conv',
+    it('initializes selectedModel from currentSession.model on mount', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
         model: 'claude-opus-4-20250514',
       };
 
@@ -1399,10 +1401,12 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
       expect(modelSelect.element.value).toBe('claude-opus-4-20250514');
     });
 
-    it('uses sonnet model when activeConversation has sonnet', async () => {
-      mockSessionsStore.activeConversation = {
-        id: 'conv-1',
-        name: 'Test Conv',
+    it('uses sonnet model when currentSession has sonnet', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
         model: 'claude-sonnet-4-20250514',
       };
 
@@ -1412,10 +1416,12 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
       const modelSelector = wrapper.find('.model-selector-stub');
       expect(modelSelector.attributes('data-model')).toBe('claude-sonnet-4-20250514');
     });
-    it('sends message with the model from activeConversation', async () => {
-      mockSessionsStore.activeConversation = {
-        id: 'conv-1',
-        name: 'Test Conv',
+    it('sends message with the model from currentSession', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
         model: 'claude-opus-4-20250514',
       };
 
@@ -1437,9 +1443,16 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
   });
 
   describe('Model updates when conversation changes', () => {
-    it('updates selectedModel when activeConversation.model changes', async () => {
-      // Start with opus - set both activeConversation AND conversations array
-      mockSessionsStore.conversations = [{ id: 'conv-1', name: 'Test Conv', model: 'claude-opus-4-20250514', isActive: true }];
+    it('updates selectedModel when currentSession.model changes and conversation is updated', async () => {
+      // Start with opus - set currentSession.model as the source of truth
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        model: 'claude-opus-4-20250514',
+      };
+      mockSessionsStore.conversations = [{ id: 'conv-1', name: 'Test Conv', isActive: true }];
       mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
 
       const wrapper = mountComponent();
@@ -1450,8 +1463,15 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
       expect(modelSelect.exists()).toBe(true);
       expect(modelSelect.element.value).toBe('claude-opus-4-20250514');
 
-      // Simulate conversation model update by reassigning the array (triggers Vue reactivity)
-      const updatedConv = { id: 'conv-1', name: 'Test Conv', model: 'claude-sonnet-4-20250514', isActive: true };
+      // Simulate session model update (watcher is triggered by activeConversation change)
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        model: 'claude-sonnet-4-20250514',
+      };
+      const updatedConv = { id: 'conv-1', name: 'Test Conv', isActive: true };
       mockSessionsStore.conversations = [updatedConv];
       mockSessionsStore.activeConversation = updatedConv;
       await flushAll(wrapper);
@@ -1461,11 +1481,18 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
       expect(modelSelect.element.value).toBe('claude-sonnet-4-20250514');
     });
 
-    it('updates selectedModel when switching to a different conversation', async () => {
-      // Start with conversation 1 using opus
+    it('uses currentSession.model when switching to a different conversation', async () => {
+      // session.model is the source of truth regardless of which conversation is active
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        model: 'claude-opus-4-20250514',
+      };
       mockSessionsStore.conversations = [
-        { id: 'conv-1', name: 'Conv 1', model: 'claude-opus-4-20250514', isActive: true },
-        { id: 'conv-2', name: 'Conv 2', model: 'claude-haiku-3-20250514', isActive: false },
+        { id: 'conv-1', name: 'Conv 1', isActive: true },
+        { id: 'conv-2', name: 'Conv 2', isActive: false },
       ];
       mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
       mockSessionsStore.activeConversationId = 'conv-1';
@@ -1473,30 +1500,36 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // Verify initial model
+      // Verify initial model (from session)
       let modelSelect = wrapper.find('#model-select');
       expect(modelSelect.exists()).toBe(true);
       expect(modelSelect.element.value).toBe('claude-opus-4-20250514');
 
-      // Switch to conversation 2 using haiku
+      // Switch to conversation 2 - model still comes from currentSession.model
       mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
       mockSessionsStore.activeConversationId = 'conv-2';
       await flushAll(wrapper);
 
-      // Verify model selector updated to haiku
+      // Verify model selector still reflects session model
       modelSelect = wrapper.find('#model-select');
-      expect(modelSelect.element.value).toBe('claude-haiku-3-20250514');
+      expect(modelSelect.element.value).toBe('claude-opus-4-20250514');
     });
 
-    it('updates selectedModel when conversations array is mutated via splice', async () => {
-      // This test verifies that watching activeConversation?.model directly
-      // properly detects updates when conversations are spliced (array mutation)
-      // This was the issue that prompted the change from watching [activeConversationId, conversations]
-      // to watching activeConversation?.model directly
+    it('updates selectedModel when currentSession.model changes (triggered by conversation splice)', async () => {
+      // This test verifies that when currentSession.model is updated and activeConversation
+      // is updated (via splice), the watcher fires and picks up the new session model.
+      // conversations.model is no longer the source of truth — session.model is.
 
-      // Start with a conversation using opus
+      // Start with session model = opus
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        model: 'claude-opus-4-20250514',
+      };
       mockSessionsStore.conversations = [
-        { id: 'conv-1', name: 'Test Conv', model: 'claude-opus-4-20250514', isActive: true },
+        { id: 'conv-1', name: 'Test Conv', isActive: true },
       ];
       mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
       mockSessionsStore.activeConversationId = 'conv-1';
@@ -1509,35 +1542,41 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
       expect(modelSelect.exists()).toBe(true);
       expect(modelSelect.element.value).toBe('claude-opus-4-20250514');
 
-      // Simulate what happens in the sessions store when a conversation is updated via splice
-      // This is how the actual store updates conversations (see sessions.js lines 1092, 1130, 1618)
+      // Simulate session model update (watcher is triggered by activeConversation change)
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        model: 'claude-sonnet-4-20250514',
+      };
       const updatedConversation = {
         id: 'conv-1',
         name: 'Test Conv',
-        model: 'claude-sonnet-4-20250514', // Model changed!
         isActive: true,
       };
-
-      // Use splice to update the conversation in place (array mutation, not reassignment)
       mockSessionsStore.conversations.splice(0, 1, updatedConversation);
-      // Update activeConversation to point to the new object
       mockSessionsStore.activeConversation = updatedConversation;
       await flushAll(wrapper);
 
-      // Verify model selector updated to the new model
-      // This verifies that watching activeConversation?.model works even with splice operations
+      // Verify model selector updated to the new session model
       modelSelect = wrapper.find('.model-selector-stub');
       expect(modelSelect.attributes('data-model')).toBe('claude-sonnet-4-20250514');
     });
 
-    it('updates selectedModel when active conversation is replaced in conversations array via splice', async () => {
-      // Test a more complex scenario where the active conversation is updated
-      // while there are multiple conversations in the array
+    it('uses currentSession.model when active conversation is replaced in conversations array via splice', async () => {
+      // Model comes from currentSession.model — conversations no longer carry model info.
 
-      // Start with multiple conversations
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        model: 'claude-opus-4-20250514',
+      };
       mockSessionsStore.conversations = [
-        { id: 'conv-1', name: 'Conv 1', model: 'claude-opus-4-20250514', isActive: true },
-        { id: 'conv-2', name: 'Conv 2', model: 'claude-haiku-3-20250514', isActive: false },
+        { id: 'conv-1', name: 'Conv 1', isActive: true },
+        { id: 'conv-2', name: 'Conv 2', isActive: false },
       ];
       mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
       mockSessionsStore.activeConversationId = 'conv-1';
@@ -1545,36 +1584,46 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // Verify initial model is opus
+      // Verify initial model is opus (from session)
       let modelSelect = wrapper.find('#model-select');
       expect(modelSelect.exists()).toBe(true);
       expect(modelSelect.element.value).toBe('claude-opus-4-20250514');
 
-      // Update the active conversation (conv-1) via splice
+      // Update the active conversation (conv-1) via splice — model stays on session
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        model: 'claude-sonnet-4-20250514',
+      };
       const updatedConv1 = {
         id: 'conv-1',
         name: 'Conv 1 (updated)',
-        model: 'claude-sonnet-4-20250514', // Changed from opus to sonnet
         isActive: true,
       };
-
-      // Mutate the array in place using splice
       mockSessionsStore.conversations.splice(0, 1, updatedConv1);
       mockSessionsStore.activeConversation = updatedConv1;
       await flushAll(wrapper);
 
-      // Verify the model selector detected the change
+      // Verify the model selector reflects the updated session model
       modelSelect = wrapper.find('.model-selector-stub');
       expect(modelSelect.attributes('data-model')).toBe('claude-sonnet-4-20250514');
     });
 
-    it('updates selectedModel when non-active conversation is updated via splice then becomes active', async () => {
-      // Test edge case: updating a non-active conversation, then switching to it
+    it('shows currentSession.model when switching between conversations', async () => {
+      // Switching conversations no longer changes the model — session.model is the source.
 
-      // Start with conv-1 active using opus
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        model: 'claude-opus-4-20250514',
+      };
       mockSessionsStore.conversations = [
-        { id: 'conv-1', name: 'Conv 1', model: 'claude-opus-4-20250514', isActive: true },
-        { id: 'conv-2', name: 'Conv 2', model: 'claude-haiku-3-20250514', isActive: false },
+        { id: 'conv-1', name: 'Conv 1', isActive: true },
+        { id: 'conv-2', name: 'Conv 2', isActive: false },
       ];
       mockSessionsStore.activeConversation = mockSessionsStore.conversations[0];
       mockSessionsStore.activeConversationId = 'conv-1';
@@ -1582,43 +1631,47 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // Verify initial model is opus
+      // Verify initial model is opus (from session)
       let modelSelect = wrapper.find('#model-select');
       expect(modelSelect.exists()).toBe(true);
       expect(modelSelect.element.value).toBe('claude-opus-4-20250514');
 
-      // Update conv-2 via splice (while it's not active)
+      // Update conv-2 via splice (while it's not active) — model is not on conv-2
       const updatedConv2 = {
         id: 'conv-2',
         name: 'Conv 2 (updated)',
-        model: 'claude-sonnet-4-20250514', // Changed from haiku to sonnet
         isActive: false,
       };
-
       mockSessionsStore.conversations.splice(1, 1, updatedConv2);
       await flushAll(wrapper);
 
-      // Model selector should still show opus (conv-1 is still active)
+      // Model selector should still show opus (conv-1 is still active, session model = opus)
       modelSelect = wrapper.find('#model-select');
       expect(modelSelect.element.value).toBe('claude-opus-4-20250514');
 
-      // Now switch to conv-2
+      // Now switch to conv-2 — session model is still opus
       mockSessionsStore.activeConversation = mockSessionsStore.conversations[1];
       mockSessionsStore.activeConversationId = 'conv-2';
       await flushAll(wrapper);
 
-      // Verify the model selector shows the updated model (sonnet)
+      // Verify the model selector still shows opus (session model hasn't changed)
       modelSelect = wrapper.find('#model-select');
-      expect(modelSelect.element.value).toBe('claude-sonnet-4-20250514');
+      expect(modelSelect.element.value).toBe('claude-opus-4-20250514');
     });
   });
 
   describe('Handling null/undefined model', () => {
-    it('does not crash when activeConversation.model is null', async () => {
+    it('does not crash when currentSession.model is null (falls back to default)', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        model: null,
+      };
       mockSessionsStore.activeConversation = {
         id: 'conv-1',
         name: 'Test Conv',
-        model: null,
       };
 
       const wrapper = mountComponent();
