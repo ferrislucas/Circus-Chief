@@ -45,32 +45,6 @@ export const useProvidersStore = defineStore('providers', {
       }
     },
 
-    // Fetch providers with their models
-    async fetchProvidersWithModels() {
-      this.loading = true;
-      this.error = null;
-      try {
-        const providers = await api.getProviders();
-        // Fetch models for each provider
-        const providersWithModels = await Promise.all(
-          providers.map(async (provider) => {
-            try {
-              const models = await api.getProviderModels(provider.id);
-              return { ...provider, models };
-            } catch (err) {
-              console.error(`Failed to fetch models for provider ${provider.id}:`, err);
-              return { ...provider, models: [] };
-            }
-          })
-        );
-        this.providers = providersWithModels;
-      } catch (err) {
-        this.error = err.message;
-      } finally {
-        this.loading = false;
-      }
-    },
-
     async fetchProvider(id) {
       this.loading = true;
       this.error = null;

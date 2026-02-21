@@ -30,6 +30,7 @@ const TEST_PREFIX = `[TEST-${TEST_RUN_ID}] `;
 const createdResources = {
   projects: new Set<string>(),
   sessions: new Set<string>(),
+  providers: new Set<string>(),
 };
 
 /**
@@ -38,6 +39,7 @@ const createdResources = {
 function clearResourceTracking() {
   createdResources.projects.clear();
   createdResources.sessions.clear();
+  createdResources.providers.clear();
 }
 
 /**
@@ -59,6 +61,15 @@ export async function cleanupCreatedResources() {
       await fetch(`${API_URL}/api/projects/${projectId}`, { method: 'DELETE' });
     } catch (e) {
       // Ignore errors - project may already be deleted
+    }
+  }
+
+  // Then delete providers tracked by this test
+  for (const providerId of createdResources.providers) {
+    try {
+      await fetch(`${API_URL}/api/providers/${providerId}`, { method: 'DELETE' });
+    } catch (e) {
+      // Ignore errors - provider may already be deleted
     }
   }
 
@@ -328,6 +339,19 @@ export async function cleanupAll() {
     // Only delete test projects (prefixed with [TEST])
     if (project.name.startsWith(TEST_PREFIX)) {
       await fetch(`${API_URL}/api/projects/${project.id}`, { method: 'DELETE' });
+    }
+  }
+
+  // Delete all non-built-in providers whose names start with [TEST.
+  // This is safe here because cleanupAll() is only called from global-setup and
+  // global-teardown, which run sequentially (not in parallel with any workers).
+  const providersResponse = await fetch(`${API_URL}/api/providers`);
+  if (!providersResponse.ok) return;
+
+  const providers = await providersResponse.json();
+  for (const provider of providers) {
+    if (provider.name.startsWith('[TEST') && !provider.isBuiltIn) {
+      await fetch(`${API_URL}/api/providers/${provider.id}`, { method: 'DELETE' });
     }
   }
 }
@@ -751,7 +775,10 @@ export async function createProvider(data: {
     body: JSON.stringify(data),
   });
   if (!response.ok) throw new Error('Failed to create provider');
-  return response.json();
+  const provider = await response.json();
+  // Track for scoped cleanup
+  createdResources.providers.add(provider.id);
+  return provider;
 }
 
 /**
@@ -816,12 +843,15 @@ export async function testProviderConnection(id: string) {
 }
 
 /**
- * Cleanup all test providers (those with [TEST] prefix)
+ * Cleanup test providers created by this worker (those with TEST_PREFIX).
+ * Uses the per-worker TEST_PREFIX so parallel workers cannot accidentally
+ * delete each other's providers. For a broader sweep of all [TEST]-prefixed
+ * providers, use cleanupAll() (global setup/teardown only).
  */
 export async function cleanupProviders() {
   const providers = await getProviders();
   for (const provider of providers) {
-    // Only delete custom providers (those with [TEST] prefix) and not built-in ones
+    // Only delete custom providers (those with TEST_PREFIX) and not built-in ones
     if (provider.name.startsWith(TEST_PREFIX) && !provider.isBuiltIn) {
       await deleteProvider(provider.id);
     }
