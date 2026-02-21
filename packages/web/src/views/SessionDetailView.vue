@@ -161,15 +161,6 @@
         <CanvasTab v-else-if="activeTab === 'canvas'" :key="route.params.id" :session-id="route.params.id" />
         <CommandsTab v-else-if="activeTab === 'commands'" :key="route.params.id" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
       </div>
-
-      <!-- Child sessions panel (if this session has children) -->
-      <ChildSessionsPanel
-        v-if="childSessions.length > 0"
-        :sessions="childSessions"
-        :parent-session-id="currentSessionId"
-        :summaries="childSessionSummaries"
-        :command-buttons="commandButtons"
-      />
     </template>
   </div>
 </template>
@@ -196,7 +187,6 @@ import OverflowMenu from '../components/OverflowMenu.vue';
 import SchedulingInfo from '../components/SchedulingInfo.vue';
 import CommandButtonStatusBar from '../components/CommandButtonStatusBar.vue';
 import SessionHierarchyBreadcrumb from '../components/SessionHierarchyBreadcrumb.vue';
-import ChildSessionsPanel from '../components/ChildSessionsPanel.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 
@@ -226,11 +216,6 @@ const sessionPath = computed(() => {
   return sessionsStore.getSessionPath(route.params.id);
 });
 
-// Get child sessions for this session
-const childSessions = computed(() => {
-  // Use route.params.id directly to be reactive to route changes
-  return sessionsStore.getChildSessions(route.params.id);
-});
 const changesFileCount = ref(0);
 const canvasItemCount = ref(0);
 
@@ -266,16 +251,6 @@ const canArchive = computed(() => {
   return status && status !== 'running';
 });
 
-// Child session summaries for PR indicators
-const childSessionSummaries = ref({});
-
-// Command buttons for child session indicators
-const commandButtons = computed(() => {
-  const projectId = sessionsStore.currentSession?.projectId;
-  if (!projectId) return [];
-  return commandButtonsStore.getButtonsByProjectId(projectId);
-});
-
 const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
   { id: 'conversation', label: 'Conversations' },
@@ -301,21 +276,6 @@ const isDeleting = ref(false);
 // PR URL editing state
 const isEditingPrUrl = ref(false);
 const editPrUrlValue = ref('');
-
-// Fetch summaries for child sessions
-async function fetchChildSummaries() {
-  const children = sessionsStore.getChildSessions(route.params.id);
-  for (const child of children) {
-    if (!childSessionSummaries.value[child.id]) {
-      try {
-        const summary = await api.getSessionSummary(child.id);
-        childSessionSummaries.value[child.id] = summary;
-      } catch (e) {
-        // Ignore - summary may not exist
-      }
-    }
-  }
-}
 
 // Check for file system changes (staged, unstaged, untracked)
 async function checkForChanges() {
@@ -414,9 +374,6 @@ async function initializeSession(sessionId) {
       console.debug('Failed to fetch command buttons:', error);
     }
   }
-
-  // Fetch summaries for child sessions
-  await fetchChildSummaries();
 
   // STEP 4: Register all handlers
   cleanups.push(
