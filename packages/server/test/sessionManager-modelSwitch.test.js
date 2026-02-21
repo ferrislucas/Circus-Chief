@@ -21,7 +21,7 @@ vi.mock('../src/services/summaryService.js', () => ({
 }));
 
 // Import after mocking
-import { runSession, continueSession } from '../src/services/sessionManager.js';
+import { runSession, continueSession, continueSessionWithExistingMessage } from '../src/services/sessionManager.js';
 
 describe('sessionManager model switching mid-conversation', () => {
   let project;
@@ -224,6 +224,86 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // First message should not have conversation history
       expect(firstCallParams.prompt).not.toContain('<conversation_history>');
+    });
+  });
+
+  describe('model change detection via session.model (not conversation.model)', () => {
+    it('continueSession detects model change via session.model and includes conversation context', async () => {
+      // Set session.model directly (without relying on conversations.model)
+      session = sessions.create(project.id, 'Test Session', 'initial prompt', 'standard');
+      sessions.update(session.id, { model: 'claude-opus-4-20250514' });
+
+      // Mock a conversation with a claudeSessionId so resume would be possible without model change
+      const conv = conversations.getActiveBySessionId(session.id);
+      conversations.update(conv.id, { claudeSessionId: 'claude-session-abc123' });
+
+      // Continue with a different model — modelChanged = true
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-sonnet-4-20250514'));
+      await continueSession(session.id, 'follow-up message', '/tmp/test', null, [], 'claude-sonnet-4-20250514');
+
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+      const callParams = mockQuery.mock.calls[0][0];
+
+      // Model change should prevent resume and inject conversation context
+      expect(callParams.options.resume).toBeUndefined();
+      expect(callParams.prompt).toContain('<conversation_history>');
+      expect(callParams.prompt).toContain('follow-up message');
+    });
+
+    it('continueSession with model: null does not trigger modelChanged and does not overwrite session.model', async () => {
+      session = sessions.create(project.id, 'Test Session', 'initial prompt', 'standard');
+      sessions.update(session.id, { model: 'claude-opus-4-20250514' });
+
+      const conv = conversations.getActiveBySessionId(session.id);
+      conversations.update(conv.id, { claudeSessionId: 'claude-session-abc123' });
+
+      // Continue with model: null — modelChanged should be false
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-20250514'));
+      await continueSession(session.id, 'follow-up with no model', '/tmp/test', null, [], null);
+
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+      const callParams = mockQuery.mock.calls[0][0];
+
+      // No model change, so resume should be used and no context injected
+      expect(callParams.options.resume).toBeDefined();
+      expect(callParams.prompt).not.toContain('<conversation_history>');
+      expect(callParams.prompt).toBe('follow-up with no model');
+
+      // session.model should not be overwritten to null
+      const updatedSession = sessions.getById(session.id);
+      expect(updatedSession.model).toBe('claude-opus-4-20250514');
+    });
+
+    it('continueSessionWithExistingMessage detects model change via session.model and includes context', async () => {
+      // Create a session and run it once to set up conversation/messages
+      session = sessions.create(project.id, 'Test Session', 'initial prompt', 'standard');
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-20250514'));
+      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-20250514');
+
+      // session.model is now 'claude-opus-4-20250514' (set by runSession)
+      const updatedSession = sessions.getById(session.id);
+      expect(updatedSession.model).toBe('claude-opus-4-20250514');
+
+      // Get the conversation and add a claudeSessionId so resume would normally be possible
+      const conv = conversations.getActiveBySessionId(session.id);
+      conversations.update(conv.id, { claudeSessionId: 'claude-session-abc123' });
+
+      // continueSessionWithExistingMessage with a different model — modelChanged = true
+      mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-sonnet-4-20250514'));
+      await continueSessionWithExistingMessage(
+        session.id,
+        conv.id,
+        '/tmp/test',
+        null,
+        'claude-sonnet-4-20250514'
+      );
+
+      expect(mockQuery).toHaveBeenCalledTimes(2);
+      const secondCallParams = mockQuery.mock.calls[1][0];
+
+      // Model change should prevent resume and inject conversation context
+      expect(secondCallParams.options.resume).toBeUndefined();
+      expect(secondCallParams.prompt).toContain('<conversation_history>');
     });
   });
 

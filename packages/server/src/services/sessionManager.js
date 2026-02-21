@@ -925,21 +925,17 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
 
   try {
     // Get session for settings
-    const session = sessions.getById(sessionId);
+    let session = sessions.getById(sessionId);
 
     // Get the active conversation for this session (created in SessionRepository.create)
     const activeConversation = conversations.ensureActiveConversation(sessionId);
     activeConversationIds.set(sessionId, activeConversation.id);
     console.log(`[SESSION] runSession: ensured active conversation ${activeConversation.id} for session ${sessionId}`);
 
-    // Update status to running
-    sessions.update(sessionId, { status: 'running' });
+    // Update status to running and track the user-requested model (short format) on the session
+    sessions.update(sessionId, { status: 'running', ...(model && { model }) });
+    session = sessions.getById(sessionId);
     broadcastSessionStatus(sessionId, 'running');
-
-    // Track the user-requested model (short format) on the session for future comparisons
-    if (model) {
-      sessions.update(sessionId, { model });
-    }
 
     // Note: Initial user message is already created in SessionRepository.create()
     // Associate any pending attachments with the initial message
