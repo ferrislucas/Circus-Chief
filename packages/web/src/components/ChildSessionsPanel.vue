@@ -1,8 +1,12 @@
 <template>
-  <div class="child-sessions-section">
-    <h3>Child Sessions ({{ sessions.length }})</h3>
+  <div class="child-sessions-panel child-sessions-section">
+    <div class="panel-header" @click="toggleExpanded">
+      <h3 class="panel-title">Child Sessions ({{ sessions.length }})</h3>
+      <span class="expand-icon">{{ isExpanded ? '▼' : '▶' }}</span>
+    </div>
 
-    <div class="child-sessions-list">
+    <div v-if="isExpanded" class="panel-content">
+      <div class="child-sessions-list">
       <router-link
         v-for="session in sessions"
         :key="session.id"
@@ -42,6 +46,7 @@
           </svg>
         </div>
       </router-link>
+      </div>
     </div>
   </div>
 
@@ -62,6 +67,11 @@ import ButtonStatusModal from './ButtonStatusModal.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
 const selectedButtonForModal = ref(null);
+const isExpanded = ref(true);
+
+const toggleExpanded = () => {
+  isExpanded.value = !isExpanded.value;
+};
 
 const props = defineProps({
   sessions: {
@@ -140,17 +150,37 @@ const getStatusIcon = (status) => {
 
 <style scoped>
 /* Match SummaryTab section styling */
+.child-sessions-panel,
 .child-sessions-section {
   margin-bottom: 1.5rem;
 }
 
-.child-sessions-section h3 {
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  margin-bottom: 1rem;
+  user-select: none;
+}
+
+.panel-title {
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--color-text-soft);
-  margin: 0 0 1rem;
+  margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.expand-icon {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+  transition: transform 0.2s ease;
+}
+
+.panel-content {
+  margin-bottom: 1rem;
 }
 
 .child-sessions-list {
