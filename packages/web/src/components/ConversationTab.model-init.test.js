@@ -16,7 +16,7 @@ import { nextTick, reactive } from 'vue';
  *     () => sessionsStore.activeConversation,
  *     (conv) => {
  *       if (conv) {  // <-- BUG: Does nothing when conv is null/undefined
- *         selectedModel.value = conv.model || session.model || projectDefault || 'sonnet';
+ *         selectedModel.value = session.model || projectDefault || 'sonnet';
  *       }
  *     },
  *     { immediate: true }
