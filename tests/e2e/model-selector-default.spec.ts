@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test';
  * the model selector shows no model selected (blank/empty).
  *
  * Expected: Model selector should always show a selected model,
- * falling back to: conversation.model → session.model → project default → 'sonnet'
+ * falling back to: session.model → project default → 'sonnet'
  */
 
 test.describe('Model Selector Default Value', () => {

@@ -864,10 +864,9 @@ watch(
   () => sessionsStore.activeConversation,
   (conv) => {
     if (conv) {
-      // Inherit model from conversation, or fall back to session/project default
-      // This prevents ModelSelector from auto-emitting its default before we can set the right one
-      selectedModel.value = conv.model ||
-        sessionsStore.currentSession?.model ||
+      // Use session model (user-requested short format) or fall back to project/default
+      // conversations.model is no longer used — session.model tracks the user's selection
+      selectedModel.value = sessionsStore.currentSession?.model ||
         getProjectDefaultModel() ||
         'sonnet';
     } else {

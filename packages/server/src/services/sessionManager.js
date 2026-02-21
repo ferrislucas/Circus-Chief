@@ -925,15 +925,16 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
 
   try {
     // Get session for settings
-    const session = sessions.getById(sessionId);
+    let session = sessions.getById(sessionId);
 
     // Get the active conversation for this session (created in SessionRepository.create)
     const activeConversation = conversations.ensureActiveConversation(sessionId);
     activeConversationIds.set(sessionId, activeConversation.id);
     console.log(`[SESSION] runSession: ensured active conversation ${activeConversation.id} for session ${sessionId}`);
 
-    // Update status to running
-    sessions.update(sessionId, { status: 'running' });
+    // Update status to running and track the user-requested model (short format) on the session
+    sessions.update(sessionId, { status: 'running', ...(model && { model }) });
+    session = sessions.getById(sessionId);
     broadcastSessionStatus(sessionId, 'running');
 
     // Note: Initial user message is already created in SessionRepository.create()
@@ -1069,7 +1070,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
   }
 
   // Get the session to retrieve the Claude session ID and settings
-  const session = sessions.getById(sessionId);
+  let session = sessions.getById(sessionId);
   if (!session) {
     throw new Error('Session not found');
   }
@@ -1114,21 +1115,28 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     const provider = resolveProviderFromModel(model);
     const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled);
 
-    // Check if model changed from the conversation's last model
+    // Check if model changed from the session's last requested model
     // When model changes, we can't resume the previous session - thinking blocks and
     // session context may be incompatible between different models/providers
-    const modelChanged = model && activeConversation.model && model !== activeConversation.model;
+    const modelChanged = model && session.model && model !== session.model;
+
+    // Update session.model to track the user-requested model (short format)
+    // This must happen AFTER modelChanged detection so we compare old vs new
+    if (model) {
+      sessions.update(sessionId, { model });
+      session = sessions.getById(sessionId); // refresh
+    }
 
     // [MODEL AUDIT] Log model change detection
     console.log(`[MODEL AUDIT - SessionManager] Model change check:`, {
       requestedModel: model,
-      conversationModel: activeConversation.model,
+      sessionModel: session.model,
       modelChanged,
       conversationClaudeSessionId: activeConversation.claudeSessionId,
     });
 
     if (modelChanged) {
-      console.log(`[SESSION] Model changed from "${activeConversation.model}" to "${model}" - including conversation context`);
+      console.log(`[SESSION] Model changed to "${model}" - including conversation context`);
     }
 
     // Only resume if we have a session ID AND model hasn't changed
@@ -1258,7 +1266,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   }
 
   // Get the session to retrieve settings
-  const session = sessions.getById(sessionId);
+  let session = sessions.getById(sessionId);
   if (!session) {
     throw new Error('Session not found');
   }
@@ -1300,12 +1308,20 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     const provider = resolveProviderFromModel(model);
     const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled);
 
-    // Check if model changed from the conversation's last model
+    // Check if model changed from the session's last requested model
     // When model changes, we can't resume the previous session - thinking blocks and
     // session context may be incompatible between different models/providers
-    const modelChanged = model && conversation.model && model !== conversation.model;
+    const modelChanged = model && session.model && model !== session.model;
+
+    // Update session.model to track the user-requested model (short format)
+    // This must happen AFTER modelChanged detection so we compare old vs new
+    if (model) {
+      sessions.update(sessionId, { model });
+      session = sessions.getById(sessionId); // refresh
+    }
+
     if (modelChanged) {
-      console.log(`[SESSION] Model changed from "${conversation.model}" to "${model}" - including conversation context`);
+      console.log(`[SESSION] Model changed to "${model}" - including conversation context`);
     }
 
     // Check if this is a branched conversation without a claudeSessionId (can't resume)
@@ -1532,9 +1548,9 @@ async function handleStreamEvent(sessionId, event) {
         // Track current model for this session (used when creating messages)
         currentModels.set(sessionId, event.model);
         console.log(`[MODEL AUDIT - SDK Event] Set currentModels[${sessionId}] = "${event.model}"`);
-        // Still update session's model and capture available slash commands
+        // Capture available slash commands (do NOT update model here — session.model
+        // tracks the user-requested short format; this SDK model is stored in currentModels)
         sessions.update(sessionId, {
-          model: event.model,
           slashCommands: JSON.stringify(event.slash_commands || []),
         });
         // Reset message tracking for new session
@@ -1824,7 +1840,6 @@ async function handleStreamEvent(sessionId, event) {
               cacheCreationInputTokens: (currentConversation.cacheCreationInputTokens || 0) + turnUsage.cacheCreationInputTokens,
               webSearchRequests: (currentConversation.webSearchRequests || 0) + turnUsage.webSearchRequests,
               contextWindow: turnUsage.contextWindow,
-              model: turnUsage.model,
             };
 
             updatedConversation = conversations.updateUsage(conversationId, cumulativeConversationUsage);
@@ -1859,7 +1874,6 @@ async function handleStreamEvent(sessionId, event) {
               cacheCreationInputTokens: updatedConversation.cacheCreationInputTokens,
               webSearchRequests: updatedConversation.webSearchRequests,
               contextWindow: updatedConversation.contextWindow,
-              model: updatedConversation.model,  // Include model for robustness
             } : cumulativeSessionUsage,
             turnUsage,
             isFinal: true,

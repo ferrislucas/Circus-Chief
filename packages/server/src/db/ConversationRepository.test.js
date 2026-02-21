@@ -328,7 +328,6 @@ describe('ConversationRepository', () => {
         cacheCreationInputTokens: 100,
         webSearchRequests: 2,
         contextWindow: 200000,
-        model: 'claude-sonnet-4-20250514',
       };
 
       const updated = repo.updateUsage(conv.id, usage);
@@ -339,7 +338,6 @@ describe('ConversationRepository', () => {
       expect(updated.cacheCreationInputTokens).toBe(100);
       expect(updated.webSearchRequests).toBe(2);
       expect(updated.contextWindow).toBe(200000);
-      expect(updated.model).toBe('claude-sonnet-4-20250514');
     });
 
     it('handles partial usage updates', () => {
