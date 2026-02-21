@@ -141,6 +141,15 @@
       </div>
     </div>
 
+    <!-- Child Sessions Section -->
+    <ChildSessionsPanel
+      v-if="childSessions.length > 0"
+      :sessions="childSessions"
+      :parent-session-id="props.sessionId"
+      :summaries="childSessionSummaries"
+      :command-buttons="commandButtons"
+    />
+
     <!-- Conversations Section -->
     <div class="conversations-section">
       <h3>Conversations</h3>
@@ -197,6 +206,8 @@ import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import ChildSessionsPanel from './ChildSessionsPanel.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -205,9 +216,11 @@ const props = defineProps({
 const router = useRouter();
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
+const commandButtonsStore = useCommandButtonsStore();
 const { onSummaryUpdate, onSummaryGenerating } = useSessionSubscription(props.sessionId);
 
 const summary = ref(null);
+const childSessionSummaries = ref({});
 const loading = ref(false);
 const generating = ref(false);
 const generatingManual = ref(false);
@@ -219,6 +232,18 @@ const session = computed(() => sessionsStore.sessions.find((s) => s.id === props
 const prUrl = computed(() => session.value?.prUrl || null);
 const hasPrInfo = computed(() => prUrl.value && summary.value?.prState);
 
+// Get child sessions for this session
+const childSessions = computed(() => {
+  return sessionsStore.getChildSessions(props.sessionId);
+});
+
+// Command buttons for child session indicators
+const commandButtons = computed(() => {
+  const projectId = session.value?.projectId;
+  if (!projectId) return [];
+  return commandButtonsStore.getButtonsByProjectId(projectId);
+});
+
 // Calculate total messages across all conversations
 const totalMessages = computed(() => {
   return conversations.value.reduce((sum, conv) => sum + (conv.messageCount || 0), 0);
@@ -228,6 +253,21 @@ const totalMessages = computed(() => {
 function getConversationNumber(convId) {
   const index = conversations.value.findIndex((c) => c.id === convId);
   return index + 1;
+}
+
+// Fetch summaries for child sessions
+async function fetchChildSummaries() {
+  const children = sessionsStore.getChildSessions(props.sessionId);
+  for (const child of children) {
+    if (!childSessionSummaries.value[child.id]) {
+      try {
+        const summaryData = await api.getSessionSummary(child.id);
+        childSessionSummaries.value[child.id] = summaryData;
+      } catch (e) {
+        // Ignore - summary may not exist
+      }
+    }
+  }
 }
 
 // Navigate to conversation tab with specific conversation
@@ -254,6 +294,9 @@ onMounted(async () => {
   } finally {
     loadingConversations.value = false;
   }
+
+  // Fetch summaries for child sessions (don't await - not critical path)
+  fetchChildSummaries();
 
   // Fetch session summary
   loading.value = true;

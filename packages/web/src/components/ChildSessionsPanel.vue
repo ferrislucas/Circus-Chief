@@ -1,53 +1,51 @@
 <template>
-  <div class="child-sessions-panel">
-    <div class="panel-header" @click="isExpanded = !isExpanded">
-      <h4 class="panel-title">
-        <span class="expand-icon">{{ isExpanded ? '▼' : '▶' }}</span>
-        Child Sessions ({{ sessions.length }})
-      </h4>
+  <div class="child-sessions-panel child-sessions-section">
+    <div class="panel-header" @click="toggleExpanded">
+      <h3 class="panel-title">Child Sessions ({{ sessions.length }})</h3>
+      <span class="expand-icon">{{ isExpanded ? '▼' : '▶' }}</span>
     </div>
 
     <div v-if="isExpanded" class="panel-content">
       <div class="child-sessions-list">
-        <router-link
-          v-for="session in sessions"
-          :key="session.id"
-          :to="`/sessions/${session.id}/conversation`"
-          class="child-session-item"
-        >
-          <div class="child-session-info">
-            <div class="child-session-name">{{ session.name }}</div>
-            <div class="child-session-meta">
-              <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
+      <router-link
+        v-for="session in sessions"
+        :key="session.id"
+        :to="`/sessions/${session.id}/conversation`"
+        class="child-session-item"
+      >
+        <div class="child-session-info">
+          <div class="child-session-name">{{ session.name }}</div>
+          <div class="child-session-meta">
+            <span :class="['status-badge', `status-${session.status}`]">{{ session.status }}</span>
 
-              <!-- PR Indicators -->
-              <PrIndicators
-                v-if="session.prUrl"
-                :pr-url="session.prUrl"
-                :summary="summaries[session.id]"
-              />
+            <!-- PR Indicators -->
+            <PrIndicators
+              v-if="session.prUrl"
+              :pr-url="session.prUrl"
+              :summary="summaries[session.id]"
+            />
 
-              <!-- Command button status indicators -->
-              <span
-                v-for="indicator in getButtonStatuses(session)"
-                :key="indicator.buttonId"
-                :class="['button-status-indicator', `button-status-${indicator.status}`]"
-                :title="indicator.label"
-                @click.stop.prevent="selectedButtonForModal = indicator"
-              >{{ getStatusIcon(indicator.status) }}</span>
+            <!-- Command button status indicators -->
+            <span
+              v-for="indicator in getButtonStatuses(session)"
+              :key="indicator.buttonId"
+              :class="['button-status-indicator', `button-status-${indicator.status}`]"
+              :title="indicator.label"
+              @click.stop.prevent="selectedButtonForModal = indicator"
+            >{{ getStatusIcon(indicator.status) }}</span>
 
-              <span v-if="getTemplateName(session.nextTemplateId)" class="child-session-next-template">
-                → {{ getTemplateName(session.nextTemplateId) }}
-              </span>
-              <span class="child-session-date">{{ formatDate(session.createdAt) }}</span>
-            </div>
+            <span v-if="getTemplateName(session.nextTemplateId)" class="child-session-next-template">
+              → {{ getTemplateName(session.nextTemplateId) }}
+            </span>
+            <span class="child-session-date">{{ formatDate(session.createdAt) }}</span>
           </div>
-          <div class="child-session-arrow">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="9 18 15 12 9 6"></polyline>
-            </svg>
-          </div>
-        </router-link>
+        </div>
+        <div class="child-session-arrow">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </div>
+      </router-link>
       </div>
     </div>
   </div>
@@ -69,6 +67,11 @@ import ButtonStatusModal from './ButtonStatusModal.vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
 const selectedButtonForModal = ref(null);
+const isExpanded = ref(true);
+
+const toggleExpanded = () => {
+  isExpanded.value = !isExpanded.value;
+};
 
 const props = defineProps({
   sessions: {
@@ -90,7 +93,6 @@ const props = defineProps({
 });
 
 const templatesStore = useTemplatesStore();
-const isExpanded = ref(true);
 
 const getTemplateName = (templateId) => {
   if (!templateId) return null;
@@ -147,68 +149,62 @@ const getStatusIcon = (status) => {
 </script>
 
 <style scoped>
-.child-sessions-panel {
-  margin-top: 1.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--border-radius, 8px);
-  background: var(--color-background-secondary, rgba(0, 0, 0, 0.1));
-  overflow: hidden;
+/* Match SummaryTab section styling */
+.child-sessions-panel,
+.child-sessions-section {
+  margin-bottom: 1.5rem;
 }
 
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1rem;
   cursor: pointer;
-  transition: background-color 0.15s;
-}
-
-.panel-header:hover {
-  background-color: var(--color-bg-soft, rgba(255, 255, 255, 0.05));
+  margin-bottom: 1rem;
+  user-select: none;
 }
 
 .panel-title {
-  margin: 0;
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--color-text-soft);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .expand-icon {
   font-size: 0.75rem;
   color: var(--color-text-soft);
+  transition: transform 0.2s ease;
 }
 
 .panel-content {
-  border-top: 1px solid var(--color-border);
+  margin-bottom: 1rem;
 }
 
 .child-sessions-list {
-  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .child-session-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem;
-  border-radius: var(--border-radius, 6px);
+  padding: 1rem;
+  border-radius: var(--border-radius, 8px);
   text-decoration: none;
   color: var(--color-text);
-  transition: background-color 0.15s;
-  margin-bottom: 0.5rem;
-}
-
-.child-session-item:last-child {
-  margin-bottom: 0;
+  background: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  transition: border-color 0.15s, background-color 0.15s;
 }
 
 .child-session-item:hover {
-  background-color: var(--color-bg-soft, rgba(255, 255, 255, 0.05));
+  border-color: var(--color-primary);
+  background-color: var(--color-bg-soft, rgba(255, 255, 255, 0.03));
 }
 
 .child-session-info {
