@@ -112,12 +112,26 @@ export class ModelProviderRepository extends BaseRepository {
   }
 
   /**
-   * Get all providers
-   * @returns {Array<Object>} - All providers
+   * Get all providers (always includes models)
+   * @returns {Array<Object>} - All providers with their models
    */
   getAll() {
     const rows = this.db.prepare('SELECT * FROM model_providers ORDER BY is_built_in DESC, name ASC').all();
-    return this.mapAll(rows);
+    return this.mapAll(rows).map(provider => ({
+      ...provider,
+      models: this.getModels(provider.id),
+    }));
+  }
+
+  /**
+   * Get a provider by ID (always includes models)
+   * @param {string} id - Provider ID
+   * @returns {Object|null} - Provider with its models, or null
+   */
+  getById(id) {
+    const provider = super.getById(id);
+    if (!provider) return null;
+    return { ...provider, models: this.getModels(id) };
   }
 
   /**

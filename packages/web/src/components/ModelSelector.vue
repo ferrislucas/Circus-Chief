@@ -86,7 +86,7 @@ const hasInitialized = ref(false);
 onMounted(async () => {
   // Fetch if no providers OR if providers exist but don't have models loaded
   if (providersStore.providers.length === 0 || !providersHaveModels.value) {
-    await providersStore.fetchProvidersWithModels();
+    await providersStore.fetchProviders();
   }
 
   // Don't emit default - let parent component control model selection
