@@ -44,7 +44,7 @@ describe('sessionManager message model tracking', () => {
   });
 
   // Helper to create async generator that simulates SDK response with model
-  async function* createMockQueryResponseWithModel(modelName = 'claude-opus-4-5-20251101') {
+  async function* createMockQueryResponseWithModel(modelName = 'claude-opus-4-6') {
     yield {
       type: 'system',
       subtype: 'init',
@@ -71,7 +71,7 @@ describe('sessionManager message model tracking', () => {
   describe('runSession model tracking', () => {
     it('tracks model from system.init event and stores in created messages', async () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
-      mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-5-20251101'));
+      mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-6'));
 
       await runSession(session.id, 'test prompt', '/tmp/test', null, []);
 
@@ -80,7 +80,7 @@ describe('sessionManager message model tracking', () => {
       const assistantMessage = sessionMessages.find((m) => m.role === 'assistant');
 
       expect(assistantMessage).toBeDefined();
-      expect(assistantMessage.model).toBe('claude-opus-4-5-20251101');
+      expect(assistantMessage.model).toBe('claude-opus-4-6');
       expect(assistantMessage.content).toContain('Mock response');
     });
 
@@ -88,7 +88,7 @@ describe('sessionManager message model tracking', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard', false, null);
 
       // Response with opus
-      mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-5-20251101'));
+      mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-6'));
       await runSession(session.id, 'first prompt', '/tmp/test', null, []);
 
       // Get assistant messages after first turn
@@ -97,13 +97,13 @@ describe('sessionManager message model tracking', () => {
 
       expect(assistantMessages.length).toBeGreaterThan(0);
       assistantMessages.forEach((msg) => {
-        expect(msg.model).toBe('claude-opus-4-5-20251101');
+        expect(msg.model).toBe('claude-opus-4-6');
       });
     });
 
     it('creates assistant messages with model when system.init provides model', async () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
-      mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-sonnet-4-5-20250929'));
+      mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-sonnet-4-6'));
 
       await runSession(session.id, 'test prompt', '/tmp/test', null, []);
 
@@ -113,7 +113,7 @@ describe('sessionManager message model tracking', () => {
 
       expect(assistantMessages.length).toBeGreaterThan(0);
       assistantMessages.forEach((msg) => {
-        expect(msg.model).toBe('claude-sonnet-4-5-20250929');
+        expect(msg.model).toBe('claude-sonnet-4-6');
       });
     });
 
@@ -124,7 +124,7 @@ describe('sessionManager message model tracking', () => {
       const userId = project.id; // Using project id as a stand-in
       messages.create(session.id, 'user', 'User question', null, null, null);
 
-      mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-5-20251101'));
+      mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-6'));
       await runSession(session.id, 'continuation', '/tmp/test', null, []);
 
       // Verify user message doesn't have model, assistant does
@@ -137,7 +137,7 @@ describe('sessionManager message model tracking', () => {
       });
 
       assistantMessages.forEach((msg) => {
-        expect(msg.model).toBe('claude-opus-4-5-20251101');
+        expect(msg.model).toBe('claude-opus-4-6');
       });
     });
   });
@@ -147,7 +147,7 @@ describe('sessionManager message model tracking', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard', false, null);
       sessions.update(session.id, { claudeSessionId: 'claude-session-123' });
 
-      mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-5-20251101'));
+      mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-6'));
       await continueSession(session.id, 'follow-up message', '/tmp/test', null, []);
 
       // Get the assistant message created
@@ -156,7 +156,7 @@ describe('sessionManager message model tracking', () => {
 
       expect(assistantMessages.length).toBeGreaterThan(0);
       assistantMessages.forEach((msg) => {
-        expect(msg.model).toBe('claude-opus-4-5-20251101');
+        expect(msg.model).toBe('claude-opus-4-6');
       });
     });
   });
@@ -164,7 +164,7 @@ describe('sessionManager message model tracking', () => {
   describe('model field in message data', () => {
     it('retrieved messages include model field', async () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
-      mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-5-20251101'));
+      mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-6'));
 
       await runSession(session.id, 'test prompt', '/tmp/test', null, []);
 
@@ -178,7 +178,7 @@ describe('sessionManager message model tracking', () => {
       expect(assistantMessage).toHaveProperty('content');
       expect(assistantMessage).toHaveProperty('timestamp');
       expect(assistantMessage).toHaveProperty('model');
-      expect(assistantMessage.model).toBe('claude-opus-4-5-20251101');
+      expect(assistantMessage.model).toBe('claude-opus-4-6');
     });
 
     it('message without model has model field as null', () => {

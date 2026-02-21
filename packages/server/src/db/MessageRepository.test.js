@@ -157,9 +157,9 @@ describe('MessageRepository', () => {
 
   describe('create with model', () => {
     it('creates a message with model', () => {
-      const message = repo.create(sessionId, 'assistant', 'Response', null, null, 'claude-opus-4-5-20251101');
+      const message = repo.create(sessionId, 'assistant', 'Response', null, null, 'claude-opus-4-6');
 
-      expect(message.model).toBe('claude-opus-4-5-20251101');
+      expect(message.model).toBe('claude-opus-4-6');
       expect(message.role).toBe('assistant');
     });
 
@@ -178,42 +178,42 @@ describe('MessageRepository', () => {
 
     it('creates a message with all parameters including model', () => {
       const toolUse = [{ name: 'bash', input: { command: 'ls' } }];
-      const message = repo.create(sessionId, 'assistant', 'Running command', toolUse, conversationId, 'claude-sonnet-4-5-20250929');
+      const message = repo.create(sessionId, 'assistant', 'Running command', toolUse, conversationId, 'claude-sonnet-4-6');
 
-      expect(message.model).toBe('claude-sonnet-4-5-20250929');
+      expect(message.model).toBe('claude-sonnet-4-6');
       expect(message.toolUse).toEqual(toolUse);
       expect(message.conversationId).toBe(conversationId);
       expect(message.role).toBe('assistant');
     });
 
     it('preserves model when retrieving message by ID', () => {
-      const created = repo.create(sessionId, 'assistant', 'Response', null, null, 'claude-opus-4-5-20251101');
+      const created = repo.create(sessionId, 'assistant', 'Response', null, null, 'claude-opus-4-6');
       const retrieved = repo.getById(created.id);
 
-      expect(retrieved.model).toBe('claude-opus-4-5-20251101');
+      expect(retrieved.model).toBe('claude-opus-4-6');
       expect(retrieved.content).toBe('Response');
     });
 
     it('includes model in messages retrieved by session', () => {
       repo.create(sessionId, 'user', 'Question', null, null, null);
-      repo.create(sessionId, 'assistant', 'Answer', null, null, 'claude-opus-4-5-20251101');
+      repo.create(sessionId, 'assistant', 'Answer', null, null, 'claude-opus-4-6');
 
       const messages = repo.getBySessionId(sessionId);
 
       expect(messages).toHaveLength(2);
       expect(messages[0].model).toBeNull(); // User messages don't have model
-      expect(messages[1].model).toBe('claude-opus-4-5-20251101');
+      expect(messages[1].model).toBe('claude-opus-4-6');
     });
 
     it('includes model in messages retrieved by conversation', () => {
       repo.create(sessionId, 'user', 'Question', null, conversationId, null);
-      repo.create(sessionId, 'assistant', 'Answer 1', null, conversationId, 'claude-opus-4-5-20251101');
+      repo.create(sessionId, 'assistant', 'Answer 1', null, conversationId, 'claude-opus-4-6');
       repo.create(sessionId, 'assistant', 'Answer 2', null, conversationId, 'claude-haiku-4-5-20251001');
 
       const messages = repo.getByConversationId(conversationId);
 
       expect(messages).toHaveLength(3);
-      expect(messages[1].model).toBe('claude-opus-4-5-20251101');
+      expect(messages[1].model).toBe('claude-opus-4-6');
       expect(messages[2].model).toBe('claude-haiku-4-5-20251001');
     });
 
@@ -222,7 +222,7 @@ describe('MessageRepository', () => {
       const targetConv = convRepo.create(sessionId, 'Target Conversation');
 
       repo.create(sessionId, 'user', 'Question', null, sourceConv.id, null);
-      repo.create(sessionId, 'assistant', 'Answer', null, sourceConv.id, 'claude-opus-4-5-20251101');
+      repo.create(sessionId, 'assistant', 'Answer', null, sourceConv.id, 'claude-opus-4-6');
 
       const mapping = new Map([[sourceConv.id, targetConv.id]]);
       repo.duplicateForConversations(mapping, sessionId);
@@ -230,7 +230,7 @@ describe('MessageRepository', () => {
       const targetMessages = repo.getByConversationId(targetConv.id);
 
       expect(targetMessages).toHaveLength(2);
-      expect(targetMessages[1].model).toBe('claude-opus-4-5-20251101');
+      expect(targetMessages[1].model).toBe('claude-opus-4-6');
     });
   });
 
