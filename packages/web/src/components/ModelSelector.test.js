@@ -41,7 +41,7 @@ describe('ModelSelector', () => {
     ];
 
     // Mock the fetch method to prevent API calls
-    vi.spyOn(providersStore, 'fetchProvidersWithModels').mockResolvedValue();
+    vi.spyOn(providersStore, 'fetchProviders').mockResolvedValue();
   });
 
   const mountComponent = (props = {}, attrs = {}) => {

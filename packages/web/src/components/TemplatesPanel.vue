@@ -210,7 +210,7 @@ const availableNextTemplates = computed(() => {
 onMounted(async () => {
   // Ensure providers with models are loaded
   if (providersStore.providers.length === 0) {
-    await providersStore.fetchProvidersWithModels();
+    await providersStore.fetchProviders();
   }
   templatesStore.fetchProjectTemplates(props.projectId);
 });

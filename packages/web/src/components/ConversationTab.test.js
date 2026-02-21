@@ -41,7 +41,6 @@ vi.mock('../stores/providers.js', () => ({
   useProvidersStore: vi.fn(() => ({
     providers: [],
     fetchProviders: vi.fn().mockResolvedValue(undefined),
-    fetchProvidersWithModels: vi.fn().mockResolvedValue(undefined),
   })),
 }));
 
@@ -1321,7 +1320,6 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
         },
       ],
       fetchProviders: vi.fn().mockResolvedValue(undefined),
-      fetchProvidersWithModels: vi.fn().mockResolvedValue(undefined),
     };
 
     vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
