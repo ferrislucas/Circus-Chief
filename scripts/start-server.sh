@@ -29,6 +29,9 @@ PORT_FILE=".server-port"
 MAIN_PORT=5000
 WORKTREE_PORT_START=5001
 
+# Clean up stale port file from previous runs
+rm -f "$PORT_FILE"
+
 # -----------------------------------------------------------------------------
 # Detect if we're in a git worktree
 #
