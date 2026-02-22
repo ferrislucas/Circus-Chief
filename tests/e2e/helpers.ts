@@ -319,7 +319,7 @@ export async function seedSession(
 
 export async function seedCanvasItem(
   sessionId: string,
-  data: { type: string; content?: string; data?: string; mimeType?: string; label?: string; filePath?: string }
+  data: { type: string; content?: string; data?: string; mimeType?: string; label?: string; filePath?: string; filename?: string }
 ) {
   const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas`, {
     method: 'POST',
@@ -942,6 +942,147 @@ export async function seedChildSession(
  */
 export async function getChildSessions(parentSessionId: string) {
   const response = await fetch(`${API_URL}/api/sessions/${parentSessionId}/children`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+// ============================================================
+// Session Action Helpers (Star, Archive, Duplicate, Delete, etc.)
+// ============================================================
+
+/**
+ * Toggle session star status
+ */
+export async function toggleSessionStar(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/star`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to toggle session star');
+  return response.json();
+}
+
+/**
+ * Archive a session
+ */
+export async function archiveSession(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/archive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to archive session');
+  return response.json();
+}
+
+/**
+ * Unarchive a session
+ */
+export async function unarchiveSession(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/unarchive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to unarchive session');
+  return response.json();
+}
+
+/**
+ * Duplicate a session
+ */
+export async function duplicateSession(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/duplicate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to duplicate session');
+  return response.json();
+}
+
+/**
+ * Delete a session
+ */
+export async function deleteSession(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to delete session');
+  // DELETE returns 204 No Content
+  if (response.status === 204) return null;
+  return response.json();
+}
+
+/**
+ * Track an externally created session for cleanup
+ * (e.g., sessions created via UI or duplication that need to be cleaned up)
+ */
+export function trackSession(sessionId: string) {
+  createdResources.sessions.add(sessionId);
+}
+
+/**
+ * Stop a session
+ */
+export async function stopSession(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/stop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to stop session');
+  return response.json();
+}
+
+/**
+ * Restart a session
+ */
+export async function restartSession(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/restart`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to restart session');
+  return response.json();
+}
+
+/**
+ * Get all active sessions (across all projects)
+ */
+export async function getActiveSessions() {
+  const response = await fetch(`${API_URL}/api/sessions`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+/**
+ * Get archived sessions for a project
+ */
+export async function getArchivedSessions(projectId: string) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions?archived=true`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+// ============================================================
+// Session Note Helpers
+// ============================================================
+
+/**
+ * Create a session note
+ */
+export async function seedSessionNote(sessionId: string, data: { content: string }) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to seed session note');
+  return response.json();
+}
+
+/**
+ * Get notes for a session
+ */
+export async function getSessionNotes(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/notes`);
   if (!response.ok) return [];
   return response.json();
 }
