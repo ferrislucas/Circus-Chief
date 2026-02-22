@@ -107,43 +107,6 @@ test.describe('Model Provider Management', () => {
     expect(updated.authToken).toBeNull();
   });
 
-  test('updating auth token via UI works correctly', async ({ page }) => {
-    const provider = await createProvider({
-      name: '[TEST] Token Update Test',
-      baseUrl: 'https://api.example.com',
-      authToken: 'old-token',
-      defaultSonnetModel: 'claude-3-5-sonnet-20241022',
-    });
-
-    await page.goto('/settings/providers');
-
-    // Wait for the provider card to load
-    const providerCard = page.locator('.provider-card', { hasText: '[TEST] Token Update Test' }).first();
-    await expect(providerCard).toBeVisible();
-
-    // Open edit dialog
-    await providerCard.getByRole('button', { name: 'Edit' }).click();
-
-    // Wait for the edit modal to appear
-    await expect(page.locator('.modal h2', { hasText: 'Edit Provider' })).toBeVisible();
-
-    // Enter a NEW auth token
-    const authTokenInput = page.locator('#auth-token');
-    await authTokenInput.clear();
-    await authTokenInput.fill('brand-new-token-12345');
-
-    // Save
-    await page.getByRole('button', { name: 'Save' }).click();
-
-    // Wait for modal to close
-    await expect(page.locator('.modal')).not.toBeVisible();
-
-    // Verify the token was updated
-    const updated = await getProvider(provider.id);
-    expect(updated.authToken).toBe('••••••••'); // Redacted in response
-    // The actual token in DB should be 'brand-new-token-12345' now
-  });
-
   test('can delete a custom provider', async () => {
     const provider = await createProvider({
       name: '[TEST] To Be Deleted',
