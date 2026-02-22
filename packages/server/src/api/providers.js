@@ -190,6 +190,35 @@ router.post('/:id/models', (req, res) => {
   }
 });
 
+// PATCH /api/providers/:id/models/:modelId - Update model
+router.patch('/:id/models/:modelId', (req, res) => {
+  try {
+    const provider = modelProviders.getById(req.params.id);
+    if (!provider) {
+      return res.status(404).json({ error: 'Provider not found' });
+    }
+
+    const model = modelProviders.getModelById(req.params.modelId);
+    if (!model) {
+      return res.status(404).json({ error: 'Model not found' });
+    }
+
+    if (model.providerId !== req.params.id) {
+      return res.status(400).json({ error: 'Model does not belong to this provider' });
+    }
+
+    const result = CreateProviderModelRequest.partial().safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({ error: result.error.issues[0].message });
+    }
+
+    const updated = modelProviders.updateModel(req.params.modelId, result.data);
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // DELETE /api/providers/:id/models/:modelId - Remove model
 router.delete('/:providerId/models/:modelId', (req, res) => {
   try {

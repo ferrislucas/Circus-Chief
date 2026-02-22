@@ -414,6 +414,7 @@ async function save() {
 /**
  * Reconcile local model list with the server state.
  * - Delete server models that were removed locally
+ * - Update existing models whose fields changed
  * - Add new local models that don't yet have a server ID
  */
 async function reconcileModels(providerId) {
@@ -421,22 +422,41 @@ async function reconcileModels(providerId) {
     localModels.value.filter((m) => m._serverId).map((m) => m._serverId)
   );
 
-  // Delete models that existed on the server but were removed locally
+  // Get original models for comparison
   const originalModels = props.provider?.models || [];
+  const originalModelMap = new Map(originalModels.map((m) => [m.id, m]));
+
+  // Delete models that existed on the server but were removed locally
   for (const serverModel of originalModels) {
     if (!serverModelIds.has(serverModel.id)) {
       await providersStore.removeModel(providerId, serverModel.id);
     }
   }
 
-  // Add new models (those without a _serverId)
+  // Update or add models
   for (const model of localModels.value) {
     if (!model._serverId && model.modelId.trim()) {
+      // Add new model
       await providersStore.addModel(providerId, {
         modelId: model.modelId.trim(),
         displayName: model.displayName.trim() || model.modelId.trim(),
         tier: model.tier || 'custom',
       });
+    } else if (model._serverId && originalModelMap.has(model._serverId)) {
+      // Check if existing model was modified
+      const original = originalModelMap.get(model._serverId);
+      const changed =
+        model.modelId.trim() !== original.modelId ||
+        model.displayName.trim() !== original.displayName ||
+        model.tier !== original.tier;
+
+      if (changed) {
+        await providersStore.updateModel(providerId, model._serverId, {
+          modelId: model.modelId.trim(),
+          displayName: model.displayName.trim() || model.modelId.trim(),
+          tier: model.tier || 'custom',
+        });
+      }
     }
   }
 

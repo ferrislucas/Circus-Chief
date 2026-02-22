@@ -11,27 +11,22 @@ const PARTS_COUNT = 3;
 
 /**
  * Get or generate the encryption key.
- * Priority: CLAUDETOOLS_ENCRYPTION_KEY env var > ~/.claudetools/secret.key file (auto-generated on first run)
+ * Uses ~/.claudetools/secret.key file (auto-generated on first run)
  * @returns {Buffer} - 32-byte encryption key
  */
 function getEncryptionKey() {
-  if (process.env.CLAUDETOOLS_ENCRYPTION_KEY) {
-    const envKey = process.env.CLAUDETOOLS_ENCRYPTION_KEY;
-    // If it's a valid 64-char hex string (32 bytes), use it directly
-    if (/^[0-9a-fA-F]{64}$/.test(envKey)) {
-      return Buffer.from(envKey, 'hex');
-    }
-    // Otherwise derive a key from the string via SHA-256
-    return crypto.createHash('sha256').update(envKey).digest();
-  }
-
   // Auto-generate and persist to ~/.claudetools/secret.key
   const keyDir = join(homedir(), '.claudetools');
   const keyPath = join(keyDir, 'secret.key');
 
   if (existsSync(keyPath)) {
     const keyHex = readFileSync(keyPath, 'utf-8').trim();
-    return Buffer.from(keyHex, 'hex');
+    // Validate the key is a 64-char hex string (32 bytes)
+    if (/^[0-9a-fA-F]{64}$/.test(keyHex)) {
+      return Buffer.from(keyHex, 'hex');
+    }
+    // Key is invalid, log warning and regenerate
+    console.warn(`[encryption] Invalid key file at ${keyPath}, regenerating...`);
   }
 
   // Generate a new key
@@ -88,6 +83,17 @@ export function decrypt(ciphertext) {
   const parts = ciphertext.split(SEPARATOR);
   if (parts.length !== PARTS_COUNT) return ciphertext;
 
+  // Validate hex format and expected lengths
+  // IV should be 24 hex chars (12 bytes), auth tag should be 32 hex chars (16 bytes)
+  const ivHex = parts[0];
+  const authTagHex = parts[1];
+  const expectedIvLength = IV_LENGTH * 2; // 12 bytes * 2 for hex = 24 chars
+  const expectedAuthTagLength = 16 * 2; // 16 bytes * 2 for hex = 32 chars
+
+  if (!/^[0-9a-fA-F]{24}$/.test(ivHex) || !/^[0-9a-fA-F]{32}$/.test(authTagHex)) {
+    return ciphertext; // Legacy plaintext
+  }
+
   try {
     const key = getKey();
     const iv = Buffer.from(parts[0], 'hex');
@@ -102,4 +108,13 @@ export function decrypt(ciphertext) {
     // Decryption failed — value is likely legacy plaintext, return as-is
     return ciphertext;
   }
+}
+
+/**
+ * Reset the cached encryption key.
+ * Only intended for test isolation.
+ * @internal
+ */
+export function _resetKeyForTesting() {
+  _key = null;
 }

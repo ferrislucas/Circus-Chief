@@ -26,6 +26,17 @@ export const ProviderResponse = z.object({
   isBuiltIn: z.boolean(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  models: z.array(
+    z.object({
+      id: z.string().uuid(),
+      providerId: z.string().uuid(),
+      modelId: z.string(),
+      displayName: z.string(),
+      description: z.string().nullable(),
+      tier: z.enum(['opus', 'sonnet', 'haiku', 'custom']),
+      createdAt: z.number(),
+    })
+  ),
 });
 
 export const ProviderListResponse = z.array(ProviderResponse);
