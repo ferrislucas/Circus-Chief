@@ -599,11 +599,11 @@ async function handleDuplicate() {
   }
 
   try {
-    // Get the current session ID to duplicate
-    const newSessionId = await sessionsStore.duplicateSession(currentSessionId.value);
+    // duplicateSession() returns the new session object (not just the ID)
+    const newSession = await sessionsStore.duplicateSession(currentSessionId.value);
     uiStore.success('Session duplicated');
-    // Optionally navigate to the new session
-    router.push(`/sessions/${newSessionId}/conversation`);
+    // Navigate to the new session using its ID
+    router.push(`/sessions/${newSession.id}/conversation`);
   } catch (err) {
     uiStore.error(err.message);
   }
