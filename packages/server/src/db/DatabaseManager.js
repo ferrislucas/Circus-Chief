@@ -3,6 +3,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import crypto from 'crypto';
+import { encrypt } from '../services/encryption.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -538,6 +539,16 @@ export class DatabaseManager {
         // Safe rename: providers doesn't exist yet.
         // SQLite ALTER TABLE RENAME also updates FK references in child tables automatically
         this.#db.exec('ALTER TABLE model_providers RENAME TO providers');
+
+        // Encrypt any plaintext auth_token values after rename
+        // The NOT LIKE '%:%' heuristic matches the decrypt logic (encrypted values contain colons)
+        const unencrypted = this.#db.prepare(
+          "SELECT id, auth_token FROM providers WHERE auth_token IS NOT NULL AND auth_token NOT LIKE '%:%'"
+        ).all();
+        for (const row of unencrypted) {
+          this.#db.prepare('UPDATE providers SET auth_token = ? WHERE id = ?')
+            .run(encrypt(row.auth_token), row.id);
+        }
       } else {
         // Both tables exist (CREATE TABLE IF NOT EXISTS already created providers with the new
         // schema). We need to:
@@ -576,6 +587,16 @@ export class DatabaseManager {
           SELECT id, name, base_url, auth_token, api_timeout_ms, additional_env_vars, is_built_in, created_at, updated_at
           FROM model_providers
         `);
+
+        // Encrypt any plaintext auth_token values during migration
+        // The NOT LIKE '%:%' heuristic matches the decrypt logic (encrypted values contain colons)
+        const unencrypted = this.#db.prepare(
+          "SELECT id, auth_token FROM providers WHERE auth_token IS NOT NULL AND auth_token NOT LIKE '%:%'"
+        ).all();
+        for (const row of unencrypted) {
+          this.#db.prepare('UPDATE providers SET auth_token = ? WHERE id = ?')
+            .run(encrypt(row.auth_token), row.id);
+        }
 
         // Drop model_providers and fix the provider_models FK reference.
         // The existing provider_models table may reference model_providers(id) (old schema), so

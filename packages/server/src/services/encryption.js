@@ -104,6 +104,7 @@ export function decrypt(ciphertext) {
     return decipher.update(encrypted) + decipher.final('utf-8');
   } catch {
     // Decryption failed — value is likely legacy plaintext, return as-is
+    console.warn('[encryption] Failed to decrypt value — returning as-is (possible key mismatch or legacy plaintext)');
     return ciphertext;
   }
 }
