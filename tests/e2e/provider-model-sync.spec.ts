@@ -2,42 +2,44 @@ import { test, expect } from '@playwright/test';
 import {
   cleanupCreatedResources,
   createProvider,
-  updateProvider,
+  addProviderModel,
+  removeProviderModel,
   seedProject,
   seedSession,
 } from './helpers';
 
 /**
- * E2E test for provider model ID sync in the Model Selector
+ * E2E test for provider model ID sync in the Model Selector.
  *
- * Bug: When you update a third-party provider's model ID (e.g. defaultSonnetModel),
- * the database updates correctly but the Model Selector still shows old model IDs.
- *
- * Root cause: There are two ways to fetch providers (with and without models).
- * When the wrong fetch wins, models disappear from the store, causing stale data
- * in the model selector.
- *
- * This test should FAIL before the fix and PASS after.
+ * Verifies that after changing a provider's model list (remove old, add new),
+ * the Model Selector correctly reflects the updated model IDs.
  */
 test.describe('Provider Model Sync in Model Selector', () => {
   test.describe.configure({ timeout: 60000 });
 
   let provider: any;
+  let sonnetModel: any;
   let project: any;
   let session: any;
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
 
-    // 1. Create a third-party provider with a known defaultSonnetModel
+    // 1. Create a third-party provider (no model fields at creation time)
     provider = await createProvider({
       name: '[TEST] Sync Test Provider',
       baseUrl: 'https://api.example.com',
       authToken: 'test-token-sync',
-      defaultSonnetModel: 'test-model-v1',
     });
 
-    // 2. Create a project and a draft session
+    // 2. Add an initial sonnet-tiered model
+    sonnetModel = await addProviderModel(provider.id, {
+      modelId: 'test-model-v1',
+      displayName: 'Test Sonnet v1',
+      tier: 'sonnet',
+    });
+
+    // 3. Create a project and a draft session
     project = await seedProject('Model Sync Test', '/tmp/model-sync-test');
     session = await seedSession(project.id, {
       prompt: 'Test prompt for model sync',
@@ -50,11 +52,11 @@ test.describe('Provider Model Sync in Model Selector', () => {
   });
 
   test('model selector reflects updated provider model IDs after edit', async ({ page }) => {
-    // 3. Navigate to the session conversation tab
+    // 4. Navigate to the session conversation tab
     await page.goto(`/sessions/${session.id}/conversation`);
     await page.waitForLoadState('networkidle');
 
-    // 4. Wait for the model selector to load with providers
+    // 5. Wait for the model selector to load with providers
     const modelSelect = page.locator('#model-select');
     await expect(modelSelect).toBeVisible({ timeout: 10000 });
 
@@ -70,22 +72,25 @@ test.describe('Provider Model Sync in Model Selector', () => {
     const v1Options = modelSelect.locator('option[value="test-model-v1"]');
     expect(await v1Options.count()).toBeGreaterThanOrEqual(1);
 
-    // 5. Update the provider's defaultSonnetModel via API (reliable, avoids UI flakiness)
-    const updated = await updateProvider(provider.id, {
-      defaultSonnetModel: 'test-model-v2',
+    // 6. Update the provider's model via API: remove old, add new
+    await removeProviderModel(provider.id, sonnetModel.id);
+    const newModel = await addProviderModel(provider.id, {
+      modelId: 'test-model-v2',
+      displayName: 'Test Sonnet v2',
+      tier: 'sonnet',
     });
-    console.log('Provider updated - defaultSonnetModel:', updated.defaultSonnetModel);
+    console.log('Provider models updated - new model:', newModel.modelId);
 
-    // 6. Navigate to the providers settings page and back to force a fresh store refetch
+    // 7. Navigate to the providers settings page and back to force a fresh store refetch
     //    (simulates the user flow: edit provider on settings page, then go back to session)
     await page.goto('/settings/providers');
     await page.waitForLoadState('networkidle');
 
-    // 7. Navigate back to the session conversation tab
+    // 8. Navigate back to the session conversation tab
     await page.goto(`/sessions/${session.id}/conversation`);
     await page.waitForLoadState('networkidle');
 
-    // 8. Assert the model selector now contains test-model-v2 and NOT test-model-v1
+    // 9. Assert the model selector now contains test-model-v2 and NOT test-model-v1
     const modelSelectAfter = page.locator('#model-select');
     await expect(modelSelectAfter).toBeVisible({ timeout: 10000 });
 

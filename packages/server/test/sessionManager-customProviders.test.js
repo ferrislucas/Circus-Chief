@@ -37,10 +37,10 @@ describe('sessionManager custom provider integration', () => {
       name: 'Custom Provider',
       baseUrl: 'https://api.custom-provider.com',
       authToken: 'custom-auth-token',
-      defaultOpusModel: 'custom-opus-v2',
-      defaultSonnetModel: 'custom-sonnet-v1',
-      defaultHaikuModel: 'custom-haiku-lite',
     });
+    modelProviders.addModel(customProvider.id, { modelId: 'custom-opus-v2', displayName: 'Opus', tier: 'opus' });
+    modelProviders.addModel(customProvider.id, { modelId: 'custom-sonnet-v1', displayName: 'Sonnet', tier: 'sonnet' });
+    modelProviders.addModel(customProvider.id, { modelId: 'custom-haiku-lite', displayName: 'Haiku', tier: 'haiku' });
   });
 
   afterEach(() => {
@@ -82,7 +82,7 @@ describe('sessionManager custom provider integration', () => {
 
   describe('runSession with custom provider model', () => {
     it('uses custom provider when model is registered to that provider', async () => {
-      // custom-sonnet-v1 is registered to customProvider via defaultSonnetModel
+      // custom-sonnet-v1 is registered to customProvider via addModel
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponse('custom-sonnet-v1'));
 
@@ -276,12 +276,12 @@ describe('sessionManager custom provider integration', () => {
         name: 'Provider with Extras',
         baseUrl: 'https://api.extras.com',
         authToken: 'extras-token',
-        defaultSonnetModel: 'extras-sonnet',
         additionalEnvVars: {
           CUSTOM_VAR_1: 'value1',
           CUSTOM_VAR_2: 'value2',
         },
       });
+      modelProviders.addModel(providerWithExtras.id, { modelId: 'extras-sonnet', displayName: 'Extras Sonnet', tier: 'sonnet' });
 
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponse('extras-sonnet'));
@@ -306,8 +306,8 @@ describe('sessionManager custom provider integration', () => {
         name: 'Second Provider',
         baseUrl: 'https://api.second-provider.com',
         authToken: 'second-auth-token',
-        defaultSonnetModel: 'second-sonnet-model',
       });
+      modelProviders.addModel(secondProvider.id, { modelId: 'second-sonnet-model', displayName: 'Second Sonnet', tier: 'sonnet' });
 
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
 
