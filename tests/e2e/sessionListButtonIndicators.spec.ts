@@ -31,7 +31,9 @@ test.describe('Session List Command Button Indicators', () => {
   test.beforeEach(async () => {
     await cleanupAll();
     project = await seedProject('Button Indicators Test', '/tmp');
-    session = await seedSession(project.id, { prompt: 'Test prompt', name: 'Test Session' });
+    // Use startImmediately: false to prevent the session manager from racing with our tests
+    // (runSession tries to start Claude Code, which fails in test env and changes status unpredictably)
+    session = await seedSession(project.id, { prompt: 'Test prompt', name: 'Test Session', startImmediately: false });
     // Wait for session to be available
     await waitForSessionToExist(session.id);
 
@@ -52,6 +54,12 @@ test.describe('Session List Command Button Indicators', () => {
    * Test: Running state shows during command execution
    */
   test('should show running indicator while command executes', async ({ page }) => {
+    // Clear any persisted filter state that could hide sessions
+    await page.addInitScript(() => {
+      localStorage.removeItem('sessionStatusFilter');
+      sessionStorage.removeItem('sessionStarredFilter');
+    });
+
     // Create a longer-running command for this test
     const longButton = await seedCommandButton(project.id, {
       label: 'Long Command',
@@ -63,7 +71,7 @@ test.describe('Session List Command Button Indicators', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Verify the session card is visible
-    await expect(page.getByText('Test Session')).toBeVisible();
+    await expect(page.getByText('Test Session')).toBeVisible({ timeout: 10000 });
 
     // Run the command (don't wait for completion)
     console.log('Running long command via API...');
@@ -89,6 +97,12 @@ test.describe('Session List Command Button Indicators', () => {
    * Test: Error state shows when command fails
    */
   test('should show error indicator when command fails', async ({ page }) => {
+    // Clear any persisted filter state that could hide sessions
+    await page.addInitScript(() => {
+      localStorage.removeItem('sessionStatusFilter');
+      sessionStorage.removeItem('sessionStarredFilter');
+    });
+
     // Create a failing command
     const failButton = await seedCommandButton(project.id, {
       label: 'Fail Command',
@@ -100,7 +114,7 @@ test.describe('Session List Command Button Indicators', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Verify the session card is visible
-    await expect(page.getByText('Test Session')).toBeVisible();
+    await expect(page.getByText('Test Session')).toBeVisible({ timeout: 10000 });
 
     // Run the command
     const { runId } = await runCommandButton(session.id, failButton.id);
@@ -120,6 +134,12 @@ test.describe('Session List Command Button Indicators', () => {
    * Test: Clicking indicator opens modal with details
    */
   test('should open modal when clicking status indicator', async ({ page }) => {
+    // Clear any persisted filter state that could hide sessions
+    await page.addInitScript(() => {
+      localStorage.removeItem('sessionStatusFilter');
+      sessionStorage.removeItem('sessionStarredFilter');
+    });
+
     // Navigate to the session LIST view
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 

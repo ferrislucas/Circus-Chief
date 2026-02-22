@@ -351,13 +351,17 @@ test.describe('Active Sessions View', () => {
       sessionStorage.removeItem('sessionStarredFilter');
     });
 
+    // Use unique names to avoid strict mode violations from parallel test workers
+    const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
     const runningSession = await seedSession(project1.id, {
       prompt: 'Running',
-      name: 'Running Session',
+      name: `Running Session ${uniqueId}`,
+      startImmediately: false,
     });
     const waitingSession = await seedSession(project1.id, {
       prompt: 'Waiting',
-      name: 'Waiting Session',
+      name: `Waiting Session ${uniqueId}`,
+      startImmediately: false,
     });
 
     // Set statuses explicitly
@@ -386,13 +390,17 @@ test.describe('Active Sessions View', () => {
       sessionStorage.removeItem('sessionStarredFilter');
     });
 
+    // Use unique names to avoid strict mode violations from parallel test workers
+    const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
     const runningSession = await seedSession(project1.id, {
       prompt: 'Running',
-      name: 'Running Session',
+      name: `Running Session ${uniqueId}`,
+      startImmediately: false,
     });
     const waitingSession = await seedSession(project1.id, {
       prompt: 'Waiting',
-      name: 'Waiting Session',
+      name: `Waiting Session ${uniqueId}`,
+      startImmediately: false,
     });
 
     // Set statuses explicitly
@@ -408,7 +416,7 @@ test.describe('Active Sessions View', () => {
     // Click "idle" filter (matches waiting/stopped/error sessions)
     await page.locator('.filter-btn').filter({ hasText: 'idle' }).click();
 
-    // Use exact session names (include TEST_PREFIX) to avoid false matches from parallel tests
+    // Use exact session names (include unique suffix) to avoid false matches from parallel tests
     await expect(page.locator('.session-name').filter({ hasText: runningSession.name })).not.toBeVisible({ timeout: 8000 });
     await expect(page.locator('.session-name').filter({ hasText: waitingSession.name })).toBeVisible({ timeout: 8000 });
   });
@@ -502,6 +510,7 @@ test.describe('Session Status Badges', () => {
     const session = await seedSession(project.id, {
       prompt: 'Stopped session',
       name: 'Stopped Session',
+      startImmediately: false,
     });
 
     // Set status to stopped (a valid terminal status)
@@ -523,9 +532,12 @@ test.describe('Session Status Badges', () => {
       sessionStorage.removeItem('sessionStarredFilter');
     });
 
+    // Use startImmediately: false to prevent the session manager from racing
+    // with our explicit status change (runSession runs async and could overwrite status)
     const session = await seedSession(project.id, {
       prompt: 'Error session',
       name: 'Error Session',
+      startImmediately: false,
     });
 
     // Set status to error
@@ -539,6 +551,6 @@ test.describe('Session Status Badges', () => {
     // Verify the error badge is visible — SessionCard renders this when errorCount > 0
     // Badge text: "⚠ 1 error"
     const statusBadge = page.locator('.status-badge.status-error').filter({ hasText: /error/i });
-    await expect(statusBadge).toBeVisible();
+    await expect(statusBadge).toBeVisible({ timeout: 5000 });
   });
 });
