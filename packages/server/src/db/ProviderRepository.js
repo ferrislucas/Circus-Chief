@@ -216,6 +216,45 @@ export class ProviderRepository extends BaseRepository {
   }
 
   /**
+   * Update an existing model
+   * @param {string} id - Model row ID
+   * @param {Object} data
+   * @param {string} [data.modelId]
+   * @param {string} [data.displayName]
+   * @param {string|null} [data.description]
+   * @param {string} [data.tier]
+   * @returns {Object} Updated model
+   */
+  updateModel(id, data) {
+    const updates = [];
+    const values = [];
+
+    if (data.modelId !== undefined) {
+      updates.push('model_id = ?');
+      values.push(data.modelId);
+    }
+    if (data.displayName !== undefined) {
+      updates.push('display_name = ?');
+      values.push(data.displayName);
+    }
+    if (data.description !== undefined) {
+      updates.push('description = ?');
+      values.push(data.description);
+    }
+    if (data.tier !== undefined) {
+      updates.push('tier = ?');
+      values.push(data.tier);
+    }
+
+    if (updates.length > 0) {
+      values.push(id);
+      this.db.prepare(`UPDATE provider_models SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    }
+
+    return this.getModelById(id);
+  }
+
+  /**
    * Remove a model from a provider
    * @param {string} modelId - Model row ID (not the model string like "claude-opus-4-6")
    */
