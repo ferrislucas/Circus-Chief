@@ -840,7 +840,8 @@ describe('shouldRescheduleOnError', () => {
 
     // Create a session with reschedule options enabled
     session = sessionRepo.create(project.id, 'Test Session', 'Test prompt', 'standard');
-    sessionRepo.update(session.id, {
+    session = sessionRepo.update(session.id, {
+      autoRescheduleEnabled: true,
       rescheduleOnTokenLimit: true,
       rescheduleOnServiceError: true,
       rescheduleDelayMinutes: 15,

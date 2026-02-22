@@ -85,6 +85,7 @@ describe('sessionManager - Reactive Rescheduling (Error Handling)', () => {
   describe('token limit error rescheduling', () => {
     it('reschedules when rescheduleOnTokenLimit is true and token error occurs', async () => {
       setupSessionForReschedule(session.id, {
+        autoRescheduleEnabled: true,
         rescheduleOnTokenLimit: true,
       });
 
@@ -104,6 +105,7 @@ describe('sessionManager - Reactive Rescheduling (Error Handling)', () => {
 
     it('does not reschedule when rescheduleOnTokenLimit is false', async () => {
       setupSessionForReschedule(session.id, {
+        autoRescheduleEnabled: true,
         rescheduleOnTokenLimit: false,
       });
 
@@ -119,6 +121,7 @@ describe('sessionManager - Reactive Rescheduling (Error Handling)', () => {
 
     it('detects various token limit error patterns', async () => {
       setupSessionForReschedule(session.id, {
+        autoRescheduleEnabled: true,
         rescheduleOnTokenLimit: true,
       });
 
@@ -144,6 +147,7 @@ describe('sessionManager - Reactive Rescheduling (Error Handling)', () => {
   describe('service error rescheduling', () => {
     it('reschedules when rescheduleOnServiceError is true and service error occurs', async () => {
       setupSessionForReschedule(session.id, {
+        autoRescheduleEnabled: true,
         rescheduleOnServiceError: true,
       });
 
@@ -159,6 +163,7 @@ describe('sessionManager - Reactive Rescheduling (Error Handling)', () => {
 
     it('does not reschedule when rescheduleOnServiceError is false', async () => {
       setupSessionForReschedule(session.id, {
+        autoRescheduleEnabled: true,
         rescheduleOnServiceError: false,
       });
 
@@ -174,6 +179,7 @@ describe('sessionManager - Reactive Rescheduling (Error Handling)', () => {
 
     it('detects various service error patterns', async () => {
       setupSessionForReschedule(session.id, {
+        autoRescheduleEnabled: true,
         rescheduleOnServiceError: true,
       });
 
@@ -197,8 +203,8 @@ describe('sessionManager - Reactive Rescheduling (Error Handling)', () => {
     });
   });
 
-  describe('autoRescheduleEnabled does not block reactive rescheduling', () => {
-    it('reschedules on token limit even when autoRescheduleEnabled is false', async () => {
+  describe('autoRescheduleEnabled acts as master switch', () => {
+    it('does NOT reschedule when autoRescheduleEnabled is false, even if specific triggers are true', async () => {
       setupSessionForReschedule(session.id, {
         autoRescheduleEnabled: false,
         rescheduleOnTokenLimit: true,
@@ -211,11 +217,11 @@ describe('sessionManager - Reactive Rescheduling (Error Handling)', () => {
       const sessionData = sessions.getById(session.id);
       const shouldReschedule = shouldRescheduleOnError(sessionData, error);
 
-      // After fix: autoRescheduleEnabled should NOT block specific triggers
-      expect(shouldReschedule).toBe(true);
+      // autoRescheduleEnabled is the master switch - when false, no rescheduling happens
+      expect(shouldReschedule).toBe(false);
     });
 
-    it('reschedules on service error even when autoRescheduleEnabled is false', async () => {
+    it('does NOT reschedule on service error when autoRescheduleEnabled is false', async () => {
       setupSessionForReschedule(session.id, {
         autoRescheduleEnabled: false,
         rescheduleOnServiceError: true,
@@ -228,7 +234,24 @@ describe('sessionManager - Reactive Rescheduling (Error Handling)', () => {
       const sessionData = sessions.getById(session.id);
       const shouldReschedule = shouldRescheduleOnError(sessionData, error);
 
-      // After fix: autoRescheduleEnabled should NOT block specific triggers
+      // autoRescheduleEnabled is the master switch - when false, no rescheduling happens
+      expect(shouldReschedule).toBe(false);
+    });
+
+    it('reschedules when autoRescheduleEnabled is true and specific trigger matches', async () => {
+      setupSessionForReschedule(session.id, {
+        autoRescheduleEnabled: true,
+        rescheduleOnTokenLimit: true,
+      });
+
+      const error = createTokenLimitError();
+
+      const { shouldRescheduleOnError } = await import('./sessionManager.js');
+
+      const sessionData = sessions.getById(session.id);
+      const shouldReschedule = shouldRescheduleOnError(sessionData, error);
+
+      // When master switch is on and trigger matches, rescheduling happens
       expect(shouldReschedule).toBe(true);
     });
   });
@@ -236,6 +259,7 @@ describe('sessionManager - Reactive Rescheduling (Error Handling)', () => {
   describe('non-reschedulable errors', () => {
     it('does not reschedule for regular errors', async () => {
       setupSessionForReschedule(session.id, {
+        autoRescheduleEnabled: true,
         rescheduleOnTokenLimit: true,
         rescheduleOnServiceError: true,
       });
@@ -252,6 +276,7 @@ describe('sessionManager - Reactive Rescheduling (Error Handling)', () => {
 
     it('does not reschedule when both triggers are disabled', async () => {
       setupSessionForReschedule(session.id, {
+        autoRescheduleEnabled: true,
         rescheduleOnTokenLimit: false,
         rescheduleOnServiceError: false,
       });
