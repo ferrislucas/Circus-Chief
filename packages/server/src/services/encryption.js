@@ -87,8 +87,6 @@ export function decrypt(ciphertext) {
   // IV should be 24 hex chars (12 bytes), auth tag should be 32 hex chars (16 bytes)
   const ivHex = parts[0];
   const authTagHex = parts[1];
-  const expectedIvLength = IV_LENGTH * 2; // 12 bytes * 2 for hex = 24 chars
-  const expectedAuthTagLength = 16 * 2; // 16 bytes * 2 for hex = 32 chars
 
   if (!/^[0-9a-fA-F]{24}$/.test(ivHex) || !/^[0-9a-fA-F]{32}$/.test(authTagHex)) {
     return ciphertext; // Legacy plaintext
