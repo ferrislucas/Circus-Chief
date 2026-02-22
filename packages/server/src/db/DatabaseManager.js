@@ -3,6 +3,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import crypto from 'crypto';
+import { encrypt } from '../services/encryption.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -412,16 +413,14 @@ export class DatabaseManager {
       )
     `);
 
-    // Create model_providers and provider_models tables for custom provider support
+    // Create providers and provider_models tables for custom provider support.
+    // New installs get the clean schema here; existing installs go through #migrateProvidersTable().
     this.#db.exec(`
-      CREATE TABLE IF NOT EXISTS model_providers (
+      CREATE TABLE IF NOT EXISTS providers (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         base_url TEXT,
         auth_token TEXT,
-        default_opus_model TEXT,
-        default_sonnet_model TEXT,
-        default_haiku_model TEXT,
         api_timeout_ms INTEGER,
         additional_env_vars TEXT,
         is_built_in INTEGER NOT NULL DEFAULT 0,
@@ -431,7 +430,7 @@ export class DatabaseManager {
 
       CREATE TABLE IF NOT EXISTS provider_models (
         id TEXT PRIMARY KEY,
-        provider_id TEXT NOT NULL REFERENCES model_providers(id) ON DELETE CASCADE,
+        provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
         model_id TEXT NOT NULL,
         display_name TEXT NOT NULL,
         description TEXT,
@@ -441,18 +440,18 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
     `);
 
+    // Migrate existing model_providers table → providers (rename + drop legacy columns)
+    this.#migrateProvidersTable();
+
     // Seed built-in Anthropic provider if it doesn't exist
     this.#seedBuiltInProvider();
-
-    // Sync default models for all existing custom providers (for providers created before auto-sync was added)
-    this.#syncExistingProviderModels();
 
     // Add provider_id column to sessions table
     const sessionsProviderTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
     const sessionsProviderColumns = sessionsProviderTableInfo.map((col) => col.name);
 
     if (!sessionsProviderColumns.includes('provider_id')) {
-      this.#db.exec('ALTER TABLE sessions ADD COLUMN provider_id TEXT REFERENCES model_providers(id)');
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN provider_id TEXT REFERENCES providers(id)');
     }
 
     // Add provider_id column to project_session_defaults table (if it exists)
@@ -465,7 +464,7 @@ export class DatabaseManager {
       const defaultsProviderColumns = defaultsProviderTableInfo.map((col) => col.name);
 
       if (!defaultsProviderColumns.includes('provider_id')) {
-        this.#db.exec('ALTER TABLE project_session_defaults ADD COLUMN provider_id TEXT REFERENCES model_providers(id)');
+        this.#db.exec('ALTER TABLE project_session_defaults ADD COLUMN provider_id TEXT REFERENCES providers(id)');
       }
     }
 
@@ -482,14 +481,14 @@ export class DatabaseManager {
 
     // Check if built-in provider already exists
     const existing = this.#db
-      .prepare('SELECT id FROM model_providers WHERE id = ?')
+      .prepare('SELECT id FROM providers WHERE id = ?')
       .get(providerId);
 
     if (!existing) {
       const now = Date.now();
       this.#db
         .prepare(
-          `INSERT INTO model_providers (id, name, is_built_in, created_at, updated_at)
+          `INSERT INTO providers (id, name, is_built_in, created_at, updated_at)
            VALUES (?, ?, 1, ?, ?)`
         )
         .run(providerId, 'Anthropic (Official)', now, now);
@@ -514,16 +513,141 @@ export class DatabaseManager {
   }
 
   /**
-   * Sync provider_models for all existing custom providers that have default models set
-   * This handles providers created before auto-sync was added
+   * Migrate the old `model_providers` table to the new `providers` table.
+   *
+   * Handles two scenarios:
+   * 1. Old table named `model_providers` exists → rename it to `providers`
+   * 2. `providers` table still has legacy `default_*_model` columns →
+   *    - Seed any missing provider_models rows from those column values (one-time)
+   *    - Recreate the table without the legacy columns
+   *
+   * Safe to call repeatedly: all checks are idempotent.
    * @private
    */
-  #syncExistingProviderModels() {
-    // Get all non-built-in providers that have default models set
-    const providers = this.#db
+  #migrateProvidersTable() {
+    // Step 1: rename model_providers → providers (if the old table still exists)
+    const oldTableExists = this.#db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='model_providers'")
+      .get();
+
+    if (oldTableExists) {
+      const newTableAlreadyExists = this.#db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='providers'")
+        .get();
+
+      if (!newTableAlreadyExists) {
+        // Safe rename: providers doesn't exist yet.
+        // SQLite ALTER TABLE RENAME also updates FK references in child tables automatically
+        this.#db.exec('ALTER TABLE model_providers RENAME TO providers');
+
+        // Encrypt any plaintext auth_token values after rename
+        // The NOT LIKE '%:%' heuristic matches the decrypt logic (encrypted values contain colons)
+        const unencrypted = this.#db.prepare(
+          "SELECT id, auth_token FROM providers WHERE auth_token IS NOT NULL AND auth_token NOT LIKE '%:%'"
+        ).all();
+        for (const row of unencrypted) {
+          this.#db.prepare('UPDATE providers SET auth_token = ? WHERE id = ?')
+            .run(encrypt(row.auth_token), row.id);
+        }
+      } else {
+        // Both tables exist (CREATE TABLE IF NOT EXISTS already created providers with the new
+        // schema). We need to:
+        //   1. Seed provider_models from the legacy default_*_model columns (data preservation)
+        //   2. Copy base provider data into the fresh providers table
+        //   3. Drop model_providers
+        const legacyProviders = this.#db
+          .prepare(
+            `SELECT id, default_opus_model, default_sonnet_model, default_haiku_model
+             FROM model_providers
+             WHERE is_built_in = 0
+             AND (default_opus_model IS NOT NULL OR default_sonnet_model IS NOT NULL OR default_haiku_model IS NOT NULL)`
+          )
+          .all();
+
+        const now = Date.now();
+        const insertModel = this.#db.prepare(
+          `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        );
+        for (const provider of legacyProviders) {
+          if (provider.default_opus_model) {
+            insertModel.run(`${provider.id}-opus`, provider.id, provider.default_opus_model, 'Opus', 'Most capable model', 'opus', now);
+          }
+          if (provider.default_sonnet_model) {
+            insertModel.run(`${provider.id}-sonnet`, provider.id, provider.default_sonnet_model, 'Sonnet', 'Balanced model', 'sonnet', now);
+          }
+          if (provider.default_haiku_model) {
+            insertModel.run(`${provider.id}-haiku`, provider.id, provider.default_haiku_model, 'Haiku', 'Fast & lightweight model', 'haiku', now);
+          }
+        }
+
+        // Copy provider rows (base columns only, no legacy columns) into the fresh providers table
+        this.#db.exec(`
+          INSERT OR IGNORE INTO providers (id, name, base_url, auth_token, api_timeout_ms, additional_env_vars, is_built_in, created_at, updated_at)
+          SELECT id, name, base_url, auth_token, api_timeout_ms, additional_env_vars, is_built_in, created_at, updated_at
+          FROM model_providers
+        `);
+
+        // Encrypt any plaintext auth_token values during migration
+        // The NOT LIKE '%:%' heuristic matches the decrypt logic (encrypted values contain colons)
+        const unencrypted = this.#db.prepare(
+          "SELECT id, auth_token FROM providers WHERE auth_token IS NOT NULL AND auth_token NOT LIKE '%:%'"
+        ).all();
+        for (const row of unencrypted) {
+          this.#db.prepare('UPDATE providers SET auth_token = ? WHERE id = ?')
+            .run(encrypt(row.auth_token), row.id);
+        }
+
+        // Drop model_providers and fix the provider_models FK reference.
+        // The existing provider_models table may reference model_providers(id) (old schema), so
+        // we recreate it with REFERENCES providers(id) while FK enforcement is off.
+        this.#db.pragma('foreign_keys = OFF');
+        try {
+          this.#db.exec(`
+            DROP TABLE model_providers;
+
+            CREATE TABLE provider_models_new (
+              id TEXT PRIMARY KEY,
+              provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+              model_id TEXT NOT NULL,
+              display_name TEXT NOT NULL,
+              description TEXT,
+              tier TEXT CHECK(tier IN ('opus', 'sonnet', 'haiku', 'custom')),
+              created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+            );
+
+            INSERT INTO provider_models_new SELECT * FROM provider_models;
+
+            DROP TABLE provider_models;
+
+            ALTER TABLE provider_models_new RENAME TO provider_models;
+
+            CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
+          `);
+        } finally {
+          this.#db.pragma('foreign_keys = ON');
+        }
+
+        // providers already has the correct schema — nothing more to do
+        return;
+      }
+    }
+
+    // Step 2: check if providers table still has the legacy default_*_model columns
+    const providersTableInfo = this.#db.prepare('PRAGMA table_info(providers)').all();
+    const providerColumns = providersTableInfo.map((col) => col.name);
+
+    if (!providerColumns.includes('default_opus_model')) {
+      // Already on the new schema — nothing to do
+      return;
+    }
+
+    // Step 3: Before dropping columns, seed provider_models from old column values (one-time).
+    // This ensures no model data is lost from providers that used the default_*_model columns.
+    const legacyProviders = this.#db
       .prepare(
         `SELECT id, default_opus_model, default_sonnet_model, default_haiku_model
-         FROM model_providers
+         FROM providers
          WHERE is_built_in = 0
          AND (default_opus_model IS NOT NULL OR default_sonnet_model IS NOT NULL OR default_haiku_model IS NOT NULL)`
       )
@@ -535,7 +659,7 @@ export class DatabaseManager {
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     );
 
-    for (const provider of providers) {
+    for (const provider of legacyProviders) {
       if (provider.default_opus_model) {
         insertModel.run(`${provider.id}-opus`, provider.id, provider.default_opus_model, 'Opus', 'Most capable model', 'opus', now);
       }
@@ -545,6 +669,36 @@ export class DatabaseManager {
       if (provider.default_haiku_model) {
         insertModel.run(`${provider.id}-haiku`, provider.id, provider.default_haiku_model, 'Haiku', 'Fast & lightweight model', 'haiku', now);
       }
+    }
+
+    // Step 4: Recreate providers table without the default_*_model columns.
+    // SQLite doesn't support DROP COLUMN on older versions, so we use the table-recreation pattern.
+    // We must disable FK enforcement temporarily because provider_models references providers(id).
+    this.#db.pragma('foreign_keys = OFF');
+    try {
+      this.#db.exec(`
+        CREATE TABLE providers_new (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          base_url TEXT,
+          auth_token TEXT,
+          api_timeout_ms INTEGER,
+          additional_env_vars TEXT,
+          is_built_in INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+        );
+
+        INSERT INTO providers_new (id, name, base_url, auth_token, api_timeout_ms, additional_env_vars, is_built_in, created_at, updated_at)
+        SELECT id, name, base_url, auth_token, api_timeout_ms, additional_env_vars, is_built_in, created_at, updated_at
+        FROM providers;
+
+        DROP TABLE providers;
+
+        ALTER TABLE providers_new RENAME TO providers;
+      `);
+    } finally {
+      this.#db.pragma('foreign_keys = ON');
     }
   }
 

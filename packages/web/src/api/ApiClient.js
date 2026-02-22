@@ -1195,6 +1195,17 @@ export class ApiClient {
   }
 
   /**
+   * Update a model
+   * @param {string} providerId - Provider ID
+   * @param {string} modelId - Model ID (row ID)
+   * @param {Object} data - Updated model data
+   * @returns {Promise<Object>}
+   */
+  async updateProviderModel(providerId, modelId, data) {
+    return this.#request('PATCH', `/providers/${providerId}/models/${modelId}`, data);
+  }
+
+  /**
    * Remove a model from a provider
    * @param {string} providerId - Provider ID
    * @param {string} modelId - Model ID
