@@ -516,8 +516,9 @@ let unsubConvUpdated = null;
 let unsubConvDeleted = null;
 
 function handleScroll() {
-  if (!messagesContainer.value) return;
-  const { scrollTop, scrollHeight, clientHeight } = messagesContainer.value;
+  const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+  const scrollHeight = document.documentElement.scrollHeight;
+  const clientHeight = window.innerHeight || document.documentElement.clientHeight;
   const wasNearBottom = isNearBottom.value;
   isNearBottom.value = scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD;
 
@@ -553,9 +554,7 @@ onMounted(async () => {
   }
 
   // Add scroll event listener
-  if (messagesContainer.value) {
-    messagesContainer.value.addEventListener('scroll', handleScroll);
-  }
+  window.addEventListener('scroll', handleScroll);
 
   // Only fetch conversations if not already loaded for this session
   // This prevents overwriting updated data (e.g., token counts during streaming)
@@ -679,9 +678,7 @@ onUnmounted(() => {
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
   if (inputSyncTimer) clearTimeout(inputSyncTimer);
   if (partialThrottleTimer) clearTimeout(partialThrottleTimer);
-  if (messagesContainer.value) {
-    messagesContainer.value.removeEventListener('scroll', handleScroll);
-  }
+  window.removeEventListener('scroll', handleScroll);
   // Clear work logs when leaving the conversation tab
   // Note: Don't clear conversations here - they should persist when switching tabs
   // within the same session. They will be refreshed when switching sessions.
@@ -715,11 +712,14 @@ function handleInput(event) {
 
 function scrollToBottom(force = false) {
   nextTick(() => {
-    if (messagesContainer.value && (force || isNearBottom.value)) {
-      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+    if (force || isNearBottom.value) {
+      window.scrollTo({
+        top: document.documentElement.scrollHeight,
+        behavior: 'smooth'
+      });
       isNearBottom.value = true;
       hasNewMessages.value = false;
-    } else if (messagesContainer.value) {
+    } else {
       // User has scrolled up, mark that there are new messages
       hasNewMessages.value = true;
     }
@@ -728,8 +728,6 @@ function scrollToBottom(force = false) {
 
 function scrollToClaudesTurn() {
   nextTick(() => {
-    if (!messagesContainer.value) return;
-
     // Find the last assistant message
     const lastAssistantIndex = sessionsStore.messages.findLastIndex(msg => msg.role === 'assistant');
     if (lastAssistantIndex < 0) return;
@@ -738,14 +736,13 @@ function scrollToClaudesTurn() {
     const msgElement = document.querySelector(`[data-message-id="${lastAssistantMsg.id}"]`);
 
     if (msgElement) {
-      // Calculate offset within the container and scroll directly
-      // This avoids scrollIntoView which scrolls parent containers too
-      const containerRect = messagesContainer.value.getBoundingClientRect();
+      // Get element position relative to viewport
       const elementRect = msgElement.getBoundingClientRect();
-      const offsetTop = elementRect.top - containerRect.top + messagesContainer.value.scrollTop;
+      // Scroll to position the element at the top of the viewport with some offset
+      const scrollTop = window.pageYOffset + elementRect.top - 80; // 80px offset for header
 
-      messagesContainer.value.scrollTo({
-        top: offsetTop,
+      window.scrollTo({
+        top: scrollTop,
         behavior: 'smooth'
       });
     }
@@ -1144,13 +1141,8 @@ async function handleBranchCreate({ messageId, prompt }) {
 }
 
 .messages {
-  flex: 1;
-  overflow-y: auto;
-  max-height: 500px;
   padding: 0.25rem 0;
   position: relative;
-  overflow-anchor: none; /* Prevent browser scroll anchoring issues during streaming */
-  scroll-behavior: smooth;
 }
 
 .conversation-controls-row {
@@ -1605,8 +1597,8 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 /* Slack-style new messages button */
 .jump-to-latest {
-  position: sticky;
-  bottom: 0.75rem;
+  position: fixed;
+  bottom: 5rem;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
