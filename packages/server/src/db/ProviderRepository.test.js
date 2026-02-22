@@ -1,17 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ModelProviderRepository } from './ModelProviderRepository.js';
+import { ProviderRepository } from './ProviderRepository.js';
 
-describe('ModelProviderRepository', () => {
+describe('ProviderRepository', () => {
   let repo;
 
   beforeEach(() => {
-    repo = new ModelProviderRepository();
+    repo = new ProviderRepository();
   });
 
   describe('constructor', () => {
     it('creates repository instance', () => {
-      expect(repo).toBeInstanceOf(ModelProviderRepository);
-      expect(repo.tableName).toBe('model_providers');
+      expect(repo).toBeInstanceOf(ProviderRepository);
+      expect(repo.tableName).toBe('providers');
     });
   });
 
@@ -26,46 +26,26 @@ describe('ModelProviderRepository', () => {
       expect(provider.id).toBeDefined();
       expect(provider.name).toBe('Test Provider');
       expect(provider.baseUrl).toBe('https://api.test.com');
-      expect(provider.authToken).toBe('test-token');
+      expect(provider.authToken).toBe('test-token'); // Decrypted transparently
       expect(provider.isBuiltIn).toBe(false);
       expect(provider.createdAt).toBeTypeOf('number');
       expect(provider.updatedAt).toBeTypeOf('number');
+      expect(provider.models).toEqual([]); // No models yet
 
       // Cleanup
       repo.delete(provider.id);
     });
 
-    it('creates a provider with default model settings', () => {
+    it('does NOT have defaultOpusModel / defaultSonnetModel / defaultHaikuModel fields', () => {
       const provider = repo.create({
-        name: 'Provider with Models',
+        name: 'No Default Models',
         baseUrl: 'https://api.test.com',
         authToken: 'test-token',
-        defaultOpusModel: 'custom-opus-v1',
-        defaultSonnetModel: 'custom-sonnet-v1',
-        defaultHaikuModel: 'custom-haiku-v1',
       });
 
-      expect(provider.defaultOpusModel).toBe('custom-opus-v1');
-      expect(provider.defaultSonnetModel).toBe('custom-sonnet-v1');
-      expect(provider.defaultHaikuModel).toBe('custom-haiku-v1');
-
-      // Cleanup
-      repo.delete(provider.id);
-    });
-
-    it('auto-creates provider_models entries for default models', () => {
-      const provider = repo.create({
-        name: 'Provider with Auto Models',
-        baseUrl: 'https://api.test.com',
-        authToken: 'test-token',
-        defaultSonnetModel: 'auto-sonnet-model',
-      });
-
-      const models = repo.getModels(provider.id);
-      const sonnetModel = models.find((m) => m.modelId === 'auto-sonnet-model');
-
-      expect(sonnetModel).toBeDefined();
-      expect(sonnetModel.tier).toBe('sonnet');
+      expect(provider.defaultOpusModel).toBeUndefined();
+      expect(provider.defaultSonnetModel).toBeUndefined();
+      expect(provider.defaultHaikuModel).toBeUndefined();
 
       // Cleanup
       repo.delete(provider.id);
@@ -90,10 +70,29 @@ describe('ModelProviderRepository', () => {
       // Cleanup
       repo.delete(provider.id);
     });
+
+    it('encrypts auth token at rest (raw row should not contain plaintext token)', () => {
+      const provider = repo.create({
+        name: 'Encrypted Token Test',
+        baseUrl: 'https://api.test.com',
+        authToken: 'super-secret-token',
+      });
+
+      // Reading via the repo gives us the decrypted value
+      expect(provider.authToken).toBe('super-secret-token');
+
+      // Reading the raw DB row should NOT contain the plaintext token
+      const rawRow = repo.db.prepare('SELECT auth_token FROM providers WHERE id = ?').get(provider.id);
+      expect(rawRow.auth_token).not.toBe('super-secret-token');
+      expect(rawRow.auth_token).toContain(':'); // Encrypted format: iv:authTag:ciphertext
+
+      // Cleanup
+      repo.delete(provider.id);
+    });
   });
 
   describe('getById', () => {
-    it('retrieves provider by ID', () => {
+    it('retrieves provider by ID with models array', () => {
       const created = repo.create({
         name: 'Retrieve Test',
         baseUrl: 'https://api.test.com',
@@ -104,6 +103,7 @@ describe('ModelProviderRepository', () => {
 
       expect(retrieved.id).toBe(created.id);
       expect(retrieved.name).toBe('Retrieve Test');
+      expect(Array.isArray(retrieved.models)).toBe(true);
 
       // Cleanup
       repo.delete(created.id);
@@ -135,7 +135,7 @@ describe('ModelProviderRepository', () => {
 
     it('orders providers with built-in first', () => {
       const custom = repo.create({
-        name: 'AAA Custom Provider', // Name that would sort first alphabetically
+        name: 'AAA Custom Provider',
         baseUrl: 'https://api.custom.com',
         authToken: 'token',
       });
@@ -147,6 +147,30 @@ describe('ModelProviderRepository', () => {
 
       // Cleanup
       repo.delete(custom.id);
+    });
+
+    it('each provider includes its models array', () => {
+      const provider = repo.create({
+        name: 'Models In GetAll',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      repo.addModel(provider.id, {
+        modelId: 'my-sonnet-v1',
+        displayName: 'My Sonnet',
+        tier: 'sonnet',
+      });
+
+      const providers = repo.getAll();
+      const found = providers.find((p) => p.id === provider.id);
+
+      expect(found).toBeDefined();
+      expect(Array.isArray(found.models)).toBe(true);
+      expect(found.models.some((m) => m.modelId === 'my-sonnet-v1')).toBe(true);
+
+      // Cleanup
+      repo.delete(provider.id);
     });
   });
 
@@ -166,97 +190,39 @@ describe('ModelProviderRepository', () => {
       repo.delete(provider.id);
     });
 
-    it('updates default model settings', () => {
+    it('updating auth token re-encrypts it', () => {
       const provider = repo.create({
-        name: 'Model Update Test',
+        name: 'Token Update Test',
         baseUrl: 'https://api.test.com',
-        authToken: 'token',
+        authToken: 'original-token',
       });
 
-      const updated = repo.update(provider.id, {
-        defaultSonnetModel: 'new-sonnet-model',
-      });
+      repo.update(provider.id, { authToken: 'new-token' });
 
-      expect(updated.defaultSonnetModel).toBe('new-sonnet-model');
+      const retrieved = repo.getById(provider.id);
+      expect(retrieved.authToken).toBe('new-token');
+
+      // Raw should still be encrypted
+      const rawRow = repo.db.prepare('SELECT auth_token FROM providers WHERE id = ?').get(provider.id);
+      expect(rawRow.auth_token).not.toBe('new-token');
 
       // Cleanup
       repo.delete(provider.id);
     });
 
-    it('syncs provider_models when default models are updated', () => {
+    it('does NOT sync provider_models (no auto-sync)', () => {
       const provider = repo.create({
-        name: 'Sync Test',
+        name: 'No Sync Test',
         baseUrl: 'https://api.test.com',
         authToken: 'token',
       });
 
-      repo.update(provider.id, {
-        defaultOpusModel: 'synced-opus-model',
-      });
+      // Update with fields that previously would have triggered a sync
+      repo.update(provider.id, { name: 'Updated' });
 
+      // Models should remain empty (no auto-sync)
       const models = repo.getModels(provider.id);
-      const opusModel = models.find((m) => m.modelId === 'synced-opus-model');
-
-      expect(opusModel).toBeDefined();
-      expect(opusModel.tier).toBe('opus');
-
-      // Cleanup
-      repo.delete(provider.id);
-    });
-
-    it('updates existing provider_models entry when default model changes', () => {
-      // Create provider with initial model
-      const provider = repo.create({
-        name: 'Model Update Test',
-        baseUrl: 'https://api.test.com',
-        authToken: 'token',
-        defaultSonnetModel: 'old-sonnet-v1',
-      });
-
-      // Verify initial model was created
-      let models = repo.getModels(provider.id);
-      expect(models.some((m) => m.modelId === 'old-sonnet-v1')).toBe(true);
-
-      // Update to new model - this should UPDATE the existing entry, not ignore it
-      repo.update(provider.id, {
-        defaultSonnetModel: 'new-sonnet-v2',
-      });
-
-      // Verify the model was updated (not ignored)
-      models = repo.getModels(provider.id);
-      const sonnetModel = models.find((m) => m.tier === 'sonnet');
-
-      expect(sonnetModel).toBeDefined();
-      expect(sonnetModel.modelId).toBe('new-sonnet-v2');
-      // Old model should no longer exist
-      expect(models.some((m) => m.modelId === 'old-sonnet-v1')).toBe(false);
-
-      // Cleanup
-      repo.delete(provider.id);
-    });
-
-    it('updates multiple default models in single update', () => {
-      const provider = repo.create({
-        name: 'Multi Update Test',
-        baseUrl: 'https://api.test.com',
-        authToken: 'token',
-        defaultSonnetModel: 'sonnet-v1',
-        defaultOpusModel: 'opus-v1',
-        defaultHaikuModel: 'haiku-v1',
-      });
-
-      // Update all three models at once
-      repo.update(provider.id, {
-        defaultSonnetModel: 'sonnet-v2',
-        defaultOpusModel: 'opus-v2',
-        defaultHaikuModel: 'haiku-v2',
-      });
-
-      const models = repo.getModels(provider.id);
-
-      expect(models.find((m) => m.tier === 'sonnet').modelId).toBe('sonnet-v2');
-      expect(models.find((m) => m.tier === 'opus').modelId).toBe('opus-v2');
-      expect(models.find((m) => m.tier === 'haiku').modelId).toBe('haiku-v2');
+      expect(models).toEqual([]);
 
       // Cleanup
       repo.delete(provider.id);
@@ -288,21 +254,49 @@ describe('ModelProviderRepository', () => {
     });
   });
 
-  describe('getModels', () => {
-    it('returns models for a provider', () => {
+  describe('addModel / getModels', () => {
+    it('adds a model to a provider and retrieves it', () => {
       const provider = repo.create({
-        name: 'Models Test',
+        name: 'Add Model Test',
         baseUrl: 'https://api.test.com',
         authToken: 'token',
-        defaultSonnetModel: 'test-sonnet',
-        defaultOpusModel: 'test-opus',
       });
 
-      const models = repo.getModels(provider.id);
+      const model = repo.addModel(provider.id, {
+        modelId: 'custom-model-id',
+        displayName: 'Custom Model',
+        description: 'A custom model',
+        tier: 'sonnet',
+      });
 
-      expect(models.length).toBeGreaterThanOrEqual(2);
-      expect(models.some((m) => m.modelId === 'test-sonnet')).toBe(true);
-      expect(models.some((m) => m.modelId === 'test-opus')).toBe(true);
+      expect(model.modelId).toBe('custom-model-id');
+      expect(model.displayName).toBe('Custom Model');
+      expect(model.tier).toBe('sonnet');
+
+      const models = repo.getModels(provider.id);
+      expect(models.length).toBe(1);
+      expect(models[0].modelId).toBe('custom-model-id');
+
+      // Cleanup
+      repo.delete(provider.id);
+    });
+
+    it('adds multiple models and all appear in getModels', () => {
+      const provider = repo.create({
+        name: 'Multi Model Test',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      repo.addModel(provider.id, { modelId: 'model-opus', displayName: 'Opus', tier: 'opus' });
+      repo.addModel(provider.id, { modelId: 'model-sonnet', displayName: 'Sonnet', tier: 'sonnet' });
+      repo.addModel(provider.id, { modelId: 'model-haiku', displayName: 'Haiku', tier: 'haiku' });
+
+      const models = repo.getModels(provider.id);
+      expect(models.length).toBe(3);
+      expect(models.some((m) => m.tier === 'opus')).toBe(true);
+      expect(models.some((m) => m.tier === 'sonnet')).toBe(true);
+      expect(models.some((m) => m.tier === 'haiku')).toBe(true);
 
       // Cleanup
       repo.delete(provider.id);
@@ -318,30 +312,6 @@ describe('ModelProviderRepository', () => {
       const models = repo.getModels(provider.id);
 
       expect(models).toEqual([]);
-
-      // Cleanup
-      repo.delete(provider.id);
-    });
-  });
-
-  describe('addModel', () => {
-    it('adds a custom model to a provider', () => {
-      const provider = repo.create({
-        name: 'Add Model Test',
-        baseUrl: 'https://api.test.com',
-        authToken: 'token',
-      });
-
-      const model = repo.addModel(provider.id, {
-        modelId: 'custom-model-id',
-        displayName: 'Custom Model',
-        description: 'A custom model',
-        tier: 'custom',
-      });
-
-      expect(model.modelId).toBe('custom-model-id');
-      expect(model.displayName).toBe('Custom Model');
-      expect(model.tier).toBe('custom');
 
       // Cleanup
       repo.delete(provider.id);
@@ -383,18 +353,15 @@ describe('ModelProviderRepository', () => {
     });
 
     it('returns null for tier name "sonnet"', () => {
-      const result = repo.getProviderByModelId('sonnet');
-      expect(result).toBeNull();
+      expect(repo.getProviderByModelId('sonnet')).toBeNull();
     });
 
     it('returns null for tier name "opus"', () => {
-      const result = repo.getProviderByModelId('opus');
-      expect(result).toBeNull();
+      expect(repo.getProviderByModelId('opus')).toBeNull();
     });
 
     it('returns null for tier name "haiku"', () => {
-      const result = repo.getProviderByModelId('haiku');
-      expect(result).toBeNull();
+      expect(repo.getProviderByModelId('haiku')).toBeNull();
     });
 
     it('returns null for tier names in uppercase', () => {
@@ -409,24 +376,27 @@ describe('ModelProviderRepository', () => {
     });
 
     it('returns null for models from built-in Anthropic provider', () => {
-      // Get the built-in provider and its models
       const providers = repo.getAll();
       const builtIn = providers.find((p) => p.isBuiltIn);
       const builtInModels = repo.getModels(builtIn.id);
 
       if (builtInModels.length > 0) {
         const result = repo.getProviderByModelId(builtInModels[0].modelId);
-        // Should return null because built-in provider uses SDK defaults
         expect(result).toBeNull();
       }
     });
 
-    it('returns custom provider for its registered model', () => {
+    it('returns custom provider for its registered model (added via addModel)', () => {
       const provider = repo.create({
         name: 'Lookup Test Provider',
         baseUrl: 'https://api.lookup.com',
         authToken: 'lookup-token',
-        defaultSonnetModel: 'lookup-sonnet-model',
+      });
+
+      repo.addModel(provider.id, {
+        modelId: 'lookup-sonnet-model',
+        displayName: 'Lookup Sonnet',
+        tier: 'sonnet',
       });
 
       const result = repo.getProviderByModelId('lookup-sonnet-model');
@@ -435,7 +405,7 @@ describe('ModelProviderRepository', () => {
       expect(result.id).toBe(provider.id);
       expect(result.name).toBe('Lookup Test Provider');
       expect(result.baseUrl).toBe('https://api.lookup.com');
-      expect(result.authToken).toBe('lookup-token');
+      expect(result.authToken).toBe('lookup-token'); // Decrypted
 
       // Cleanup
       repo.delete(provider.id);
@@ -446,15 +416,15 @@ describe('ModelProviderRepository', () => {
         name: 'Provider One',
         baseUrl: 'https://api.one.com',
         authToken: 'token-one',
-        defaultSonnetModel: 'provider-one-sonnet',
       });
+      repo.addModel(provider1.id, { modelId: 'provider-one-sonnet', displayName: 'P1 Sonnet', tier: 'sonnet' });
 
       const provider2 = repo.create({
         name: 'Provider Two',
         baseUrl: 'https://api.two.com',
         authToken: 'token-two',
-        defaultSonnetModel: 'provider-two-sonnet',
       });
+      repo.addModel(provider2.id, { modelId: 'provider-two-sonnet', displayName: 'P2 Sonnet', tier: 'sonnet' });
 
       const result1 = repo.getProviderByModelId('provider-one-sonnet');
       const result2 = repo.getProviderByModelId('provider-two-sonnet');
@@ -467,39 +437,18 @@ describe('ModelProviderRepository', () => {
       repo.delete(provider2.id);
     });
 
-    it('returns provider for manually added custom model', () => {
-      const provider = repo.create({
-        name: 'Manual Model Provider',
-        baseUrl: 'https://api.manual.com',
-        authToken: 'manual-token',
-      });
-
-      repo.addModel(provider.id, {
-        modelId: 'manually-added-model',
-        displayName: 'Manual Model',
-        tier: 'custom',
-      });
-
-      const result = repo.getProviderByModelId('manually-added-model');
-
-      expect(result).not.toBeNull();
-      expect(result.id).toBe(provider.id);
-
-      // Cleanup
-      repo.delete(provider.id);
-    });
-
-    it('returns provider with all mapped fields', () => {
+    it('returns provider with models array included', () => {
       const provider = repo.create({
         name: 'Full Provider',
         baseUrl: 'https://api.full.com',
         authToken: 'full-token',
-        defaultOpusModel: 'full-opus',
-        defaultSonnetModel: 'full-sonnet',
-        defaultHaikuModel: 'full-haiku',
         apiTimeoutMs: 30000,
         additionalEnvVars: { EXTRA: 'value' },
       });
+
+      repo.addModel(provider.id, { modelId: 'full-opus', displayName: 'Opus', tier: 'opus' });
+      repo.addModel(provider.id, { modelId: 'full-sonnet', displayName: 'Sonnet', tier: 'sonnet' });
+      repo.addModel(provider.id, { modelId: 'full-haiku', displayName: 'Haiku', tier: 'haiku' });
 
       const result = repo.getProviderByModelId('full-sonnet');
 
@@ -507,12 +456,21 @@ describe('ModelProviderRepository', () => {
       expect(result.name).toBe('Full Provider');
       expect(result.baseUrl).toBe('https://api.full.com');
       expect(result.authToken).toBe('full-token');
-      expect(result.defaultOpusModel).toBe('full-opus');
-      expect(result.defaultSonnetModel).toBe('full-sonnet');
-      expect(result.defaultHaikuModel).toBe('full-haiku');
       expect(result.apiTimeoutMs).toBe(30000);
       expect(result.additionalEnvVars).toEqual({ EXTRA: 'value' });
       expect(result.isBuiltIn).toBe(false);
+
+      // Models array should contain all three models
+      expect(Array.isArray(result.models)).toBe(true);
+      expect(result.models.length).toBe(3);
+      expect(result.models.some((m) => m.tier === 'opus' && m.modelId === 'full-opus')).toBe(true);
+      expect(result.models.some((m) => m.tier === 'sonnet' && m.modelId === 'full-sonnet')).toBe(true);
+      expect(result.models.some((m) => m.tier === 'haiku' && m.modelId === 'full-haiku')).toBe(true);
+
+      // No legacy default model fields
+      expect(result.defaultOpusModel).toBeUndefined();
+      expect(result.defaultSonnetModel).toBeUndefined();
+      expect(result.defaultHaikuModel).toBeUndefined();
 
       // Cleanup
       repo.delete(provider.id);

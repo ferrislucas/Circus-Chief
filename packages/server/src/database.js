@@ -18,6 +18,8 @@ export {
   CommandButtonRepository,
   CommandRunRepository,
   QuickResponseRepository,
+  ProviderRepository,
+  // Kept for any code that still imports ModelProviderRepository by name
   ModelProviderRepository,
   SettingsRepository,
   // Singleton instances

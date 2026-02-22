@@ -762,11 +762,8 @@ export async function runCommandButtonAndWait(
  */
 export async function createProvider(data: {
   name: string;
-  baseUrl: string;
-  authToken: string;
-  defaultSonnetModel?: string;
-  defaultOpusModel?: string;
-  defaultHaikuModel?: string;
+  baseUrl?: string;
+  authToken?: string;
   apiTimeoutMs?: number;
 }) {
   const response = await fetch(`${API_URL}/api/providers`, {
@@ -779,6 +776,34 @@ export async function createProvider(data: {
   // Track for scoped cleanup
   createdResources.providers.add(provider.id);
   return provider;
+}
+
+/**
+ * Add a model to a provider
+ */
+export async function addProviderModel(providerId: string, data: {
+  modelId: string;
+  displayName: string;
+  tier?: 'opus' | 'sonnet' | 'haiku' | 'custom';
+  description?: string;
+}) {
+  const response = await fetch(`${API_URL}/api/providers/${providerId}/models`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to add provider model');
+  return response.json();
+}
+
+/**
+ * Remove a model from a provider (by model row ID)
+ */
+export async function removeProviderModel(providerId: string, modelRowId: string) {
+  const response = await fetch(`${API_URL}/api/providers/${providerId}/models/${modelRowId}`, {
+    method: 'DELETE',
+  });
+  return response.ok;
 }
 
 /**
@@ -806,9 +831,6 @@ export async function updateProvider(id: string, data: {
   name?: string;
   baseUrl?: string;
   authToken?: string;
-  defaultSonnetModel?: string;
-  defaultOpusModel?: string;
-  defaultHaikuModel?: string;
   apiTimeoutMs?: number;
 }) {
   const response = await fetch(`${API_URL}/api/providers/${id}`, {

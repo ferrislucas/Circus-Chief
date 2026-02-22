@@ -133,10 +133,12 @@ router.post('/:id/test', async (req, res) => {
       return res.status(404).json({ error: 'Provider not found' });
     }
 
+    // Pick the sonnet-tiered model (if any) as the test model, falling back to any first model
+    const sonnetModel = provider.models?.find((m) => m.tier === 'sonnet');
     const testConfig = {
       baseUrl: provider.baseUrl,
       authToken: provider.authToken,
-      defaultSonnetModel: provider.defaultSonnetModel,
+      defaultSonnetModel: sonnetModel?.modelId,
       apiTimeoutMs: provider.apiTimeoutMs,
     };
 
