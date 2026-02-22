@@ -45,7 +45,7 @@ h1 {
   position: -webkit-sticky; /* Safari prefix */
   position: sticky;
   /* Default for phones/small screens */
-  top: 51px;
+  top: calc(var(--header-height-computed, 51px) + var(--viewport-offset-top, 0px));
   background-color: var(--color-background);
   z-index: 99;
   padding: 0.5rem 0.5rem 0 0.5rem;
@@ -54,7 +54,7 @@ h1 {
 /* iPad and larger screens - account for safe area */
 @media (min-width: 768px) {
   .tabs {
-    top: 80px;
+    top: calc(var(--header-height-computed, 80px) + var(--viewport-offset-top, 0px));
   }
 }
 
