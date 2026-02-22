@@ -173,6 +173,12 @@ function getLastAssistantMessage(sessionId) {
 export function shouldRescheduleOnError(session, error, sessionId = null) {
   const errorMessage = error.message.toLowerCase();
 
+  // Check if auto-reschedule is enabled first (master switch)
+  if (!session.autoRescheduleEnabled) {
+    console.log('[SessionManager] autoRescheduleEnabled is false, skipping all rescheduling');
+    return false;
+  }
+
   // Check exception message first (existing behavior)
   if (session.rescheduleOnTokenLimit) {
     if (matchesTokenLimitError(errorMessage)) {
@@ -236,6 +242,12 @@ export function shouldRescheduleOnError(session, error, sessionId = null) {
 export async function _checkProactiveReschedule(sessionId) {
   const session = sessions.getById(sessionId);
   if (!session || !session.rescheduleAtTokenCount) {
+    return false;
+  }
+
+  // Check if auto-reschedule is enabled first (master switch)
+  if (!session.autoRescheduleEnabled) {
+    console.log('[SessionManager] autoRescheduleEnabled is false, skipping proactive rescheduling');
     return false;
   }
 
