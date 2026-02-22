@@ -807,6 +807,23 @@ export async function removeProviderModel(providerId: string, modelRowId: string
 }
 
 /**
+ * Update a provider model (by model row ID)
+ */
+export async function updateProviderModel(providerId: string, modelRowId: string, data: {
+  modelId?: string;
+  displayName?: string;
+  tier?: string;
+}) {
+  const response = await fetch(`${API_URL}/api/providers/${providerId}/models/${modelRowId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to update provider model');
+  return response.json();
+}
+
+/**
  * Get all providers
  */
 export async function getProviders() {

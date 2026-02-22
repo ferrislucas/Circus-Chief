@@ -341,6 +341,195 @@ describe('ProviderRepository', () => {
     });
   });
 
+  describe('updateModel', () => {
+    it('updates modelId field', () => {
+      const provider = repo.create({
+        name: 'Update Model Test',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      const model = repo.addModel(provider.id, {
+        modelId: 'original-model-id',
+        displayName: 'Original Model',
+        tier: 'sonnet',
+      });
+
+      const updated = repo.updateModel(model.id, { modelId: 'new-model-id' });
+
+      expect(updated.modelId).toBe('new-model-id');
+      expect(updated.displayName).toBe('Original Model'); // Unchanged
+      expect(updated.tier).toBe('sonnet'); // Unchanged
+
+      // Verify in database
+      const models = repo.getModels(provider.id);
+      const found = models.find((m) => m.id === model.id);
+      expect(found.modelId).toBe('new-model-id');
+
+      // Cleanup
+      repo.delete(provider.id);
+    });
+
+    it('updates displayName field', () => {
+      const provider = repo.create({
+        name: 'Update Display Name',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      const model = repo.addModel(provider.id, {
+        modelId: 'test-model',
+        displayName: 'Original Name',
+        tier: 'sonnet',
+      });
+
+      const updated = repo.updateModel(model.id, { displayName: 'New Display Name' });
+
+      expect(updated.displayName).toBe('New Display Name');
+      expect(updated.modelId).toBe('test-model'); // Unchanged
+
+      // Cleanup
+      repo.delete(provider.id);
+    });
+
+    it('updates tier field', () => {
+      const provider = repo.create({
+        name: 'Update Tier',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      const model = repo.addModel(provider.id, {
+        modelId: 'test-model',
+        displayName: 'Test Model',
+        tier: 'sonnet',
+      });
+
+      const updated = repo.updateModel(model.id, { tier: 'opus' });
+
+      expect(updated.tier).toBe('opus');
+
+      // Cleanup
+      repo.delete(provider.id);
+    });
+
+    it('updates multiple fields at once', () => {
+      const provider = repo.create({
+        name: 'Update Multiple Fields',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      const model = repo.addModel(provider.id, {
+        modelId: 'original-id',
+        displayName: 'Original Name',
+        tier: 'sonnet',
+      });
+
+      const updated = repo.updateModel(model.id, {
+        modelId: 'new-id',
+        displayName: 'New Name',
+        tier: 'opus',
+      });
+
+      expect(updated.modelId).toBe('new-id');
+      expect(updated.displayName).toBe('New Name');
+      expect(updated.tier).toBe('opus');
+
+      // Cleanup
+      repo.delete(provider.id);
+    });
+
+    it('no-op when called with empty data object (returns existing model unchanged)', () => {
+      const provider = repo.create({
+        name: 'Empty Update',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      const model = repo.addModel(provider.id, {
+        modelId: 'test-model',
+        displayName: 'Test Model',
+        tier: 'sonnet',
+      });
+
+      const updated = repo.updateModel(model.id, {});
+
+      expect(updated.modelId).toBe('test-model');
+      expect(updated.displayName).toBe('Test Model');
+      expect(updated.tier).toBe('sonnet');
+
+      // Cleanup
+      repo.delete(provider.id);
+    });
+
+    it('returns the updated model object', () => {
+      const provider = repo.create({
+        name: 'Return Updated Model',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      const model = repo.addModel(provider.id, {
+        modelId: 'test-model',
+        displayName: 'Test Model',
+        tier: 'sonnet',
+      });
+
+      const updated = repo.updateModel(model.id, { displayName: 'Updated Model' });
+
+      expect(updated).toBeDefined();
+      expect(updated.id).toBe(model.id);
+      expect(typeof updated).toBe('object');
+      expect(updated.displayName).toBe('Updated Model');
+
+      // Cleanup
+      repo.delete(provider.id);
+    });
+  });
+
+  describe('getModelById', () => {
+    it('returns model by ID', () => {
+      const provider = repo.create({
+        name: 'Get Model By ID',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      const model = repo.addModel(provider.id, {
+        modelId: 'test-model-id',
+        displayName: 'Test Model',
+        tier: 'sonnet',
+      });
+
+      const retrieved = repo.getModelById(model.id);
+
+      expect(retrieved).toBeDefined();
+      expect(retrieved.id).toBe(model.id);
+      expect(retrieved.modelId).toBe('test-model-id');
+      expect(retrieved.displayName).toBe('Test Model');
+      expect(retrieved.tier).toBe('sonnet');
+
+      // Cleanup
+      repo.delete(provider.id);
+    });
+
+    it('returns null for non-existent ID', () => {
+      const result = repo.getModelById('non-existent-model-id');
+      expect(result).toBeNull();
+    });
+
+    it('returns null for null input', () => {
+      const result = repo.getModelById(null);
+      expect(result).toBeNull();
+    });
+
+    it('returns null for undefined input', () => {
+      const result = repo.getModelById(undefined);
+      expect(result).toBeNull();
+    });
+  });
+
   describe('getProviderByModelId', () => {
     it('returns null for null model ID', () => {
       const result = repo.getProviderByModelId(null);
