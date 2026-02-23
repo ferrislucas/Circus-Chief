@@ -516,9 +516,9 @@ let unsubConvUpdated = null;
 let unsubConvDeleted = null;
 
 function handleScroll() {
-  const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-  const scrollHeight = document.documentElement.scrollHeight;
-  const clientHeight = window.innerHeight || document.documentElement.clientHeight;
+  const container = messagesContainer.value;
+  if (!container) return;
+  const { scrollTop, scrollHeight, clientHeight } = container;
   const wasNearBottom = isNearBottom.value;
   isNearBottom.value = scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD;
 
@@ -553,8 +553,10 @@ onMounted(async () => {
     }
   }
 
-  // Add scroll event listener
-  window.addEventListener('scroll', handleScroll);
+  // Add scroll event listener to the messages container
+  if (messagesContainer.value) {
+    messagesContainer.value.addEventListener('scroll', handleScroll);
+  }
 
   // Only fetch conversations if not already loaded for this session
   // This prevents overwriting updated data (e.g., token counts during streaming)
@@ -678,7 +680,9 @@ onUnmounted(() => {
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
   if (inputSyncTimer) clearTimeout(inputSyncTimer);
   if (partialThrottleTimer) clearTimeout(partialThrottleTimer);
-  window.removeEventListener('scroll', handleScroll);
+  if (messagesContainer.value) {
+    messagesContainer.value.removeEventListener('scroll', handleScroll);
+  }
   // Clear work logs when leaving the conversation tab
   // Note: Don't clear conversations here - they should persist when switching tabs
   // within the same session. They will be refreshed when switching sessions.
@@ -712,11 +716,10 @@ function handleInput(event) {
 
 function scrollToBottom(force = false) {
   nextTick(() => {
+    const container = messagesContainer.value;
+    if (!container) return;
     if (force || isNearBottom.value) {
-      window.scrollTo({
-        top: document.documentElement.scrollHeight,
-        behavior: 'smooth'
-      });
+      container.scrollTop = container.scrollHeight;
       isNearBottom.value = true;
       hasNewMessages.value = false;
     } else {
@@ -728,6 +731,9 @@ function scrollToBottom(force = false) {
 
 function scrollToClaudesTurn() {
   nextTick(() => {
+    const container = messagesContainer.value;
+    if (!container) return;
+
     // Find the last assistant message
     const lastAssistantIndex = sessionsStore.messages.findLastIndex(msg => msg.role === 'assistant');
     if (lastAssistantIndex < 0) return;
@@ -736,15 +742,12 @@ function scrollToClaudesTurn() {
     const msgElement = document.querySelector(`[data-message-id="${lastAssistantMsg.id}"]`);
 
     if (msgElement) {
-      // Get element position relative to viewport
+      // Get element position relative to the container
+      const containerRect = container.getBoundingClientRect();
       const elementRect = msgElement.getBoundingClientRect();
-      // Scroll to position the element at the top of the viewport with some offset
-      const scrollTop = window.pageYOffset + elementRect.top - 80; // 80px offset for header
+      const offsetTop = elementRect.top - containerRect.top + container.scrollTop;
 
-      window.scrollTo({
-        top: scrollTop,
-        behavior: 'smooth'
-      });
+      container.scrollTop = offsetTop - 16; // 16px padding from top
     }
   });
 }
@@ -855,21 +858,13 @@ watch(
 );
 
 // Update model selector when active conversation changes or its model is updated
-// This ensures the selector always reflects the model used in the current conversation
-// Watch the entire conversation object (not just .model) to detect all changes including conversation switches
+// Only set the model on initial load (selectedModel is null) to avoid overriding
+// user selections when session state changes (e.g., stop button resets status)
 watch(
   () => sessionsStore.activeConversation,
   (conv) => {
-    if (conv) {
-      // Use session model (user-requested short format) or fall back to project/default
-      // conversations.model is no longer used — session.model tracks the user's selection
-      selectedModel.value = sessionsStore.currentSession?.model ||
-        getProjectDefaultModel() ||
-        'sonnet';
-    } else {
-      // No active conversation yet - use session/project default
-      // This ensures the model selector always shows a selected model even before
-      // conversations are fetched or when there's no active conversation
+    if (selectedModel.value === null) {
+      // Initial load: set model from session, project default, or fallback
       selectedModel.value = sessionsStore.currentSession?.model ||
         getProjectDefaultModel() ||
         'sonnet';
@@ -877,6 +872,19 @@ watch(
   },
   { immediate: true }
 );
+
+// Persist model selection to session when user changes it
+// This ensures the model is preserved across status changes (stop, restart, etc.)
+watch(selectedModel, async (newModel, oldModel) => {
+  // Only persist if this is a user-initiated change (not initial load)
+  if (oldModel !== null && newModel && newModel !== oldModel) {
+    try {
+      await sessionsStore.updateSessionModel(props.sessionId, newModel);
+    } catch (err) {
+      console.error('Failed to persist model selection:', err);
+    }
+  }
+});
 
 function formatTime(timestamp) {
   return new Date(timestamp).toLocaleTimeString();
@@ -1143,6 +1151,9 @@ async function handleBranchCreate({ messageId, prompt }) {
 .messages {
   padding: 0.25rem 0;
   position: relative;
+  max-height: 65vh;
+  overflow-y: auto;
+  scroll-behavior: smooth;
 }
 
 .conversation-controls-row {
@@ -1595,15 +1606,16 @@ async function handleBranchCreate({ messageId, prompt }) {
   transform: scale(0.95);
 }
 
-/* Slack-style new messages button */
+/* Slack-style new messages button - sticky within the scrollable messages container */
 .jump-to-latest {
-  position: fixed;
-  bottom: 5rem;
+  position: sticky;
+  bottom: 1rem;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 0.375rem;
+  width: fit-content;
   margin: 0 auto;
   padding: 0.5rem 0.875rem;
   background: #1a1d21;
@@ -1629,7 +1641,7 @@ async function handleBranchCreate({ messageId, prompt }) {
 }
 
 .jump-to-latest:active {
-  transform: translateX(-50%) scale(0.98);
+  transform: translateX(-50%) scale(0.97);
 }
 
 .jump-arrow {
@@ -1639,7 +1651,7 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 @keyframes slideUp {
   from {
-    transform: translateX(-50%) translateY(12px);
+    transform: translateX(-50%) translateY(8px);
     opacity: 0;
   }
   to {
@@ -1712,6 +1724,25 @@ async function handleBranchCreate({ messageId, prompt }) {
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
   flex-shrink: 0;
+}
+
+/* Responsive messages container height */
+@media (min-width: 1200px) {
+  .messages {
+    max-height: 70vh;
+  }
+}
+
+@media (max-height: 700px) {
+  .messages {
+    max-height: 50vh;
+  }
+}
+
+@media (max-height: 500px) {
+  .messages {
+    max-height: 40vh;
+  }
 }
 
 /* Responsive styles for input controls */
