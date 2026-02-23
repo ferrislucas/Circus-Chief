@@ -2953,3 +2953,372 @@ describe('ConversationTab - Scroll container behavior', () => {
     });
   });
 });
+
+/**
+ * Tests for model selector persistence fix.
+ *
+ * Bug: When using opus as the model and pressing the stop button mid-conversation,
+ * the model selector would unexpectedly reset back to sonnet.
+ *
+ * Fix: The activeConversation watcher now only sets selectedModel on initial load
+ * (when selectedModel is null), and a new watcher persists user model changes
+ * to the session via updateSessionModel.
+ */
+describe('ConversationTab - Model selector persistence on stop', () => {
+  let mockSessionsStore;
+  let mockUiStore;
+  let consoleError;
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+
+    mockSessionsStore = {
+      messages: [],
+      currentSession: {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        model: null,
+        projectId: 'proj-1',
+      },
+      activeConversation: { id: 'conv-1', name: 'Test Conv' },
+      activeConversationId: 'conv-1',
+      conversations: [{ id: 'conv-1', name: 'Test Conv', isActive: true }],
+      getWorkLogsForMessage: vi.fn().mockReturnValue([]),
+      getUnassociatedWorkLogs: [],
+      partialThinking: null,
+      isDraftSession: vi.fn().mockReturnValue(false),
+      isScheduledDraft: vi.fn().mockReturnValue(false),
+      fetchConversations: vi.fn().mockResolvedValue([]),
+      fetchWorkLogs: vi.fn().mockResolvedValue([]),
+      fetchMessages: vi.fn().mockResolvedValue([]),
+      sendMessage: vi.fn().mockResolvedValue(),
+      stopSession: vi.fn().mockResolvedValue(),
+      restartSession: vi.fn().mockResolvedValue(),
+      startSession: vi.fn().mockResolvedValue(),
+      updateSessionThinking: vi.fn().mockResolvedValue(),
+      updateSessionMode: vi.fn().mockResolvedValue(),
+      updateSessionModel: vi.fn().mockResolvedValue(),
+      updateNextTemplate: vi.fn().mockResolvedValue(),
+      addWorkLog: vi.fn(),
+      associateWorkLogs: vi.fn(),
+      clearWorkLogs: vi.fn(),
+      clearConversations: vi.fn(),
+      addConversation: vi.fn(),
+      updateConversation: vi.fn(),
+      removeConversation: vi.fn(),
+      setPartialThinking: vi.fn(),
+      clearPartialThinking: vi.fn(),
+      finalizeUsage: vi.fn(),
+      updateRunningUsage: vi.fn(),
+      switchConversation: vi.fn().mockResolvedValue(),
+      branchConversation: vi.fn().mockResolvedValue({ id: 'conv-2' }),
+    };
+
+    mockUiStore = {
+      error: vi.fn(),
+      success: vi.fn(),
+    };
+
+    vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    consoleError = console.error;
+    console.error = vi.fn();
+
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn().mockReturnValue(null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    console.error = consoleError;
+    vi.unstubAllGlobals();
+  });
+
+  function mountComponent(props = { sessionId: 'sess-123' }) {
+    return mount(ConversationTab, {
+      props,
+      global: {
+        stubs: {
+          ConversationPanel: { template: '<div class="conversation-panel-stub"></div>' },
+          TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
+          WorkLogPanel: { template: '<div class="work-log-panel-stub"></div>' },
+          LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
+          MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+          FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
+          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
+          QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
+          QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
+          ModelSelector: {
+            name: 'ModelSelector',
+            props: ['modelValue', 'disabled'],
+            emits: ['update:modelValue'],
+            template: '<div class="model-selector-stub" :data-model="modelValue"></div>',
+          },
+          TokenCostPanel: { template: '<div class="token-cost-panel-stub"></div>' },
+          OrchestrationPanel: { template: '<div class="orchestration-panel-stub"></div>' },
+          ModeSelector: { template: '<div class="mode-selector-stub"></div>' },
+          SlashCommandButton: { template: '<div class="slash-command-button-stub"></div>' },
+          SlashCommandWizard: { template: '<div class="slash-command-wizard-stub"></div>' },
+          ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
+          AutoRescheduleModal: { template: '<div class="auto-reschedule-modal-stub"></div>' },
+          BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
+        },
+      },
+    });
+  }
+
+  async function flushAll(wrapper) {
+    await flushPromises();
+    await nextTick();
+    await wrapper.vm.$nextTick?.();
+  }
+
+  describe('Initial model selection', () => {
+    it('sets selectedModel from session.model on initial load', async () => {
+      mockSessionsStore.currentSession.model = 'opus';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('opus');
+    });
+
+    it('falls back to sonnet when session has no model', async () => {
+      mockSessionsStore.currentSession.model = null;
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('sonnet');
+    });
+
+    it('does not call updateSessionModel during initial load', async () => {
+      mockSessionsStore.currentSession.model = 'opus';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // The initial setting of selectedModel from null -> opus should NOT trigger persistence
+      expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Model not reset on activeConversation changes', () => {
+    it('preserves selectedModel when activeConversation object changes', async () => {
+      // Start with opus from session
+      mockSessionsStore.currentSession.model = 'opus';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Verify initial model is opus
+      let modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('opus');
+
+      // Simulate activeConversation changing (e.g., conversation update event)
+      // This used to reset the model back to the session default
+      mockSessionsStore.activeConversation = { id: 'conv-1', name: 'Updated Conv' };
+      await flushAll(wrapper);
+
+      // Model should still be opus - not reset
+      modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('opus');
+    });
+
+    it('preserves user-selected model when session status changes trigger state updates', async () => {
+      // Start with sonnet (default)
+      mockSessionsStore.currentSession.model = null;
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Verify default is sonnet
+      let modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('sonnet');
+
+      // Simulate user selecting opus via ModelSelector v-model emit
+      const modelSelectorComponent = wrapper.findComponent({ name: 'ModelSelector' });
+      modelSelectorComponent.vm.$emit('update:modelValue', 'opus');
+      await flushAll(wrapper);
+
+      // Verify model changed to opus
+      modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('opus');
+
+      // Simulate what happens when stop button is pressed:
+      // activeConversation may get updated, triggering the watcher
+      mockSessionsStore.activeConversation = { id: 'conv-1', name: 'Same Conv', model: 'some-full-id' };
+      await flushAll(wrapper);
+
+      // Model should STILL be opus - not reset to sonnet
+      modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('opus');
+    });
+  });
+
+  describe('Model persistence on user change', () => {
+    it('calls updateSessionModel when user changes model selection', async () => {
+      mockSessionsStore.currentSession.model = 'sonnet';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Initial load should not trigger persistence
+      expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
+
+      // Simulate user selecting opus
+      const modelSelectorComponent = wrapper.findComponent({ name: 'ModelSelector' });
+      modelSelectorComponent.vm.$emit('update:modelValue', 'opus');
+      await flushAll(wrapper);
+
+      // Should persist the new model to the session
+      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', 'opus');
+    });
+
+    it('calls updateSessionModel with correct session ID', async () => {
+      mockSessionsStore.currentSession.model = 'sonnet';
+      mockSessionsStore.currentSession.id = 'sess-456';
+
+      const wrapper = mountComponent({ sessionId: 'sess-456' });
+      await flushAll(wrapper);
+
+      // Change model
+      const modelSelectorComponent = wrapper.findComponent({ name: 'ModelSelector' });
+      modelSelectorComponent.vm.$emit('update:modelValue', 'haiku');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-456', 'haiku');
+    });
+
+    it('does not call updateSessionModel when model is set to same value', async () => {
+      mockSessionsStore.currentSession.model = 'opus';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Emit same model value
+      const modelSelectorComponent = wrapper.findComponent({ name: 'ModelSelector' });
+      modelSelectorComponent.vm.$emit('update:modelValue', 'opus');
+      await flushAll(wrapper);
+
+      // Should NOT persist since model didn't change
+      expect(mockSessionsStore.updateSessionModel).not.toHaveBeenCalled();
+    });
+
+    it('handles updateSessionModel errors gracefully without crashing', async () => {
+      mockSessionsStore.currentSession.model = 'sonnet';
+      mockSessionsStore.updateSessionModel.mockRejectedValue(new Error('Network error'));
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Change model - this should trigger persistence which will fail
+      const modelSelectorComponent = wrapper.findComponent({ name: 'ModelSelector' });
+      modelSelectorComponent.vm.$emit('update:modelValue', 'opus');
+      await flushAll(wrapper);
+
+      // Should have attempted the call
+      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', 'opus');
+
+      // Component should still be functional (not crashed)
+      expect(wrapper.find('.model-selector-stub').exists()).toBe(true);
+
+      // Error should be logged
+      expect(console.error).toHaveBeenCalledWith(
+        'Failed to persist model selection:',
+        expect.any(Error)
+      );
+    });
+  });
+
+  describe('Model preserved across stop/restart cycle', () => {
+    it('sends message with user-selected model after stopping session', async () => {
+      // Start in waiting state with user selecting opus, then session runs and stops
+      mockSessionsStore.currentSession.model = null;
+      mockSessionsStore.currentSession.status = 'waiting';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Verify default is sonnet
+      let modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('sonnet');
+
+      // Simulate user selecting opus
+      const modelSelectorComponent = wrapper.findComponent({ name: 'ModelSelector' });
+      modelSelectorComponent.vm.$emit('update:modelValue', 'opus');
+      await flushAll(wrapper);
+
+      // Verify model changed
+      modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('opus');
+
+      // Session starts running (ModelSelector disappears from DOM)
+      mockSessionsStore.currentSession.status = 'running';
+      await flushAll(wrapper);
+
+      // Session stops - ModelSelector reappears
+      mockSessionsStore.currentSession.status = 'waiting';
+      await flushAll(wrapper);
+
+      // Verify model is still opus after the run/stop cycle
+      modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('opus');
+    });
+
+    it('retains model selection when session goes from waiting through running to error', async () => {
+      // Start in waiting state so ModelSelector is rendered for initial model read
+      mockSessionsStore.currentSession.model = 'opus';
+      mockSessionsStore.currentSession.status = 'waiting';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Verify initial model
+      let modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('opus');
+
+      // Session starts running
+      mockSessionsStore.currentSession.status = 'running';
+      await flushAll(wrapper);
+
+      // Session errors out - ModelSelector reappears in error state input form
+      mockSessionsStore.currentSession.status = 'error';
+      mockSessionsStore.currentSession.error = 'Something went wrong';
+      await flushAll(wrapper);
+
+      // Model should still be opus
+      modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('opus');
+    });
+
+    it('retains model selection when session goes from waiting through running to stopped', async () => {
+      mockSessionsStore.currentSession.model = 'haiku';
+      mockSessionsStore.currentSession.status = 'waiting';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      let modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('haiku');
+
+      // Session runs then stops
+      mockSessionsStore.currentSession.status = 'running';
+      await flushAll(wrapper);
+      mockSessionsStore.currentSession.status = 'stopped';
+      await flushAll(wrapper);
+
+      // Model should still be haiku
+      modelSelector = wrapper.find('.model-selector-stub');
+      expect(modelSelector.attributes('data-model')).toBe('haiku');
+    });
+  });
+});
