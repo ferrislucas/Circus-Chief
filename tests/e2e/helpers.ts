@@ -1497,3 +1497,128 @@ export async function updateTemplate(
   if (!response.ok) throw new Error('Failed to update template');
   return response.json();
 }
+
+// ============================================================
+// Session Scheduling Helpers
+// ============================================================
+
+/**
+ * Create a scheduled session with auto-reschedule configuration
+ */
+export async function seedScheduledSession(
+  projectId: string,
+  data: {
+    prompt: string;
+    name?: string;
+    scheduledAt?: number;
+    autoRescheduleEnabled?: boolean;
+    rescheduleDelayMinutes?: number;
+    rescheduleOnTokenLimit?: boolean;
+    rescheduleOnServiceError?: boolean;
+    maxRescheduleCount?: number | null;
+    maxTotalTokens?: number | null;
+    rescheduleAtTokenCount?: number | null;
+  }
+): Promise<any> {
+  const body: any = {
+    prompt: data.prompt,
+    startImmediately: false,
+    scheduledAt: data.scheduledAt || Date.now() + 3600000, // default 1 hour from now
+  };
+  if (data.name) body.name = data.name;
+  if (data.autoRescheduleEnabled !== undefined) body.autoRescheduleEnabled = data.autoRescheduleEnabled;
+  if (data.rescheduleDelayMinutes !== undefined) body.rescheduleDelayMinutes = data.rescheduleDelayMinutes;
+  if (data.rescheduleOnTokenLimit !== undefined) body.rescheduleOnTokenLimit = data.rescheduleOnTokenLimit;
+  if (data.rescheduleOnServiceError !== undefined) body.rescheduleOnServiceError = data.rescheduleOnServiceError;
+  if (data.maxRescheduleCount !== undefined) body.maxRescheduleCount = data.maxRescheduleCount;
+  if (data.maxTotalTokens !== undefined) body.maxTotalTokens = data.maxTotalTokens;
+  if (data.rescheduleAtTokenCount !== undefined) body.rescheduleAtTokenCount = data.rescheduleAtTokenCount;
+
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Failed to seed scheduled session: ${response.status} ${err}`);
+  }
+  const session = await response.json();
+  createdResources.sessions.add(session.id);
+  return session;
+}
+
+/**
+ * Update session scheduling fields via PATCH
+ */
+export async function updateSessionScheduling(
+  sessionId: string,
+  data: {
+    scheduledAt?: number | null;
+    autoRescheduleEnabled?: boolean;
+    rescheduleDelayMinutes?: number;
+    rescheduleOnTokenLimit?: boolean;
+    rescheduleOnServiceError?: boolean;
+    maxRescheduleCount?: number | null;
+    maxTotalTokens?: number | null;
+    rescheduleCount?: number;
+    rescheduleAtTokenCount?: number | null;
+    status?: string;
+    pendingPrompt?: string;
+  }
+): Promise<any> {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Failed to update session scheduling: ${response.status} ${err}`);
+  }
+  return response.json();
+}
+
+/**
+ * Get all scheduled sessions (optionally filtered by project)
+ */
+export async function getScheduledSessions(projectId?: string): Promise<any[]> {
+  const url = projectId
+    ? `${API_URL}/api/sessions/scheduled?projectId=${projectId}`
+    : `${API_URL}/api/sessions/scheduled`;
+  const response = await fetch(url);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+/**
+ * Wait for a session to reach 'scheduled' status
+ */
+export async function waitForSessionScheduled(
+  sessionId: string,
+  timeout = 10000
+): Promise<any> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const session = await getSession(sessionId);
+    if (session && session.status === 'scheduled') return session;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`Session ${sessionId} did not reach 'scheduled' status after ${timeout}ms`);
+}
+
+/**
+ * Update session pending prompt via the dedicated endpoint
+ */
+export async function updatePendingPrompt(
+  sessionId: string,
+  pendingPrompt: string | null
+): Promise<any> {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/pending-prompt`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pendingPrompt }),
+  });
+  if (!response.ok) throw new Error('Failed to update pending prompt');
+  return response.json();
+}
