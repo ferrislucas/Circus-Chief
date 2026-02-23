@@ -34,6 +34,10 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
 import ToastContainer from './components/ToastContainer.vue';
+import { useVisualViewport } from './composables/useVisualViewport.js';
+
+// Initialize visual viewport tracking for iOS Safari browser chrome offset
+useVisualViewport();
 
 const headerRef = ref(null);
 let resizeObserver = null;
@@ -87,6 +91,7 @@ onUnmounted(() => {
 <style scoped>
 .app {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -99,7 +104,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   position: sticky;
-  top: 0;
+  top: var(--viewport-offset-top, 0px);
   z-index: 100;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 

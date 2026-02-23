@@ -57,41 +57,61 @@
             </div>
           </div>
 
-          <!-- Model Mappings Section -->
-          <details class="expandable-section" :open="hasModelMappings">
-            <summary class="section-header">Default Model Mappings (optional)</summary>
-            <div class="section-content">
-              <div class="form-group">
-                <label for="opus-model">Opus Model</label>
-                <input
-                  id="opus-model"
-                  v-model="form.defaultOpusModel"
-                  type="text"
-                  placeholder="anthropic.claude-3-opus-20240229-v1:0"
-                />
-              </div>
+          <!-- Models Section -->
+          <div class="models-section">
+            <div class="models-header">
+              <span class="models-title">Models</span>
+              <span class="models-hint">Assign tiers to map provider models to Opus / Sonnet / Haiku roles</span>
+            </div>
 
-              <div class="form-group">
-                <label for="sonnet-model">Sonnet Model</label>
-                <input
-                  id="sonnet-model"
-                  v-model="form.defaultSonnetModel"
-                  type="text"
-                  placeholder="anthropic.claude-3-sonnet-20240229-v1:0"
-                />
+            <div v-if="localModels.length > 0" class="models-list">
+              <div class="model-row model-row-header">
+                <span class="col-model-id">Model ID</span>
+                <span class="col-display-name">Display Name</span>
+                <span class="col-tier">Tier</span>
+                <span class="col-actions"></span>
               </div>
-
-              <div class="form-group">
-                <label for="haiku-model">Haiku Model</label>
+              <div
+                v-for="(model, index) in localModels"
+                :key="index"
+                class="model-row"
+              >
                 <input
-                  id="haiku-model"
-                  v-model="form.defaultHaikuModel"
+                  v-model="model.modelId"
                   type="text"
-                  placeholder="anthropic.claude-3-haiku-20240307-v1:0"
+                  placeholder="anthropic.claude-3-sonnet-…"
+                  class="col-model-id model-input"
                 />
+                <input
+                  v-model="model.displayName"
+                  type="text"
+                  placeholder="My Sonnet"
+                  class="col-display-name model-input"
+                />
+                <select v-model="model.tier" class="col-tier model-input tier-select">
+                  <option value="opus">Opus</option>
+                  <option value="sonnet">Sonnet</option>
+                  <option value="haiku">Haiku</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <button
+                  type="button"
+                  class="col-actions remove-model-btn"
+                  @click="removeLocalModel(index)"
+                  title="Remove model"
+                >
+                  ×
+                </button>
               </div>
             </div>
-          </details>
+            <div v-else class="models-empty">
+              No models added yet.
+            </div>
+
+            <button type="button" class="btn btn-sm btn-secondary add-model-btn" @click="addLocalModel">
+              + Add Model
+            </button>
+          </div>
 
           <!-- Advanced Settings Section -->
           <details class="expandable-section">
@@ -213,12 +233,14 @@ const form = ref({
   name: '',
   baseUrl: null,
   authToken: null,
-  defaultOpusModel: null,
-  defaultSonnetModel: null,
-  defaultHaikuModel: null,
   apiTimeoutMs: null,
   additionalEnvVars: {},
 });
+
+// localModels: list of models to save with this provider.
+// Each entry: { _serverId?: string, modelId: string, displayName: string, tier: string }
+// _serverId = row ID from server (present for existing models; absent for new ones)
+const localModels = ref([]);
 
 const envVarKeys = ref([]);
 const showAuthToken = ref(false);
@@ -236,15 +258,7 @@ const isValid = computed(() => {
 
 const canTest = computed(() => {
   // Can test if there's at least a base URL or auth token
-  return form.value.baseUrl || form.value.authToken || form.value.defaultSonnetModel;
-});
-
-const hasModelMappings = computed(() => {
-  return !!(
-    form.value.defaultOpusModel ||
-    form.value.defaultSonnetModel ||
-    form.value.defaultHaikuModel
-  );
+  return form.value.baseUrl || form.value.authToken;
 });
 
 // Sync form when modal opens or provider changes
@@ -258,27 +272,30 @@ watch(
           name: provider.name,
           baseUrl: provider.baseUrl,
           authToken: provider.authToken === '••••••••' ? null : provider.authToken, // Don't populate redacted token
-          defaultOpusModel: provider.defaultOpusModel,
-          defaultSonnetModel: provider.defaultSonnetModel,
-          defaultHaikuModel: provider.defaultHaikuModel,
           apiTimeoutMs: provider.apiTimeoutMs,
           additionalEnvVars: provider.additionalEnvVars ? { ...provider.additionalEnvVars } : {},
         };
         envVarKeys.value = Object.keys(form.value.additionalEnvVars);
         authTokenModified.value = false; // Reset: user hasn't touched the token field yet
+
+        // Populate local models from existing provider models
+        localModels.value = (provider.models || []).map((m) => ({
+          _serverId: m.id,
+          modelId: m.modelId,
+          displayName: m.displayName,
+          tier: m.tier || 'custom',
+        }));
       } else {
         // Create mode - reset form
         form.value = {
           name: '',
           baseUrl: null,
           authToken: null,
-          defaultOpusModel: null,
-          defaultSonnetModel: null,
-          defaultHaikuModel: null,
           apiTimeoutMs: null,
           additionalEnvVars: {},
         };
         envVarKeys.value = [];
+        localModels.value = [];
         authTokenModified.value = true; // In create mode, always include authToken (even if null)
       }
       showAuthToken.value = false;
@@ -292,6 +309,18 @@ watch(
 function close() {
   emit('close');
 }
+
+// ─── Model management ──────────────────────────────────────────────────────────
+
+function addLocalModel() {
+  localModels.value.push({ modelId: '', displayName: '', tier: 'custom' });
+}
+
+function removeLocalModel(index) {
+  localModels.value.splice(index, 1);
+}
+
+// ─── Env vars ──────────────────────────────────────────────────────────────────
 
 function addEnvVar() {
   const newKey = `ENV_VAR_${Object.keys(form.value.additionalEnvVars).length + 1}`;
@@ -313,16 +342,20 @@ function updateEnvVarKey(index, oldKey) {
   }
 }
 
+// ─── Test connection ───────────────────────────────────────────────────────────
+
 async function testConnection() {
   testing.value = true;
   error.value = null;
   testResult.value = null;
 
   try {
+    // Pick the sonnet-tiered local model (if any) as the test model
+    const sonnetModel = localModels.value.find((m) => m.tier === 'sonnet');
     const config = {
       baseUrl: form.value.baseUrl || undefined,
       authToken: form.value.authToken || undefined,
-      defaultSonnetModel: form.value.defaultSonnetModel || undefined,
+      defaultSonnetModel: sonnetModel?.modelId || undefined,
       apiTimeoutMs: form.value.apiTimeoutMs || undefined,
     };
 
@@ -334,37 +367,41 @@ async function testConnection() {
   }
 }
 
+// ─── Save ──────────────────────────────────────────────────────────────────────
+
 async function save() {
   saving.value = true;
   error.value = null;
 
   try {
-    // Clean up empty values
+    // Build provider payload (no model fields)
     const data = {
       name: form.value.name.trim(),
       baseUrl: form.value.baseUrl?.trim() || null,
-      defaultOpusModel: form.value.defaultOpusModel?.trim() || null,
-      defaultSonnetModel: form.value.defaultSonnetModel?.trim() || null,
-      defaultHaikuModel: form.value.defaultHaikuModel?.trim() || null,
       apiTimeoutMs: form.value.apiTimeoutMs || null,
-      additionalEnvVars: Object.keys(form.value.additionalEnvVars).length > 0
-        ? form.value.additionalEnvVars
-        : null,
+      additionalEnvVars:
+        Object.keys(form.value.additionalEnvVars).length > 0
+          ? form.value.additionalEnvVars
+          : null,
     };
 
     // Only include authToken if user has modified it
-    // This prevents clearing the token when editing without touching the field
     if (authTokenModified.value) {
       data.authToken = form.value.authToken?.trim() || null;
     }
 
+    let savedProvider;
+
     if (isEditing.value) {
-      await providersStore.updateProvider(props.provider.id, data);
+      savedProvider = await providersStore.updateProvider(props.provider.id, data);
       uiStore.success('Provider updated successfully');
     } else {
-      await providersStore.createProvider(data);
+      savedProvider = await providersStore.createProvider(data);
       uiStore.success('Provider created successfully');
     }
+
+    // Reconcile models
+    await reconcileModels(savedProvider.id);
 
     emit('saved');
   } catch (err) {
@@ -372,6 +409,59 @@ async function save() {
   } finally {
     saving.value = false;
   }
+}
+
+/**
+ * Reconcile local model list with the server state.
+ * - Delete server models that were removed locally
+ * - Update existing models whose fields changed
+ * - Add new local models that don't yet have a server ID
+ */
+async function reconcileModels(providerId) {
+  const serverModelIds = new Set(
+    localModels.value.filter((m) => m._serverId).map((m) => m._serverId)
+  );
+
+  // Get original models for comparison
+  const originalModels = props.provider?.models || [];
+  const originalModelMap = new Map(originalModels.map((m) => [m.id, m]));
+
+  // Delete models that existed on the server but were removed locally
+  for (const serverModel of originalModels) {
+    if (!serverModelIds.has(serverModel.id)) {
+      await providersStore.removeModel(providerId, serverModel.id);
+    }
+  }
+
+  // Update or add models
+  for (const model of localModels.value) {
+    if (!model._serverId && model.modelId.trim()) {
+      // Add new model
+      await providersStore.addModel(providerId, {
+        modelId: model.modelId.trim(),
+        displayName: model.displayName.trim() || model.modelId.trim(),
+        tier: model.tier || 'custom',
+      });
+    } else if (model._serverId && originalModelMap.has(model._serverId)) {
+      // Check if existing model was modified
+      const original = originalModelMap.get(model._serverId);
+      const changed =
+        model.modelId.trim() !== original.modelId ||
+        model.displayName.trim() !== original.displayName ||
+        model.tier !== original.tier;
+
+      if (changed) {
+        await providersStore.updateModel(providerId, model._serverId, {
+          modelId: model.modelId.trim(),
+          displayName: model.displayName.trim() || model.modelId.trim(),
+          tier: model.tier || 'custom',
+        });
+      }
+    }
+  }
+
+  // Re-fetch the provider so the store has fresh model data
+  await providersStore.fetchProviders();
 }
 </script>
 
@@ -394,7 +484,7 @@ async function save() {
   border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   width: 100%;
-  max-width: 600px;
+  max-width: 680px;
   max-height: 90vh;
   overflow: hidden;
   display: flex;
@@ -497,6 +587,107 @@ async function save() {
   background: var(--color-background-soft);
 }
 
+/* ── Models section ─────────────────────────────────────────── */
+
+.models-section {
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  overflow: hidden;
+}
+
+.models-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-background-soft);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.models-title {
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.models-hint {
+  font-size: 0.8125rem;
+  color: var(--color-text-soft);
+}
+
+.models-list {
+  padding: 0.5rem 0.75rem;
+}
+
+.model-row {
+  display: grid;
+  grid-template-columns: 1fr 10rem 6.5rem 2rem;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.375rem;
+}
+
+.model-row-header {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-soft);
+  margin-bottom: 0.25rem;
+}
+
+.model-row-header span {
+  padding: 0 0.25rem;
+}
+
+.model-input {
+  padding: 0.4rem 0.6rem;
+  background: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  color: var(--color-text);
+  font-size: 0.8125rem;
+}
+
+.model-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.tier-select {
+  appearance: auto;
+  cursor: pointer;
+}
+
+.remove-model-btn {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-soft);
+  font-size: 1.125rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  line-height: 1;
+  border-radius: 0.25rem;
+  text-align: center;
+}
+
+.remove-model-btn:hover {
+  color: var(--color-danger, #ef4444);
+  border-color: var(--color-danger, #ef4444);
+}
+
+.models-empty {
+  padding: 0.75rem 1rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-soft);
+  font-style: italic;
+}
+
+.add-model-btn {
+  margin: 0.5rem 0.75rem 0.75rem;
+}
+
+/* ── Advanced / env vars ─────────────────────────────────────── */
+
 .expandable-section {
   margin-bottom: 1.25rem;
   border: 1px solid var(--color-border);
@@ -573,6 +764,8 @@ async function save() {
   border-color: var(--color-danger, #ef4444);
 }
 
+/* ── Status messages ─────────────────────────────────────────── */
+
 .error-message {
   margin-top: 1rem;
   padding: 0.75rem;
@@ -628,6 +821,8 @@ async function save() {
   font-family: var(--font-mono);
   font-size: 0.8125rem;
 }
+
+/* ── Footer ──────────────────────────────────────────────────── */
 
 .modal-footer {
   display: flex;

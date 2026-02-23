@@ -226,15 +226,12 @@ CREATE TABLE IF NOT EXISTS quick_responses (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
--- Model providers (custom API endpoints for Claude)
-CREATE TABLE IF NOT EXISTS model_providers (
+-- Providers (custom API endpoints for Claude; replaces the old model_providers table)
+CREATE TABLE IF NOT EXISTS providers (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   base_url TEXT,
   auth_token TEXT,
-  default_opus_model TEXT,
-  default_sonnet_model TEXT,
-  default_haiku_model TEXT,
   api_timeout_ms INTEGER,
   additional_env_vars TEXT,
   is_built_in INTEGER NOT NULL DEFAULT 0,
@@ -245,7 +242,7 @@ CREATE TABLE IF NOT EXISTS model_providers (
 -- Provider models (custom models available per provider)
 CREATE TABLE IF NOT EXISTS provider_models (
   id TEXT PRIMARY KEY,
-  provider_id TEXT NOT NULL REFERENCES model_providers(id) ON DELETE CASCADE,
+  provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
   model_id TEXT NOT NULL,
   display_name TEXT NOT NULL,
   description TEXT,

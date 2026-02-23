@@ -21,7 +21,9 @@ export { CommandButtonRepository } from './CommandButtonRepository.js';
 export { CommandRunRepository } from './CommandRunRepository.js';
 export { QuickResponseRepository } from './QuickResponseRepository.js';
 export { SettingsRepository } from './SettingsRepository.js';
-export { ModelProviderRepository } from './ModelProviderRepository.js';
+// ProviderRepository replaces ModelProviderRepository; keep the old name exported for any leftover imports
+export { ProviderRepository } from './ProviderRepository.js';
+export { ProviderRepository as ModelProviderRepository } from './ProviderRepository.js';
 
 // Singleton instances
 import { ProjectRepository } from './ProjectRepository.js';
@@ -39,7 +41,7 @@ import { CommandButtonRepository } from './CommandButtonRepository.js';
 import { CommandRunRepository } from './CommandRunRepository.js';
 import { QuickResponseRepository } from './QuickResponseRepository.js';
 import { SettingsRepository } from './SettingsRepository.js';
-import { ModelProviderRepository } from './ModelProviderRepository.js';
+import { ProviderRepository } from './ProviderRepository.js';
 
 export const projects = new ProjectRepository();
 export const projectDefaults = new ProjectDefaultsRepository();
@@ -56,7 +58,7 @@ export const commandButtons = new CommandButtonRepository();
 export const commandRuns = new CommandRunRepository();
 export const quickResponses = new QuickResponseRepository();
 export const settings = new SettingsRepository();
-export const modelProviders = new ModelProviderRepository();
+export const modelProviders = new ProviderRepository();
 
 // SessionRepository needs to be instantiated after messages is available
 import { SessionRepository } from './SessionRepository.js';
