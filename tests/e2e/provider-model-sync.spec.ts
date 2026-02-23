@@ -7,6 +7,7 @@ import {
   updateProviderModel,
   seedProject,
   seedSession,
+  getProvider,
 } from './helpers';
 
 /**
@@ -53,7 +54,12 @@ test.describe('Provider Model Sync in Model Selector', () => {
   });
 
   test('model selector reflects updated provider model IDs after edit', async ({ page }) => {
-    // 4. Navigate to the session conversation tab
+    // 4. Verify provider and model exist before navigating (guard against parallel cleanup)
+    const providerCheck = await getProvider(provider.id);
+    expect(providerCheck).toBeTruthy();
+    expect(providerCheck.models?.some((m: any) => m.modelId === 'test-model-v1')).toBe(true);
+
+    // Navigate to the session conversation tab
     await page.goto(`/sessions/${session.id}/conversation`);
     await page.waitForLoadState('networkidle');
 
@@ -67,14 +73,12 @@ test.describe('Provider Model Sync in Model Selector', () => {
       if (!select) return false;
       const options = Array.from(select.options);
       return options.some(opt => opt.value === 'test-model-v1');
-    }, { timeout: 10000 });
+    }, { timeout: 15000 });
 
-    // Verify test-model-v1 is present as an option
-    const v1Options = modelSelect.locator('option[value="test-model-v1"]');
-    expect(await v1Options.count()).toBeGreaterThanOrEqual(1);
+    // Update the provider's model via API: remove old, add new
+    const removeOk = await removeProviderModel(provider.id, sonnetModel.id);
+    expect(removeOk).toBe(true);
 
-    // 6. Update the provider's model via API: remove old, add new
-    await removeProviderModel(provider.id, sonnetModel.id);
     const newModel = await addProviderModel(provider.id, {
       modelId: 'test-model-v2',
       displayName: 'Test Sonnet v2',
@@ -100,7 +104,7 @@ test.describe('Provider Model Sync in Model Selector', () => {
       const select = document.querySelector('#model-select') as HTMLSelectElement;
       if (!select) return false;
       return select.options.length > 1;
-    }, { timeout: 10000 });
+    }, { timeout: 15000 });
 
     // Collect all option values for debugging
     const allOptionValues = await modelSelectAfter.locator('option').evaluateAll(
@@ -116,7 +120,12 @@ test.describe('Provider Model Sync in Model Selector', () => {
   });
 
   test('model selector reflects updated provider model IDs after PATCH update', async ({ page }) => {
-    // 4. Navigate to the session conversation tab
+    // 4. Verify provider and model exist before navigating (guard against parallel cleanup)
+    const providerCheck = await getProvider(provider.id);
+    expect(providerCheck).toBeTruthy();
+    expect(providerCheck.models?.some((m: any) => m.modelId === 'test-model-v1')).toBe(true);
+
+    // Navigate to the session conversation tab
     await page.goto(`/sessions/${session.id}/conversation`);
     await page.waitForLoadState('networkidle');
 
@@ -130,7 +139,7 @@ test.describe('Provider Model Sync in Model Selector', () => {
       if (!select) return false;
       const options = Array.from(select.options);
       return options.some(opt => opt.value === 'test-model-v1');
-    }, { timeout: 10000 });
+    }, { timeout: 15000 });
 
     // Verify test-model-v1 is present as an option
     const v1Options = modelSelect.locator('option[value="test-model-v1"]');
@@ -160,7 +169,7 @@ test.describe('Provider Model Sync in Model Selector', () => {
       const select = document.querySelector('#model-select') as HTMLSelectElement;
       if (!select) return false;
       return select.options.length > 1;
-    }, { timeout: 10000 });
+    }, { timeout: 15000 });
 
     // Collect all option values for debugging
     const allOptionValues = await modelSelectAfter.locator('option').evaluateAll(

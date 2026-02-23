@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
   seedProject,
   seedSession,
-  cleanupAll,
+  cleanupCreatedResources,
   seedCommandButton,
   navigateAndWait,
   waitForSessionToExist,
@@ -29,7 +29,7 @@ test.describe('Session List Command Button Indicators', () => {
   let button: any;
 
   test.beforeEach(async () => {
-    await cleanupAll();
+    await cleanupCreatedResources();
     project = await seedProject('Button Indicators Test', '/tmp');
     // Use startImmediately: false to prevent the session manager from racing with our tests
     // (runSession tries to start Claude Code, which fails in test env and changes status unpredictably)
@@ -47,7 +47,7 @@ test.describe('Session List Command Button Indicators', () => {
   });
 
   test.afterEach(async () => {
-    await cleanupAll();
+    await cleanupCreatedResources();
   });
 
   /**

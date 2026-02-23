@@ -336,15 +336,42 @@ export async function cleanupAll() {
 
   const projects = await projectsResponse.json();
   for (const project of projects) {
-    // Only delete test projects (prefixed with [TEST])
+    // Only delete test projects created by this worker (prefixed with TEST_PREFIX)
     if (project.name.startsWith(TEST_PREFIX)) {
       await fetch(`${API_URL}/api/projects/${project.id}`, { method: 'DELETE' });
     }
   }
 
-  // Delete all non-built-in providers whose names start with [TEST.
-  // This is safe here because cleanupAll() is only called from global-setup and
-  // global-teardown, which run sequentially (not in parallel with any workers).
+  // Delete providers created by this worker only (uses per-worker TEST_PREFIX).
+  // This is safe for parallel execution — each worker only cleans up its own providers.
+  // For a broader sweep (e.g. global-setup/teardown), use cleanupAllBroadly().
+  const providersResponse = await fetch(`${API_URL}/api/providers`);
+  if (!providersResponse.ok) return;
+
+  const providers = await providersResponse.json();
+  for (const provider of providers) {
+    if (provider.name.startsWith(TEST_PREFIX) && !provider.isBuiltIn) {
+      await fetch(`${API_URL}/api/providers/${provider.id}`, { method: 'DELETE' });
+    }
+  }
+}
+
+/**
+ * Broadly clean up ALL test resources across all workers.
+ * Only safe to call from global-setup and global-teardown, which run
+ * sequentially (not in parallel with any workers).
+ */
+export async function cleanupAllBroadly() {
+  const projectsResponse = await fetch(`${API_URL}/api/projects`);
+  if (!projectsResponse.ok) return;
+
+  const projects = await projectsResponse.json();
+  for (const project of projects) {
+    if (project.name.startsWith('[TEST') || project.name.startsWith(TEST_PREFIX)) {
+      await fetch(`${API_URL}/api/projects/${project.id}`, { method: 'DELETE' });
+    }
+  }
+
   const providersResponse = await fetch(`${API_URL}/api/providers`);
   if (!providersResponse.ok) return;
 
@@ -792,7 +819,10 @@ export async function addProviderModel(providerId: string, data: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!response.ok) throw new Error('Failed to add provider model');
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Failed to add provider model (${response.status}): ${body}`);
+  }
   return response.json();
 }
 

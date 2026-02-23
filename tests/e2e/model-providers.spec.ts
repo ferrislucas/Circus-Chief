@@ -27,7 +27,6 @@ test.describe('Model Provider Management', () => {
       name: '[TEST] Custom Provider',
       baseUrl: 'https://api.example.com',
       authToken: 'test-secret-key-12345',
-      defaultSonnetModel: 'claude-3-5-sonnet-20241022',
     });
 
     expect(provider).toBeTruthy();
@@ -35,7 +34,8 @@ test.describe('Model Provider Management', () => {
     expect(provider.baseUrl).toBe('https://api.example.com');
     // Auth token should be redacted in response
     expect(provider.authToken).toBe('••••••••');
-    expect(provider.defaultSonnetModel).toBe('claude-3-5-sonnet-20241022');
+    // Models are managed via the separate /models endpoint
+    expect(provider.models).toEqual([]);
   });
 
   test('preserves auth token when updating other fields (API)', async () => {
