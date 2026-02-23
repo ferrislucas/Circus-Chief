@@ -858,21 +858,13 @@ watch(
 );
 
 // Update model selector when active conversation changes or its model is updated
-// This ensures the selector always reflects the model used in the current conversation
-// Watch the entire conversation object (not just .model) to detect all changes including conversation switches
+// Only set the model on initial load (selectedModel is null) to avoid overriding
+// user selections when session state changes (e.g., stop button resets status)
 watch(
   () => sessionsStore.activeConversation,
   (conv) => {
-    if (conv) {
-      // Use session model (user-requested short format) or fall back to project/default
-      // conversations.model is no longer used — session.model tracks the user's selection
-      selectedModel.value = sessionsStore.currentSession?.model ||
-        getProjectDefaultModel() ||
-        'sonnet';
-    } else {
-      // No active conversation yet - use session/project default
-      // This ensures the model selector always shows a selected model even before
-      // conversations are fetched or when there's no active conversation
+    if (selectedModel.value === null) {
+      // Initial load: set model from session, project default, or fallback
       selectedModel.value = sessionsStore.currentSession?.model ||
         getProjectDefaultModel() ||
         'sonnet';
@@ -880,6 +872,19 @@ watch(
   },
   { immediate: true }
 );
+
+// Persist model selection to session when user changes it
+// This ensures the model is preserved across status changes (stop, restart, etc.)
+watch(selectedModel, async (newModel, oldModel) => {
+  // Only persist if this is a user-initiated change (not initial load)
+  if (oldModel !== null && newModel && newModel !== oldModel) {
+    try {
+      await sessionsStore.updateSessionModel(props.sessionId, newModel);
+    } catch (err) {
+      console.error('Failed to persist model selection:', err);
+    }
+  }
+});
 
 function formatTime(timestamp) {
   return new Date(timestamp).toLocaleTimeString();
