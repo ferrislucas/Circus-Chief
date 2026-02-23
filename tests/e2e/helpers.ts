@@ -1125,3 +1125,128 @@ export async function getSessionNotes(sessionId: string) {
   if (!response.ok) return [];
   return response.json();
 }
+
+// ============================================================
+// Conversation Management Helpers
+// ============================================================
+
+/**
+ * Create a conversation for a session
+ */
+export async function seedConversation(sessionId: string, name?: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/conversations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name || null }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || `Failed to seed conversation: ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Create a conversation and return the raw response (for testing error cases)
+ */
+export async function seedConversationRaw(sessionId: string, name?: string) {
+  return fetch(`${API_URL}/api/sessions/${sessionId}/conversations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name || null }),
+  });
+}
+
+/**
+ * List all conversations for a session
+ */
+export async function getConversations(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/conversations`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+/**
+ * Switch to a specific conversation (set as active)
+ */
+export async function switchConversation(sessionId: string, conversationId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/conversations/${conversationId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isActive: true }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || `Failed to switch conversation: ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Delete a conversation (returns raw response for testing error cases)
+ */
+export async function deleteConversationRaw(sessionId: string, conversationId: string) {
+  return fetch(`${API_URL}/api/sessions/${sessionId}/conversations/${conversationId}`, {
+    method: 'DELETE',
+  });
+}
+
+/**
+ * Delete a conversation
+ */
+export async function deleteConversation(sessionId: string, conversationId: string) {
+  const response = await deleteConversationRaw(sessionId, conversationId);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || `Failed to delete conversation: ${response.status}`);
+  }
+  // 204 No Content
+  return null;
+}
+
+/**
+ * Branch from a message in a conversation
+ */
+export async function branchConversation(
+  sessionId: string,
+  conversationId: string,
+  messageId: string,
+  prompt: string
+) {
+  const response = await fetch(
+    `${API_URL}/api/sessions/${sessionId}/conversations/${conversationId}/branch`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId, prompt }),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || `Failed to branch conversation: ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Get messages for a specific conversation
+ */
+export async function getConversationMessages(sessionId: string, conversationId: string) {
+  const response = await fetch(
+    `${API_URL}/api/sessions/${sessionId}/messages?conversation_id=${conversationId}`
+  );
+  if (!response.ok) return [];
+  return response.json();
+}
+
+/**
+ * Generate summary for a conversation
+ */
+export async function generateConversationSummary(sessionId: string, conversationId: string) {
+  const response = await fetch(
+    `${API_URL}/api/sessions/${sessionId}/conversations/${conversationId}/summary`,
+    { method: 'POST' }
+  );
+  // Don't throw on error - summary generation may fail if service is disabled
+  return response;
+}
