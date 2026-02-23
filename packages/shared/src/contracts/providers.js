@@ -4,9 +4,6 @@ export const CreateProviderRequest = z.object({
   name: z.string().min(1).max(100),
   baseUrl: z.string().url().nullable().optional(),
   authToken: z.string().nullable().optional(),
-  defaultOpusModel: z.string().nullable().optional(),
-  defaultSonnetModel: z.string().nullable().optional(),
-  defaultHaikuModel: z.string().nullable().optional(),
   apiTimeoutMs: z.number().int().positive().nullable().optional(),
   additionalEnvVars: z.record(z.string()).nullable().optional(),
 });
@@ -15,9 +12,6 @@ export const UpdateProviderRequest = z.object({
   name: z.string().min(1).max(100).optional(),
   baseUrl: z.string().url().nullable().optional(),
   authToken: z.string().nullable().optional(),
-  defaultOpusModel: z.string().nullable().optional(),
-  defaultSonnetModel: z.string().nullable().optional(),
-  defaultHaikuModel: z.string().nullable().optional(),
   apiTimeoutMs: z.number().int().positive().nullable().optional(),
   additionalEnvVars: z.record(z.string()).nullable().optional(),
 });
@@ -27,14 +21,22 @@ export const ProviderResponse = z.object({
   name: z.string(),
   baseUrl: z.string().nullable(),
   authToken: z.string().nullable(), // Will be redacted in API responses
-  defaultOpusModel: z.string().nullable(),
-  defaultSonnetModel: z.string().nullable(),
-  defaultHaikuModel: z.string().nullable(),
   apiTimeoutMs: z.number().nullable(),
   additionalEnvVars: z.record(z.string()).nullable(),
   isBuiltIn: z.boolean(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  models: z.array(
+    z.object({
+      id: z.string().uuid(),
+      providerId: z.string().uuid(),
+      modelId: z.string(),
+      displayName: z.string(),
+      description: z.string().nullable(),
+      tier: z.enum(['opus', 'sonnet', 'haiku', 'custom']),
+      createdAt: z.number(),
+    })
+  ),
 });
 
 export const ProviderListResponse = z.array(ProviderResponse);
