@@ -169,6 +169,19 @@ export const useProvidersStore = defineStore('providers', {
       }
     },
 
+    async updateModel(providerId, modelId, model) {
+      this.loading = true;
+      this.error = null;
+      try {
+        return await api.updateProviderModel(providerId, modelId, model);
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.loading = false;
+      }
+    },
+
     async removeModel(providerId, modelId) {
       this.loading = true;
       this.error = null;

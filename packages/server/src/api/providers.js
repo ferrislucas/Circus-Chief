@@ -133,10 +133,12 @@ router.post('/:id/test', async (req, res) => {
       return res.status(404).json({ error: 'Provider not found' });
     }
 
+    // Pick the sonnet-tiered model (if any) as the test model, falling back to any first model
+    const sonnetModel = provider.models?.find((m) => m.tier === 'sonnet');
     const testConfig = {
       baseUrl: provider.baseUrl,
       authToken: provider.authToken,
-      defaultSonnetModel: provider.defaultSonnetModel,
+      defaultSonnetModel: sonnetModel?.modelId,
       apiTimeoutMs: provider.apiTimeoutMs,
     };
 
@@ -183,6 +185,35 @@ router.post('/:id/models', (req, res) => {
 
     const model = modelProviders.addModel(req.params.id, result.data);
     res.status(201).json(model);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PATCH /api/providers/:id/models/:modelId - Update model
+router.patch('/:id/models/:modelId', (req, res) => {
+  try {
+    const provider = modelProviders.getById(req.params.id);
+    if (!provider) {
+      return res.status(404).json({ error: 'Provider not found' });
+    }
+
+    const model = modelProviders.getModelById(req.params.modelId);
+    if (!model) {
+      return res.status(404).json({ error: 'Model not found' });
+    }
+
+    if (model.providerId !== req.params.id) {
+      return res.status(400).json({ error: 'Model does not belong to this provider' });
+    }
+
+    const result = CreateProviderModelRequest.partial().safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({ error: result.error.issues[0].message });
+    }
+
+    const updated = modelProviders.updateModel(req.params.modelId, result.data);
+    res.json(updated);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
