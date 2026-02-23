@@ -74,76 +74,7 @@
       </div>
     </div>
 
-    <!-- Status Filters -->
-    <div v-if="activeTab === 'sessions'" class="filters-container">
-      <div class="status-filters">
-        <button
-          v-for="status in ['running', 'idle']"
-          :key="status"
-          :class="['filter-btn', { active: sessionsStore.statusFilter === status }]"
-          @click="toggleFilter(status)"
-        >
-          {{ status }}
-        </button>
-        <button
-          :class="[
-            'filter-btn star-btn',
-            {
-              'star-filter-active': sessionsStore.starredFilter === 'starred',
-              'star-filter-unstarred': sessionsStore.starredFilter === 'unstarred',
-              'star-filter-all': sessionsStore.starredFilter === null
-            }
-          ]"
-          :title="starFilterTooltip"
-          @click="toggleStarFilterIcon"
-        >
-          <span class="star-icon" v-if="sessionsStore.starredFilter === 'starred'">⭐</span>
-          <span class="star-icon star-crossed" v-else-if="sessionsStore.starredFilter === 'unstarred'">⭐</span>
-          <span class="star-icon" v-else>☆</span>
-        </button>
-        <button
-          :class="[
-            'filter-btn schedule-btn',
-            {
-              'schedule-filter-active': sessionsStore.scheduledFilter === 'scheduled',
-              'schedule-filter-not-scheduled': sessionsStore.scheduledFilter === 'not-scheduled',
-              'schedule-filter-all': sessionsStore.scheduledFilter === null
-            }
-          ]"
-          :title="scheduledFilterTooltip"
-          @click="toggleScheduledFilterIcon"
-        >
-          <span class="schedule-icon" v-if="sessionsStore.scheduledFilter === 'scheduled'">⏰</span>
-          <span class="schedule-icon schedule-crossed" v-else-if="sessionsStore.scheduledFilter === 'not-scheduled'">⏰</span>
-          <span class="schedule-icon" v-else>⏰</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Status/Starred Filters for Archived Tab -->
-    <div v-else-if="activeTab === 'archived'" class="filters-container">
-      <div class="status-filters">
-        <button
-          :class="[
-            'filter-btn star-btn',
-            {
-              'star-filter-active': sessionsStore.starredFilter === 'starred',
-              'star-filter-unstarred': sessionsStore.starredFilter === 'unstarred',
-              'star-filter-all': sessionsStore.starredFilter === null
-            }
-          ]"
-          :title="starFilterTooltip"
-          @click="toggleStarFilterIcon"
-        >
-          <span class="star-icon" v-if="sessionsStore.starredFilter === 'starred'">⭐</span>
-          <span class="star-icon star-crossed" v-else-if="sessionsStore.starredFilter === 'unstarred'">⭐</span>
-          <span class="star-icon" v-else>☆</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Spacer for other tabs to match structure -->
-    <div v-else class="tab-spacer"></div>
+    <SessionFilters :active-tab="activeTab" />
 
     <!-- Sessions Tab -->
     <div v-if="activeTab === 'sessions'">
@@ -268,8 +199,10 @@ import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectSubscription } from '../composables/useWebSocket.js';
+import { useSessionFiltering } from '../composables/useSessionFiltering.js';
 import { api } from '../composables/useApi.js';
 import SessionCard from '../components/SessionCard.vue';
+import SessionFilters from '../components/SessionFilters.vue';
 import TemplatesPanel from '../components/TemplatesPanel.vue';
 import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
 import ScheduledSessionCard from '../components/ScheduledSessionCard.vue';
@@ -292,67 +225,8 @@ const activeTab = computed(() => {
   }
 });
 
-const toggleFilter = (status) => {
-  // If the clicked filter is already active, clear all filters (show all)
-  if (sessionsStore.statusFilter === status) {
-    sessionsStore.setStatusFilter(null);
-  } else {
-    // Otherwise, set this filter as the only active one (exclusive)
-    sessionsStore.setStatusFilter(status);
-  }
-};
-
-const toggleStarredFilter = (filter) => {
-  // If the clicked filter is already active, clear the filter (show all)
-  if (sessionsStore.starredFilter === filter) {
-    sessionsStore.setStarredFilter(null);
-  } else {
-    // Otherwise, set this filter as the only active one
-    sessionsStore.setStarredFilter(filter);
-  }
-};
-
-const toggleStarFilterIcon = () => {
-  // Cycle through three states: null -> starred -> unstarred -> null
-  if (sessionsStore.starredFilter === null) {
-    sessionsStore.setStarredFilter('starred');
-  } else if (sessionsStore.starredFilter === 'starred') {
-    sessionsStore.setStarredFilter('unstarred');
-  } else {
-    sessionsStore.setStarredFilter(null);
-  }
-};
-
-const starFilterTooltip = computed(() => {
-  if (sessionsStore.starredFilter === 'starred') {
-    return 'Showing starred sessions only. Click to filter unstarred.';
-  } else if (sessionsStore.starredFilter === 'unstarred') {
-    return 'Showing unstarred sessions only. Click to show all.';
-  } else {
-    return 'Showing all sessions. Click to filter by starred.';
-  }
-});
-
-const toggleScheduledFilterIcon = () => {
-  // Cycle through three states: null -> scheduled -> not-scheduled -> null
-  if (sessionsStore.scheduledFilter === null) {
-    sessionsStore.setScheduledFilter('scheduled');
-  } else if (sessionsStore.scheduledFilter === 'scheduled') {
-    sessionsStore.setScheduledFilter('not-scheduled');
-  } else {
-    sessionsStore.setScheduledFilter(null);
-  }
-};
-
-const scheduledFilterTooltip = computed(() => {
-  if (sessionsStore.scheduledFilter === 'scheduled') {
-    return 'Showing workflows with scheduled sessions. Click to filter non-scheduled.';
-  } else if (sessionsStore.scheduledFilter === 'not-scheduled') {
-    return 'Showing workflows without scheduled sessions. Click to show all.';
-  } else {
-    return 'Showing all workflows. Click to filter by scheduled.';
-  }
-});
+// Session filtering composable
+const { filteredGroupedSessions } = useSessionFiltering();
 
 // Handle tab change from mobile dropdown
 function handleTabChange(tab) {
@@ -366,58 +240,6 @@ function handleTabChange(tab) {
   };
   router.push(routes[tab]);
 }
-
-const filteredGroupedSessions = computed(() => {
-  let groups = sessionsStore.groupedSessions;
-
-  // Apply workflow-aware status filter if set
-  // This filters based on the aggregated status of the entire workflow tree
-  if (sessionsStore.statusFilter) {
-    groups = groups.filter(group => {
-      // Get the workflow's effective status (aggregated across all descendants)
-      const workflowStatus = sessionsStore.getWorkflowAggregatedStatus(group.parent.id);
-      const effectiveStatus = workflowStatus.effectiveStatus;
-
-      // "running" filter shows workflows where any session is running
-      if (sessionsStore.statusFilter === 'running' && effectiveStatus === 'running') {
-        return true;
-      }
-      // "idle" filter shows workflows where no session is running
-      if (sessionsStore.statusFilter === 'idle' && effectiveStatus === 'idle') {
-        return true;
-      }
-      return false;
-    });
-  }
-
-  // Apply starred filter if set (only considers root session's starred status)
-  if (sessionsStore.starredFilter === 'starred') {
-    groups = groups.filter(group => group.parent.starred);
-  } else if (sessionsStore.starredFilter === 'unstarred') {
-    groups = groups.filter(group => !group.parent.starred);
-  }
-
-  // Apply workflow-aware scheduled filter if set
-  // This filters based on whether any session in the workflow is scheduled
-  if (sessionsStore.scheduledFilter) {
-    groups = groups.filter(group => {
-      const workflowStatus = sessionsStore.getWorkflowAggregatedStatus(group.parent.id);
-      const hasScheduled = workflowStatus.scheduledCount > 0;
-
-      // "scheduled" filter shows workflows with at least one scheduled session
-      if (sessionsStore.scheduledFilter === 'scheduled' && hasScheduled) {
-        return true;
-      }
-      // "not-scheduled" filter shows workflows with no scheduled sessions
-      if (sessionsStore.scheduledFilter === 'not-scheduled' && !hasScheduled) {
-        return true;
-      }
-      return false;
-    });
-  }
-
-  return groups;
-});
 
 // Get projectId as computed to handle route changes
 const projectId = computed(() => route.params.id);
@@ -904,130 +726,6 @@ onUnmounted(() => {
   display: flex;
   justify-content: center;
   padding: 1.5rem;
-}
-
-.status-filters {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.tab-spacer {
-  height: 1rem;
-}
-
-.filter-label {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-}
-
-.filter-btn {
-  background: none;
-  border: 1px solid var(--color-border);
-  padding: 0.375rem 0.75rem;
-  font-size: 0.8rem;
-  color: var(--color-text-soft);
-  cursor: pointer;
-  border-radius: var(--border-radius);
-  transition: all 0.15s;
-  text-transform: capitalize;
-}
-
-.filter-btn:hover {
-  border-color: var(--color-primary);
-  color: var(--color-text);
-}
-
-/* Star icon wrapper - enables positioning for the slash */
-.star-icon {
-  position: relative;
-  display: inline-block;
-}
-
-/* Default state - no filter (show all) */
-.filter-btn.star-filter-all {
-  background: transparent;
-  border-color: var(--color-border);
-  color: var(--color-text-soft);
-}
-
-.filter-btn.star-filter-all:hover {
-  border-color: var(--color-primary);
-  color: var(--color-text);
-}
-
-/* Active state - filter by starred */
-.filter-btn.star-filter-active,
-.filter-btn.active {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
-}
-
-/* Unstarred state - filter by not starred (EXCLUDE starred) */
-.filter-btn.star-filter-unstarred {
-  background: transparent;
-  border-color: #f97316; /* Orange for "exclude/negative" action */
-  color: #f97316; /* Orange star */
-}
-
-/* Add diagonal line through the star */
-.star-crossed::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: -10%;
-  right: -10%;
-  height: 2px;
-  background: currentColor; /* Inherits orange color */
-  transform: translateY(-50%) rotate(-45deg);
-  pointer-events: none;
-}
-
-/* Schedule filter styles */
-.schedule-icon {
-  position: relative;
-  display: inline-block;
-}
-
-/* Default state - no filter (show all) */
-.filter-btn.schedule-filter-all {
-  background: transparent;
-  border-color: var(--color-border);
-  color: var(--color-text-soft);
-}
-
-.filter-btn.schedule-filter-all:hover {
-  border-color: var(--color-primary);
-  color: var(--color-text);
-}
-
-/* Active state - filter by scheduled */
-.filter-btn.schedule-filter-active {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
-}
-
-/* Not-scheduled state - filter by not scheduled (EXCLUDE scheduled) */
-.filter-btn.schedule-filter-not-scheduled {
-  background: transparent;
-  border-color: #f97316; /* Orange for "exclude/negative" action */
-  color: #f97316;
-}
-
-/* Add diagonal line through the schedule icon */
-.schedule-crossed::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: -10%;
-  right: -10%;
-  height: 2px;
-  background: currentColor;
-  transform: translateY(-50%) rotate(-45deg);
-  pointer-events: none;
 }
 
 @media (max-width: 480px) {

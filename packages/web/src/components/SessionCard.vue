@@ -72,74 +72,29 @@
           </p>
         </div>
 
-        <div class="session-header-actions">
-          <div class="session-date">
-            {{ formatDate(dateToShow) }}
-          </div>
-          <!-- Archive button and star button (always visible on root sessions, not on child sessions) -->
-          <div v-if="!isChild && (showArchive || showUnarchive)" class="archive-actions">
-            <button
-              v-if="showArchive && canArchive"
-              class="archive-btn"
-              title="Archive session"
-              @click.stop.prevent="onArchiveClick"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="4" width="20" height="5" rx="1" ry="1"></rect>
-                <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path>
-                <path d="M10 13h4"></path>
-              </svg>
-            </button>
-            <button
-              v-if="showUnarchive"
-              class="archive-btn"
-              title="Unarchive session"
-              @click.stop.prevent="onUnarchiveClick"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="4" width="20" height="5" rx="1" ry="1"></rect>
-                <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path>
-                <path d="M12 11v6"></path>
-                <path d="M9 14l3-3 3 3"></path>
-              </svg>
-            </button>
-            <!-- Star button in actions (for mobile layout) -->
-            <button
-              class="star-btn star-btn-mobile"
-              :title="session.starred ? 'Unstar session' : 'Star session'"
-              @click.stop.prevent="onStarClick"
-            >
-              <svg v-if="session.starred" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
-              </svg>
-              <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
-              </svg>
-            </button>
-          </div>
-        </div>
+        <SessionCardActions
+          :date-to-show="dateToShow"
+          :is-child="isChild"
+          :show-archive="showArchive"
+          :show-unarchive="showUnarchive"
+          :can-archive="canArchive"
+          :starred="!!session.starred"
+          @archive="onArchiveClick"
+          @unarchive="onUnarchiveClick"
+          @star="onStarClick"
+        />
       </div>
 
       <!-- Summary section -->
-      <div v-if="showSummary">
-        <div v-if="summary" class="session-summary">
-          <p class="summary-text">{{ summary.shortSummary }}</p>
-          <div class="summary-meta">
-            <span v-if="filesCount > 0" class="summary-files">
-              {{ filesCount }} {{ filesCount === 1 ? 'file' : 'files' }} modified
-            </span>
-          </div>
-        </div>
-        <div v-else-if="summaryLoading" class="session-summary session-summary-loading">
-          <span class="loading-spinner-small"></span>
-          <span>Loading summary...</span>
-        </div>
-        <div v-else-if="summaryError" class="session-summary session-summary-error">
-          <span class="error-icon">!</span>
-          <span>Summary unavailable</span>
-          <button class="retry-btn" @click.prevent="$emit('retrySummary', session.id)">Retry</button>
-        </div>
-      </div>
+      <SessionCardSummary
+        :show-summary="showSummary"
+        :summary="summary"
+        :summary-loading="summaryLoading"
+        :summary-error="summaryError"
+        :files-count="filesCount"
+        :session-id="session.id"
+        @retry-summary="(id) => $emit('retrySummary', id)"
+      />
 
       <!-- Expand/collapse toggle for sessions with children -->
       <div v-if="hasChildren && !isChild" class="expand-toggle-row">
@@ -196,21 +151,17 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
-import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { formatDate } from '../utils/formatters.js';
+import { useSessionCardActions } from '../composables/useSessionCardActions.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import PrIndicators from './PrIndicators.vue';
 import WorkflowSessionItem from './WorkflowSessionItem.vue';
-import { api } from '../composables/useApi.js';
+import SessionCardActions from './SessionCardActions.vue';
+import SessionCardSummary from './SessionCardSummary.vue';
 
-const router = useRouter();
 const sessionsStore = useSessionsStore();
-const commandButtonsStore = useCommandButtonsStore();
-const selectedButtonForModal = ref(null);
-const filesCount = ref(0);
 
 const props = defineProps({
   session: {
@@ -269,10 +220,17 @@ const props = defineProps({
 
 const emit = defineEmits(['retrySummary', 'archive', 'unarchive']);
 
-// Show archive for statuses that are no longer active (not running or starting)
-const canArchive = computed(() => {
-  return props.session.status !== 'running' && props.session.status !== 'starting';
-});
+const {
+  selectedButtonForModal,
+  filesCount,
+  canArchive,
+  buttonStatusesToDisplay,
+  commandButtons,
+  getStatusIcon,
+  onArchiveClick,
+  onUnarchiveClick,
+  onStarClick,
+} = useSessionCardActions(props, emit);
 
 const dateToShow = computed(() => {
   // For project view (showProject=false), show createdAt; for active sessions view (showProject=true), show updatedAt
@@ -314,99 +272,6 @@ const getSessionDepth = (sessionId) => {
 const toggleExpand = () => {
   sessionsStore.toggleSessionExpanded(props.session.id);
   sessionsStore.saveExpandedState();
-};
-
-const buttonStatusesToDisplay = computed(() => {
-  const projectId = props.session.projectId;
-  if (!projectId) return [];
-
-  // Access commandRunVersion to establish Vue dependency tracking.
-  // This forces the computed to re-evaluate whenever updateSessionCommandRun is called,
-  // ensuring real-time updates on the session list view.
-  // eslint-disable-next-line no-unused-vars
-  const _version = sessionsStore.commandRunVersion;
-
-  const buttons = commandButtonsStore.getButtonsByProjectId(projectId);
-  const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
-
-  // Get latestCommandRuns from the store session.
-  const sessionId = props.session.id;
-  const sessions = sessionsStore.sessions;
-  const storeSession = sessions.find(s => s.id === sessionId);
-  const latestRuns = storeSession?.latestCommandRuns || props.session.latestCommandRuns || [];
-
-  return latestRuns
-    .filter(run => buttonMap[run.buttonId]?.showOnList)
-    .map(run => ({
-      buttonId: run.buttonId,
-      label: buttonMap[run.buttonId].label,
-      command: buttonMap[run.buttonId].command,
-      status: run.status,
-      latestRun: run,
-    }));
-});
-
-const commandButtons = computed(() => {
-  const projectId = props.session.projectId;
-  if (!projectId) return [];
-  return commandButtonsStore.getButtonsByProjectId(projectId);
-});
-
-const getStatusIcon = (status) => {
-  switch (status) {
-    case 'running':
-      return '⊙';
-    case 'success':
-      return '✓';
-    case 'error':
-      return '✕';
-    case 'killed':
-      return '✕';
-    default:
-      return '';
-  }
-};
-
-const onArchiveClick = () => {
-  if (confirm('Archive this session?')) {
-    emit('archive', props.session.id);
-  }
-};
-
-const onUnarchiveClick = () => {
-  if (confirm('Restore this session to active?')) {
-    emit('unarchive', props.session.id);
-  }
-};
-
-const onStarClick = () => {
-  sessionsStore.toggleSessionStar(props.session.id);
-};
-
-// Fetch modified files count on mount
-onMounted(async () => {
-  try {
-    const result = await api.getSessionFilesCount(props.session.id);
-    filesCount.value = result.count || 0;
-  } catch (error) {
-    console.warn('Failed to fetch files count:', error);
-    // If API fails, fall back to LLM summary count
-    if (props.summary?.filesModified?.length) {
-      filesCount.value = props.summary.filesModified.length;
-    }
-  }
-});
-
-const formatScheduledTime = (timestamp) => {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diffMs = date - now;
-
-  if (diffMs < 0) return 'overdue';
-  if (diffMs < 60000) return 'in < 1 min';
-  if (diffMs < 3600000) return `in ${Math.round(diffMs / 60000)} min`;
-  if (diffMs < 86400000) return `at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 </script>
 
@@ -505,19 +370,6 @@ const formatScheduledTime = (timestamp) => {
   color: var(--color-text-soft);
 }
 
-.session-header-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.5rem;
-  flex-shrink: 0;
-}
-
-.session-date {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-}
-
 .session-action-buttons-group {
   display: flex;
   gap: 0.25rem;
@@ -539,120 +391,6 @@ const formatScheduledTime = (timestamp) => {
 .star-btn:hover {
   color: var(--color-primary);
   background-color: var(--color-bg-soft);
-}
-
-/* Hide mobile star button on desktop */
-.star-btn-mobile {
-  display: none;
-}
-
-.archive-actions {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.archive-btn {
-  background: none;
-  border: none;
-  padding: 0.25rem;
-  cursor: pointer;
-  color: var(--color-text-soft);
-  border-radius: var(--border-radius);
-  transition: color 0.15s, background-color 0.15s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.archive-btn:hover {
-  color: var(--color-primary);
-  background-color: var(--color-bg-soft);
-}
-
-.session-summary {
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--color-border);
-}
-
-.session-summary-loading {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--color-text-soft);
-  font-size: 0.75rem;
-}
-
-.session-summary-error {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--color-text-soft);
-  font-size: 0.75rem;
-}
-
-.error-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  background-color: var(--color-warning);
-  color: white;
-  border-radius: 50%;
-  font-size: 0.625rem;
-  font-weight: bold;
-}
-
-.retry-btn {
-  background: none;
-  border: none;
-  color: var(--color-primary);
-  font-size: 0.75rem;
-  cursor: pointer;
-  padding: 0;
-  margin-left: auto;
-}
-
-.retry-btn:hover {
-  text-decoration: underline;
-}
-
-.summary-text {
-  margin: 0 0 0.5rem;
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.summary-meta {
-  display: flex;
-  gap: 1rem;
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
-}
-
-.summary-files {
-  opacity: 0.8;
-}
-
-.loading-spinner-small {
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--color-border);
-  border-top-color: var(--color-primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* Session count badge */
@@ -861,39 +599,10 @@ const formatScheduledTime = (timestamp) => {
     font-size: 0.7rem;
   }
 
-  /* Compact date display */
-  .session-date {
-    font-size: 0.75rem;
-  }
-
   /* Session info takes full width, date wraps below */
   .session-info {
     min-width: 0;
     flex: 1 1 100%;
-  }
-
-  .session-header-actions {
-    flex-direction: row;
-    align-items: center;
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  /* Group archive actions and mobile star button together */
-  .archive-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-  }
-
-  /* Show star button in actions area on mobile */
-  .star-btn-mobile {
-    display: flex !important;
-  }
-
-  /* Limit summary to 3 lines on very small screens */
-  .summary-text {
-    -webkit-line-clamp: 3;
   }
 
   .session-card.is-child {

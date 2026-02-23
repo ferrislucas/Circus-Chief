@@ -1,6 +1,20 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
+// Re-export all functions from extracted modules so existing consumers are unaffected
+export {
+  isGitRepo,
+  getDiff,
+  getStagedDiff,
+  getUntrackedFiles,
+  getDiffAgainstBranch,
+  getStagedDiffAgainstBranch,
+  getDiffBetweenRefs,
+  getModifiedFilesCount,
+} from './gitRepoInfo.js';
+export { getCurrentBranch, getBranches, branchExists, checkoutBranch } from './gitBranchOps.js';
+export { getWorktrees, createWorktree, removeWorktree, createWorktreeForBranch } from './worktreeManager.js';
+
 const execAsync = promisify(exec);
 
 // Cache for default branch detection per repository
@@ -26,6 +40,15 @@ export function setLogger(customLogger) {
 }
 
 /**
+ * Get the current logger instance.
+ * Used by extracted modules (e.g., worktreeManager) to access the shared logger.
+ * @returns {Object} The current logger object
+ */
+export function getLogger() {
+  return logger;
+}
+
+/**
  * Evict oldest entries from cache if it exceeds MAX_CACHE_SIZE.
  * Uses LRU-like eviction based on timestamp.
  */
@@ -41,23 +64,6 @@ function evictOldestCacheEntries() {
   const entriesToRemove = entries.slice(0, entries.length - MAX_CACHE_SIZE);
   for (const [key] of entriesToRemove) {
     defaultBranchCache.delete(key);
-  }
-}
-
-/**
- * Safely fetch from origin remote.
- * Logs a warning if fetch fails but does not throw.
- * @param {string} directory - The git repository directory
- * @returns {Promise<boolean>} - True if fetch succeeded, false otherwise
- */
-async function safeFetchOrigin(directory) {
-  try {
-    await git(directory, 'fetch origin');
-    return true;
-  } catch (err) {
-    // No origin or network unavailable, proceed without fetch
-    logger.warn('Could not fetch from origin, proceeding with local refs:', err.message);
-    return false;
   }
 }
 
@@ -146,307 +152,4 @@ export function clearDefaultBranchCache() {
  */
 export function getCacheSize() {
   return defaultBranchCache.size;
-}
-
-/**
- * Check if a directory is a git repository
- * @param {string} directory
- * @returns {Promise<boolean>}
- */
-export async function isGitRepo(directory) {
-  try {
-    await git(directory, 'rev-parse --git-dir');
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Get list of worktrees
- * @param {string} directory
- * @returns {Promise<Array<{path: string, branch: string, commit: string}>>}
- */
-export async function getWorktrees(directory) {
-  const output = await git(directory, 'worktree list --porcelain');
-  const worktrees = [];
-  let current = {};
-
-  for (const line of output.split('\n')) {
-    if (line.startsWith('worktree ')) {
-      if (current.path) worktrees.push(current);
-      current = { path: line.slice(9) };
-    } else if (line.startsWith('HEAD ')) {
-      current.commit = line.slice(5);
-    } else if (line.startsWith('branch ')) {
-      current.branch = line.slice(7).replace('refs/heads/', '');
-    } else if (line === 'detached') {
-      current.branch = null;
-    }
-  }
-
-  if (current.path) worktrees.push(current);
-  return worktrees;
-}
-
-/**
- * Get list of branches
- * @param {string} directory
- * @returns {Promise<Array<{name: string, ref: string}>>}
- */
-export async function getBranches(directory) {
-  const output = await git(directory, 'branch -a --format="%(refname:short)|%(refname)"');
-  return output
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => {
-      const [name, ref] = line.split('|');
-      return { name, ref };
-    });
-}
-
-/**
- * Get current branch name
- * @param {string} directory
- * @returns {Promise<string|null>}
- */
-export async function getCurrentBranch(directory) {
-  try {
-    // Use rev-parse which works in older git versions (--show-current was added in 2.22)
-    const branch = await git(directory, 'rev-parse --abbrev-ref HEAD');
-    // Returns 'HEAD' when in detached HEAD state
-    return branch === 'HEAD' ? null : branch;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Create a new worktree
- * @param {string} directory
- * @param {string} branch
- * @param {string} path
- * @param {Object} options
- * @param {boolean} options.skipFetch - Skip fetching from origin (default: false)
- * @returns {Promise<{path: string, branch: string}>}
- */
-export async function createWorktree(directory, branch, path, options = {}) {
-  const { skipFetch = false } = options;
-
-  // Fetch latest from origin to ensure we have up-to-date default branch
-  if (!skipFetch) {
-    await safeFetchOrigin(directory);
-  }
-
-  // Get the default branch from origin (main or master)
-  const defaultBranch = await getOriginDefaultBranch(directory);
-  // Base new branch on origin's default branch to avoid including unrelated commits from HEAD
-  // Use --no-track to prevent the new branch from tracking the start-point (main/master)
-  await git(directory, `worktree add --no-track "${path}" -b "${branch}" ${defaultBranch}`);
-  return { path, branch };
-}
-
-/**
- * Remove a worktree
- * @param {string} directory
- * @param {string} path
- * @param {boolean} force - Force removal even if worktree has uncommitted changes
- */
-export async function removeWorktree(directory, path, force = false) {
-  const forceFlag = force ? '--force' : '';
-  await git(directory, `worktree remove ${forceFlag} "${path}"`);
-}
-
-/**
- * Get diff for a directory
- * @param {string} directory
- * @returns {Promise<string>}
- */
-export async function getDiff(directory) {
-  try {
-    return await git(directory, 'diff');
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Get staged diff for a directory
- * @param {string} directory
- * @returns {Promise<string>}
- */
-export async function getStagedDiff(directory) {
-  try {
-    return await git(directory, 'diff --cached');
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Check if a branch exists
- * @param {string} directory
- * @param {string} branch
- * @returns {Promise<boolean>}
- */
-export async function branchExists(directory, branch) {
-  try {
-    await git(directory, `rev-parse --verify refs/heads/${branch}`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Checkout a branch, creating it if it doesn't exist
- * @param {string} directory
- * @param {string} branch
- * @returns {Promise<void>}
- */
-export async function checkoutBranch(directory, branch) {
-  const exists = await branchExists(directory, branch);
-  if (exists) {
-    await git(directory, `checkout "${branch}"`);
-  } else {
-    await git(directory, `checkout -b "${branch}"`);
-  }
-}
-
-/**
- * Create a worktree for a branch (creates branch if it doesn't exist)
- * @param {string} directory - Main repo directory
- * @param {string} branch - Branch name
- * @param {string} worktreePath - Path for the new worktree
- * @param {Object} options
- * @param {boolean} options.skipFetch - Skip fetching from origin (default: false)
- * @returns {Promise<{path: string, branch: string}>}
- */
-export async function createWorktreeForBranch(directory, branch, worktreePath, options = {}) {
-  const { skipFetch = false } = options;
-
-  // Fetch latest from origin to ensure we have up-to-date default branch
-  if (!skipFetch) {
-    await safeFetchOrigin(directory);
-  }
-
-  const exists = await branchExists(directory, branch);
-  if (exists) {
-    await git(directory, `worktree add "${worktreePath}" "${branch}"`);
-  } else {
-    // Get the default branch from origin (main or master)
-    const defaultBranch = await getOriginDefaultBranch(directory);
-    // Base new branch on origin's default branch to avoid including unrelated commits from HEAD
-    // Use --no-track to prevent the new branch from tracking the start-point (main/master)
-    await git(directory, `worktree add --no-track -b "${branch}" "${worktreePath}" ${defaultBranch}`);
-  }
-  return { path: worktreePath, branch };
-}
-
-/**
- * Get list of untracked files
- * @param {string} directory
- * @returns {Promise<string[]>}
- */
-export async function getUntrackedFiles(directory) {
-  try {
-    const output = await git(directory, 'ls-files --others --exclude-standard');
-    if (!output) return [];
-    return output.split('\n').filter((line) => line.trim());
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Get diff for a directory compared to a specific branch
- * @param {string} directory
- * @param {string} branch - Branch to compare against (e.g., 'origin/main')
- * @returns {Promise<string>}
- */
-export async function getDiffAgainstBranch(directory, branch) {
-  try {
-    return await git(directory, `diff ${branch}`);
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Get staged diff for a directory compared to a specific branch
- * @param {string} directory
- * @param {string} branch - Branch to compare against (e.g., 'origin/main')
- * @returns {Promise<string>}
- */
-export async function getStagedDiffAgainstBranch(directory, branch) {
-  try {
-    return await git(directory, `diff --cached ${branch}`);
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Get diff between two git refs (e.g., comparing HEAD to origin/main)
- * This shows the committed changes between two refs, ignoring working tree state
- * @param {string} directory
- * @param {string} fromRef - Base ref (e.g., 'origin/main')
- * @param {string} toRef - Target ref (e.g., 'HEAD')
- * @returns {Promise<string>}
- */
-export async function getDiffBetweenRefs(directory, fromRef, toRef) {
-  try {
-    return await git(directory, `diff ${fromRef} ${toRef}`);
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Get count of files modified/added compared to a branch
- * Includes committed changes + staged + unstaged + untracked files
- * @param {string} directory - The git repository directory
- * @param {string} branch - Branch to compare against (e.g., 'origin/main')
- * @returns {Promise<number>} - Total count of unique files modified/added
- */
-export async function getModifiedFilesCount(directory, branch) {
-  try {
-    // Get all modified files in one command using --name-only
-    // This includes: committed changes vs branch + staged
-    const committedAndStaged = await git(
-      directory,
-      `diff --name-only ${branch}...HEAD`
-    );
-
-    // Get unstaged changes (working tree vs index)
-    const unstaged = await git(directory, 'diff --name-only');
-
-    // Get untracked files
-    const untracked = await getUntrackedFiles(directory);
-
-    // Combine all files into a Set to get unique count
-    const allFiles = new Set();
-
-    // Parse committed+staged files
-    if (committedAndStaged) {
-      committedAndStaged.split('\n').forEach(f => {
-        if (f.trim()) allFiles.add(f.trim());
-      });
-    }
-
-    // Parse unstaged files
-    if (unstaged) {
-      unstaged.split('\n').forEach(f => {
-        if (f.trim()) allFiles.add(f.trim());
-      });
-    }
-
-    // Add untracked files
-    untracked.forEach(f => allFiles.add(f));
-
-    return allFiles.size;
-  } catch (error) {
-    logger.warn(`Failed to get modified files count for ${directory}:`, error.message);
-    return 0;
-  }
 }

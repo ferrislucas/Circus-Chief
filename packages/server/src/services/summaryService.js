@@ -1,9 +1,28 @@
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import { sessions, messages, sessionSummaries, conversations, projects, settings } from '../database.js';
+/**
+ * Summary Service - Lifecycle Orchestration
+ * Debounce timer management, session summary generation, and delegation to sub-modules.
+ * All heavy lifting is delegated to extracted modules.
+ */
+
+import { sessions, messages, sessionSummaries, projects, settings } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as ghService from './ghService.js';
 // Note: prStatusService is imported dynamically in onSessionComplete to avoid circular dependency
+
+// --- Imports from extracted modules (used internally) ---
+import { validatePrUrl as _validatePrUrl } from './prUrlValidator.js';
+import { buildIncrementalPrompt as _buildIncrementalPrompt } from './summaryPromptBuilder.js';
+import { callClaude as _callClaude, parseSummaryResponse as _parseSummaryResponse } from './summaryClaudeAdapter.js';
+import { buildChildSessionContext as _buildChildSessionContext, aggregateFilesModified as _aggregateFilesModified, propagateToParent } from './sessionHierarchy.js';
+
+// --- Re-exports from extracted modules (preserve public API) ---
+export { extractPrUrlFromMessages, extractPrUrlIfNeeded } from './prUrlExtractor.js';
+export { parsePrUrl, validatePrUrl } from './prUrlValidator.js';
+export { DEFAULT_SESSION_TITLE_PROMPT, formatMessages, buildIncrementalPrompt } from './summaryPromptBuilder.js';
+export { isMockMode, callClaude, parseSummaryResponse } from './summaryClaudeAdapter.js';
+export { getChildSessions, buildChildSessionContext, aggregateFilesModified } from './sessionHierarchy.js';
+export { isConversationSummaryEnabled, generateConversationSummary } from './conversationSummaryService.js';
 
 // Debounce timers per session
 const debounceTimers = new Map();
@@ -16,480 +35,6 @@ const MAX_MESSAGES = 15;
 
 // Maximum retry attempts for failed parsing
 const MAX_RETRIES = 2;
-
-// Check if mock mode is enabled
-const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
-
-// Default prompt for strategic session titles
-const DEFAULT_SESSION_TITLE_PROMPT = `Guidelines for generating session titles:
-- The title should capture the SESSION'S STRATEGIC GOAL, not current tactical activity
-- Focus on WHAT the user ultimately wants to achieve (e.g., "Add dark mode support")
-- NOT the current step (e.g., "Fix TypeScript error", "Update tests")
-- If a PR was created, format as "PR #N: <strategic goal>"
-- PRESERVE the existing title if it still reflects the strategic goal
-- Only change the title if the session's fundamental purpose has changed
-- Keep titles concise (max 60 characters)`;
-
-/**
- * Mock query generator for summary generation in test mode
- * Mirrors the Claude Code SDK's async generator pattern
- * @param {Object} params
- * @param {string} params.prompt - The prompt string
- * @param {Array} params.recentMessages - Messages for mock context
- * @param {string} params.sessionStatus - Session status for mock outcome
- */
-async function* mockSummaryQuery({ prompt: _prompt, recentMessages, sessionStatus }) {
-  // Yield system init event (matches SDK pattern)
-  yield {
-    type: 'system',
-    subtype: 'init',
-    session_id: 'mock-summary-' + Date.now(),
-  };
-
-  // Small delay to simulate processing
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  // Derive outcome from session status
-  let outcome = 'ongoing';
-  if (sessionStatus === 'stopped') outcome = 'partial';
-  else if (sessionStatus === 'error') outcome = 'failed';
-
-  // Create contextual mock response
-  const lastMessage = recentMessages[recentMessages.length - 1];
-  const shortPreview = lastMessage ? lastMessage.content.substring(0, 100) : 'testing session';
-
-  const mockResponse = JSON.stringify({
-    short_summary: `Mock summary: ${shortPreview}...`.substring(0, 150),
-    full_summary: `This is a mock summary for testing purposes. The session has ${recentMessages.length} messages and is currently ${sessionStatus}.`,
-    key_actions: ['Mock action 1', 'Mock action 2'],
-    files_modified: ['mock-file.js'],
-    outcome: outcome,
-    pr_url: null,
-    session_title: `Mock: ${shortPreview}`.substring(0, 60),
-  });
-
-  // Yield assistant message with mock response
-  yield {
-    type: 'assistant',
-    message: {
-      content: [{ type: 'text', text: mockResponse }],
-    },
-  };
-
-  // Yield result event
-  yield {
-    type: 'result',
-    subtype: 'success',
-    total_cost_usd: 0.0001,
-  };
-}
-
-/**
- * Call Claude via SDK and extract text response
- * @param {string} prompt - The prompt to send
- * @param {Array} recentMessages - Messages (for mock mode context)
- * @param {string} sessionStatus - Session status (for mock mode context)
- * @returns {Promise<string>} The text response
- */
-async function callClaude(prompt, recentMessages, sessionStatus) {
-  const queryFn = isMockMode() ? mockSummaryQuery : query;
-
-  // JSON Schema for structured output
-  const summarySchema = {
-    type: 'object',
-    properties: {
-      short_summary: { type: 'string', description: '1-2 sentence preview for list view (max 150 characters)' },
-      full_summary: { type: 'string', description: 'Detailed summary with key accomplishments and current state (max 500 characters)' },
-      key_actions: { type: 'array', items: { type: 'string' }, description: 'List of key actions taken' },
-      files_modified: { type: 'array', items: { type: 'string' }, description: 'List of files that were modified' },
-      outcome: { type: 'string', enum: ['completed', 'partial', 'failed', 'ongoing'], description: 'Session outcome status' },
-      pr_url: { type: ['string', 'null'], description: 'GitHub PR URL if one was created' },
-      session_title: { type: ['string', 'null'], description: 'Concise title for this session (max 60 characters)' },
-    },
-    required: ['short_summary', 'full_summary', 'key_actions', 'files_modified', 'outcome'],
-  };
-
-  const queryParams = isMockMode()
-    ? { prompt, recentMessages, sessionStatus }
-    : {
-        prompt,
-        options: {
-          cwd: process.cwd(),
-          permissionMode: 'bypassPermissions',
-          maxTurns: 1,
-          model: 'claude-haiku-4-5-20251001',
-          outputFormat: {
-            type: 'json_schema',
-            schema: summarySchema,
-          },
-        },
-      };
-
-  let responseText = '';
-  let structuredOutput = null;
-
-  for await (const event of queryFn(queryParams)) {
-    switch (event.type) {
-      case 'assistant': {
-        const content = event.message?.content || [];
-        for (const block of content) {
-          // Capture structured output from StructuredOutput tool use
-          if (block.type === 'tool_use' && block.name === 'StructuredOutput') {
-            structuredOutput = block.input;
-          } else if (block.type === 'text') {
-            responseText += block.text;
-          }
-        }
-        break;
-      }
-      case 'result': {
-        if (event.subtype === 'error') {
-          throw new Error(event.error || 'Claude SDK query failed');
-        }
-        break;
-      }
-    }
-  }
-
-  // Prefer structured output (already parsed JSON) over text response
-  if (structuredOutput) {
-    return JSON.stringify(structuredOutput);
-  }
-  return responseText;
-}
-
-/**
- * Format messages for the prompt
- * @param {Array} messageList - List of messages
- * @returns {string}
- */
-function formatMessages(messageList) {
-  return messageList
-    .map((msg) => {
-      const role = msg.role === 'user' ? 'User' : 'Assistant';
-      let content = msg.content;
-
-      // Truncate very long messages (optimized for token efficiency)
-      if (content.length > 750) {
-        content = content.substring(0, 750) + '... [truncated]';
-      }
-
-      // Add tool use info if present
-      if (msg.toolUse && msg.toolUse.length > 0) {
-        const tools = msg.toolUse.map((t) => t.name).join(', ');
-        content += `\n[Tools used: ${tools}]`;
-      }
-
-      return `${role}: ${content}`;
-    })
-    .join('\n\n');
-}
-
-/**
- * Get all child sessions of a parent session
- * @param {string} parentSessionId - The parent session ID
- * @returns {Array} Array of child sessions
- */
-function getChildSessions(parentSessionId) {
-  // Use the SessionRepository's getChildSessions method
-  return sessions.getChildSessions(parentSessionId);
-}
-
-/**
- * Build child session context for workflow-aware summaries
- * @param {string} sessionId - The session ID
- * @returns {string} Context string describing child sessions
- */
-function buildChildSessionContext(sessionId) {
-  const children = getChildSessions(sessionId);
-  if (children.length === 0) return '';
-
-  const childContexts = children.map(child => {
-    const childSummary = sessionSummaries.getBySessionId(child.id);
-    return `- ${child.name} (${child.status}): ${childSummary?.shortSummary || 'No summary yet'}`;
-  });
-
-  return `
-CHILD SESSIONS (${children.length}):
-${childContexts.join('\n')}`;
-}
-
-/**
- * Aggregate file counts from this session and all child sessions
- * @param {string} sessionId - The session ID
- * @param {Array} currentFiles - Files from the current session
- * @returns {Array} Deduplicated list of all files modified
- */
-function aggregateFilesModified(sessionId, currentFiles = []) {
-  const allFiles = new Set(currentFiles);
-
-  const children = getChildSessions(sessionId);
-  for (const child of children) {
-    const childSummary = sessionSummaries.getBySessionId(child.id);
-    if (childSummary?.filesModified) {
-      for (const file of childSummary.filesModified) {
-        allFiles.add(file);
-      }
-    }
-    // Recursively aggregate from grandchildren
-    const grandchildFiles = aggregateFilesModified(child.id, []);
-    for (const file of grandchildFiles) {
-      allFiles.add(file);
-    }
-  }
-
-  return Array.from(allFiles);
-}
-
-/**
- * Build the prompt for incremental summary generation
- * @param {Object|null} existingSummary - Existing summary if any
- * @param {Array} recentMessages - Recent messages to summarize
- * @param {string} sessionStatus - Current session status
- * @param {string|null} projectTitlePrompt - Custom prompt for session titles (uses default if null)
- * @param {string|null} childContext - Context about child sessions (for workflow-aware summaries)
- * @returns {string}
- */
-function buildIncrementalPrompt(existingSummary, recentMessages, sessionStatus, projectTitlePrompt = null, childContext = '') {
-  const existingContext = existingSummary
-    ? `EXISTING SUMMARY:
-${existingSummary.fullSummary}
-
-Key actions so far: ${JSON.stringify(existingSummary.keyActions || [])}
-Files modified: ${JSON.stringify(existingSummary.filesModified || [])}
-Previous outcome: ${existingSummary.outcome}
-Previous title: ${existingSummary.sessionTitle || 'Not set'}`
-    : 'EXISTING SUMMARY:\nNo previous summary - this is the first generation.';
-
-  const formattedMessages = formatMessages(recentMessages);
-
-  // Use custom prompt if provided, otherwise use default
-  const sessionTitlePrompt = projectTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT;
-
-  return `You are updating a session summary for a Claude Code session. Current session status: ${sessionStatus}
-
-${existingContext}
-${childContext}
-RECENT CONVERSATION:
-${formattedMessages}
-
-Generate an updated summary that:
-1. Preserves important context from the existing summary
-2. Incorporates new actions and progress from recent messages
-3. Updates the outcome status if changed
-4. Maintains a coherent narrative of the full session
-
-Respond with JSON only (no markdown code blocks), in this exact format:
-{
-  "short_summary": "1-2 sentence preview for list view (max 150 characters)",
-  "full_summary": "Detailed summary with key accomplishments and current state (max 500 characters)",
-  "key_actions": ["action 1", "action 2", ...],
-  "files_modified": ["file1.js", "file2.js", ...],
-  "outcome": "completed|partial|failed|ongoing",
-  "pr_url": "https://github.com/owner/repo/pull/123 or null if no PR was created/mentioned",
-  "session_title": "Concise title for this session (max 60 characters)"
-}
-
-Outcome guidelines:
-- "completed": Task was fully accomplished
-- "partial": Some progress made but task incomplete
-- "failed": Task encountered errors and couldn't proceed
-- "ongoing": Session is still active/waiting for user input
-
-Session title guidelines:
-${sessionTitlePrompt}`;
-}
-
-/**
- * Extract PR URL from session messages by scanning for GitHub PR links
- * @param {string} sessionId - The session ID
- * @returns {string|null} - The PR URL if found, null otherwise
- */
-function extractPrUrlFromMessages(sessionId) {
-  const allMessages = messages.getBySessionId(sessionId);
-  if (!allMessages || allMessages.length === 0) return null;
-
-  // Get recent messages (last 20) to scan for PR URLs
-  const recentMessages = allMessages.slice(-20);
-
-  // GitHub PR URL pattern: https://github.com/{owner}/{repo}/pull/{number}
-  const prUrlPattern = /https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/g;
-
-  // Scan messages in reverse order (most recent first) to find the latest PR URL
-  for (let i = recentMessages.length - 1; i >= 0; i--) {
-    const message = recentMessages[i];
-    const matches = message.content?.match(prUrlPattern);
-
-    if (matches && matches.length > 0) {
-      // Return the most recent PR URL found
-      return matches[matches.length - 1];
-    }
-  }
-
-  return null;
-}
-
-/**
- * Extract PR URL from recent messages immediately after a turn completes.
- * This is lightweight (no Claude API call) - just scans messages for URLs.
- * @param {string} sessionId - The session ID
- */
-export async function extractPrUrlIfNeeded(sessionId) {
-  const session = sessions.getById(sessionId);
-  if (!session) return;
-
-  // Skip if session already has a PR URL
-  if (session.prUrl) return;
-
-  // Extract PR URL from messages
-  const prUrl = extractPrUrlFromMessages(sessionId);
-  if (prUrl) {
-    sessions.update(sessionId, { prUrl });
-    console.log(`[SummaryService] Extracted PR URL for session ${sessionId}: ${prUrl}`);
-
-    // Broadcast session update so UI shows PR URL immediately
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-      sessionId,
-      session: sessions.getById(sessionId),
-    });
-
-    // Also broadcast to project subscribers
-    if (session.projectId) {
-      broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-        projectId: session.projectId,
-        sessionId,
-        session: sessions.getById(sessionId),
-      });
-    }
-  }
-}
-
-/**
- * Parse a GitHub PR URL into components
- * @param {string} prUrl - GitHub PR URL
- * @returns {Object|null} - { owner, repo, number } or null if invalid format
- */
-function parsePrUrl(prUrl) {
-  if (!prUrl) return null;
-
-  try {
-    // Match GitHub PR URL pattern: https://github.com/{owner}/{repo}/pull/{number}
-    const match = prUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/);
-    if (!match) {
-      console.warn(`[SummaryService] Invalid PR URL format: ${prUrl}`);
-      return null;
-    }
-
-    return {
-      owner: match[1],
-      repo: match[2],
-      number: parseInt(match[3], 10),
-    };
-  } catch (error) {
-    console.warn(`[SummaryService] Failed to parse PR URL ${prUrl}:`, error.message);
-    return null;
-  }
-}
-
-/**
- * Validate that a PR URL belongs to the expected repository
- * @param {string} prUrl - GitHub PR URL
- * @param {string} expectedRepoUrl - Expected repository URL
- * @returns {Object} - { valid: boolean, prComponents: Object|null, mismatch: boolean, error: string|null }
- */
-function validatePrUrl(prUrl, expectedRepoUrl) {
-  if (!prUrl) {
-    return { valid: false, prComponents: null, mismatch: false, error: 'No PR URL provided' };
-  }
-
-  // Parse the PR URL
-  const prComponents = parsePrUrl(prUrl);
-  if (!prComponents) {
-    return { valid: false, prComponents: null, mismatch: false, error: 'Invalid PR URL format' };
-  }
-
-  // If no expected repo URL, we can't validate the match - accept it but log a warning
-  if (!expectedRepoUrl) {
-    console.warn(`[SummaryService] No expected repo URL to validate against PR: ${prUrl}`);
-    return { valid: true, prComponents, mismatch: false, error: null };
-  }
-
-  // Extract owner/repo from expected repo URL
-  const expectedMatch = expectedRepoUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/?$/);
-  if (!expectedMatch) {
-    console.warn(`[SummaryService] Invalid expected repo URL format: ${expectedRepoUrl}`);
-    return { valid: true, prComponents, mismatch: false, error: null };
-  }
-
-  const expectedOwner = expectedMatch[1];
-  const expectedRepo = expectedMatch[2];
-
-  // Validate that the PR belongs to the expected repository
-  const ownerMatch = prComponents.owner === expectedOwner;
-  const repoMatch = prComponents.repo === expectedRepo;
-
-  if (!ownerMatch || !repoMatch) {
-    console.warn(
-      `[SummaryService] PR repository mismatch: ` +
-      `PR is from ${prComponents.owner}/${prComponents.repo}, ` +
-      `but expected ${expectedOwner}/${expectedRepo}`
-    );
-    return {
-      valid: false,
-      prComponents,
-      mismatch: true,
-      error: `PR from ${prComponents.owner}/${prComponents.repo} does not match expected ${expectedOwner}/${expectedRepo}`
-    };
-  }
-
-  return { valid: true, prComponents, mismatch: false, error: null };
-}
-
-/**
- * Parse the Claude API response into a summary object
- * Handles markdown code block wrapping (```json ... ```) that Claude sometimes returns
- * @param {string} responseText
- * @returns {Object}
- */
-function parseSummaryResponse(responseText) {
-  let textToParse = responseText.trim();
-
-  // Only strip markdown if detected (starts with ```)
-  if (textToParse.startsWith('```')) {
-    const codeBlockMatch = textToParse.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
-    if (codeBlockMatch) {
-      textToParse = codeBlockMatch[1].trim();
-      console.log('[SummaryService] Stripped markdown code block from response');
-    }
-  }
-
-  try {
-    const parsed = JSON.parse(textToParse);
-    return {
-      shortSummary: parsed.short_summary || 'Summary generation failed',
-      fullSummary: parsed.full_summary || 'Unable to generate summary',
-      keyActions: parsed.key_actions || [],
-      filesModified: parsed.files_modified || [],
-      outcome: parsed.outcome || 'ongoing',
-      prUrl: parsed.pr_url || null,
-      sessionTitle: parsed.session_title || null,
-      _parseFailed: false,
-    };
-  } catch {
-    // If JSON parsing fails, return fallback with flag for retry logic
-    console.warn('[SummaryService] Failed to parse summary response as JSON, using fallback');
-    return {
-      shortSummary: responseText.substring(0, 150),
-      fullSummary: responseText.substring(0, 500),
-      keyActions: [],
-      filesModified: [],
-      outcome: 'ongoing',
-      prUrl: null,
-      sessionTitle: null,
-      _parseFailed: true,
-    };
-  }
-}
 
 /**
  * Generate summary for a session using Claude Code SDK
@@ -546,16 +91,16 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
     });
 
     // Build child session context for workflow-aware summaries
-    const childContext = buildChildSessionContext(sessionId);
+    const childContext = _buildChildSessionContext(sessionId);
 
     // Build prompt with global title prompt and child context
-    const prompt = buildIncrementalPrompt(existingSummary, recentMessages, session.status, globalSettings?.sessionTitlePrompt, childContext);
+    const prompt = _buildIncrementalPrompt(existingSummary, recentMessages, session.status, globalSettings?.sessionTitlePrompt, childContext);
 
     // Call Claude via SDK (or mock in test mode)
-    const responseText = await callClaude(prompt, recentMessages, session.status);
+    const responseText = await _callClaude(prompt, recentMessages, session.status);
 
     // Parse response
-    const summaryData = parseSummaryResponse(responseText);
+    const summaryData = _parseSummaryResponse(responseText);
 
     // Retry if parsing failed and we haven't exhausted retries
     if (summaryData._parseFailed && retryCount < MAX_RETRIES) {
@@ -575,7 +120,7 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
 
     // For root sessions (no parent), aggregate files from all child sessions
     if (!session.parentSessionId) {
-      summaryData.filesModified = aggregateFilesModified(sessionId, summaryData.filesModified);
+      summaryData.filesModified = _aggregateFilesModified(sessionId, summaryData.filesModified);
     }
 
     // Validate and enrich PR URL
@@ -584,7 +129,7 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
       // Validate PR URL against project repository
       const project = projects.getById(session.projectId);
       const projectRepoUrl = project?.repoUrl;
-      const validation = validatePrUrl(prUrl, projectRepoUrl);
+      const validation = _validatePrUrl(prUrl, projectRepoUrl);
 
       if (!validation.valid) {
         console.warn(`[SummaryService] PR URL validation failed for session ${sessionId}:`, validation.error);
@@ -681,7 +226,7 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
     // Propagate summary updates to parent sessions (workflow-aware)
     if (session.parentSessionId) {
       // Don't await - let this run asynchronously
-      propagateToParent(sessionId);
+      propagateToParent(sessionId, onSessionActivity);
     }
 
     return summary;
@@ -827,163 +372,13 @@ export function cleanupSession(sessionId) {
 }
 
 /**
- * Build prompt for conversation summary generation
- * @param {Array} conversationMessages - Messages in the conversation
- * @returns {string}
- */
-function buildConversationSummaryPrompt(conversationMessages) {
-  const formattedMessages = formatMessages(conversationMessages);
-
-  return `You are generating a brief summary for a conversation thread within a Claude Code session.
-
-CONVERSATION:
-${formattedMessages}
-
-Generate a concise summary of this conversation. Focus on:
-1. The main topic or goal discussed
-2. Key actions taken or decisions made
-3. Current status (completed, in progress, blocked, etc.)
-
-Respond with JSON only (no markdown code blocks):
-{
-  "summary": "A 2-3 sentence summary of the conversation (max 200 characters)"
-}`;
-}
-
-/**
- * Parse conversation summary response
- * @param {string} responseText
- * @returns {string} The summary text
- */
-function parseConversationSummaryResponse(responseText) {
-  let textToParse = responseText.trim();
-
-  // Strip markdown if detected
-  if (textToParse.startsWith('```')) {
-    const codeBlockMatch = textToParse.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
-    if (codeBlockMatch) {
-      textToParse = codeBlockMatch[1].trim();
-    }
-  }
-
-  try {
-    const parsed = JSON.parse(textToParse);
-    return parsed.summary || 'Summary generation failed';
-  } catch {
-    // If parsing fails, return the raw text truncated
-    return textToParse.substring(0, 200);
-  }
-}
-
-/**
- * Check if conversation summaries are enabled for a session
- * @param {string} sessionId - The session ID
- * @returns {boolean} True if conversation summaries are enabled
- */
-export function isConversationSummaryEnabled(sessionId) {
-  const session = sessions.getById(sessionId);
-  if (!session) return false;
-
-  const globalSettings = settings.getSummarySettings();
-  return !globalSettings?.disableConversationSummaries;
-}
-
-/**
- * Generate summary for a specific conversation
- * @param {string} sessionId - The session ID
- * @param {string} conversationId - The conversation ID
- * @returns {Promise<string|null>} The generated summary text
- */
-export async function generateConversationSummary(sessionId, conversationId) {
-  try {
-    // Get session to check project settings
-    const session = sessions.getById(sessionId);
-    if (!session) {
-      console.warn(`[SummaryService] Session ${sessionId} not found for conversation summary generation`);
-      return null;
-    }
-
-    // Check if conversation summaries are disabled globally
-    const globalSettings = settings.getSummarySettings();
-    if (globalSettings?.disableConversationSummaries) {
-      console.log(`[SummaryService] Conversation summaries disabled globally, skipping generation`);
-      return null;
-    }
-
-    const conversation = conversations.getById(conversationId);
-    if (!conversation || conversation.sessionId !== sessionId) {
-      console.warn(`[SummaryService] Conversation ${conversationId} not found for session ${sessionId}`);
-      return null;
-    }
-
-    // Get messages for this conversation
-    const conversationMessages = messages.getByConversationId(conversationId);
-
-    if (conversationMessages.length === 0) {
-      console.warn(`[SummaryService] No messages found for conversation ${conversationId}`);
-      return null;
-    }
-
-    // Skip very short conversations
-    if (conversationMessages.length < 2) {
-      const summary = 'Brief conversation with minimal content.';
-      conversations.update(conversationId, {
-        summary,
-        summaryGeneratedAt: Date.now(),
-      });
-      return summary;
-    }
-
-    // Take recent messages (limit to MAX_MESSAGES)
-    const recentMessages = conversationMessages.slice(-MAX_MESSAGES);
-
-    // Build prompt
-    const prompt = buildConversationSummaryPrompt(recentMessages);
-
-    // Call Claude
-    const responseText = await callClaude(prompt, recentMessages, 'waiting');
-
-    // Parse response
-    const summary = parseConversationSummaryResponse(responseText);
-
-    // Update conversation with summary
-    const updatedConversation = conversations.update(conversationId, {
-      summary,
-      summaryGeneratedAt: Date.now(),
-    });
-
-    // Broadcast conversation summary updated
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.CONVERSATION_SUMMARY_UPDATED, {
-      sessionId,
-      conversationId,
-      conversation: updatedConversation,
-    });
-
-    console.log(`[SummaryService] Successfully generated summary for conversation ${conversationId}`);
-    return summary;
-  } catch (error) {
-    console.error(`[SummaryService] Failed to generate conversation summary:`, {
-      error: error.message,
-      sessionId,
-      conversationId,
-    });
-    return null;
-  }
-}
-
-/**
  * Propagate summary update to parent sessions
  * When a child session's summary is updated, the parent's summary may need regeneration
  * @param {string} sessionId - The child session ID that was updated
  */
-export async function propagateToParent(sessionId) {
-  const session = sessions.getById(sessionId);
-  if (!session || !session.parentSessionId) return;
-
-  // Trigger a summary regeneration for the parent session
-  // This is debounced so multiple child updates don't cause multiple parent regenerations
-  onSessionActivity(session.parentSessionId);
+export async function propagateToParentExported(sessionId) {
+  propagateToParent(sessionId, onSessionActivity);
 }
 
-// Export for testing
-export { DEBOUNCE_DELAY, MAX_MESSAGES, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified };
+// Export constants for testing
+export { DEBOUNCE_DELAY, MAX_MESSAGES, MAX_RETRIES };

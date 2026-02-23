@@ -6,67 +6,18 @@
     <div class="messages" ref="messagesContainer">
       <!-- Hide messages for draft and scheduled sessions (only show in input field) -->
       <template v-if="!isDraft && !isScheduledDraft">
-      <div
+      <MessageBubble
         v-for="message in sessionsStore.messages"
         :key="message.id"
-        :class="['message', `message-${message.role}`]"
-        :data-message-id="message.id"
-        :data-testid="`message-${message.role}`"
-      >
-        <div class="message-header">
-          <span class="message-role">{{ message.role }}</span>
-          <!-- Show model for assistant messages -->
-          <span v-if="message.role === 'assistant' && message.model" class="message-model">
-            {{ formatModelName(message.model) }}
-          </span>
-          <span class="message-time">{{ formatTime(message.timestamp) }}</span>
-          <!-- Branch button for user messages -->
-          <button
-            v-if="message.role === 'user' && canBranch && branchingMessageId !== message.id"
-            type="button"
-            class="branch-btn"
-            data-testid="branch-button"
-            @click="openBranchEditor(message.id)"
-            title="Create a branch from this message"
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M4 2v8M4 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM12 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM4 6c0 2 2 4 4 4h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <span class="branch-btn-text">Branch</span>
-          </button>
-        </div>
-        <div class="message-content">
-          <MarkdownViewer v-if="message.role === 'assistant'" :content="message.content" />
-          <template v-else>{{ message.content }}</template>
-        </div>
-        <!-- Attachments display for user messages -->
-        <div v-if="message.attachments?.length" class="message-attachments">
-          <div v-for="att in message.attachments" :key="att.id" class="attachment-chip">
-            <span class="attachment-icon">{{ getAttachmentIcon(att.mimeType) }}</span>
-            <span class="attachment-name">{{ att.filename }}</span>
-            <span class="attachment-size">({{ formatFileSize(att.size) }})</span>
-          </div>
-        </div>
-        <div v-if="message.toolUse?.length" class="message-tools">
-          <details v-for="(tool, idx) in message.toolUse" :key="idx">
-            <summary>Tool: {{ tool.name }}</summary>
-            <pre>{{ JSON.stringify(tool.input, null, 2) }}</pre>
-          </details>
-        </div>
-        <!-- Work Log Panel for assistant messages (collapsed by default) -->
-        <WorkLogPanel
-          v-if="message.role === 'assistant'"
-          :work-logs="sessionsStore.getWorkLogsForMessage(message.id)"
-        />
-        <!-- Branch Editor for user messages -->
-        <BranchEditor
-          v-if="message.role === 'user' && branchingMessageId === message.id"
-          ref="branchEditorRef"
-          :message-id="message.id"
-          @create="handleBranchCreate"
-          @cancel="closeBranchEditor"
-        />
-      </div>
+        :message="message"
+        :can-branch="canBranch"
+        :is-branching="branchingMessageId === message.id"
+        :work-logs="sessionsStore.getWorkLogsForMessage(message.id)"
+        :ref="el => setMessageBubbleRef(message.id, el)"
+        @openBranch="openBranchEditor"
+        @closeBranch="closeBranchEditor"
+        @branchCreate="handleBranchCreate"
+      />
       </template>
 
       <!-- Streaming partial message -->
@@ -105,154 +56,70 @@
       <button
         v-if="hasAssistantMessages && isNearBottom && isUsersTurn"
         class="scroll-to-claude-btn"
-        @click="scrollToClaudesTurn"
+        @click="scrollToClaudesTurn(sessionsStore.messages)"
         title="Jump to Claude's response"
         aria-label="Scroll to Claude's latest response"
       >
-        ↑
+        &uarr;
       </button>
     </div>
 
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
 
-    <form v-if="canSendMessage || isScheduledForFuture" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
-      <ResizableTextarea
-        ref="textareaRef"
-        v-model="input"
-        class="form-input form-textarea"
-        :placeholder="isScheduledForFuture ? 'Edit your scheduled prompt...' : (isDraft || isScheduledDraft) ? 'Edit your prompt...' : 'Send a follow-up message...'"
-        :min-height="80"
-        @input="handleInput"
-        @keydown="handleKeydown"
-      />
+    <MessageInput
+      v-if="canSendMessage || isScheduledForFuture"
+      ref="messageInputRef"
+      :session-id="sessionId"
+      :input="input"
+      :selected-model="selectedModel"
+      :can-send-message="canSendMessage"
+      :is-draft="isDraft"
+      :is-scheduled-draft="isScheduledDraft"
+      :is-scheduled-for-future="isScheduledForFuture"
+      :sending="sending"
+      :restarting="restarting"
+      :save-status="saveStatus"
+      :is-send-disabled="isSendDisabled"
+      :send-button-disabled-reason="sendButtonDisabledReason"
+      :input-has-content="inputHasContent"
+      :working-directory="workingDirectory"
+      :thinking-enabled="sessionsStore.currentSession?.thinkingEnabled || false"
+      :toggling-thinking="togglingThinking"
+      :project-id="sessionsStore.currentSession?.projectId"
+      :current-template-id="sessionsStore.currentSession?.nextTemplateId"
+      :session-status="sessionsStore.currentSession?.status"
+      :auto-reschedule-enabled="sessionsStore.currentSession?.autoRescheduleEnabled || false"
+      @send="handleSend"
+      @start="handleStart"
+      @input="handleInput"
+      @update:input="input = $event"
+      @update:selectedModel="selectedModel = $event"
+      @update:attachedFiles="attachedFiles = $event"
+      @quickResponseInsert="handleQuickResponseInsert"
+      @openQuickResponseSettings="quickResponseSettingsOpen = true"
+      @openSlashCommandWizard="showSlashCommandWizard = true"
+      @thinkingToggle="handleThinkingToggle"
+      @openSchedule="showScheduleModal = true"
+      @openAutoReschedule="showAutoRescheduleModal = true"
+      @templateChange="handleTemplateChange"
+    />
 
-      <!-- Quick Responses Panel - shows below the textarea when not running or for draft sessions -->
-      <QuickResponsesPanel
-        v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
-        :show-empty="true"
-        @insert="handleQuickResponseInsert"
-        @openSettings="quickResponseSettingsOpen = true"
-      />
-
-      <!-- Send button row -->
-      <div v-if="!isScheduledForFuture" class="send-button-row">
-        <div v-if="isDraft" class="draft-actions">
-          <button type="submit" class="btn btn-primary btn-send-full" :disabled="restarting || saveStatus === 'saving'">
-            <span v-if="restarting" class="loading-spinner"></span>
-            {{ restarting ? 'Sending...' : 'Send' }}
-          </button>
-        </div>
-        <template v-else>
-          <button
-            type="submit"
-            class="btn btn-primary btn-send-full"
-            :disabled="isSendDisabled"
-            :title="sendButtonDisabledReason"
-          >
-            <span v-if="sending" class="loading-spinner"></span>
-            {{ sending ? 'Sending...' : 'Send' }}
-          </button>
-        </template>
-      </div>
-
-      <div v-if="!isScheduledForFuture" class="input-controls">
-        <div class="session-options">
-          <div class="mode-switcher">
-            <ModeSelector :sessionId="sessionId" />
-          </div>
-
-          <ModelSelector v-model="selectedModel" />
-
-          <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
-          <SlashCommandButton
-            v-if="workingDirectory"
-            @open="showSlashCommandWizard = true"
-          />
-          <div class="thinking-toggle">
-            <label class="toggle-switch">
-              <input
-                type="checkbox"
-                :checked="sessionsStore.currentSession?.thinkingEnabled"
-                @change="handleThinkingToggle"
-                :disabled="togglingThinking"
-              />
-              <span class="toggle-slider"></span>
-            </label>
-            <span class="toggle-label">Thinking</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Orchestration Panel - shows after input controls -->
-      <OrchestrationPanel
-        v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
-        :session-id="sessionId"
-        :project-id="sessionsStore.currentSession?.projectId"
-        :current-template-id="sessionsStore.currentSession?.nextTemplateId"
-        :session-status="sessionsStore.currentSession?.status"
-        :is-draft="isDraft"
-        :input-has-content="inputHasContent"
-        :auto-reschedule-enabled="sessionsStore.currentSession?.autoRescheduleEnabled"
-        @openSchedule="showScheduleModal = true"
-        @openAutoReschedule="showAutoRescheduleModal = true"
-        @update:templateId="handleTemplateChange"
-      />
-    </form>
-
-    <div v-else-if="sessionsStore.currentSession?.status === 'running'" class="running-state">
-      <!-- Header row with status, token display, and stop button -->
-      <div class="running-header">
-        <div class="running-status">
-          <span class="loading-spinner"></span>
-          <span class="running-title">Claude is working...</span>
-        </div>
-        <button type="button" class="btn btn-danger btn-stop" @click="handleStop" :disabled="stopping">
-          <span v-if="stopping" class="loading-spinner"></span>
-          Stop
-        </button>
-      </div>
-
-      <!-- Work logs panel (without its own header) -->
-      <LiveWorkLogPanel
-        :work-logs="unassociatedWorkLogs"
-        :partial-thinking="sessionsStore.partialThinking"
-        :show-header="false"
-      />
-
-      <!-- Show template indicator while running -->
-      <div v-if="nextTemplate" class="template-pending">
-        <span class="template-pending-label">Next:</span>
-        <router-link
-          :to="`/projects/${sessionsStore.currentSession.projectId}/templates`"
-          class="template-pending-link"
-          :title="`View template: ${nextTemplate.name}`"
-        >
-          {{ nextTemplate.name }}
-        </router-link>
-        <span class="template-pending-description">will trigger when Claude finishes</span>
-      </div>
-    </div>
+    <RunningState
+      v-else-if="sessionsStore.currentSession?.status === 'running'"
+      :stopping="stopping"
+      :work-logs="unassociatedWorkLogs"
+      :partial-thinking="sessionsStore.partialThinking"
+      :next-template="nextTemplate"
+      :project-id="sessionsStore.currentSession?.projectId"
+      @stop="handleStop"
+    />
 
     <!-- Error banner - shown above input form when session has error -->
-    <div v-if="sessionsStore.currentSession?.status === 'error'" class="error-banner">
-      <div class="error-header">
-        <span class="error-icon">⚠️</span>
-        <span class="error-title">Session Error</span>
-        <button
-          type="button"
-          class="btn-icon btn-copy-error"
-          @click="copyError"
-          title="Copy error message"
-        >
-          📋
-        </button>
-      </div>
-      <div class="error-content">
-        <pre class="error-message">{{ sessionsStore.currentSession.error || 'Unknown error' }}</pre>
-      </div>
-      <p class="error-hint">You can continue the conversation below, or try a different approach.</p>
-    </div>
+    <ErrorBanner
+      v-if="sessionsStore.currentSession?.status === 'error'"
+      :error-message="sessionsStore.currentSession.error || 'Unknown error'"
+    />
 
     <!-- Quick Response Settings Modal -->
     <QuickResponseSettings
@@ -295,30 +162,25 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
-import { useSessionSubscription } from '../composables/useWebSocket.js';
-import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import { api } from '../composables/useApi.js';
-import TodoDrawer from './TodoDrawer.vue';
-import WorkLogPanel from './WorkLogPanel.vue';
-import MarkdownViewer from './MarkdownViewer.vue';
-import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
-import ConversationPanel from './ConversationPanel.vue';
-import TokenCostPanel from './TokenCostPanel.vue';
-import FileAttachment from './FileAttachment.vue';
-import ModelSelector from './ModelSelector.vue';
-import ModeSelector from './ModeSelector.vue';
-import TemplateSelector from './TemplateSelector.vue';
-import QuickResponsesPanel from './QuickResponsesPanel.vue';
-import QuickResponseSettings from './QuickResponseSettings.vue';
-import BranchEditor from './BranchEditor.vue';
-import ScheduleSessionModal from './ScheduleSessionModal.vue';
-import AutoRescheduleModal from './AutoRescheduleModal.vue';
-import ResizableTextarea from './ResizableTextarea.vue';
-import SlashCommandButton from './SlashCommandButton.vue';
-import SlashCommandWizard from './SlashCommandWizard.vue';
-import OrchestrationPanel from './OrchestrationPanel.vue';
+import { useConversationMessages } from '../composables/useConversationMessages.js';
+import { useConversationStreaming } from '../composables/useConversationStreaming.js';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useProjectsStore } from '../stores/projects.js';
+
+// Sub-components
+import TodoDrawer from './TodoDrawer.vue';
+import MarkdownViewer from './MarkdownViewer.vue';
+import ConversationPanel from './ConversationPanel.vue';
+import TokenCostPanel from './TokenCostPanel.vue';
+import QuickResponseSettings from './QuickResponseSettings.vue';
+import ScheduleSessionModal from './ScheduleSessionModal.vue';
+import AutoRescheduleModal from './AutoRescheduleModal.vue';
+import SlashCommandWizard from './SlashCommandWizard.vue';
+import MessageBubble from './MessageBubble.vue';
+import MessageInput from './MessageInput.vue';
+import RunningState from './RunningState.vue';
+import ErrorBanner from './ErrorBanner.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -333,46 +195,65 @@ const projectsStore = useProjectsStore();
 const router = useRouter();
 const route = useRoute();
 
+// Use composables
+const {
+  isNearBottom,
+  hasNewMessages,
+  handleScroll,
+  scrollToBottom,
+  scrollToClaudesTurn,
+} = useConversationMessages();
+
+const {
+  partialText,
+  clearStreamingState,
+  setupSubscriptions,
+  teardownSubscriptions,
+} = useConversationStreaming(props.sessionId, { scrollToBottom });
+
+// Refs
 const input = ref('');
 const quickResponseSettingsOpen = ref(false);
 const showScheduleModal = ref(false);
 const showAutoRescheduleModal = ref(false);
 const showSlashCommandWizard = ref(false);
-const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
+const saveStatus = ref('saved');
 const saveError = ref('');
-const textareaRef = ref(null);
+const messageInputRef = ref(null);
+const messagesContainer = ref(null);
 let inputSyncTimer = null;
+let draftSaveTimer = null;
+let debounceTimer = null;
 
-// Create keyboard shortcut handler
-const handleKeydown = useSubmitShortcut(() => {
-  if (isDraft.value) {
-    handleStart();
-  } else {
-    handleSend();
-  }
-});
 const sending = ref(false);
 const stopping = ref(false);
 const restarting = ref(false);
 const togglingThinking = ref(false);
-const messagesContainer = ref(null);
 const attachedFiles = ref([]);
-const fileAttachment = ref(null);
-const branchingMessageId = ref(null); // Message ID currently being branched from
-const branchEditorRef = ref(null);
-const selectedModel = ref(null); // Currently selected model for next message
-let draftSaveTimer = null;
+const branchingMessageId = ref(null);
+const messageBubbleRefs = {};
+const selectedModel = ref(null);
 
-const partialText = ref('');
-const isNearBottom = ref(true);
-const hasNewMessages = ref(false);
-let debounceTimer = null;
-let partialThrottleTimer = null;
-let pendingPartialText = null;
-const PARTIAL_THROTTLE_MS = 150; // Throttle streaming updates to reduce CPU load on iPad
+// Helper to get textarea ref from MessageInput child
+function getTextareaRef() {
+  return messageInputRef.value?.textareaRef;
+}
 
-const SCROLL_THRESHOLD = 100; // pixels from bottom to consider "at bottom"
+// Helper to get file attachment ref from MessageInput child
+function getFileAttachmentRef() {
+  return messageInputRef.value?.fileAttachmentRef;
+}
 
+// Track MessageBubble refs for branch editor access
+function setMessageBubbleRef(messageId, el) {
+  if (el) {
+    messageBubbleRefs[messageId] = el;
+  } else {
+    delete messageBubbleRefs[messageId];
+  }
+}
+
+// Computed properties
 const canSendMessage = computed(() => {
   const status = sessionsStore.currentSession?.status;
   return status === 'waiting' || status === 'scheduled' || status === 'stopped' || status === 'error';
@@ -380,7 +261,6 @@ const canSendMessage = computed(() => {
 
 const canBranch = computed(() => {
   const status = sessionsStore.currentSession?.status;
-  // Can only branch when session is not running
   return status !== 'running' && status !== 'starting';
 });
 
@@ -403,29 +283,21 @@ const unassociatedWorkLogs = computed(() => {
   return sessionsStore.getUnassociatedWorkLogs;
 });
 
-// Computed to check if input has content (for button disabled state)
-// Uses reactive input.value as source of truth
 const inputHasContent = computed(() => {
-  // Check reactive input value (synced from textarea via handleInput or watch)
   return input.value.trim().length > 0;
 });
 
-// Computed for send button disabled state - avoids re-evaluating on every render
 const isSendDisabled = computed(() => {
-  // If session is scheduled for a future date, disable the send button
   if (sessionsStore.currentSession?.status === 'scheduled') {
     const scheduledTime = new Date(sessionsStore.currentSession.scheduledAt);
     const now = new Date();
     if (scheduledTime > now) {
-      return true; // Disable - scheduled for future
+      return true;
     }
   }
-
-  // Existing logic
   return !inputHasContent.value || sending.value;
 });
 
-// Computed property for send button disabled reason tooltip
 const sendButtonDisabledReason = computed(() => {
   if (!inputHasContent.value) {
     return 'Enter a message to send';
@@ -443,32 +315,20 @@ const sendButtonDisabledReason = computed(() => {
   return null;
 });
 
-// Computed property to check if session is scheduled for the future
-const isSessionScheduledForFuture = computed(() => {
-  if (sessionsStore.currentSession?.status !== 'scheduled') return false;
-  const scheduledTime = new Date(sessionsStore.currentSession.scheduledAt);
-  return scheduledTime > new Date();
-});
-
-// Computed property to check if this is a scheduled session for the future (for UI hiding)
-// This is different from isSessionScheduledForFuture which is used for the send button tooltip
 const isScheduledForFuture = computed(() => {
   return sessionsStore.isScheduledDraft(sessionsStore.currentSession);
 });
 
-// Check if there are any assistant messages for the scroll-to-claude button
 const hasAssistantMessages = computed(() => {
   return sessionsStore.messages.some(msg => msg.role === 'assistant');
 });
 
-// Computed property to get template details for the next template indicator
 const nextTemplate = computed(() => {
   const templateId = sessionsStore.currentSession?.nextTemplateId;
   if (!templateId) return null;
   return templatesStore.getTemplateById(templateId);
 });
 
-// Computed property to get the working directory for slash commands
 const workingDirectory = computed(() => {
   const session = sessionsStore.currentSession;
   if (!session) {
@@ -476,15 +336,11 @@ const workingDirectory = computed(() => {
     return null;
   }
 
-  // Use git worktree if available, otherwise get from project
   if (session.gitWorktree) {
     console.log('[workingDirectory] Using session.gitWorktree:', session.gitWorktree);
     return session.gitWorktree;
   }
 
-  // First try currentProject if it matches the session's project,
-  // then fall back to getProjectById (for direct session navigation or when
-  // currentProject is stale from a different project view)
   let project = projectsStore.currentProject;
   if ((!project || project.id !== session.projectId) && session.projectId) {
     console.log('[workingDirectory] currentProject mismatch or null, falling back to getProjectById');
@@ -495,59 +351,26 @@ const workingDirectory = computed(() => {
   return result;
 });
 
-// Subscribe to partial messages for streaming, work logs, and conversation events
-const {
-  onPartial,
-  onMessage,
-  onWorkLog,
-  onWorkLogsAssociated,
-  onThinkingPartial,
-  onConversationCreated,
-  onConversationUpdated,
-  onConversationDeleted,
-} = useSessionSubscription(props.sessionId);
-let unsubPartial = null;
-let unsubMessage = null;
-let unsubWorkLog = null;
-let unsubWorkLogsAssociated = null;
-let unsubThinkingPartial = null;
-let unsubConvCreated = null;
-let unsubConvUpdated = null;
-let unsubConvDeleted = null;
-
-function handleScroll() {
-  const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-  const scrollHeight = document.documentElement.scrollHeight;
-  const clientHeight = window.innerHeight || document.documentElement.clientHeight;
-  const wasNearBottom = isNearBottom.value;
-  isNearBottom.value = scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD;
-
-  // Clear new messages indicator when user scrolls to bottom
-  if (isNearBottom.value && !wasNearBottom) {
-    hasNewMessages.value = false;
-  }
-}
-
+// Lifecycle
 onMounted(async () => {
   // Load pendingPrompt from session data (works for both draft and waiting sessions)
   const pending = sessionsStore.currentSession?.pendingPrompt;
   if (pending) {
     input.value = pending;
-    // Set textarea value directly
     nextTick(() => {
-      if (textareaRef.value) {
-        textareaRef.value.value = pending;
+      const textareaRef = getTextareaRef();
+      if (textareaRef) {
+        textareaRef.value = pending;
       }
     });
   } else if (isDraft.value && sessionsStore.messages.length > 0) {
-    // Fallback: If this is a draft session without pendingPrompt, load from initial message
     const userMessage = sessionsStore.messages.find(msg => msg.role === 'user');
     if (userMessage) {
       input.value = userMessage.content;
-      // Set textarea value directly
       nextTick(() => {
-        if (textareaRef.value) {
-          textareaRef.value.value = userMessage.content;
+        const textareaRef = getTextareaRef();
+        if (textareaRef) {
+          textareaRef.value = userMessage.content;
         }
       });
     }
@@ -557,7 +380,6 @@ onMounted(async () => {
   window.addEventListener('scroll', handleScroll);
 
   // Only fetch conversations if not already loaded for this session
-  // This prevents overwriting updated data (e.g., token counts during streaming)
   if (sessionsStore.conversations.length === 0 ||
       sessionsStore.conversations[0]?.sessionId !== props.sessionId) {
     await sessionsStore.fetchConversations(props.sessionId);
@@ -568,8 +390,6 @@ onMounted(async () => {
     const projectId = sessionsStore.currentSession.projectId;
     quickResponsesStore.fetchForProject(projectId);
 
-    // Always fetch the project to ensure workingDirectory is available for slash commands
-    // This is especially important when navigating directly to a session URL
     try {
       await projectsStore.fetchProject(projectId);
     } catch (err) {
@@ -577,75 +397,8 @@ onMounted(async () => {
     }
   }
 
-  // Throttle partial text updates to reduce CPU load on iPad
-  // Without throttling, rapid updates cause excessive re-renders and markdown parsing
-  unsubPartial = onPartial((text) => {
-    pendingPartialText = text;
-
-    // If no throttle timer is running, update immediately and start timer
-    if (!partialThrottleTimer) {
-      partialText.value = text;
-      scrollToBottom();
-
-      partialThrottleTimer = setTimeout(() => {
-        // Apply any pending update that arrived during throttle period
-        if (pendingPartialText !== null && pendingPartialText !== partialText.value) {
-          partialText.value = pendingPartialText;
-          scrollToBottom();
-        }
-        partialThrottleTimer = null;
-        pendingPartialText = null;
-      }, PARTIAL_THROTTLE_MS);
-    }
-  });
-
-  // Clear partial text when full message arrives
-  unsubMessage = onMessage(() => {
-    partialText.value = '';
-  });
-
-  // Subscribe to work log updates
-  // Note: Work logs are displayed in LiveWorkLogPanel which has its own scroll management
-  unsubWorkLog = onWorkLog((log) => {
-    sessionsStore.addWorkLog(log);
-  });
-
-  // Subscribe to work log association events (re-associate _unassociated logs)
-  unsubWorkLogsAssociated = onWorkLogsAssociated((messageId) => {
-    sessionsStore.associateWorkLogs(messageId);
-  });
-
-  // Subscribe to partial thinking updates for streaming display
-  // Note: Partial thinking is displayed in LiveWorkLogPanel which has its own scroll management
-  unsubThinkingPartial = onThinkingPartial((thinking) => {
-    if (thinking === null) {
-      sessionsStore.clearPartialThinking(props.sessionId);
-    } else {
-      sessionsStore.setPartialThinking(thinking, props.sessionId);
-    }
-  });
-
-  // Subscribe to conversation events for real-time updates
-  unsubConvCreated = onConversationCreated((conversation) => {
-    console.log(`[CONV] CONVERSATION_CREATED event: conversation ${conversation.id}, isActive: ${conversation.isActive}`);
-    sessionsStore.addConversation(conversation);
-    // The watcher on activeConversationId will trigger the fetch automatically
-  });
-
-  unsubConvUpdated = onConversationUpdated((conversation) => {
-    console.log(`[CONV] CONVERSATION_UPDATED event: conversation ${conversation.id}, isActive: ${conversation.isActive}`);
-    sessionsStore.updateConversation(conversation);
-  });
-
-  unsubConvDeleted = onConversationDeleted((conversationId, newActiveConv) => {
-    console.log(`[CONV] CONVERSATION_DELETED event: deleted ${conversationId}, newActive: ${newActiveConv?.id || 'none'}`);
-    sessionsStore.removeConversation(conversationId, newActiveConv);
-    // If we have a new active conversation, fetch its messages
-    if (newActiveConv) {
-      console.log(`[CONV] CONVERSATION_DELETED: fetching messages for new active conversation ${newActiveConv.id}`);
-      sessionsStore.fetchMessages(props.sessionId, false);
-    }
-  });
+  // Setup streaming subscriptions
+  setupSubscriptions();
 
   // NOTE: onUsageUpdate subscription moved to SessionDetailView.onMounted to ensure
   // conversations are loaded before usage updates arrive (avoids race conditions)
@@ -656,7 +409,6 @@ onMounted(async () => {
   // Check for conversation ID in query parameter
   const convId = route.query.conv;
   if (convId && convId !== sessionsStore.activeConversationId) {
-    // Switch to the specified conversation
     await sessionsStore.switchConversation(props.sessionId, convId);
   }
 
@@ -665,28 +417,15 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  if (unsubPartial) unsubPartial();
-  if (unsubMessage) unsubMessage();
-  if (unsubWorkLog) unsubWorkLog();
-  if (unsubWorkLogsAssociated) unsubWorkLogsAssociated();
-  if (unsubThinkingPartial) unsubThinkingPartial();
-  if (unsubConvCreated) unsubConvCreated();
-  if (unsubConvUpdated) unsubConvUpdated();
-  if (unsubConvDeleted) unsubConvDeleted();
-  // NOTE: unsubUsage removed - subscription moved to SessionDetailView
+  teardownSubscriptions();
   if (debounceTimer) clearTimeout(debounceTimer);
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
   if (inputSyncTimer) clearTimeout(inputSyncTimer);
-  if (partialThrottleTimer) clearTimeout(partialThrottleTimer);
   window.removeEventListener('scroll', handleScroll);
-  // Clear work logs when leaving the conversation tab
-  // Note: Don't clear conversations here - they should persist when switching tabs
-  // within the same session. They will be refreshed when switching sessions.
   sessionsStore.clearWorkLogs();
 });
 
-// Handle textarea input with debounced sync to reactive state and server
-// This prevents Vue reactivity from firing on every keystroke
+// Input handling
 function handleInput(event) {
   const value = event.target.value;
 
@@ -703,229 +442,26 @@ function handleInput(event) {
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
 
   inputSyncTimer = setTimeout(() => {
-    // Auto-save to server (for all waiting/stopped/error sessions)
     if (canSendMessage.value) {
       savePendingPrompt(value);
     }
-  }, 500); // Debounce 500ms for server save
-}
-
-function scrollToBottom(force = false) {
-  nextTick(() => {
-    if (force || isNearBottom.value) {
-      window.scrollTo({
-        top: document.documentElement.scrollHeight,
-        behavior: 'smooth'
-      });
-      isNearBottom.value = true;
-      hasNewMessages.value = false;
-    } else {
-      // User has scrolled up, mark that there are new messages
-      hasNewMessages.value = true;
-    }
-  });
-}
-
-function scrollToClaudesTurn() {
-  nextTick(() => {
-    // Find the last assistant message
-    const lastAssistantIndex = sessionsStore.messages.findLastIndex(msg => msg.role === 'assistant');
-    if (lastAssistantIndex < 0) return;
-
-    const lastAssistantMsg = sessionsStore.messages[lastAssistantIndex];
-    const msgElement = document.querySelector(`[data-message-id="${lastAssistantMsg.id}"]`);
-
-    if (msgElement) {
-      // Get element position relative to viewport
-      const elementRect = msgElement.getBoundingClientRect();
-      // Scroll to position the element at the top of the viewport with some offset
-      const scrollTop = window.pageYOffset + elementRect.top - 80; // 80px offset for header
-
-      window.scrollTo({
-        top: scrollTop,
-        behavior: 'smooth'
-      });
-    }
-  });
-}
-
-watch(
-  () => sessionsStore.messages.length,
-  (newLen, oldLen) => {
-    console.log(`[CONV] messages.length changed: ${oldLen} → ${newLen}, activeConversationId: ${sessionsStore.activeConversationId}`);
-    // Force scroll when messages first load, conditional scroll otherwise
-    if (oldLen === 0 && newLen > 0) {
-      scrollToBottom(true);
-    } else {
-      scrollToBottom();
-    }
-  }
-);
-
-// Re-fetch messages and work logs when session status changes from running to waiting/completed
-// This ensures the UI shows the correct messages after Claude's turn ends.
-// Note: fetchMessages() uses a smart merge strategy that preserves any messages
-// already in the store (delivered via WebSocket) that aren't yet in the API response.
-// This prevents a race condition where messages disappear if the database write
-// hasn't completed before the status change triggers this refetch.
-watch(
-  () => sessionsStore.currentSession?.status,
-  async (newStatus, oldStatus) => {
-    if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
-      console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
-      // Clear any lingering streaming state (Step 2 - safety net)
-      partialText.value = '';
-      // Fetch messages first, then work logs - this ensures messages are visible
-      await sessionsStore.fetchMessages(props.sessionId, false);
-      await sessionsStore.fetchWorkLogs(props.sessionId);
-    }
-  }
-);
-
-// Watch for messages loading on draft sessions and populate textarea
-watch(
-  () => sessionsStore.messages,
-  (newMessages) => {
-    // Only populate textarea for draft sessions that don't have textarea content yet
-    if (isDraft.value && textareaRef.value) {
-      const textareaHasContent = textareaRef.value.value && textareaRef.value.value.trim().length > 0;
-      if (!textareaHasContent) {
-        const userMessage = newMessages.find(msg => msg.role === 'user');
-        if (userMessage && userMessage.content) {
-          input.value = userMessage.content;
-          nextTick(() => {
-            if (textareaRef.value) {
-              textareaRef.value.value = userMessage.content;
-            }
-          });
-        }
-      }
-    }
-  },
-  { deep: true, immediate: true }
-);
-
-// Message reconciliation watcher - always fetch messages when conversation changes
-// This ensures the UI always shows the correct messages for the active conversation
-watch(
-  () => sessionsStore.activeConversationId,
-  async (newConvId, oldConvId) => {
-    if (newConvId && newConvId !== oldConvId) {
-      // Clear streaming message state from previous conversation (Step 1)
-      partialText.value = '';
-
-      // Clear throttle timer to prevent stale partial updates (Step 3)
-      if (partialThrottleTimer) {
-        clearTimeout(partialThrottleTimer);
-        partialThrottleTimer = null;
-      }
-      pendingPartialText = null;
-
-      // Reset scroll state when switching conversations
-      hasNewMessages.value = false;
-      isNearBottom.value = true;
-
-      await nextTick();
-
-      // Always refetch when conversation changes - no status check
-      // This prevents the UI from showing stale messages from a previous conversation
-      console.log(`[CONV] activeConversationId changed to ${newConvId}, refetching messages`);
-      await sessionsStore.fetchMessages(props.sessionId, false);
-    }
-  }
-);
-
-// Helper function to get project default model with fallback
-function getProjectDefaultModel() {
-  const projectId = sessionsStore.currentSession?.projectId;
-  if (!projectId) return null;
-
-  const defaults = defaultsStore.getDefaultsForProject(projectId);
-  return defaults?.model || null;
-}
-
-// Watch for conversation query parameter changes
-watch(
-  () => route.query.conv,
-  async (newConvId, oldConvId) => {
-    if (newConvId && newConvId !== oldConvId && newConvId !== sessionsStore.activeConversationId) {
-      await sessionsStore.switchConversation(props.sessionId, newConvId);
-    }
-  }
-);
-
-// Update model selector when active conversation changes or its model is updated
-// This ensures the selector always reflects the model used in the current conversation
-// Watch the entire conversation object (not just .model) to detect all changes including conversation switches
-watch(
-  () => sessionsStore.activeConversation,
-  (conv) => {
-    if (conv) {
-      // Use session model (user-requested short format) or fall back to project/default
-      // conversations.model is no longer used — session.model tracks the user's selection
-      selectedModel.value = sessionsStore.currentSession?.model ||
-        getProjectDefaultModel() ||
-        'sonnet';
-    } else {
-      // No active conversation yet - use session/project default
-      // This ensures the model selector always shows a selected model even before
-      // conversations are fetched or when there's no active conversation
-      selectedModel.value = sessionsStore.currentSession?.model ||
-        getProjectDefaultModel() ||
-        'sonnet';
-    }
-  },
-  { immediate: true }
-);
-
-function formatTime(timestamp) {
-  return new Date(timestamp).toLocaleTimeString();
-}
-
-/**
- * Format model name for display
- * Converts "claude-3-5-sonnet-20241022" to "claude-3.5-sonnet"
- * @param {string} model - The model name
- * @returns {string} Formatted model name
- */
-function formatModelName(model) {
-  if (!model) return '';
-  return model
-    .replace(/-(\d{8})$/, '')  // Remove date suffix
-    .replace(/-(\d)-(\d)-/, '-$1.$2-');  // Convert 3-5 to 3.5
-}
-
-function formatFileSize(bytes) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function getAttachmentIcon(mimeType) {
-  if (!mimeType) return '📎';
-  if (mimeType.startsWith('image/')) return '🖼️';
-  if (mimeType.startsWith('text/') || mimeType === 'application/json') return '📄';
-  if (mimeType === 'application/pdf') return '📕';
-  if (mimeType.includes('javascript') || mimeType.includes('typescript')) return '📜';
-  return '📎';
+  }, 500);
 }
 
 async function handleSend() {
-  // Sync from textarea directly in case debounce timer hasn't fired
-  const currentValue = textareaRef.value?.value || input.value;
+  const textareaRef = getTextareaRef();
+  const currentValue = textareaRef?.value || input.value;
   if (!currentValue.trim() || sending.value) return;
 
-  // [MODEL AUDIT] Log selected model when sending
   console.log(`[MODEL AUDIT - Frontend] Sending message with model: "${selectedModel.value}"`);
 
   sending.value = true;
   try {
     await sessionsStore.sendMessage(props.sessionId, currentValue, attachedFiles.value, selectedModel.value);
     input.value = '';
-    if (textareaRef.value) textareaRef.value.value = '';
+    if (textareaRef) textareaRef.value = '';
     attachedFiles.value = [];
-    fileAttachment.value?.clear();
-    // Clear pending prompt on server
+    getFileAttachmentRef()?.clear();
     await api.updateSessionPendingPrompt(props.sessionId, null);
   } catch (err) {
     uiStore.error(err.message);
@@ -935,30 +471,22 @@ async function handleSend() {
 }
 
 function handleQuickResponseInsert({ content, autoSubmit }) {
-  // Combine existing message with quick response content
   const currentValue = input.value.trim();
   const newValue = currentValue ? currentValue + '\n\n' + content : content;
   input.value = newValue;
 
   if (autoSubmit) {
-    // Auto-submit: send immediately
     nextTick(() => {
       handleSend();
     });
   } else {
-    // Insert content into input field for editing
     nextTick(() => {
-      if (textareaRef.value) {
-        // Update textarea DOM element
-        textareaRef.value.value = newValue;
+      const textareaRef = getTextareaRef();
+      if (textareaRef) {
+        textareaRef.value = newValue;
+        textareaRef.focus();
+        textareaRef.selectionStart = textareaRef.selectionEnd = textareaRef.value.length;
 
-        // Focus textarea
-        textareaRef.value.focus();
-
-        // Set cursor to end
-        textareaRef.value.selectionStart = textareaRef.value.selectionEnd = textareaRef.value.value.length;
-
-        // Mark as unsaved and trigger auto-save
         if (canSendMessage.value && newValue.trim()) {
           saveStatus.value = 'unsaved';
           savePendingPrompt(newValue);
@@ -982,37 +510,12 @@ async function handleStop() {
   }
 }
 
-async function handleRestart() {
-  if (restarting.value) return;
-
-  restarting.value = true;
-  try {
-    await sessionsStore.restartSession(props.sessionId);
-    uiStore.success('Session restarted');
-  } catch (err) {
-    uiStore.error(err.message);
-  } finally {
-    restarting.value = false;
-  }
-}
-
-async function copyError() {
-  const error = sessionsStore.currentSession?.error || 'Unknown error';
-  try {
-    await navigator.clipboard.writeText(error);
-    uiStore.success('Error copied to clipboard');
-  } catch (err) {
-    uiStore.error('Failed to copy error');
-  }
-}
-
 async function savePendingPrompt(prompt) {
   try {
     saveStatus.value = 'saving';
     saveError.value = '';
     await api.updateSessionPendingPrompt(props.sessionId, prompt);
     saveStatus.value = 'saved';
-    // Reset save status after 2 seconds
     if (draftSaveTimer) clearTimeout(draftSaveTimer);
     draftSaveTimer = setTimeout(() => {
       if (saveStatus.value === 'saved') {
@@ -1027,14 +530,12 @@ async function savePendingPrompt(prompt) {
 }
 
 async function handleStart() {
-  // Sync from textarea directly in case debounce timer hasn't fired
-  const currentValue = textareaRef.value?.value || input.value;
+  const textareaRef = getTextareaRef();
+  const currentValue = textareaRef?.value || input.value;
   if (restarting.value || !currentValue.trim()) return;
 
   restarting.value = true;
   try {
-    // Pass the current prompt to the start method via the store
-    // This ensures the UI updates immediately via Vue reactivity
     await sessionsStore.startSession(props.sessionId, currentValue);
   } catch (err) {
     uiStore.error(err.message);
@@ -1051,7 +552,6 @@ async function handleThinkingToggle(event) {
   try {
     await sessionsStore.updateSessionThinking(props.sessionId, newValue);
   } catch (err) {
-    // Revert the checkbox on error
     event.target.checked = !newValue;
     uiStore.error(err.message);
   } finally {
@@ -1071,12 +571,7 @@ function closeScheduleModal() {
   showScheduleModal.value = false;
 }
 
-function handleScheduled() {
-  closeScheduleModal();
-}
-
 function handleSlashCommandExecuted({ command, args }) {
-  // Scroll to bottom to show the new message being processed
   scrollToBottom(true);
 }
 
@@ -1105,14 +600,12 @@ async function handleBranchCreate({ messageId, prompt }) {
       props.sessionId,
       activeConv.id,
       messageId,
-      null, // name auto-generated from prompt
+      null,
       prompt
     );
 
     branchCreated = true;
 
-    // Navigate to the new conversation using query parameter
-    // This forces a clean UI reset
     router.push({
       path: `/sessions/${props.sessionId}/conversation`,
       query: { conv: branchConversation.id }
@@ -1122,13 +615,114 @@ async function handleBranchCreate({ messageId, prompt }) {
   } catch (err) {
     uiStore.error(err.message);
   } finally {
-    // Always ensure the creating state is reset if branch wasn't successfully created
-    // (if branchCreated is true, the editor is already closed by closeBranchEditor)
-    if (!branchCreated && branchEditorRef.value) {
-      branchEditorRef.value.resetCreating();
+    if (!branchCreated) {
+      const bubbleRef = messageBubbleRefs[messageId];
+      if (bubbleRef?.branchEditorRef) {
+        bubbleRef.branchEditorRef.resetCreating();
+      }
     }
   }
 }
+
+// Helper function to get project default model with fallback
+function getProjectDefaultModel() {
+  const projectId = sessionsStore.currentSession?.projectId;
+  if (!projectId) return null;
+
+  const defaults = defaultsStore.getDefaultsForProject(projectId);
+  return defaults?.model || null;
+}
+
+// Watchers
+watch(
+  () => sessionsStore.messages.length,
+  (newLen, oldLen) => {
+    console.log(`[CONV] messages.length changed: ${oldLen} -> ${newLen}, activeConversationId: ${sessionsStore.activeConversationId}`);
+    if (oldLen === 0 && newLen > 0) {
+      scrollToBottom(true);
+    } else {
+      scrollToBottom();
+    }
+  }
+);
+
+watch(
+  () => sessionsStore.currentSession?.status,
+  async (newStatus, oldStatus) => {
+    if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
+      console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
+      clearStreamingState();
+      await sessionsStore.fetchMessages(props.sessionId, false);
+      await sessionsStore.fetchWorkLogs(props.sessionId);
+    }
+  }
+);
+
+watch(
+  () => sessionsStore.messages,
+  (newMessages) => {
+    const textareaRef = getTextareaRef();
+    if (isDraft.value && textareaRef) {
+      const textareaHasContent = textareaRef.value && textareaRef.value.trim().length > 0;
+      if (!textareaHasContent) {
+        const userMessage = newMessages.find(msg => msg.role === 'user');
+        if (userMessage && userMessage.content) {
+          input.value = userMessage.content;
+          nextTick(() => {
+            const ref = getTextareaRef();
+            if (ref) {
+              ref.value = userMessage.content;
+            }
+          });
+        }
+      }
+    }
+  },
+  { deep: true, immediate: true }
+);
+
+watch(
+  () => sessionsStore.activeConversationId,
+  async (newConvId, oldConvId) => {
+    if (newConvId && newConvId !== oldConvId) {
+      clearStreamingState();
+
+      // Reset scroll state when switching conversations
+      hasNewMessages.value = false;
+      isNearBottom.value = true;
+
+      await nextTick();
+
+      console.log(`[CONV] activeConversationId changed to ${newConvId}, refetching messages`);
+      await sessionsStore.fetchMessages(props.sessionId, false);
+    }
+  }
+);
+
+watch(
+  () => route.query.conv,
+  async (newConvId, oldConvId) => {
+    if (newConvId && newConvId !== oldConvId && newConvId !== sessionsStore.activeConversationId) {
+      await sessionsStore.switchConversation(props.sessionId, newConvId);
+    }
+  }
+);
+
+watch(
+  () => sessionsStore.activeConversation,
+  (conv) => {
+    if (conv) {
+      selectedModel.value = sessionsStore.currentSession?.model ||
+        getProjectDefaultModel() ||
+        'sonnet';
+    } else {
+      selectedModel.value = sessionsStore.currentSession?.model ||
+        getProjectDefaultModel() ||
+        'sonnet';
+    }
+  },
+  { immediate: true }
+);
 </script>
 
 <style scoped>
@@ -1155,17 +749,13 @@ async function handleBranchCreate({ messageId, prompt }) {
   min-height: 32px;
 }
 
+/* Streaming message styles (kept here since streaming bubble is inline) */
 .message {
   padding: 1rem;
   margin-bottom: 1rem;
   border-radius: var(--border-radius);
   background-color: var(--color-background-soft);
   border: 1px solid var(--color-border);
-}
-
-.message-user {
-  background-color: rgba(88, 166, 255, 0.1);
-  border-color: rgba(88, 166, 255, 0.3);
 }
 
 .message-assistant {
@@ -1175,11 +765,6 @@ async function handleBranchCreate({ messageId, prompt }) {
 .message-streaming {
   border-color: var(--color-accent);
   border-style: dashed;
-}
-
-.message-system {
-  background-color: rgba(139, 148, 158, 0.1);
-  border-color: rgba(139, 148, 158, 0.3);
 }
 
 .message-header {
@@ -1195,61 +780,6 @@ async function handleBranchCreate({ messageId, prompt }) {
   text-transform: capitalize;
 }
 
-.message-time {
-  margin-left: auto;
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
-}
-
-.message-model {
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
-  padding: 0.125rem 0.375rem;
-  background: var(--color-background-mute);
-  border-radius: 0.25rem;
-  font-family: ui-monospace, monospace;
-}
-
-/* Branch button - always visible for user messages */
-.branch-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25rem;
-  margin-left: 0.5rem;
-  padding: 0.5rem;
-  min-width: 44px;
-  min-height: 44px;
-  background: rgba(139, 92, 246, 0.1);
-  border: 1px solid rgba(139, 92, 246, 0.25);
-  border-radius: 0.375rem;
-  color: rgba(139, 92, 246, 0.8);
-  cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 500;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.branch-btn:hover {
-  background: rgba(139, 92, 246, 0.2);
-  border-color: rgba(139, 92, 246, 0.4);
-  color: rgba(139, 92, 246, 0.95);
-}
-
-.branch-btn:active {
-  transform: scale(0.97);
-}
-
-.branch-btn-text {
-  display: none;
-}
-
-@media (min-width: 480px) {
-  .branch-btn-text {
-    display: inline;
-  }
-}
-
 .message-content {
   white-space: pre-wrap;
   word-break: break-word;
@@ -1258,215 +788,6 @@ async function handleBranchCreate({ messageId, prompt }) {
 /* Override pre-wrap for rendered markdown to prevent double line breaks */
 .message-content :deep(.markdown-viewer) {
   white-space: normal;
-}
-
-.message-tools {
-  margin-top: 0.75rem;
-}
-
-.message-tools details {
-  margin-top: 0.5rem;
-}
-
-.message-tools summary {
-  cursor: pointer;
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-}
-
-.message-tools pre {
-  margin-top: 0.5rem;
-  font-size: 0.75rem;
-}
-
-.message-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-  padding-top: 0.5rem;
-  border-top: 1px dashed var(--color-border);
-}
-
-.attachment-chip {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem 0.5rem;
-  background: var(--color-background);
-  border: 1px solid var(--color-border);
-  border-radius: 0.375rem;
-  font-size: 0.75rem;
-}
-
-.attachment-icon {
-  font-size: 0.875rem;
-}
-
-.attachment-name {
-  max-width: 150px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--color-text);
-}
-
-.attachment-size {
-  color: var(--color-text-soft);
-  font-size: 0.625rem;
-}
-
-.input-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.input-form textarea {
-  width: 100%;
-}
-
-.input-controls {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.session-options {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-  flex: 1;
-}
-
-.thinking-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.toggle-label {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-}
-
-.mode-switcher {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.toggle-switch {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 22px;
-}
-
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: var(--color-background-mute);
-  border: 1px solid var(--color-border);
-  border-radius: 22px;
-  transition: 0.2s;
-}
-
-.toggle-slider:before {
-  position: absolute;
-  content: "";
-  height: 16px;
-  width: 16px;
-  left: 2px;
-  bottom: 2px;
-  background-color: var(--color-text-soft);
-  border-radius: 50%;
-  transition: 0.2s;
-}
-
-.toggle-switch input:checked + .toggle-slider {
-  background-color: var(--color-primary);
-  border-color: var(--color-primary);
-}
-
-.toggle-switch input:checked + .toggle-slider:before {
-  transform: translateX(18px);
-  background-color: #fff;
-}
-
-.toggle-switch input:disabled + .toggle-slider {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.send-button-row {
-  padding-top: 0.75rem;
-  margin-bottom: 14px;
-  display: flex;
-  justify-content: center;
-}
-
-.btn-send-full {
-  width: 100%;
-  min-height: 52px;
-  padding: 1rem 1.5rem;
-  font-size: 1.1rem;
-  font-weight: 600;
-  text-align: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-}
-
-.draft-actions {
-  width: 100%;
-}
-
-.template-pending {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  margin-top: 0.75rem;
-  background: var(--color-bg-soft);
-  border-radius: 0.375rem;
-  border: 1px solid var(--color-border);
-  font-size: 0.875rem;
-}
-
-.template-pending-label {
-  color: var(--color-text-soft);
-  font-weight: 500;
-}
-
-.template-pending-link {
-  color: var(--color-accent);
-  text-decoration: none;
-  font-weight: 500;
-  transition: color 0.15s;
-}
-
-.template-pending-link:hover {
-  color: var(--color-accent);
-  text-decoration: underline;
-}
-
-.template-pending-description {
-  color: var(--color-text-soft);
-  font-size: 0.75rem;
-  font-style: italic;
 }
 
 .status-message {
@@ -1485,85 +806,6 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 .btn-restart {
   min-width: 140px;
-}
-
-/* Error banner styles */
-.error-banner {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: var(--border-radius);
-  padding: 1rem;
-  margin-bottom: 1rem;
-  margin-top: 1rem;
-}
-
-.error-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-
-.error-icon {
-  font-size: 1.25rem;
-  flex-shrink: 0;
-}
-
-.error-title {
-  font-weight: 600;
-  color: var(--color-danger, #ef4444);
-  flex: 1;
-}
-
-.btn-copy-error {
-  padding: 0.25rem 0.5rem;
-  background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  cursor: pointer;
-  opacity: 0.7;
-  transition: opacity 0.15s;
-  font-size: 1rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 32px;
-  min-height: 32px;
-}
-
-.btn-copy-error:hover {
-  opacity: 1;
-  background: var(--color-bg-hover);
-}
-
-.btn-copy-error:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.error-content {
-  background: var(--color-background);
-  border-radius: 4px;
-  padding: 0.75rem;
-  margin-bottom: 0.75rem;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.error-message {
-  margin: 0;
-  font-size: 0.875rem;
-  color: var(--color-text);
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: ui-monospace, monospace;
-  line-height: 1.4;
-}
-
-.error-hint {
-  margin: 0;
-  font-size: 0.8125rem;
-  color: var(--color-text-soft);
 }
 
 .scroll-to-claude-btn {
@@ -1682,67 +924,12 @@ async function handleBranchCreate({ messageId, prompt }) {
   }
 }
 
-.running-state {
-  border-top: 1px solid var(--color-border);
-  padding-top: 1rem;
-}
-
-.running-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
-}
-
-.running-status {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--color-text-soft);
-  font-size: 0.875rem;
-}
-
-.running-title {
-  font-weight: 500;
-}
-
-.btn-stop {
-  min-height: 36px;
-  padding: 0.5rem 1rem;
-  font-size: 0.875rem;
-  flex-shrink: 0;
-}
-
-/* Responsive styles for input controls */
+/* Mobile adjustments for scroll-to-claude button */
 @media (max-width: 600px) {
-  .input-controls {
-    flex-wrap: wrap;
-  }
-
-  .session-options {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  /* Mobile adjustments for scroll-to-claude button */
   .scroll-to-claude-btn {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
     margin-right: 0.25rem;
-  }
-}
-
-@media (max-width: 400px) {
-  .mode-label {
-    display: none;
-  }
-}
-
-/* Hide "Claude is working..." text on extremely small screens */
-@media (max-width: 360px) {
-  .running-title {
-    display: none;
   }
 }
 </style>

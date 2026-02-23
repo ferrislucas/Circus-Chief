@@ -2,164 +2,25 @@ import { spawn } from 'child_process';
 import { platform } from 'os';
 import { commandRuns } from '../database.js';
 import { createRobustEnv } from './nodeSpawnHelper.js';
+import { TerminalOutputProcessor } from './terminalOutputProcessor.js';
+import { ProcessRegistry } from './processRegistry.js';
+import { OutputBuffer } from './outputBuffer.js';
 
-/**
- * Strip ANSI escape codes from text
- * Removes all CSI (Control Sequence Introducer) sequences:
- * - SGR codes: \x1b[...m (colors, bold, italic, etc.)
- * - Cursor movement: \x1b[1A, \x1b[2B, etc.
- * - Line/screen clearing: \x1b[2K, \x1b[0J, etc.
- * - Other CSI sequences: \x1b[...H, \x1b[...J, etc.
- *
- * @param {string} text - Text potentially containing ANSI codes
- * @returns {string} Text with all ANSI codes removed
- */
-export function stripAnsiCodes(text) {
-  if (!text || typeof text !== 'string') {
-    return text;
-  }
-  // Match all CSI sequences: ESC [ <params> <final-char>
-  // This covers colors, cursor movement, line clearing, and other terminal control sequences
-  // eslint-disable-next-line no-control-regex
-  return text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
-}
-
-/**
- * Terminal output processor that simulates cursor control behavior
- *
- * When tools like yarn run in TTY mode, they use cursor control sequences to create
- * animated progress displays. For example:
- *   \x1b[2K\x1b[1G[] 0/576    <- clear line, go to column 1, print progress
- *   \x1b[2K\x1b[1G[] 136/576  <- clear line, go to column 1, print NEW progress
- *
- * On a real terminal, the second line overwrites the first. But when we just strip
- * the codes, we get "[] 0/576[] 136/576" concatenated together.
- *
- * This processor simulates the terminal behavior by:
- * 1. Maintaining a "current line" buffer (content since last newline)
- * 2. When we see \x1b[2K (clear line), we clear the current line buffer
- * 3. When we see \x1b[1G (cursor to column 1), we clear the current line buffer
- * 4. When we see \r (carriage return), we clear the current line buffer
- * 5. When we see \n, we flush the current line and start fresh
- * 6. All ANSI escape codes are stripped from output
- */
-export class TerminalOutputProcessor {
-  constructor() {
-    /** @type {string} Content on the current line (since last newline) */
-    this.currentLine = '';
-  }
-
-  /**
-   * Process a chunk of terminal output, simulating cursor control behavior
-   *
-   * @param {string} chunk - Raw terminal output chunk
-   * @returns {string} Processed output with cursor behavior simulated and ANSI codes stripped
-   */
-  process(chunk) {
-    if (!chunk || typeof chunk !== 'string') {
-      return '';
-    }
-
-    let output = '';
-    let i = 0;
-
-    while (i < chunk.length) {
-      // Check for ESC sequence
-      if (chunk[i] === '\x1b' && chunk[i + 1] === '[') {
-        // Parse the CSI sequence: ESC [ <params> <command>
-        let j = i + 2;
-        while (j < chunk.length && /[0-9;?]/.test(chunk[j])) {
-          j++;
-        }
-
-        if (j < chunk.length) {
-          const cmd = chunk[j];
-          const params = chunk.slice(i + 2, j);
-
-          // Handle cursor control sequences that affect line content
-          if (cmd === 'K') {
-            // Erase in Line: [0K = to end, [1K = to start, [2K = entire line
-            // Any of these effectively means "this content will be replaced"
-            this.currentLine = '';
-          } else if (cmd === 'G') {
-            // Cursor Character Absolute: [nG moves cursor to column n
-            // [1G = go to column 1 (start of line) - used for overwriting
-            if (params === '' || params === '1') {
-              this.currentLine = '';
-            }
-          } else if (cmd === 'H' || cmd === 'f') {
-            // Cursor Position: [n;mH or [n;mf moves cursor to row n, column m
-            // Often used for repositioning - clear current line
-            this.currentLine = '';
-          } else if (cmd === 'A' || cmd === 'B' || cmd === 'C' || cmd === 'D') {
-            // Cursor movement: A=up, B=down, C=right, D=left
-            // These are used in progress animations - clear current line
-            this.currentLine = '';
-          } else if (cmd === 'J') {
-            // Erase in Display: [0J = to end, [1J = to start, [2J = entire screen
-            // Clear current line as screen is being redrawn
-            this.currentLine = '';
-          }
-          // All other sequences (including color codes 'm') are just stripped
-
-          i = j + 1;
-          continue;
-        }
-      }
-
-      // Handle carriage return - go to start of line (used for overwriting)
-      if (chunk[i] === '\r') {
-        // Don't clear if next char is \n (normal line ending)
-        if (chunk[i + 1] !== '\n') {
-          this.currentLine = '';
-        }
-        i++;
-        continue;
-      }
-
-      // Handle newline - flush current line and start fresh
-      if (chunk[i] === '\n') {
-        output += this.currentLine + '\n';
-        this.currentLine = '';
-        i++;
-        continue;
-      }
-
-      // Regular character - add to current line
-      this.currentLine += chunk[i];
-      i++;
-    }
-
-    return output;
-  }
-
-  /**
-   * Flush any remaining content in the current line buffer
-   * Call this when the stream ends to get the final incomplete line
-   *
-   * @returns {string} Any remaining content
-   */
-  flush() {
-    const remaining = this.currentLine;
-    this.currentLine = '';
-    return remaining;
-  }
-
-  /**
-   * Reset the processor state
-   */
-  reset() {
-    this.currentLine = '';
-  }
-}
+// Re-export for backward compatibility
+export { stripAnsiCodes, TerminalOutputProcessor } from './terminalOutputProcessor.js';
 
 /**
  * Service for running commands and managing their execution
  */
 export class CommandRunner {
   constructor() {
-    this.processes = new Map(); // runId -> { process, timeout, outputBuffer, lastDbWrite }
-    this.outputBufferFlushInterval = 500; // Flush buffered output every 500ms
+    this.registry = new ProcessRegistry();
+    this.outputBuffer = new OutputBuffer(500);
+  }
+
+  // Expose processes via the registry for backward compatibility with tests
+  get processes() {
+    return this.registry.processes;
   }
 
   /**
@@ -236,34 +97,11 @@ export class CommandRunner {
           bufferFlushTimer: null,
           outputProcessor: new TerminalOutputProcessor(), // Simulates terminal cursor behavior
         };
-        this.processes.set(runId, entry);
+        this.registry.set(runId, entry);
 
-        // Helper to flush buffered output to database
-        const flushOutputBuffer = () => {
-          if (entry.outputBuffer && sessionId && buttonId && commandRuns && typeof commandRuns.appendOutput === 'function') {
-            try {
-              commandRuns.appendOutput(runId, entry.outputBuffer);
-              entry.lastDbWrite = Date.now();
-            } catch (err) {
-              console.warn(`[commandRunner.run] Warning: Error flushing output to database for runId: ${runId}`, err.message);
-            }
-            entry.outputBuffer = '';
-          }
-        };
-
-        // Set up periodic buffer flushing
-        const setupBufferTimer = () => {
-          entry.bufferFlushTimer = setInterval(flushOutputBuffer, this.outputBufferFlushInterval);
-        };
-
-        const clearBufferTimer = () => {
-          if (entry.bufferFlushTimer) {
-            clearInterval(entry.bufferFlushTimer);
-            entry.bufferFlushTimer = null;
-          }
-        };
-
-        setupBufferTimer();
+        // Set up output buffer flushing
+        const flushOutputBuffer = this.outputBuffer.createFlushFn(runId, entry, sessionId, buttonId);
+        this.outputBuffer.startTimer(entry, flushOutputBuffer);
 
         child.stdout.on('data', (data) => {
           const rawText = data.toString();
@@ -271,8 +109,7 @@ export class CommandRunner {
           // This handles overwrite-style progress animations correctly
           const text = entry.outputProcessor.process(rawText);
           if (text) {
-            entry.output += text;
-            entry.outputBuffer += text;
+            this.outputBuffer.append(entry, text);
             if (onOutput) onOutput(text);
           }
         });
@@ -282,19 +119,17 @@ export class CommandRunner {
           // Use the terminal output processor to simulate cursor behavior
           const text = entry.outputProcessor.process(rawText);
           if (text) {
-            entry.output += text;
-            entry.outputBuffer += text;
+            this.outputBuffer.append(entry, text);
             if (onOutput) onOutput(text);
           }
         });
 
         child.on('error', (err) => {
-          clearBufferTimer();
+          this.outputBuffer.clearTimer(entry);
           // Flush any remaining content from the terminal processor
           const remainingText = entry.outputProcessor.flush();
           if (remainingText) {
-            entry.output += remainingText;
-            entry.outputBuffer += remainingText;
+            this.outputBuffer.append(entry, remainingText);
           }
           flushOutputBuffer(); // Flush any remaining output to database
           const msg = `Failed to execute command: ${err.message}`;
@@ -308,17 +143,16 @@ export class CommandRunner {
               console.warn(`[commandRunner.run] Warning: Error marking run as error in database for runId: ${runId}`, dbErr.message);
             }
           }
-          this.processes.delete(runId);
+          this.registry.delete(runId);
           resolve(1);
         });
 
         child.on('close', (exitCode, signal) => {
-          clearBufferTimer();
+          this.outputBuffer.clearTimer(entry);
           // Flush any remaining content from the terminal processor (incomplete final line)
           const remainingText = entry.outputProcessor.flush();
           if (remainingText) {
-            entry.output += remainingText;
-            entry.outputBuffer += remainingText;
+            this.outputBuffer.append(entry, remainingText);
             if (onOutput) onOutput(remainingText);
           }
           flushOutputBuffer(); // Flush any remaining output to database
@@ -342,7 +176,7 @@ export class CommandRunner {
             }
           }
 
-          this.processes.delete(runId);
+          this.registry.delete(runId);
           // If killed by signal, exitCode is null. Call onComplete with null to trigger error status
           if (onComplete) onComplete(exitCode, entry.output);
           // Return non-zero exit code for signal termination (143 for SIGTERM)
@@ -363,7 +197,7 @@ export class CommandRunner {
             console.warn(`[commandRunner.run] Warning: Error marking failed run in database for runId: ${runId}`, dbErr.message);
           }
         }
-        this.processes.delete(runId);
+        this.registry.delete(runId);
         resolve(1);
       }
     });
@@ -375,7 +209,7 @@ export class CommandRunner {
    * @returns {boolean} True if process was killed, false if not found
    */
   kill(runId) {
-    const entry = this.processes.get(runId);
+    const entry = this.registry.get(runId);
     if (!entry) {
       console.log(`[commandRunner.kill] Process not found for runId: ${runId}`);
       return false;
@@ -397,7 +231,7 @@ export class CommandRunner {
       // Give it a moment to terminate gracefully, then force kill
       setTimeout(() => {
         // Check if process is still in our map (not yet closed)
-        if (this.processes.has(runId)) {
+        if (this.registry.has(runId)) {
           console.log(`[commandRunner.kill] Process still running, sending SIGKILL to runId: ${runId}`);
           try {
             process.kill(-pid, 'SIGKILL');
@@ -416,10 +250,7 @@ export class CommandRunner {
       }, 1000);
 
       // Flush any remaining output (database mark as killed will be done in close event)
-      if (entry.bufferFlushTimer) {
-        clearInterval(entry.bufferFlushTimer);
-        entry.bufferFlushTimer = null;
-      }
+      this.outputBuffer.clearTimer(entry);
       if (entry.outputBuffer && commandRuns && typeof commandRuns.appendOutput === 'function') {
         try {
           commandRuns.appendOutput(runId, entry.outputBuffer);
@@ -446,7 +277,7 @@ export class CommandRunner {
    * @returns {Map} Map of runId -> process info
    */
   getActiveRuns() {
-    return new Map(this.processes);
+    return this.registry.getActiveRuns();
   }
 
   /**
@@ -455,7 +286,7 @@ export class CommandRunner {
    * @returns {boolean}
    */
   isRunning(runId) {
-    return this.processes.has(runId);
+    return this.registry.isRunning(runId);
   }
 
   /**
@@ -466,24 +297,7 @@ export class CommandRunner {
    * @returns {Array} Running command runs
    */
   getRunningByProjectId(projectId, getSessionById) {
-    const results = [];
-    for (const [runId, entry] of this.processes.entries()) {
-      // Look up session to check projectId
-      const session = getSessionById(entry.sessionId);
-      if (session?.projectId === projectId) {
-        results.push({
-          id: runId,
-          runId: runId,
-          buttonId: entry.buttonId,
-          sessionId: entry.sessionId,
-          status: 'running',
-          output: entry.output,
-          exitCode: null,
-          startedAt: entry.startTime,
-        });
-      }
-    }
-    return results;
+    return this.registry.getRunningByProjectId(projectId, getSessionById);
   }
 
   /**
@@ -492,75 +306,7 @@ export class CommandRunner {
    * @returns {Array} Array of run info objects
    */
   getRunsBySession(sessionId) {
-    const runs = [];
-
-    // Add currently running processes
-    for (const [runId, entry] of this.processes) {
-      if (entry.sessionId === sessionId) {
-        runs.push({
-          runId,
-          buttonId: entry.buttonId,
-          status: 'running',
-          output: entry.output,
-          exitCode: undefined,
-          startedAt: entry.startTime,
-        });
-      }
-    }
-
-    // Add latest completed runs from database (one per button, no time limit)
-    // Note: commandRuns might not be available in test environments
-    if (commandRuns && typeof commandRuns.getLatestRunsForSession === 'function') {
-      try {
-        const dbRuns = commandRuns.getLatestRunsForSession(sessionId);
-        for (const dbRun of dbRuns) {
-          // Don't duplicate running processes
-          const isRunningInMemory = runs.some((r) => r.runId === dbRun.id);
-          if (!isRunningInMemory) {
-            // FIX: If DB shows "running" but we don't have the process in memory,
-            // it's an orphaned run (server restarted, process died unexpectedly, etc.)
-            // Mark it as error in the database so the UI shows the correct state
-            let status = dbRun.status;
-            let exitCode = dbRun.exitCode;
-
-            if (dbRun.status === 'running' && !this.processes.has(dbRun.id)) {
-              console.log(
-                `[commandRunner.getRunsBySession] Orphaned run detected: ${dbRun.id}, marking as error`
-              );
-              status = 'error';
-              exitCode = -1;
-
-              // Update the database to reflect the actual state
-              if (typeof commandRuns.complete === 'function') {
-                try {
-                  commandRuns.complete(dbRun.id, exitCode, dbRun.output || '');
-                } catch (updateErr) {
-                  console.warn(
-                    `[commandRunner.getRunsBySession] Failed to update orphaned run: ${updateErr.message}`
-                  );
-                }
-              }
-            }
-
-            runs.push({
-              runId: dbRun.id,
-              buttonId: dbRun.buttonId,
-              status,
-              output: dbRun.output,
-              exitCode,
-              startedAt: dbRun.startedAt,
-            });
-          }
-        }
-      } catch (err) {
-        console.error(
-          `[commandRunner.getRunsBySession] Error fetching database runs for sessionId: ${sessionId}`,
-          err
-        );
-      }
-    }
-
-    return runs;
+    return this.registry.getRunsBySession(sessionId);
   }
 }
 
