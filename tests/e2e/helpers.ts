@@ -2,6 +2,7 @@ import { Page, expect } from '@playwright/test';
 import { readFileSync, existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
+import { execSync } from 'child_process';
 
 export function getAPIURL(): string {
   if (process.env.API_URL) return process.env.API_URL;
@@ -1279,4 +1280,220 @@ export async function generateConversationSummary(sessionId: string, conversatio
   );
   // Don't throw on error - summary generation may fail if service is disabled
   return response;
+}
+
+// ============================================================
+// Message Seeding Helpers (for messaging-chat tests)
+// Writes directly to the SQLite database via scripts/seed-message.mjs
+// — no API endpoint needed.
+// ============================================================
+
+function getDBPath(): string {
+  if (process.env.DB_PATH) return process.env.DB_PATH;
+  return join(process.cwd(), 'claudetools.db');
+}
+
+function runSeedMessage(payload: object): any {
+  const seedScript = join(process.cwd(), 'scripts', 'seed-message.mjs');
+  const input = JSON.stringify({ dbPath: getDBPath(), ...payload });
+  const result = execSync(`node "${seedScript}"`, {
+    input,
+    encoding: 'utf-8',
+    timeout: 10000,
+  });
+  return JSON.parse(result);
+}
+
+/**
+ * Seed a user message directly into the DB for a session
+ */
+export function seedUserMessage(
+  sessionId: string,
+  content: string,
+  conversationId?: string
+) {
+  return runSeedMessage({ sessionId, role: 'user', content, conversationId: conversationId ?? null });
+}
+
+/**
+ * Seed an assistant message directly into the DB for a session
+ */
+export function seedAssistantMessage(
+  sessionId: string,
+  content: string,
+  model?: string,
+  conversationId?: string
+) {
+  return runSeedMessage({
+    sessionId,
+    role: 'assistant',
+    content,
+    model: model ?? null,
+    conversationId: conversationId ?? null,
+  });
+}
+
+/**
+ * Seed an assistant message with tool use data directly into the DB for a session
+ */
+export function seedAssistantMessageWithTools(
+  sessionId: string,
+  content: string,
+  toolUse: Array<{ type: string; id: string; name: string; input: Record<string, any> }>,
+  model?: string,
+  conversationId?: string
+) {
+  return runSeedMessage({
+    sessionId,
+    role: 'assistant',
+    content,
+    toolUse,
+    model: model ?? null,
+    conversationId: conversationId ?? null,
+  });
+}
+
+/**
+ * Seed multiple alternating user/assistant messages to create a scrollable conversation
+ */
+export function seedConversationHistory(sessionId: string, messageCount: number) {
+  const msgs: any[] = [];
+  for (let i = 0; i < messageCount; i++) {
+    const isUser = i % 2 === 0;
+    const msg = isUser
+      ? seedUserMessage(sessionId, `User message ${i + 1}: Tell me about topic ${i + 1}.`)
+      : seedAssistantMessage(
+          sessionId,
+          `Assistant response ${i + 1}: Here is a detailed response about topic ${i}. `.repeat(5),
+          'claude-sonnet-4-20250514'
+        );
+    msgs.push(msg);
+  }
+  return msgs;
+}
+
+// ============================================================
+// Template System Helpers (for template-system tests)
+// ============================================================
+
+/**
+ * Find child sessions by querying the parent session's project sessions
+ * and filtering by parentSessionId. Works without a dedicated /children endpoint.
+ */
+async function findChildSessionsForParent(parentSessionId: string): Promise<any[]> {
+  // First get the parent session to find its projectId
+  const parent = await getSession(parentSessionId);
+  if (!parent) return [];
+
+  const allSessions = await getProjectSessions(parent.projectId);
+  return allSessions.filter((s: any) => s.parentSessionId === parentSessionId);
+}
+
+/**
+ * Wait for a child session to appear under a parent session
+ * Polls project sessions and filters by parentSessionId
+ */
+export async function waitForChildSession(
+  parentSessionId: string,
+  timeout = 15000
+): Promise<any> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const children = await findChildSessionsForParent(parentSessionId);
+    if (children.length > 0) {
+      // Track for cleanup
+      for (const child of children) {
+        createdResources.sessions.add(child.id);
+      }
+      return children[0];
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`No child session found for parent ${parentSessionId} after ${timeout}ms`);
+}
+
+/**
+ * Wait for N child sessions to appear under a parent session
+ */
+export async function waitForChildSessions(
+  parentSessionId: string,
+  count: number,
+  timeout = 15000
+): Promise<any[]> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const children = await findChildSessionsForParent(parentSessionId);
+    if (children.length >= count) {
+      for (const child of children) {
+        createdResources.sessions.add(child.id);
+      }
+      return children;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`Expected ${count} child sessions for parent ${parentSessionId}, found less after ${timeout}ms`);
+}
+
+/**
+ * Seed a session summary directly into the DB via scripts/seed-summary.mjs
+ */
+export function seedSessionSummaryDirect(
+  sessionId: string,
+  data: {
+    shortSummary: string;
+    fullSummary: string;
+    keyActions?: string[];
+    filesModified?: string[];
+    outcome?: string;
+  }
+) {
+  const seedScript = join(process.cwd(), 'scripts', 'seed-summary.mjs');
+  const input = JSON.stringify({ dbPath: getDBPath(), sessionId, ...data });
+  const result = execSync(`node "${seedScript}"`, {
+    input,
+    encoding: 'utf-8',
+    timeout: 10000,
+  });
+  return JSON.parse(result);
+}
+
+/**
+ * Update a session's nextTemplateId via PATCH
+ */
+export async function setNextTemplate(
+  sessionId: string,
+  nextTemplateId: string | null
+): Promise<any> {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nextTemplateId }),
+  });
+  if (!response.ok) throw new Error('Failed to set next template');
+  return response.json();
+}
+
+/**
+ * Update a template via PATCH
+ */
+export async function updateTemplate(
+  id: string,
+  data: {
+    name?: string;
+    prompt?: string;
+    nextTemplateId?: string | null;
+    thinkingEnabled?: boolean | null;
+    gitBranch?: string | null;
+    gitMode?: string | null;
+    model?: string | null;
+    mode?: string;
+  }
+): Promise<any> {
+  const response = await fetch(`${API_URL}/api/templates/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to update template');
+  return response.json();
 }
