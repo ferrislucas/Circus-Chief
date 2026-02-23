@@ -2,12 +2,12 @@
  * Global teardown for Playwright tests
  * Runs once after all tests complete
  */
-import { cleanupAll } from './helpers';
+import { cleanupAllBroadly } from './helpers';
 
 async function globalTeardown() {
   console.log('Global teardown: Cleaning up all test data...');
   try {
-    await cleanupAll();
+    await cleanupAllBroadly();
     console.log('Global teardown: Cleanup complete');
   } catch (error) {
     console.error('Global teardown: Cleanup failed', error);

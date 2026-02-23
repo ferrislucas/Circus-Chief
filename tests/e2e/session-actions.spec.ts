@@ -428,13 +428,14 @@ test.describe('Active Sessions View', () => {
       sessionStorage.removeItem('sessionStarredFilter');
     });
 
+    const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
     const session1 = await seedSession(project1.id, {
-      prompt: 'Session 1',
-      name: 'Session 1',
+      prompt: `StarFilterA-${uniqueId}`,
+      name: `StarFilterA-${uniqueId}`,
     });
     const session2 = await seedSession(project2.id, {
-      prompt: 'Session 2',
-      name: 'Session 2',
+      prompt: `StarFilterB-${uniqueId}`,
+      name: `StarFilterB-${uniqueId}`,
     });
 
     // Star one session via API
@@ -442,7 +443,7 @@ test.describe('Active Sessions View', () => {
 
     await navigateAndWait(page, '/sessions/active');
 
-    // Wait for both sessions to appear
+    // Wait for both sessions to appear — use unique names to avoid matching other workers' sessions
     await expect(page.locator('.session-name').filter({ hasText: session1.name })).toBeVisible({ timeout: 8000 });
     await expect(page.locator('.session-name').filter({ hasText: session2.name })).toBeVisible({ timeout: 8000 });
 
