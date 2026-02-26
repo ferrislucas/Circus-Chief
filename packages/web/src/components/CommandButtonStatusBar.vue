@@ -1,10 +1,11 @@
 <template>
-  <div v-if="buttonStatuses.length > 0" class="command-status-bar">
+  <div v-if="buttonStatuses.length > 0" class="command-status-bar" data-testid="button-status-bar">
     <span
       v-for="indicator in buttonStatuses"
       :key="indicator.buttonId"
       :class="['button-status-indicator', `button-status-${indicator.status}`]"
       :title="`${indicator.label}: ${indicator.status}`"
+      data-testid="button-status-indicator"
       @click="selectedButtonForModal = indicator"
     >{{ getStatusIcon(indicator.status) }}</span>
     <!-- Button Status Modal -->
