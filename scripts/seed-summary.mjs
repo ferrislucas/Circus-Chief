@@ -26,7 +26,12 @@ for await (const chunk of process.stdin) {
   raw += chunk;
 }
 
-const { dbPath, sessionId, shortSummary, fullSummary, keyActions, filesModified, outcome } = JSON.parse(raw);
+const { dbPath, sessionId, shortSummary, fullSummary, keyActions, filesModified, outcome, prMerged, prState, hasMergeConflicts, ciStatus, ciFailures } = JSON.parse(raw);
+
+// Convert PR fields for SQLite storage
+const prMergedInt = prMerged != null ? (prMerged ? 1 : 0) : null;
+const hasMergeConflictsInt = hasMergeConflicts != null ? (hasMergeConflicts ? 1 : 0) : null;
+const ciFailuresJson = ciFailures != null ? JSON.stringify(ciFailures) : null;
 
 const db = new Database(dbPath, { readonly: false });
 db.pragma('journal_mode = WAL');
@@ -41,7 +46,8 @@ if (existing) {
   // Update existing summary
   db.prepare(
     `UPDATE session_summaries
-     SET short_summary = ?, full_summary = ?, key_actions = ?, files_modified = ?, outcome = ?, generated_at = ?, updated_at = ?
+     SET short_summary = ?, full_summary = ?, key_actions = ?, files_modified = ?, outcome = ?, generated_at = ?, updated_at = ?,
+         pr_merged = ?, pr_state = ?, has_merge_conflicts = ?, ci_status = ?, ci_failures = ?
      WHERE id = ?`
   ).run(
     shortSummary,
@@ -51,13 +57,18 @@ if (existing) {
     outcome || 'completed',
     now,
     now,
+    prMergedInt ?? null,
+    prState ?? null,
+    hasMergeConflictsInt ?? null,
+    ciStatus ?? null,
+    ciFailuresJson ?? null,
     id
   );
 } else {
   // Insert new summary
   db.prepare(
-    `INSERT INTO session_summaries (id, session_id, short_summary, full_summary, key_actions, files_modified, outcome, message_count, generated_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO session_summaries (id, session_id, short_summary, full_summary, key_actions, files_modified, outcome, message_count, generated_at, created_at, updated_at, pr_merged, pr_state, has_merge_conflicts, ci_status, ci_failures)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     sessionId,
@@ -69,7 +80,12 @@ if (existing) {
     0,
     now,
     now,
-    now
+    now,
+    prMergedInt ?? null,
+    prState ?? null,
+    hasMergeConflictsInt ?? null,
+    ciStatus ?? null,
+    ciFailuresJson ?? null
   );
 }
 
@@ -85,6 +101,11 @@ const summary = {
   filesModified: row.files_modified ? JSON.parse(row.files_modified) : [],
   outcome: row.outcome,
   generatedAt: row.generated_at,
+  prMerged: row.pr_merged != null ? Boolean(row.pr_merged) : null,
+  prState: row.pr_state ?? null,
+  hasMergeConflicts: row.has_merge_conflicts != null ? Boolean(row.has_merge_conflicts) : null,
+  ciStatus: row.ci_status ?? null,
+  ciFailures: row.ci_failures ? JSON.parse(row.ci_failures) : null,
 };
 
 process.stdout.write(JSON.stringify(summary));

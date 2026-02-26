@@ -26,7 +26,7 @@
       </div>
 
       <!-- PR Info in Overview -->
-      <div v-if="hasPrInfo" class="overview-pr">
+      <div v-if="hasPrInfo" class="overview-pr" data-testid="pr-overview-badge">
         <a :href="prUrl" target="_blank" class="pr-link">
           {{ extractPrNumber(prUrl) }}
         </a>
@@ -88,7 +88,7 @@
         </span>
       </section>
 
-      <section v-if="hasPrInfo" class="summary-section">
+      <section v-if="hasPrInfo" class="summary-section" data-testid="pr-section">
         <h3>Pull Request</h3>
         <div class="pr-info">
           <!-- PR Link and State -->
@@ -102,7 +102,7 @@
           </div>
 
           <!-- Warnings Section -->
-          <div v-if="summary.hasMergeConflicts || summary.ciStatus === 'failure'" class="pr-warnings">
+          <div v-if="summary.hasMergeConflicts || summary.ciStatus === 'failure'" class="pr-warnings" data-testid="pr-warnings">
             <!-- Merge Conflicts Warning -->
             <div v-if="summary.hasMergeConflicts" class="warning-item conflict-warning">
               <span class="warning-icon">⚠️</span>
@@ -114,7 +114,7 @@
               <span class="warning-icon">❌</span>
               <span>CI checks failing</span>
               <ul v-if="summary.ciFailures?.length" class="failure-list">
-                <li v-for="failure in summary.ciFailures" :key="failure">
+                <li v-for="failure in summary.ciFailures" :key="failure" data-testid="pr-ci-failure-item">
                   {{ failure }}
                 </li>
               </ul>
@@ -122,7 +122,7 @@
           </div>
 
           <!-- CI Status Badge (when not failing) -->
-          <div v-if="summary.ciStatus && summary.ciStatus !== 'failure'" class="ci-status">
+          <div v-if="summary.ciStatus && summary.ciStatus !== 'failure'" class="ci-status" data-testid="ci-status">
             <span :class="['status-badge', `ci-${summary.ciStatus}`]">
               {{ summary.ciStatus === 'success' ? '✓ CI Passing' : '⏳ CI Pending' }}
             </span>
@@ -228,7 +228,11 @@ const loadingConversations = ref(false);
 const conversations = ref([]);
 
 // Computed property to get the session's prUrl
-const session = computed(() => sessionsStore.sessions.find((s) => s.id === props.sessionId));
+// Check both sessions array and currentSession (the latter is always populated on session detail page)
+const session = computed(() =>
+  sessionsStore.sessions.find((s) => s.id === props.sessionId)
+  || (sessionsStore.currentSession?.id === props.sessionId ? sessionsStore.currentSession : null)
+);
 const prUrl = computed(() => session.value?.prUrl || null);
 const hasPrInfo = computed(() => prUrl.value && summary.value?.prState);
 

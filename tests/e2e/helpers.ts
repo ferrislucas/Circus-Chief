@@ -933,7 +933,11 @@ export async function cleanupProviders() {
 // ============================================================
 
 /**
- * Update session with PR data
+ * Update a session's PR URL via PATCH.
+ *
+ * NOTE: Only `prUrl` is handled by the PATCH endpoint.
+ * Other PR fields (prState, hasMergeConflicts, ciStatus) live in
+ * session_summaries and must be seeded via seedSessionSummaryWithPR().
  */
 export async function updateSessionWithPR(sessionId: string, prData: {
   prUrl?: string;
@@ -1449,6 +1453,54 @@ export function seedSessionSummaryDirect(
 ) {
   const seedScript = join(process.cwd(), 'scripts', 'seed-summary.mjs');
   const input = JSON.stringify({ dbPath: getDBPath(), sessionId, ...data });
+  const result = execSync(`node "${seedScript}"`, {
+    input,
+    encoding: 'utf-8',
+    timeout: 10000,
+  });
+  return JSON.parse(result);
+}
+
+/**
+ * Seed a session summary with PR status fields via extended seed-summary.mjs.
+ * This is the PRIMARY way to seed PR state/CI data for tests.
+ *
+ * IMPORTANT: PR state fields (prState, ciStatus, etc.) live in
+ * session_summaries, NOT sessions. Use updateSessionWithPR() for prUrl only,
+ * and this function for everything else.
+ */
+export function seedSessionSummaryWithPR(
+  sessionId: string,
+  data: {
+    shortSummary?: string;
+    fullSummary?: string;
+    outcome?: string;
+    keyActions?: string[];
+    filesModified?: string[];
+    prState?: 'open' | 'merged' | 'closed' | 'draft';
+    prMerged?: boolean;
+    hasMergeConflicts?: boolean;
+    ciStatus?: 'success' | 'failure' | 'pending';
+    ciFailures?: string[];
+  }
+) {
+  const seedScript = join(process.cwd(), 'scripts', 'seed-summary.mjs');
+  const payload: any = {
+    dbPath: getDBPath(),
+    sessionId,
+    shortSummary: data.shortSummary ?? 'Test summary',
+    fullSummary: data.fullSummary ?? 'Test full summary',
+    outcome: data.outcome ?? 'completed',
+  };
+  if (data.keyActions) payload.keyActions = data.keyActions;
+  if (data.filesModified) payload.filesModified = data.filesModified;
+  if (data.prState !== undefined) payload.prState = data.prState;
+  if (data.prMerged !== undefined) payload.prMerged = data.prMerged;
+  if (data.hasMergeConflicts !== undefined) payload.hasMergeConflicts = data.hasMergeConflicts;
+  if (data.ciStatus !== undefined) payload.ciStatus = data.ciStatus;
+  if (data.ciFailures !== undefined) payload.ciFailures = data.ciFailures;
+
+  const input = JSON.stringify(payload);
   const result = execSync(`node "${seedScript}"`, {
     input,
     encoding: 'utf-8',

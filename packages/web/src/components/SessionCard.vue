@@ -55,7 +55,7 @@
             </span>
 
             <!-- PR Indicators -->
-            <PrIndicators v-if="prUrl" :pr-url="prUrl" :summary="prSummary" />
+            <PrIndicators v-if="prUrl" :pr-url="prUrl" :summary="prSummary" data-testid="session-card-pr-indicators" />
 
             <!-- Command button status indicators -->
             <span
