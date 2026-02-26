@@ -266,6 +266,122 @@ describe('Projects API', () => {
         sessionTemplates.delete(minimalTemplate.id);
       });
     });
+
+    describe('with nextTemplateId', () => {
+      it('sets nextTemplateId when provided without templateId', async () => {
+        // Create a template to reference
+        const template = sessionTemplates.create({
+          name: 'Chain Template',
+          prompt: 'Chain prompt',
+          projectId: projectId,
+          thinkingEnabled: true,
+          gitBranch: 'feature/chain',
+          gitMode: 'worktree',
+        });
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          nextTemplateId: template.id,
+        });
+
+        expect(res.status).toBe(201);
+
+        const session = sessions.getById(res.body.id);
+        expect(session.nextTemplateId).toBe(template.id);
+        // Template settings should NOT be applied (no templateId was provided)
+        expect(session.thinkingEnabled).toBe(false); // system default
+
+        // Clean up
+        sessionTemplates.delete(template.id);
+      });
+
+      it('validates nextTemplateId references an existing template', async () => {
+        const fakeUUID = '00000000-0000-4000-8000-000000000000';
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          nextTemplateId: fakeUUID,
+        });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('nextTemplateId references a non-existent template');
+      });
+
+      it('allows nextTemplateId to be null', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          nextTemplateId: null,
+        });
+
+        expect(res.status).toBe(201);
+
+        const session = sessions.getById(res.body.id);
+        expect(session.nextTemplateId).toBeNull();
+      });
+
+      it('explicit nextTemplateId overrides templateId-derived value', async () => {
+        // Create two templates
+        const templateA = sessionTemplates.create({
+          name: 'Template A',
+          prompt: 'Prompt A',
+          projectId: projectId,
+          thinkingEnabled: true,
+          gitBranch: 'feature/a',
+          gitMode: 'worktree',
+        });
+        const templateB = sessionTemplates.create({
+          name: 'Template B',
+          prompt: 'Prompt B',
+          projectId: projectId,
+        });
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: templateA.id,
+          nextTemplateId: templateB.id,
+        });
+
+        expect(res.status).toBe(201);
+
+        const session = sessions.getById(res.body.id);
+        // Template A's settings should be applied
+        expect(session.thinkingEnabled).toBe(true);
+        // But nextTemplateId should be B, not A
+        expect(session.nextTemplateId).toBe(templateB.id);
+
+        // Clean up
+        sessionTemplates.delete(templateA.id);
+        sessionTemplates.delete(templateB.id);
+      });
+
+      it('explicit null nextTemplateId clears templateId-derived value', async () => {
+        const template = sessionTemplates.create({
+          name: 'Template With Chain',
+          prompt: 'Prompt',
+          projectId: projectId,
+          thinkingEnabled: true,
+          gitBranch: 'feature/chain',
+          gitMode: 'worktree',
+        });
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: template.id,
+          nextTemplateId: null,
+        });
+
+        expect(res.status).toBe(201);
+
+        const session = sessions.getById(res.body.id);
+        // Template settings should be applied
+        expect(session.thinkingEnabled).toBe(true);
+        // But nextTemplateId should be null (explicitly cleared)
+        expect(session.nextTemplateId).toBeNull();
+
+        // Clean up
+        sessionTemplates.delete(template.id);
+      });
+    });
   });
 
   describe('GET /api/projects', () => {
