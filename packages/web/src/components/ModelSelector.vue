@@ -5,8 +5,9 @@
       :value="effectiveSelectedModel"
       @change="handleModelChange($event.target.value)"
       :disabled="disabled"
-      class="model-select"
+      :class="selectClass || 'model-select'"
     >
+      <option v-if="allowEmpty" value="">{{ emptyLabel }}</option>
       <optgroup v-for="provider in providersStore.providers" :key="provider.id" :label="provider.name">
         <option
           v-for="model in provider.models"
@@ -33,6 +34,18 @@ const props = defineProps({
   disabled: {
     type: Boolean,
     default: false,
+  },
+  allowEmpty: {
+    type: Boolean,
+    default: false,
+  },
+  emptyLabel: {
+    type: String,
+    default: 'Use system default',
+  },
+  selectClass: {
+    type: String,
+    default: '',
   },
 });
 
@@ -123,6 +136,10 @@ const selectedModel = ref(resolveModelId(props.modelValue));
 // Computed that ALWAYS returns a valid model ID for the select element
 // This ensures the select never shows empty, even before providers load
 const effectiveSelectedModel = computed(() => {
+  // When allowEmpty is true and the value is empty/null, return empty string
+  if (props.allowEmpty && (!selectedModel.value || selectedModel.value === '')) {
+    return '';
+  }
   // First, try the current selectedModel if it's valid
   if (selectedModel.value && isValidModelId(selectedModel.value)) {
     return selectedModel.value;
@@ -146,6 +163,12 @@ watch(modelValueRef, (newModel) => {
 watch(() => providersStore.providers, () => {
   // Skip if no models loaded yet - wait for models to be available
   if (!providersHaveModels.value) return;
+
+  // When allowEmpty is true and value is empty/null, treat empty as valid - don't auto-select
+  if (props.allowEmpty && (!props.modelValue || props.modelValue === '')) {
+    selectedModel.value = '';
+    return;
+  }
 
   // First, try to resolve the model ID from props
   let resolvedModel = null;
@@ -180,7 +203,7 @@ function handleModelChange(modelId) {
   // Immediate visual feedback - update UI right away
   selectedModel.value = modelId;
 
-  // Emit for v-model
+  // Emit for v-model (empty string when allowEmpty option is selected)
   emit('update:modelValue', modelId);
 }
 </script>

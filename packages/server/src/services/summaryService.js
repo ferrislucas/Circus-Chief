@@ -495,10 +495,11 @@ function parseSummaryResponse(responseText) {
  * Generate summary for a session using Claude Code SDK
  * @param {string} sessionId
  * @param {number} retryCount - Internal retry counter (do not set manually)
- * @param {boolean} force - Force generation even if summary is current (default: false)
+ * @param {boolean} force - Force generation even if summary is current (skips debounce/staleness check, default: false)
+ * @param {boolean} userInitiated - Whether this was triggered by an explicit user action (e.g. clicking "regenerate" in the UI). When true, bypasses the global disable setting. (default: false)
  * @returns {Promise<Object|null>}
  */
-export async function generateSummary(sessionId, retryCount = 0, force = false) {
+export async function generateSummary(sessionId, retryCount = 0, force = false, userInitiated = false) {
   try {
     // Get session info
     const session = sessions.getById(sessionId);
@@ -508,10 +509,11 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
     }
 
     // Check if session summaries are disabled globally
-    // Skip this check if force=true (manual regeneration should always work)
+    // Only user-initiated regeneration (explicit UI action) bypasses this check.
+    // force=true (used by onSessionComplete) still respects the disable setting.
     const globalSettings = settings.getSummarySettings();
-    if (!force && globalSettings?.disableSessionSummaries) {
-      console.log(`[SummaryService] Session summaries disabled globally, skipping automatic generation`);
+    if (!userInitiated && globalSettings?.disableSessionSummaries) {
+      console.log(`[SummaryService] Session summaries disabled globally, skipping generation`);
       return null;
     }
 
@@ -564,7 +566,7 @@ export async function generateSummary(sessionId, retryCount = 0, force = false) 
       );
       const backoffMs = 1000 * (retryCount + 1); // 1s, 2s
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
-      return generateSummary(sessionId, retryCount + 1, force);
+      return generateSummary(sessionId, retryCount + 1, force, userInitiated);
     }
 
     // Clean up internal flag before saving
@@ -794,12 +796,13 @@ export async function getSummary(sessionId, generateIfMissing = false) {
 }
 
 /**
- * Force regenerate summary for a session
+ * Force regenerate summary for a session (user-initiated action)
+ * This bypasses the global disable setting since the user explicitly requested it.
  * @param {string} sessionId
  * @returns {Promise<Object|null>}
  */
 export async function regenerateSummary(sessionId) {
-  return generateSummary(sessionId, 0, true);
+  return generateSummary(sessionId, 0, true, true);
 }
 
 /**
