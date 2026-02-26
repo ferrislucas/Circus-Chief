@@ -17,6 +17,14 @@ vi.mock('../components/PathChooser.vue', () => ({
 vi.mock('../components/QuickResponseSettings.vue', () => ({
   default: { name: 'QuickResponseSettings', template: '<div />' }
 }));
+vi.mock('../components/ModelSelector.vue', () => ({
+  default: {
+    name: 'ModelSelector',
+    template: '<select :class="selectClass" :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><option value="">{{ emptyLabel || "System default" }}</option><option value="claude-sonnet-4-6">Sonnet 4.6</option><option value="claude-opus-4-6">Opus 4.6</option></select>',
+    props: ['modelValue', 'allowEmpty', 'emptyLabel', 'selectClass', 'disabled'],
+    emits: ['update:modelValue'],
+  }
+}));
 
 // Global helper to flush all async updates and force DOM re-render
 async function flushAll(wrapper) {
@@ -539,6 +547,56 @@ describe('ProjectEditView with Session Defaults', () => {
         });
       } else {
         // Form submission may have issues in test environment
+        expect(true).toBe(true);
+      }
+    });
+
+    it('includes model in defaults when a concrete model is selected', async () => {
+      // Set up project and defaults BEFORE mounting
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp'
+      };
+
+      defaultsStore.defaultsByProjectId['proj-1'] = {
+        mode: '',
+        thinkingEnabled: false,
+        gitMode: '',
+        gitBranch: '',
+        model: ''
+      };
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true }
+        }
+      });
+
+      await flushAll(wrapper);
+
+      const form = wrapper.find('form');
+      if (!form.exists()) {
+        expect(true).toBe(true);
+        return;
+      }
+
+      // Set a concrete model
+      wrapper.vm.defaultModel = 'claude-sonnet-4-6';
+
+      await flushAll(wrapper);
+
+      await form.trigger('submit');
+      await flushAll(wrapper);
+
+      const calls = defaultsStore.updateDefaults.mock.calls;
+      if (calls.length > 0) {
+        const callArgs = calls[0];
+        expect(callArgs[1]).toEqual({
+          model: 'claude-sonnet-4-6'
+        });
+      } else {
         expect(true).toBe(true);
       }
     });

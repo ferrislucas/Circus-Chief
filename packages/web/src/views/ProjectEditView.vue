@@ -170,16 +170,7 @@
 
         <div class="form-group">
           <label class="form-label" for="defaultModel">Model</label>
-          <select
-            id="defaultModel"
-            v-model="defaultModel"
-            class="form-input"
-          >
-            <option value="">Use system default (Opus 4.5)</option>
-            <option v-for="model in CLAUDE_MODELS" :key="model.id" :value="model.id">
-              {{ model.name }} - {{ model.description }}
-            </option>
-          </select>
+          <ModelSelector v-model="defaultModel" :allowEmpty="true" emptyLabel="Use system default" selectClass="form-input" />
           <p class="form-help">
             Choose the default Claude model for new sessions in this project.
           </p>
@@ -242,8 +233,8 @@ import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useUiStore } from '../stores/ui.js';
 import PathChooser from '../components/PathChooser.vue';
 import QuickResponseSettings from '../components/QuickResponseSettings.vue';
+import ModelSelector from '../components/ModelSelector.vue';
 import { DEFAULT_SYSTEM_PROMPT, DEFAULT_SESSION_TITLE_PROMPT } from '@claudetools/shared/constants';
-import { CLAUDE_MODELS } from '@claudetools/shared/types';
 
 const defaultSystemPrompt = DEFAULT_SYSTEM_PROMPT;
 const defaultSessionTitlePrompt = DEFAULT_SESSION_TITLE_PROMPT;

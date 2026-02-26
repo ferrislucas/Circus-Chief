@@ -277,6 +277,25 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
     }
   }
 
+  // Honor explicit nextTemplateId from request body
+  if (req.body.nextTemplateId !== undefined) {
+    // Explicit body value always wins (even over templateId-derived value).
+    // Allows callers to:
+    //   a) set a chain template without applying any template settings
+    //   b) apply a template's settings via templateId but chain to a *different* template
+    //   c) explicitly clear it by passing null
+    if (req.body.nextTemplateId === null) {
+      nextTemplateId = null;
+    } else {
+      // Validate that the referenced template actually exists
+      const nextTemplate = sessionTemplates.getById(req.body.nextTemplateId);
+      if (!nextTemplate) {
+        return res.status(400).json({ error: 'nextTemplateId references a non-existent template' });
+      }
+      nextTemplateId = req.body.nextTemplateId;
+    }
+  }
+
   // Extract scheduling fields from request
   const scheduledAt = req.body.scheduledAt ? parseInt(req.body.scheduledAt, 10) : undefined;
   const autoRescheduleEnabled = req.body.autoRescheduleEnabled === true || req.body.autoRescheduleEnabled === 'true';
