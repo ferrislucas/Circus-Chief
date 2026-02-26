@@ -769,6 +769,17 @@ export async function waitForCommandRunComplete(
 }
 
 /**
+ * Kill a running command via POST /api/sessions/:sessionId/command-buttons/runs/:runId/kill.
+ * Returns the full fetch Response so callers can check response.ok / response.status
+ * for both success and 404 (already-completed) cases.
+ */
+export async function killCommandRun(sessionId: string, runId: string): Promise<Response> {
+  return fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/runs/${runId}/kill`, {
+    method: 'POST',
+  });
+}
+
+/**
  * Run a command button and wait for completion
  * Convenience function that combines runCommandButton + waitForCommandRunComplete
  */
