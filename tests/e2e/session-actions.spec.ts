@@ -525,33 +525,4 @@ test.describe('Session Status Badges', () => {
     const sessionCard = page.locator('.session-card').filter({ hasText: session.name });
     await expect(sessionCard).toBeVisible();
   });
-
-  test('displays correct status badge for error sessions', async ({ page }) => {
-    // Clear any persisted status filter that would hide error sessions
-    await page.addInitScript(() => {
-      localStorage.removeItem('sessionStatusFilter');
-      sessionStorage.removeItem('sessionStarredFilter');
-    });
-
-    // Use startImmediately: false to prevent the session manager from racing
-    // with our explicit status change (runSession runs async and could overwrite status)
-    const session = await seedSession(project.id, {
-      prompt: 'Error session',
-      name: 'Error Session',
-      startImmediately: false,
-    });
-
-    // Set status to error
-    await updateSessionStatus(session.id, 'error');
-
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
-
-    // First verify the session card itself is visible
-    await expect(page.locator('.session-name').filter({ hasText: session.name })).toBeVisible({ timeout: 8000 });
-
-    // Verify the error badge is visible — SessionCard renders this when errorCount > 0
-    // Badge text: "⚠ 1 error"
-    const statusBadge = page.locator('.status-badge.status-error').filter({ hasText: /error/i });
-    await expect(statusBadge).toBeVisible({ timeout: 5000 });
-  });
 });

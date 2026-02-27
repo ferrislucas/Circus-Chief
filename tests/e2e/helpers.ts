@@ -1866,3 +1866,85 @@ export async function getTodos(
   if (!response.ok) return [];
   return response.json();
 }
+
+// ============================================================
+// Token Usage & Cost Helpers (for token-usage-cost tests)
+// ============================================================
+
+/**
+ * Seed token usage directly into the DB for a conversation.
+ * Uses scripts/seed-conversation-tokens.mjs for direct DB write.
+ * If conversationId is not provided, uses the active conversation for the session.
+ */
+export function seedConversationTokens(
+  sessionId: string,
+  conversationId: string | null,
+  tokens: {
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
+    contextWindow?: number;
+  }
+): any {
+  const seedScript = join(process.cwd(), 'scripts', 'seed-conversation-tokens.mjs');
+  const payload = {
+    dbPath: getDBPath(),
+    sessionId,
+    conversationId: conversationId ?? null,
+    ...tokens,
+  };
+  const input = JSON.stringify(payload);
+  const result = execSync(`node "${seedScript}"`, {
+    input,
+    encoding: 'utf-8',
+    timeout: 10000,
+  });
+  return JSON.parse(result);
+}
+
+/**
+ * Get token cost weights from the API.
+ * Returns { input, output, cacheRead, cacheCreation }.
+ */
+export async function getTokenWeights(): Promise<{
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+}> {
+  const response = await fetch(`${API_URL}/api/settings/token-weights`);
+  if (!response.ok) throw new Error(`getTokenWeights failed: ${response.status}`);
+  return response.json();
+}
+
+/**
+ * Update token cost weights via PUT /api/settings/token-weights.
+ * Returns the updated weights object.
+ */
+export async function updateTokenWeights(weights: {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+}): Promise<any> {
+  const response = await fetch(`${API_URL}/api/settings/token-weights`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(weights),
+  });
+  if (!response.ok) throw new Error(`updateTokenWeights failed: ${response.status}`);
+  return response.json();
+}
+
+/**
+ * Reset token cost weights to defaults via DELETE /api/settings/token-weights.
+ * Returns the default weights object.
+ */
+export async function resetTokenWeights(): Promise<any> {
+  const response = await fetch(`${API_URL}/api/settings/token-weights`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error(`resetTokenWeights failed: ${response.status}`);
+  return response.json();
+}
