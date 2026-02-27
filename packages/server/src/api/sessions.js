@@ -1012,6 +1012,12 @@ router.patch('/:id', (req, res) => {
     });
   }
 
+  // Broadcast session update to session subscribers (e.g. detail view)
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    sessionId: req.params.id,
+    session: updated,
+  });
+
   // Broadcast session update to project subscribers for real-time list updates
   broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
     projectId: session.projectId,
