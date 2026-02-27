@@ -9,6 +9,7 @@ import quickResponsesRouter from './quickResponses.js';
 import settingsRouter from './settings.js';
 import providersRouter from './providers.js';
 import commandsRouter from './commands.js';
+import metricsRouter from './metrics.js';
 
 const router = Router();
 
@@ -23,6 +24,9 @@ router.use('/commands', commandsRouter)
 
 // Canvas routes are nested under sessions
 router.use('/sessions', canvasRouter);
+
+// Metrics routes (agent call stats)
+router.use('/', metricsRouter);
 
 // Quick responses routes (nested under both projects and standalone)
 router.use('/', quickResponsesRouter);

@@ -281,3 +281,41 @@ CREATE INDEX IF NOT EXISTS idx_command_runs_status ON command_runs(status);
 CREATE INDEX IF NOT EXISTS idx_quick_responses_project ON quick_responses(project_id);
 CREATE INDEX IF NOT EXISTS idx_quick_responses_sort ON quick_responses(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
+
+-- Agent call logs (metrics and analytics for agent interactions)
+CREATE TABLE IF NOT EXISTS agent_call_logs (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  conversation_id TEXT,
+  agent_type TEXT NOT NULL,
+  model TEXT,
+
+  -- Request info
+  call_type TEXT NOT NULL,       -- 'runSession' | 'continueSession' | 'continueSessionWithExistingMessage'
+  prompt_length INTEGER,
+
+  -- Response token info (updated during streaming and finalized at result)
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  thinking_tokens INTEGER DEFAULT 0,
+  cache_read_tokens INTEGER DEFAULT 0,
+  cache_write_tokens INTEGER DEFAULT 0,
+  total_tokens INTEGER DEFAULT 0,
+
+  -- Timing
+  started_at INTEGER NOT NULL,
+  completed_at INTEGER,
+  duration_ms INTEGER,
+
+  -- Status
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'streaming', 'completed', 'error')),
+  error_message TEXT,
+
+  -- Metadata (JSON blob for extensibility)
+  metadata TEXT,
+
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_call_logs_session ON agent_call_logs(session_id);
+CREATE INDEX IF NOT EXISTS idx_agent_call_logs_started ON agent_call_logs(started_at);
