@@ -41,11 +41,6 @@
               {{ workflowStatus.scheduledCount }} scheduled
             </span>
 
-            <!-- Error count badge (if any session in workflow has error) -->
-            <span v-if="workflowStatus.errorCount > 0" class="status-badge status-error">
-              ⚠ {{ workflowStatus.errorCount }} error
-            </span>
-
             <!-- Session count (only show when there are multiple sessions) -->
             <span
               v-if="!isChild && workflowStatus.totalCount > 1"
@@ -292,7 +287,6 @@ const workflowStatus = computed(() => {
     return {
       runningCount: runningStatuses.includes(status) ? 1 : 0,
       scheduledCount: status === 'scheduled' ? 1 : 0,
-      errorCount: status === 'error' ? 1 : 0,
       totalCount: 1,
     };
   }
