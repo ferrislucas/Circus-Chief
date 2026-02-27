@@ -27,13 +27,6 @@
         </p>
       </div>
 
-      <!-- Quick Responses Panel - shows quick response templates above the prompt -->
-      <QuickResponsesPanel
-        :show-empty="true"
-        @insert="handleQuickResponseInsert"
-        @openSettings="quickResponseSettingsOpen = true"
-      />
-
       <div class="form-group">
         <ResizableTextarea
           id="prompt"
@@ -53,6 +46,13 @@
           />
         </div>
       </div>
+
+      <!-- Quick Responses Panel - shows quick response templates below the prompt -->
+      <QuickResponsesPanel
+        :show-empty="true"
+        @insert="handleQuickResponseInsert"
+        @openSettings="quickResponseSettingsOpen = true"
+      />
 
       <div class="form-group">
         <label class="form-label">Options</label>
