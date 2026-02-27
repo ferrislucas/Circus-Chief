@@ -229,6 +229,12 @@ export async function getCanvasItems(sessionId: string) {
   return response.json();
 }
 
+export async function getAllCanvasItems(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/all`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
 export async function getCanvasTrash(sessionId: string) {
   const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas-trash`);
   if (!response.ok) return [];
