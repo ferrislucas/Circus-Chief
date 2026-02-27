@@ -5,6 +5,7 @@ import {
   seedCanvasItem,
   cleanupAll,
   getCanvasItems,
+  getAllCanvasItems,
   getCanvasTrash,
   deleteCanvasItem,
   navigateAndWait,
@@ -125,5 +126,50 @@ test.describe('Canvas Trash & Soft Delete', () => {
     const trashedItems = await getCanvasTrash(session.id);
     expect(items.length).toBe(0);
     expect(trashedItems.length).toBe(0);
+  });
+
+  test('deleting from list view removes all versions', async ({ page }) => {
+    // Create two versions of the same file
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Version 1',
+      label: 'MultiVersion',
+      filename: 'report.txt',
+    });
+
+    await seedCanvasItem(session.id, {
+      type: 'text',
+      content: 'Version 2',
+      label: 'MultiVersion',
+      filename: 'report.txt',
+    });
+
+    // Verify we have 2 items via API (using getAllCanvasItems to get all versions)
+    const itemsBefore = await getAllCanvasItems(session.id);
+    expect(itemsBefore.length).toBe(2);
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
+
+    // Handle confirmation dialog
+    page.on('dialog', (dialog) => dialog.accept());
+
+    // Click the context menu button for the file (first .btn-menu)
+    await page.locator('.btn-menu').first().click();
+
+    // Click "Delete file" in the menu
+    await page.locator('.menu-item.is-danger').filter({ hasText: 'Delete file' }).click();
+
+    // Wait for deletion to complete
+    await page.waitForTimeout(500);
+
+    // Verify both versions are gone from the list view via API
+    const itemsAfter = await getAllCanvasItems(session.id);
+    expect(itemsAfter.length).toBe(0);
+
+    // Verify both versions are in trash via API
+    const trashedItems = await getCanvasTrash(session.id);
+    expect(trashedItems.length).toBe(2);
+    expect(trashedItems[0].filename).toBe('report.txt');
+    expect(trashedItems[1].filename).toBe('report.txt');
   });
 });
