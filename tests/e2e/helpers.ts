@@ -17,11 +17,14 @@ export function getAPIURL(): string {
   return 'http://localhost:5000';
 }
 
-const API_URL = getAPIURL();
+export const API_URL = getAPIURL();
+
+// BASE_URL is used for frontend navigation (defaults to same as API_URL)
+export const BASE_URL = process.env.BASE_URL || API_URL;
 
 // Generate unique test prefix per test run to avoid race conditions between parallel tests
 const TEST_RUN_ID = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
-const TEST_PREFIX = `[TEST-${TEST_RUN_ID}] `;
+export const TEST_PREFIX = `[TEST-${TEST_RUN_ID}] `;
 
 // ============================================================
 // Resource Tracking for Scoped Cleanup
@@ -1946,5 +1949,50 @@ export async function resetTokenWeights(): Promise<any> {
     method: 'DELETE',
   });
   if (!response.ok) throw new Error(`resetTokenWeights failed: ${response.status}`);
+  return response.json();
+}
+
+/**
+ * Get summary settings from the API.
+ * Returns { disableSessionSummaries, disableConversationSummaries, sessionTitlePrompt, defaultSessionTitlePrompt }.
+ */
+export async function getSummarySettings(): Promise<{
+  disableSessionSummaries: boolean;
+  disableConversationSummaries: boolean;
+  sessionTitlePrompt: string;
+  defaultSessionTitlePrompt: string;
+}> {
+  const response = await fetch(`${API_URL}/api/settings/summary`);
+  if (!response.ok) throw new Error(`getSummarySettings failed: ${response.status}`);
+  return response.json();
+}
+
+/**
+ * Update summary settings via PUT /api/settings/summary.
+ * Returns the updated settings object.
+ */
+export async function updateSummarySettings(settings: {
+  disableSessionSummaries: boolean;
+  disableConversationSummaries: boolean;
+  sessionTitlePrompt: string;
+}): Promise<any> {
+  const response = await fetch(`${API_URL}/api/settings/summary`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!response.ok) throw new Error(`updateSummarySettings failed: ${response.status}`);
+  return response.json();
+}
+
+/**
+ * Reset summary settings to defaults via DELETE /api/settings/summary.
+ * Returns the default settings object.
+ */
+export async function resetSummarySettings(): Promise<any> {
+  const response = await fetch(`${API_URL}/api/settings/summary`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error(`resetSummarySettings failed: ${response.status}`);
   return response.json();
 }
