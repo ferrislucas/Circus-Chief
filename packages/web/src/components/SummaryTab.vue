@@ -314,6 +314,7 @@ onMounted(async () => {
   // Listen for WebSocket updates
   onSummaryUpdate((newSummary) => {
     summary.value = newSummary;
+    generating.value = false;       // Belt-and-suspenders: summary arrived = not generating
     generatingManual.value = false;
   });
 
