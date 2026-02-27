@@ -140,56 +140,56 @@ router.delete('/summary', (req, res) => {
 });
 
 /**
- * GET /api/settings/privacy
- * Get privacy settings
+ * GET /api/settings/general
+ * Get general settings (includes privacy settings)
  */
-router.get('/privacy', (req, res) => {
+router.get('/general', (req, res) => {
   try {
-    const privacySettings = settings.getPrivacySettings();
-    res.json(privacySettings);
+    const generalSettings = settings.getGeneralSettings();
+    res.json(generalSettings);
   } catch (error) {
-    console.error('Error getting privacy settings:', error);
-    res.status(500).json({ error: 'Failed to get privacy settings' });
+    console.error('Error getting general settings:', error);
+    res.status(500).json({ error: 'Failed to get general settings' });
   }
 });
 
 /**
- * PUT /api/settings/privacy
- * Update privacy settings
+ * PUT /api/settings/general
+ * Update general settings
  */
-router.put('/privacy', (req, res) => {
+router.put('/general', (req, res) => {
   try {
     const { disableAnalytics } = req.body;
 
     // Validate that disableAnalytics is a boolean
     if (typeof disableAnalytics !== 'boolean') {
       return res.status(400).json({
-        error: 'Invalid privacy settings. disableAnalytics must be a boolean'
+        error: 'Invalid general settings. disableAnalytics must be a boolean'
       });
     }
 
-    const updatedSettings = settings.setPrivacySettings({
+    const updatedSettings = settings.setGeneralSettings({
       disableAnalytics,
     });
 
     res.json(updatedSettings);
   } catch (error) {
-    console.error('Error updating privacy settings:', error);
-    res.status(500).json({ error: 'Failed to update privacy settings' });
+    console.error('Error updating general settings:', error);
+    res.status(500).json({ error: 'Failed to update general settings' });
   }
 });
 
 /**
- * DELETE /api/settings/privacy
- * Reset privacy settings to defaults
+ * DELETE /api/settings/general
+ * Reset general settings to defaults
  */
-router.delete('/privacy', (req, res) => {
+router.delete('/general', (req, res) => {
   try {
-    const defaults = settings.resetPrivacySettings();
+    const defaults = settings.resetGeneralSettings();
     res.json(defaults);
   } catch (error) {
-    console.error('Error resetting privacy settings:', error);
-    res.status(500).json({ error: 'Failed to reset privacy settings' });
+    console.error('Error resetting general settings:', error);
+    res.status(500).json({ error: 'Failed to reset general settings' });
   }
 });
 

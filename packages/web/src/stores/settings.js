@@ -11,7 +11,7 @@ export const useSettingsStore = defineStore('settings', {
       sessionTitlePrompt: '',
       defaultSessionTitlePrompt: '', // Default prompt from server
     },
-    privacySettings: {
+    generalSettings: {
       disableAnalytics: false,
     },
     loading: false,
@@ -142,18 +142,18 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     /**
-     * Fetch privacy settings from the server
+     * Fetch general settings from the server
      */
-    async fetchPrivacySettings() {
+    async fetchGeneralSettings() {
       this.loading = true;
       this.error = null;
       try {
-        const settings = await api.getPrivacySettings();
-        this.privacySettings = settings;
+        const settings = await api.getGeneralSettings();
+        this.generalSettings = settings;
       } catch (err) {
         this.error = err.message;
         // Fall back to defaults on error
-        this.privacySettings = {
+        this.generalSettings = {
           disableAnalytics: false,
         };
       } finally {
@@ -162,15 +162,15 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     /**
-     * Update privacy settings
-     * @param {Object} settings - Privacy settings
+     * Update general settings
+     * @param {Object} settings - General settings
      */
-    async updatePrivacySettings(settings) {
+    async updateGeneralSettings(settings) {
       this.loading = true;
       this.error = null;
       try {
-        const updated = await api.updatePrivacySettings(settings);
-        this.privacySettings = updated;
+        const updated = await api.updateGeneralSettings(settings);
+        this.generalSettings = updated;
         return updated;
       } catch (err) {
         this.error = err.message;
@@ -181,14 +181,14 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     /**
-     * Reset privacy settings to defaults
+     * Reset general settings to defaults
      */
-    async resetPrivacySettings() {
+    async resetGeneralSettings() {
       this.loading = true;
       this.error = null;
       try {
-        const defaults = await api.resetPrivacySettings();
-        this.privacySettings = defaults;
+        const defaults = await api.resetGeneralSettings();
+        this.generalSettings = defaults;
         return defaults;
       } catch (err) {
         this.error = err.message;
