@@ -325,12 +325,27 @@ export async function seedCanvasItem(
   sessionId: string,
   data: { type: string; content?: string; data?: string; mimeType?: string; label?: string; filePath?: string; filename?: string }
 ) {
+  // Auto-generate a filename if not provided (required for inline content mode)
+  const defaultExtensions: Record<string, string> = {
+    markdown: 'md',
+    text: 'txt',
+    json: 'json',
+    code: 'ts',
+  };
+  const payload = { ...data };
+  if (!payload.filename && !payload.filePath && payload.content !== undefined) {
+    const ext = defaultExtensions[payload.type] ?? 'txt';
+    payload.filename = `seed-${Date.now()}.${ext}`;
+  }
   const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error('Failed to seed canvas item');
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to seed canvas item (${response.status}): ${text}`);
+  }
   return response.json();
 }
 
@@ -1995,4 +2010,181 @@ export async function resetSummarySettings(): Promise<any> {
   });
   if (!response.ok) throw new Error(`resetSummarySettings failed: ${response.status}`);
   return response.json();
+}
+
+// ============================================================
+// WebSocket Helpers (for WebSocket E2E tests)
+// ============================================================
+
+// Derive WS URL from API_URL
+export const WS_URL = API_URL.replace(/^http/, 'ws');
+
+/**
+ * Connect a raw WebSocket client to the server.
+ * Uses require() lazily to avoid static-import side-effects during
+ * Playwright's globalSetup / module-collection phase.
+ */
+export function connectWebSocket(): Promise<any> {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const WS = require('ws');
+  return new Promise((resolve, reject) => {
+    const ws = new WS(`${WS_URL}/ws`);
+    ws.on('open', () => resolve(ws));
+    ws.on('error', reject);
+    setTimeout(() => reject(new Error('WebSocket connect timeout')), 5000);
+  });
+}
+
+/** Subscribe to a session via WebSocket */
+export function subscribeToSession(ws: any, sessionId: string): void {
+  ws.send(JSON.stringify({ type: 'subscribe:session', sessionId }));
+}
+
+/** Unsubscribe from a session via WebSocket */
+export function unsubscribeFromSession(ws: any, sessionId: string): void {
+  ws.send(JSON.stringify({ type: 'unsubscribe:session', sessionId }));
+}
+
+/** Subscribe to a project via WebSocket */
+export function subscribeToProject(ws: any, projectId: string): void {
+  ws.send(JSON.stringify({ type: 'subscribe:project', projectId }));
+}
+
+/** Unsubscribe from a project via WebSocket */
+export function unsubscribeFromProject(ws: any, projectId: string): void {
+  ws.send(JSON.stringify({ type: 'unsubscribe:project', projectId }));
+}
+
+/**
+ * Wait for a specific WebSocket message type, with optional payload matcher.
+ * Resolves with the first matching message object.
+ */
+export function waitForWSMessage(
+  ws: any,
+  messageType: string,
+  timeout = 10000,
+  matcher?: (data: any) => boolean
+): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.removeListener('message', handler);
+      reject(new Error(`Timeout waiting for WS message: "${messageType}"`));
+    }, timeout);
+
+    function handler(raw: any) {
+      let data: any;
+      try { data = JSON.parse(raw.toString()); } catch { return; }
+      if (data.type === messageType && (!matcher || matcher(data))) {
+        clearTimeout(timer);
+        ws.removeListener('message', handler);
+        resolve(data);
+      }
+    }
+
+    ws.on('message', handler);
+  });
+}
+
+/**
+ * Collect all WebSocket messages received within a fixed duration window.
+ */
+export function collectWSMessages(ws: any, durationMs: number): Promise<any[]> {
+  return new Promise((resolve) => {
+    const messages: any[] = [];
+    function handler(raw: any) {
+      try { messages.push(JSON.parse(raw.toString())); } catch { /* ignore */ }
+    }
+    ws.on('message', handler);
+    setTimeout(() => {
+      ws.removeListener('message', handler);
+      resolve(messages);
+    }, durationMs);
+  });
+}
+
+/**
+ * Collect WebSocket messages until a specific message type (and optional
+ * matcher) is received. All messages — including the stop message — are
+ * included in the returned array. Resolves on stop message or timeout.
+ *
+ * @param ws          The WebSocket connection
+ * @param stopType    The message type that ends collection
+ * @param timeout     Max wait time in ms (default 15 000)
+ * @param stopMatcher Optional extra predicate on the stop message
+ */
+export function collectWSMessagesUntil(
+  ws: any,
+  stopType: string,
+  timeout = 15000,
+  stopMatcher?: (data: any) => boolean
+): Promise<any[]> {
+  return new Promise((resolve) => {
+    const messages: any[] = [];
+
+    const timer = setTimeout(() => {
+      ws.removeListener('message', handler);
+      // Resolve with whatever we collected — callers inspect the contents
+      resolve(messages);
+    }, timeout);
+
+    function handler(raw: any) {
+      let data: any;
+      try { data = JSON.parse(raw.toString()); } catch { return; }
+      messages.push(data);
+      if (data.type === stopType && (!stopMatcher || stopMatcher(data))) {
+        clearTimeout(timer);
+        ws.removeListener('message', handler);
+        resolve(messages);
+      }
+    }
+
+    ws.on('message', handler);
+  });
+}
+
+/**
+ * Assert that no message of a specific type is received within a timeout window.
+ */
+export async function assertNoWSMessage(
+  ws: any,
+  messageType: string,
+  timeout = 1000
+): Promise<void> {
+  let received = false;
+
+  const handler = (raw: any) => {
+    let data: any;
+    try { data = JSON.parse(raw.toString()); } catch { return; }
+    if (data.type === messageType) {
+      received = true;
+      ws.removeListener('message', handler);
+    }
+  };
+
+  ws.on('message', handler);
+  await new Promise((r) => setTimeout(r, timeout));
+  ws.removeListener('message', handler);
+
+  if (received) {
+    throw new Error(`Unexpected WS message "${messageType}" was received`);
+  }
+}
+
+/**
+ * Poll the REST API until the session reaches the target status.
+ */
+export async function waitForStatus(
+  sessionId: string,
+  status: string,
+  timeout = 60000
+): Promise<any> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const session = await getSession(sessionId);
+    if (session && session.status === status) {
+      return session;
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  throw new Error(`Session ${sessionId} did not reach status "${status}" within ${timeout}ms`);
 }
