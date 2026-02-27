@@ -27,6 +27,9 @@ import {
 
 const DEFAULT_WEIGHTS = { input: 1.0, output: 5.0, cacheRead: 0.1, cacheCreation: 1.25 };
 
+// All token-weight tests share a global settings row — run serially to avoid cross-test contamination.
+test.describe.configure({ mode: 'serial' });
+
 // ============================================================
 // Category 1: Token Weights API — CRUD & Validation (7 tests)
 // ============================================================
@@ -387,7 +390,12 @@ test.describe('Token Weights Modal', () => {
 
   test('saving updated weights via modal updates API', async ({ page }) => {
     await openWeightsModal(page);
-    await page.locator('#output-weight').fill('10');
+    const outputInput = page.locator('#output-weight');
+    // Use triple-click to select all then type to ensure Vue v-model.number picks up the change
+    await outputInput.click({ clickCount: 3 });
+    await outputInput.pressSequentially('10');
+    // Tab away to trigger change/blur event and ensure v-model.number propagation
+    await outputInput.press('Tab');
     // Wait for Vue's v-model.number to propagate the change and enable the Save button (hasChanges = true)
     await expect(page.locator('.modal .btn.btn-primary')).toBeEnabled({ timeout: 5000 });
     await page.locator('.modal .btn.btn-primary').click();
@@ -414,8 +422,11 @@ test.describe('Token Weights Modal', () => {
   test('cancel closes modal without saving', async ({ page }) => {
     await openWeightsModal(page);
     const originalWeights = await getTokenWeights();
-    // Change a weight
-    await page.locator('#output-weight').fill('99');
+    // Change a weight using triple-click + type to ensure Vue v-model.number propagation
+    const outputInput = page.locator('#output-weight');
+    await outputInput.click({ clickCount: 3 });
+    await outputInput.pressSequentially('99');
+    await outputInput.press('Tab');
     // Click Cancel (last .btn-secondary)
     await page.locator('.modal .btn.btn-secondary').last().click();
     // Modal should close
@@ -536,20 +547,28 @@ test.describe('Per-Conversation Token Tracking', () => {
   });
 
   test('BTE calculation uses active conversation tokens', async ({ page }) => {
-    // Explicitly reset weights to defaults to guard against parallel test interference
+    // Explicitly reset weights to defaults and verify to guard against cross-test contamination
     await resetTokenWeights();
+    const weights = await getTokenWeights();
+    expect(weights).toMatchObject({ input: 1.0, output: 5.0, cacheRead: 0.1, cacheCreation: 1.25 });
+
     const conversations = await getConversations(sessionId);
     const convA = conversations[0];
 
     // input=5000, output=1000 → BTE = 5000×1.0 + 1000×5.0 = 10000 → "10.0K" (with default weights)
     seedConversationTokens(sessionId, convA.id, { inputTokens: 5000, outputTokens: 1000 });
+    // Full page load ensures Pinia store initializes fresh and fetches current (default) weights from API
     await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
+    // Wait for settings to be fetched before asserting BTE (TokenCostPanel fetches on mount)
+    await page.waitForTimeout(500);
     await expect(page.locator('.token-cost-panel .cost-value')).toHaveText('10.0K', { timeout: 10000 });
   });
 
   test('cost panel BTE updates with custom weights', async ({ page }) => {
-    // Set output weight to 10 before navigating
+    // Set output weight to 10 before navigating and verify via API
     await updateTokenWeights({ input: 1.0, output: 10.0, cacheRead: 0.1, cacheCreation: 1.25 });
+    const verifiedWeights = await getTokenWeights();
+    expect(verifiedWeights.output).toBe(10);
 
     const conversations = await getConversations(sessionId);
     const convA = conversations[0];
@@ -557,6 +576,8 @@ test.describe('Per-Conversation Token Tracking', () => {
     // input=5000, output=1000 → BTE = 5000×1.0 + 1000×10.0 = 15000 → "15.0K"
     seedConversationTokens(sessionId, convA.id, { inputTokens: 5000, outputTokens: 1000 });
     await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
+    // Wait for the settings store to fetch custom weights from API before asserting
+    await page.waitForTimeout(500);
     await expect(page.locator('.token-cost-panel .cost-value')).toHaveText('15.0K', { timeout: 10000 });
   });
 });
