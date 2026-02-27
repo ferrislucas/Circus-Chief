@@ -245,4 +245,5 @@ describe('SummaryTab', () => {
       expect(vi.mocked(api.getConversations)).toHaveBeenCalledWith('sess-123');
     });
   });
+
 });
