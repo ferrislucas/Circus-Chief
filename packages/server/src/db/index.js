@@ -24,6 +24,7 @@ export { SettingsRepository } from './SettingsRepository.js';
 // ProviderRepository replaces ModelProviderRepository; keep the old name exported for any leftover imports
 export { ProviderRepository } from './ProviderRepository.js';
 export { ProviderRepository as ModelProviderRepository } from './ProviderRepository.js';
+export { AgentCallLogRepository } from './AgentCallLogRepository.js';
 
 // Singleton instances
 import { ProjectRepository } from './ProjectRepository.js';
@@ -42,6 +43,7 @@ import { CommandRunRepository } from './CommandRunRepository.js';
 import { QuickResponseRepository } from './QuickResponseRepository.js';
 import { SettingsRepository } from './SettingsRepository.js';
 import { ProviderRepository } from './ProviderRepository.js';
+import { AgentCallLogRepository } from './AgentCallLogRepository.js';
 
 export const projects = new ProjectRepository();
 export const projectDefaults = new ProjectDefaultsRepository();
@@ -59,6 +61,7 @@ export const commandRuns = new CommandRunRepository();
 export const quickResponses = new QuickResponseRepository();
 export const settings = new SettingsRepository();
 export const modelProviders = new ProviderRepository();
+export const agentCallLogs = new AgentCallLogRepository();
 
 // SessionRepository needs to be instantiated after messages is available
 import { SessionRepository } from './SessionRepository.js';

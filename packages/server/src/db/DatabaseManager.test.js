@@ -460,6 +460,163 @@ describe('DatabaseManager', () => {
     });
   });
 
+  describe('agent_type column migration', () => {
+    it('sessions table has agent_type column with default claude-code', () => {
+      const db = manager.get();
+      const columns = db.prepare('PRAGMA table_info(sessions)').all();
+      const agentTypeColumn = columns.find((col) => col.name === 'agent_type');
+
+      expect(agentTypeColumn).toBeDefined();
+      expect(agentTypeColumn.type).toBe('TEXT');
+      expect(agentTypeColumn.dflt_value).toBe("'claude-code'");
+    });
+
+    it('new sessions default to claude-code agent_type', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-agent', 'Test Project', '/tmp', now, now);
+      db.prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('sess-agent', 'proj-agent', 'Test Session', 'running', now, now);
+
+      const session = db.prepare('SELECT agent_type FROM sessions WHERE id = ?').get('sess-agent');
+      expect(session.agent_type).toBe('claude-code');
+    });
+
+    it('allows setting a custom agent_type', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-agent2', 'Test Project', '/tmp', now, now);
+      db.prepare("INSERT INTO sessions (id, project_id, name, status, agent_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run('sess-agent2', 'proj-agent2', 'Test Session', 'running', 'codex', now, now);
+
+      const session = db.prepare('SELECT agent_type FROM sessions WHERE id = ?').get('sess-agent2');
+      expect(session.agent_type).toBe('codex');
+    });
+  });
+
+  describe('agent_call_logs table migration', () => {
+    it('agent_call_logs table exists', () => {
+      const db = manager.get();
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(t => t.name);
+      expect(tables).toContain('agent_call_logs');
+    });
+
+    it('has all expected columns', () => {
+      const db = manager.get();
+      const columns = db.prepare('PRAGMA table_info(agent_call_logs)').all().map(c => c.name);
+
+      expect(columns).toContain('id');
+      expect(columns).toContain('session_id');
+      expect(columns).toContain('conversation_id');
+      expect(columns).toContain('agent_type');
+      expect(columns).toContain('model');
+      expect(columns).toContain('call_type');
+      expect(columns).toContain('prompt_length');
+      expect(columns).toContain('input_tokens');
+      expect(columns).toContain('output_tokens');
+      expect(columns).toContain('thinking_tokens');
+      expect(columns).toContain('cache_read_tokens');
+      expect(columns).toContain('cache_write_tokens');
+      expect(columns).toContain('total_tokens');
+      expect(columns).toContain('started_at');
+      expect(columns).toContain('completed_at');
+      expect(columns).toContain('duration_ms');
+      expect(columns).toContain('status');
+      expect(columns).toContain('error_message');
+      expect(columns).toContain('metadata');
+      expect(columns).toContain('created_at');
+    });
+
+    it('has indexes on session_id and started_at', () => {
+      const db = manager.get();
+      const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='agent_call_logs'").all().map(i => i.name);
+
+      expect(indexes).toContain('idx_agent_call_logs_session');
+      expect(indexes).toContain('idx_agent_call_logs_started');
+    });
+
+    it('enforces foreign key to sessions table', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      // Inserting with a non-existent session_id should fail due to FK constraint
+      expect(() => {
+        db.prepare(
+          `INSERT INTO agent_call_logs (id, session_id, agent_type, call_type, started_at, status, created_at)
+           VALUES (?, ?, ?, ?, ?, 'pending', ?)`
+        ).run('call-fk', 'nonexistent-session', 'claude-code', 'runSession', now, now);
+      }).toThrow();
+    });
+
+    it('status column defaults to pending and respects CHECK constraint', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      // Create project and session
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-acl', 'Test', '/tmp', now, now);
+      db.prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('sess-acl', 'proj-acl', 'Test Session', 'running', now, now);
+
+      // Insert a call log row
+      db.prepare(
+        `INSERT INTO agent_call_logs (id, session_id, agent_type, call_type, started_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run('call-status', 'sess-acl', 'claude-code', 'runSession', now, now);
+
+      const row = db.prepare('SELECT status FROM agent_call_logs WHERE id = ?').get('call-status');
+      expect(row.status).toBe('pending');
+
+      // Valid status values
+      expect(() => {
+        db.prepare('UPDATE agent_call_logs SET status = ? WHERE id = ?').run('streaming', 'call-status');
+      }).not.toThrow();
+
+      expect(() => {
+        db.prepare('UPDATE agent_call_logs SET status = ? WHERE id = ?').run('completed', 'call-status');
+      }).not.toThrow();
+
+      expect(() => {
+        db.prepare('UPDATE agent_call_logs SET status = ? WHERE id = ?').run('error', 'call-status');
+      }).not.toThrow();
+
+      // Invalid status should throw
+      expect(() => {
+        db.prepare('UPDATE agent_call_logs SET status = ? WHERE id = ?').run('invalid', 'call-status');
+      }).toThrow();
+    });
+
+    it('cascades delete when session is deleted', () => {
+      const db = manager.get();
+      const now = Date.now();
+
+      // Create project, session, and call log
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-cascade', 'Test', '/tmp', now, now);
+      db.prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('sess-cascade', 'proj-cascade', 'Test Session', 'running', now, now);
+      db.prepare(
+        `INSERT INTO agent_call_logs (id, session_id, agent_type, call_type, started_at, status, created_at)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?)`
+      ).run('call-cascade', 'sess-cascade', 'claude-code', 'runSession', now, now);
+
+      // Verify call log exists
+      const before = db.prepare('SELECT * FROM agent_call_logs WHERE id = ?').get('call-cascade');
+      expect(before).toBeTruthy();
+
+      // Delete the session
+      db.prepare('DELETE FROM sessions WHERE id = ?').run('sess-cascade');
+
+      // Call log should be cascaded
+      const after = db.prepare('SELECT * FROM agent_call_logs WHERE id = ?').get('call-cascade');
+      expect(after).toBeUndefined();
+    });
+  });
+
   describe('conversation_messages model column migration', () => {
     it('has model column with TEXT type', () => {
       const db = manager.get();

@@ -22,6 +22,7 @@ export {
   // Kept for any code that still imports ModelProviderRepository by name
   ModelProviderRepository,
   SettingsRepository,
+  AgentCallLogRepository,
   // Singleton instances
   databaseManager,
   projects,
@@ -41,6 +42,7 @@ export {
   quickResponses,
   modelProviders,
   settings,
+  agentCallLogs,
   // Legacy functions
   initDatabase,
   getDatabase,
