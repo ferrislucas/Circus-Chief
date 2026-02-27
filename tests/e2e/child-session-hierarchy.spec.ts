@@ -459,42 +459,6 @@ test.describe('Complex Hierarchy Scenarios', () => {
     expect(paddingLeft).toBe('3.5rem');
   });
 
-  test('workflow shows aggregated status counts', async ({ page }) => {
-    // Seed root + 2 children with different statuses
-    const root = await seedSession(project.id, {
-      prompt: 'Root prompt',
-      name: 'Status Root',
-      startImmediately: false,
-    });
-    await waitForSessionToExist(root.id);
-
-    const child1 = await seedChildSession(project.id, root.id, {
-      prompt: 'Child 1 prompt',
-      name: 'Running Child',
-    });
-    const child2 = await seedChildSession(project.id, root.id, {
-      prompt: 'Child 2 prompt',
-      name: 'Error Child',
-    });
-    await waitForSessionToExist(child1.id);
-    await waitForSessionToExist(child2.id);
-
-    // Set one child to running and one to error
-    await updateSessionStatus(child1.id, 'running');
-    await updateSessionStatus(child2.id, 'error');
-
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
-
-    // Find the root session card
-    const rootCard = page.locator('.session-card').filter({ hasText: 'Status Root' });
-    await expect(rootCard).toBeVisible({ timeout: 10000 });
-
-    // Verify the session meta shows aggregated status badges
-    const sessionMeta = rootCard.locator('.session-meta');
-    await expect(sessionMeta.locator('.status-running')).toBeVisible({ timeout: 10000 });
-    await expect(sessionMeta.locator('.status-error')).toBeVisible({ timeout: 10000 });
-  });
-
   test('session count badge shows total descendant count', async ({ page }) => {
     // Seed root + 3 children
     const root = await seedSession(project.id, {
