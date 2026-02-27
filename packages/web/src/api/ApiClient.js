@@ -1110,6 +1110,32 @@ export class ApiClient {
     return this.#request('DELETE', '/settings/summary');
   }
 
+  /**
+   * Get privacy settings
+   * @returns {Promise<{disableAnalytics: boolean}>}
+   */
+  async getPrivacySettings() {
+    return this.#request('GET', '/settings/privacy');
+  }
+
+  /**
+   * Update privacy settings
+   * @param {Object} settings - Privacy settings
+   * @param {boolean} settings.disableAnalytics - Disable analytics tracking
+   * @returns {Promise<{disableAnalytics: boolean}>}
+   */
+  async updatePrivacySettings(settings) {
+    return this.#request('PUT', '/settings/privacy', settings);
+  }
+
+  /**
+   * Reset privacy settings to defaults
+   * @returns {Promise<{disableAnalytics: boolean}>}
+   */
+  async resetPrivacySettings() {
+    return this.#request('DELETE', '/settings/privacy');
+  }
+
   // Model Providers
 
   /**

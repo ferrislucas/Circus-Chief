@@ -139,4 +139,58 @@ router.delete('/summary', (req, res) => {
   }
 });
 
+/**
+ * GET /api/settings/privacy
+ * Get privacy settings
+ */
+router.get('/privacy', (req, res) => {
+  try {
+    const privacySettings = settings.getPrivacySettings();
+    res.json(privacySettings);
+  } catch (error) {
+    console.error('Error getting privacy settings:', error);
+    res.status(500).json({ error: 'Failed to get privacy settings' });
+  }
+});
+
+/**
+ * PUT /api/settings/privacy
+ * Update privacy settings
+ */
+router.put('/privacy', (req, res) => {
+  try {
+    const { disableAnalytics } = req.body;
+
+    // Validate that disableAnalytics is a boolean
+    if (typeof disableAnalytics !== 'boolean') {
+      return res.status(400).json({
+        error: 'Invalid privacy settings. disableAnalytics must be a boolean'
+      });
+    }
+
+    const updatedSettings = settings.setPrivacySettings({
+      disableAnalytics,
+    });
+
+    res.json(updatedSettings);
+  } catch (error) {
+    console.error('Error updating privacy settings:', error);
+    res.status(500).json({ error: 'Failed to update privacy settings' });
+  }
+});
+
+/**
+ * DELETE /api/settings/privacy
+ * Reset privacy settings to defaults
+ */
+router.delete('/privacy', (req, res) => {
+  try {
+    const defaults = settings.resetPrivacySettings();
+    res.json(defaults);
+  } catch (error) {
+    console.error('Error resetting privacy settings:', error);
+    res.status(500).json({ error: 'Failed to reset privacy settings' });
+  }
+});
+
 export default router;

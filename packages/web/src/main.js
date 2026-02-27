@@ -10,11 +10,22 @@ import './assets/main.css';
 // When empty (local dev, CI), analytics are silently disabled.
 // With defaults: '2026-01-30', SPA page views are tracked automatically
 // via the browser History API — no router.afterEach hook needed.
-initPostHog();
+async function initializeApp() {
+  try {
+    // Fetch privacy settings before initializing PostHog
+    const resp = await fetch('/api/settings/privacy');
+    const { disableAnalytics } = await resp.json();
+    initPostHog({ disableAnalytics });
+  } catch {
+    // Fail-open: tracking stays on if the API call fails
+    console.log('PostHog: Failed to fetch privacy settings, using defaults');
+    initPostHog();
+  }
 
-const app = createApp(App);
+  const app = createApp(App);
+  app.use(createPinia());
+  app.use(router);
+  app.mount('#app');
+}
 
-app.use(createPinia());
-app.use(router);
-
-app.mount('#app');
+initializeApp();
