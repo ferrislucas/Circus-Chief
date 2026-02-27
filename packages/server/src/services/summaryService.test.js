@@ -1825,12 +1825,12 @@ describe('summaryService', () => {
     });
   });
 
-  describe('force parameter bypasses disableSessionSummaries', () => {
-    it('regenerateSummary works even when disableSessionSummaries is true', async () => {
-      // Disable session summaries for the project
+  describe('disableSessionSummaries respects userInitiated flag', () => {
+    it('regenerateSummary works even when disableSessionSummaries is true (user-initiated)', async () => {
+      // Disable session summaries globally
       settings.setSummarySettings({ disableSessionSummaries: true });
 
-      // regenerateSummary passes force=true, so it should work
+      // regenerateSummary passes userInitiated=true, so it should work
       const result = await summaryService.regenerateSummary(sessionId);
 
       expect(result).not.toBeNull();
@@ -1843,12 +1843,27 @@ describe('summaryService', () => {
       expect(stored).not.toBeNull();
     });
 
-    it('generateSummary with force=true works even when disableSessionSummaries is true', async () => {
-      // Disable session summaries for the project
+    it('generateSummary with force=true but NOT userInitiated respects disableSessionSummaries', async () => {
+      // Disable session summaries globally
       settings.setSummarySettings({ disableSessionSummaries: true });
 
-      // Call generateSummary with force=true
+      // Call generateSummary with force=true but userInitiated=false (default)
+      // This is what onSessionComplete does - it should now respect the disable setting
       const result = await summaryService.generateSummary(sessionId, 0, true);
+
+      expect(result).toBeNull();
+
+      // Verify nothing was stored
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).toBeNull();
+    });
+
+    it('generateSummary with force=true AND userInitiated=true bypasses disableSessionSummaries', async () => {
+      // Disable session summaries globally
+      settings.setSummarySettings({ disableSessionSummaries: true });
+
+      // Call generateSummary with both force=true and userInitiated=true
+      const result = await summaryService.generateSummary(sessionId, 0, true, true);
 
       expect(result).not.toBeNull();
       expect(result.sessionId).toBe(sessionId);
@@ -1859,7 +1874,7 @@ describe('summaryService', () => {
     });
 
     it('generateSummary without force respects disableSessionSummaries when true', async () => {
-      // Disable session summaries for the project
+      // Disable session summaries globally
       settings.setSummarySettings({ disableSessionSummaries: true });
 
       // Call generateSummary without force (default is false)
@@ -1947,17 +1962,31 @@ describe('summaryService', () => {
       expect(result.sessionId).toBe(sessionId);
     });
 
-    it('onSessionComplete bypasses disableSessionSummaries (uses force=true)', async () => {
+    it('onSessionComplete respects disableSessionSummaries (no longer bypasses)', async () => {
       // Disable session summaries
       settings.setSummarySettings({ disableSessionSummaries: true });
 
-      // onSessionComplete should generate anyway (it uses force=true)
+      // onSessionComplete uses force=true but NOT userInitiated, so it should respect the disable setting
       summaryService.onSessionComplete(sessionId);
 
       // Wait for async generation
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // Summary SHOULD have been generated despite being disabled
+      // Summary should NOT have been generated because summaries are disabled
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).toBeNull();
+    });
+
+    it('onSessionComplete generates summary when disableSessionSummaries is false', async () => {
+      // Ensure summaries are enabled
+      settings.setSummarySettings({ disableSessionSummaries: false });
+
+      summaryService.onSessionComplete(sessionId);
+
+      // Wait for async generation
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Summary SHOULD have been generated
       const stored = sessionSummaries.getBySessionId(sessionId);
       expect(stored).not.toBeNull();
     });
@@ -1978,7 +2007,7 @@ describe('summaryService', () => {
       let stored = sessionSummaries.getBySessionId(sessionId);
       expect(stored).toBeNull(); // Auto-generation skipped
 
-      // Now try manual regeneration via regenerateSummary - should work
+      // Now try manual regeneration via regenerateSummary - should work (user-initiated)
       const result = await summaryService.regenerateSummary(sessionId);
       expect(result).not.toBeNull();
 
@@ -1986,16 +2015,35 @@ describe('summaryService', () => {
       expect(stored).not.toBeNull(); // Manual generation worked
     });
 
-    it('logs appropriate message when force bypasses disabled setting', async () => {
+    it('onSessionComplete does not bypass disabled setting (unlike regenerateSummary)', async () => {
+      // Disable session summaries
+      settings.setSummarySettings({ disableSessionSummaries: true });
+
+      // onSessionComplete should NOT generate (it's not user-initiated)
+      summaryService.onSessionComplete(sessionId);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      let stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).toBeNull();
+
+      // But regenerateSummary (user-initiated) should still work
+      const result = await summaryService.regenerateSummary(sessionId);
+      expect(result).not.toBeNull();
+
+      stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).not.toBeNull();
+    });
+
+    it('logs appropriate message when userInitiated bypasses disabled setting', async () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       // Disable session summaries
       settings.setSummarySettings({ disableSessionSummaries: true });
 
-      // Call with force=true
-      await summaryService.generateSummary(sessionId, 0, true);
+      // Call with userInitiated=true (like regenerateSummary does)
+      await summaryService.generateSummary(sessionId, 0, true, true);
 
-      // Should NOT log the "disabled" message since force=true bypasses it
+      // Should NOT log the "disabled" message since userInitiated=true bypasses it
       const disabledCalls = consoleSpy.mock.calls.filter((call) =>
         call[0]?.includes?.('Session summaries disabled')
       );
@@ -2013,6 +2061,29 @@ describe('summaryService', () => {
       settings.setSummarySettings({ disableSessionSummaries: false });
     });
 
+    it('logs disabled message when force=true but userInitiated=false', async () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      // Disable session summaries
+      settings.setSummarySettings({ disableSessionSummaries: true });
+
+      // Call with force=true but without userInitiated (like onSessionComplete)
+      await summaryService.generateSummary(sessionId, 0, true);
+
+      // Should log the "disabled" message since userInitiated is false
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[SummaryService] Session summaries disabled')
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('skipping generation')
+      );
+
+      consoleSpy.mockRestore();
+
+      // Re-enable for other tests
+      settings.setSummarySettings({ disableSessionSummaries: false });
+    });
+
     it('logs disabled message when force=false and setting is enabled', async () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
@@ -2022,12 +2093,12 @@ describe('summaryService', () => {
       // Call without force (default false)
       await summaryService.generateSummary(sessionId);
 
-      // Should log the "disabled" message (single string argument)
+      // Should log the "disabled" message
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('[SummaryService] Session summaries disabled')
       );
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('skipping automatic generation')
+        expect.stringContaining('skipping generation')
       );
 
       consoleSpy.mockRestore();

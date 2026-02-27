@@ -298,6 +298,89 @@ describe('ModelSelector', () => {
     });
   });
 
+  describe('allowEmpty prop', () => {
+    it('renders an empty option when allowEmpty is true', () => {
+      const wrapper = mountComponent({ allowEmpty: true, modelValue: '' });
+      const options = wrapper.findAll('option');
+      // 1 empty option + 3 model options
+      expect(options).toHaveLength(4);
+      expect(options[0].text()).toBe('Use system default');
+      expect(options[0].element.value).toBe('');
+    });
+
+    it('does not render an empty option when allowEmpty is false (default)', () => {
+      const wrapper = mountComponent({ modelValue: sonnet.id });
+      const options = wrapper.findAll('option');
+      expect(options).toHaveLength(3);
+    });
+
+    it('uses custom emptyLabel text', () => {
+      const wrapper = mountComponent({ allowEmpty: true, emptyLabel: 'No model override', modelValue: '' });
+      const options = wrapper.findAll('option');
+      expect(options[0].text()).toBe('No model override');
+    });
+
+    it('keeps empty value selected when allowEmpty is true and modelValue is empty', async () => {
+      const onUpdateModelValue = vi.fn();
+      const wrapper = mount(ModelSelector, {
+        props: { modelValue: '', allowEmpty: true },
+        attrs: { 'onUpdate:modelValue': onUpdateModelValue },
+      });
+      await flushAll(wrapper);
+
+      const select = wrapper.find('select');
+      expect(select.element.value).toBe('');
+
+      // Should NOT auto-select a default model
+      expect(onUpdateModelValue).not.toHaveBeenCalled();
+    });
+
+    it('emits empty string when user selects the empty option', async () => {
+      const onUpdateModelValue = vi.fn();
+      const wrapper = mount(ModelSelector, {
+        props: { modelValue: sonnet.id, allowEmpty: true },
+        attrs: { 'onUpdate:modelValue': onUpdateModelValue },
+      });
+      await flushAll(wrapper);
+
+      const select = wrapper.find('select');
+      await select.setValue('');
+      await flushAll(wrapper);
+
+      expect(onUpdateModelValue).toHaveBeenCalledWith('');
+    });
+
+    it('allows selecting a concrete model when allowEmpty is true', async () => {
+      const onUpdateModelValue = vi.fn();
+      const wrapper = mount(ModelSelector, {
+        props: { modelValue: '', allowEmpty: true },
+        attrs: { 'onUpdate:modelValue': onUpdateModelValue },
+      });
+      await flushAll(wrapper);
+
+      const select = wrapper.find('select');
+      await select.setValue(opus.id);
+      await flushAll(wrapper);
+
+      expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
+    });
+  });
+
+  describe('selectClass prop', () => {
+    it('uses default model-select class when selectClass is not provided', () => {
+      const wrapper = mountComponent();
+      const select = wrapper.find('select');
+      expect(select.classes()).toContain('model-select');
+    });
+
+    it('uses custom class when selectClass is provided', () => {
+      const wrapper = mountComponent({ selectClass: 'form-input' });
+      const select = wrapper.find('select');
+      expect(select.classes()).toContain('form-input');
+      expect(select.classes()).not.toContain('model-select');
+    });
+  });
+
   describe('provider-based model display', () => {
     it('displays displayName for built-in provider models', async () => {
       const providersStore = useProvidersStore();
