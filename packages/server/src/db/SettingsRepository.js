@@ -3,6 +3,7 @@ import { DEFAULT_TOKEN_COST_WEIGHTS } from '@claudetools/shared';
 
 const TOKEN_WEIGHTS_KEY = 'token_cost_weights';
 const SUMMARY_SETTINGS_KEY = 'summary_settings';
+const PRIVACY_SETTINGS_KEY = 'privacy_settings';
 
 /**
  * Settings repository for managing application-wide settings
@@ -162,6 +163,55 @@ export class SettingsRepository {
       disableSessionSummaries: false,
       disableConversationSummaries: false,
       sessionTitlePrompt: '',
+    };
+  }
+
+  // Privacy Settings
+
+  /**
+   * Get privacy settings with defaults
+   * @returns {Object} Privacy settings
+   */
+  getPrivacySettings() {
+    const value = this.get(PRIVACY_SETTINGS_KEY);
+    if (!value) {
+      return {
+        disableAnalytics: false,
+      };
+    }
+    try {
+      const parsed = JSON.parse(value);
+      return {
+        disableAnalytics: Boolean(parsed.disableAnalytics),
+      };
+    } catch {
+      return {
+        disableAnalytics: false,
+      };
+    }
+  }
+
+  /**
+   * Set privacy settings
+   * @param {Object} settings - Privacy settings
+   * @param {boolean} settings.disableAnalytics - Disable analytics tracking
+   */
+  setPrivacySettings(settings) {
+    const validated = {
+      disableAnalytics: Boolean(settings.disableAnalytics),
+    };
+    this.set(PRIVACY_SETTINGS_KEY, JSON.stringify(validated));
+    return validated;
+  }
+
+  /**
+   * Reset privacy settings to defaults
+   * @returns {Object} The default settings
+   */
+  resetPrivacySettings() {
+    this.delete(PRIVACY_SETTINGS_KEY);
+    return {
+      disableAnalytics: false,
     };
   }
 }

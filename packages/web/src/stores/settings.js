@@ -11,6 +11,9 @@ export const useSettingsStore = defineStore('settings', {
       sessionTitlePrompt: '',
       defaultSessionTitlePrompt: '', // Default prompt from server
     },
+    privacySettings: {
+      disableAnalytics: false,
+    },
     loading: false,
     error: null,
   }),
@@ -129,6 +132,63 @@ export const useSettingsStore = defineStore('settings', {
       try {
         const defaults = await api.resetSummarySettings();
         this.summarySettings = defaults;
+        return defaults;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    /**
+     * Fetch privacy settings from the server
+     */
+    async fetchPrivacySettings() {
+      this.loading = true;
+      this.error = null;
+      try {
+        const settings = await api.getPrivacySettings();
+        this.privacySettings = settings;
+      } catch (err) {
+        this.error = err.message;
+        // Fall back to defaults on error
+        this.privacySettings = {
+          disableAnalytics: false,
+        };
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    /**
+     * Update privacy settings
+     * @param {Object} settings - Privacy settings
+     */
+    async updatePrivacySettings(settings) {
+      this.loading = true;
+      this.error = null;
+      try {
+        const updated = await api.updatePrivacySettings(settings);
+        this.privacySettings = updated;
+        return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    /**
+     * Reset privacy settings to defaults
+     */
+    async resetPrivacySettings() {
+      this.loading = true;
+      this.error = null;
+      try {
+        const defaults = await api.resetPrivacySettings();
+        this.privacySettings = defaults;
         return defaults;
       } catch (err) {
         this.error = err.message;

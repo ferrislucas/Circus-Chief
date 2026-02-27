@@ -2,12 +2,19 @@ import posthog from 'posthog-js';
 
 let initialized = false;
 
-export function initPostHog() {
+export function initPostHog(options = {}) {
+  const { disableAnalytics = false } = options;
+
   const apiKey = import.meta.env.VITE_POSTHOG_KEY;
   const apiHost = import.meta.env.VITE_POSTHOG_HOST || 'https://us.i.posthog.com';
 
   if (!apiKey) {
     console.log('PostHog: No API key configured, analytics disabled');
+    return;
+  }
+
+  if (disableAnalytics) {
+    console.log('PostHog: Analytics disabled by user setting');
     return;
   }
 
