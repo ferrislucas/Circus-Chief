@@ -354,11 +354,11 @@ test.describe('Archive / Unarchive Sessions', () => {
     // Open overflow menu (aria-label is "Session actions" on session detail page)
     await page.click('button[aria-label="Session actions"]');
 
-    // Wait for menu to appear
-    await page.waitForTimeout(500);
+    // Wait for menu items to be visible (the menu uses Vue <Transition>)
+    await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
 
     // Click Archive menu item (button.menu-item with Archive text)
-    await page.locator('button.menu-item').filter({ hasText: 'Archive' }).click();
+    await page.locator('button.menu-item').filter({ hasText: 'Archive' }).click({ timeout: 10000 });
 
     // Wait for archive to complete
     await page.waitForTimeout(2000);
@@ -396,11 +396,11 @@ test.describe('Archive / Unarchive Sessions', () => {
     // Open overflow menu
     await page.click('button[aria-label="Session actions"]');
 
-    // Wait for menu to appear
-    await page.waitForTimeout(500);
+    // Wait for menu items to be visible (the menu uses Vue <Transition>)
+    await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
 
     // Click Unarchive menu item (button.menu-item with Unarchive text)
-    await page.locator('button.menu-item').filter({ hasText: 'Unarchive' }).click();
+    await page.locator('button.menu-item').filter({ hasText: 'Unarchive' }).click({ timeout: 10000 });
 
     // Wait for unarchive to complete
     await page.waitForTimeout(2000);
