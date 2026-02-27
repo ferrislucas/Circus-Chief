@@ -34,4 +34,54 @@ router.get('/agent-stats', (req, res) => {
   res.json(stats);
 });
 
+// GET /api/agent-calls/filter-options
+// Returns distinct values for filter dropdowns
+router.get('/agent-calls/filter-options', (req, res) => {
+  try {
+    const options = agentCallLogger.getFilterOptions();
+    res.json(options);
+  } catch (err) {
+    console.error('Failed to get filter options:', err);
+    res.status(500).json({ error: 'Failed to get filter options' });
+  }
+});
+
+// GET /api/agent-calls?limit=25&offset=0&agentType=...&callType=...&status=...&model=...&sessionId=...&startDate=...&endDate=...&sortBy=...&sortOrder=...
+// Returns paginated call logs with optional filters
+router.get('/agent-calls', (req, res) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit) : 25;
+    const offset = req.query.offset ? parseInt(req.query.offset) : 0;
+    const startDate = req.query.startDate ? parseInt(req.query.startDate) : undefined;
+    const endDate = req.query.endDate ? parseInt(req.query.endDate) : undefined;
+
+    const result = agentCallLogger.getAll({
+      limit,
+      offset,
+      agentType: req.query.agentType,
+      callType: req.query.callType,
+      status: req.query.status,
+      model: req.query.model,
+      sessionId: req.query.sessionId,
+      startDate,
+      endDate,
+      sortBy: req.query.sortBy,
+      sortOrder: req.query.sortOrder,
+    });
+
+    res.json({
+      logs: result.rows,
+      pagination: {
+        total: result.total,
+        limit,
+        offset,
+        hasMore: offset + limit < result.total,
+      },
+    });
+  } catch (err) {
+    console.error('Failed to get agent call logs:', err);
+    res.status(500).json({ error: 'Failed to get agent call logs' });
+  }
+});
+
 export default router;
