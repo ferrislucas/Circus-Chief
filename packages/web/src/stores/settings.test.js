@@ -9,6 +9,9 @@ vi.mock('../composables/useApi.js', () => ({
     getTokenCostWeights: vi.fn(),
     updateTokenCostWeights: vi.fn(),
     resetTokenCostWeights: vi.fn(),
+    getGeneralSettings: vi.fn(),
+    updateGeneralSettings: vi.fn(),
+    resetGeneralSettings: vi.fn(),
   },
 }));
 
@@ -316,6 +319,247 @@ describe('Settings Store', () => {
         // Expected
       }
       expect(store.loading).toBe(false);
+    });
+  });
+
+  describe('fetchGeneralSettings action', () => {
+    it('fetches general settings from API and updates state', async () => {
+      const store = useSettingsStore();
+      const customSettings = {
+        disableAnalytics: true,
+      };
+      api.getGeneralSettings.mockResolvedValue(customSettings);
+
+      await store.fetchGeneralSettings();
+
+      expect(api.getGeneralSettings).toHaveBeenCalledOnce();
+      expect(store.generalSettings).toEqual(customSettings);
+      expect(store.loading).toBe(false);
+      expect(store.error).toBeNull();
+    });
+
+    it('sets loading state during fetch', async () => {
+      const store = useSettingsStore();
+      let loadingDuringFetch = false;
+
+      api.getGeneralSettings.mockImplementation(async () => {
+        // Capture loading state during the async operation
+        loadingDuringFetch = store.loading;
+        return { disableAnalytics: false };
+      });
+
+      await store.fetchGeneralSettings();
+
+      expect(loadingDuringFetch).toBe(true);
+      expect(store.loading).toBe(false);
+    });
+
+    it('handles fetch errors gracefully', async () => {
+      const store = useSettingsStore();
+      const errorMessage = 'Network error';
+      api.getGeneralSettings.mockRejectedValue(new Error(errorMessage));
+
+      await store.fetchGeneralSettings();
+
+      expect(store.error).toBe(errorMessage);
+      expect(store.generalSettings).toEqual({
+        disableAnalytics: false,
+      });
+      expect(store.loading).toBe(false);
+    });
+
+    it('falls back to defaults on error', async () => {
+      const store = useSettingsStore();
+      // Set custom settings first
+      store.generalSettings = {
+        disableAnalytics: true,
+      };
+
+      api.getGeneralSettings.mockRejectedValue(new Error('Server error'));
+
+      await store.fetchGeneralSettings();
+
+      expect(store.generalSettings).toEqual({
+        disableAnalytics: false,
+      });
+    });
+  });
+
+  describe('updateGeneralSettings action', () => {
+    it('updates general settings via API and updates state', async () => {
+      const store = useSettingsStore();
+      const newSettings = {
+        disableAnalytics: true,
+      };
+      api.updateGeneralSettings.mockResolvedValue(newSettings);
+
+      const result = await store.updateGeneralSettings(newSettings);
+
+      expect(api.updateGeneralSettings).toHaveBeenCalledWith(newSettings);
+      expect(store.generalSettings).toEqual(newSettings);
+      expect(result).toEqual(newSettings);
+      expect(store.loading).toBe(false);
+      expect(store.error).toBeNull();
+    });
+
+    it('sets loading state during update', async () => {
+      const store = useSettingsStore();
+      let loadingDuringUpdate = false;
+
+      api.updateGeneralSettings.mockImplementation(async (settings) => {
+        loadingDuringUpdate = store.loading;
+        return settings;
+      });
+
+      await store.updateGeneralSettings({ disableAnalytics: false });
+
+      expect(loadingDuringUpdate).toBe(true);
+      expect(store.loading).toBe(false);
+    });
+
+    it('handles update errors by setting error state', async () => {
+      const store = useSettingsStore();
+      const errorMessage = 'Validation failed';
+      api.updateGeneralSettings.mockRejectedValue(new Error(errorMessage));
+
+      await expect(
+        store.updateGeneralSettings({ disableAnalytics: false })
+      ).rejects.toThrow(errorMessage);
+
+      expect(store.error).toBe(errorMessage);
+      expect(store.loading).toBe(false);
+    });
+
+    it('does not update state on error', async () => {
+      const store = useSettingsStore();
+      const originalSettings = { ...store.generalSettings };
+
+      api.updateGeneralSettings.mockRejectedValue(new Error('Failed'));
+
+      try {
+        await store.updateGeneralSettings({ disableAnalytics: true });
+      } catch {
+        // Expected to throw
+      }
+
+      expect(store.generalSettings).toEqual(originalSettings);
+    });
+
+    it('returns updated settings on success', async () => {
+      const store = useSettingsStore();
+      const newSettings = {
+        disableAnalytics: true,
+      };
+      api.updateGeneralSettings.mockResolvedValue(newSettings);
+
+      const result = await store.updateGeneralSettings(newSettings);
+
+      expect(result).toEqual(newSettings);
+    });
+
+    it('can update disableAnalytics to false', async () => {
+      const store = useSettingsStore();
+      const newSettings = {
+        disableAnalytics: false,
+      };
+      api.updateGeneralSettings.mockResolvedValue(newSettings);
+
+      const result = await store.updateGeneralSettings(newSettings);
+
+      expect(result.disableAnalytics).toBe(false);
+      expect(store.generalSettings.disableAnalytics).toBe(false);
+    });
+
+    it('can update disableAnalytics to true', async () => {
+      const store = useSettingsStore();
+      const newSettings = {
+        disableAnalytics: true,
+      };
+      api.updateGeneralSettings.mockResolvedValue(newSettings);
+
+      const result = await store.updateGeneralSettings(newSettings);
+
+      expect(result.disableAnalytics).toBe(true);
+      expect(store.generalSettings.disableAnalytics).toBe(true);
+    });
+  });
+
+  describe('resetGeneralSettings action', () => {
+    it('resets general settings to defaults via API', async () => {
+      const store = useSettingsStore();
+      // Set custom settings first
+      store.generalSettings = {
+        disableAnalytics: true,
+      };
+
+      const defaultSettings = {
+        disableAnalytics: false,
+      };
+      api.resetGeneralSettings.mockResolvedValue(defaultSettings);
+
+      const result = await store.resetGeneralSettings();
+
+      expect(api.resetGeneralSettings).toHaveBeenCalledOnce();
+      expect(store.generalSettings).toEqual(defaultSettings);
+      expect(result).toEqual(defaultSettings);
+      expect(store.loading).toBe(false);
+      expect(store.error).toBeNull();
+    });
+
+    it('sets loading state during reset', async () => {
+      const store = useSettingsStore();
+      let loadingDuringReset = false;
+
+      api.resetGeneralSettings.mockImplementation(async () => {
+        loadingDuringReset = store.loading;
+        return { disableAnalytics: false };
+      });
+
+      await store.resetGeneralSettings();
+
+      expect(loadingDuringReset).toBe(true);
+      expect(store.loading).toBe(false);
+    });
+
+    it('handles reset errors by setting error state', async () => {
+      const store = useSettingsStore();
+      const errorMessage = 'Reset failed';
+      api.resetGeneralSettings.mockRejectedValue(new Error(errorMessage));
+
+      await expect(store.resetGeneralSettings()).rejects.toThrow(errorMessage);
+
+      expect(store.error).toBe(errorMessage);
+      expect(store.loading).toBe(false);
+    });
+
+    it('does not update state on error', async () => {
+      const store = useSettingsStore();
+      const customSettings = {
+        disableAnalytics: true,
+      };
+      store.generalSettings = customSettings;
+
+      api.resetGeneralSettings.mockRejectedValue(new Error('Failed'));
+
+      try {
+        await store.resetGeneralSettings();
+      } catch {
+        // Expected to throw
+      }
+
+      expect(store.generalSettings).toEqual(customSettings);
+    });
+
+    it('returns default settings on success', async () => {
+      const store = useSettingsStore();
+      const defaultSettings = {
+        disableAnalytics: false,
+      };
+      api.resetGeneralSettings.mockResolvedValue(defaultSettings);
+
+      const result = await store.resetGeneralSettings();
+
+      expect(result).toEqual(defaultSettings);
     });
   });
 });
