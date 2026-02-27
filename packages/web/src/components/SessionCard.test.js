@@ -43,7 +43,6 @@ vi.mock('../stores/sessions.js', () => ({
       scheduledCount: 0,
       waitingCount: 0,
       completedCount: 0,
-      errorCount: 0,
       totalCount: 1,
       hasScheduledDescendant: false,
       rootIsScheduled: false,
@@ -392,6 +391,17 @@ describe('SessionCard', () => {
       expect(sessionMeta.exists()).toBe(true);
       // The mock returns runningCount: 1, so it should show running status
       expect(sessionMeta.text()).toContain('running');
+    });
+
+    it('does not render error count badge even when session has error status', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'error' },
+      });
+      // Should not find any element with .status-error class in the session meta
+      const sessionMeta = wrapper.find('.session-meta');
+      expect(sessionMeta.exists()).toBe(true);
+      // The .status-error class should not be present
+      expect(wrapper.find('.status-error').exists()).toBe(false);
     });
   });
 
