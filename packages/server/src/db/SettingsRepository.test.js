@@ -448,4 +448,141 @@ describe('SettingsRepository', () => {
       expect(repo.get('summary_settings')).toBeNull();
     });
   });
+
+  describe('getGeneralSettings', () => {
+    it('returns default settings when not set', () => {
+      const settings = repo.getGeneralSettings();
+
+      expect(settings).toEqual({
+        disableAnalytics: false,
+      });
+    });
+
+    it('returns saved custom settings', () => {
+      const customSettings = {
+        disableAnalytics: true,
+      };
+      repo.setGeneralSettings(customSettings);
+
+      const retrieved = repo.getGeneralSettings();
+      expect(retrieved).toEqual(customSettings);
+    });
+
+    it('returns defaults when stored value is invalid JSON', () => {
+      repo.set('general_settings', 'invalid-json{');
+      const settings = repo.getGeneralSettings();
+      expect(settings).toEqual({
+        disableAnalytics: false,
+      });
+    });
+
+    it('does not mutate default settings', () => {
+      const settings = repo.getGeneralSettings();
+      settings.disableAnalytics = true;
+
+      const newSettings = repo.getGeneralSettings();
+      expect(newSettings.disableAnalytics).toBe(false);
+    });
+
+    it('coerces values to correct types', () => {
+      repo.set('general_settings', JSON.stringify({
+        disableAnalytics: 1, // truthy number
+      }));
+
+      const settings = repo.getGeneralSettings();
+      // getGeneralSettings uses Boolean() to coerce to true boolean
+      expect(settings.disableAnalytics).toBe(true);
+      expect(typeof settings.disableAnalytics).toBe('boolean');
+    });
+  });
+
+  describe('setGeneralSettings', () => {
+    it('saves and returns custom settings', () => {
+      const customSettings = {
+        disableAnalytics: true,
+      };
+      const saved = repo.setGeneralSettings(customSettings);
+
+      expect(saved).toEqual(customSettings);
+      expect(repo.getGeneralSettings()).toEqual(customSettings);
+    });
+
+    it('validates and coerces disableAnalytics to boolean', () => {
+      const saved = repo.setGeneralSettings({
+        disableAnalytics: 'true',
+      });
+
+      expect(saved.disableAnalytics).toBe(true);
+      expect(typeof saved.disableAnalytics).toBe('boolean');
+    });
+
+    it('handles null and undefined values', () => {
+      const saved = repo.setGeneralSettings({
+        disableAnalytics: null,
+      });
+
+      expect(saved.disableAnalytics).toBe(false);
+      expect(typeof saved.disableAnalytics).toBe('boolean');
+    });
+
+    it('persists settings across repository instances', () => {
+      const customSettings = {
+        disableAnalytics: true,
+      };
+      repo.setGeneralSettings(customSettings);
+
+      // Create new repository instance
+      const newRepo = new SettingsRepository();
+      expect(newRepo.getGeneralSettings()).toEqual(customSettings);
+    });
+
+    it('updates existing settings', () => {
+      repo.setGeneralSettings({
+        disableAnalytics: false,
+      });
+
+      const updated = repo.setGeneralSettings({
+        disableAnalytics: true,
+      });
+
+      expect(updated.disableAnalytics).toBe(true);
+      expect(repo.getGeneralSettings()).toEqual(updated);
+    });
+  });
+
+  describe('resetGeneralSettings', () => {
+    it('deletes custom settings and returns defaults', () => {
+      // Set custom settings
+      repo.setGeneralSettings({
+        disableAnalytics: true,
+      });
+
+      // Reset to defaults
+      const defaults = repo.resetGeneralSettings();
+
+      expect(defaults).toEqual({
+        disableAnalytics: false,
+      });
+      expect(repo.getGeneralSettings()).toEqual(defaults);
+    });
+
+    it('returns defaults even if no custom settings were set', () => {
+      const defaults = repo.resetGeneralSettings();
+      expect(defaults).toEqual({
+        disableAnalytics: false,
+      });
+    });
+
+    it('actually deletes the setting from database', () => {
+      repo.setGeneralSettings({
+        disableAnalytics: true,
+      });
+
+      expect(repo.get('general_settings')).not.toBeNull();
+
+      repo.resetGeneralSettings();
+
+      expect(repo.get('general_settings')).toBeNull();
+    });
+  });
 });
