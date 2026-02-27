@@ -233,6 +233,12 @@ export async function getCanvasItems(sessionId: string) {
   return response.json();
 }
 
+export async function getAllCanvasItems(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/all`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
 export async function getCanvasTrash(sessionId: string) {
   const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas-trash`);
   if (!response.ok) return [];
@@ -994,21 +1000,30 @@ export async function getSessionSummary(sessionId: string) {
 
 /**
  * Set session summary (for testing PR indicators that depend on summary data)
+ * Uses PUT to directly seed summary data without triggering the generation flow
  */
 export async function setSessionSummary(sessionId: string, summaryData: {
   shortSummary?: string;
-  longSummary?: string;
-  prNumber?: string;
+  fullSummary?: string;
+  keyActions?: string[];
+  filesModified?: string[];
+  outcome?: string;
+  messageCount?: number;
+  prMerged?: boolean;
   prState?: string;
   hasMergeConflicts?: boolean;
   ciStatus?: string;
+  ciFailures?: string[];
 }) {
   const response = await fetch(`${API_URL}/api/sessions/${sessionId}/summary`, {
-    method: 'POST',
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(summaryData),
   });
-  if (!response.ok) throw new Error('Failed to set session summary');
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to set session summary: ${response.status} ${response.statusText} - ${errorText}`);
+  }
   return response.json();
 }
 

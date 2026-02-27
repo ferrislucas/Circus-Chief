@@ -1,4 +1,3 @@
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import { sessions, messages, workLogs, attachments, conversations, modelProviders } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
@@ -8,6 +7,8 @@ import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import * as diffService from './diffService.js';
 import { createClaudeCodeSpawner, createRobustEnv } from './nodeSpawnHelper.js';
 import { schedulerService } from './schedulerService.js';
+import { agentGateway } from '../agents/AgentGateway.js';
+import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 
 /** @type {Map<string, string|null>} Track last message ID for end-of-turn work log association */
 const lastMessageIds = new Map();
@@ -97,6 +98,26 @@ function updateTurnUsage(conversationId, usage, eventType) {
 
 /** Check if mock mode is enabled (for E2E testing) */
 const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
+
+/**
+ * Create the agent for a session, using gateway + logging.
+ * In mock mode, returns a mock agent that delegates to mockQuery.
+ *
+ * @param {string} agentType - The agent type (e.g., 'claude-code')
+ * @returns {{ execute: (queryParams: any, meta?: any) => AsyncGenerator }}
+ */
+function createAgentForSession(agentType = 'claude-code') {
+  if (isMockMode()) {
+    // Mock mode: return a fake "agent" that delegates to mockQuery
+    return {
+      async *execute(queryParams) {
+        yield* mockQuery(queryParams);
+      },
+    };
+  }
+  const baseAgent = agentGateway.createAgent(agentType);
+  return new LoggingAgentWrapper(baseAgent);
+}
 
 /**
  * Get the base API URL for canvas and session operations.
@@ -971,8 +992,9 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     // Build prompt with attachment context
     const promptWithAttachments = buildPromptWithAttachments(prompt, fileAttachments);
 
-    // Choose between mock and real query based on environment
-    const queryFn = isMockMode() ? mockQuery : query;
+    // Create agent via gateway (or mock agent in mock mode)
+    const agentType = session.agentType || 'claude-code';
+    const agent = createAgentForSession(agentType);
 
     // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
     const provider = resolveProviderFromModel(model);
@@ -1004,8 +1026,18 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
       envAuthToken: queryParams.options?.env?.ANTHROPIC_AUTH_TOKEN ? '[SET]' : '[not set]',
     });
 
-    // Run the query with the SDK (or mock)
-    for await (const event of queryFn(queryParams)) {
+    // Logging metadata for agent call tracking
+    const agentCallMeta = {
+      sessionId,
+      conversationId: activeConversation.id,
+      callType: 'runSession',
+      agentType,
+      model,
+      promptLength: promptWithAttachments.length,
+    };
+
+    // Run the query with the agent (SDK via gateway, or mock)
+    for await (const event of agent.execute(queryParams, agentCallMeta)) {
       if (controller.signal.aborted) break;
 
       await handleStreamEvent(sessionId, event);
@@ -1132,8 +1164,9 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     sessions.update(sessionId, { status: 'running' });
     broadcastSessionStatus(sessionId, 'running');
 
-    // Choose between mock and real query based on environment
-    const queryFn = isMockMode() ? mockQuery : query;
+    // Create agent via gateway (or mock agent in mock mode)
+    const agentType = session.agentType || 'claude-code';
+    const agent = createAgentForSession(agentType);
 
     // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
     const provider = resolveProviderFromModel(model);
@@ -1203,8 +1236,19 @@ export async function continueSession(sessionId, content, workingDirectory, syst
           },
         };
 
+    // Logging metadata for agent call tracking
+    const agentCallMeta = {
+      sessionId,
+      conversationId: activeConversation.id,
+      callType: 'continueSession',
+      agentType,
+      model,
+      isResume: canResume,
+      promptLength: promptWithContext.length,
+    };
+
     // Resume the session with the new message
-    for await (const event of queryFn(queryParams)) {
+    for await (const event of agent.execute(queryParams, agentCallMeta)) {
       if (controller.signal.aborted) break;
 
       await handleStreamEvent(sessionId, event);
@@ -1325,8 +1369,9 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     // Use the existing user message content as the prompt
     // Note: We do NOT create a new user message here - it already exists
 
-    // Choose between mock and real query based on environment
-    const queryFn = isMockMode() ? mockQuery : query;
+    // Create agent via gateway (or mock agent in mock mode)
+    const agentType = session.agentType || 'claude-code';
+    const agent = createAgentForSession(agentType);
 
     // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
     const provider = resolveProviderFromModel(model);
@@ -1389,8 +1434,19 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
           },
         };
 
+    // Logging metadata for agent call tracking
+    const agentCallMeta = {
+      sessionId,
+      conversationId: conversationId,
+      callType: 'continueSessionWithExistingMessage',
+      agentType,
+      model,
+      isResume: canResume,
+      promptLength: promptWithContext.length,
+    };
+
     // Run the query
-    for await (const event of queryFn(queryParams)) {
+    for await (const event of agent.execute(queryParams, agentCallMeta)) {
       if (controller.signal.aborted) break;
 
       await handleStreamEvent(sessionId, event);

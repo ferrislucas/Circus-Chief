@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { readFileSync, existsSync } from 'fs';
 import { extname, resolve, normalize } from 'path';
-import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons, commandRuns, modelProviders } from '../database.js';
+import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons, commandRuns, modelProviders, sessionSummaries } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession, continueSessionWithExistingMessage } from '../services/sessionManager.js';
 import { getChanges, getChangesBranch } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -1094,6 +1094,21 @@ router.post('/:id/summary', async (req, res) => {
       return res.status(500).json({ error: 'Failed to generate summary' });
     }
     res.status(201).json(summary);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/sessions/:id/summary - Directly set summary data (for testing/seeding)
+router.put('/:id/summary', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  try {
+    const summary = sessionSummaries.upsert(req.params.id, req.body);
+    res.json(summary);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

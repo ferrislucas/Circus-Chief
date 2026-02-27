@@ -287,4 +287,228 @@ describe('Settings API', () => {
       expect(res.body).toEqual(DEFAULT_TOKEN_COST_WEIGHTS);
     });
   });
+
+  describe('GET /api/settings/general', () => {
+    it('returns default settings when not customized', async () => {
+      const res = await request(app).get('/api/settings/general');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        disableAnalytics: false,
+      });
+    });
+
+    it('returns custom settings when set', async () => {
+      const customSettings = {
+        disableAnalytics: true,
+      };
+      settings.setGeneralSettings(customSettings);
+
+      const res = await request(app).get('/api/settings/general');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(customSettings);
+    });
+
+    it('handles errors gracefully', async () => {
+      // Force an error by breaking the database connection
+      const originalGet = settings.getGeneralSettings;
+      settings.getGeneralSettings = () => {
+        throw new Error('Database error');
+      };
+
+      const res = await request(app).get('/api/settings/general');
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe('Failed to get general settings');
+
+      // Restore original method
+      settings.getGeneralSettings = originalGet;
+    });
+  });
+
+  describe('PUT /api/settings/general', () => {
+    it('updates and returns new settings', async () => {
+      const newSettings = {
+        disableAnalytics: true,
+      };
+
+      const res = await request(app)
+        .put('/api/settings/general')
+        .send(newSettings);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(newSettings);
+
+      // Verify settings are persisted
+      const retrieved = settings.getGeneralSettings();
+      expect(retrieved).toEqual(newSettings);
+    });
+
+    it('validates disableAnalytics is a boolean', async () => {
+      const invalidSettings = {
+        disableAnalytics: 'not-a-boolean',
+      };
+
+      const res = await request(app)
+        .put('/api/settings/general')
+        .send(invalidSettings);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('must be a boolean');
+    });
+
+    it('accepts false value for disableAnalytics', async () => {
+      const newSettings = {
+        disableAnalytics: false,
+      };
+
+      const res = await request(app)
+        .put('/api/settings/general')
+        .send(newSettings);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(newSettings);
+    });
+
+    it('accepts true value for disableAnalytics', async () => {
+      const newSettings = {
+        disableAnalytics: true,
+      };
+
+      const res = await request(app)
+        .put('/api/settings/general')
+        .send(newSettings);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(newSettings);
+    });
+
+    it('handles errors gracefully', async () => {
+      const originalSet = settings.setGeneralSettings;
+      settings.setGeneralSettings = () => {
+        throw new Error('Database error');
+      };
+
+      const res = await request(app)
+        .put('/api/settings/general')
+        .send({ disableAnalytics: false });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe('Failed to update general settings');
+
+      settings.setGeneralSettings = originalSet;
+    });
+
+    it('rejects request with missing body', async () => {
+      const res = await request(app)
+        .put('/api/settings/general')
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('must be a boolean');
+    });
+
+    it('ignores extra fields', async () => {
+      const settingsWithExtra = {
+        disableAnalytics: true,
+        extraField: 'ignored',
+      };
+
+      const res = await request(app)
+        .put('/api/settings/general')
+        .send(settingsWithExtra);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        disableAnalytics: true,
+      });
+    });
+  });
+
+  describe('DELETE /api/settings/general', () => {
+    it('resets settings to defaults', async () => {
+      // First set custom settings
+      settings.setGeneralSettings({
+        disableAnalytics: true,
+      });
+
+      // Then reset
+      const res = await request(app).delete('/api/settings/general');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        disableAnalytics: false,
+      });
+
+      // Verify settings are actually reset
+      const retrieved = settings.getGeneralSettings();
+      expect(retrieved).toEqual({
+        disableAnalytics: false,
+      });
+    });
+
+    it('returns defaults even if no custom settings were set', async () => {
+      const res = await request(app).delete('/api/settings/general');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        disableAnalytics: false,
+      });
+    });
+
+    it('handles errors gracefully', async () => {
+      const originalReset = settings.resetGeneralSettings;
+      settings.resetGeneralSettings = () => {
+        throw new Error('Database error');
+      };
+
+      const res = await request(app).delete('/api/settings/general');
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe('Failed to reset general settings');
+
+      settings.resetGeneralSettings = originalReset;
+    });
+  });
+
+  describe('Integration: General settings full lifecycle', () => {
+    it('GET -> PUT -> GET -> DELETE -> GET', async () => {
+      // 1. Get defaults
+      let res = await request(app).get('/api/settings/general');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        disableAnalytics: false,
+      });
+
+      // 2. Update to custom
+      const customSettings = {
+        disableAnalytics: true,
+      };
+      res = await request(app)
+        .put('/api/settings/general')
+        .send(customSettings);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(customSettings);
+
+      // 3. Get custom
+      res = await request(app).get('/api/settings/general');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(customSettings);
+
+      // 4. Reset to defaults
+      res = await request(app).delete('/api/settings/general');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        disableAnalytics: false,
+      });
+
+      // 5. Get defaults again
+      res = await request(app).get('/api/settings/general');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        disableAnalytics: false,
+      });
+    });
+  });
 });

@@ -11,6 +11,9 @@ export const useSettingsStore = defineStore('settings', {
       sessionTitlePrompt: '',
       defaultSessionTitlePrompt: '', // Default prompt from server
     },
+    generalSettings: {
+      disableAnalytics: false,
+    },
     loading: false,
     error: null,
   }),
@@ -129,6 +132,63 @@ export const useSettingsStore = defineStore('settings', {
       try {
         const defaults = await api.resetSummarySettings();
         this.summarySettings = defaults;
+        return defaults;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    /**
+     * Fetch general settings from the server
+     */
+    async fetchGeneralSettings() {
+      this.loading = true;
+      this.error = null;
+      try {
+        const settings = await api.getGeneralSettings();
+        this.generalSettings = settings;
+      } catch (err) {
+        this.error = err.message;
+        // Fall back to defaults on error
+        this.generalSettings = {
+          disableAnalytics: false,
+        };
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    /**
+     * Update general settings
+     * @param {Object} settings - General settings
+     */
+    async updateGeneralSettings(settings) {
+      this.loading = true;
+      this.error = null;
+      try {
+        const updated = await api.updateGeneralSettings(settings);
+        this.generalSettings = updated;
+        return updated;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    /**
+     * Reset general settings to defaults
+     */
+    async resetGeneralSettings() {
+      this.loading = true;
+      this.error = null;
+      try {
+        const defaults = await api.resetGeneralSettings();
+        this.generalSettings = defaults;
         return defaults;
       } catch (err) {
         this.error = err.message;

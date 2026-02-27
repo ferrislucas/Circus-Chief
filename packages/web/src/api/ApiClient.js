@@ -1110,6 +1110,32 @@ export class ApiClient {
     return this.#request('DELETE', '/settings/summary');
   }
 
+  /**
+   * Get general settings
+   * @returns {Promise<{disableAnalytics: boolean}>}
+   */
+  async getGeneralSettings() {
+    return this.#request('GET', '/settings/general');
+  }
+
+  /**
+   * Update general settings
+   * @param {Object} settings - General settings
+   * @param {boolean} settings.disableAnalytics - Disable analytics tracking
+   * @returns {Promise<{disableAnalytics: boolean}>}
+   */
+  async updateGeneralSettings(settings) {
+    return this.#request('PUT', '/settings/general', settings);
+  }
+
+  /**
+   * Reset general settings to defaults
+   * @returns {Promise<{disableAnalytics: boolean}>}
+   */
+  async resetGeneralSettings() {
+    return this.#request('DELETE', '/settings/general');
+  }
+
   // Model Providers
 
   /**

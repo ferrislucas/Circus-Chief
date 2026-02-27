@@ -160,6 +160,49 @@ describe('Canvas Store', () => {
       expect(store.items[0].id).toBe('3');
     });
 
+    it('moves all versions to trash when deleting multi-version file', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'report.md', createdAt: 1000 },
+        { id: '2', filename: 'report.md', createdAt: 2000 },
+        { id: '3', filename: 'report.md', createdAt: 3000 },
+      ];
+
+      const deletedItems = [
+        { id: '1', filename: 'report.md', deletedAt: 4000 },
+        { id: '2', filename: 'report.md', deletedAt: 4001 },
+        { id: '3', filename: 'report.md', deletedAt: 4002 },
+      ];
+
+      api.deleteCanvasItem
+        .mockResolvedValueOnce(deletedItems[0])
+        .mockResolvedValueOnce(deletedItems[1])
+        .mockResolvedValueOnce(deletedItems[2]);
+
+      await store.deleteGroup('session-1', 'report.md');
+
+      expect(store.items).toHaveLength(0);
+      expect(store.trashedItems).toHaveLength(3);
+      // Check that all versions are in trash (order doesn't matter)
+      expect(store.trashedItems.map(item => item.id).sort()).toEqual(['1', '2', '3']);
+      expect(store.trashedItems.every(item => item.filename === 'report.md')).toBe(true);
+    });
+
+    it('moves single item to trash when deleting one-version file', async () => {
+      const store = useCanvasStore();
+      const singleItem = { id: '1', filename: 'single.txt', createdAt: 1000 };
+      store.items = [singleItem];
+
+      const deletedItem = { id: '1', filename: 'single.txt', deletedAt: 2000 };
+      api.deleteCanvasItem.mockResolvedValue(deletedItem);
+
+      await store.deleteGroup('session-1', 'single.txt');
+
+      expect(store.items).toHaveLength(0);
+      expect(store.trashedItems).toHaveLength(1);
+      expect(store.trashedItems[0]).toEqual(deletedItem);
+    });
+
   });
 
   describe('removeItem action', () => {

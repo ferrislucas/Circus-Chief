@@ -470,6 +470,43 @@ export class DatabaseManager {
 
     // Migrate built-in models to 4.6 versions
     this.#updateBuiltInModels();
+
+    // Add agent_type column to sessions table (defaults to 'claude-code')
+    const agentTypeTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const agentTypeColumns = agentTypeTableInfo.map((col) => col.name);
+
+    if (!agentTypeColumns.includes('agent_type')) {
+      this.#db.exec("ALTER TABLE sessions ADD COLUMN agent_type TEXT DEFAULT 'claude-code'");
+    }
+
+    // Create agent_call_logs table if it doesn't exist
+    // (new installs get the table from schema.sql; this handles existing databases)
+    this.#db.exec(`
+      CREATE TABLE IF NOT EXISTS agent_call_logs (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        conversation_id TEXT,
+        agent_type TEXT NOT NULL,
+        model TEXT,
+        call_type TEXT NOT NULL,
+        prompt_length INTEGER,
+        input_tokens INTEGER DEFAULT 0,
+        output_tokens INTEGER DEFAULT 0,
+        thinking_tokens INTEGER DEFAULT 0,
+        cache_read_tokens INTEGER DEFAULT 0,
+        cache_write_tokens INTEGER DEFAULT 0,
+        total_tokens INTEGER DEFAULT 0,
+        started_at INTEGER NOT NULL,
+        completed_at INTEGER,
+        duration_ms INTEGER,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'streaming', 'completed', 'error')),
+        error_message TEXT,
+        metadata TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_call_logs_session ON agent_call_logs(session_id);
+      CREATE INDEX IF NOT EXISTS idx_agent_call_logs_started ON agent_call_logs(started_at);
+    `);
   }
 
   /**
