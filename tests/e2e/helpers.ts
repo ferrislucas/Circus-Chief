@@ -1771,3 +1771,54 @@ export async function reorderQuickResponses(
   if (!res.ok) throw new Error(`reorderQuickResponses failed: ${res.status}`);
   return res.json();
 }
+
+// ============================================================
+// Slash Command Helpers
+// ============================================================
+
+/**
+ * Get discovered slash commands for a directory via the API.
+ * Returns array of command objects.
+ */
+export async function getSlashCommands(directory: string): Promise<any[]> {
+  const res = await fetch(
+    `${API_URL}/api/commands?directory=${encodeURIComponent(directory)}`
+  );
+  if (!res.ok) throw new Error(`getSlashCommands failed: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Get a single slash command's details via the API.
+ * Returns command object or null.
+ */
+export async function getSlashCommand(directory: string, name: string): Promise<any> {
+  const res = await fetch(
+    `${API_URL}/api/commands/${encodeURIComponent(name)}?directory=${encodeURIComponent(directory)}`
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`getSlashCommand failed: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Execute a slash command via the API (raw response for testing error cases).
+ */
+export async function executeSlashCommandRaw(
+  name: string,
+  sessionId: string,
+  args: Record<string, string> = {}
+): Promise<Response> {
+  return fetch(`${API_URL}/api/commands/${encodeURIComponent(name)}/execute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, args }),
+  });
+}
+
+/**
+ * Get the slash commands API URL (for raw fetch calls in tests)
+ */
+export function getSlashCommandsAPIURL(): string {
+  return `${API_URL}/api/commands`;
+}
