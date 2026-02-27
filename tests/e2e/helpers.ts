@@ -1822,3 +1822,47 @@ export async function executeSlashCommandRaw(
 export function getSlashCommandsAPIURL(): string {
   return `${API_URL}/api/commands`;
 }
+
+// ============================================================
+// Todo Tracking Helpers (for todo-tracking tests)
+// ============================================================
+
+/**
+ * Seed todos directly into the DB via scripts/seed-todos.mjs
+ */
+export function seedTodos(
+  sessionId: string,
+  conversationId: string,
+  todos: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>
+): any[] {
+  const seedScript = join(process.cwd(), 'scripts', 'seed-todos.mjs');
+  const payload = {
+    dbPath: getDBPath(),
+    sessionId,
+    conversationId,
+    todos,
+  };
+  const input = JSON.stringify(payload);
+  const result = execSync(`node "${seedScript}"`, {
+    input,
+    encoding: 'utf-8',
+    timeout: 10000,
+  });
+  return JSON.parse(result);
+}
+
+/**
+ * Get todos for a session via API
+ * If conversationId is provided, filters to that conversation
+ */
+export async function getTodos(
+  sessionId: string,
+  conversationId?: string
+): Promise<any[]> {
+  const url = conversationId
+    ? `${API_URL}/api/sessions/${sessionId}/todos?conversation_id=${conversationId}`
+    : `${API_URL}/api/sessions/${sessionId}/todos`;
+  const response = await fetch(url);
+  if (!response.ok) return [];
+  return response.json();
+}
