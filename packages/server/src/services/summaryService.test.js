@@ -611,6 +611,53 @@ describe('summaryService', () => {
       );
     });
 
+    it('broadcasts generating: false when complete (fixes regenerate bug)', async () => {
+      await summaryService.generateSummary(sessionId);
+
+      // After successful generation, should broadcast generating: false
+      // This is critical for the UI to know generation is complete and show the summary
+      const generatingCalls = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === 'session:summary_generating'
+      );
+
+      // Should have at least 2 calls: one with generating: true, one with generating: false
+      expect(generatingCalls.length).toBeGreaterThanOrEqual(2);
+
+      // Find the call with generating: false
+      const generatingFalseCall = generatingCalls.find(
+        (call) => call[2]?.generating === false
+      );
+
+      expect(generatingFalseCall).toBeDefined();
+      expect(generatingFalseCall[2]).toMatchObject({
+        sessionId,
+        generating: false,
+      });
+    });
+
+    it('broadcasts generating: false after summary_updated', async () => {
+      await summaryService.generateSummary(sessionId);
+
+      // Get all broadcast calls
+      const allCalls = broadcastToSession.mock.calls;
+
+      // Find the indices of relevant broadcasts
+      const summaryUpdatedIndex = allCalls.findIndex(
+        (call) => call[1] === 'session:summary_updated'
+      );
+      const generatingFalseIndex = allCalls.findIndex(
+        (call) => call[1] === 'session:summary_generating' && call[2]?.generating === false
+      );
+
+      // Both should exist
+      expect(summaryUpdatedIndex).toBeGreaterThanOrEqual(0);
+      expect(generatingFalseIndex).toBeGreaterThanOrEqual(0);
+
+      // generating: false should come after summary_updated
+      // This ensures the UI receives the summary before being told generation is complete
+      expect(generatingFalseIndex).toBeGreaterThan(summaryUpdatedIndex);
+    });
+
     it('broadcasts summary update to project subscribers for session list real-time updates', async () => {
       await summaryService.generateSummary(sessionId);
 

@@ -678,6 +678,12 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
       });
     }
 
+    // Clear the generating flag so the UI knows generation is complete
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
+      sessionId,
+      generating: false,
+    });
+
     console.log(`[SummaryService] Successfully generated summary for session ${sessionId}`);
 
     // Propagate summary updates to parent sessions (workflow-aware)

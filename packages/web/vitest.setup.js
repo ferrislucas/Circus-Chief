@@ -14,6 +14,22 @@ vi.mock('dompurify', () => ({
   },
 }));
 
+// Mock posthog-js for tests
+// PostHog is initialized in main.js via the plugin; without this mock,
+// any test that transitively imports posthog would attempt real network calls.
+vi.mock('posthog-js', () => ({
+  default: {
+    init: vi.fn(),
+    capture: vi.fn(),
+    identify: vi.fn(),
+    reset: vi.fn(),
+    opt_out_capturing: vi.fn(),
+    opt_in_capturing: vi.fn(),
+    get_distinct_id: vi.fn(() => 'test-distinct-id'),
+    __loaded: false,
+  },
+}));
+
 // Create a fresh Pinia instance before each test
 beforeEach(() => {
   setActivePinia(createPinia());

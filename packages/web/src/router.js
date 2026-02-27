@@ -87,6 +87,11 @@ const routes = [
         name: 'SummarySettings',
         component: () => import('./views/SummarySettingsView.vue'),
       },
+      {
+        path: 'general',
+        name: 'GeneralSettings',
+        component: () => import('./views/GeneralSettingsView.vue'),
+      },
     ],
   },
 ];
