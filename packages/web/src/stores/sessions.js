@@ -213,7 +213,6 @@ export const useSessionsStore = defineStore('sessions', {
           scheduledCount: 0,
           waitingCount: 0,
           completedCount: 0,
-          errorCount: 0,
           totalCount: 0,
           hasScheduledDescendant: false,
           rootIsScheduled: false,
@@ -243,7 +242,6 @@ export const useSessionsStore = defineStore('sessions', {
       let scheduledCount = 0;
       let waitingCount = 0;
       let completedCount = 0;
-      let errorCount = 0;
 
       for (const session of allSessions) {
         if (runningStatuses.includes(session.status)) {
@@ -254,8 +252,6 @@ export const useSessionsStore = defineStore('sessions', {
           waitingCount++;
         } else if (session.status === 'completed' || session.status === 'stopped') {
           completedCount++;
-        } else if (session.status === 'error') {
-          errorCount++;
         }
       }
 
@@ -267,7 +263,6 @@ export const useSessionsStore = defineStore('sessions', {
         scheduledCount,
         waitingCount,
         completedCount,
-        errorCount,
         totalCount: allSessions.length,
         hasScheduledDescendant: allSessions.slice(1).some((s) => s.status === 'scheduled'),
         rootIsScheduled: root.status === 'scheduled',
