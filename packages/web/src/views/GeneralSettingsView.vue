@@ -45,12 +45,12 @@ const saving = ref(false);
 const error = ref(null);
 
 onMounted(() => {
-  settingsStore.fetchPrivacySettings();
+  settingsStore.fetchGeneralSettings();
 });
 
 // Watch for changes to the store and update local refs
 import { watch } from 'vue';
-watch(() => settingsStore.privacySettings, (settings) => {
+watch(() => settingsStore.generalSettings, (settings) => {
   if (settings) {
     disableAnalytics.value = settings.disableAnalytics;
   }
@@ -61,7 +61,7 @@ async function handleSave() {
   error.value = null;
 
   try {
-    await settingsStore.updatePrivacySettings({
+    await settingsStore.updateGeneralSettings({
       disableAnalytics: disableAnalytics.value,
     });
     uiStore.success('General settings saved successfully');
@@ -79,7 +79,7 @@ async function handleReset() {
   error.value = null;
 
   try {
-    await settingsStore.resetPrivacySettings();
+    await settingsStore.resetGeneralSettings();
     uiStore.success('General settings reset to defaults');
   } catch (err) {
     error.value = err.message;

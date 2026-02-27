@@ -12,13 +12,13 @@ import './assets/main.css';
 // via the browser History API — no router.afterEach hook needed.
 async function initializeApp() {
   try {
-    // Fetch privacy settings before initializing PostHog
-    const resp = await fetch('/api/settings/privacy');
+    // Fetch general settings before initializing PostHog
+    const resp = await fetch('/api/settings/general');
     const { disableAnalytics } = await resp.json();
     initPostHog({ disableAnalytics });
   } catch {
     // Fail-open: tracking stays on if the API call fails
-    console.log('PostHog: Failed to fetch privacy settings, using defaults');
+    console.log('PostHog: Failed to fetch general settings, using defaults');
     initPostHog();
   }
 

@@ -1111,29 +1111,29 @@ export class ApiClient {
   }
 
   /**
-   * Get privacy settings
+   * Get general settings
    * @returns {Promise<{disableAnalytics: boolean}>}
    */
-  async getPrivacySettings() {
-    return this.#request('GET', '/settings/privacy');
+  async getGeneralSettings() {
+    return this.#request('GET', '/settings/general');
   }
 
   /**
-   * Update privacy settings
-   * @param {Object} settings - Privacy settings
+   * Update general settings
+   * @param {Object} settings - General settings
    * @param {boolean} settings.disableAnalytics - Disable analytics tracking
    * @returns {Promise<{disableAnalytics: boolean}>}
    */
-  async updatePrivacySettings(settings) {
-    return this.#request('PUT', '/settings/privacy', settings);
+  async updateGeneralSettings(settings) {
+    return this.#request('PUT', '/settings/general', settings);
   }
 
   /**
-   * Reset privacy settings to defaults
+   * Reset general settings to defaults
    * @returns {Promise<{disableAnalytics: boolean}>}
    */
-  async resetPrivacySettings() {
-    return this.#request('DELETE', '/settings/privacy');
+  async resetGeneralSettings() {
+    return this.#request('DELETE', '/settings/general');
   }
 
   // Model Providers
