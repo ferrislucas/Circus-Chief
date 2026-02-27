@@ -506,6 +506,10 @@ export class DatabaseManager {
       );
       CREATE INDEX IF NOT EXISTS idx_agent_call_logs_session ON agent_call_logs(session_id);
       CREATE INDEX IF NOT EXISTS idx_agent_call_logs_started ON agent_call_logs(started_at);
+      CREATE INDEX IF NOT EXISTS idx_agent_call_logs_agent_type ON agent_call_logs(agent_type);
+      CREATE INDEX IF NOT EXISTS idx_agent_call_logs_call_type ON agent_call_logs(call_type);
+      CREATE INDEX IF NOT EXISTS idx_agent_call_logs_status ON agent_call_logs(status);
+      CREATE INDEX IF NOT EXISTS idx_agent_call_logs_model ON agent_call_logs(model);
     `);
   }
 

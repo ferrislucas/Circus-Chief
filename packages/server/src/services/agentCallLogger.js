@@ -73,6 +73,23 @@ export class AgentCallLogger {
   getGlobalStats(startDate, endDate) {
     return agentCallLogs.getGlobalStats(startDate, endDate);
   }
+
+  /**
+   * Get all call logs with optional filtering, sorting, and pagination.
+   * @param {Object} filters - Filter/sort/pagination options
+   * @returns {{ rows: Array, total: number }}
+   */
+  getAll(filters) {
+    return agentCallLogs.getAll(filters);
+  }
+
+  /**
+   * Get distinct filter option values.
+   * @returns {{ agentTypes: string[], callTypes: string[], statuses: string[], models: string[] }}
+   */
+  getFilterOptions() {
+    return agentCallLogs.getFilterOptions();
+  }
 }
 
 // Singleton
