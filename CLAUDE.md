@@ -98,6 +98,8 @@ Dark mode only using Tailwind CSS. Key colors:
 | `PORT` | `5000` | Server port |
 | `DB_PATH` | `claudetools.db` | SQLite database path |
 | `VITE_API_URL` | `http://localhost:5000` | Backend API URL (frontend) |
+| `VITE_POSTHOG_KEY` | *(empty)* | PostHog project API key — **build-time only**, baked into frontend bundle by Vite. Public client key, not a secret. Analytics disabled when empty. |
+| `VITE_POSTHOG_HOST` | `https://us.i.posthog.com` | PostHog ingest host — **build-time only**. Use `us.i.posthog.com` (US) or `eu.i.posthog.com` (EU). |
 
 ## Working Directory Guidelines
 
