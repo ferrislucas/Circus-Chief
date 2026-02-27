@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { agentCallLogger } from '../services/agentCallLogger.js';
 import { agentCallLogs } from '../database.js';
+import { databaseManager } from '../db/DatabaseManager.js';
 
 const router = Router();
 
@@ -81,6 +82,80 @@ router.get('/agent-calls', (req, res) => {
   } catch (err) {
     console.error('Failed to get agent call logs:', err);
     res.status(500).json({ error: 'Failed to get agent call logs' });
+  }
+});
+
+// POST /api/agent-calls
+// Seed a fully-formed agent call log entry (for E2E testing only).
+// Accepts all fields directly, including computed ones (totalTokens, durationMs).
+router.post('/agent-calls', (req, res) => {
+  try {
+    const {
+      sessionId,
+      agentType = 'claude-code',
+      callType = 'runSession',
+      model = null,
+      status = 'completed',
+      inputTokens = 0,
+      outputTokens = 0,
+      thinkingTokens = 0,
+      cacheReadTokens = 0,
+      cacheWriteTokens = 0,
+      durationMs = null,
+      startedAt = null,
+      errorMessage = null,
+    } = req.body;
+
+    if (!sessionId) {
+      return res.status(400).json({ error: 'sessionId is required' });
+    }
+
+    const id = databaseManager.generateId();
+    const now = Date.now();
+    const finalStartedAt = startedAt ?? now;
+    const completedAt =
+      status === 'completed' || status === 'error'
+        ? durationMs != null
+          ? finalStartedAt + durationMs
+          : now
+        : null;
+    const totalTokens =
+      inputTokens + outputTokens + thinkingTokens + cacheReadTokens + cacheWriteTokens;
+    const finalDurationMs = completedAt != null ? completedAt - finalStartedAt : null;
+
+    // Direct INSERT — bypasses create()/complete() flow to allow full control over all fields,
+    // including computed ones like totalTokens, durationMs, and startedAt.
+    const db = agentCallLogs.db;
+    db.prepare(`
+      INSERT INTO agent_call_logs (
+        id, session_id, agent_type, model, call_type, prompt_length,
+        input_tokens, output_tokens, thinking_tokens, cache_read_tokens, cache_write_tokens,
+        total_tokens, started_at, completed_at, duration_ms, status, error_message, created_at
+      ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      sessionId,
+      agentType,
+      model,
+      callType,
+      inputTokens,
+      outputTokens,
+      thinkingTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      totalTokens,
+      finalStartedAt,
+      completedAt,
+      finalDurationMs,
+      status,
+      errorMessage,
+      now
+    );
+
+    res.status(201).json(agentCallLogs.getById(id));
+  } catch (err) {
+    console.error('Failed to seed agent call log:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

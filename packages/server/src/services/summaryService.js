@@ -3,6 +3,7 @@ import { sessions, messages, sessionSummaries, conversations, projects, settings
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as ghService from './ghService.js';
+import { agentCallLogger } from './agentCallLogger.js';
 // Note: prStatusService is imported dynamically in onSessionComplete to avoid circular dependency
 
 // Debounce timers per session
@@ -91,7 +92,7 @@ async function* mockSummaryQuery({ prompt: _prompt, recentMessages, sessionStatu
  * @param {string} sessionStatus - Session status (for mock mode context)
  * @returns {Promise<string>} The text response
  */
-async function callClaude(prompt, recentMessages, sessionStatus) {
+async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null) {
   const queryFn = isMockMode() ? mockSummaryQuery : query;
 
   // JSON Schema for structured output
@@ -125,30 +126,79 @@ async function callClaude(prompt, recentMessages, sessionStatus) {
         },
       };
 
+  // Start logging if metadata provided
+  let callId = null;
+  if (logMeta) {
+    callId = agentCallLogger.startCall({
+      sessionId: logMeta.sessionId,
+      conversationId: logMeta.conversationId || null,
+      agentType: 'summary',
+      model: isMockMode() ? 'mock' : 'claude-haiku-4-5-20251001',
+      callType: logMeta.callType,
+      promptLength: prompt.length,
+    });
+  }
+
   let responseText = '';
   let structuredOutput = null;
 
-  for await (const event of queryFn(queryParams)) {
-    switch (event.type) {
-      case 'assistant': {
-        const content = event.message?.content || [];
-        for (const block of content) {
-          // Capture structured output from StructuredOutput tool use
-          if (block.type === 'tool_use' && block.name === 'StructuredOutput') {
-            structuredOutput = block.input;
-          } else if (block.type === 'text') {
-            responseText += block.text;
+  try {
+    for await (const event of queryFn(queryParams)) {
+      switch (event.type) {
+        case 'assistant': {
+          const content = event.message?.content || [];
+          for (const block of content) {
+            // Capture structured output from StructuredOutput tool use
+            if (block.type === 'tool_use' && block.name === 'StructuredOutput') {
+              structuredOutput = block.input;
+            } else if (block.type === 'text') {
+              responseText += block.text;
+            }
           }
+          break;
         }
-        break;
-      }
-      case 'result': {
-        if (event.subtype === 'error') {
-          throw new Error(event.error || 'Claude SDK query failed');
+        case 'result': {
+          if (event.subtype === 'error') {
+            throw new Error(event.error || 'Claude SDK query failed');
+          }
+          // Capture usage for logging
+          if (callId) {
+            const modelUsageEntry = event.modelUsage
+              ? Object.values(event.modelUsage)[0]
+              : null;
+            if (modelUsageEntry || event.usage) {
+              agentCallLogger.updateUsage(callId, {
+                inputTokens:
+                  modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
+                outputTokens:
+                  modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
+                thinkingTokens: 0,
+                cacheReadInputTokens:
+                  modelUsageEntry?.cacheReadInputTokens ||
+                  event.usage?.cache_read_input_tokens ||
+                  0,
+                cacheCreationInputTokens:
+                  modelUsageEntry?.cacheCreationInputTokens ||
+                  event.usage?.cache_creation_input_tokens ||
+                  0,
+              });
+            }
+          }
+          break;
         }
-        break;
       }
     }
+
+    // Complete the logged call on success
+    if (callId) {
+      agentCallLogger.completeCall(callId, { success: true });
+    }
+  } catch (error) {
+    // Complete the logged call on error
+    if (callId) {
+      agentCallLogger.completeCall(callId, { success: false, error });
+    }
+    throw error;
   }
 
   // Prefer structured output (already parsed JSON) over text response
@@ -554,7 +604,10 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
     const prompt = buildIncrementalPrompt(existingSummary, recentMessages, session.status, globalSettings?.sessionTitlePrompt, childContext);
 
     // Call Claude via SDK (or mock in test mode)
-    const responseText = await callClaude(prompt, recentMessages, session.status);
+    const responseText = await callClaude(prompt, recentMessages, session.status, {
+      sessionId,
+      callType: 'generateSessionSummary',
+    });
 
     // Parse response
     const summaryData = parseSummaryResponse(responseText);
@@ -767,6 +820,16 @@ export function onSessionComplete(sessionId) {
   // Generate summary immediately with force=true to update final state
   generateSummary(sessionId, 0, true);
 
+  // Generate conversation summary for the active conversation
+  if (isConversationSummaryEnabled(sessionId)) {
+    const activeConversation = conversations.getActiveBySessionId(sessionId);
+    if (activeConversation && !activeConversation.summary) {
+      generateConversationSummary(sessionId, activeConversation.id).catch((err) => {
+        console.error(`[SummaryService] Failed to generate conversation summary on session complete:`, err);
+      });
+    }
+  }
+
   // Schedule follow-up CI checks for sessions with PRs
   // CI might still be running after the session completes
   const session = sessions.getById(sessionId);
@@ -950,7 +1013,11 @@ export async function generateConversationSummary(sessionId, conversationId) {
     const prompt = buildConversationSummaryPrompt(recentMessages);
 
     // Call Claude
-    const responseText = await callClaude(prompt, recentMessages, 'waiting');
+    const responseText = await callClaude(prompt, recentMessages, 'waiting', {
+      sessionId,
+      conversationId,
+      callType: 'generateConversationSummary',
+    });
 
     // Parse response
     const summary = parseConversationSummaryResponse(responseText);

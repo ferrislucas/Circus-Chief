@@ -1,4 +1,4 @@
-import { Page, expect } from '@playwright/test';
+import { Page } from '@playwright/test';
 import { readFileSync, existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
@@ -90,7 +90,7 @@ export async function waitForPageReady(page: Page, options: { timeout?: number }
   const loadingIndicators = page.locator('.loading, .spinner, [data-loading="true"]');
   const count = await loadingIndicators.count();
   if (count > 0) {
-    await expect(loadingIndicators.first()).not.toBeVisible({ timeout });
+    await loadingIndicators.first().waitFor({ state: 'hidden', timeout });
   }
 }
 
@@ -169,7 +169,7 @@ export async function waitForElement(
  * Wait for text to be visible on the page
  */
 export async function waitForTextVisible(page: Page, text: string, timeout = 10000) {
-  await expect(page.getByText(text)).toBeVisible({ timeout });
+  await page.getByText(text).waitFor({ state: 'visible', timeout });
 }
 
 /**
@@ -997,5 +997,60 @@ export async function seedChildSession(
 export async function getChildSessions(parentSessionId: string) {
   const response = await fetch(`${API_URL}/api/sessions/${parentSessionId}/children`);
   if (!response.ok) return [];
+  return response.json();
+}
+
+// ============================================================
+// Agent Call Log Helpers
+// ============================================================
+
+/**
+ * Seed an agent call log entry via POST /api/agent-calls.
+ * Returns the created log entry with all fields (including computed totalTokens, durationMs).
+ * Agent call logs are cleaned up automatically via ON DELETE CASCADE when the parent session
+ * is deleted by cleanupCreatedResources().
+ */
+export async function seedAgentCallLog(
+  sessionId: string,
+  data?: {
+    agentType?: string;
+    callType?: string;
+    model?: string | null;
+    status?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    thinkingTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    durationMs?: number | null;
+    startedAt?: number | null;
+    errorMessage?: string | null;
+  }
+) {
+  const response = await fetch(`${API_URL}/api/agent-calls`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, ...data }),
+  });
+  if (!response.ok) throw new Error(`Failed to seed agent call log: ${await response.text()}`);
+  return response.json();
+}
+
+/**
+ * Fetch agent call logs via GET /api/agent-calls with optional query params.
+ */
+export async function getAgentCallLogs(params?: Record<string, string>) {
+  const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+  const response = await fetch(`${API_URL}/api/agent-calls${qs}`);
+  if (!response.ok) throw new Error('Failed to fetch agent call logs');
+  return response.json();
+}
+
+/**
+ * Fetch filter option values via GET /api/agent-calls/filter-options.
+ */
+export async function getAgentCallFilterOptions() {
+  const response = await fetch(`${API_URL}/api/agent-calls/filter-options`);
+  if (!response.ok) throw new Error('Failed to fetch filter options');
   return response.json();
 }
