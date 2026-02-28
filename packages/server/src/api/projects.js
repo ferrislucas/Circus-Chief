@@ -6,6 +6,7 @@ import { ProjectDefaultsRepository } from '../db/ProjectDefaultsRepository.js';
 import { CreateSessionTemplateRequest } from '@claudetools/shared/contracts/templates';
 import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@claudetools/shared/contracts/commandButtons';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
+import { isGitRepo } from '../services/gitService.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
@@ -314,6 +315,16 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
   } else if (!startImmediately) {
     initialStatus = 'waiting';
   }
+  // Validate git settings for git repos
+  if (!gitMode || !gitBranch) {
+    const isGit = await isGitRepo(project.workingDirectory);
+    if (isGit) {
+      return res.status(400).json({
+        error: 'Git projects require both gitMode and gitBranch. Set project defaults or provide them per-session.'
+      });
+    }
+  }
+
   const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, parentSessionId, initialStatus, model);
 
   // Set nextTemplateId if template was selected

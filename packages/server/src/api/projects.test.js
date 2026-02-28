@@ -67,6 +67,8 @@ describe('Projects API', () => {
     it('broadcasts SESSION_CREATED on successful session creation', async () => {
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
       });
 
       expect(res.status).toBe(201);
@@ -88,6 +90,8 @@ describe('Projects API', () => {
 
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
       });
 
       expect(res.status).toBe(500);
@@ -110,6 +114,8 @@ describe('Projects API', () => {
 
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
       });
 
       expect(res.status).toBe(500);
@@ -126,6 +132,8 @@ describe('Projects API', () => {
 
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
       });
 
       expect(res.status).toBe(500);
@@ -151,6 +159,93 @@ describe('Projects API', () => {
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({});
 
       expect(res.status).toBe(400);
+    });
+
+    describe('git repo validation', () => {
+      it('returns 400 for git repo when gitMode is missing', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          gitBranch: 'feature-x',
+        });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain('gitMode');
+        expect(res.body.error).toContain('gitBranch');
+      });
+
+      it('returns 400 for git repo when gitBranch is missing', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          gitMode: 'worktree',
+        });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain('gitMode');
+        expect(res.body.error).toContain('gitBranch');
+      });
+
+      it('returns 400 for git repo when both gitMode and gitBranch are missing', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+        });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toContain('gitMode');
+        expect(res.body.error).toContain('gitBranch');
+      });
+
+      it('succeeds for non-git project without gitMode/gitBranch', async () => {
+        // Create a temp directory WITHOUT git init
+        const nonGitDir = mkdtempSync(join(tmpdir(), 'non-git-test-'));
+        try {
+          const nonGitProject = projects.create('Non-Git Project', nonGitDir);
+
+          const res = await request(app)
+            .post(`/api/projects/${nonGitProject.id}/sessions`)
+            .send({ prompt: 'Test prompt' });
+
+          expect(res.status).toBe(201);
+        } finally {
+          rmSync(nonGitDir, { recursive: true, force: true });
+        }
+      });
+
+      it('project defaults satisfy git requirement', async () => {
+        // Set gitMode and gitBranch as project defaults
+        await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+          gitMode: 'worktree',
+          gitBranch: 'default-branch',
+        });
+
+        // Request without git settings - project defaults should satisfy validation
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+        });
+
+        expect(res.status).toBe(201);
+      });
+
+      it('template overrides satisfy git requirement', async () => {
+        // Create template with gitMode and gitBranch
+        const template = sessionTemplates.create({
+          name: 'Git Template',
+          prompt: 'Template prompt',
+          projectId: projectId,
+          gitMode: 'worktree',
+          gitBranch: 'template-branch',
+        });
+
+        // Request using templateId but no explicit git settings
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: template.id,
+        });
+
+        expect(res.status).toBe(201);
+
+        // Clean up
+        sessionTemplates.delete(template.id);
+      });
     });
 
     describe('with templateId', () => {
@@ -221,6 +316,8 @@ describe('Projects API', () => {
           prompt: 'Test prompt',
           templateId: 'non-existent-template-id',
           thinkingEnabled: false,
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
         });
 
         expect(res.status).toBe(201);
@@ -247,6 +344,7 @@ describe('Projects API', () => {
           templateId: minimalTemplate.id,
           thinkingEnabled: true,
           gitBranch: 'my-branch',
+          gitMode: 'worktree',
         });
 
         expect(res.status).toBe(201);
@@ -282,6 +380,8 @@ describe('Projects API', () => {
         const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
           prompt: 'Test prompt',
           nextTemplateId: template.id,
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
         });
 
         expect(res.status).toBe(201);
@@ -311,6 +411,8 @@ describe('Projects API', () => {
         const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
           prompt: 'Test prompt',
           nextTemplateId: null,
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
         });
 
         expect(res.status).toBe(201);
@@ -725,6 +827,8 @@ describe('Projects API', () => {
 
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
       });
 
       expect(res.status).toBe(201);
@@ -741,6 +845,8 @@ describe('Projects API', () => {
 
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
       });
 
       expect(res.status).toBe(201);
@@ -782,6 +888,8 @@ describe('Projects API', () => {
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
         mode: 'standard',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
       });
 
       expect(res.status).toBe(201);
@@ -798,6 +906,8 @@ describe('Projects API', () => {
 
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
       });
 
       expect(res.status).toBe(201);
@@ -815,6 +925,8 @@ describe('Projects API', () => {
 
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
       });
 
       expect(res.status).toBe(201);
@@ -841,6 +953,8 @@ describe('Projects API', () => {
         prompt: 'Test prompt',
         templateId: template.id,
         thinkingEnabled: false, // Param says false
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
       });
 
       expect(res.status).toBe(201);
@@ -853,6 +967,8 @@ describe('Projects API', () => {
     it('uses system defaults when project has no defaults', async () => {
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
       });
 
       expect(res.status).toBe(201);
@@ -871,6 +987,8 @@ describe('Projects API', () => {
 
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
       });
 
       expect(res.status).toBe(201);
@@ -890,6 +1008,8 @@ describe('Projects API', () => {
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
         model: 'haiku',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
       });
 
       expect(res.status).toBe(201);
@@ -902,6 +1022,8 @@ describe('Projects API', () => {
       // Don't set any project defaults - system default for model is null
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
       });
 
       expect(res.status).toBe(201);
