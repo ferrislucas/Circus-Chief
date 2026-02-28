@@ -190,4 +190,210 @@ describe('Metrics API', () => {
       expect(res.body).toEqual([]);
     });
   });
+
+  describe('GET /api/agent-calls/filter-options', () => {
+    it('returns empty arrays when no data', async () => {
+      const res = await request(app).get('/api/agent-calls/filter-options');
+
+      expect(res.status).toBe(200);
+      expect(res.body.agentTypes).toEqual([]);
+      expect(res.body.callTypes).toEqual([]);
+      expect(res.body.statuses).toEqual([]);
+      expect(res.body.models).toEqual([]);
+    });
+
+    it('returns distinct values from actual data', async () => {
+      agentCallLogs.create({
+        id: 'fo-1',
+        sessionId,
+        conversationId: null,
+        agentType: 'claude-code',
+        model: 'claude-sonnet',
+        callType: 'runSession',
+        promptLength: 100,
+      });
+      agentCallLogs.create({
+        id: 'fo-2',
+        sessionId,
+        conversationId: null,
+        agentType: 'other-agent',
+        model: 'claude-opus',
+        callType: 'continueSession',
+        promptLength: 50,
+      });
+
+      const res = await request(app).get('/api/agent-calls/filter-options');
+
+      expect(res.status).toBe(200);
+      expect(res.body.agentTypes).toContain('claude-code');
+      expect(res.body.agentTypes).toContain('other-agent');
+      expect(res.body.callTypes).toContain('runSession');
+      expect(res.body.callTypes).toContain('continueSession');
+      expect(res.body.models).toContain('claude-sonnet');
+      expect(res.body.models).toContain('claude-opus');
+    });
+  });
+
+  describe('GET /api/agent-calls', () => {
+    it('returns { logs, pagination } shape when no data', async () => {
+      const res = await request(app).get('/api/agent-calls');
+
+      expect(res.status).toBe(200);
+      expect(res.body.logs).toEqual([]);
+      expect(res.body.pagination).toBeDefined();
+      expect(res.body.pagination.total).toBe(0);
+      expect(res.body.pagination.limit).toBe(25);
+      expect(res.body.pagination.offset).toBe(0);
+      expect(res.body.pagination.hasMore).toBe(false);
+    });
+
+    it('returns log entries with correct structure', async () => {
+      agentCallLogs.create({
+        id: 'ac-1',
+        sessionId,
+        conversationId: null,
+        agentType: 'claude-code',
+        model: 'claude-sonnet',
+        callType: 'runSession',
+        promptLength: 100,
+      });
+
+      const res = await request(app).get('/api/agent-calls');
+
+      expect(res.status).toBe(200);
+      expect(res.body.logs).toHaveLength(1);
+      expect(res.body.logs[0].id).toBe('ac-1');
+      expect(res.body.logs[0].agentType).toBe('claude-code');
+      expect(res.body.logs[0]).toHaveProperty('sessionName');
+      expect(res.body.pagination.total).toBe(1);
+    });
+
+    it('respects limit and offset query params', async () => {
+      for (let i = 0; i < 5; i++) {
+        agentCallLogs.create({
+          id: `ac-lim-${i}`,
+          sessionId,
+          conversationId: null,
+          agentType: 'claude-code',
+          model: null,
+          callType: 'runSession',
+          promptLength: 100,
+        });
+      }
+
+      const res = await request(app).get('/api/agent-calls?limit=2&offset=1');
+
+      expect(res.status).toBe(200);
+      expect(res.body.logs).toHaveLength(2);
+      expect(res.body.pagination.total).toBe(5);
+      expect(res.body.pagination.limit).toBe(2);
+      expect(res.body.pagination.offset).toBe(1);
+    });
+
+    it('returns hasMore: true when more pages exist', async () => {
+      for (let i = 0; i < 30; i++) {
+        agentCallLogs.create({
+          id: `ac-more-${i}`,
+          sessionId,
+          conversationId: null,
+          agentType: 'claude-code',
+          model: null,
+          callType: 'runSession',
+          promptLength: 100,
+        });
+      }
+
+      const res = await request(app).get('/api/agent-calls?limit=25&offset=0');
+
+      expect(res.status).toBe(200);
+      expect(res.body.pagination.total).toBe(30);
+      expect(res.body.pagination.hasMore).toBe(true);
+    });
+
+    it('filters by agentType', async () => {
+      agentCallLogs.create({ id: 'ac-at-1', sessionId, conversationId: null, agentType: 'claude-code', model: null, callType: 'runSession', promptLength: 10 });
+      agentCallLogs.create({ id: 'ac-at-2', sessionId, conversationId: null, agentType: 'other-agent', model: null, callType: 'runSession', promptLength: 10 });
+
+      const res = await request(app).get('/api/agent-calls?agentType=claude-code');
+
+      expect(res.status).toBe(200);
+      expect(res.body.logs.every((l) => l.agentType === 'claude-code')).toBe(true);
+    });
+
+    it('filters by callType', async () => {
+      agentCallLogs.create({ id: 'ac-ct-1', sessionId, conversationId: null, agentType: 'claude-code', model: null, callType: 'runSession', promptLength: 10 });
+      agentCallLogs.create({ id: 'ac-ct-2', sessionId, conversationId: null, agentType: 'claude-code', model: null, callType: 'continueSession', promptLength: 10 });
+
+      const res = await request(app).get('/api/agent-calls?callType=continueSession');
+
+      expect(res.status).toBe(200);
+      expect(res.body.logs.every((l) => l.callType === 'continueSession')).toBe(true);
+    });
+
+    it('filters by status', async () => {
+      agentCallLogs.create({ id: 'ac-st-1', sessionId, conversationId: null, agentType: 'claude-code', model: null, callType: 'runSession', promptLength: 10 });
+      agentCallLogs.complete('ac-st-1', { success: true, inputTokens: 100, outputTokens: 50 });
+      agentCallLogs.create({ id: 'ac-st-2', sessionId, conversationId: null, agentType: 'claude-code', model: null, callType: 'runSession', promptLength: 10 });
+      agentCallLogs.complete('ac-st-2', { success: false, errorMessage: 'fail' });
+
+      const res = await request(app).get('/api/agent-calls?status=completed');
+
+      expect(res.status).toBe(200);
+      expect(res.body.logs.every((l) => l.status === 'completed')).toBe(true);
+    });
+
+    it('filters by model', async () => {
+      agentCallLogs.create({ id: 'ac-m-1', sessionId, conversationId: null, agentType: 'claude-code', model: 'claude-sonnet', callType: 'runSession', promptLength: 10 });
+      agentCallLogs.create({ id: 'ac-m-2', sessionId, conversationId: null, agentType: 'claude-code', model: 'claude-opus', callType: 'runSession', promptLength: 10 });
+
+      const res = await request(app).get('/api/agent-calls?model=claude-sonnet');
+
+      expect(res.status).toBe(200);
+      expect(res.body.logs.every((l) => l.model === 'claude-sonnet')).toBe(true);
+    });
+
+    it('filters by startDate and endDate', async () => {
+      agentCallLogs.create({ id: 'ac-d-1', sessionId, conversationId: null, agentType: 'claude-code', model: null, callType: 'runSession', promptLength: 10 });
+
+      const futureStart = Date.now() + 100000;
+      const futureEnd = futureStart + 100000;
+      const res = await request(app).get(`/api/agent-calls?startDate=${futureStart}&endDate=${futureEnd}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.logs).toHaveLength(0);
+    });
+
+    it('accepts valid sortBy and sortOrder', async () => {
+      agentCallLogs.create({ id: 'ac-s-1', sessionId, conversationId: null, agentType: 'claude-code', model: null, callType: 'runSession', promptLength: 10 });
+      agentCallLogs.complete('ac-s-1', { success: true, inputTokens: 100, outputTokens: 50 });
+      agentCallLogs.create({ id: 'ac-s-2', sessionId, conversationId: null, agentType: 'claude-code', model: null, callType: 'runSession', promptLength: 10 });
+      agentCallLogs.complete('ac-s-2', { success: true, inputTokens: 500, outputTokens: 200 });
+
+      const res = await request(app).get('/api/agent-calls?sortBy=total_tokens&sortOrder=ASC');
+
+      expect(res.status).toBe(200);
+      const tokens = res.body.logs.map((l) => l.totalTokens);
+      expect(tokens[0]).toBeLessThanOrEqual(tokens[1] ?? Infinity);
+    });
+
+    it('handles invalid sortBy gracefully (falls back to default)', async () => {
+      agentCallLogs.create({ id: 'ac-inv-1', sessionId, conversationId: null, agentType: 'claude-code', model: null, callType: 'runSession', promptLength: 10 });
+
+      const res = await request(app).get('/api/agent-calls?sortBy=DROP+TABLE');
+
+      expect(res.status).toBe(200);
+      expect(res.body.logs).toHaveLength(1);
+    });
+
+    it('includes sessionName in log entries', async () => {
+      agentCallLogs.create({ id: 'ac-sn-1', sessionId, conversationId: null, agentType: 'claude-code', model: null, callType: 'runSession', promptLength: 10 });
+
+      const res = await request(app).get('/api/agent-calls');
+
+      expect(res.status).toBe(200);
+      expect(res.body.logs[0]).toHaveProperty('sessionName');
+      // The session was created as 'Test session'
+      expect(res.body.logs[0].sessionName).toBe('Test session');
+    });
+  });
 });

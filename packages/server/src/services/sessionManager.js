@@ -37,6 +37,9 @@ const activeConversationIds = new Map();
 /** @type {Map<string, string>} Track current model per session (updated on system.init) */
 const currentModels = new Map();
 
+/** @type {Map<string, Set<string>>} Track tool_use IDs that have already been logged per session */
+const loggedToolUseIds = new Map();
+
 /** @type {Map<string, number>} Estimated output tokens from streamed content (for real-time updates) */
 const estimatedOutputTokens = new Map();
 
@@ -1103,6 +1106,7 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     textAccumulators.delete(sessionId);
     thinkingAccumulators.delete(sessionId);
     currentModels.delete(sessionId);
+    loggedToolUseIds.delete(sessionId);
     activeSessions.delete(sessionId);
   }
 }
@@ -1314,6 +1318,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     textAccumulators.delete(sessionId);
     thinkingAccumulators.delete(sessionId);
     currentModels.delete(sessionId);
+    loggedToolUseIds.delete(sessionId);
     activeSessions.delete(sessionId);
   }
 }
@@ -1512,6 +1517,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     textAccumulators.delete(sessionId);
     thinkingAccumulators.delete(sessionId);
     currentModels.delete(sessionId);
+    loggedToolUseIds.delete(sessionId);
     activeSessions.delete(sessionId);
   }
 }
@@ -1705,8 +1711,14 @@ async function handleStreamEvent(sessionId, event) {
       // Note: Thinking content is logged via stream_event -> content_block_stop
       // to avoid duplicates (since includePartialMessages is always enabled)
 
-      // Log tool use inputs
+      // Log tool use inputs (dedup by tool_use ID to prevent duplicates from partial assistant events)
+      if (!loggedToolUseIds.has(sessionId)) {
+        loggedToolUseIds.set(sessionId, new Set());
+      }
+      const loggedIds = loggedToolUseIds.get(sessionId);
       for (const toolUse of toolUseBlocks) {
+        if (toolUse.id && loggedIds.has(toolUse.id)) continue;
+        if (toolUse.id) loggedIds.add(toolUse.id);
         const toolInput = JSON.stringify(toolUse.input, null, 2);
         createWorkLog(sessionId, 'tool_input', toolInput, toolUse.name);
       }
