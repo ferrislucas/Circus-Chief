@@ -54,7 +54,10 @@ test.describe('Child Session Indicators - Workflow View PR Indicators', () => {
     });
 
     // Navigate to session list view
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.expand-toggle-btn',
+      timeout: 15000,
+    });
 
     // Expand parent session
     const parentCard = page.locator('.session-card').filter({ hasText: 'Parent Session' });

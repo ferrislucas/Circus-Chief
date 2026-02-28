@@ -99,11 +99,27 @@ export async function waitForPageReady(page: Page, options: { timeout?: number }
 }
 
 /**
- * Navigate to a URL and wait for page to be ready
+ * Navigate to a URL and wait for page to be ready.
+ *
+ * Options:
+ *  - timeout: overall timeout for navigation + readiness (default 10000ms)
+ *  - waitFor: a CSS selector to wait for after networkidle (resolves race
+ *    conditions where async Vue data-fetching completes after the initial
+ *    load event). The selector is awaited with { state: 'visible' }.
  */
-export async function navigateAndWait(page: Page, url: string, options: { timeout?: number } = {}) {
+export async function navigateAndWait(
+  page: Page,
+  url: string,
+  options: { timeout?: number; waitFor?: string } = {},
+) {
   await page.goto(url);
   await waitForPageReady(page, options);
+  if (options.waitFor) {
+    await page.locator(options.waitFor).waitFor({
+      state: 'visible',
+      timeout: options.timeout || 10000,
+    });
+  }
 }
 
 /**

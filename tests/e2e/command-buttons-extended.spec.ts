@@ -92,11 +92,11 @@ test.describe('Kill Running Commands', () => {
       command: 'sleep 30',
     });
 
-    // Navigate to Commands tab
-    await navigateAndWait(page, `/sessions/${session.id}/commands`);
-
-    // Wait for Run button to confirm page is loaded
-    await expect(page.locator('[data-testid="run-button"]')).toBeVisible({ timeout: 10000 });
+    // Navigate to Commands tab; waitFor ensures async command-button fetch completes
+    await navigateAndWait(page, `/sessions/${session.id}/commands`, {
+      waitFor: '[data-testid="run-button"]',
+      timeout: 15000,
+    });
 
     // Click Run button in UI (this registers the run in the Pinia store)
     await page.locator('[data-testid="run-button"]').click();
@@ -114,11 +114,11 @@ test.describe('Kill Running Commands', () => {
       command: 'sleep 30',
     });
 
-    // Navigate to Commands tab
-    await navigateAndWait(page, `/sessions/${session.id}/commands`);
-
-    // Wait for Run button to confirm page is loaded
-    await expect(page.locator('[data-testid="run-button"]')).toBeVisible({ timeout: 10000 });
+    // Navigate to Commands tab; waitFor ensures async command-button fetch completes
+    await navigateAndWait(page, `/sessions/${session.id}/commands`, {
+      waitFor: '[data-testid="run-button"]',
+      timeout: 15000,
+    });
 
     // Click Run button in UI
     await page.locator('[data-testid="run-button"]').click();
@@ -142,11 +142,11 @@ test.describe('Kill Running Commands', () => {
       command: 'sleep 30',
     });
 
-    // Navigate to Commands tab first
-    await navigateAndWait(page, `/sessions/${session.id}/commands`);
-
-    // Wait for Run button
-    await expect(page.locator('[data-testid="run-button"]')).toBeVisible({ timeout: 10000 });
+    // Navigate to Commands tab; waitFor ensures async command-button fetch completes
+    await navigateAndWait(page, `/sessions/${session.id}/commands`, {
+      waitFor: '[data-testid="run-button"]',
+      timeout: 15000,
+    });
 
     // Click Run in UI (properly registers in Pinia store)
     await page.locator('[data-testid="run-button"]').click();
@@ -216,11 +216,11 @@ test.describe('Send to Canvas', () => {
       command: 'sleep 1 && echo "hello canvas"',
     });
 
-    // Navigate to Commands tab
-    await navigateAndWait(page, `/sessions/${session.id}/commands`);
-
-    // Wait for Run button
-    await expect(page.locator('[data-testid="run-button"]')).toBeVisible({ timeout: 10000 });
+    // Navigate to Commands tab; waitFor ensures async command-button fetch completes
+    await navigateAndWait(page, `/sessions/${session.id}/commands`, {
+      waitFor: '[data-testid="run-button"]',
+      timeout: 15000,
+    });
 
     // Click Run in UI, then wait for completion
     await page.locator('[data-testid="run-button"]').click();
@@ -254,11 +254,11 @@ test.describe('Send to Canvas', () => {
       command: 'sleep 1 && echo "report output"',
     });
 
-    // Navigate to Commands tab
-    await navigateAndWait(page, `/sessions/${session.id}/commands`);
-
-    // Wait for Run button
-    await expect(page.locator('[data-testid="run-button"]')).toBeVisible({ timeout: 10000 });
+    // Navigate to Commands tab; waitFor ensures async command-button fetch completes
+    await navigateAndWait(page, `/sessions/${session.id}/commands`, {
+      waitFor: '[data-testid="run-button"]',
+      timeout: 15000,
+    });
 
     // Click Run in UI
     await page.locator('[data-testid="run-button"]').click();
@@ -288,11 +288,11 @@ test.describe('Send to Canvas', () => {
       command: 'sleep 1 && echo ok',
     });
 
-    // Navigate to Commands tab
-    await navigateAndWait(page, `/sessions/${session.id}/commands`);
-
-    // Wait for Run button
-    await expect(page.locator('[data-testid="run-button"]')).toBeVisible({ timeout: 10000 });
+    // Navigate to Commands tab; waitFor ensures async command-button fetch completes
+    await navigateAndWait(page, `/sessions/${session.id}/commands`, {
+      waitFor: '[data-testid="run-button"]',
+      timeout: 15000,
+    });
 
     // Click Run in UI
     await page.locator('[data-testid="run-button"]').click();
@@ -313,11 +313,11 @@ test.describe('Send to Canvas', () => {
       command: 'sleep 10',
     });
 
-    // Navigate to Commands tab
-    await navigateAndWait(page, `/sessions/${session.id}/commands`);
-
-    // Wait for Run button
-    await expect(page.locator('[data-testid="run-button"]')).toBeVisible({ timeout: 10000 });
+    // Navigate to Commands tab; waitFor ensures async command-button fetch completes
+    await navigateAndWait(page, `/sessions/${session.id}/commands`, {
+      waitFor: '[data-testid="run-button"]',
+      timeout: 15000,
+    });
 
     // Click Run in UI
     await page.locator('[data-testid="run-button"]').click();
@@ -370,7 +370,10 @@ test.describe('Status Bar on Session Detail', () => {
     await new Promise((r) => setTimeout(r, 500));
 
     // Navigate to session detail — session fetch includes latestCommandRuns
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    await navigateAndWait(page, `/sessions/${session.id}`, {
+      waitFor: '[data-testid="button-status-bar"]',
+      timeout: 15000,
+    });
 
     // Status bar should show running indicator
     const runningIndicator = page.locator('[data-testid="button-status-bar"] .button-status-running');
@@ -393,7 +396,10 @@ test.describe('Status Bar on Session Detail', () => {
     await runCommandButtonAndWait(session.id, button.id);
 
     // Navigate to session detail — session fetch includes latestCommandRuns
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    await navigateAndWait(page, `/sessions/${session.id}`, {
+      waitFor: '[data-testid="button-status-bar"]',
+      timeout: 15000,
+    });
 
     // Status bar should show success indicator
     const successIndicator = page.locator('[data-testid="button-status-bar"] .button-status-success');
@@ -412,7 +418,10 @@ test.describe('Status Bar on Session Detail', () => {
     await runCommandButtonAndWait(session.id, button.id);
 
     // Navigate to session detail
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    await navigateAndWait(page, `/sessions/${session.id}`, {
+      waitFor: '[data-testid="button-status-bar"]',
+      timeout: 15000,
+    });
 
     // Status bar should show error indicator
     const errorIndicator = page.locator('[data-testid="button-status-bar"] .button-status-error');
@@ -437,11 +446,13 @@ test.describe('Status Bar on Session Detail', () => {
     await runCommandButtonAndWait(session.id, errorButton.id);
 
     // Navigate to session detail
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    await navigateAndWait(page, `/sessions/${session.id}`, {
+      waitFor: '[data-testid="button-status-bar"]',
+      timeout: 15000,
+    });
 
     // Status bar should show both indicators
     const statusBar = page.locator('[data-testid="button-status-bar"]');
-    await expect(statusBar).toBeVisible({ timeout: 10000 });
 
     const successIndicator = statusBar.locator('.button-status-success');
     const errorIndicator = statusBar.locator('.button-status-error');
@@ -493,11 +504,14 @@ test.describe('Command Status Indicators — Extended', () => {
     await killCommandRun(session.id, runId);
     const completedRun = await waitForCommandRunComplete(session.id, runId, 15000);
 
-    // Navigate to session list
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    // Navigate to session list; wait for session card to render
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.session-card',
+      timeout: 15000,
+    });
 
     // Verify session card is visible
-    await expect(page.getByText('Indicator Session')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Indicator Session')).toBeVisible();
 
     // Should show killed or error indicator
     if (completedRun.status === 'killed') {
@@ -532,11 +546,14 @@ test.describe('Command Status Indicators — Extended', () => {
     await runCommandButtonAndWait(session.id, successButton.id);
     await runCommandButtonAndWait(session.id, failButton.id);
 
-    // Navigate to session list
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    // Navigate to session list; wait for session card to render
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.session-card',
+      timeout: 15000,
+    });
 
     // Verify session card is visible
-    await expect(page.getByText('Indicator Session')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Indicator Session')).toBeVisible();
 
     // Should show both success and error indicators
     const successIndicator = page.locator('.button-status-success');
@@ -559,11 +576,14 @@ test.describe('Command Status Indicators — Extended', () => {
       showOnList: true,
     });
 
-    // Navigate to session list FIRST
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    // Navigate to session list FIRST; wait for session card to render
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.session-card',
+      timeout: 15000,
+    });
 
     // Verify session card is visible
-    await expect(page.getByText('Indicator Session')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Indicator Session')).toBeVisible();
 
     // Run via API (while on list page — session list subscribes to project WebSocket)
     const { runId } = await runCommandButton(session.id, button.id);
@@ -602,11 +622,14 @@ test.describe('Command Status Indicators — Extended', () => {
     await runCommandButtonAndWait(session.id, visibleButton.id);
     await runCommandButtonAndWait(session.id, hiddenButton.id);
 
-    // Navigate to session list
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    // Navigate to session list; wait for session card to render
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.session-card',
+      timeout: 15000,
+    });
 
     // Verify session card is visible
-    await expect(page.getByText('Indicator Session')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Indicator Session')).toBeVisible();
 
     // Should show exactly 1 indicator (the visible one)
     const indicators = page.locator('.button-status-indicator');
