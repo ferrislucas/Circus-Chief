@@ -9,11 +9,14 @@ import { agentCallLogger } from './agentCallLogger.js';
 // Debounce timers per session
 const debounceTimers = new Map();
 
-// Debounce delay in milliseconds (30 seconds - optimized for token efficiency and responsiveness)
-const DEBOUNCE_DELAY = 30000;
+// Debounce delay in milliseconds (60 seconds - optimized for token efficiency and responsiveness)
+const DEBOUNCE_DELAY = 60000;
+
+// Minimum number of messages before generating a summary (skip trivial sessions)
+const MIN_MESSAGES_FOR_SUMMARY = 3;
 
 // Maximum number of recent messages to include in generation (optimized for token efficiency)
-const MAX_MESSAGES = 15;
+const MAX_MESSAGES = 10;
 
 // Maximum retry attempts for failed parsing
 const MAX_RETRIES = 2;
@@ -220,8 +223,8 @@ function formatMessages(messageList) {
       let content = msg.content;
 
       // Truncate very long messages (optimized for token efficiency)
-      if (content.length > 750) {
-        content = content.substring(0, 750) + '... [truncated]';
+      if (content.length > 500) {
+        content = content.substring(0, 500) + '... [truncated]';
       }
 
       // Add tool use info if present
@@ -328,17 +331,6 @@ Generate an updated summary that:
 2. Incorporates new actions and progress from recent messages
 3. Updates the outcome status if changed
 4. Maintains a coherent narrative of the full session
-
-Respond with JSON only (no markdown code blocks), in this exact format:
-{
-  "short_summary": "1-2 sentence preview for list view (max 150 characters)",
-  "full_summary": "Detailed summary with key accomplishments and current state (max 500 characters)",
-  "key_actions": ["action 1", "action 2", ...],
-  "files_modified": ["file1.js", "file2.js", ...],
-  "outcome": "completed|partial|failed|ongoing",
-  "pr_url": "https://github.com/owner/repo/pull/123 or null if no PR was created/mentioned",
-  "session_title": "Concise title for this session (max 60 characters)"
-}
 
 Outcome guidelines:
 - "completed": Task was fully accomplished
@@ -578,6 +570,12 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
 
     // Get recent messages
     const allMessages = messages.getBySessionId(sessionId);
+
+    // Skip generation for sessions with too few messages (not enough context)
+    if (allMessages.length < MIN_MESSAGES_FOR_SUMMARY) {
+      console.log(`[SummaryService] Session ${sessionId} has only ${allMessages.length} messages (minimum ${MIN_MESSAGES_FOR_SUMMARY}), skipping summary generation`);
+      return null;
+    }
 
     // Skip if summary is current and not forced to regenerate
     if (!force && !isSummaryStale(sessionId)) {
@@ -997,7 +995,7 @@ export async function generateConversationSummary(sessionId, conversationId) {
     }
 
     // Skip very short conversations
-    if (conversationMessages.length < 2) {
+    if (conversationMessages.length < 3) {
       const summary = 'Brief conversation with minimal content.';
       conversations.update(conversationId, {
         summary,
@@ -1062,4 +1060,4 @@ export async function propagateToParent(sessionId) {
 }
 
 // Export for testing
-export { DEBOUNCE_DELAY, MAX_MESSAGES, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified };
+export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified };

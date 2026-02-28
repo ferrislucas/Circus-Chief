@@ -24,6 +24,7 @@ import { agentCallLogger } from './agentCallLogger.js';
 import {
   DEBOUNCE_DELAY,
   MAX_MESSAGES,
+  MIN_MESSAGES_FOR_SUMMARY,
   MAX_RETRIES,
   formatMessages,
   buildIncrementalPrompt,
@@ -60,12 +61,16 @@ describe('summaryService', () => {
   });
 
   describe('constants', () => {
-    it('has a 30 second debounce delay', () => {
-      expect(DEBOUNCE_DELAY).toBe(30000);
+    it('has a 60 second debounce delay', () => {
+      expect(DEBOUNCE_DELAY).toBe(60000);
     });
 
-    it('has a maximum of 15 messages', () => {
-      expect(MAX_MESSAGES).toBe(15);
+    it('has a minimum message threshold for summary generation', () => {
+      expect(MIN_MESSAGES_FOR_SUMMARY).toBe(3);
+    });
+
+    it('has a maximum of 10 messages', () => {
+      expect(MAX_MESSAGES).toBe(10);
     });
 
     it('has a maximum of 2 retries', () => {
@@ -95,7 +100,7 @@ describe('summaryService', () => {
       expect(result).toBe('User: Hello\n\nAssistant: Hi');
     });
 
-    it('truncates messages longer than 750 characters', () => {
+    it('truncates messages longer than 500 characters', () => {
       const longContent = 'A'.repeat(1000);
       const messageList = [{ role: 'user', content: longContent }];
       const result = formatMessages(messageList);
@@ -162,34 +167,12 @@ describe('summaryService', () => {
       expect(result).toContain('User: My question');
     });
 
-    it('includes JSON format instructions', () => {
-      const recentMessages = [{ role: 'user', content: 'Test' }];
-      const result = buildIncrementalPrompt(null, recentMessages, 'running');
-      expect(result).toContain('"short_summary"');
-      expect(result).toContain('"full_summary"');
-      expect(result).toContain('"key_actions"');
-      expect(result).toContain('"files_modified"');
-      expect(result).toContain('"outcome"');
-    });
-
     it('includes outcome guidelines', () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
       const result = buildIncrementalPrompt(null, recentMessages, 'running');
       expect(result).toContain('partial');
       expect(result).toContain('failed');
       expect(result).toContain('ongoing');
-    });
-
-    it('includes pr_url field in JSON format', () => {
-      const recentMessages = [{ role: 'user', content: 'Test' }];
-      const result = buildIncrementalPrompt(null, recentMessages, 'running');
-      expect(result).toContain('"pr_url"');
-    });
-
-    it('includes session_title field in JSON format', () => {
-      const recentMessages = [{ role: 'user', content: 'Test' }];
-      const result = buildIncrementalPrompt(null, recentMessages, 'running');
-      expect(result).toContain('"session_title"');
     });
 
     it('includes session title guidelines', () => {
@@ -581,6 +564,42 @@ describe('summaryService', () => {
 
       const result = await summaryService.generateSummary(emptySessionId);
       expect(result).toBeNull();
+    });
+
+    it('skips generation when session has fewer than MIN_MESSAGES_FOR_SUMMARY messages', async () => {
+      // Create a session with only 2 messages (below threshold of 3)
+      const lowMessageSessionId = databaseManager.generateId();
+      const now = Date.now();
+      databaseManager
+        .get()
+        .prepare(
+          'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )
+        .run(lowMessageSessionId, projectId, 'Low Message Session', 'running', 'standard', now, now);
+
+      // Add only 2 messages
+      databaseManager
+        .get()
+        .prepare('INSERT INTO conversation_messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)')
+        .run(databaseManager.generateId(), lowMessageSessionId, 'user', 'Message 1', now);
+      databaseManager
+        .get()
+        .prepare('INSERT INTO conversation_messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)')
+        .run(databaseManager.generateId(), lowMessageSessionId, 'assistant', 'Response 1', now + 1);
+
+      const result = await summaryService.generateSummary(lowMessageSessionId);
+      expect(result).toBeNull();
+    });
+
+    it('generates summary when session meets minimum message threshold', async () => {
+      // The main test session already has 1 message from creation
+      // Add 2 more to reach the threshold of 3
+      messages.create(sessionId, 'assistant', 'Response 1', null);
+      messages.create(sessionId, 'user', 'Message 2', null);
+
+      const result = await summaryService.generateSummary(sessionId);
+      expect(result).not.toBeNull();
+      expect(result.sessionId).toBe(sessionId);
     });
 
     it('generates summary with mock mode', async () => {
