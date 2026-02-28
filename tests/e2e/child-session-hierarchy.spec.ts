@@ -54,11 +54,15 @@ test.describe('ChildSessionsPanel on Session Detail', () => {
     await waitForSessionToExist(child2.id);
 
     // Navigate to parent session detail (Summary tab)
-    await navigateAndWait(page, `/sessions/${parentSession.id}/summary`);
+    // waitFor ensures async child-session fetch completes before assertions
+    await navigateAndWait(page, `/sessions/${parentSession.id}/summary`, {
+      waitFor: '.child-sessions-panel',
+      timeout: 15000,
+    });
 
     // Verify child sessions panel is visible
     const panel = page.locator('.child-sessions-panel');
-    await expect(panel).toBeVisible({ timeout: 10000 });
+    await expect(panel).toBeVisible();
 
     // Verify panel title shows correct count
     const panelTitle = panel.locator('.panel-title');
@@ -74,10 +78,13 @@ test.describe('ChildSessionsPanel on Session Detail', () => {
     await waitForSessionToExist(child.id);
 
     // Navigate to parent session detail (Summary tab)
-    await navigateAndWait(page, `/sessions/${parentSession.id}/summary`);
+    await navigateAndWait(page, `/sessions/${parentSession.id}/summary`, {
+      waitFor: '.child-sessions-panel',
+      timeout: 15000,
+    });
 
     const panel = page.locator('.child-sessions-panel');
-    await expect(panel).toBeVisible({ timeout: 10000 });
+    await expect(panel).toBeVisible();
 
     // Panel should start expanded (isExpanded defaults to true in ChildSessionsPanel)
     const panelContent = panel.locator('.panel-content');
@@ -107,10 +114,13 @@ test.describe('ChildSessionsPanel on Session Detail', () => {
     await waitForSessionToExist(child.id);
 
     // Navigate to parent session detail
-    await navigateAndWait(page, `/sessions/${parentSession.id}/summary`);
+    await navigateAndWait(page, `/sessions/${parentSession.id}/summary`, {
+      waitFor: '.child-sessions-panel',
+      timeout: 15000,
+    });
 
     const panel = page.locator('.child-sessions-panel');
-    await expect(panel).toBeVisible({ timeout: 10000 });
+    await expect(panel).toBeVisible();
 
     // Click the child session item link
     const childItem = panel.locator('.child-session-item').first();
@@ -141,10 +151,13 @@ test.describe('ChildSessionsPanel on Session Detail', () => {
     await updateSessionStatus(child2.id, 'stopped');
 
     // Navigate to parent session detail
-    await navigateAndWait(page, `/sessions/${parentSession.id}/summary`);
+    await navigateAndWait(page, `/sessions/${parentSession.id}/summary`, {
+      waitFor: '.child-sessions-panel',
+      timeout: 15000,
+    });
 
     const panel = page.locator('.child-sessions-panel');
-    await expect(panel).toBeVisible({ timeout: 10000 });
+    await expect(panel).toBeVisible();
 
     // Verify status badges exist
     const statusBadges = panel.locator('.status-badge');
@@ -201,11 +214,14 @@ test.describe('SessionCard Workflow Expansion', () => {
   });
 
   test('expand button shown only for sessions with children', async ({ page }) => {
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.expand-toggle-btn',
+      timeout: 15000,
+    });
 
     // Parent card should have expand button
     const parentCard = page.locator('.session-card').filter({ hasText: 'Parent With Children' });
-    await expect(parentCard).toBeVisible({ timeout: 10000 });
+    await expect(parentCard).toBeVisible();
     await expect(parentCard.locator('.expand-toggle-btn')).toBeVisible();
 
     // Standalone card should NOT have expand button
@@ -215,12 +231,15 @@ test.describe('SessionCard Workflow Expansion', () => {
   });
 
   test('expand button hidden on child session cards', async ({ page }) => {
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.expand-toggle-btn',
+      timeout: 15000,
+    });
 
     // Expand the parent to make workflow items visible
     const parentCard = page.locator('.session-card').filter({ hasText: 'Parent With Children' });
     const expandButton = parentCard.locator('.expand-toggle-btn');
-    await expect(expandButton).toBeVisible({ timeout: 10000 });
+    await expect(expandButton).toBeVisible();
     await expandButton.click();
     await page.waitForTimeout(500);
 
@@ -237,11 +256,14 @@ test.describe('SessionCard Workflow Expansion', () => {
   });
 
   test('clicking expand button reveals workflow panel', async ({ page }) => {
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.expand-toggle-btn',
+      timeout: 15000,
+    });
 
     const parentCard = page.locator('.session-card').filter({ hasText: 'Parent With Children' });
     const expandButton = parentCard.locator('.expand-toggle-btn');
-    await expect(expandButton).toBeVisible({ timeout: 10000 });
+    await expect(expandButton).toBeVisible();
 
     // Verify button text contains "Show" before expanding
     await expect(expandButton).toContainText('Show');
@@ -259,11 +281,14 @@ test.describe('SessionCard Workflow Expansion', () => {
   });
 
   test('clicking collapse button hides workflow panel', async ({ page }) => {
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.expand-toggle-btn',
+      timeout: 15000,
+    });
 
     const parentCard = page.locator('.session-card').filter({ hasText: 'Parent With Children' });
     const expandButton = parentCard.locator('.expand-toggle-btn');
-    await expect(expandButton).toBeVisible({ timeout: 10000 });
+    await expect(expandButton).toBeVisible();
 
     // Expand first
     await expandButton.click();
@@ -284,11 +309,14 @@ test.describe('SessionCard Workflow Expansion', () => {
   });
 
   test('workflow panel shows root session with ROOT label', async ({ page }) => {
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.expand-toggle-btn',
+      timeout: 15000,
+    });
 
     const parentCard = page.locator('.session-card').filter({ hasText: 'Parent With Children' });
     const expandButton = parentCard.locator('.expand-toggle-btn');
-    await expect(expandButton).toBeVisible({ timeout: 10000 });
+    await expect(expandButton).toBeVisible();
     await expandButton.click();
     await page.waitForTimeout(500);
 
@@ -314,11 +342,14 @@ test.describe('SessionCard Workflow Expansion', () => {
     await waitForSessionToExist(child2.id);
     await waitForSessionToExist(child3.id);
 
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.expand-toggle-btn',
+      timeout: 15000,
+    });
 
     const parentCard = page.locator('.session-card').filter({ hasText: 'Parent With Children' });
     const expandButton = parentCard.locator('.expand-toggle-btn');
-    await expect(expandButton).toBeVisible({ timeout: 10000 });
+    await expect(expandButton).toBeVisible();
     await expandButton.click();
     await page.waitForTimeout(500);
 
@@ -356,12 +387,15 @@ test.describe('Workflow Navigation', () => {
   });
 
   test('clicking workflow child item navigates to child session', async ({ page }) => {
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.expand-toggle-btn',
+      timeout: 15000,
+    });
 
     // Expand parent card
     const parentCard = page.locator('.session-card').filter({ hasText: 'Parent Session' });
     const expandButton = parentCard.locator('.expand-toggle-btn');
-    await expect(expandButton).toBeVisible({ timeout: 10000 });
+    await expect(expandButton).toBeVisible();
     await expandButton.click();
     await page.waitForTimeout(500);
 
@@ -382,12 +416,15 @@ test.describe('Workflow Navigation', () => {
   });
 
   test('clicking workflow root item navigates to root session', async ({ page }) => {
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.expand-toggle-btn',
+      timeout: 15000,
+    });
 
     // Expand parent card
     const parentCard = page.locator('.session-card').filter({ hasText: 'Parent Session' });
     const expandButton = parentCard.locator('.expand-toggle-btn');
-    await expect(expandButton).toBeVisible({ timeout: 10000 });
+    await expect(expandButton).toBeVisible();
     await expandButton.click();
     await page.waitForTimeout(500);
 
@@ -436,12 +473,15 @@ test.describe('Complex Hierarchy Scenarios', () => {
     });
     await waitForSessionToExist(grandchild.id);
 
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.expand-toggle-btn',
+      timeout: 15000,
+    });
 
     // Expand root session
     const rootCard = page.locator('.session-card').filter({ hasText: 'Root Session' });
     const expandButton = rootCard.locator('.expand-toggle-btn');
-    await expect(expandButton).toBeVisible({ timeout: 10000 });
+    await expect(expandButton).toBeVisible();
     await expandButton.click();
     await page.waitForTimeout(500);
 
@@ -476,11 +516,14 @@ test.describe('Complex Hierarchy Scenarios', () => {
       await waitForSessionToExist(child.id);
     }
 
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.expand-toggle-btn',
+      timeout: 15000,
+    });
 
     // Find root card
     const rootCard = page.locator('.session-card').filter({ hasText: 'Count Root' });
-    await expect(rootCard).toBeVisible({ timeout: 10000 });
+    await expect(rootCard).toBeVisible();
 
     // Verify the expand button text shows the total count
     // The button text shows "Show N sessions" when collapsed
