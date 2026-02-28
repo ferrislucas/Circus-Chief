@@ -9,14 +9,16 @@ const IV_LENGTH = 12; // 96 bits is recommended for GCM
 const SEPARATOR = ':';
 const PARTS_COUNT = 3;
 
+// Allow tests to override the key directory so they never touch the real ~/.claudetools/secret.key
+let _keyDirOverride = null;
+
 /**
  * Get or generate the encryption key.
  * Uses ~/.claudetools/secret.key file (auto-generated on first run)
  * @returns {Buffer} - 32-byte encryption key
  */
 function getEncryptionKey() {
-  // Auto-generate and persist to ~/.claudetools/secret.key
-  const keyDir = join(homedir(), '.claudetools');
+  const keyDir = _keyDirOverride || join(homedir(), '.claudetools');
   const keyPath = join(keyDir, 'secret.key');
 
   if (existsSync(keyPath)) {
@@ -116,4 +118,17 @@ export function decrypt(ciphertext) {
  */
 export function _resetKeyForTesting() {
   _key = null;
+}
+
+/**
+ * Override the key directory so tests use an isolated temp path
+ * instead of the real ~/.claudetools/ directory.
+ * Pass null to restore the default behaviour.
+ * Only intended for test isolation.
+ * @param {string|null} dir
+ * @internal
+ */
+export function _setKeyDirForTesting(dir) {
+  _keyDirOverride = dir;
+  _key = null; // also clear the cached key so the new path takes effect
 }
