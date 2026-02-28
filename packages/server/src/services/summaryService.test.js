@@ -52,6 +52,11 @@ describe('summaryService', () => {
 
     const session = sessions.create(projectId, 'Test Session', 'Initial prompt', 'standard');
     sessionId = session.id;
+
+    // Add enough messages to pass MIN_MESSAGES_FOR_SUMMARY threshold (3 messages)
+    // Session creation adds 1 message, so we need 2 more
+    messages.create(sessionId, 'assistant', 'Response 1', null);
+    messages.create(sessionId, 'user', 'Follow-up message', null);
   });
 
   afterEach(() => {
@@ -2510,6 +2515,7 @@ describe('summaryService', () => {
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
       messages.create(sessionId, 'user', 'Hello', null, conversation.id);
       messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+      messages.create(sessionId, 'user', 'How are you?', null, conversation.id);
 
       await summaryService.generateConversationSummary(sessionId, conversation.id);
 
@@ -2530,6 +2536,7 @@ describe('summaryService', () => {
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
       messages.create(sessionId, 'user', 'Hello', null, conversation.id);
       messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+      messages.create(sessionId, 'user', 'How are you?', null, conversation.id);
 
       await summaryService.generateConversationSummary(sessionId, conversation.id);
 
