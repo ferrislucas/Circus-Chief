@@ -74,9 +74,22 @@ export class AgentCallLogRepository extends BaseRepository {
     { success, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, errorMessage }
   ) {
     const now = Date.now();
-    const row = this.db.prepare('SELECT started_at FROM agent_call_logs WHERE id = ?').get(id);
+    const row = this.db
+      .prepare(
+        'SELECT started_at, input_tokens, output_tokens, thinking_tokens, cache_read_tokens, cache_write_tokens FROM agent_call_logs WHERE id = ?'
+      )
+      .get(id);
     const durationMs = row ? now - row.started_at : null;
-    const totalTokens = (inputTokens || 0) + (outputTokens || 0);
+
+    // Compute totalTokens using passed values (if provided) or existing DB values.
+    // thinkingTokens is only set via updateUsage() during streaming, so we always
+    // read it from the existing row rather than expecting it as a parameter here.
+    const finalInput = inputTokens ?? row?.input_tokens ?? 0;
+    const finalOutput = outputTokens ?? row?.output_tokens ?? 0;
+    const finalThinking = row?.thinking_tokens ?? 0;
+    const finalCacheRead = cacheReadTokens ?? row?.cache_read_tokens ?? 0;
+    const finalCacheWrite = cacheWriteTokens ?? row?.cache_write_tokens ?? 0;
+    const totalTokens = finalInput + finalOutput + finalThinking + finalCacheRead + finalCacheWrite;
 
     this.db
       .prepare(
@@ -104,6 +117,128 @@ export class AgentCallLogRepository extends BaseRepository {
         errorMessage || null,
         id
       );
+  }
+
+  /**
+   * Get all call logs with optional filtering, sorting, and pagination.
+   * Returns { rows, total } where total is the full count (before limit/offset).
+   */
+  getAll({
+    limit = 25,
+    offset = 0,
+    agentType,
+    callType,
+    status,
+    startDate,
+    endDate,
+    sessionId,
+    model,
+    sortBy = 'started_at',
+    sortOrder = 'DESC',
+  } = {}) {
+    const SORTABLE_COLUMNS = [
+      'started_at',
+      'status',
+      'agent_type',
+      'call_type',
+      'model',
+      'total_tokens',
+      'duration_ms',
+    ];
+    const safeSortBy = SORTABLE_COLUMNS.includes(sortBy) ? sortBy : 'started_at';
+    const safeSortOrder = sortOrder === 'ASC' ? 'ASC' : 'DESC';
+
+    const conditions = [];
+    const params = [];
+
+    if (agentType) {
+      conditions.push('acl.agent_type = ?');
+      params.push(agentType);
+    }
+    if (callType) {
+      conditions.push('acl.call_type = ?');
+      params.push(callType);
+    }
+    if (status) {
+      conditions.push('acl.status = ?');
+      params.push(status);
+    }
+    if (model) {
+      conditions.push('acl.model = ?');
+      params.push(model);
+    }
+    if (sessionId) {
+      conditions.push('acl.session_id = ?');
+      params.push(sessionId);
+    }
+    if (startDate) {
+      conditions.push('acl.started_at >= ?');
+      params.push(startDate);
+    }
+    if (endDate) {
+      conditions.push('acl.started_at <= ?');
+      params.push(endDate);
+    }
+
+    const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+
+    const countRow = this.db
+      .prepare(`SELECT COUNT(*) as count FROM agent_call_logs acl ${whereClause}`)
+      .get(...params);
+    const total = countRow.count;
+
+    const rows = this.db
+      .prepare(
+        `SELECT acl.*, s.name AS session_name
+         FROM agent_call_logs acl
+         LEFT JOIN sessions s ON acl.session_id = s.id
+         ${whereClause}
+         ORDER BY acl.${safeSortBy} ${safeSortOrder}
+         LIMIT ? OFFSET ?`
+      )
+      .all(...params, limit, offset);
+
+    const mappedRows = rows
+      .map((row) => {
+        const mapped = mapRow(row);
+        if (mapped) mapped.sessionName = row.session_name || null;
+        return mapped;
+      })
+      .filter(Boolean);
+
+    return { rows: mappedRows, total };
+  }
+
+  /**
+   * Get distinct filter option values from the database.
+   * Returns { agentTypes, callTypes, statuses, models }
+   */
+  getFilterOptions() {
+    const agentTypes = this.db
+      .prepare(
+        'SELECT DISTINCT agent_type FROM agent_call_logs WHERE agent_type IS NOT NULL ORDER BY agent_type'
+      )
+      .all()
+      .map((r) => r.agent_type);
+    const callTypes = this.db
+      .prepare(
+        'SELECT DISTINCT call_type FROM agent_call_logs WHERE call_type IS NOT NULL ORDER BY call_type'
+      )
+      .all()
+      .map((r) => r.call_type);
+    const statuses = this.db
+      .prepare(
+        'SELECT DISTINCT status FROM agent_call_logs WHERE status IS NOT NULL ORDER BY status'
+      )
+      .all()
+      .map((r) => r.status);
+    const models = this.db
+      .prepare(
+        'SELECT DISTINCT model FROM agent_call_logs WHERE model IS NOT NULL ORDER BY model'
+      )
+      .all()
+      .map((r) => r.model);
+    return { agentTypes, callTypes, statuses, models };
   }
 
   /**

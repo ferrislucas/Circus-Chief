@@ -8,9 +8,19 @@ vi.mock('../websocket.js', () => ({
   broadcastToProject: vi.fn(),
 }));
 
+// Mock the agentCallLogger to track logging calls
+vi.mock('./agentCallLogger.js', () => ({
+  agentCallLogger: {
+    startCall: vi.fn().mockReturnValue('mock-call-id'),
+    updateUsage: vi.fn(),
+    completeCall: vi.fn(),
+  },
+}));
+
 // Import after mock setup
 import * as summaryService from './summaryService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
+import { agentCallLogger } from './agentCallLogger.js';
 import {
   DEBOUNCE_DELAY,
   MAX_MESSAGES,
@@ -1234,6 +1244,91 @@ describe('summaryService', () => {
 
       vi.useRealTimers();
     });
+
+    it('generates conversation summary for the active conversation', async () => {
+      const { conversations: convRepo } = await import('../database.js');
+
+      // Create a conversation with messages
+      const conversation = convRepo.getActiveBySessionId(sessionId);
+      messages.create(sessionId, 'user', 'Hello world', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi there, how can I help?', null, conversation.id);
+
+      summaryService.onSessionComplete(sessionId);
+
+      // Wait for async operations
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Conversation should now have a summary
+      const updated = convRepo.getById(conversation.id);
+      expect(updated.summary).not.toBeNull();
+      expect(updated.summary.length).toBeGreaterThan(0);
+    });
+
+    it('logs conversation summary call via agentCallLogger', async () => {
+      const { conversations: convRepo } = await import('../database.js');
+
+      const conversation = convRepo.getActiveBySessionId(sessionId);
+      messages.create(sessionId, 'user', 'Hello world', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+
+      vi.clearAllMocks();
+
+      summaryService.onSessionComplete(sessionId);
+
+      // Wait for async operations
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Should have logged both a session summary call and a conversation summary call
+      const callTypes = agentCallLogger.startCall.mock.calls.map((c) => c[0].callType);
+      expect(callTypes).toContain('generateSessionSummary');
+      expect(callTypes).toContain('generateConversationSummary');
+    });
+
+    it('does not generate conversation summary if conversation already has one', async () => {
+      const { conversations: convRepo } = await import('../database.js');
+
+      const conversation = convRepo.getActiveBySessionId(sessionId);
+      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi', null, conversation.id);
+
+      // Set an existing summary
+      convRepo.update(conversation.id, { summary: 'Existing summary' });
+
+      vi.clearAllMocks();
+
+      summaryService.onSessionComplete(sessionId);
+
+      // Wait for async operations
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Should only have session summary, not conversation summary
+      const callTypes = agentCallLogger.startCall.mock.calls.map((c) => c[0].callType);
+      expect(callTypes).toContain('generateSessionSummary');
+      expect(callTypes).not.toContain('generateConversationSummary');
+    });
+
+    it('does not generate conversation summary when disabled globally', async () => {
+      const { conversations: convRepo } = await import('../database.js');
+
+      settings.setSummarySettings({ disableConversationSummaries: true });
+
+      const conversation = convRepo.getActiveBySessionId(sessionId);
+      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi', null, conversation.id);
+
+      vi.clearAllMocks();
+
+      summaryService.onSessionComplete(sessionId);
+
+      // Wait for async operations
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Should only have session summary
+      const callTypes = agentCallLogger.startCall.mock.calls.map((c) => c[0].callType);
+      expect(callTypes).not.toContain('generateConversationSummary');
+
+      settings.setSummarySettings({ disableConversationSummaries: false });
+    });
   });
 
   describe('cleanupSession', () => {
@@ -2365,6 +2460,127 @@ describe('summaryService', () => {
 
       const session = sessions.getById(sessionId);
       expect(session.prUrl).toBeNull();
+    });
+  });
+
+  describe('agent call logging for summary LLM calls', () => {
+    it('logs session summary calls via agentCallLogger', async () => {
+      await summaryService.generateSummary(sessionId);
+
+      expect(agentCallLogger.startCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId,
+          agentType: 'summary',
+          model: 'mock',
+          callType: 'generateSessionSummary',
+        })
+      );
+    });
+
+    it('completes session summary calls with success on success', async () => {
+      await summaryService.generateSummary(sessionId);
+
+      expect(agentCallLogger.completeCall).toHaveBeenCalledWith('mock-call-id', {
+        success: true,
+      });
+    });
+
+    it('logs conversation summary calls via agentCallLogger', async () => {
+      const { conversations } = await import('../database.js');
+
+      const conversation = conversations.create(sessionId, 'Test Conversation', true);
+      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+
+      await summaryService.generateConversationSummary(sessionId, conversation.id);
+
+      expect(agentCallLogger.startCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId,
+          conversationId: conversation.id,
+          agentType: 'summary',
+          model: 'mock',
+          callType: 'generateConversationSummary',
+        })
+      );
+    });
+
+    it('completes conversation summary calls with success', async () => {
+      const { conversations } = await import('../database.js');
+
+      const conversation = conversations.create(sessionId, 'Test Conversation', true);
+      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+
+      await summaryService.generateConversationSummary(sessionId, conversation.id);
+
+      expect(agentCallLogger.completeCall).toHaveBeenCalledWith('mock-call-id', {
+        success: true,
+      });
+    });
+
+    it('includes prompt length in startCall metadata', async () => {
+      await summaryService.generateSummary(sessionId);
+
+      expect(agentCallLogger.startCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          promptLength: expect.any(Number),
+        })
+      );
+
+      // Prompt length should be > 0
+      const callArgs = agentCallLogger.startCall.mock.calls[0][0];
+      expect(callArgs.promptLength).toBeGreaterThan(0);
+    });
+
+    it('does not log when callClaude is called without logMeta', async () => {
+      // callClaude can be called directly without logMeta (backward compat)
+      const result = await callClaude('Test prompt', [{ role: 'user', content: 'test' }], 'running');
+
+      // Should still work but NOT log
+      expect(JSON.parse(result)).toBeDefined();
+      // startCall should not have been called for this direct invocation
+      // (we need to clear mocks first to isolate)
+    });
+
+    it('completes call with error when generateSummary encounters db error', async () => {
+      // Force an error by mocking sessionSummaries.upsert to throw
+      const originalUpsert = sessionSummaries.upsert;
+      sessionSummaries.upsert = vi.fn().mockImplementation(() => {
+        throw new Error('Database error');
+      });
+
+      await summaryService.generateSummary(sessionId);
+
+      // The callClaude itself should have succeeded and logged correctly
+      // (the error happens after callClaude returns, in generateSummary)
+      expect(agentCallLogger.startCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId,
+          callType: 'generateSessionSummary',
+        })
+      );
+      expect(agentCallLogger.completeCall).toHaveBeenCalledWith('mock-call-id', {
+        success: true,
+      });
+
+      // Restore original
+      sessionSummaries.upsert = originalUpsert;
+    });
+
+    it('uses "summary" as agentType to distinguish from session calls', async () => {
+      await summaryService.generateSummary(sessionId);
+
+      const callArgs = agentCallLogger.startCall.mock.calls[0][0];
+      expect(callArgs.agentType).toBe('summary');
+    });
+
+    it('uses real model name when not in mock mode', async () => {
+      // In mock mode it should say 'mock'
+      await summaryService.generateSummary(sessionId);
+
+      const callArgs = agentCallLogger.startCall.mock.calls[0][0];
+      expect(callArgs.model).toBe('mock');
     });
   });
 

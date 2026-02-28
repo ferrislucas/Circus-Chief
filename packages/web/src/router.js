@@ -92,6 +92,11 @@ const routes = [
         name: 'GeneralSettings',
         component: () => import('./views/GeneralSettingsView.vue'),
       },
+      {
+        path: 'logs',
+        name: 'AgentLogs',
+        component: () => import('./views/AgentLogsView.vue'),
+      },
     ],
   },
 ];
