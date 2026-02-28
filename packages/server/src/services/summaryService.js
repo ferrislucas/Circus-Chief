@@ -34,6 +34,21 @@ const DEFAULT_SESSION_TITLE_PROMPT = `Guidelines for generating session titles:
 - Only change the title if the session's fundamental purpose has changed
 - Keep titles concise (max 60 characters)`;
 
+// System prompt for summary generation (static instructions that benefit from prompt caching)
+const SUMMARY_SYSTEM_PROMPT = `You are updating a session summary for a Claude Code session.
+
+Generate an updated summary that:
+1. Preserves important context from the existing summary
+2. Incorporates new actions and progress from recent messages
+3. Updates the outcome status if changed
+4. Maintains a coherent narrative of the full session
+
+Outcome guidelines:
+- "completed": Task was fully accomplished
+- "partial": Some progress made but task incomplete
+- "failed": Task encountered errors and couldn't proceed
+- "ongoing": Session is still active/waiting for user input`;
+
 /**
  * Mock query generator for summary generation in test mode
  * Mirrors the Claude Code SDK's async generator pattern
@@ -93,9 +108,11 @@ async function* mockSummaryQuery({ prompt: _prompt, recentMessages, sessionStatu
  * @param {string} prompt - The prompt to send
  * @param {Array} recentMessages - Messages (for mock mode context)
  * @param {string} sessionStatus - Session status (for mock mode context)
+ * @param {Object} logMeta - Logging metadata
+ * @param {string} systemPrompt - Optional system prompt for prompt caching
  * @returns {Promise<string>} The text response
  */
-async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null) {
+async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null, systemPrompt = null) {
   const queryFn = isMockMode() ? mockSummaryQuery : query;
 
   // JSON Schema for structured output
@@ -122,6 +139,7 @@ async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null)
           permissionMode: 'bypassPermissions',
           maxTurns: 1,
           model: 'claude-haiku-4-5-20251001',
+          ...(systemPrompt && { systemPrompt }),
           outputFormat: {
             type: 'json_schema',
             schema: summarySchema,
@@ -319,24 +337,13 @@ Previous title: ${existingSummary.sessionTitle || 'Not set'}`
   // Use custom prompt if provided, otherwise use default
   const sessionTitlePrompt = projectTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT;
 
-  return `You are updating a session summary for a Claude Code session. Current session status: ${sessionStatus}
+  // Return only dynamic content - static instructions are in SUMMARY_SYSTEM_PROMPT
+  return `Current session status: ${sessionStatus}
 
 ${existingContext}
 ${childContext}
 RECENT CONVERSATION:
 ${formattedMessages}
-
-Generate an updated summary that:
-1. Preserves important context from the existing summary
-2. Incorporates new actions and progress from recent messages
-3. Updates the outcome status if changed
-4. Maintains a coherent narrative of the full session
-
-Outcome guidelines:
-- "completed": Task was fully accomplished
-- "partial": Some progress made but task incomplete
-- "failed": Task encountered errors and couldn't proceed
-- "ongoing": Session is still active/waiting for user input
 
 Session title guidelines:
 ${sessionTitlePrompt}`;
@@ -605,7 +612,7 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
     const responseText = await callClaude(prompt, recentMessages, session.status, {
       sessionId,
       callType: 'generateSessionSummary',
-    });
+    }, SUMMARY_SYSTEM_PROMPT);
 
     // Parse response
     const summaryData = parseSummaryResponse(responseText);
@@ -1015,7 +1022,7 @@ export async function generateConversationSummary(sessionId, conversationId) {
       sessionId,
       conversationId,
       callType: 'generateConversationSummary',
-    });
+    }, SUMMARY_SYSTEM_PROMPT);
 
     // Parse response
     const summary = parseConversationSummaryResponse(responseText);
@@ -1060,4 +1067,4 @@ export async function propagateToParent(sessionId) {
 }
 
 // Export for testing
-export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified };
+export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified };
