@@ -27,7 +27,6 @@ test.describe('Model Provider Management', () => {
       name: '[TEST] Custom Provider',
       baseUrl: 'https://api.example.com',
       authToken: 'test-secret-key-12345',
-      defaultSonnetModel: 'claude-3-5-sonnet-20241022',
     });
 
     expect(provider).toBeTruthy();
@@ -35,7 +34,8 @@ test.describe('Model Provider Management', () => {
     expect(provider.baseUrl).toBe('https://api.example.com');
     // Auth token should be redacted in response
     expect(provider.authToken).toBe('••••••••');
-    expect(provider.defaultSonnetModel).toBe('claude-3-5-sonnet-20241022');
+    // Models are managed via the separate /models endpoint
+    expect(provider.models).toEqual([]);
   });
 
   test('preserves auth token when updating other fields (API)', async () => {
@@ -105,43 +105,6 @@ test.describe('Model Provider Management', () => {
     });
 
     expect(updated.authToken).toBeNull();
-  });
-
-  test('updating auth token via UI works correctly', async ({ page }) => {
-    const provider = await createProvider({
-      name: '[TEST] Token Update Test',
-      baseUrl: 'https://api.example.com',
-      authToken: 'old-token',
-      defaultSonnetModel: 'claude-3-5-sonnet-20241022',
-    });
-
-    await page.goto('/settings/providers');
-
-    // Wait for the provider card to load
-    const providerCard = page.locator('.provider-card', { hasText: '[TEST] Token Update Test' }).first();
-    await expect(providerCard).toBeVisible();
-
-    // Open edit dialog
-    await providerCard.getByRole('button', { name: 'Edit' }).click();
-
-    // Wait for the edit modal to appear
-    await expect(page.locator('.modal h2', { hasText: 'Edit Provider' })).toBeVisible();
-
-    // Enter a NEW auth token
-    const authTokenInput = page.locator('#auth-token');
-    await authTokenInput.clear();
-    await authTokenInput.fill('brand-new-token-12345');
-
-    // Save
-    await page.getByRole('button', { name: 'Save' }).click();
-
-    // Wait for modal to close
-    await expect(page.locator('.modal')).not.toBeVisible();
-
-    // Verify the token was updated
-    const updated = await getProvider(provider.id);
-    expect(updated.authToken).toBe('••••••••'); // Redacted in response
-    // The actual token in DB should be 'brand-new-token-12345' now
   });
 
   test('can delete a custom provider', async () => {

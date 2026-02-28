@@ -888,6 +888,7 @@ router.patch('/:id', (req, res) => {
   }
 
   const {
+    name,
     thinkingEnabled,
     status,
     mode,
@@ -910,6 +911,9 @@ router.patch('/:id', (req, res) => {
 
   // Build update object with only provided fields
   const updateData = {};
+  if (name !== undefined) {
+    updateData.name = name;
+  }
   if (thinkingEnabled !== undefined) {
     updateData.thinkingEnabled = Boolean(thinkingEnabled);
   }
@@ -1011,6 +1015,12 @@ router.patch('/:id', (req, res) => {
       status: updateData.status,
     });
   }
+
+  // Broadcast session update to session subscribers (e.g. detail view)
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    sessionId: req.params.id,
+    session: updated,
+  });
 
   // Broadcast session update to project subscribers for real-time list updates
   broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
