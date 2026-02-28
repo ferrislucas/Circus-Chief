@@ -26,6 +26,8 @@ import {
   MAX_MESSAGES,
   MIN_MESSAGES_FOR_SUMMARY,
   MAX_RETRIES,
+  DEFAULT_SESSION_TITLE_PROMPT,
+  SUMMARY_SYSTEM_PROMPT,
   formatMessages,
   buildIncrementalPrompt,
   parseSummaryResponse,
@@ -80,6 +82,20 @@ describe('summaryService', () => {
 
     it('has a maximum of 2 retries', () => {
       expect(MAX_RETRIES).toBe(2);
+    });
+  });
+
+  describe('system prompt (Phase 4)', () => {
+    it('exports SUMMARY_SYSTEM_PROMPT with static instructions', () => {
+      expect(SUMMARY_SYSTEM_PROMPT).toBeDefined();
+      expect(SUMMARY_SYSTEM_PROMPT).toContain('updating a session summary');
+      expect(SUMMARY_SYSTEM_PROMPT).toContain('Outcome guidelines');
+    });
+
+    it('SUMMARY_SYSTEM_PROMPT does not include dynamic content', () => {
+      // Should not include session-specific placeholders
+      expect(SUMMARY_SYSTEM_PROMPT).not.toContain('${sessionStatus}');
+      expect(SUMMARY_SYSTEM_PROMPT).not.toContain('${existingSummary}');
     });
   });
 
@@ -172,12 +188,12 @@ describe('summaryService', () => {
       expect(result).toContain('User: My question');
     });
 
-    it('includes outcome guidelines', () => {
+    it('does not include static instructions (moved to system prompt)', () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
       const result = buildIncrementalPrompt(null, recentMessages, 'running');
-      expect(result).toContain('partial');
-      expect(result).toContain('failed');
-      expect(result).toContain('ongoing');
+      // These instructions are now in SUMMARY_SYSTEM_PROMPT, not in the dynamic prompt
+      expect(result).not.toContain('Generate an updated summary');
+      expect(result).not.toContain('Outcome guidelines');
     });
 
     it('includes session title guidelines', () => {
