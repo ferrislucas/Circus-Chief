@@ -207,10 +207,13 @@
           <span class="loading-spinner"></span>
           <span class="running-title">Claude is working...</span>
         </div>
-        <button type="button" class="btn btn-danger btn-stop" @click="handleStop" :disabled="stopping">
-          <span v-if="stopping" class="loading-spinner"></span>
-          Stop
-        </button>
+        <div class="running-actions">
+          <span v-if="activeModelDisplayName" class="running-model-label">{{ activeModelDisplayName }}</span>
+          <button type="button" class="btn btn-danger btn-stop" @click="handleStop" :disabled="stopping">
+            <span v-if="stopping" class="loading-spinner"></span>
+            Stop
+          </button>
+        </div>
       </div>
 
       <!-- Work logs panel (without its own header) -->
@@ -296,6 +299,7 @@ import { useUiStore } from '../stores/ui.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
+import { useModelInfo } from '../composables/useModelInfo.js';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import { api } from '../composables/useApi.js';
 import TodoDrawer from './TodoDrawer.vue';
@@ -330,6 +334,7 @@ const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();
 const quickResponsesStore = useQuickResponsesStore();
 const projectsStore = useProjectsStore();
+const { getModelDisplayName } = useModelInfo();
 const router = useRouter();
 const route = useRoute();
 
@@ -397,6 +402,12 @@ const isDraft = computed(() => {
 const isScheduledDraft = computed(() => {
   if (!sessionsStore.currentSession) return false;
   return sessionsStore.isScheduledDraft(sessionsStore.currentSession);
+});
+
+const activeModelDisplayName = computed(() => {
+  const model = sessionsStore.currentSession?.model;
+  if (!model) return null;
+  return getModelDisplayName(model);
 });
 
 const unassociatedWorkLogs = computed(() => {
@@ -1726,6 +1737,19 @@ async function handleBranchCreate({ messageId, prompt }) {
   flex-shrink: 0;
 }
 
+.running-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.running-model-label {
+  font-size: 0.75rem;
+  color: var(--color-text-soft, #888);
+  white-space: nowrap;
+}
+
 /* Responsive messages container height */
 @media (min-width: 1200px) {
   .messages {
@@ -1773,6 +1797,10 @@ async function handleBranchCreate({ messageId, prompt }) {
 /* Hide "Claude is working..." text on extremely small screens */
 @media (max-width: 360px) {
   .running-title {
+    display: none;
+  }
+
+  .running-model-label {
     display: none;
   }
 }
