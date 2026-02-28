@@ -38,9 +38,7 @@
                     title="Move up"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="action-icon">
-                      <path fill-rule="evenodd" d="M9.47 15.28a.75.75 0 0 0 1.06 0l4.25-4.25a.75.75 0 1 0-1.06-1.06L10 13.69 6.28 9.97a.75.75 0 0 0-1.06 1.06l4.25 4.25Z" clip-rule="evenodd" />
-                      <path fill-rule="evenodd" d="M9.47 6.53a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 1 1-1.06 1.06L10 7.81 6.28 11.53a.75.75 0 0 1-1.06-1.06l4.25-4.25Z" clip-rule="evenodd" style="display: none;" />
-                      <path d="M14.78 9.47a.75.75 0 0 0-1.06-1.06L10 11.72 6.28 8a.75.75 0 0 0-1.06 1.06l4.25 4.25a.75.75 0 0 0 1.06 0l4.25-4.25Z" />
+                      <path fill-rule="evenodd" d="M14.78 5.22a.75.75 0 0 0-1.06 0L10 8.94 6.28 5.22a.75.75 0 0 0-1.06 1.06l4.25 4.25a.75.75 0 0 0 1.06 0l4.25-4.25a.75.75 0 0 0 0-1.06Z" clip-rule="evenodd" />
                     </svg>
                   </button>
                   <button
@@ -100,9 +98,7 @@
                     title="Move up"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="action-icon">
-                      <path fill-rule="evenodd" d="M9.47 15.28a.75.75 0 0 0 1.06 0l4.25-4.25a.75.75 0 1 0-1.06-1.06L10 13.69 6.28 9.97a.75.75 0 0 0-1.06 1.06l4.25 4.25Z" clip-rule="evenodd" />
-                      <path fill-rule="evenodd" d="M9.47 6.53a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 1 1-1.06 1.06L10 7.81 6.28 11.53a.75.75 0 0 1-1.06-1.06l4.25-4.25Z" clip-rule="evenodd" style="display: none;" />
-                      <path d="M14.78 9.47a.75.75 0 0 0-1.06-1.06L10 11.72 6.28 8a.75.75 0 0 0-1.06 1.06l4.25 4.25a.75.75 0 0 0 1.06 0l4.25-4.25Z" />
+                      <path fill-rule="evenodd" d="M14.78 5.22a.75.75 0 0 0-1.06 0L10 8.94 6.28 5.22a.75.75 0 0 0-1.06 1.06l4.25 4.25a.75.75 0 0 0 1.06 0l4.25-4.25a.75.75 0 0 0 0-1.06Z" clip-rule="evenodd" />
                     </svg>
                   </button>
                   <button
