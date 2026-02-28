@@ -117,6 +117,15 @@
         </router-link>
         <span class="tab-separator"></span>
 
+        <!-- Session active indicator — sibling of tabs-desktop and tabs-mobile -->
+        <span
+          v-if="isSessionActive"
+          class="session-active-indicator"
+          :title="sessionsStore.currentSession?.status === 'starting' ? 'Session starting...' : 'Session running...'"
+        >
+          <span class="active-spinner"></span>
+        </span>
+
         <!-- Desktop tabs -->
         <div class="tabs-desktop">
           <router-link
@@ -249,6 +258,11 @@ const buttonStatusesToDisplay = computed(() => {
 const canArchive = computed(() => {
   const status = sessionsStore.currentSession?.status;
   return status && status !== 'running';
+});
+
+const isSessionActive = computed(() => {
+  const status = sessionsStore.currentSession?.status;
+  return status === 'running' || status === 'starting';
 });
 
 const tabs = computed(() => [
@@ -875,6 +889,22 @@ async function clearPrUrl() {
   border-radius: 50%;
   margin-left: 4px;
   vertical-align: middle;
+}
+
+.session-active-indicator {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.5rem;
+}
+
+.active-spinner {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid rgba(0, 188, 212, 0.2);
+  border-top-color: #00bcd4;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
 /* PR URL editing styles */

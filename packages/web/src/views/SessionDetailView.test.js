@@ -2216,4 +2216,223 @@ describe('SessionDetailView', () => {
       expect(childPanel.props('summaries')).toBeDefined();
     });
   });
+
+  describe('session active indicator', () => {
+    it('shows spinner when session status is running', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      const spinner = wrapper.find('.active-spinner');
+      expect(spinner.exists()).toBe(true);
+    });
+
+    it('shows spinner when session status is starting', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'starting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      const spinner = wrapper.find('.active-spinner');
+      expect(spinner.exists()).toBe(true);
+    });
+
+    it('does not show spinner when session status is completed', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      const spinner = wrapper.find('.active-spinner');
+      expect(spinner.exists()).toBe(false);
+    });
+
+    it('does not show spinner when session status is waiting', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      const spinner = wrapper.find('.active-spinner');
+      expect(spinner.exists()).toBe(false);
+    });
+
+    it('does not show spinner when session status is error', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'error',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      const spinner = wrapper.find('.active-spinner');
+      expect(spinner.exists()).toBe(false);
+    });
+
+    it('spinner has correct title for running status', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      const indicator = wrapper.find('.session-active-indicator');
+      expect(indicator.attributes('title')).toBe('Session running...');
+    });
+
+    it('spinner has correct title for starting status', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'starting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      const indicator = wrapper.find('.session-active-indicator');
+      expect(indicator.attributes('title')).toBe('Session starting...');
+    });
+  });
 });
