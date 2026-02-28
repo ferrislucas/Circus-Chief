@@ -21,7 +21,7 @@
             </div>
             <ul v-else class="response-list">
               <li
-                v-for="response in projectResponses"
+                v-for="(response, index) in projectResponses"
                 :key="response.id"
                 class="response-item"
               >
@@ -31,6 +31,29 @@
                   <span v-if="response.autoSubmit" class="auto-badge">Auto-submit</span>
                 </div>
                 <div class="response-actions">
+                  <button
+                    class="action-button"
+                    :disabled="index === 0"
+                    @click="moveResponse(projectId, projectResponses, index, -1)"
+                    title="Move up"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="action-icon">
+                      <path fill-rule="evenodd" d="M9.47 15.28a.75.75 0 0 0 1.06 0l4.25-4.25a.75.75 0 1 0-1.06-1.06L10 13.69 6.28 9.97a.75.75 0 0 0-1.06 1.06l4.25 4.25Z" clip-rule="evenodd" />
+                      <path fill-rule="evenodd" d="M9.47 6.53a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 1 1-1.06 1.06L10 7.81 6.28 11.53a.75.75 0 0 1-1.06-1.06l4.25-4.25Z" clip-rule="evenodd" style="display: none;" />
+                      <path d="M14.78 9.47a.75.75 0 0 0-1.06-1.06L10 11.72 6.28 8a.75.75 0 0 0-1.06 1.06l4.25 4.25a.75.75 0 0 0 1.06 0l4.25-4.25Z" />
+                    </svg>
+                  </button>
+                  <button
+                    class="action-button"
+                    :disabled="index === projectResponses.length - 1"
+                    @click="moveResponse(projectId, projectResponses, index, 1)"
+                    title="Move down"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="action-icon">
+                      <path fill-rule="evenodd" d="M5.22 14.78a.75.75 0 0 0 1.06 0L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L10.53 9.47a.75.75 0 0 0-1.06 0l-4.25 4.25a.75.75 0 0 0 0 1.06Z" clip-rule="evenodd" />
+                      <path d="M14.78 9.47a.75.75 0 0 0-1.06-1.06L10 11.72 6.28 8a.75.75 0 0 0-1.06 1.06l4.25 4.25a.75.75 0 0 0 1.06 0l4.25-4.25Z" />
+                    </svg>
+                  </button>
                   <button class="action-button" @click="editResponse(response)" title="Edit">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="action-icon">
                       <path d="m5.433 13.917 1.262-3.155A4 4 0 0 1 7.58 9.42l6.92-6.918a2.121 2.121 0 0 1 3 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 0 1-.65-.65Z" />
@@ -60,7 +83,7 @@
             </div>
             <ul v-else class="response-list">
               <li
-                v-for="response in globalResponses"
+                v-for="(response, index) in globalResponses"
                 :key="response.id"
                 class="response-item"
               >
@@ -70,6 +93,29 @@
                   <span v-if="response.autoSubmit" class="auto-badge">Auto-submit</span>
                 </div>
                 <div class="response-actions">
+                  <button
+                    class="action-button"
+                    :disabled="index === 0"
+                    @click="moveResponse(null, globalResponses, index, -1)"
+                    title="Move up"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="action-icon">
+                      <path fill-rule="evenodd" d="M9.47 15.28a.75.75 0 0 0 1.06 0l4.25-4.25a.75.75 0 1 0-1.06-1.06L10 13.69 6.28 9.97a.75.75 0 0 0-1.06 1.06l4.25 4.25Z" clip-rule="evenodd" />
+                      <path fill-rule="evenodd" d="M9.47 6.53a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 1 1-1.06 1.06L10 7.81 6.28 11.53a.75.75 0 0 1-1.06-1.06l4.25-4.25Z" clip-rule="evenodd" style="display: none;" />
+                      <path d="M14.78 9.47a.75.75 0 0 0-1.06-1.06L10 11.72 6.28 8a.75.75 0 0 0-1.06 1.06l4.25 4.25a.75.75 0 0 0 1.06 0l4.25-4.25Z" />
+                    </svg>
+                  </button>
+                  <button
+                    class="action-button"
+                    :disabled="index === globalResponses.length - 1"
+                    @click="moveResponse(null, globalResponses, index, 1)"
+                    title="Move down"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="action-icon">
+                      <path fill-rule="evenodd" d="M5.22 14.78a.75.75 0 0 0 1.06 0L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L10.53 9.47a.75.75 0 0 0-1.06 0l-4.25 4.25a.75.75 0 0 0 0 1.06Z" clip-rule="evenodd" />
+                      <path d="M14.78 9.47a.75.75 0 0 0-1.06-1.06L10 11.72 6.28 8a.75.75 0 0 0-1.06 1.06l4.25 4.25a.75.75 0 0 0 1.06 0l4.25-4.25Z" />
+                    </svg>
+                  </button>
                   <button class="action-button" @click="editResponse(response)" title="Edit">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="action-icon">
                       <path d="m5.433 13.917 1.262-3.155A4 4 0 0 1 7.58 9.42l6.92-6.918a2.121 2.121 0 0 1 3 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 0 1-.65-.65Z" />
@@ -183,6 +229,28 @@ async function handleDelete() {
     console.error('Failed to delete response:', err);
   }
 }
+
+async function moveResponse(projectId, list, index, direction) {
+  const newIndex = index + direction;
+  if (newIndex < 0 || newIndex >= list.length) return;
+
+  const reordered = [...list];
+  [reordered[index], reordered[newIndex]] = [reordered[newIndex], reordered[index]];
+
+  const orderedIds = reordered.map(r => r.id);
+
+  try {
+    await store.reorderResponses(projectId, orderedIds);
+  } catch (err) {
+    console.error('Failed to reorder responses:', err);
+  }
+}
+
+// Expose for testing
+defineExpose({
+  moveResponse,
+});
+
 </script>
 
 <style scoped>
@@ -374,6 +442,12 @@ async function handleDelete() {
 .action-button:hover {
   color: var(--color-text);
   background: var(--color-background);
+}
+
+.action-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .action-button.action-danger:hover {
