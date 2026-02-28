@@ -1015,6 +1015,11 @@ export const useSessionsStore = defineStore('sessions', {
     addWorkLog(log) {
       const messageId = log.messageId || '_unassociated';
       const currentLogs = this.workLogs[messageId] || [];
+      // Prevent duplicate work logs - check if log with same id already exists
+      const isDuplicate = currentLogs.some(l => l.id === log.id);
+      if (isDuplicate) {
+        return;
+      }
       // Use spread to ensure new object reference for Vue reactivity
       this.workLogs = {
         ...this.workLogs,
@@ -1036,10 +1041,14 @@ export const useSessionsStore = defineStore('sessions', {
       const unassociated = this.workLogs['_unassociated'] || [];
       if (unassociated.length > 0) {
         const currentLogs = this.workLogs[messageId] || [];
+        // Create a set of current log IDs to prevent duplicates when associating
+        const currentIds = new Set(currentLogs.map(l => l.id));
+        // Only add logs that aren't already in currentLogs
+        const newLogs = unassociated.filter(l => !currentIds.has(l.id));
         // Use spread to ensure new object reference for Vue reactivity
         this.workLogs = {
           ...this.workLogs,
-          [messageId]: [...currentLogs, ...unassociated],
+          [messageId]: [...currentLogs, ...newLogs],
           '_unassociated': [],
         };
       }
