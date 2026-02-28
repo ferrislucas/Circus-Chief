@@ -3321,4 +3321,53 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       expect(modelSelector.attributes('data-model')).toBe('haiku');
     });
   });
+
+  describe('model display in running state', () => {
+    it('shows model display name next to stop button when session is running', async () => {
+      mockSessionsStore.currentSession.status = 'running';
+      mockSessionsStore.currentSession.model = 'claude-opus-4-6';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelLabel = wrapper.find('.running-model-label');
+      expect(modelLabel.exists()).toBe(true);
+      expect(modelLabel.text()).toBe('Opus 4.6');
+    });
+
+    it('does not show model label when session has no model set', async () => {
+      mockSessionsStore.currentSession.status = 'running';
+      mockSessionsStore.currentSession.model = null;
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelLabel = wrapper.find('.running-model-label');
+      expect(modelLabel.exists()).toBe(false);
+    });
+
+    it('shows correct name for sonnet model', async () => {
+      mockSessionsStore.currentSession.status = 'running';
+      mockSessionsStore.currentSession.model = 'claude-sonnet-4-6';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelLabel = wrapper.find('.running-model-label');
+      expect(modelLabel.exists()).toBe(true);
+      expect(modelLabel.text()).toBe('Sonnet 4.6');
+    });
+
+    it('shows correct name for haiku model', async () => {
+      mockSessionsStore.currentSession.status = 'running';
+      mockSessionsStore.currentSession.model = 'claude-haiku-4-5-20251001';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelLabel = wrapper.find('.running-model-label');
+      expect(modelLabel.exists()).toBe(true);
+      expect(modelLabel.text()).toBe('Haiku 4.5');
+    });
+  });
 });
