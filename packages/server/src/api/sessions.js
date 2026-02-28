@@ -888,6 +888,7 @@ router.patch('/:id', (req, res) => {
   }
 
   const {
+    name,
     thinkingEnabled,
     status,
     mode,
@@ -910,6 +911,9 @@ router.patch('/:id', (req, res) => {
 
   // Build update object with only provided fields
   const updateData = {};
+  if (name !== undefined) {
+    updateData.name = name;
+  }
   if (thinkingEnabled !== undefined) {
     updateData.thinkingEnabled = Boolean(thinkingEnabled);
   }
