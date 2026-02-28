@@ -97,6 +97,9 @@
       </button>
     </div>
 
+    <!-- Token usage panel - shows total token count, context bar, and per-type breakdown -->
+    <TokenUsagePanel />
+
     <!-- Token cost panel - aligned with scroll-to-claude-btn -->
     <div class="conversation-controls-row">
       <TokenCostPanel :session-id="sessionId" />
@@ -308,6 +311,7 @@ import MarkdownViewer from './MarkdownViewer.vue';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
 import ConversationPanel from './ConversationPanel.vue';
 import TokenCostPanel from './TokenCostPanel.vue';
+import TokenUsagePanel from './TokenUsagePanel.vue';
 import FileAttachment from './FileAttachment.vue';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';

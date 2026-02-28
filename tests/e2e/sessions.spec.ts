@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
   seedProject,
   seedSession,
-  cleanupAll,
+  cleanupCreatedResources,
   getSession,
   navigateAndWait,
   waitForSessionToExist,
@@ -15,12 +15,12 @@ test.describe('New Session - Thinking Toggle', () => {
   let project: any;
 
   test.beforeEach(async () => {
-    await cleanupAll();
+    await cleanupCreatedResources();
     project = await seedProject('Test Project', '/tmp/test');
   });
 
   test.afterEach(async () => {
-    await cleanupAll();
+    await cleanupCreatedResources();
   });
 
   test('thinking toggle is visible on new session form', async ({ page }) => {
@@ -107,12 +107,12 @@ test.describe('Session Management', () => {
   let project: any;
 
   test.beforeEach(async () => {
-    await cleanupAll();
+    await cleanupCreatedResources();
     project = await seedProject('Test Project', '/tmp/test');
   });
 
   test.afterEach(async () => {
-    await cleanupAll();
+    await cleanupCreatedResources();
   });
 
   test('displays empty state when no sessions exist', async ({ page }) => {

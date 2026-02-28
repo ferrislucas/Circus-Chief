@@ -13,11 +13,11 @@
     "lint": "npx eslint packages/*/src"
   },
   "devDependencies": {
-    "@playwright/test": "^1.57.0",
     "concurrently": "^8.2.2",
     "eslint": "8.56.0",
     "eslint-plugin-vue": "9",
     "jsdom": "^27.4.0",
+    "@playwright/test": "^1.57.0",
     "playwright": "^1.57.0",
     "prettier": "^3.2.4",
     "supertest": "^7.1.4",

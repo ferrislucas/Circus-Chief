@@ -517,8 +517,8 @@ async function* mockQuery({ prompt }) {
   // Generate a mock response based on the user's message
   const responseText = `Mock response to: "${prompt}"`;
 
-  // Yield message_delta events to simulate streaming output tokens (enables real-time token updates)
-  // Send multiple deltas to simulate streaming
+  // Yield content_block_delta events to simulate real-time text streaming
+  // (In the real Claude API, text content comes via content_block_delta, not message_delta)
   const words = responseText.split(' ');
   let outputTokens = 0;
   for (const word of words) {
@@ -526,14 +526,22 @@ async function* mockQuery({ prompt }) {
     yield {
       type: 'stream_event',
       event: {
-        type: 'message_delta',
+        type: 'content_block_delta',
         delta: { type: 'text_delta', text: word + ' ' },
-        usage: { output_tokens: outputTokens },
       },
     };
     // Small delay to simulate streaming
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
+
+  // Yield message_delta for output token count update (separate from text streaming)
+  yield {
+    type: 'stream_event',
+    event: {
+      type: 'message_delta',
+      usage: { output_tokens: outputTokens },
+    },
+  };
 
   // Yield assistant message with text
   yield {
