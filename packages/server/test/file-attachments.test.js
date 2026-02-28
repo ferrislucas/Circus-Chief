@@ -33,6 +33,7 @@ vi.mock('../src/services/gitSessionSetup.js', () => ({
 // Mock git service
 vi.mock('../src/services/gitService.js', () => ({
   removeWorktree: vi.fn().mockResolvedValue(undefined),
+  isGitRepo: vi.fn().mockResolvedValue(false),
 }));
 
 // Mock summary service
