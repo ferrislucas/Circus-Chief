@@ -305,7 +305,7 @@ test.describe('Category 3: Vitest Unit Test Execution', () => {
   // Test 10
   test('web unit tests pass', () => {
     // Exclude ConversationTab.model-init.test.js which has 5 pre-existing failures
-    // (TypeError in TokenUsagePanel.vue — unrelated to dev tooling infrastructure).
+    // (pre-existing failures — unrelated to dev tooling infrastructure).
     const result = runScriptWithRetry(
       'yarn workspace @claudetools/web test -- --exclude="**/ConversationTab.model-init.test.js"',
       { timeout: 110_000, env: cleanEnvForUnitTests() }
