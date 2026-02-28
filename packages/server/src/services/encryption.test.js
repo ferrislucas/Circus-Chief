@@ -1,30 +1,33 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { readFileSync, unlinkSync, existsSync } from 'fs';
+import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { readFileSync, unlinkSync, existsSync, writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
-import { encrypt, decrypt, _resetKeyForTesting } from './encryption.js';
+import { tmpdir } from 'os';
+import { encrypt, decrypt, _resetKeyForTesting, _setKeyDirForTesting } from './encryption.js';
 
 describe('encryption service', () => {
-  const keyPath = join(homedir(), '.claudetools', 'secret.key');
-  const keyBackupPath = join(homedir(), '.claudetools', 'secret.key.backup');
+  // Use an isolated temp directory so tests never touch ~/.claudetools/secret.key
+  const testKeyDir = join(tmpdir(), `claudetools-encryption-test-${process.pid}`);
+  const testKeyPath = join(testKeyDir, 'secret.key');
 
-  // Backup existing key file before tests, restore after
   beforeEach(() => {
-    if (existsSync(keyPath)) {
-      // Key file exists - tests will use the existing key
-      // Note: We don't actually backup/restore because encryption tests
-      // should work with any valid key
+    // Point the encryption module at our isolated temp directory
+    // (this also clears the in-memory key cache)
+    _setKeyDirForTesting(testKeyDir);
+
+    // Remove any leftover key file so each test starts clean
+    if (existsSync(testKeyPath)) {
+      unlinkSync(testKeyPath);
     }
-    // Reset key cache before each test
-    _resetKeyForTesting();
   });
 
-  afterEach(() => {
-    // Clean up any test key files, restore backup if it existed
-    if (existsSync(keyBackupPath)) {
-      // Restore original key
+  afterAll(() => {
+    // Restore default key directory so production code is unaffected
+    _setKeyDirForTesting(null);
+
+    // Clean up temp directory
+    if (existsSync(testKeyDir)) {
+      rmSync(testKeyDir, { recursive: true, force: true });
     }
-    _resetKeyForTesting();
   });
 
   describe('encrypt()', () => {
@@ -173,38 +176,30 @@ describe('encryption service', () => {
   });
 
   describe('key file management', () => {
-    it('auto-generates key file at ~/.claudetools/secret.key when missing', () => {
-      // Remove existing key if it exists
-      if (existsSync(keyPath)) {
-        unlinkSync(keyPath);
-      }
-      _resetKeyForTesting();
+    it('auto-generates key file when missing', () => {
+      // Key file should not exist (cleaned in beforeEach)
+      expect(existsSync(testKeyPath)).toBe(false);
 
       // This should trigger key generation
       encrypt('test');
 
-      expect(existsSync(keyPath)).toBe(true);
+      expect(existsSync(testKeyPath)).toBe(true);
     });
 
     it('generates a valid 64-character hex key (32 bytes)', () => {
-      // Ensure a fresh key
-      if (existsSync(keyPath)) {
-        unlinkSync(keyPath);
-      }
-      _resetKeyForTesting();
+      // Key file should not exist (cleaned in beforeEach)
+      expect(existsSync(testKeyPath)).toBe(false);
 
       encrypt('test');
 
-      const keyContent = readFileSync(keyPath, 'utf-8').trim();
+      const keyContent = readFileSync(testKeyPath, 'utf-8').trim();
       expect(keyContent).toMatch(/^[0-9a-fA-F]{64}$/);
     });
 
     it('regenerates key if existing file is corrupted (non-hex content)', () => {
-      // Note: This test verifies that the system handles corrupted keys gracefully.
-      // The actual regeneration is handled by getEncryptionKey() which logs a warning
-      // and regenerates the key when it encounters invalid hex content.
-      // We verify basic functionality works correctly with a valid key.
-
+      // Write a corrupted key file
+      mkdirSync(testKeyDir, { recursive: true });
+      writeFileSync(testKeyPath, 'not-valid-hex-content');
       _resetKeyForTesting();
 
       const plaintext = 'test';
@@ -212,6 +207,10 @@ describe('encryption service', () => {
       const decrypted = decrypt(encrypted);
 
       expect(decrypted).toBe(plaintext);
+
+      // Key file should now contain a valid key
+      const keyContent = readFileSync(testKeyPath, 'utf-8').trim();
+      expect(keyContent).toMatch(/^[0-9a-fA-F]{64}$/);
     });
   });
 
