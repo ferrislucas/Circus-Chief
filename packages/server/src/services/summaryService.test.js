@@ -553,8 +553,11 @@ describe('summaryService', () => {
 
     it('derives outcome from session status - stopped', async () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
+      // Use buildIncrementalPrompt so the prompt contains "Current session status: stopped"
+      // which the mock extracts to derive the correct outcome
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'stopped');
 
-      const result = await callClaude('Test prompt', recentMessages, 'stopped');
+      const result = await callClaude(prompt, recentMessages, 'stopped');
       const parsed = JSON.parse(result);
 
       expect(parsed.outcome).toBe('partial');
@@ -562,8 +565,9 @@ describe('summaryService', () => {
 
     it('derives outcome from session status - error', async () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'error');
 
-      const result = await callClaude('Test prompt', recentMessages, 'error');
+      const result = await callClaude(prompt, recentMessages, 'error');
       const parsed = JSON.parse(result);
 
       expect(parsed.outcome).toBe('failed');
@@ -571,8 +575,9 @@ describe('summaryService', () => {
 
     it('derives outcome from session status - ongoing', async () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'running');
 
-      const result = await callClaude('Test prompt', recentMessages, 'running');
+      const result = await callClaude(prompt, recentMessages, 'running');
       const parsed = JSON.parse(result);
 
       expect(parsed.outcome).toBe('ongoing');
@@ -580,8 +585,10 @@ describe('summaryService', () => {
 
     it('includes message content in mock summary', async () => {
       const recentMessages = [{ role: 'user', content: 'Unique test content here' }];
+      // buildIncrementalPrompt formats messages as "User: <content>" so the mock can extract content
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'running');
 
-      const result = await callClaude('Test prompt', recentMessages, 'running');
+      const result = await callClaude(prompt, recentMessages, 'running');
       const parsed = JSON.parse(result);
 
       expect(parsed.short_summary).toContain('Unique test content');
@@ -593,8 +600,10 @@ describe('summaryService', () => {
         { role: 'assistant', content: 'Message 2' },
         { role: 'user', content: 'Message 3' },
       ];
+      // buildIncrementalPrompt formats all messages so the mock can count them
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'running');
 
-      const result = await callClaude('Test prompt', recentMessages, 'running');
+      const result = await callClaude(prompt, recentMessages, 'running');
       const parsed = JSON.parse(result);
 
       expect(parsed.full_summary).toContain('3 messages');
@@ -1618,11 +1627,9 @@ describe('summaryService', () => {
     it('handles assistant message with mixed content types', async () => {
       // The code should iterate through all content blocks and find StructuredOutput
       // Mock mode simulates this behavior
-      const result = await callClaude(
-        'Test prompt',
-        [{ role: 'user', content: 'Create a summary with thinking and tool output' }],
-        'stopped'
-      );
+      const recentMessages = [{ role: 'user', content: 'Create a summary with thinking and tool output' }];
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'stopped');
+      const result = await callClaude(prompt, recentMessages, 'stopped');
       const parsed = JSON.parse(result);
 
       expect(parsed.outcome).toBe('partial');
@@ -2529,7 +2536,7 @@ describe('summaryService', () => {
         expect.objectContaining({
           sessionId,
           agentType: 'summary',
-          model: 'mock',
+          model: 'claude-haiku-4-5-20251001',
           callType: 'generateSessionSummary',
         })
       );
@@ -2557,7 +2564,7 @@ describe('summaryService', () => {
           sessionId,
           conversationId: conversation.id,
           agentType: 'summary',
-          model: 'mock',
+          model: 'claude-haiku-4-5-20251001',
           callType: 'generateConversationSummary',
         })
       );
