@@ -2047,5 +2047,61 @@ describe('Canvas API', () => {
       expect(v1.body.content).toBe('Alpha');
       expect(v2.body.content).toBe('Beta');
     });
+
+    it('handles filenames with spaces', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'File with spaces', filename: 'my file.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/my%20file.txt/content`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.content).toBe('File with spaces');
+    });
+
+    it('handles filenames with special characters', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'Special chars', filename: 'file-with_special.chars.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/file-with_special.chars.txt/content`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.content).toBe('Special chars');
+    });
+
+    it('returns 404 for version parameter less than 1', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'Only version', filename: 'single.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/single.txt/content?version=0`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('Version');
+    });
+
+    it('returns 404 for negative version parameter', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'Only version', filename: 'single.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/single.txt/content?version=-1`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('Version');
+    });
+
+    it('returns latest version for non-numeric version parameter', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'First', filename: 'versioned.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'Second', filename: 'versioned.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/versioned.txt/content?version=abc`);
+
+      // NaN check should fail and default to latest
+      expect(res.status).toBe(200);
+      expect(res.body.content).toBe('Second');
+    });
+
+    it('returns version 1 (only) when requesting version 1 for single-version file', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'Only version', filename: 'single.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/single.txt/content?version=1`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.content).toBe('Only version');
+    });
   });
 });

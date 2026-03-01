@@ -476,5 +476,44 @@ describe('Canvas Store', () => {
       // other.txt should be untouched
       expect(store.items[2].content).toBeUndefined();
     });
+
+    it('treats empty string content as already fetched (cache hit)', async () => {
+      const store = useCanvasStore();
+      // Empty string is a valid value for text files - should be cached
+      store.items = [
+        { id: '1', filename: 'empty.txt', type: 'text', content: '' },
+      ];
+
+      const result = await store.fetchItemContent('session-1', 'empty.txt');
+
+      // Should NOT call API - content is '' (fetched) not undefined (stripped)
+      expect(api.getCanvasFileContent).not.toHaveBeenCalled();
+      expect(result.content).toBe('');
+    });
+
+    it('handles API errors gracefully', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'error.txt', type: 'text' },
+      ];
+
+      api.getCanvasFileContent.mockRejectedValue(new Error('Network error'));
+
+      await expect(store.fetchItemContent('session-1', 'error.txt')).rejects.toThrow('Network error');
+      expect(api.getCanvasFileContent).toHaveBeenCalledWith('session-1', 'error.txt');
+    });
+
+    it('handles 404 errors from the content endpoint', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'missing.txt', type: 'text' },
+      ];
+
+      const error = new Error('Request failed with status code 404');
+      error.response = { status: 404, data: { error: 'File not found' } };
+      api.getCanvasFileContent.mockRejectedValue(error);
+
+      await expect(store.fetchItemContent('session-1', 'missing.txt')).rejects.toThrow();
+    });
   });
 });
