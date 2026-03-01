@@ -3352,5 +3352,17 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       expect(modelLabel.exists()).toBe(true);
       expect(modelLabel.text()).toBe('Haiku 4.5');
     });
+
+    it('shows formatted name for third-party model', async () => {
+      mockSessionsStore.currentSession.status = 'running';
+      mockSessionsStore.currentSession.model = 'deepseek-chat';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelLabel = wrapper.find('.running-model-label');
+      expect(modelLabel.exists()).toBe(true);
+      expect(modelLabel.text()).toBe('Deepseek Chat');
+    });
   });
 });
