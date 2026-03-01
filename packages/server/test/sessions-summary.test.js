@@ -9,7 +9,51 @@ vi.mock('../src/websocket.js', () => ({
 
 // Mock the SDK to prevent real API calls in tests
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: vi.fn(),
+  query: vi.fn(async function* (queryParams) {
+    // Intelligent mock that generates responses based on input parameters
+    const prompt = queryParams?.prompt || '';
+
+    // Extract session status from prompt
+    const sessionStatusMatch = prompt.match(/Current session status:\s*(\w+)/i);
+    const sessionStatus = sessionStatusMatch ? sessionStatusMatch[1] : 'running';
+
+    // Count messages in the prompt
+    const userMatches = prompt.match(/^User:/gm);
+    const assistantMatches = prompt.match(/^Assistant:/gm);
+    const messageCount = (userMatches ? userMatches.length : 0) + (assistantMatches ? assistantMatches.length : 0);
+
+    // Determine outcome based on session status
+    let outcome = 'ongoing';
+    if (sessionStatus === 'stopped') outcome = 'partial';
+    if (sessionStatus === 'error') outcome = 'failed';
+    if (sessionStatus === 'completed') outcome = 'completed';
+    if (sessionStatus === 'waiting') outcome = 'ongoing';
+
+    yield { type: 'system', subtype: 'init', session_id: 'test-session' };
+    yield {
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'StructuredOutput',
+            input: {
+              short_summary: 'Test session completed successfully',
+              full_summary: messageCount > 0
+                ? `This session involved ${messageCount} messages and completed with ${outcome} status`
+                : 'This is a test session that was completed successfully',
+              key_actions: ['Executed test', 'Verified output'],
+              files_modified: ['test.js'],
+              outcome,
+              pr_url: null,
+              session_title: 'Test Session',
+            },
+          },
+        ],
+      },
+    };
+    yield { type: 'result', subtype: 'success' };
+  }),
 }));
 
 // Import summaryService after mock setup

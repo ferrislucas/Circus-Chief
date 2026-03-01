@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { VCRAgentAdapter } from './VCRAgentAdapter.js';
@@ -9,7 +9,7 @@ describe('VCRAgentAdapter', () => {
 
   // Mock inner agent
   const createMockAgent = (events) => ({
-    async *execute(queryParams, meta) {
+    async *execute(_queryParams, _meta) {
       for (const event of events) {
         yield event;
       }
@@ -104,7 +104,14 @@ describe('VCRAgentAdapter', () => {
       const queryParams = { prompt: 'nonexistent prompt' };
       const meta = { callType: 'runSession' };
 
-      await expect(adapter.execute(queryParams, meta)).rejects.toThrow('no cassette found');
+      // Execute returns an async generator, need to consume it to trigger error
+      const executePromise = (async () => {
+        for await (const _event of adapter.execute(queryParams, meta)) {
+          // consume
+        }
+      })();
+
+      await expect(executePromise).rejects.toThrow('no cassette found');
     });
   });
 
@@ -122,8 +129,9 @@ describe('VCRAgentAdapter', () => {
       const mockAgent = createMockAgent([]); // Should not be called
       const adapter = new VCRAgentAdapter(mockAgent, { cassetteDir: testCassetteDir });
 
+      const queryParams = { prompt: 'test prompt' };
       const collectedEvents = [];
-      for await (const event of adapter.execute(queryParams, { callType: 'runSession', prompt: 'test prompt' })) {
+      for await (const event of adapter.execute(queryParams, { callType: 'runSession' })) {
         collectedEvents.push(event);
       }
 

@@ -23,11 +23,18 @@ function buildSummaryKey(queryParams) {
  * @returns {function} VCR-wrapped query function
  */
 export function createVCRQueryFn(realQueryFn, cassetteDir) {
-  const mode = process.env.VCR_MODE || 'auto';
+  // Only enable VCR if VCR_MODE is explicitly set
+  const mode = process.env.VCR_MODE || undefined;
 
   return async function* vcrQuery(queryParams) {
     const key = buildSummaryKey(queryParams);
     const cassette = CassetteStore.load(cassetteDir, key);
+
+    // VCR disabled - pass through to real query
+    if (!mode) {
+      yield* realQueryFn(queryParams);
+      return;
+    }
 
     if (mode === 'record' || (mode === 'auto' && !cassette)) {
       // Record mode

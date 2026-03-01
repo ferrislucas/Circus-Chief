@@ -9,7 +9,7 @@ describe('VCRSummaryWrapper', () => {
 
   // Mock real query function
   const createMockQueryFn = (events) => {
-    return async function* mockQuery(queryParams) {
+    return async function* mockQuery(_queryParams) {
       for (const event of events) {
         yield event;
       }
@@ -98,7 +98,14 @@ describe('VCRSummaryWrapper', () => {
       const mockQuery = createMockQueryFn([]);
       const vcrQuery = createVCRQueryFn(mockQuery, testCassetteDir);
 
-      await expect(vcrQuery({ prompt: 'nonexistent' })).rejects.toThrow('summary cassette not found');
+      // vcrQuery returns an async generator, need to consume it to trigger error
+      const executePromise = (async () => {
+        for await (const _event of vcrQuery({ prompt: 'nonexistent' })) {
+          // consume
+        }
+      })();
+
+      await expect(executePromise).rejects.toThrow('summary cassette not found');
     });
   });
 
@@ -145,13 +152,13 @@ describe('VCRSummaryWrapper', () => {
   });
 
   describe('VCR disabled (no VCR_MODE)', () => {
-    it('should default to auto mode', async () => {
+    it('should pass through to real query when VCR_MODE not set', async () => {
       delete process.env.VCR_MODE;
       const events = [{ type: 'test' }];
       const mockQuery = createMockQueryFn(events);
       const vcrQuery = createVCRQueryFn(mockQuery, testCassetteDir);
 
-      // In auto mode with no cassette, should record
+      // VCR disabled - should pass through to real query
       const collectedEvents = [];
       for await (const event of vcrQuery({ prompt: 'test' })) {
         collectedEvents.push(event);
@@ -159,19 +166,21 @@ describe('VCRSummaryWrapper', () => {
 
       expect(collectedEvents).toEqual(events);
 
+      // No cassette should be created when VCR is disabled
       const key = CassetteStore.buildKey('summary', 'test');
       const cassette = CassetteStore.load(testCassetteDir, key);
-      expect(cassette).not.toBeNull();
+      expect(cassette).toBeNull();
     });
   });
 
   describe('buildSummaryKey', () => {
     it('should use "summary" as callType', async () => {
+      process.env.VCR_MODE = 'auto';
       const mockQuery = createMockQueryFn([]);
       const vcrQuery = createVCRQueryFn(mockQuery, testCassetteDir);
 
       // This will record a cassette
-      for await (const event of vcrQuery({ prompt: 'test' })) {
+      for await (const _event of vcrQuery({ prompt: 'test' })) {
         // consume
       }
 

@@ -19,7 +19,63 @@ vi.mock('./agentCallLogger.js', () => ({
 
 // Mock the SDK to prevent real API calls in tests
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: vi.fn(),
+  query: vi.fn(async function* (queryParams) {
+    // Intelligent mock that generates responses based on input parameters
+    const prompt = queryParams?.prompt || '';
+
+    // Extract messages info from prompt (mock mode includes message content)
+    const sessionStatusMatch = prompt.match(/Current session status:\s*(\w+)/i);
+    const sessionStatus = sessionStatusMatch ? sessionStatusMatch[1] : 'running';
+
+    // Count messages in the prompt - they appear as "User: ..." and "Assistant: ..."
+    const userMatches = prompt.match(/^User:/gm);
+    const assistantMatches = prompt.match(/^Assistant:/gm);
+    const messageCount = (userMatches ? userMatches.length : 0) + (assistantMatches ? assistantMatches.length : 0);
+
+    // Extract first message content - look for content after "User:" or "Assistant:"
+    let messageContent = '';
+    const firstMsgMatch = prompt.match(/(?:User|Assistant):\s+(.+?)(?:\n\n|$)/);
+    if (firstMsgMatch && firstMsgMatch[1]) {
+      messageContent = firstMsgMatch[1].substring(0, 50);
+    }
+
+    // Determine outcome based on session status
+    let outcome = 'ongoing';
+    if (sessionStatus === 'stopped') outcome = 'partial';
+    if (sessionStatus === 'error') outcome = 'failed';
+    if (sessionStatus === 'completed') outcome = 'completed';
+
+    // Build response with dynamic content
+    const shortSummary = messageContent
+      ? `Session completed: ${messageContent.substring(0, 40)}...`
+      : 'Test session completed successfully';
+    const fullSummary = messageCount > 0
+      ? `This session involved ${messageCount} messages and was completed with ${outcome} success using mock mode`
+      : 'This is a test session that was completed with partial success using mock mode';
+
+    yield { type: 'system', subtype: 'init', session_id: 'test-session' };
+    yield {
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'StructuredOutput',
+            input: {
+              short_summary: shortSummary,
+              full_summary: fullSummary,
+              key_actions: ['Executed test', 'Verified output'],
+              files_modified: ['test.js'],
+              outcome,
+              pr_url: null,
+              session_title: 'Mock: Test Session',
+            },
+          },
+        ],
+      },
+    };
+    yield { type: 'result', subtype: 'success' };
+  }),
 }));
 
 // Import after mock setup
@@ -1364,8 +1420,9 @@ describe('summaryService', () => {
       const result = await summaryService.generateSummary(sessionId);
 
       expect(result).not.toBeNull();
-      // The mock summary should still work
-      expect(result.fullSummary).toContain('mock');
+      // The summary should be generated with the mocked response
+      expect(result.fullSummary).toBeDefined();
+      expect(result.fullSummary.length).toBeGreaterThan(0);
     });
 
     it('handles very long messages by truncating', async () => {
@@ -2576,12 +2633,12 @@ describe('summaryService', () => {
       expect(callArgs.agentType).toBe('summary');
     });
 
-    it('uses real model name when not in mock mode', async () => {
-      // In mock mode it should say 'mock'
+    it('logs the real model name being used', async () => {
+      // Should log the actual Haiku model being used for summaries
       await summaryService.generateSummary(sessionId);
 
       const callArgs = agentCallLogger.startCall.mock.calls[0][0];
-      expect(callArgs.model).toBe('mock');
+      expect(callArgs.model).toBe('claude-haiku-4-5-20251001');
     });
   });
 
