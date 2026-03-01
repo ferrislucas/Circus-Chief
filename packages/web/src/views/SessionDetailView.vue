@@ -519,8 +519,12 @@ async function initializeSession(sessionId) {
   // STEP 5: Fetch remaining data
   await sessionsStore.fetchMessages(sessionId);
   await sessionsStore.fetchWorkLogs(sessionId);
-  // Canvas data is lazy-loaded: CanvasTab.onMounted handles fetching when the tab is activated.
-  // canvasItemCount starts at 0 and is updated by onCanvasAdd/onCanvasRemove WebSocket handlers.
+
+  // Eagerly fetch canvas items to populate the tab count indicator
+  canvasStore.fetchItems(sessionId).then(() => {
+    canvasItemCount.value = canvasStore.groupedItems.length;
+  });
+
   todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
 
   // Fetch summary for PR indicators (don't await, not critical)
@@ -555,6 +559,15 @@ watch(
     } else if (oldStatus === 'running' || oldStatus === 'starting') {
       stopPolling();
     }
+  }
+);
+
+// Keep canvasItemCount in sync with store changes
+// (handles fetchItems from CanvasTab, deletions, recoveries, bulk operations, etc.)
+watch(
+  () => canvasStore.groupedItems.length,
+  (newCount) => {
+    canvasItemCount.value = newCount;
   }
 );
 
