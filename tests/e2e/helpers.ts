@@ -243,21 +243,27 @@ export async function getProjectSessions(projectId: string) {
   return response.json();
 }
 
-export async function getCanvasItems(sessionId: string, includeContent = true) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas?includeContent=${includeContent}`);
+export async function getCanvasItems(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas`);
   if (!response.ok) return [];
   return response.json();
 }
 
-export async function getAllCanvasItems(sessionId: string, includeContent = true) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/all?includeContent=${includeContent}`);
+export async function getAllCanvasItems(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/all`);
   if (!response.ok) return [];
   return response.json();
 }
 
-export async function getCanvasTrash(sessionId: string, includeContent = true) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas-trash?includeContent=${includeContent}`);
+export async function getCanvasTrash(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas-trash`);
   if (!response.ok) return [];
+  return response.json();
+}
+
+export async function getCanvasFileContent(sessionId: string, filename: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/file/${encodeURIComponent(filename)}/content`);
+  if (!response.ok) return null;
   return response.json();
 }
 
