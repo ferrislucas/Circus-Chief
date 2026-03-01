@@ -20,19 +20,13 @@ import { tmpdir } from 'os';
 
 // Mock the SDK to prevent real API calls in tests
 vi.mock('@anthropic-ai/claude-agent-sdk', () => {
-  const mockAgent = {
-    async *execute() {
-      yield { type: 'message_start', message: { id: 'msg_test' } };
-      yield { type: 'content_block_start', content_block: { type: 'text' } };
-      yield { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Test response' } };
-      yield { type: 'content_block_stop' };
-      yield { type: 'message_delta', delta: { stop_reason: 'end_turn' } };
-      yield { type: 'message_stop' };
-    },
-  };
   return {
     query: vi.fn(async function* () {
-      yield* mockAgent.execute();
+      // Yield Claude Agent SDK-level events (not raw Anthropic API streaming events).
+      // handleStreamEvent expects: 'system', 'assistant', 'result' event types.
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'claude-haiku-4-5-20251001', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+      yield { type: 'result', subtype: 'success' };
     }),
   };
 });
