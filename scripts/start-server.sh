@@ -121,8 +121,8 @@ echo "$SELECTED_PORT" > "$PORT_FILE"
 # -----------------------------------------------------------------------------
 # Start the server
 #
-# Use mock Claude responses if MOCK_CLAUDE is set (for E2E tests)
-# This prevents needing real Claude API credentials for testing
+# Use VCR mode if VCR_MODE is set (for E2E tests)
+# VCR_MODE can be: auto (default), record, or replay
 # -----------------------------------------------------------------------------
 echo "Starting server on port ${SELECTED_PORT}..."
-MOCK_CLAUDE="${MOCK_CLAUDE:-false}" yarn build && NODE_ENV=production MOCK_CLAUDE="${MOCK_CLAUDE}" node packages/server/src/index.js -p ${SELECTED_PORT}
+VCR_MODE="${VCR_MODE:-}" yarn build && NODE_ENV=production VCR_MODE="${VCR_MODE}" node packages/server/src/index.js -p ${SELECTED_PORT}

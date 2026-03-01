@@ -17,6 +17,11 @@ vi.mock('./agentCallLogger.js', () => ({
   },
 }));
 
+// Mock the SDK to prevent real API calls in tests
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: vi.fn(),
+}));
+
 // Import after mock setup
 import * as summaryService from './summaryService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -39,8 +44,6 @@ describe('summaryService', () => {
   let sessionId;
 
   beforeEach(() => {
-    // Set mock mode for testing
-    vi.stubEnv('MOCK_CLAUDE', 'true');
 
     // Clear mock call history
     vi.clearAllMocks();
@@ -839,7 +842,6 @@ describe('summaryService', () => {
 
       // Generate summary (mock will include a PR URL)
       // We'll need to mock the summary data to include a PR URL
-      vi.stubEnv('MOCK_CLAUDE', 'true');
 
       // Create a summary with a PR URL via direct database update
       const prUrl = 'https://github.com/example/repo/pull/123';
@@ -1525,7 +1527,6 @@ describe('summaryService', () => {
 
       // Re-import to get mocked version - but since we can't easily do this,
       // we'll test the mock mode behavior which uses similar logic
-      vi.stubEnv('MOCK_CLAUDE', 'true');
 
       const result = await callClaude('Test prompt', [{ role: 'user', content: 'test' }], 'running');
       const parsed = JSON.parse(result);

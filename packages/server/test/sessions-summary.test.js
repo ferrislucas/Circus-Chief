@@ -7,6 +7,11 @@ vi.mock('../src/websocket.js', () => ({
   broadcastToProject: vi.fn(),
 }));
 
+// Mock the SDK to prevent real API calls in tests
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: vi.fn(),
+}));
+
 // Import summaryService after mock setup
 import * as summaryService from '../src/services/summaryService.js';
 
@@ -15,8 +20,6 @@ describe('Sessions Summary API', () => {
   let session;
 
   beforeEach(() => {
-    // Set mock mode for testing
-    vi.stubEnv('MOCK_CLAUDE', 'true');
     vi.clearAllMocks();
 
     project = projects.create('Test Project', '/tmp/test');

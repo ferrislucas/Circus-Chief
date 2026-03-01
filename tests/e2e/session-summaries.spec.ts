@@ -411,7 +411,7 @@ test.describe('Session Summaries', () => {
     });
 
     test('GET /summary?generate=true creates summary if missing', async () => {
-      // This test requires MOCK_CLAUDE=true for the test server
+      // This test uses VCR_MODE for the test server
       const session = await seedSession(project.id, {
         prompt: 'Test generate summary',
         name: 'Generate Summary Test',
@@ -426,18 +426,11 @@ test.describe('Session Summaries', () => {
       const response = await fetch(
         `${API_URL}/api/sessions/${session.id}/summary?generate=true`
       );
-      // With MOCK_CLAUDE=true, should return 200 with a summary
-      // Without it, may return 500 or 200
-      // We accept either a successful generation or an error (but not 404 since generate=true)
-      if (response.ok) {
-        const summary = await response.json();
-        expect(summary).toBeDefined();
-        expect(summary.fullSummary).toBeDefined();
-      } else {
-        // Without MOCK_CLAUDE, generation might fail - that's acceptable
-        // The important thing is it doesn't return 404
-        expect(response.status).not.toBe(404);
-      }
+      // With VCR replay, should return 200 with a summary deterministically
+      expect(response.ok).toBe(true);
+      const summary = await response.json();
+      expect(summary).toBeDefined();
+      expect(summary.fullSummary).toBeDefined();
     });
 
     test('POST /summary regenerates the summary and returns 201', async () => {
@@ -463,17 +456,12 @@ test.describe('Session Summaries', () => {
         method: 'POST',
       });
 
-      // With MOCK_CLAUDE=true, should return 201
-      // Without it, may return 500 (no API key)
-      if (response.ok) {
-        expect(response.status).toBe(201);
-        const summary = await response.json();
-        expect(summary).toBeDefined();
-        expect(summary.generatedAt).toBeDefined();
-      } else {
-        // Without MOCK_CLAUDE, verify it's a server error, not a routing error
-        expect(response.status).toBe(500);
-      }
+      // With VCR replay, should return 201 deterministically
+      expect(response.ok).toBe(true);
+      expect(response.status).toBe(201);
+      const summary = await response.json();
+      expect(summary).toBeDefined();
+      expect(summary.generatedAt).toBeDefined();
     });
 
     test('summary contains structured fields: keyActions and filesModified as arrays', async () => {
@@ -583,7 +571,7 @@ test.describe('Session Summaries', () => {
       // or the summary should get regenerated
       // We verify the button is now disabled (indicating the request was sent)
       await expect(regenButton).toBeDisabled({ timeout: 5000 }).catch(() => {
-        // If the request completed very quickly (e.g., with MOCK_CLAUDE),
+        // If the request completed very quickly (e.g., with VCR replay),
         // the button may already be re-enabled. That's fine too.
       });
     });
@@ -649,16 +637,10 @@ test.describe('Session Summaries', () => {
         `${API_URL}/api/sessions/${session.id}/summary?generate=true`
       );
 
-      // The response should be a summary (either regenerated or original)
-      if (response.ok) {
-        const summary = await response.json();
-        expect(summary).toBeDefined();
-        // With MOCK_CLAUDE, this would be a regenerated summary
-        // Without it, it may fall back to the original or fail
-      } else {
-        // Without MOCK_CLAUDE, the generation may fail but shouldn't 404
-        expect(response.status).not.toBe(404);
-      }
+      // The response should be a regenerated summary (VCR replay is deterministic)
+      expect(response.ok).toBe(true);
+      const summary = await response.json();
+      expect(summary).toBeDefined();
     });
 
     test('staleness detection uses total message count across conversations', async () => {

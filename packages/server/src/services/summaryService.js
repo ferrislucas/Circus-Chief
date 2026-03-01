@@ -4,6 +4,7 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as ghService from './ghService.js';
 import { agentCallLogger } from './agentCallLogger.js';
+import { createVCRQueryFn } from '../agents/vcr/VCRSummaryWrapper.js';
 // Note: prStatusService is imported dynamically in onSessionComplete to avoid circular dependency
 
 // Debounce timers per session
@@ -18,9 +19,6 @@ const MAX_MESSAGES = 15;
 // Maximum retry attempts for failed parsing
 const MAX_RETRIES = 2;
 
-// Check if mock mode is enabled
-const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
-
 // Default prompt for strategic session titles
 const DEFAULT_SESSION_TITLE_PROMPT = `Guidelines for generating session titles:
 - The title should capture the SESSION'S STRATEGIC GOAL, not current tactical activity
@@ -32,60 +30,6 @@ const DEFAULT_SESSION_TITLE_PROMPT = `Guidelines for generating session titles:
 - Keep titles concise (max 60 characters)`;
 
 /**
- * Mock query generator for summary generation in test mode
- * Mirrors the Claude Code SDK's async generator pattern
- * @param {Object} params
- * @param {string} params.prompt - The prompt string
- * @param {Array} params.recentMessages - Messages for mock context
- * @param {string} params.sessionStatus - Session status for mock outcome
- */
-async function* mockSummaryQuery({ prompt: _prompt, recentMessages, sessionStatus }) {
-  // Yield system init event (matches SDK pattern)
-  yield {
-    type: 'system',
-    subtype: 'init',
-    session_id: 'mock-summary-' + Date.now(),
-  };
-
-  // Small delay to simulate processing
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  // Derive outcome from session status
-  let outcome = 'ongoing';
-  if (sessionStatus === 'stopped') outcome = 'partial';
-  else if (sessionStatus === 'error') outcome = 'failed';
-
-  // Create contextual mock response
-  const lastMessage = recentMessages[recentMessages.length - 1];
-  const shortPreview = lastMessage ? lastMessage.content.substring(0, 100) : 'testing session';
-
-  const mockResponse = JSON.stringify({
-    short_summary: `Mock summary: ${shortPreview}...`.substring(0, 150),
-    full_summary: `This is a mock summary for testing purposes. The session has ${recentMessages.length} messages and is currently ${sessionStatus}.`,
-    key_actions: ['Mock action 1', 'Mock action 2'],
-    files_modified: ['mock-file.js'],
-    outcome: outcome,
-    pr_url: null,
-    session_title: `Mock: ${shortPreview}`.substring(0, 60),
-  });
-
-  // Yield assistant message with mock response
-  yield {
-    type: 'assistant',
-    message: {
-      content: [{ type: 'text', text: mockResponse }],
-    },
-  };
-
-  // Yield result event
-  yield {
-    type: 'result',
-    subtype: 'success',
-    total_cost_usd: 0.0001,
-  };
-}
-
-/**
  * Call Claude via SDK and extract text response
  * @param {string} prompt - The prompt to send
  * @param {Array} recentMessages - Messages (for mock mode context)
@@ -93,7 +37,10 @@ async function* mockSummaryQuery({ prompt: _prompt, recentMessages, sessionStatu
  * @returns {Promise<string>} The text response
  */
 async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null) {
-  const queryFn = isMockMode() ? mockSummaryQuery : query;
+  // Use VCR wrapper if in VCR mode, otherwise use real SDK query
+  const queryFn = process.env.VCR_MODE
+    ? createVCRQueryFn(query, 'tests/e2e/cassettes/summaries')
+    : query;
 
   // JSON Schema for structured output
   const summarySchema = {
@@ -110,21 +57,19 @@ async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null)
     required: ['short_summary', 'full_summary', 'key_actions', 'files_modified', 'outcome'],
   };
 
-  const queryParams = isMockMode()
-    ? { prompt, recentMessages, sessionStatus }
-    : {
-        prompt,
-        options: {
-          cwd: process.cwd(),
-          permissionMode: 'bypassPermissions',
-          maxTurns: 1,
-          model: 'claude-haiku-4-5-20251001',
-          outputFormat: {
-            type: 'json_schema',
-            schema: summarySchema,
-          },
-        },
-      };
+  const queryParams = {
+    prompt,
+    options: {
+      cwd: process.cwd(),
+      permissionMode: 'bypassPermissions',
+      maxTurns: 1,
+      model: 'claude-haiku-4-5-20251001',
+      outputFormat: {
+        type: 'json_schema',
+        schema: summarySchema,
+      },
+    },
+  };
 
   // Start logging if metadata provided
   let callId = null;
@@ -133,7 +78,7 @@ async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null)
       sessionId: logMeta.sessionId,
       conversationId: logMeta.conversationId || null,
       agentType: 'summary',
-      model: isMockMode() ? 'mock' : 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-4-5-20251001',
       callType: logMeta.callType,
       promptLength: prompt.length,
     });
@@ -1062,4 +1007,4 @@ export async function propagateToParent(sessionId) {
 }
 
 // Export for testing
-export { DEBOUNCE_DELAY, MAX_MESSAGES, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified };
+export { DEBOUNCE_DELAY, MAX_MESSAGES, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified };
