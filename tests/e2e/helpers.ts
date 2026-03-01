@@ -261,6 +261,12 @@ export async function getCanvasTrash(sessionId: string) {
   return response.json();
 }
 
+export async function getCanvasFileContent(sessionId: string, filename: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/file/${encodeURIComponent(filename)}/content`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
 export async function deleteCanvasItem(sessionId: string, itemId: string) {
   const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/${itemId}`, {
     method: 'DELETE',

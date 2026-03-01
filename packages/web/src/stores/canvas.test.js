@@ -6,6 +6,7 @@ vi.mock('../composables/useApi.js', () => ({
   api: {
     getCanvasItems: vi.fn(),
     getAllCanvasItems: vi.fn(),
+    getCanvasFileContent: vi.fn(),
     uploadCanvasItem: vi.fn(),
     deleteCanvasItem: vi.fn(),
     getCanvasTrash: vi.fn(),
@@ -370,6 +371,149 @@ describe('Canvas Store', () => {
       expect(grouped).toHaveLength(2);
       expect(grouped[0].versionCount).toBe(1);
       expect(grouped[1].versionCount).toBe(1);
+    });
+  });
+
+  describe('fetchItemContent action', () => {
+    it('fetches content from API and patches store items', async () => {
+      const store = useCanvasStore();
+      // Items without content/data (as returned by list endpoints after stripping)
+      store.items = [
+        { id: '1', filename: 'test.txt', type: 'text' },
+        { id: '2', filename: 'other.txt', type: 'text' },
+      ];
+
+      api.getCanvasFileContent.mockResolvedValue({
+        content: 'Hello World',
+        data: null,
+        type: 'text',
+        mimeType: 'text/plain',
+        filename: 'test.txt',
+      });
+
+      const result = await store.fetchItemContent('session-1', 'test.txt');
+
+      expect(api.getCanvasFileContent).toHaveBeenCalledWith('session-1', 'test.txt');
+      expect(result.content).toBe('Hello World');
+      expect(result.data).toBeNull();
+      // Store item should be patched
+      expect(store.items[0].content).toBe('Hello World');
+      expect(store.items[0].data).toBeNull();
+      // Other item should be untouched
+      expect(store.items[1].content).toBeUndefined();
+    });
+
+    it('returns cached content when already fetched (content is a string)', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'test.txt', type: 'text', content: 'Cached content' },
+      ];
+
+      const result = await store.fetchItemContent('session-1', 'test.txt');
+
+      // Should NOT call API
+      expect(api.getCanvasFileContent).not.toHaveBeenCalled();
+      expect(result.content).toBe('Cached content');
+    });
+
+    it('returns cached content when already fetched (content is null)', async () => {
+      const store = useCanvasStore();
+      // null content is valid for image items - should be treated as "already fetched"
+      store.items = [
+        { id: '1', filename: 'pic.png', type: 'image', content: null, data: 'base64data' },
+      ];
+
+      const result = await store.fetchItemContent('session-1', 'pic.png');
+
+      // Should NOT call API - content is null (fetched) not undefined (stripped)
+      expect(api.getCanvasFileContent).not.toHaveBeenCalled();
+      expect(result.content).toBeNull();
+      expect(result.data).toBe('base64data');
+    });
+
+    it('fetches content when content is undefined (stripped by list endpoint)', async () => {
+      const store = useCanvasStore();
+      // content and data are both undefined (stripped from list response)
+      store.items = [
+        { id: '1', filename: 'test.txt', type: 'text' },
+      ];
+
+      api.getCanvasFileContent.mockResolvedValue({
+        content: 'Fetched',
+        data: null,
+        type: 'text',
+        mimeType: 'text/plain',
+        filename: 'test.txt',
+      });
+
+      await store.fetchItemContent('session-1', 'test.txt');
+
+      expect(api.getCanvasFileContent).toHaveBeenCalledWith('session-1', 'test.txt');
+      expect(store.items[0].content).toBe('Fetched');
+    });
+
+    it('patches all versions of the same filename in the store', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'doc.md', type: 'markdown' },
+        { id: '2', filename: 'doc.md', type: 'markdown' },
+        { id: '3', filename: 'other.txt', type: 'text' },
+      ];
+
+      api.getCanvasFileContent.mockResolvedValue({
+        content: '# Fetched content',
+        data: null,
+        type: 'markdown',
+        mimeType: 'text/markdown',
+        filename: 'doc.md',
+      });
+
+      await store.fetchItemContent('session-1', 'doc.md');
+
+      // Both doc.md items should be patched
+      expect(store.items[0].content).toBe('# Fetched content');
+      expect(store.items[1].content).toBe('# Fetched content');
+      // other.txt should be untouched
+      expect(store.items[2].content).toBeUndefined();
+    });
+
+    it('treats empty string content as already fetched (cache hit)', async () => {
+      const store = useCanvasStore();
+      // Empty string is a valid value for text files - should be cached
+      store.items = [
+        { id: '1', filename: 'empty.txt', type: 'text', content: '' },
+      ];
+
+      const result = await store.fetchItemContent('session-1', 'empty.txt');
+
+      // Should NOT call API - content is '' (fetched) not undefined (stripped)
+      expect(api.getCanvasFileContent).not.toHaveBeenCalled();
+      expect(result.content).toBe('');
+    });
+
+    it('handles API errors gracefully', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'error.txt', type: 'text' },
+      ];
+
+      api.getCanvasFileContent.mockRejectedValue(new Error('Network error'));
+
+      await expect(store.fetchItemContent('session-1', 'error.txt')).rejects.toThrow('Network error');
+      expect(api.getCanvasFileContent).toHaveBeenCalledWith('session-1', 'error.txt');
+    });
+
+    it('handles 404 errors from the content endpoint', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'missing.txt', type: 'text' },
+      ];
+
+      const error = new Error('Request failed with status code 404');
+      error.response = { status: 404, data: { error: 'File not found' } };
+      api.getCanvasFileContent.mockRejectedValue(error);
+
+      await expect(store.fetchItemContent('session-1', 'missing.txt')).rejects.toThrow();
     });
   });
 });
