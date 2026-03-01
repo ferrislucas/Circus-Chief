@@ -1,6 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick, defineComponent } from 'vue';
+import { setActivePinia, createPinia } from 'pinia';
+
+// Mock the API module before importing component
+vi.mock('../composables/useApi.js', () => ({
+  api: {
+    getCanvasItems: vi.fn().mockResolvedValue([]),
+    getAllCanvasItems: vi.fn().mockResolvedValue([]),
+    getCanvasFileContent: vi.fn().mockResolvedValue({ content: null, data: null }),
+    uploadCanvasItem: vi.fn(),
+    deleteCanvasItem: vi.fn(),
+    getCanvasTrash: vi.fn().mockResolvedValue([]),
+    recoverCanvasItem: vi.fn(),
+    recoverCanvasFile: vi.fn(),
+    permanentlyDeleteCanvasItem: vi.fn(),
+  },
+}));
 
 import CanvasFileViewer from './CanvasFileViewer.vue';
 
@@ -27,6 +43,7 @@ describe('CanvasFileViewer', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    setActivePinia(createPinia());
     // Mock clipboard API
     mockClipboard = {
       writeText: vi.fn().mockResolvedValue(undefined),
@@ -46,6 +63,7 @@ describe('CanvasFileViewer', () => {
   function mountComponent(props = {}) {
     const defaultProps = {
       item: { id: '1', filename: 'test.txt', type: 'text', content: 'Hello', createdAt: Date.now() },
+      sessionId: 'test-session',
       versions: [],
       showBackButton: true,
     };

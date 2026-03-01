@@ -1005,17 +1005,17 @@ describe('Canvas API', () => {
       expect(filenames).toEqual(['a.txt', 'b.md']);
     });
 
-    it('includes content field for text-based types', async () => {
+    it('does not include content field in list response', async () => {
       canvasItems.create(sessionId, { type: 'text', content: 'Hello World', filename: 'test.txt' });
 
       const res = await request(app).get(`/api/sessions/${sessionId}/canvas`);
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
-      expect(res.body[0].content).toBe('Hello World');
+      expect(res.body[0]).not.toHaveProperty('content');
     });
 
-    it('includes data field for image type', async () => {
+    it('does not include data field in list response', async () => {
       const base64Image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
       canvasItems.create(sessionId, { type: 'image', data: base64Image, mimeType: 'image/png', filename: 'pixel.png' });
 
@@ -1023,7 +1023,7 @@ describe('Canvas API', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
-      expect(res.body[0].data).toBe(base64Image);
+      expect(res.body[0]).not.toHaveProperty('data');
     });
 
     it('does not include version or totalVersions fields in response', async () => {
@@ -1038,7 +1038,7 @@ describe('Canvas API', () => {
       expect(res.body[0]).not.toHaveProperty('totalVersions');
     });
 
-    it('includes all standard fields in response', async () => {
+    it('includes all standard fields in response except content and data', async () => {
       canvasItems.create(sessionId, {
         type: 'markdown',
         content: '# Title',
@@ -1052,15 +1052,18 @@ describe('Canvas API', () => {
       expect(res.body).toHaveLength(1);
       const item = res.body[0];
 
-      // Should include these fields
+      // Should include these metadata fields
       expect(item).toHaveProperty('id');
       expect(item).toHaveProperty('sessionId');
       expect(item).toHaveProperty('type');
       expect(item).toHaveProperty('mimeType');
       expect(item).toHaveProperty('filename');
-      expect(item).toHaveProperty('content');
       expect(item).toHaveProperty('createdAt');
       expect(item).toHaveProperty('deletedAt');
+
+      // Should NOT include content/data (stripped for payload reduction)
+      expect(item).not.toHaveProperty('content');
+      expect(item).not.toHaveProperty('data');
 
       // Should NOT include version metadata
       expect(item).not.toHaveProperty('version');
@@ -1208,17 +1211,17 @@ describe('Canvas API', () => {
       expect(ids).toContain(item3.id);
     });
 
-    it('includes content field for text-based types', async () => {
+    it('does not include content field in list response', async () => {
       canvasItems.create(sessionId, { type: 'text', content: 'Hello World', filename: 'hello.txt' });
 
       const res = await request(app).get(`/api/sessions/${sessionId}/canvas/all`);
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
-      expect(res.body[0].content).toBe('Hello World');
+      expect(res.body[0]).not.toHaveProperty('content');
     });
 
-    it('includes data field for image type', async () => {
+    it('does not include data field in list response', async () => {
       const base64Image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
       canvasItems.create(sessionId, { type: 'image', data: base64Image, mimeType: 'image/png', filename: 'pixel.png' });
 
@@ -1226,7 +1229,7 @@ describe('Canvas API', () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
-      expect(res.body[0].data).toBe(base64Image);
+      expect(res.body[0]).not.toHaveProperty('data');
     });
 
     it('returns empty array when no items exist', async () => {
@@ -1509,6 +1512,21 @@ describe('Canvas API', () => {
         expect(listRes.body[0].id).toBe(item1.body.id);
       });
 
+      it('does not include content or data fields in trash list', async () => {
+        const item = await request(app)
+          .post(`/api/sessions/${sessionId}/canvas`)
+          .send({ type: 'text', content: 'Trash me', filename: 'trash.txt' });
+
+        await request(app).delete(`/api/sessions/${sessionId}/canvas/${item.body.id}`);
+
+        const trashRes = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`);
+
+        expect(trashRes.status).toBe(200);
+        expect(trashRes.body).toHaveLength(1);
+        expect(trashRes.body[0]).not.toHaveProperty('content');
+        expect(trashRes.body[0]).not.toHaveProperty('data');
+      });
+
       it('returns 404 for non-existent session', async () => {
         const res = await request(app).get('/api/sessions/nonexistent-session/canvas-trash');
 
@@ -1605,7 +1623,7 @@ describe('Canvas API', () => {
         // Verify latest version is back in canvas list (list only shows latest version)
         let listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
         expect(listRes.body).toHaveLength(1);
-        expect(listRes.body[0].content).toBe('V3'); // Latest version
+        expect(listRes.body[0].filename).toBe('multi.txt'); // Latest version (content stripped from list)
 
         // Verify trash is empty
         trashRes = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`);
@@ -1894,6 +1912,140 @@ describe('Canvas API', () => {
         expect(res.status).toBe(404);
         expect(res.body.error).toContain('Session not found');
       });
+    });
+  });
+
+  describe('HTTP GET /api/sessions/:id/canvas/file/:filename/content (Content Endpoint)', () => {
+    let app;
+    let projectId;
+    let sessionId;
+
+    beforeEach(() => {
+      app = express();
+      app.use(express.json());
+      app.use('/api/sessions', canvasRouter);
+
+      // Create project and session
+      const project = projects.create('Test Project', '/tmp/test');
+      projectId = project.id;
+
+      const now = Date.now();
+      const id = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, projectId, 'Test Session', 'running', 'standard', now, now);
+      sessionId = id;
+    });
+
+    it('returns content for text item with data as null', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'Hello World', filename: 'test.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/test.txt/content`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.content).toBe('Hello World');
+      expect(res.body.data).toBeNull();
+      expect(res.body.type).toBe('text');
+      expect(res.body.filename).toBe('test.txt');
+    });
+
+    it('returns content for markdown item', async () => {
+      canvasItems.create(sessionId, { type: 'markdown', content: '# Title', filename: 'readme.md', mimeType: 'text/markdown' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/readme.md/content`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.content).toBe('# Title');
+      expect(res.body.type).toBe('markdown');
+    });
+
+    it('returns content for code item', async () => {
+      canvasItems.create(sessionId, { type: 'code', content: 'const x = 1;', filename: 'app.js', mimeType: 'text/javascript' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/app.js/content`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.content).toBe('const x = 1;');
+      expect(res.body.type).toBe('code');
+    });
+
+    it('returns data for image item with content as null', async () => {
+      const base64Image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      canvasItems.create(sessionId, { type: 'image', data: base64Image, mimeType: 'image/png', filename: 'pixel.png' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/pixel.png/content`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toBe(base64Image);
+      expect(res.body.content).toBeNull();
+      expect(res.body.type).toBe('image');
+      expect(res.body.mimeType).toBe('image/png');
+    });
+
+    it('returns 404 for missing file', async () => {
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/nonexistent.txt/content`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('File not found');
+    });
+
+    it('returns 404 for non-existent session', async () => {
+      const res = await request(app).get('/api/sessions/nonexistent-session/canvas/file/test.txt/content');
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('Session not found');
+    });
+
+    it('returns oldest version content with ?version=1', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 1', filename: 'versioned.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 2', filename: 'versioned.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 3', filename: 'versioned.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/versioned.txt/content?version=1`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.content).toBe('Version 1');
+    });
+
+    it('returns latest version content with ?version=N (where N = total)', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 1', filename: 'versioned.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 2', filename: 'versioned.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'Version 3', filename: 'versioned.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/versioned.txt/content?version=3`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.content).toBe('Version 3');
+    });
+
+    it('returns 404 for out-of-range version', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'Only version', filename: 'single.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/single.txt/content?version=5`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('Version');
+    });
+
+    it('returns latest version when no version param specified', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'Old', filename: 'latest.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'New', filename: 'latest.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/file/latest.txt/content`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.content).toBe('New');
+    });
+
+    it('returns correct content when switching between versions', async () => {
+      canvasItems.create(sessionId, { type: 'text', content: 'Alpha', filename: 'switch.txt' });
+      canvasItems.create(sessionId, { type: 'text', content: 'Beta', filename: 'switch.txt' });
+
+      const v1 = await request(app).get(`/api/sessions/${sessionId}/canvas/file/switch.txt/content?version=1`);
+      const v2 = await request(app).get(`/api/sessions/${sessionId}/canvas/file/switch.txt/content?version=2`);
+
+      expect(v1.body.content).toBe('Alpha');
+      expect(v2.body.content).toBe('Beta');
     });
   });
 });
