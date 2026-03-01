@@ -26,10 +26,7 @@ import {
   MAX_MESSAGES,
   MIN_MESSAGES_FOR_SUMMARY,
   MAX_RETRIES,
-  DEFAULT_SESSION_TITLE_PROMPT,
   SUMMARY_SYSTEM_PROMPT,
-  CONVERSATION_SUMMARY_SYSTEM_PROMPT,
-  COMBINED_SUMMARY_SYSTEM_PROMPT,
   formatMessages,
   buildIncrementalPrompt,
   parseSummaryResponse,
@@ -1210,7 +1207,7 @@ describe('summaryService', () => {
 
     it('uses message ID for staleness detection when available', async () => {
       // Generate initial summary
-      const summary = await summaryService.generateSummary(sessionId);
+      await summaryService.generateSummary(sessionId);
 
       // Summary should not be stale immediately
       expect(summaryService.isSummaryStale(sessionId)).toBe(false);
@@ -1229,10 +1226,6 @@ describe('summaryService', () => {
       // Manually update the summary to remove lastSummarizedMessageId (simulating old summary)
       const summary = sessionSummaries.getBySessionId(sessionId);
       sessionSummaries.update(summary.id, { lastSummarizedMessageId: null });
-
-      // Get the current message count
-      const allMessages = messages.getBySessionId(sessionId);
-      const originalCount = allMessages.length;
 
       // Summary should not be stale
       expect(summaryService.isSummaryStale(sessionId)).toBe(false);

@@ -1067,8 +1067,6 @@ Previous title: ${existingSummary.sessionTitle || 'Not set'}`
     const formattedSessionMessages = formatMessages(recentMessages);
     const formattedConversationMessages = formatMessages(conversationMessages);
 
-    const sessionTitlePrompt = globalSettings?.sessionTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT;
-
     const combinedPrompt = `Current session status: ${session.status}
 
 ${existingContext}
@@ -1503,4 +1501,4 @@ export async function propagateToParent(sessionId) {
 }
 
 // Export for testing
-export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, CONVERSATION_SUMMARY_SYSTEM_PROMPT, COMBINED_SUMMARY_SYSTEM_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified, generateSessionAndConversationSummary };
+export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, CONVERSATION_SUMMARY_SYSTEM_PROMPT, COMBINED_SUMMARY_SYSTEM_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified };
