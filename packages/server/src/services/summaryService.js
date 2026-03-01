@@ -4,10 +4,11 @@
  * All heavy lifting is delegated to extracted modules.
  */
 
-import { sessions, messages, sessionSummaries, projects, settings } from '../database.js';
+import { sessions, messages, conversations, sessionSummaries, projects, settings } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as ghService from './ghService.js';
+import { agentCallLogger } from './agentCallLogger.js';
 // Note: prStatusService is imported dynamically in onSessionComplete to avoid circular dependency
 
 // --- Imports from extracted modules (used internally) ---
@@ -15,6 +16,7 @@ import { validatePrUrl as _validatePrUrl } from './prUrlValidator.js';
 import { buildIncrementalPrompt as _buildIncrementalPrompt } from './summaryPromptBuilder.js';
 import { callClaude as _callClaude, parseSummaryResponse as _parseSummaryResponse } from './summaryClaudeAdapter.js';
 import { buildChildSessionContext as _buildChildSessionContext, aggregateFilesModified as _aggregateFilesModified, propagateToParent } from './sessionHierarchy.js';
+import { isConversationSummaryEnabled, generateConversationSummary } from './conversationSummaryService.js';
 
 // --- Re-exports from extracted modules (preserve public API) ---
 export { extractPrUrlFromMessages, extractPrUrlIfNeeded } from './prUrlExtractor.js';
@@ -99,7 +101,10 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
     const prompt = _buildIncrementalPrompt(existingSummary, recentMessages, session.status, globalSettings?.sessionTitlePrompt, childContext);
 
     // Call Claude via SDK (or mock in test mode)
-    const responseText = await _callClaude(prompt, recentMessages, session.status);
+    const responseText = await _callClaude(prompt, recentMessages, session.status, {
+      sessionId,
+      callType: 'generateSessionSummary',
+    });
 
     // Parse response
     const summaryData = _parseSummaryResponse(responseText);
@@ -223,6 +228,12 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
       });
     }
 
+    // Clear the generating flag so the UI knows generation is complete
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
+      sessionId,
+      generating: false,
+    });
+
     console.log(`[SummaryService] Successfully generated summary for session ${sessionId}`);
 
     // Propagate summary updates to parent sessions (workflow-aware)
@@ -305,6 +316,16 @@ export function onSessionComplete(sessionId) {
 
   // Generate summary immediately with force=true to update final state
   generateSummary(sessionId, 0, true);
+
+  // Generate conversation summary for the active conversation
+  if (isConversationSummaryEnabled(sessionId)) {
+    const activeConversation = conversations.getActiveBySessionId(sessionId);
+    if (activeConversation && !activeConversation.summary) {
+      generateConversationSummary(sessionId, activeConversation.id).catch((err) => {
+        console.error(`[SummaryService] Failed to generate conversation summary on session complete:`, err);
+      });
+    }
+  }
 
   // Schedule follow-up CI checks for sessions with PRs
   // CI might still be running after the session completes

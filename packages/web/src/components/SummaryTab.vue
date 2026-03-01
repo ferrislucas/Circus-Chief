@@ -26,7 +26,7 @@
       </div>
 
       <!-- PR Info in Overview -->
-      <div v-if="hasPrInfo" class="overview-pr">
+      <div v-if="hasPrInfo" class="overview-pr" data-testid="pr-overview-badge">
         <a :href="prUrl" target="_blank" class="pr-link">
           {{ extractPrNumber(prUrl) }}
         </a>

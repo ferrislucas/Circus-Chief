@@ -139,4 +139,58 @@ router.delete('/summary', (req, res) => {
   }
 });
 
+/**
+ * GET /api/settings/general
+ * Get general settings (includes privacy settings)
+ */
+router.get('/general', (req, res) => {
+  try {
+    const generalSettings = settings.getGeneralSettings();
+    res.json(generalSettings);
+  } catch (error) {
+    console.error('Error getting general settings:', error);
+    res.status(500).json({ error: 'Failed to get general settings' });
+  }
+});
+
+/**
+ * PUT /api/settings/general
+ * Update general settings
+ */
+router.put('/general', (req, res) => {
+  try {
+    const { disableAnalytics } = req.body;
+
+    // Validate that disableAnalytics is a boolean
+    if (typeof disableAnalytics !== 'boolean') {
+      return res.status(400).json({
+        error: 'Invalid general settings. disableAnalytics must be a boolean'
+      });
+    }
+
+    const updatedSettings = settings.setGeneralSettings({
+      disableAnalytics,
+    });
+
+    res.json(updatedSettings);
+  } catch (error) {
+    console.error('Error updating general settings:', error);
+    res.status(500).json({ error: 'Failed to update general settings' });
+  }
+});
+
+/**
+ * DELETE /api/settings/general
+ * Reset general settings to defaults
+ */
+router.delete('/general', (req, res) => {
+  try {
+    const defaults = settings.resetGeneralSettings();
+    res.json(defaults);
+  } catch (error) {
+    console.error('Error resetting general settings:', error);
+    res.status(500).json({ error: 'Failed to reset general settings' });
+  }
+});
+
 export default router;

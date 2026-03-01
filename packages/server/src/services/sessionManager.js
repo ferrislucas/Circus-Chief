@@ -8,7 +8,6 @@ import { buildSystemPromptConfig } from './systemPromptBuilder.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForBranch, buildPromptWithAttachments } from './conversationContext.js';
 import { executeSessionQuery, broadcastSessionStatus } from './sessionExecutor.js';
 
-
 /**
  * Run a Claude session
  * @param {string} sessionId

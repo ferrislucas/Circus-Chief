@@ -200,11 +200,11 @@ async function handleDeleteAll(filename) {
 
 async function handleDeleteItem(item) {
   const filename = item.filename || item.id;
-  if (!confirm(`Delete "${filename}"?`)) return;
+  if (!confirm(`Delete all versions of "${filename}"?`)) return;
 
   try {
-    await canvasStore.deleteItem(props.sessionId, item.id);
-    uiStore.success('Item deleted');
+    await canvasStore.deleteGroup(props.sessionId, filename);
+    uiStore.success('All versions deleted');
   } catch (err) {
     uiStore.error(err.message);
   }

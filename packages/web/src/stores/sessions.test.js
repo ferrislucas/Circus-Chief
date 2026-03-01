@@ -346,6 +346,94 @@ describe('Sessions Store', () => {
         expect(store.workLogs['_unassociated']).toContainEqual(wsLog);
       });
     });
+
+    describe('work log deduplication', () => {
+      it('prevents duplicate work logs when addWorkLog receives the same log twice', () => {
+        const store = useSessionsStore();
+
+        const log = { id: 'log-1', messageId: 'msg-1', content: 'test' };
+        store.addWorkLog(log);
+
+        expect(store.workLogs['msg-1']).toEqual([log]);
+        expect(store.workLogs['msg-1']).toHaveLength(1);
+
+        // Add the same log again (simulating duplicate WebSocket delivery)
+        store.addWorkLog(log);
+
+        // Log should not be duplicated
+        expect(store.workLogs['msg-1']).toEqual([log]);
+        expect(store.workLogs['msg-1']).toHaveLength(1);
+      });
+
+      it('allows different logs with different IDs to be added', () => {
+        const store = useSessionsStore();
+
+        const log1 = { id: 'log-1', messageId: 'msg-1', content: 'test1' };
+        const log2 = { id: 'log-2', messageId: 'msg-1', content: 'test2' };
+
+        store.addWorkLog(log1);
+        store.addWorkLog(log2);
+
+        expect(store.workLogs['msg-1']).toEqual([log1, log2]);
+        expect(store.workLogs['msg-1']).toHaveLength(2);
+      });
+
+      it('prevents duplicates in associateWorkLogs when logs already exist in target message', () => {
+        const store = useSessionsStore();
+
+        // Set up initial state with some logs already associated with msg-1
+        const log1 = { id: 'log-1', content: 'test1' };
+        const log2 = { id: 'log-2', content: 'test2' };
+        store.workLogs = {
+          'msg-1': [log1, log2],
+          '_unassociated': [log1, log2], // Simulating duplicate unassociated logs
+        };
+
+        // Associate should filter out duplicates
+        store.associateWorkLogs('msg-1');
+
+        // Should not have duplicates - each log should appear only once
+        expect(store.workLogs['msg-1']).toHaveLength(2);
+        expect(store.workLogs['msg-1']).toEqual([log1, log2]);
+        expect(store.workLogs['_unassociated']).toEqual([]);
+      });
+
+      it('associateWorkLogs only adds logs that are not already present', () => {
+        const store = useSessionsStore();
+
+        // Set up: msg-1 already has log-1, _unassociated has log-1 and log-2
+        const log1 = { id: 'log-1', content: 'test1' };
+        const log2 = { id: 'log-2', content: 'test2' };
+        store.workLogs = {
+          'msg-1': [log1],
+          '_unassociated': [log1, log2],
+        };
+
+        // Associate should only add log-2 (log-1 is already there)
+        store.associateWorkLogs('msg-1');
+
+        // log-1 should appear only once, log-2 should be added
+        expect(store.workLogs['msg-1']).toHaveLength(2);
+        expect(store.workLogs['msg-1']).toEqual([log1, log2]);
+        expect(store.workLogs['_unassociated']).toEqual([]);
+      });
+
+      it('associateWorkLogs handles empty unassociated logs', () => {
+        const store = useSessionsStore();
+
+        const existingLog = { id: 'log-1', content: 'existing' };
+        store.workLogs = {
+          'msg-1': [existingLog],
+          '_unassociated': [],
+        };
+
+        store.associateWorkLogs('msg-1');
+
+        // Should not change anything
+        expect(store.workLogs['msg-1']).toEqual([existingLog]);
+        expect(store.workLogs['_unassociated']).toEqual([]);
+      });
+    });
   });
 
   describe('updateNextTemplate', () => {

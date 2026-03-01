@@ -6,10 +6,13 @@
         <span class="loading-spinner"></span>
         <span class="running-title">Claude is working...</span>
       </div>
-      <button type="button" class="btn btn-danger btn-stop" @click="$emit('stop')" :disabled="stopping">
-        <span v-if="stopping" class="loading-spinner"></span>
-        Stop
-      </button>
+      <div class="running-actions">
+        <span v-if="activeModelDisplayName" class="running-model-label">{{ activeModelDisplayName }}</span>
+        <button type="button" class="btn btn-danger btn-stop" @click="$emit('stop')" :disabled="stopping">
+          <span v-if="stopping" class="loading-spinner"></span>
+          Stop
+        </button>
+      </div>
     </div>
 
     <!-- Work logs panel (without its own header) -->
@@ -37,6 +40,9 @@
 <script setup>
 import { computed } from 'vue';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue';
+import { useModelInfo } from '../composables/useModelInfo.js';
+
+const { getModelDisplayName } = useModelInfo();
 
 const props = defineProps({
   stopping: { type: Boolean, default: false },
@@ -44,6 +50,12 @@ const props = defineProps({
   partialThinking: { type: String, default: null },
   nextTemplate: { type: Object, default: null },
   projectId: { type: String, default: null },
+  model: { type: String, default: null },
+});
+
+const activeModelDisplayName = computed(() => {
+  if (!props.model) return null;
+  return getModelDisplayName(props.model);
 });
 
 defineEmits(['stop']);
@@ -76,6 +88,18 @@ const templateLink = computed(() => {
 }
 
 .running-title {
+  font-weight: 500;
+}
+
+.running-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.running-model-label {
+  font-size: 0.8125rem;
+  color: var(--color-text-soft);
   font-weight: 500;
 }
 

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
   seedProject,
-  cleanupAll,
+  cleanupCreatedResources,
 } from './helpers';
 
 /**
@@ -10,11 +10,11 @@ import {
 
 test.describe('Quick Response Dialog - Fixed Footer with Save Button', () => {
   test.beforeEach(async () => {
-    await cleanupAll();
+    await cleanupCreatedResources();
   });
 
   test.afterEach(async () => {
-    await cleanupAll();
+    await cleanupCreatedResources();
   });
 
   /**
@@ -51,32 +51,34 @@ test.describe('Quick Response Dialog - Fixed Footer with Save Button', () => {
       await page.waitForTimeout(300);
     }
 
-    let dialog = page.locator('[role="dialog"]').last();
-    await expect(dialog).toBeVisible({ timeout: 5000 });
+    // Find the Add dialog by looking for a dialog that contains the QR form fields
+    let addDialog = page.locator('[role="dialog"]').filter({ has: page.locator('#qr-label') });
+    await expect(addDialog).toBeVisible({ timeout: 5000 });
 
     // Fill and save
-    const labelInput = dialog.locator('#qr-label');
+    const labelInput = addDialog.locator('#qr-label');
     await labelInput.fill('Test Response');
 
-    const contentTextarea = dialog.locator('#qr-content');
+    const contentTextarea = addDialog.locator('#qr-content');
     await contentTextarea.fill('This is a test response content');
 
-    const saveButton = dialog.locator('button[type="submit"]');
+    const saveButton = addDialog.locator('button[type="submit"]');
     await saveButton.click();
 
-    // Wait for dialog to close
-    await page.waitForTimeout(500);
+    // Wait for the Add dialog's form to disappear (the dialog with #qr-label should close)
+    await expect(addDialog).not.toBeVisible({ timeout: 5000 });
+
+    // Wait for the created quick response to appear in the list
+    // Use .response-label selector to avoid matching both label and content spans
+    await expect(page.locator('.response-label', { hasText: 'Test Response' })).toBeVisible({ timeout: 5000 });
 
     // Now find and click the edit button for the created response
-    // Look for edit button in the quick responses list
     const editButtons = page.getByRole('button', { name: /edit/i });
-    if (await editButtons.first().isVisible({ timeout: 3000 }).catch(() => false)) {
-      await editButtons.first().click();
-      await page.waitForTimeout(300);
-    }
+    await expect(editButtons.first()).toBeVisible({ timeout: 5000 });
+    await editButtons.first().click();
 
-    // The edit dialog should now be open
-    dialog = page.locator('[role="dialog"]').last();
+    // The edit dialog should now be open - find it by the QR form fields
+    const dialog = page.locator('[role="dialog"]').filter({ has: page.locator('#qr-label') });
     await expect(dialog).toBeVisible({ timeout: 5000 });
 
     // Verify it's an edit dialog

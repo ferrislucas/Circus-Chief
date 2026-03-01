@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { readFileSync, existsSync } from 'fs';
 import { extname, resolve, normalize } from 'path';
-import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons, commandRuns, modelProviders } from '../database.js';
+import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons, commandRuns, modelProviders, sessionSummaries } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession, continueSessionWithExistingMessage } from '../services/sessionManager.js';
 import { getChanges, getChangesBranch } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -888,6 +888,7 @@ router.patch('/:id', (req, res) => {
   }
 
   const {
+    name,
     thinkingEnabled,
     status,
     mode,
@@ -910,6 +911,9 @@ router.patch('/:id', (req, res) => {
 
   // Build update object with only provided fields
   const updateData = {};
+  if (name !== undefined) {
+    updateData.name = name;
+  }
   if (thinkingEnabled !== undefined) {
     updateData.thinkingEnabled = Boolean(thinkingEnabled);
   }
@@ -1012,6 +1016,12 @@ router.patch('/:id', (req, res) => {
     });
   }
 
+  // Broadcast session update to session subscribers (e.g. detail view)
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    sessionId: req.params.id,
+    session: updated,
+  });
+
   // Broadcast session update to project subscribers for real-time list updates
   broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
     projectId: session.projectId,
@@ -1088,6 +1098,21 @@ router.post('/:id/summary', async (req, res) => {
       return res.status(500).json({ error: 'Failed to generate summary' });
     }
     res.status(201).json(summary);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/sessions/:id/summary - Directly set summary data (for testing/seeding)
+router.put('/:id/summary', async (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  try {
+    const summary = sessionSummaries.upsert(req.params.id, req.body);
+    res.json(summary);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

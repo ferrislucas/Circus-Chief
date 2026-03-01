@@ -87,6 +87,16 @@ const routes = [
         name: 'SummarySettings',
         component: () => import('./views/SummarySettingsView.vue'),
       },
+      {
+        path: 'general',
+        name: 'GeneralSettings',
+        component: () => import('./views/GeneralSettingsView.vue'),
+      },
+      {
+        path: 'logs',
+        name: 'AgentLogs',
+        component: () => import('./views/AgentLogsView.vue'),
+      },
     ],
   },
 ];

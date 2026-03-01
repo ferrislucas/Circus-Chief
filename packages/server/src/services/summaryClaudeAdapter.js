@@ -4,6 +4,7 @@
  */
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { agentCallLogger } from './agentCallLogger.js';
 
 // Check if mock mode is enabled
 export const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
@@ -67,9 +68,10 @@ async function* mockSummaryQuery({ prompt: _prompt, recentMessages, sessionStatu
  * @param {string} prompt - The prompt to send
  * @param {Array} recentMessages - Messages (for mock mode context)
  * @param {string} sessionStatus - Session status (for mock mode context)
+ * @param {Object|null} logMeta - Optional metadata for agent call logging
  * @returns {Promise<string>} The text response
  */
-export async function callClaude(prompt, recentMessages, sessionStatus) {
+export async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null) {
   const queryFn = isMockMode() ? mockSummaryQuery : query;
 
   // JSON Schema for structured output
@@ -103,30 +105,79 @@ export async function callClaude(prompt, recentMessages, sessionStatus) {
         },
       };
 
+  // Start logging if metadata provided
+  let callId = null;
+  if (logMeta) {
+    callId = agentCallLogger.startCall({
+      sessionId: logMeta.sessionId,
+      conversationId: logMeta.conversationId || null,
+      agentType: 'summary',
+      model: isMockMode() ? 'mock' : 'claude-haiku-4-5-20251001',
+      callType: logMeta.callType,
+      promptLength: prompt.length,
+    });
+  }
+
   let responseText = '';
   let structuredOutput = null;
 
-  for await (const event of queryFn(queryParams)) {
-    switch (event.type) {
-      case 'assistant': {
-        const content = event.message?.content || [];
-        for (const block of content) {
-          // Capture structured output from StructuredOutput tool use
-          if (block.type === 'tool_use' && block.name === 'StructuredOutput') {
-            structuredOutput = block.input;
-          } else if (block.type === 'text') {
-            responseText += block.text;
+  try {
+    for await (const event of queryFn(queryParams)) {
+      switch (event.type) {
+        case 'assistant': {
+          const content = event.message?.content || [];
+          for (const block of content) {
+            // Capture structured output from StructuredOutput tool use
+            if (block.type === 'tool_use' && block.name === 'StructuredOutput') {
+              structuredOutput = block.input;
+            } else if (block.type === 'text') {
+              responseText += block.text;
+            }
           }
+          break;
         }
-        break;
-      }
-      case 'result': {
-        if (event.subtype === 'error') {
-          throw new Error(event.error || 'Claude SDK query failed');
+        case 'result': {
+          if (event.subtype === 'error') {
+            throw new Error(event.error || 'Claude SDK query failed');
+          }
+          // Capture usage for logging
+          if (callId) {
+            const modelUsageEntry = event.modelUsage
+              ? Object.values(event.modelUsage)[0]
+              : null;
+            if (modelUsageEntry || event.usage) {
+              agentCallLogger.updateUsage(callId, {
+                inputTokens:
+                  modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
+                outputTokens:
+                  modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
+                thinkingTokens: 0,
+                cacheReadInputTokens:
+                  modelUsageEntry?.cacheReadInputTokens ||
+                  event.usage?.cache_read_input_tokens ||
+                  0,
+                cacheCreationInputTokens:
+                  modelUsageEntry?.cacheCreationInputTokens ||
+                  event.usage?.cache_creation_input_tokens ||
+                  0,
+              });
+            }
+          }
+          break;
         }
-        break;
       }
     }
+
+    // Complete the logged call on success
+    if (callId) {
+      agentCallLogger.completeCall(callId, { success: true });
+    }
+  } catch (error) {
+    // Complete the logged call on error
+    if (callId) {
+      agentCallLogger.completeCall(callId, { success: false, error });
+    }
+    throw error;
   }
 
   // Prefer structured output (already parsed JSON) over text response

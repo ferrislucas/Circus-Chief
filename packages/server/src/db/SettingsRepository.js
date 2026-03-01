@@ -3,6 +3,7 @@ import { DEFAULT_TOKEN_COST_WEIGHTS } from '@claudetools/shared';
 
 const TOKEN_WEIGHTS_KEY = 'token_cost_weights';
 const SUMMARY_SETTINGS_KEY = 'summary_settings';
+const GENERAL_SETTINGS_KEY = 'general_settings';
 
 /**
  * Settings repository for managing application-wide settings
@@ -162,6 +163,55 @@ export class SettingsRepository {
       disableSessionSummaries: false,
       disableConversationSummaries: false,
       sessionTitlePrompt: '',
+    };
+  }
+
+  // General Settings
+
+  /**
+   * Get general settings with defaults
+   * @returns {Object} General settings
+   */
+  getGeneralSettings() {
+    const value = this.get(GENERAL_SETTINGS_KEY);
+    if (!value) {
+      return {
+        disableAnalytics: false,
+      };
+    }
+    try {
+      const parsed = JSON.parse(value);
+      return {
+        disableAnalytics: Boolean(parsed.disableAnalytics),
+      };
+    } catch {
+      return {
+        disableAnalytics: false,
+      };
+    }
+  }
+
+  /**
+   * Set general settings
+   * @param {Object} settings - General settings
+   * @param {boolean} settings.disableAnalytics - Disable analytics tracking
+   */
+  setGeneralSettings(settings) {
+    const validated = {
+      disableAnalytics: Boolean(settings.disableAnalytics),
+    };
+    this.set(GENERAL_SETTINGS_KEY, JSON.stringify(validated));
+    return validated;
+  }
+
+  /**
+   * Reset general settings to defaults
+   * @returns {Object} The default settings
+   */
+  resetGeneralSettings() {
+    this.delete(GENERAL_SETTINGS_KEY);
+    return {
+      disableAnalytics: false,
     };
   }
 }

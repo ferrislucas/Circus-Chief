@@ -1051,6 +1051,50 @@ export class ApiClient {
     return this.#request('POST', '/quick-responses/global/reorder', orders);
   }
 
+  // Agent Call Logs
+
+  /**
+   * Get paginated agent call logs with optional filters
+   * @param {Object} options - Filter/sort/pagination options
+   * @returns {Promise<{logs: Array, pagination: Object}>}
+   */
+  async getAgentCallLogs({
+    limit,
+    offset,
+    agentType,
+    callType,
+    status,
+    startDate,
+    endDate,
+    sessionId,
+    model,
+    sortBy,
+    sortOrder,
+  } = {}) {
+    const params = new URLSearchParams();
+    if (limit != null) params.append('limit', limit);
+    if (offset != null) params.append('offset', offset);
+    if (agentType) params.append('agentType', agentType);
+    if (callType) params.append('callType', callType);
+    if (status) params.append('status', status);
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    if (sessionId) params.append('sessionId', sessionId);
+    if (model) params.append('model', model);
+    if (sortBy) params.append('sortBy', sortBy);
+    if (sortOrder) params.append('sortOrder', sortOrder);
+    const query = params.toString();
+    return this.#request('GET', `/agent-calls${query ? '?' + query : ''}`);
+  }
+
+  /**
+   * Get distinct filter option values for agent call log dropdowns
+   * @returns {Promise<{agentTypes: string[], callTypes: string[], statuses: string[], models: string[]}>}
+   */
+  async getAgentCallFilterOptions() {
+    return this.#request('GET', '/agent-calls/filter-options');
+  }
+
   // Settings
 
   /**
@@ -1108,6 +1152,32 @@ export class ApiClient {
    */
   async resetSummarySettings() {
     return this.#request('DELETE', '/settings/summary');
+  }
+
+  /**
+   * Get general settings
+   * @returns {Promise<{disableAnalytics: boolean}>}
+   */
+  async getGeneralSettings() {
+    return this.#request('GET', '/settings/general');
+  }
+
+  /**
+   * Update general settings
+   * @param {Object} settings - General settings
+   * @param {boolean} settings.disableAnalytics - Disable analytics tracking
+   * @returns {Promise<{disableAnalytics: boolean}>}
+   */
+  async updateGeneralSettings(settings) {
+    return this.#request('PUT', '/settings/general', settings);
+  }
+
+  /**
+   * Reset general settings to defaults
+   * @returns {Promise<{disableAnalytics: boolean}>}
+   */
+  async resetGeneralSettings() {
+    return this.#request('DELETE', '/settings/general');
   }
 
   // Model Providers

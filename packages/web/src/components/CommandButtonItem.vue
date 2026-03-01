@@ -1,5 +1,5 @@
 <template>
-  <div class="command-button-item">
+  <div class="command-button-item" :data-testid="`command-button-item-${button.id}`">
     <!-- Header: Label and Run Button -->
     <div class="button-header">
       <div class="button-info">
@@ -9,7 +9,7 @@
 
       <div class="button-actions">
         <!-- Status Indicator -->
-        <div v-if="run" :class="['status-indicator', `status-${run.status}`]">
+        <div v-if="run" :class="['status-indicator', `status-${run.status}`]" data-testid="command-status">
           {{ statusIcon }}
         </div>
 
@@ -48,7 +48,7 @@
     </div>
 
     <!-- Output Section (collapsible) -->
-    <div v-if="run" class="output-section">
+    <div v-if="run" class="output-section" data-testid="output-section">
       <div class="output-header" @click="showOutput = !showOutput">
         <span class="expand-icon">{{ showOutput ? '▼' : '▶' }}</span>
         <span class="output-label">

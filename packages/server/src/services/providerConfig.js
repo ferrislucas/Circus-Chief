@@ -48,14 +48,20 @@ export function buildProviderEnv(provider) {
     env.ANTHROPIC_API_KEY = provider.authToken;
     env.ANTHROPIC_AUTH_TOKEN = provider.authToken;
   }
-  if (provider.defaultOpusModel) {
-    env.ANTHROPIC_DEFAULT_OPUS_MODEL = provider.defaultOpusModel;
-  }
-  if (provider.defaultSonnetModel) {
-    env.ANTHROPIC_DEFAULT_SONNET_MODEL = provider.defaultSonnetModel;
-  }
-  if (provider.defaultHaikuModel) {
-    env.ANTHROPIC_DEFAULT_HAIKU_MODEL = provider.defaultHaikuModel;
+  // Derive default model env vars from the provider's models array by tier
+  if (provider.models && Array.isArray(provider.models)) {
+    const opusModel = provider.models.find(m => m.tier === 'opus');
+    const sonnetModel = provider.models.find(m => m.tier === 'sonnet');
+    const haikuModel = provider.models.find(m => m.tier === 'haiku');
+    if (opusModel) {
+      env.ANTHROPIC_DEFAULT_OPUS_MODEL = opusModel.modelId;
+    }
+    if (sonnetModel) {
+      env.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnetModel.modelId;
+    }
+    if (haikuModel) {
+      env.ANTHROPIC_DEFAULT_HAIKU_MODEL = haikuModel.modelId;
+    }
   }
   if (provider.apiTimeoutMs) {
     env.API_TIMEOUT_MS = String(provider.apiTimeoutMs);

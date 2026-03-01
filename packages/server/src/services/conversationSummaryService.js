@@ -79,7 +79,11 @@ export async function generateConversationSummary(sessionId, conversationId) {
     const prompt = buildConversationSummaryPrompt(recentMessages);
 
     // Call Claude
-    const responseText = await callClaude(prompt, recentMessages, 'waiting');
+    const responseText = await callClaude(prompt, recentMessages, 'waiting', {
+      sessionId,
+      conversationId,
+      callType: 'generateConversationSummary',
+    });
 
     // Parse response
     const summary = parseConversationSummaryResponse(responseText);

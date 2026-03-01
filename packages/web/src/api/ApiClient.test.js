@@ -1647,4 +1647,128 @@ describe('ApiClient', () => {
       });
     });
   });
+
+  describe('settings', () => {
+    describe('getGeneralSettings', () => {
+      it('fetches general settings', async () => {
+        const mockData = { disableAnalytics: false };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getGeneralSettings();
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/settings/general', expect.objectContaining({
+          method: 'GET',
+        }));
+        expect(result).toEqual(mockData);
+      });
+
+      it('returns settings with disableAnalytics set to true', async () => {
+        const mockData = { disableAnalytics: true };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.getGeneralSettings();
+
+        expect(result.disableAnalytics).toBe(true);
+      });
+
+      it('handles API errors', async () => {
+        mockFetch.mockReturnValue({
+          ok: false,
+          status: 500,
+          json: async () => ({ error: 'Failed to get general settings' }),
+        });
+
+        await expect(client.getGeneralSettings()).rejects.toThrow('Failed to get general settings');
+      });
+    });
+
+    describe('updateGeneralSettings', () => {
+      it('puts to /api/settings/general', async () => {
+        const settingsData = { disableAnalytics: true };
+        const mockData = { ...settingsData };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.updateGeneralSettings(settingsData);
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/settings/general', expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify(settingsData),
+        }));
+        expect(result).toEqual(mockData);
+      });
+
+      it('updates disableAnalytics to false', async () => {
+        const settingsData = { disableAnalytics: false };
+        mockFetch.mockReturnValue(mockResponse(settingsData));
+
+        const result = await client.updateGeneralSettings(settingsData);
+
+        expect(result.disableAnalytics).toBe(false);
+      });
+
+      it('updates disableAnalytics to true', async () => {
+        const settingsData = { disableAnalytics: true };
+        mockFetch.mockReturnValue(mockResponse(settingsData));
+
+        const result = await client.updateGeneralSettings(settingsData);
+
+        expect(result.disableAnalytics).toBe(true);
+      });
+
+      it('handles validation errors', async () => {
+        mockFetch.mockReturnValue({
+          ok: false,
+          status: 400,
+          json: async () => ({ error: 'Invalid general settings. disableAnalytics must be a boolean' }),
+        });
+
+        await expect(client.updateGeneralSettings({ disableAnalytics: 'not-a-boolean' }))
+          .rejects.toThrow('Invalid general settings. disableAnalytics must be a boolean');
+      });
+
+      it('handles server errors', async () => {
+        mockFetch.mockReturnValue({
+          ok: false,
+          status: 500,
+          json: async () => ({ error: 'Failed to update general settings' }),
+        });
+
+        await expect(client.updateGeneralSettings({ disableAnalytics: true }))
+          .rejects.toThrow('Failed to update general settings');
+      });
+    });
+
+    describe('resetGeneralSettings', () => {
+      it('deletes /api/settings/general', async () => {
+        const mockData = { disableAnalytics: false };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.resetGeneralSettings();
+
+        expect(mockFetch).toHaveBeenCalledWith('/api/settings/general', expect.objectContaining({
+          method: 'DELETE',
+        }));
+        expect(result).toEqual(mockData);
+      });
+
+      it('returns default settings after reset', async () => {
+        const mockData = { disableAnalytics: false };
+        mockFetch.mockReturnValue(mockResponse(mockData));
+
+        const result = await client.resetGeneralSettings();
+
+        expect(result).toEqual({ disableAnalytics: false });
+      });
+
+      it('handles API errors', async () => {
+        mockFetch.mockReturnValue({
+          ok: false,
+          status: 500,
+          json: async () => ({ error: 'Failed to reset general settings' }),
+        });
+
+        await expect(client.resetGeneralSettings()).rejects.toThrow('Failed to reset general settings');
+      });
+    });
+  });
 });

@@ -112,6 +112,7 @@
       :partial-thinking="sessionsStore.partialThinking"
       :next-template="nextTemplate"
       :project-id="sessionsStore.currentSession?.projectId"
+      :model="sessionsStore.currentSession?.model"
       @stop="handleStop"
     />
 
@@ -351,268 +352,6 @@ const workingDirectory = computed(() => {
   return result;
 });
 
-// Subscribe to partial messages for streaming, work logs, and conversation events
-const {
-  onPartial,
-  onMessage,
-  onWorkLog,
-  onWorkLogsAssociated,
-  onThinkingPartial,
-  onConversationCreated,
-  onConversationUpdated,
-  onConversationDeleted,
-} = useSessionSubscription(props.sessionId);
-let unsubPartial = null;
-let unsubMessage = null;
-let unsubWorkLog = null;
-let unsubWorkLogsAssociated = null;
-let unsubThinkingPartial = null;
-let unsubConvCreated = null;
-let unsubConvUpdated = null;
-let unsubConvDeleted = null;
-
-function handleScroll() {
-  const container = messagesContainer.value;
-  if (!container) return;
-  const { scrollTop, scrollHeight, clientHeight } = container;
-  const wasNearBottom = isNearBottom.value;
-  isNearBottom.value = scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD;
-
-  // Clear new messages indicator when user scrolls to bottom
-  if (isNearBottom.value && !wasNearBottom) {
-    hasNewMessages.value = false;
-  }
-}
-
-// Lifecycle
-onMounted(async () => {
-  // Load pendingPrompt from session data (works for both draft and waiting sessions)
-  const pending = sessionsStore.currentSession?.pendingPrompt;
-  if (pending) {
-    input.value = pending;
-    nextTick(() => {
-      const textareaRef = getTextareaRef();
-      if (textareaRef) {
-        textareaRef.value = pending;
-      }
-    });
-  } else if (isDraft.value && sessionsStore.messages.length > 0) {
-    const userMessage = sessionsStore.messages.find(msg => msg.role === 'user');
-    if (userMessage) {
-      input.value = userMessage.content;
-      nextTick(() => {
-        const textareaRef = getTextareaRef();
-        if (textareaRef) {
-          textareaRef.value = userMessage.content;
-        }
-      });
-    }
-  }
-
-  // Add scroll event listener to the messages container
-  if (messagesContainer.value) {
-    messagesContainer.value.addEventListener('scroll', handleScroll);
-  }
-
-  // Only fetch conversations if not already loaded for this session
-  if (sessionsStore.conversations.length === 0 ||
-      sessionsStore.conversations[0]?.sessionId !== props.sessionId) {
-    await sessionsStore.fetchConversations(props.sessionId);
-  }
-
-  // Fetch quick responses and project data for the project
-  if (sessionsStore.currentSession?.projectId) {
-    const projectId = sessionsStore.currentSession.projectId;
-    quickResponsesStore.fetchForProject(projectId);
-
-    try {
-      await projectsStore.fetchProject(projectId);
-    } catch (err) {
-      console.error('Failed to fetch project:', err);
-    }
-  }
-
-  // Setup streaming subscriptions
-  setupSubscriptions();
-
-  // NOTE: onUsageUpdate subscription moved to SessionDetailView.onMounted to ensure
-  // conversations are loaded before usage updates arrive (avoids race conditions)
-
-  // Fetch initial work logs
-  await sessionsStore.fetchWorkLogs(props.sessionId);
-
-  // Check for conversation ID in query parameter
-  const convId = route.query.conv;
-  if (convId && convId !== sessionsStore.activeConversationId) {
-    await sessionsStore.switchConversation(props.sessionId, convId);
-  }
-
-  // Scroll to bottom on initial load
-  scrollToBottom(true);
-});
-
-onUnmounted(() => {
-  teardownSubscriptions();
-  if (debounceTimer) clearTimeout(debounceTimer);
-  if (draftSaveTimer) clearTimeout(draftSaveTimer);
-  if (inputSyncTimer) clearTimeout(inputSyncTimer);
-  if (partialThrottleTimer) clearTimeout(partialThrottleTimer);
-  if (messagesContainer.value) {
-    messagesContainer.value.removeEventListener('scroll', handleScroll);
-  }
-  // Clear work logs when leaving the conversation tab
-  // Note: Don't clear conversations here - they should persist when switching tabs
-  // within the same session. They will be refreshed when switching sessions.
-  sessionsStore.clearWorkLogs();
-});
-
-// Input handling
-function handleInput(event) {
-  const value = event.target.value;
-
-  // Sync to reactive state IMMEDIATELY (for button enabling to work)
-  input.value = value;
-
-  // Mark as unsaved immediately (but only if status changed)
-  if (saveStatus.value !== 'unsaved' && saveStatus.value !== 'saving') {
-    saveStatus.value = 'unsaved';
-  }
-
-  // Debounce the server save
-  if (inputSyncTimer) clearTimeout(inputSyncTimer);
-  if (draftSaveTimer) clearTimeout(draftSaveTimer);
-
-  inputSyncTimer = setTimeout(() => {
-    if (canSendMessage.value) {
-      savePendingPrompt(value);
-    }
-  }, 500); // Debounce 500ms for server save
-}
-
-function scrollToBottom(force = false) {
-  nextTick(() => {
-    const container = messagesContainer.value;
-    if (!container) return;
-    if (force || isNearBottom.value) {
-      container.scrollTop = container.scrollHeight;
-      isNearBottom.value = true;
-      hasNewMessages.value = false;
-    } else {
-      // User has scrolled up, mark that there are new messages
-      hasNewMessages.value = true;
-    }
-  });
-}
-
-function scrollToClaudesTurn() {
-  nextTick(() => {
-    const container = messagesContainer.value;
-    if (!container) return;
-
-    // Find the last assistant message
-    const lastAssistantIndex = sessionsStore.messages.findLastIndex(msg => msg.role === 'assistant');
-    if (lastAssistantIndex < 0) return;
-
-    const lastAssistantMsg = sessionsStore.messages[lastAssistantIndex];
-    const msgElement = document.querySelector(`[data-message-id="${lastAssistantMsg.id}"]`);
-
-    if (msgElement) {
-      // Get element position relative to the container
-      const containerRect = container.getBoundingClientRect();
-      const elementRect = msgElement.getBoundingClientRect();
-      const offsetTop = elementRect.top - containerRect.top + container.scrollTop;
-
-      container.scrollTop = offsetTop - 16; // 16px padding from top
-    }
-  });
-}
-
-watch(
-  () => sessionsStore.messages.length,
-  (newLen, oldLen) => {
-    console.log(`[CONV] messages.length changed: ${oldLen} → ${newLen}, activeConversationId: ${sessionsStore.activeConversationId}`);
-    // Force scroll when messages first load, conditional scroll otherwise
-    if (oldLen === 0 && newLen > 0) {
-      scrollToBottom(true);
-    } else {
-      scrollToBottom();
-    }
-  }
-);
-
-// Re-fetch messages and work logs when session status changes from running to waiting/completed
-// This ensures the UI shows the correct messages after Claude's turn ends.
-// Note: fetchMessages() uses a smart merge strategy that preserves any messages
-// already in the store (delivered via WebSocket) that aren't yet in the API response.
-// This prevents a race condition where messages disappear if the database write
-// hasn't completed before the status change triggers this refetch.
-watch(
-  () => sessionsStore.currentSession?.status,
-  async (newStatus, oldStatus) => {
-    if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
-      console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
-      // Clear any lingering streaming state (Step 2 - safety net)
-      partialText.value = '';
-      // Fetch messages first, then work logs - this ensures messages are visible
-      await sessionsStore.fetchMessages(props.sessionId, false);
-      await sessionsStore.fetchWorkLogs(props.sessionId);
-    }
-  }
-);
-
-// Watch for messages loading on draft sessions and populate textarea
-watch(
-  () => sessionsStore.messages,
-  (newMessages) => {
-    // Only populate textarea for draft sessions that don't have textarea content yet
-    if (isDraft.value && textareaRef.value) {
-      const textareaHasContent = textareaRef.value.value && textareaRef.value.value.trim().length > 0;
-      if (!textareaHasContent) {
-        const userMessage = newMessages.find(msg => msg.role === 'user');
-        if (userMessage && userMessage.content) {
-          input.value = userMessage.content;
-          nextTick(() => {
-            if (textareaRef.value) {
-              textareaRef.value.value = userMessage.content;
-            }
-          });
-        }
-      }
-    }
-  },
-  { deep: true, immediate: true }
-);
-
-// Message reconciliation watcher - always fetch messages when conversation changes
-// This ensures the UI always shows the correct messages for the active conversation
-watch(
-  () => sessionsStore.activeConversationId,
-  async (newConvId, oldConvId) => {
-    if (newConvId && newConvId !== oldConvId) {
-      // Clear streaming message state from previous conversation (Step 1)
-      partialText.value = '';
-
-      // Clear throttle timer to prevent stale partial updates (Step 3)
-      if (partialThrottleTimer) {
-        clearTimeout(partialThrottleTimer);
-        partialThrottleTimer = null;
-      }
-      pendingPartialText = null;
-
-      // Reset scroll state when switching conversations
-      hasNewMessages.value = false;
-      isNearBottom.value = true;
-
-      await nextTick();
-
-      // Always refetch when conversation changes - no status check
-      // This prevents the UI from showing stale messages from a previous conversation
-      console.log(`[CONV] activeConversationId changed to ${newConvId}, refetching messages`);
-      await sessionsStore.fetchMessages(props.sessionId, false);
-    }
-  }
-);
-
 // Helper function to get project default model with fallback
 function getProjectDefaultModel() {
   const projectId = sessionsStore.currentSession?.projectId;
@@ -620,77 +359,6 @@ function getProjectDefaultModel() {
 
   const defaults = defaultsStore.getDefaultsForProject(projectId);
   return defaults?.model || null;
-}
-
-// Watch for conversation query parameter changes
-watch(
-  () => route.query.conv,
-  async (newConvId, oldConvId) => {
-    if (newConvId && newConvId !== oldConvId && newConvId !== sessionsStore.activeConversationId) {
-      await sessionsStore.switchConversation(props.sessionId, newConvId);
-    }
-  }
-);
-
-// Update model selector when active conversation changes or its model is updated
-// Only set the model on initial load (selectedModel is null) to avoid overriding
-// user selections when session state changes (e.g., stop button resets status)
-watch(
-  () => sessionsStore.activeConversation,
-  (conv) => {
-    if (selectedModel.value === null) {
-      // Initial load: set model from session, project default, or fallback
-      selectedModel.value = sessionsStore.currentSession?.model ||
-        getProjectDefaultModel() ||
-        'sonnet';
-    }
-  },
-  { immediate: true }
-);
-
-// Persist model selection to session when user changes it
-// This ensures the model is preserved across status changes (stop, restart, etc.)
-watch(selectedModel, async (newModel, oldModel) => {
-  // Only persist if this is a user-initiated change (not initial load)
-  if (oldModel !== null && newModel && newModel !== oldModel) {
-    try {
-      await sessionsStore.updateSessionModel(props.sessionId, newModel);
-    } catch (err) {
-      console.error('Failed to persist model selection:', err);
-    }
-  }
-});
-
-function formatTime(timestamp) {
-  return new Date(timestamp).toLocaleTimeString();
-}
-
-/**
- * Format model name for display
- * Converts "claude-3-5-sonnet-20241022" to "claude-3.5-sonnet"
- * @param {string} model - The model name
- * @returns {string} Formatted model name
- */
-function formatModelName(model) {
-  if (!model) return '';
-  return model
-    .replace(/-(\d{8})$/, '')  // Remove date suffix
-    .replace(/-(\d)-(\d)-/, '-$1.$2-');  // Convert 3-5 to 3.5
-}
-
-function formatFileSize(bytes) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function getAttachmentIcon(mimeType) {
-  if (!mimeType) return '📎';
-  if (mimeType.startsWith('image/')) return '🖼️';
-  if (mimeType.startsWith('text/') || mimeType === 'application/json') return '📄';
-  if (mimeType === 'application/pdf') return '📕';
-  if (mimeType.includes('javascript') || mimeType.includes('typescript')) return '📜';
-  return '📎';
 }
 
 async function handleSend() {
@@ -869,15 +537,6 @@ async function handleBranchCreate({ messageId, prompt }) {
   }
 }
 
-// Helper function to get project default model with fallback
-function getProjectDefaultModel() {
-  const projectId = sessionsStore.currentSession?.projectId;
-  if (!projectId) return null;
-
-  const defaults = defaultsStore.getDefaultsForProject(projectId);
-  return defaults?.model || null;
-}
-
 // Watchers
 watch(
   () => sessionsStore.messages.length,
@@ -968,6 +627,17 @@ watch(
   },
   { immediate: true }
 );
+
+watch(selectedModel, async (newModel, oldModel) => {
+  // Only persist if this is a user-initiated change (not initial load)
+  if (oldModel !== null && newModel && newModel !== oldModel) {
+    try {
+      await sessionsStore.updateSessionModel(props.sessionId, newModel);
+    } catch (err) {
+      console.error('Failed to persist model selection:', err);
+    }
+  }
+});
 </script>
 
 <style scoped>

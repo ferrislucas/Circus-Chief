@@ -17,6 +17,20 @@
       >
         Summary Settings
       </router-link>
+      <router-link
+        to="/settings/general"
+        class="tab"
+        :class="{ active: $route.path === '/settings/general' }"
+      >
+        Settings
+      </router-link>
+      <router-link
+        to="/settings/logs"
+        class="tab"
+        :class="{ active: $route.path === '/settings/logs' }"
+      >
+        Logs
+      </router-link>
     </div>
 
     <div class="tab-content">
