@@ -9,6 +9,7 @@
       class="indicator"
       data-testid="indicator-cpu"
       :title="`CPU: ${Math.round(metrics.cpu.usagePercent)}%`"
+      @click="selectedStat = 'cpu'"
     >
       <svg class="indicator-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
@@ -39,6 +40,7 @@
       class="indicator"
       data-testid="indicator-memory"
       :title="`RAM: ${metrics.memory.usedGB.toFixed(1)} / ${metrics.memory.totalGB.toFixed(1)} GB`"
+      @click="selectedStat = 'memory'"
     >
       <svg class="indicator-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M6 19v-3"></path>
@@ -69,6 +71,7 @@
       class="indicator"
       data-testid="indicator-disk"
       :title="`Disk: ${Math.round(metrics.disk.freeGB)} GB free`"
+      @click="selectedStat = 'disk'"
     >
       <svg class="indicator-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
@@ -87,6 +90,14 @@
       </div>
     </div>
   </div>
+
+  <!-- System Stat Detail Modal -->
+  <SystemStatDetailModal
+    :isOpen="selectedStat !== null"
+    :statType="selectedStat"
+    :metrics="metrics"
+    @close="selectedStat = null"
+  />
 </template>
 
 <script setup>
@@ -94,11 +105,13 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useWebSocket } from '../composables/useWebSocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { getColorForPercent } from '../utils/systemIndicators.js';
+import SystemStatDetailModal from './SystemStatDetailModal.vue';
 
 const { on, off } = useWebSocket();
 
 const metrics = ref(null);
 const hasData = computed(() => metrics.value !== null);
+const selectedStat = ref(null);
 
 function handleMetrics(message) {
   metrics.value = message;
@@ -118,6 +131,9 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .indicator {
@@ -125,7 +141,8 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  cursor: default;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .indicator-icon {
@@ -139,6 +156,27 @@ onUnmounted(() => {
   background-color: var(--color-background-mute);
   border-radius: 2px;
   overflow: hidden;
+}
+
+/* Compact indicators on small screens */
+@media (max-width: 480px) {
+  .system-indicators {
+    gap: 0.4rem;
+  }
+
+  .indicator-icon {
+    width: 10px;
+    height: 10px;
+  }
+
+  .indicator-bar-track {
+    width: 18px;
+    height: 2px;
+  }
+
+  .indicator {
+    gap: 2px;
+  }
 }
 
 .indicator-bar-fill {
