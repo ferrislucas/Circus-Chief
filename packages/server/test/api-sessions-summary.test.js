@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import { projects, sessions, sessionSummaries } from '../src/database.js';
+import { projects, sessions, sessionSummaries, messages } from '../src/database.js';
 import sessionRouter from '../src/api/sessions.js';
 
 // Mock websocket module
@@ -16,6 +16,10 @@ describe('PUT /api/sessions/:id/summary', () => {
   let app;
 
   beforeEach(() => {
+    // Set mock mode for testing
+    vi.stubEnv('MOCK_CLAUDE', 'true');
+    vi.clearAllMocks();
+
     // Create express app with the sessions router
     app = express();
     app.use(express.json());
@@ -24,6 +28,11 @@ describe('PUT /api/sessions/:id/summary', () => {
     // Create test data
     project = projects.create('Test Project', '/tmp/test');
     session = sessions.create(project.id, 'Test Session', 'Initial prompt', 'standard');
+
+    // Add messages to meet MIN_MESSAGES_FOR_SUMMARY threshold (Phase 2)
+    // Session creation adds 1 message, so we need 2 more
+    messages.create(session.id, 'assistant', 'Response 1');
+    messages.create(session.id, 'user', 'Follow-up');
   });
 
   afterEach(() => {
