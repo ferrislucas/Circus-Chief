@@ -620,11 +620,16 @@ watch(
   { immediate: true }
 );
 
-// Watch for sessions changes and fetch summaries
+// Watch for sessions changes and fetch summaries (debounced to avoid burst of API calls
+// when multiple WebSocket updates arrive in quick succession)
+let fetchSummariesTimer = null;
 watch(
   () => sessionsStore.sessions,
   () => {
-    fetchSummaries();
+    clearTimeout(fetchSummariesTimer);
+    fetchSummariesTimer = setTimeout(() => {
+      fetchSummaries();
+    }, 400);
   }
 );
 
@@ -755,6 +760,8 @@ onUnmounted(() => {
   if (currentUnsubscribe) {
     currentUnsubscribe();
   }
+  // Clear debounce timer
+  clearTimeout(fetchSummariesTimer);
 });
 </script>
 
