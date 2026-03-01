@@ -91,9 +91,13 @@ import { useCanvasStore } from '../stores/canvas.js';
 
 const canvasStore = useCanvasStore();
 
-defineProps({
+const props = defineProps({
   items: {
     type: Array,
+    required: true,
+  },
+  sessionId: {
+    type: String,
     required: true,
   },
   showSelectionUI: {
@@ -194,6 +198,13 @@ async function handleMenuCopyFilename(item) {
 }
 
 async function handleMenuCopyContents(item) {
+  // Fetch content on demand if not yet loaded.
+  // Use === undefined, NOT falsy check.
+  // '' (empty text file) and null (field N/A for type) are valid fetched values.
+  if (item.content === undefined && item.data === undefined) {
+    await canvasStore.fetchItemContent(props.sessionId, item.filename);
+  }
+
   let content = '';
   if (item.type === 'markdown' || item.type === 'text' || item.type === 'code') {
     content = item.content || '';

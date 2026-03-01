@@ -23,6 +23,7 @@ vi.mock('../composables/useApi.js', () => ({
   api: {
     getCanvasItems: vi.fn().mockResolvedValue([]),
     getAllCanvasItems: vi.fn().mockResolvedValue([]),
+    getCanvasFileContent: vi.fn().mockResolvedValue({ content: null, data: null }),
     uploadCanvasItem: vi.fn(),
     deleteCanvasItem: vi.fn(),
     getCanvasTrash: vi.fn().mockResolvedValue([]),
@@ -57,14 +58,14 @@ describe('CanvasTab', () => {
   // Stub child components
   const CanvasFileListStub = defineComponent({
     name: 'CanvasFileList',
-    props: ['items'],
+    props: ['items', 'sessionId'],
     emits: ['select'],
     template: '<div class="canvas-file-list-stub">{{ items.length }} items</div>',
   });
 
   const CanvasFileViewerStub = defineComponent({
     name: 'CanvasFileViewer',
-    props: ['item', 'versions', 'showBackButton'],
+    props: ['item', 'sessionId', 'versions', 'showBackButton'],
     emits: ['back', 'selectVersion', 'delete', 'deleteAll'],
     template: `<div class="canvas-file-viewer">
       <button v-if="showBackButton" class="breadcrumb-back">← Canvas</button>

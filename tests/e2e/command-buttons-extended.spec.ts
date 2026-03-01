@@ -11,6 +11,7 @@ import {
   waitForCommandRunComplete,
   getCommandRun,
   getCanvasItems,
+  getCanvasFileContent,
   killCommandRun,
 } from './helpers';
 
@@ -243,9 +244,16 @@ test.describe('Send to Canvas', () => {
     const canvasItems = await getCanvasItems(session.id);
     expect(canvasItems.length).toBeGreaterThanOrEqual(1);
 
-    // Find the canvas item with our output
-    const canvasItem = canvasItems.find((item: any) => item.content?.includes('hello canvas'));
-    expect(canvasItem).toBeTruthy();
+    // Fetch content for each item and find the one with our output
+    let foundCanvasItem = false;
+    for (const item of canvasItems) {
+      const itemContent = await getCanvasFileContent(session.id, item.filename);
+      if (itemContent?.content?.includes('hello canvas')) {
+        foundCanvasItem = true;
+        break;
+      }
+    }
+    expect(foundCanvasItem).toBeTruthy();
   });
 
   test('canvas item has correct filename from button label', async ({ page }) => {
