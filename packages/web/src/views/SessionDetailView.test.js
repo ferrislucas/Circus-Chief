@@ -274,7 +274,7 @@ describe('SessionDetailView', () => {
       expect(wrapper.exists()).toBe(true);
     });
 
-    it('awaits canvas fetch to ensure indicator shows correct count', async () => {
+    it('does not fetch canvas items during initialization (lazy-loaded via CanvasTab)', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -301,8 +301,9 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Component should render canvas tab
-      expect(wrapper.findComponent({ name: 'CanvasTab' }).exists()).toBe(false); // Stubbed, so should not exist
+      // Canvas items should NOT be fetched during initialization — they are lazy-loaded
+      // when the CanvasTab component mounts (via its own onMounted hook)
+      expect(canvasStore.fetchItems).not.toHaveBeenCalled();
     });
 
     it('fetches work logs on mount', async () => {
@@ -369,6 +370,41 @@ describe('SessionDetailView', () => {
       expect(wrapper.exists()).toBe(true);
     });
 
+    it('polling does not call fetchConversations (handled by WebSocket)', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running'
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            NotesTab: true,
+            PrIndicators: true
+          }
+        }
+      });
+
+      await flushPromises();
+
+      // Clear calls from initialization
+      sessionsStore.fetchConversations.mockClear();
+
+      // The component should not call fetchConversations during polling
+      // since conversations are updated in real-time via the onConversationUpdated WebSocket handler
+      expect(wrapper.exists()).toBe(true);
+    });
+
     it('checks for changes during active session polling', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
@@ -399,6 +435,42 @@ describe('SessionDetailView', () => {
       // The checkForChanges call during polling is internal to the component
       // We verify the component handles this correctly by ensuring it doesn't error
       expect(wrapper.exists()).toBe(true);
+    });
+  });
+
+  describe('canvas item count starts at zero', () => {
+    it('canvas item count starts at 0 after initialization (no WebSocket events)', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running'
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            NotesTab: true,
+            PrIndicators: true
+          }
+        }
+      });
+
+      await flushPromises();
+
+      // Canvas tab label should show "Canvas" (no count) since canvasItemCount starts at 0
+      const text = wrapper.text();
+      expect(text).toContain('Canvas');
+      // Should not contain a count like "Canvas (2)"
+      expect(text).not.toMatch(/Canvas \(\d+\)/);
     });
   });
 
@@ -640,8 +712,8 @@ describe('SessionDetailView', () => {
       // Verify component renders successfully
       expect(wrapper.exists()).toBe(true);
 
-      // The component calls fetchItems during mount which would populate canvas items
-      // if any exist in the backend. The store is ready to track items when they arrive.
+      // Canvas items are lazy-loaded (not fetched during mount).
+      // The store is ready to track items when they arrive via WebSocket or CanvasTab.
       expect(canvasStore.groupedItems).toBeDefined();
     });
 

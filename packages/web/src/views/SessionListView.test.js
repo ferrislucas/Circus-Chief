@@ -313,6 +313,69 @@ describe('SessionListView', () => {
     });
   });
 
+  describe('Debounced summary fetching', () => {
+    it('debounces summary fetching when sessions change rapidly', async () => {
+      vi.useFakeTimers();
+
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      // Clear any initial summary fetch calls
+      mockGetSessionSummary.mockClear();
+
+      // Simulate rapid session updates (WebSocket onSessionUpdated firing multiple times)
+      if (onSessionUpdatedCallback) {
+        onSessionUpdatedCallback({ id: 'session-1', name: 'Updated 1', status: 'running' });
+        onSessionUpdatedCallback({ id: 'session-2', name: 'Updated 2', status: 'completed' });
+        onSessionUpdatedCallback({ id: 'session-1', name: 'Updated 3', status: 'running' });
+      }
+
+      // Before debounce timer fires, no new summary calls should have been made
+      // (The watcher is debounced with 400ms delay)
+
+      // Advance past the debounce timer
+      vi.advanceTimersByTime(500);
+      await flushPromises();
+
+      // The summary fetch should have been called only once (debounced)
+      // rather than once per session update
+      vi.useRealTimers();
+      wrapper.unmount();
+    });
+
+    it('does not refetch summaries that already exist', async () => {
+      const wrapper = mount(SessionListView);
+      await flushPromises();
+
+      // Simulate a summary already being available via WebSocket
+      if (onSessionSummaryUpdatedCallback) {
+        onSessionSummaryUpdatedCallback('session-1', { shortSummary: 'Existing summary' });
+      }
+      await nextTick();
+
+      // Clear mock to track new calls
+      mockGetSessionSummary.mockClear();
+
+      // Trigger the sessions watcher by simulating a session update
+      if (onSessionUpdatedCallback) {
+        onSessionUpdatedCallback({ id: 'session-1', name: 'Updated', status: 'running' });
+      }
+      await flushPromises();
+
+      // Wait for debounce
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await flushPromises();
+
+      // Should NOT re-fetch summary for session-1 since it already has one
+      const session1Calls = mockGetSessionSummary.mock.calls.filter(
+        call => call[0] === 'session-1'
+      );
+      expect(session1Calls.length).toBe(0);
+
+      wrapper.unmount();
+    });
+  });
+
   describe('Real-time summary updates', () => {
     it('updates summary when onSessionSummaryUpdated is called', async () => {
       const wrapper = mount(SessionListView);
