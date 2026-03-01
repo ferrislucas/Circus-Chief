@@ -28,6 +28,8 @@ import {
   MAX_RETRIES,
   DEFAULT_SESSION_TITLE_PROMPT,
   SUMMARY_SYSTEM_PROMPT,
+  CONVERSATION_SUMMARY_SYSTEM_PROMPT,
+  COMBINED_SUMMARY_SYSTEM_PROMPT,
   formatMessages,
   buildIncrementalPrompt,
   parseSummaryResponse,
@@ -35,6 +37,7 @@ import {
   parsePrUrl,
   validatePrUrl,
   isConversationSummaryEnabled,
+  generateSessionAndConversationSummary,
 } from './summaryService.js';
 
 describe('summaryService', () => {
@@ -1256,6 +1259,64 @@ describe('summaryService', () => {
     });
   });
 
+  describe('generateSessionAndConversationSummary (Phase 5)', () => {
+    let conversations;
+
+    beforeEach(async () => {
+      conversations = (await import('../database.js')).conversations;
+    });
+
+    it('generates both summaries in one call', async () => {
+      const conversation = conversations.create(sessionId, 'Test Conversation', true);
+
+      const result = await generateSessionAndConversationSummary(sessionId, conversation.id);
+
+      expect(result.sessionSummary).not.toBeNull();
+      expect(result.conversationSummary).not.toBeNull();
+      expect(result.sessionSummary.sessionId).toBe(sessionId);
+      expect(result.conversationSummary).toBeDefined();
+    });
+
+    it('returns null for invalid conversation', async () => {
+      const result = await generateSessionAndConversationSummary(sessionId, 'invalid-conv-id');
+
+      expect(result.sessionSummary).toBeNull();
+      expect(result.conversationSummary).toBeNull();
+    });
+
+    it('includes conversation_summary in response', async () => {
+      const conversation = conversations.create(sessionId, 'Test Conversation', true);
+
+      const result = await generateSessionAndConversationSummary(sessionId, conversation.id);
+
+      // In mock mode, the conversation summary should be the mock value
+      expect(result.conversationSummary).toContain('Mock');
+    });
+
+    it('respects MIN_MESSAGES_FOR_SUMMARY threshold', async () => {
+      // Create a new session with fewer than 3 messages
+      const now = Date.now();
+      const newSessionId = databaseManager.generateId();
+      databaseManager
+        .get()
+        .prepare('INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(newSessionId, projectId, 'New Session', 'running', 'standard', now, now);
+
+      // Only add 1 message
+      databaseManager
+        .get()
+        .prepare('INSERT INTO conversation_messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)')
+        .run(databaseManager.generateId(), newSessionId, 'user', 'Single message', now);
+
+      const conversation = conversations.create(newSessionId, 'Test Conversation', true);
+      const result = await generateSessionAndConversationSummary(newSessionId, conversation.id);
+
+      // Should return null due to insufficient messages
+      expect(result.sessionSummary).toBeNull();
+      expect(result.conversationSummary).toBeNull();
+    });
+  });
+
   describe('onSessionComplete', () => {
     it('generates summary immediately', async () => {
       // Use real timers for this test
@@ -1318,10 +1379,9 @@ describe('summaryService', () => {
       // Wait for async operations
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Should have logged both a session summary call and a conversation summary call
+      // Phase 5: Should have logged a combined summary call (more efficient - one API call)
       const callTypes = agentCallLogger.startCall.mock.calls.map((c) => c[0].callType);
-      expect(callTypes).toContain('generateSessionSummary');
-      expect(callTypes).toContain('generateConversationSummary');
+      expect(callTypes).toContain('generateCombinedSummary');
     });
 
     it('does not generate conversation summary if conversation already has one', async () => {
