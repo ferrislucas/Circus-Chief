@@ -16,6 +16,7 @@ import {
   getActiveSessions,
   updateSessionStatus,
   getCanvasItems,
+  getCanvasFileContent,
   getSessionNotes,
   waitForPageReady,
   toggleSessionStar,
@@ -106,7 +107,8 @@ test.describe('Duplicate Session', () => {
     // Verify new session has canvas items
     const canvasItems = await getCanvasItems(duplicated.id);
     expect(canvasItems.length).toBe(1);
-    expect(canvasItems[0].content).toBe('# Test Canvas Item');
+    const itemContent = await getCanvasFileContent(duplicated.id, canvasItems[0].filename);
+    expect(itemContent.content).toBe('# Test Canvas Item');
   });
 
   test('duplicated session preserves notes', async ({ page }) => {
