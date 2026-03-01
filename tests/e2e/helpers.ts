@@ -329,12 +329,18 @@ export async function seedProject(
 
 export async function seedSession(
   projectId: string,
-  data: { prompt: string; name?: string; mode?: string; startImmediately?: boolean }
+  data: { prompt: string; name?: string; mode?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string }
 ) {
+  // Default gitMode/gitBranch so tests pass for git-repo-backed projects
+  const payload = {
+    gitMode: 'none',
+    gitBranch: 'main',
+    ...data,
+  };
   const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify(payload),
   });
   if (!response.ok) throw new Error('Failed to seed session');
   const session = await response.json();
