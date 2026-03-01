@@ -358,6 +358,7 @@ function cleanup() {
   sessionsStore.workLogs = {};
   sessionsStore.clearPartialText();
   todosStore.clearTodos();
+  canvasStore.items = [];
   // Reset local state
   summary.value = null;
   hasChanges.value = false;
@@ -570,8 +571,11 @@ async function initializeSession(sessionId) {
   // STEP 5: Fetch remaining data
   await sessionsStore.fetchMessages(sessionId);
   await sessionsStore.fetchWorkLogs(sessionId);
-  // Canvas data is lazy-loaded: CanvasTab.onMounted handles fetching when the tab is activated.
-  // canvasItemCount starts at 0 and is updated by onCanvasAdd/onCanvasRemove WebSocket handlers.
+  // Fetch canvas items upfront so the tab indicator shows the correct count immediately,
+  // even when the user is on a different tab. CanvasTab still calls fetchItems on mount
+  // to ensure fresh data (the fetch is idempotent).
+  await canvasStore.fetchItems(sessionId);
+  canvasItemCount.value = canvasStore.groupedItems.length;
   todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
 
   // Fetch summary for PR indicators (don't await, not critical)
