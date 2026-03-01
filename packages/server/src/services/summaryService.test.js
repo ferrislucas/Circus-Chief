@@ -572,7 +572,7 @@ describe('summaryService', () => {
       expect(result).toBeNull();
     });
 
-    it('returns null for session with no messages', async () => {
+    it('returns minimal summary for session with no messages', async () => {
       // Create a new session directly via database without any messages
       const now = Date.now();
       const emptySessionId = databaseManager.generateId();
@@ -584,10 +584,14 @@ describe('summaryService', () => {
         .run(emptySessionId, projectId, 'Empty Session', 'running', 'standard', now, now);
 
       const result = await summaryService.generateSummary(emptySessionId);
-      expect(result).toBeNull();
+      // Session with 0 messages should return a minimal summary
+      expect(result).not.toBeNull();
+      expect(result.shortSummary).toBe('Session in progress');
+      expect(result.fullSummary).toBe('Session with 0 messages');
+      expect(result.messageCount).toBe(0);
     });
 
-    it('skips generation when session has fewer than MIN_MESSAGES_FOR_SUMMARY messages', async () => {
+    it('creates minimal summary when session has fewer than MIN_MESSAGES_FOR_SUMMARY messages', async () => {
       // Create a session with only 2 messages (below threshold of 3)
       const lowMessageSessionId = databaseManager.generateId();
       const now = Date.now();
@@ -609,7 +613,10 @@ describe('summaryService', () => {
         .run(databaseManager.generateId(), lowMessageSessionId, 'assistant', 'Response 1', now + 1);
 
       const result = await summaryService.generateSummary(lowMessageSessionId);
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result.shortSummary).toBe('Session in progress');
+      expect(result.fullSummary).toBe('Session with 2 messages');
+      expect(result.messageCount).toBe(2);
     });
 
     it('generates summary when session meets minimum message threshold', async () => {
@@ -1242,12 +1249,16 @@ describe('summaryService', () => {
       const testProject = projects.create('Empty Test Project', '/tmp/empty-test');
       const newSession = sessions.create(testProject.id, 'Empty Session', '', 'standard');
 
-      // Try to generate summary (should return null due to MIN_MESSAGES_FOR_SUMMARY)
+      // Should create a minimal summary instead of returning null
       const result = await summaryService.generateSummary(newSession.id);
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result.shortSummary).toBe('Session in progress');
+      // sessions.create() adds the initial prompt as a message, so we have 1 message
+      expect(result.fullSummary).toBe('Session with 1 message');
+      expect(result.messageCount).toBe(1);
 
-      // isSummaryStale should return true (no summary exists)
-      expect(summaryService.isSummaryStale(newSession.id)).toBe(true);
+      // isSummaryStale should return false (summary now exists)
+      expect(summaryService.isSummaryStale(newSession.id)).toBe(false);
 
       // Cleanup
       sessions.delete(newSession.id);

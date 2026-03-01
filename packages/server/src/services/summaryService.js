@@ -615,11 +615,6 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
     }
     const recentMessages = allMessages.slice(-MAX_MESSAGES);
 
-    if (recentMessages.length === 0) {
-      console.warn(`[SummaryService] No messages found for session ${sessionId}`);
-      return null;
-    }
-
     // Broadcast that we're generating (do this early so UI always gets the event)
     broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
       sessionId,
