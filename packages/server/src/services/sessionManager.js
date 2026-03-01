@@ -1067,8 +1067,8 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
 
       // Extract PR URL immediately (lightweight, no API call)
       summaryService.extractPrUrlIfNeeded(sessionId);
-      // Trigger summary generation when session completes a turn
-      summaryService.onSessionComplete(sessionId);
+      // Trigger debounced summary generation on turn completion (not complete yet)
+      summaryService.onSessionActivity(sessionId);
 
       // Broadcast changes update when turn completes (real-time indicator)
       const currentSession = sessions.getById(sessionId);
@@ -1279,8 +1279,8 @@ export async function continueSession(sessionId, content, workingDirectory, syst
 
       // Extract PR URL immediately (lightweight, no API call)
       summaryService.extractPrUrlIfNeeded(sessionId);
-      // Trigger summary generation when session completes a turn
-      summaryService.onSessionComplete(sessionId);
+      // Trigger debounced summary generation on turn completion (not complete yet)
+      summaryService.onSessionActivity(sessionId);
 
       // Broadcast changes update when turn completes (real-time indicator)
       const currentSession = sessions.getById(sessionId);
@@ -1478,8 +1478,8 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
 
       // Extract PR URL immediately (lightweight, no API call)
       summaryService.extractPrUrlIfNeeded(sessionId);
-      // Trigger summary generation when session completes a turn
-      summaryService.onSessionComplete(sessionId);
+      // Trigger debounced summary generation on turn completion (not complete yet)
+      summaryService.onSessionActivity(sessionId);
 
       // Broadcast changes update when turn completes (real-time indicator)
       const currentSession = sessions.getById(sessionId);
@@ -1539,6 +1539,9 @@ export async function stopSession(sessionId) {
 
   sessions.update(sessionId, { status: 'stopped' });
   broadcastSessionStatus(sessionId, 'stopped');
+
+  // Trigger summary generation on stop (session is truly complete now)
+  summaryService.onSessionComplete(sessionId);
 }
 
 /**

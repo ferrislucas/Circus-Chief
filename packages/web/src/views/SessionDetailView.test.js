@@ -284,6 +284,9 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
+      // Clear previous calls to isolate this test
+      canvasStore.fetchItems.mockClear();
+
       const wrapper = mount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
@@ -475,19 +478,52 @@ describe('SessionDetailView', () => {
   });
 
   describe('canvas item count indicator', () => {
-    it('displays canvas item count in tab indicator when items exist', async () => {
+    it('canvas store has fetchItems method available for eager-loading', async () => {
+      // Verify that the canvas store has the fetchItems method
+      expect(canvasStore.fetchItems).toBeDefined();
+      expect(typeof canvasStore.fetchItems).toBe('function');
+    });
+
+    it('canvas store groupedItems getter works correctly', async () => {
+      // Add items to the canvas store
+      canvasStore.items = [
+        { id: 'item-1', filename: 'test.md', type: 'markdown', createdAt: Date.now() },
+        { id: 'item-2', filename: 'data.json', type: 'json', createdAt: Date.now() },
+        { id: 'item-3', filename: 'test.md', type: 'markdown', createdAt: Date.now() + 1000 } // Same filename
+      ];
+
+      // groupedItems should group by filename and return the latest of each
+      // So we should have 2 items: test.md (latest) and data.json
+      expect(canvasStore.groupedItems.length).toBe(2);
+    });
+
+    it('canvas store starts with empty items array', async () => {
+      // Verify the initial state
+      expect(canvasStore.items).toEqual([]);
+      expect(canvasStore.groupedItems.length).toBe(0);
+    });
+
+    it('canvas store $reset method is available', async () => {
+      // Verify $reset exists for cleanup
+      expect(canvasStore.$reset).toBeDefined();
+      expect(typeof canvasStore.$reset).toBe('function');
+
+      // Add items then reset
+      canvasStore.items = [
+        { id: 'item-1', filename: 'test.md', type: 'markdown', createdAt: Date.now() }
+      ];
+      expect(canvasStore.groupedItems.length).toBe(1);
+
+      // Reset should clear items
+      canvasStore.$reset();
+      expect(canvasStore.items).toEqual([]);
+    });
+
+    it('component integrates with canvas store for tab indicators', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
         status: 'running'
-      };
-
-      // Mock canvas store with items
-      canvasStore.itemsBySessionId = {
-        'session-1': [
-          { id: 'item-1', type: 'text' },
-          { id: 'item-2', type: 'markdown' }
-        ]
       };
 
       await router.push('/sessions/session-1');
@@ -510,8 +546,9 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Verify component renders with canvas items available
+      // Component should mount successfully and have access to canvas store
       expect(wrapper.exists()).toBe(true);
+      expect(canvasStore).toBeDefined();
     });
   });
 

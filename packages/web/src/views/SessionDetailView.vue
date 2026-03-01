@@ -117,15 +117,6 @@
         </router-link>
         <span class="tab-separator"></span>
 
-        <!-- Session active indicator — sibling of tabs-desktop and tabs-mobile -->
-        <span
-          v-if="isSessionActive"
-          class="session-active-indicator"
-          :title="sessionsStore.currentSession?.status === 'starting' ? 'Session starting...' : 'Session running...'"
-        >
-          <span class="active-spinner"></span>
-        </span>
-
         <!-- Desktop tabs -->
         <div class="tabs-desktop">
           <router-link
@@ -145,6 +136,14 @@
               class="canvas-indicator"
               title="Canvas contains files"
             ></span>
+            <span
+              v-if="tab.id === 'conversation' && isSessionActive"
+              class="session-active-indicator"
+              :title="sessionsStore.currentSession?.status === 'starting'
+                ? 'Session starting...' : 'Session running...'"
+            >
+              <span class="active-spinner"></span>
+            </span>
           </router-link>
         </div>
 
@@ -152,7 +151,7 @@
         <div class="tabs-mobile">
           <select :value="activeTab" @change="navigateToTab($event.target.value)" class="tab-select">
             <option v-for="tab in tabs" :key="tab.id" :value="tab.id">
-              {{ tab.label }}{{ tab.id === 'changes' && hasChanges ? ' •' : '' }}{{ tab.id === 'canvas' && canvasItemCount > 0 ? ' •' : '' }}
+              {{ tab.label }}{{ tab.id === 'changes' && hasChanges ? ' •' : '' }}{{ tab.id === 'canvas' && canvasItemCount > 0 ? ' •' : '' }}{{ tab.id === 'conversation' && isSessionActive ? ' ...' : '' }}
             </option>
           </select>
         </div>
@@ -358,6 +357,7 @@ function cleanup() {
   hasChanges.value = false;
   changesFileCount.value = 0;
   canvasItemCount.value = 0;
+  canvasStore.$reset();
 }
 
 // Initialize session - called on mount AND on route change (session navigation)
@@ -524,6 +524,7 @@ async function initializeSession(sessionId) {
   canvasStore.fetchItems(sessionId).then(() => {
     canvasItemCount.value = canvasStore.groupedItems.length;
   });
+
 
   todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
 
