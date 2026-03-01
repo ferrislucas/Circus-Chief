@@ -188,8 +188,8 @@ cmd_test() {
     ensure_dependencies
     ensure_directories
 
-    # Enable mock Claude for E2E tests (so we don't need real API credentials)
-    export MOCK_CLAUDE=true
+    # Enable VCR mode for E2E tests (replay existing cassettes, record new ones)
+    export VCR_MODE=${VCR_MODE:-auto}
 
     # Ensure server is running
     local TEST_SERVER_PORT
@@ -301,8 +301,8 @@ cmd_debug() {
     ensure_dependencies
     ensure_directories
 
-    # Enable mock Claude for E2E tests (so we don't need real API credentials)
-    export MOCK_CLAUDE=true
+    # Enable VCR mode for E2E tests (replay existing cassettes, record new ones)
+    export VCR_MODE=${VCR_MODE:-auto}
 
     # Check if X11 is available (only needed for Docker on Linux)
     if [ "$USE_DOCKER" = true ] && [ -z "$DISPLAY" ]; then
