@@ -294,7 +294,7 @@ router.get('/:id/canvas', (req, res) => {
 
   // Strip content/data from list responses to reduce payload size.
   // Clients should use GET /canvas/file/:filename/content for inline content.
-  res.json(items.map(({ content, data, ...meta }) => meta));
+  res.json(items.map(({ content: _content, data: _data, ...meta }) => meta));
 });
 
 // GET /api/sessions/:id/canvas/all - List ALL canvas items (including all versions)
@@ -309,7 +309,7 @@ router.get('/:id/canvas/all', (req, res) => {
   const items = canvasItems.getBySessionId(req.params.id);
 
   // Strip content/data from list responses to reduce payload size.
-  res.json(items.map(({ content, data, ...meta }) => meta));
+  res.json(items.map(({ content: _content, data: _data, ...meta }) => meta));
 });
 
 // GET /api/sessions/:id/canvas/file/:filename/history/:version - Get historical version of canvas file
@@ -506,7 +506,7 @@ router.get('/:id/canvas-trash', (req, res) => {
 
   const items = canvasItems.getDeletedBySessionId(req.params.id);
   // Strip content/data from list responses to reduce payload size.
-  res.json(items.map(({ content, data, ...meta }) => meta));
+  res.json(items.map(({ content: _content, data: _data, ...meta }) => meta));
 });
 
 // POST /api/sessions/:id/canvas/:itemId/recover - Recover a single item from trash
