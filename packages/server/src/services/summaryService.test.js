@@ -1195,6 +1195,71 @@ describe('summaryService', () => {
       const result = summaryService.isSummaryStale(sessionId);
       expect(result).toBe(true);
     });
+
+    // Phase 6: Enhanced staleness detection tests
+    it('saves lastSummarizedMessageId when generating summary', async () => {
+      const summary = await summaryService.generateSummary(sessionId);
+
+      // Get the last message from the session
+      const allMessages = messages.getBySessionId(sessionId);
+      const lastMessage = allMessages[allMessages.length - 1];
+
+      // Summary should have the last message ID saved
+      expect(summary.lastSummarizedMessageId).toBe(lastMessage.id);
+    });
+
+    it('uses message ID for staleness detection when available', async () => {
+      // Generate initial summary
+      const summary = await summaryService.generateSummary(sessionId);
+
+      // Summary should not be stale immediately
+      expect(summaryService.isSummaryStale(sessionId)).toBe(false);
+
+      // Add a new message (this changes the last message ID)
+      messages.create(sessionId, 'assistant', 'New response');
+
+      // Summary should now be stale (detected via message ID mismatch)
+      expect(summaryService.isSummaryStale(sessionId)).toBe(true);
+    });
+
+    it('falls back to count-based staleness detection for old summaries', async () => {
+      // Generate a summary
+      await summaryService.generateSummary(sessionId);
+
+      // Manually update the summary to remove lastSummarizedMessageId (simulating old summary)
+      const summary = sessionSummaries.getBySessionId(sessionId);
+      sessionSummaries.update(summary.id, { lastSummarizedMessageId: null });
+
+      // Get the current message count
+      const allMessages = messages.getBySessionId(sessionId);
+      const originalCount = allMessages.length;
+
+      // Summary should not be stale
+      expect(summaryService.isSummaryStale(sessionId)).toBe(false);
+
+      // Add a new message
+      messages.create(sessionId, 'assistant', 'New message');
+
+      // Summary should be stale (detected via count mismatch, the fallback)
+      expect(summaryService.isSummaryStale(sessionId)).toBe(true);
+    });
+
+    it('correctly handles empty sessions (no messages)', async () => {
+      // Create a new project and session with no messages
+      const testProject = projects.create('Empty Test Project', '/tmp/empty-test');
+      const newSession = sessions.create(testProject.id, 'Empty Session', '', 'standard');
+
+      // Try to generate summary (should return null due to MIN_MESSAGES_FOR_SUMMARY)
+      const result = await summaryService.generateSummary(newSession.id);
+      expect(result).toBeNull();
+
+      // isSummaryStale should return true (no summary exists)
+      expect(summaryService.isSummaryStale(newSession.id)).toBe(true);
+
+      // Cleanup
+      sessions.delete(newSession.id);
+      projects.delete(testProject.id);
+    });
   });
 
   describe('onSessionActivity (debounce)', () => {
