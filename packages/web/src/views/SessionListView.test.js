@@ -94,9 +94,11 @@ vi.mock('../stores/commandButtons.js', () => ({
 
 // Mock API
 const mockGetSessionSummary = vi.fn();
+const mockGetSessionSummariesBatch = vi.fn();
 vi.mock('../composables/useApi.js', () => ({
   api: {
     getSessionSummary: (...args) => mockGetSessionSummary(...args),
+    getSessionSummariesBatch: (...args) => mockGetSessionSummariesBatch(...args),
   },
 }));
 
@@ -248,6 +250,8 @@ describe('SessionListView', () => {
     // Reset API mocks
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);
+    mockGetSessionSummariesBatch.mockReset();
+    mockGetSessionSummariesBatch.mockResolvedValue({});
 
     // Setup projects store mock
     mockProjectsStore = {
@@ -1799,13 +1803,16 @@ describe('SessionListView Archived Tab', () => {
       expect(mockSessionsStore.setStarredFilter).toHaveBeenCalledWith(null);
     });
 
-    it('fetches summaries for filtered archived sessions', async () => {
+    it('fetches summaries for filtered archived sessions using batch endpoint', async () => {
       mockSessionsStore.archivedSessions = [
         { id: 'archived-1', name: 'Starred Archived', status: 'completed', starred: true },
         { id: 'archived-2', name: 'Regular Archived', status: 'completed', starred: false },
       ];
 
-      mockGetSessionSummary.mockResolvedValue({ shortSummary: 'Test summary' });
+      mockGetSessionSummariesBatch.mockResolvedValue({
+        'archived-1': { shortSummary: 'Test summary 1' },
+        'archived-2': { shortSummary: 'Test summary 2' },
+      });
 
       const wrapper = mount(SessionListView);
       await flushAll(wrapper);
@@ -1818,9 +1825,8 @@ describe('SessionListView Archived Tab', () => {
       // Wait for summary fetches to complete
       await flushPromises();
 
-      // Should have attempted to fetch summaries for archived sessions
-      expect(mockGetSessionSummary).toHaveBeenCalledWith('archived-1');
-      expect(mockGetSessionSummary).toHaveBeenCalledWith('archived-2');
+      // Should have used the batch endpoint with both archived session IDs
+      expect(mockGetSessionSummariesBatch).toHaveBeenCalledWith(['archived-1', 'archived-2']);
     });
 
     it('filter persists when switching between sessions and archived tabs', async () => {
@@ -1978,5 +1984,180 @@ describe('SessionListView Archived Tab', () => {
       expect(sessionCard.exists()).toBe(true);
       expect(sessionCard.props('prUrl')).toBe('https://github.com/owner/repo/pull/789');
     });
+  });
+});
+
+describe('SessionListView batch summary fetching', () => {
+  let mockProjectsStore;
+  let mockSessionsStore;
+  let mockCommandButtonsStore;
+
+  async function flushAll(wrapper) {
+    await flushPromises();
+    await nextTick();
+    if (wrapper && wrapper.vm) {
+      await wrapper.vm.$nextTick?.();
+      await wrapper.vm.$forceUpdate();
+      await nextTick();
+      await wrapper.vm.$forceUpdate();
+      await nextTick();
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+
+    Object.assign(mockRoute, {
+      params: { id: 'test-project-id' },
+      name: 'SessionList',
+    });
+
+    onSessionCreatedCallback = null;
+    onSessionUpdatedCallback = null;
+    onSessionDeletedCallback = null;
+    onSessionSummaryUpdatedCallback = null;
+
+    mockGetSessionSummary.mockReset();
+    mockGetSessionSummary.mockResolvedValue(null);
+    mockGetSessionSummariesBatch.mockReset();
+    mockGetSessionSummariesBatch.mockResolvedValue({});
+
+    mockProjectsStore = {
+      currentProject: { id: 'test-project-id', name: 'Test Project', workingDirectory: '/test/path' },
+      fetchProject: vi.fn(),
+    };
+    useProjectsStore.mockReturnValue(mockProjectsStore);
+
+    mockSessionsStore = createSessionsStoreMock([
+      { id: 'session-1', name: 'Session 1', status: 'completed' },
+      { id: 'session-2', name: 'Session 2', status: 'running' },
+      { id: 'session-3', name: 'Session 3', status: 'waiting' },
+    ]);
+    useSessionsStore.mockReturnValue(mockSessionsStore);
+
+    mockCommandButtonsStore = {
+      buttons: [],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn().mockResolvedValue(),
+      fetchLatestRunsForProject: vi.fn().mockResolvedValue(),
+      getButtonsByProjectId: vi.fn(() => []),
+      getLatestRunForButton: vi.fn(() => null),
+    };
+    useCommandButtonsStore.mockReturnValue(mockCommandButtonsStore);
+  });
+
+  it('calls getSessionSummariesBatch for project sessions on mount', async () => {
+    mockGetSessionSummariesBatch.mockResolvedValue({
+      'session-1': { shortSummary: 'Summary 1' },
+      'session-2': { shortSummary: 'Summary 2' },
+      'session-3': { shortSummary: 'Summary 3' },
+    });
+
+    const wrapper = mount(SessionListView);
+    await flushAll(wrapper);
+
+    expect(mockGetSessionSummariesBatch).toHaveBeenCalledWith(
+      expect.arrayContaining(['session-1', 'session-2', 'session-3'])
+    );
+  });
+
+  it('populates summary data from batch response into SessionCards', async () => {
+    mockGetSessionSummariesBatch.mockResolvedValue({
+      'session-1': { shortSummary: 'Batch result for session 1' },
+      'session-2': null,
+      'session-3': { shortSummary: 'Batch result for session 3' },
+    });
+
+    const wrapper = mount(SessionListView);
+    await flushAll(wrapper);
+
+    const card1 = wrapper.find('[data-session-id="session-1"]');
+    expect(card1.exists()).toBe(true);
+    expect(card1.attributes('data-summary')).toContain('Batch result for session 1');
+  });
+
+  it('handles batch error gracefully without crashing', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockGetSessionSummariesBatch.mockRejectedValue(new Error('Server error'));
+
+    const wrapper = mount(SessionListView);
+    await flushAll(wrapper);
+
+    // Should still render
+    expect(wrapper.exists()).toBe(true);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      'Failed to fetch summaries batch:',
+      'Server error'
+    );
+    consoleWarnSpy.mockRestore();
+  });
+
+  it('uses batch endpoint for archived sessions when switching to archived tab', async () => {
+    mockSessionsStore.archivedSessions = [
+      { id: 'archived-1', name: 'Archived 1', status: 'completed' },
+      { id: 'archived-2', name: 'Archived 2', status: 'completed' },
+    ];
+
+    mockGetSessionSummariesBatch.mockResolvedValue({
+      'archived-1': { shortSummary: 'Archived summary 1' },
+      'archived-2': { shortSummary: 'Archived summary 2' },
+    });
+
+    const wrapper = mount(SessionListView);
+    await flushAll(wrapper);
+
+    // Clear previous calls from the sessions tab mount
+    mockGetSessionSummariesBatch.mockClear();
+    mockGetSessionSummariesBatch.mockResolvedValue({
+      'archived-1': { shortSummary: 'Archived summary 1' },
+      'archived-2': { shortSummary: 'Archived summary 2' },
+    });
+
+    // Switch to archived tab
+    const archivedTab = wrapper.findAll('.tab')[1];
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    // Should call batch endpoint with archived session IDs
+    expect(mockGetSessionSummariesBatch).toHaveBeenCalledWith(
+      expect.arrayContaining(['archived-1', 'archived-2'])
+    );
+  });
+
+  it('handles batch error for archived summaries gracefully', async () => {
+    mockSessionsStore.archivedSessions = [
+      { id: 'archived-1', name: 'Archived 1', status: 'completed' },
+    ];
+
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // First call succeeds (for sessions tab), second fails (for archived tab)
+    mockGetSessionSummariesBatch
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('Archived fetch failed'));
+
+    const wrapper = mount(SessionListView);
+    await flushAll(wrapper);
+
+    // Switch to archived tab
+    const archivedTab = wrapper.findAll('.tab')[1];
+    await archivedTab.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.exists()).toBe(true);
+    consoleWarnSpy.mockRestore();
+  });
+
+  it('does not call batch endpoint when no sessions need summaries', async () => {
+    mockSessionsStore = createSessionsStoreMock([]);
+    useSessionsStore.mockReturnValue(mockSessionsStore);
+
+    mount(SessionListView);
+    await flushPromises();
+
+    expect(mockGetSessionSummariesBatch).not.toHaveBeenCalled();
   });
 });
