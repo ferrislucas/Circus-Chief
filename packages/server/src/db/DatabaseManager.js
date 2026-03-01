@@ -150,6 +150,10 @@ export class DatabaseManager {
     if (!summariesColumns.includes('ci_failures')) {
       this.#db.exec('ALTER TABLE session_summaries ADD COLUMN ci_failures TEXT');
     }
+    if (!summariesColumns.includes('last_summarized_message_id')) {
+      // Phase 6: Track which message was last summarized for smarter staleness detection
+      this.#db.exec('ALTER TABLE session_summaries ADD COLUMN last_summarized_message_id TEXT');
+    }
 
     // Check if sessions table has the template chaining columns, add them if not
     // Re-fetch column info since table may have been recreated

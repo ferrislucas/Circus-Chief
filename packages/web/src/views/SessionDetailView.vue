@@ -357,6 +357,7 @@ function cleanup() {
   hasChanges.value = false;
   changesFileCount.value = 0;
   canvasItemCount.value = 0;
+  canvasStore.$reset();
 }
 
 // Initialize session - called on mount AND on route change (session navigation)
@@ -518,8 +519,9 @@ async function initializeSession(sessionId) {
   // STEP 5: Fetch remaining data
   await sessionsStore.fetchMessages(sessionId);
   await sessionsStore.fetchWorkLogs(sessionId);
-  // Canvas data is lazy-loaded: CanvasTab.onMounted handles fetching when the tab is activated.
-  // canvasItemCount starts at 0 and is updated by onCanvasAdd/onCanvasRemove WebSocket handlers.
+  // Fetch canvas items to populate tab indicator count
+  await canvasStore.fetchItems(sessionId);
+  canvasItemCount.value = canvasStore.groupedItems.length;
   todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
 
   // Fetch summary for PR indicators (don't await, not critical)
