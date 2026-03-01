@@ -352,6 +352,11 @@ function cleanup() {
   cleanups.forEach((c) => c());
   cleanups = [];
   sessionsStore.clearRunningUsage();
+  // Clear all session-specific store state to prevent stale data during transitions
+  sessionsStore.messages = [];
+  sessionsStore.conversations = [];
+  sessionsStore.workLogs = {};
+  sessionsStore.clearPartialText();
   todosStore.clearTodos();
   // Reset local state
   summary.value = null;
@@ -365,7 +370,7 @@ function cleanup() {
 async function initializeSession(sessionId) {
   // STEP 1: Create new subscription for this session
   currentSubscription = useSessionSubscription(sessionId);
-  const { subscribe, unsubscribe, onStatus, onMessage, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onConversationUpdated, onUsageUpdate, onChangesUpdate, onCommandOutput, onCommandComplete, onCommandError } = currentSubscription;
+  const { subscribe, unsubscribe, onStatus, onMessage, onPartial, onError, onCanvasAdd, onCanvasRemove, onTodosUpdate, onSessionUpdate, onSummaryUpdate, onConversationCreated, onConversationUpdated, onConversationDeleted, onUsageUpdate, onChangesUpdate, onWorkLog, onWorkLogsAssociated, onThinkingPartial, onCommandOutput, onCommandComplete, onCommandError } = currentSubscription;
 
   // STEP 2: Subscribe via the subscription object AND await connection
   // CRITICAL: We must call subscribe() to set thisInstanceSubscribed = true,
@@ -411,6 +416,42 @@ async function initializeSession(sessionId) {
   cleanups.push(
     onMessage((message) => {
       sessionsStore.addMessage(message);
+      // Clear partial text when full message arrives (previously in ConversationTab)
+      sessionsStore.clearPartialText();
+    })
+  );
+
+  cleanups.push(
+    onPartial((text) => {
+      sessionsStore.setPartialText(text);
+    })
+  );
+
+  cleanups.push(
+    onWorkLog((log) => {
+      sessionsStore.addWorkLog(log);
+    })
+  );
+
+  cleanups.push(
+    onWorkLogsAssociated((messageId) => {
+      sessionsStore.associateWorkLogs(messageId);
+    })
+  );
+
+  cleanups.push(
+    onThinkingPartial((thinking) => {
+      if (thinking === null) {
+        sessionsStore.clearPartialThinking(sessionId);
+      } else {
+        sessionsStore.setPartialThinking(thinking, sessionId);
+      }
+    })
+  );
+
+  cleanups.push(
+    onConversationCreated((conversation) => {
+      sessionsStore.addConversation(conversation);
     })
   );
 
@@ -455,6 +496,16 @@ async function initializeSession(sessionId) {
   cleanups.push(
     onConversationUpdated((conversation) => {
       sessionsStore.updateConversation(conversation);
+    })
+  );
+
+  cleanups.push(
+    onConversationDeleted((conversationId, newActiveConv) => {
+      sessionsStore.removeConversation(conversationId, newActiveConv, sessionId);
+      // If we have a new active conversation, fetch its messages
+      if (newActiveConv) {
+        sessionsStore.fetchMessages(sessionId, false);
+      }
     })
   );
 
