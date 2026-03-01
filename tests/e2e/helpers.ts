@@ -243,20 +243,20 @@ export async function getProjectSessions(projectId: string) {
   return response.json();
 }
 
-export async function getCanvasItems(sessionId: string) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas`);
+export async function getCanvasItems(sessionId: string, includeContent = true) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas?includeContent=${includeContent}`);
   if (!response.ok) return [];
   return response.json();
 }
 
-export async function getAllCanvasItems(sessionId: string) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/all`);
+export async function getAllCanvasItems(sessionId: string, includeContent = true) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas/all?includeContent=${includeContent}`);
   if (!response.ok) return [];
   return response.json();
 }
 
-export async function getCanvasTrash(sessionId: string) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas-trash`);
+export async function getCanvasTrash(sessionId: string, includeContent = true) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas-trash?includeContent=${includeContent}`);
   if (!response.ok) return [];
   return response.json();
 }

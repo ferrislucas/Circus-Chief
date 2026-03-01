@@ -292,9 +292,16 @@ router.get('/:id/canvas', (req, res) => {
   // Get only latest versions (one per filename)
   const items = canvasItems.getLatestVersionsBySessionId(req.params.id);
 
-  // Strip content/data from list responses to reduce payload size.
+  // Strip content/data from list responses to reduce payload size, unless includeContent=true
   // Clients should use GET /canvas/file/:filename/content for inline content.
-  res.json(items.map(({ content, data, ...meta }) => meta));
+  const includeContent = req.query.includeContent === 'true';
+  res.json(items.map((item) => {
+    if (includeContent) {
+      return item;
+    }
+    const { content: _content, data: _data, ...meta } = item;
+    return meta;
+  }));
 });
 
 // GET /api/sessions/:id/canvas/all - List ALL canvas items (including all versions)
@@ -308,8 +315,15 @@ router.get('/:id/canvas/all', (req, res) => {
   // Get ALL versions (not just latest)
   const items = canvasItems.getBySessionId(req.params.id);
 
-  // Strip content/data from list responses to reduce payload size.
-  res.json(items.map(({ content, data, ...meta }) => meta));
+  // Strip content/data from list responses to reduce payload size, unless includeContent=true
+  const includeContent = req.query.includeContent === 'true';
+  res.json(items.map((item) => {
+    if (includeContent) {
+      return item;
+    }
+    const { content: _content, data: _data, ...meta } = item;
+    return meta;
+  }));
 });
 
 // GET /api/sessions/:id/canvas/file/:filename/history/:version - Get historical version of canvas file
@@ -505,8 +519,15 @@ router.get('/:id/canvas-trash', (req, res) => {
   }
 
   const items = canvasItems.getDeletedBySessionId(req.params.id);
-  // Strip content/data from list responses to reduce payload size.
-  res.json(items.map(({ content, data, ...meta }) => meta));
+  // Strip content/data from list responses to reduce payload size, unless includeContent=true
+  const includeContent = req.query.includeContent === 'true';
+  res.json(items.map((item) => {
+    if (includeContent) {
+      return item;
+    }
+    const { content: _content, data: _data, ...meta } = item;
+    return meta;
+  }));
 });
 
 // POST /api/sessions/:id/canvas/:itemId/recover - Recover a single item from trash
