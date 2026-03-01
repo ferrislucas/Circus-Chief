@@ -660,8 +660,10 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
     // Clean up internal flag before saving
     delete summaryData._parseFailed;
 
-    // Add message count for staleness tracking
+    // Add message count and last message ID for staleness tracking (Phase 6)
     summaryData.messageCount = allMessages.length;
+    const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
+    summaryData.lastSummarizedMessageId = lastMessage ? lastMessage.id : null;
 
     // For root sessions (no parent), aggregate files from all child sessions
     if (!session.parentSessionId) {
@@ -918,7 +920,8 @@ export async function regenerateSummary(sessionId) {
 }
 
 /**
- * Check if a summary is stale (message count has changed)
+ * Check if a summary is stale (message count or last message ID has changed)
+ * Phase 6: Enhanced staleness detection using both message count and message ID
  * @param {string} sessionId
  * @returns {boolean}
  */
@@ -927,6 +930,23 @@ export function isSummaryStale(sessionId) {
   if (!summary) return true;
 
   const allMessages = messages.getBySessionId(sessionId);
+
+  // Phase 6: Use message ID-based staleness detection if available
+  if (summary.lastSummarizedMessageId) {
+    // Get the last message ID from the session
+    const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
+    const lastMessageId = lastMessage ? lastMessage.id : null;
+
+    // Summary is stale if the last message ID doesn't match
+    if (lastMessageId !== summary.lastSummarizedMessageId) {
+      return true;
+    }
+
+    // Also validate count as a secondary check (defensive programming)
+    return allMessages.length !== summary.messageCount;
+  }
+
+  // Fallback to count-based staleness detection for old summaries
   return allMessages.length !== summary.messageCount;
 }
 
@@ -1125,8 +1145,10 @@ ${globalSettings?.sessionTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT}`;
       return { sessionSummary: null, conversationSummary: null };
     }
 
-    // Add message count for staleness tracking
+    // Add message count and last message ID for staleness tracking (Phase 6)
     summaryData.messageCount = allMessages.length;
+    const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
+    summaryData.lastSummarizedMessageId = lastMessage ? lastMessage.id : null;
 
     // For root sessions, aggregate files from child sessions
     if (!session.parentSessionId) {
