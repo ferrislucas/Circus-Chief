@@ -462,6 +462,16 @@ export class ApiClient {
   }
 
   /**
+   * Get canvas file content inline (content/data fields) for a single file
+   * @param {string} sessionId - Session ID
+   * @param {string} filename - Filename
+   * @returns {Promise<{content: string|null, data: string|null, type: string, mimeType: string, filename: string}>}
+   */
+  async getCanvasFileContent(sessionId, filename) {
+    return this.#request('GET', `/sessions/${sessionId}/canvas/file/${encodeURIComponent(filename)}/content`);
+  }
+
+  /**
    * Get all canvas items for a session (including all versions)
    * @param {string} sessionId - Session ID
    * @returns {Promise<Array>}

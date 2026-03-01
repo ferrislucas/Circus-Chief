@@ -114,32 +114,41 @@
 
     <!-- Content -->
     <div class="viewer-content">
-      <img
-        v-if="item.type === 'image'"
-        :src="`data:${item.mimeType};base64,${item.data}`"
-        :alt="item.filename || 'Image'"
-        class="viewer-image"
-      />
+      <!-- Loading state while fetching content -->
+      <div v-if="contentLoading" class="content-loading">
+        <span class="loading-spinner"></span>
+        Loading content...
+      </div>
 
-      <MarkdownViewer
-        v-if="item.type === 'markdown'"
-        :content="item.content"
-        class="viewer-markdown"
-      />
+      <template v-else>
+        <img
+          v-if="item.type === 'image'"
+          :src="`data:${item.mimeType};base64,${item.data}`"
+          :alt="item.filename || 'Image'"
+          class="viewer-image"
+        />
 
-      <pre v-else-if="item.type === 'json'" class="viewer-json">{{ formatJson(item.data) }}</pre>
+        <MarkdownViewer
+          v-if="item.type === 'markdown'"
+          :content="item.content"
+          class="viewer-markdown"
+        />
 
-      <div v-else-if="item.type === 'text'" class="viewer-text">{{ item.content }}</div>
+        <pre v-else-if="item.type === 'json'" class="viewer-json">{{ formatJson(item.data) }}</pre>
 
-      <pre v-else-if="item.type === 'code'" class="hljs viewer-code"><code v-html="highlightedCode"></code></pre>
+        <div v-else-if="item.type === 'text'" class="viewer-text">{{ item.content }}</div>
+
+        <pre v-else-if="item.type === 'code'" class="hljs viewer-code"><code v-html="highlightedCode"></code></pre>
+      </template>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import hljs from 'highlight.js';
+import { useCanvasStore } from '../stores/canvas.js';
 
 // Map file extensions to highlight.js language names
 const EXT_TO_LANG = {
@@ -189,6 +198,10 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  sessionId: {
+    type: String,
+    required: true,
+  },
   versions: {
     type: Array,
     default: () => [],
@@ -199,11 +212,30 @@ const props = defineProps({
   },
 });
 
+const canvasStore = useCanvasStore();
+
 const emit = defineEmits(['back', 'selectVersion', 'deleteAll']);
 
 const menuOpen = ref(false);
 const menuHighlightedIndex = ref(null);
 const menuContainerRef = ref(null);
+const contentLoading = ref(false);
+
+// Watch the item's id to handle both initial load AND version switching.
+// Cannot watch just a `needsContent` computed because switching between two
+// content-less versions keeps needsContent=true — Vue watchers don't fire
+// when the value doesn't change.
+watch(() => props.item.id, async () => {
+  const item = props.item;
+  if (item.content === undefined && item.data === undefined) {
+    contentLoading.value = true;
+    try {
+      await canvasStore.fetchItemContent(props.sessionId, item.filename);
+    } finally {
+      contentLoading.value = false;
+    }
+  }
+}, { immediate: true });
 
 // Copy content to clipboard with fallback
 async function copyToClipboard(text) {
@@ -248,6 +280,11 @@ function closeMenu() {
 }
 
 async function handleMenuCopyContents() {
+  // Fetch content on demand if not yet loaded
+  if (props.item.content === undefined && props.item.data === undefined) {
+    await canvasStore.fetchItemContent(props.sessionId, props.item.filename);
+  }
+
   let content = '';
 
   if (props.item.type === 'markdown' || props.item.type === 'text' || props.item.type === 'code') {
@@ -656,6 +693,30 @@ function selectVersion(itemId) {
   background: var(--color-border, #444);
   margin: 0.25rem 0;
   list-style: none;
+}
+
+/* Content loading */
+.content-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+  padding: 2rem;
+  color: var(--color-text-soft);
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 /* Content area */

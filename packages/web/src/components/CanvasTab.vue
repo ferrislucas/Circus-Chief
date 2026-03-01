@@ -87,6 +87,7 @@
       <CanvasFileViewer
         v-else-if="shouldShowViewer && selectedItem"
         :item="selectedItem"
+        :sessionId="sessionId"
         :versions="selectedVersions"
         :showBackButton="showBackButton"
         @back="handleBack"
@@ -98,6 +99,7 @@
       <CanvasFileList
         v-else
         :items="groupedItems"
+        :sessionId="sessionId"
         @select="handleSelect"
         @deleteItem="handleDeleteItem"
       />
