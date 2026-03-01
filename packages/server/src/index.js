@@ -6,6 +6,7 @@ import { initDatabase } from './database.js';
 import { initWebSocket } from './websocket.js';
 import { DEFAULT_SERVER_PORT } from '@claudetools/shared';
 import * as prStatusService from './services/prStatusService.js';
+import * as systemMonitor from './services/systemMonitor.js';
 import { schedulerService } from './services/schedulerService.js';
 import * as sessionManager from './services/sessionManager.js';
 
@@ -72,11 +73,15 @@ schedulerService.start();
 // Start PR status polling service
 prStatusService.start();
 
+// Start system metrics broadcast service
+systemMonitor.start();
+
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully');
   schedulerService.stop();
   prStatusService.stop();
+  systemMonitor.stop();
   server.close(() => {
     console.log('Server closed');
     process.exit(0);
@@ -87,6 +92,7 @@ process.on('SIGINT', () => {
   console.log('SIGINT received, shutting down gracefully');
   schedulerService.stop();
   prStatusService.stop();
+  systemMonitor.stop();
   server.close(() => {
     console.log('Server closed');
     process.exit(0);
