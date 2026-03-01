@@ -71,7 +71,11 @@ test.describe('Canvas Trash & Soft Delete', () => {
 
     await deleteCanvasItem(session.id, item.id);
 
-    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
+    // waitFor ensures async fetchTrashedItems completes so .trash-toggle renders
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`, {
+      waitFor: '.trash-toggle',
+      timeout: 15000,
+    });
 
     // Click trash toggle
     await page.locator('.trash-toggle').click();
@@ -103,7 +107,11 @@ test.describe('Canvas Trash & Soft Delete', () => {
 
     await deleteCanvasItem(session.id, item.id);
 
-    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
+    // waitFor ensures async fetchTrashedItems completes so .trash-toggle renders
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`, {
+      waitFor: '.trash-toggle',
+      timeout: 15000,
+    });
 
     // Handle confirmation dialog
     page.on('dialog', (dialog) => dialog.accept());
@@ -148,7 +156,11 @@ test.describe('Canvas Trash & Soft Delete', () => {
     const itemsBefore = await getAllCanvasItems(session.id);
     expect(itemsBefore.length).toBe(2);
 
-    await navigateAndWait(page, `/sessions/${session.id}/canvas`);
+    // waitFor ensures async fetchItems completes so canvas file list renders
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`, {
+      waitFor: '.btn-menu',
+      timeout: 15000,
+    });
 
     // Handle confirmation dialog
     page.on('dialog', (dialog) => dialog.accept());

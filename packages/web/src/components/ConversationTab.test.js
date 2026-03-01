@@ -123,14 +123,6 @@ vi.mock('./ModelSelector.vue', () => ({
   },
 }));
 
-// Issue #175 - TokenUsagePanel is now rendered in ConversationTab
-vi.mock('./TokenUsagePanel.vue', () => ({
-  default: {
-    name: 'TokenUsagePanel',
-    template: '<div class="token-usage-panel-stub"></div>',
-  },
-}));
-
 vi.mock('@claudetools/shared', async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -211,8 +203,6 @@ describe.skip('ConversationTab', () => {
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           FileAttachment: { template: '<div class="file-attachment-stub"></div>' },
           ModelSelector: { template: '<div class="model-selector-stub" :data-model="modelValue"></div>' },
-          // Issue #175 - TokenUsagePanel is now rendered in ConversationTab
-          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
         },
       },
     });
@@ -830,7 +820,6 @@ describe('ConversationTab - Error Handling Improvements', () => {
           LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
-          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
           QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
           QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
           ModelSelector: { template: '<div class="model-selector-stub"></div>' },
@@ -1358,7 +1347,6 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
           LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
-          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
           TokenCostPanel: { template: '<div class="token-cost-panel-stub"></div>' },
           QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
           QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
@@ -1802,7 +1790,6 @@ describe.skip('ConversationTab - Query Parameter Handling', () => {
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
           ModelSelector: { template: '<div class="model-selector-stub"></div>' },
-          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
           QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
           QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
           TokenCostPanel: { template: '<div class="token-cost-panel-stub"></div>' },
@@ -1991,7 +1978,6 @@ describe('ConversationTab - New messages button', () => {
           LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
-          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
           QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
           QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
           ModelSelector: { template: '<div class="model-selector-stub"></div>' },
@@ -2387,7 +2373,6 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
           LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
-          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
           QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
           QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
           ModelSelector: {
@@ -2675,7 +2660,6 @@ describe('ConversationTab - Scroll container behavior', () => {
           LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
-          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
           QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
           QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
           ModelSelector: { template: '<div class="model-selector-stub"></div>' },
@@ -3051,7 +3035,6 @@ describe('ConversationTab - Model selector persistence on stop', () => {
           LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
-          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
           QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
           QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
           ModelSelector: {
@@ -3319,6 +3302,55 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       // Model should still be haiku
       modelSelector = wrapper.find('.model-selector-stub');
       expect(modelSelector.attributes('data-model')).toBe('haiku');
+    });
+  });
+
+  describe('model display in running state', () => {
+    it('shows model display name next to stop button when session is running', async () => {
+      mockSessionsStore.currentSession.status = 'running';
+      mockSessionsStore.currentSession.model = 'claude-opus-4-6';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelLabel = wrapper.find('.running-model-label');
+      expect(modelLabel.exists()).toBe(true);
+      expect(modelLabel.text()).toBe('Opus 4.6');
+    });
+
+    it('does not show model label when session has no model set', async () => {
+      mockSessionsStore.currentSession.status = 'running';
+      mockSessionsStore.currentSession.model = null;
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelLabel = wrapper.find('.running-model-label');
+      expect(modelLabel.exists()).toBe(false);
+    });
+
+    it('shows correct name for sonnet model', async () => {
+      mockSessionsStore.currentSession.status = 'running';
+      mockSessionsStore.currentSession.model = 'claude-sonnet-4-6';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelLabel = wrapper.find('.running-model-label');
+      expect(modelLabel.exists()).toBe(true);
+      expect(modelLabel.text()).toBe('Sonnet 4.6');
+    });
+
+    it('shows correct name for haiku model', async () => {
+      mockSessionsStore.currentSession.status = 'running';
+      mockSessionsStore.currentSession.model = 'claude-haiku-4-5-20251001';
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelLabel = wrapper.find('.running-model-label');
+      expect(modelLabel.exists()).toBe(true);
+      expect(modelLabel.text()).toBe('Haiku 4.5');
     });
   });
 });

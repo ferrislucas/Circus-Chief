@@ -16,16 +16,18 @@
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.1.0",
     "pinia": "^2.1.7",
-    "posthog-js": "^1.356.0",
+    "posthog-js": "^1.356.1",
     "vite": "^5.0.12",
     "vue": "^3.4.15",
     "vue-router": "^4.2.5"
   },
   "devDependencies": {
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-vue": "^6.0.3",
     "@vue/test-utils": "^2.4.6",
     "jsdom": "^27.4.0",
     "vite": "^5.0.12",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.16",
+    "ws": "^8.19.0"
   }
 }

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedProject, cleanupAll, navigateAndWait, getSessionMessages, getSession } from './helpers';
+import { seedProject, cleanupCreatedResources, navigateAndWait, getSessionMessages, getSession, getAPIURL, getProject } from './helpers';
 
 /**
  * Test for Bug: Scheduled session prompt is not visible in conversation
@@ -19,15 +19,19 @@ test.describe('Scheduled Session Prompt Visibility Bug', () => {
   test.describe.configure({ timeout: 120000 });
 
   let project: any;
-  const API_URL = process.env.API_URL || 'http://localhost:5001';
+  const API_URL = getAPIURL();
 
   test.beforeEach(async () => {
-    await cleanupAll();
+    await cleanupCreatedResources();
     project = await seedProject('Scheduled Prompt Bug Test', '/tmp/scheduled-prompt-bug-test');
+    // Verify project is accessible via API before proceeding to tests
+    // (guards against transient DB write lag causing 404 in session creation)
+    const check = await getProject(project.id);
+    expect(check).toBeTruthy();
   });
 
   test.afterEach(async () => {
-    await cleanupAll();
+    await cleanupCreatedResources();
   });
 
   test('scheduled session creation does NOT create user message (documenting bug)', async () => {
@@ -61,6 +65,14 @@ test.describe('Scheduled Session Prompt Visibility Bug', () => {
 
   test('scheduler path does NOT create user message (surfacing bug)', async ({ page }) => {
     const testPrompt = 'Scheduler started session - prompt MUST be visible but is NOT';
+
+    // Guard: If project was deleted by another parallel test's cleanupAll, recreate it
+    let projectCheck = await getProject(project.id);
+    if (!projectCheck) {
+      project = await seedProject('Scheduled Prompt Bug Test', '/tmp/scheduled-prompt-bug-test');
+      projectCheck = await getProject(project.id);
+    }
+    expect(projectCheck).toBeTruthy();
 
     // Create a scheduled session with future time
     const futureTime = Date.now() + 10000; // 10 seconds in future
@@ -253,24 +265,36 @@ test.describe('Scheduled Session Prompt Visibility Bug', () => {
 
 /**
  * Helper function to create a scheduled session via API
+ * Includes retry logic to handle transient 404s from DB write lag
  */
-async function createScheduledSession(projectId: string, prompt: string, scheduledAt: number) {
-  const API_URL = process.env.API_URL || 'http://localhost:5001';
+async function createScheduledSession(projectId: string, prompt: string, scheduledAt: number, retries = 3) {
+  const API_URL = getAPIURL();
 
-  const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      prompt,
-      scheduledAt,
-      startImmediately: false,
-    }),
-  });
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        scheduledAt,
+        startImmediately: false,
+      }),
+    });
 
-  if (!response.ok) {
+    if (response.ok) {
+      return response.json();
+    }
+
+    // Retry on 404 (transient DB lag) but not on other errors
+    if (response.status === 404 && attempt < retries - 1) {
+      console.log(`createScheduledSession: 404 on attempt ${attempt + 1}, retrying...`);
+      await new Promise(r => setTimeout(r, 500));
+      continue;
+    }
+
     const error = await response.text();
     throw new Error(`Failed to create scheduled session: ${response.status} - ${error}`);
   }
 
-  return response.json();
+  throw new Error('createScheduledSession: exhausted retries');
 }

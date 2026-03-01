@@ -216,7 +216,6 @@ describe('ConversationTab - Model Initialization Bug', () => {
           LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
-          TokenUsagePanel: { template: '<div class="token-usage-panel-stub"></div>' },
           TokenCostPanel: { template: '<div class="token-cost-panel-stub"></div>' },
           QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
           QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },

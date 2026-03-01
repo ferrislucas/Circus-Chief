@@ -33,6 +33,7 @@
           <button
             :class="['menu-item', { 'is-danger': item.isDanger, 'is-highlighted': highlightedIndex === index }]"
             role="menuitem"
+            :data-testid="item.action"
             @click="handleItemClick(item.action)"
             @mouseenter="highlightedIndex = index"
             @mouseleave="highlightedIndex = null"
