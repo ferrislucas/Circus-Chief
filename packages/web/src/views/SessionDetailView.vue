@@ -317,17 +317,21 @@ function startPolling() {
     // Only poll while actively processing, not while waiting for user input
     // Use showLoading=false to avoid flickering
     if (status === 'running' || status === 'starting') {
-      await sessionsStore.fetchSession(sessionId, false);
-      await sessionsStore.fetchConversations(sessionId); // NEW: Fetch token counts
-      await sessionsStore.fetchMessages(sessionId, false);
-      await sessionsStore.fetchWorkLogs(sessionId);
+      // Run fetches in parallel instead of sequentially to reduce total poll time.
+      // fetchConversations is removed — the onConversationUpdated WebSocket handler
+      // already handles conversation updates in real-time.
+      await Promise.all([
+        sessionsStore.fetchSession(sessionId, false),
+        sessionsStore.fetchMessages(sessionId, false),
+        sessionsStore.fetchWorkLogs(sessionId),
+      ]);
       // Check for file changes during active session so the Changes tab indicator updates
       checkForChanges();
     } else {
       // Session no longer actively processing, stop polling
       stopPolling();
     }
-  }, 1000); // Changed from 2000
+  }, 3000);
 }
 
 function stopPolling() {
@@ -515,8 +519,8 @@ async function initializeSession(sessionId) {
   // STEP 5: Fetch remaining data
   await sessionsStore.fetchMessages(sessionId);
   await sessionsStore.fetchWorkLogs(sessionId);
-  await canvasStore.fetchItems(sessionId);
-  canvasItemCount.value = canvasStore.groupedItems.length;
+  // Canvas data is lazy-loaded: CanvasTab.onMounted handles fetching when the tab is activated.
+  // canvasItemCount starts at 0 and is updated by onCanvasAdd/onCanvasRemove WebSocket handlers.
   todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
 
   // Fetch summary for PR indicators (don't await, not critical)

@@ -33,9 +33,9 @@ describe('useModelInfo', () => {
       expect(getModelDisplayName('')).toBe('Default');
     });
 
-    it('returns "Unknown" for unrecognized model ID', () => {
+    it('returns formatted name for unrecognized model ID', () => {
       const { getModelDisplayName } = useModelInfo();
-      expect(getModelDisplayName('some-unknown-model')).toBe('Unknown');
+      expect(getModelDisplayName('some-unknown-model')).toBe('Some Unknown Model');
     });
   });
 
@@ -61,9 +61,9 @@ describe('useModelInfo', () => {
       expect(getModelDescription(null)).toBe('Most capable (default)');
     });
 
-    it('returns empty string for unrecognized model ID', () => {
+    it('returns raw model ID for unrecognized model', () => {
       const { getModelDescription } = useModelInfo();
-      expect(getModelDescription('unknown-model')).toBe('');
+      expect(getModelDescription('unknown-model')).toBe('unknown-model');
     });
   });
 
@@ -108,14 +108,56 @@ describe('useModelInfo', () => {
       });
     });
 
-    it('returns Unknown name with empty description for unrecognized model', () => {
+    it('returns formatted name with raw model ID as description for unrecognized model', () => {
       const { getModelInfo } = useModelInfo();
       const info = getModelInfo('unknown-model-id');
 
       expect(info).toEqual({
-        name: 'Unknown',
-        description: '',
+        name: 'Unknown Model Id',
+        description: 'unknown-model-id',
       });
+    });
+  });
+
+  describe('formatModelId', () => {
+    it('formats simple model ID', () => {
+      const { formatModelId } = useModelInfo();
+      expect(formatModelId('some-unknown-model')).toBe('Some Unknown Model');
+    });
+
+    it('formats GPT model', () => {
+      const { formatModelId } = useModelInfo();
+      expect(formatModelId('gpt-4o')).toBe('Gpt 4o');
+    });
+
+    it('formats DeepSeek model', () => {
+      const { formatModelId } = useModelInfo();
+      expect(formatModelId('deepseek-chat')).toBe('Deepseek Chat');
+    });
+
+    it('formats Claude model with date stamp', () => {
+      const { formatModelId } = useModelInfo();
+      expect(formatModelId('claude-3-5-sonnet-20241022')).toBe('Claude 3 5 Sonnet');
+    });
+
+    it('formats model with path prefix', () => {
+      const { formatModelId } = useModelInfo();
+      expect(formatModelId('models/my-model')).toBe('My Model');
+    });
+
+    it('formats model with underscore', () => {
+      const { formatModelId } = useModelInfo();
+      expect(formatModelId('my_model_name')).toBe('My Model Name');
+    });
+
+    it('handles empty string', () => {
+      const { formatModelId } = useModelInfo();
+      expect(formatModelId('')).toBe('Unknown');
+    });
+
+    it('handles null', () => {
+      const { formatModelId } = useModelInfo();
+      expect(formatModelId(null)).toBe('Unknown');
     });
   });
 
