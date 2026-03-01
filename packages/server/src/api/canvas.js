@@ -292,9 +292,9 @@ router.get('/:id/canvas', (req, res) => {
   // Get only latest versions (one per filename)
   const items = canvasItems.getLatestVersionsBySessionId(req.params.id);
 
-  // Return items without version metadata
-  // (content/data are included for frontend to display items)
-  res.json(items);
+  // Strip content/data from list responses to reduce payload size.
+  // Clients should use GET /canvas/file/:filename/content for inline content.
+  res.json(items.map(({ content, data, ...meta }) => meta));
 });
 
 // GET /api/sessions/:id/canvas/all - List ALL canvas items (including all versions)
@@ -308,7 +308,8 @@ router.get('/:id/canvas/all', (req, res) => {
   // Get ALL versions (not just latest)
   const items = canvasItems.getBySessionId(req.params.id);
 
-  res.json(items);
+  // Strip content/data from list responses to reduce payload size.
+  res.json(items.map(({ content, data, ...meta }) => meta));
 });
 
 // GET /api/sessions/:id/canvas/file/:filename/history/:version - Get historical version of canvas file
@@ -384,6 +385,41 @@ router.get('/:id/canvas/file/:filename/history/:version', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: `Failed to write file: ${err.message}` });
   }
+});
+
+// GET /api/sessions/:id/canvas/file/:filename/content - Get canvas file content inline
+// Returns content/data inline in JSON for browser consumption (unlike the temp-file endpoint below)
+// Supports ?version=N query param (1-based, 1 = oldest)
+router.get('/:id/canvas/file/:filename/content', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+
+  const allVersions = canvasItems.getAllVersionsByFilename(req.params.id, req.params.filename);
+  if (allVersions.length === 0) return res.status(404).json({ error: 'File not found' });
+
+  // Support ?version=N (1-based, 1 = oldest)
+  const versionParam = parseInt(req.query.version);
+  let item;
+  if (!isNaN(versionParam) && versionParam >= 1 && versionParam <= allVersions.length) {
+    // allVersions is sorted DESC (newest first): [0] = newest, [length-1] = oldest
+    // Standard versioning: version 1 = oldest, version N = newest
+    const index = allVersions.length - versionParam;
+    item = allVersions[index];
+  } else if (!isNaN(versionParam)) {
+    return res.status(404).json({
+      error: `Version ${versionParam} not found. Available versions: 1-${allVersions.length}`
+    });
+  } else {
+    item = allVersions[0]; // latest
+  }
+
+  res.json({
+    content: item.content ?? null,
+    data: item.data ?? null,
+    type: item.type,
+    mimeType: item.mimeType,
+    filename: item.filename,
+  });
 });
 
 // GET /api/sessions/:id/canvas/file/:filename - Get canvas file by filename
@@ -469,7 +505,8 @@ router.get('/:id/canvas-trash', (req, res) => {
   }
 
   const items = canvasItems.getDeletedBySessionId(req.params.id);
-  res.json(items);
+  // Strip content/data from list responses to reduce payload size.
+  res.json(items.map(({ content, data, ...meta }) => meta));
 });
 
 // POST /api/sessions/:id/canvas/:itemId/recover - Recover a single item from trash
