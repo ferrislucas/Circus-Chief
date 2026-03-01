@@ -1,13 +1,12 @@
 /**
  * token-usage-cost.spec.ts
- * E2E tests for Token Usage & Cost Tracking (Section 16 of feature accounting).
+ * E2E tests for Token Cost Tracking (Section 16 of feature accounting).
  *
  * Covers:
  * 1. Configurable cost weights API (GET/PUT/DELETE /api/settings/token-weights)
  * 2. Token cost panel in conversation view
- * 3. Human-readable formatting (K, M suffixes)
- * 4. Per-conversation tracking
- * 5. Settings modal to customize token weights
+ * 3. Per-conversation tracking
+ * 4. Settings modal to customize token weights
  */
 
 import { test, expect } from '@playwright/test';
@@ -92,171 +91,7 @@ test.describe('Token Weights API — CRUD & Validation', () => {
 });
 
 // ============================================================
-// Category 2: Token Usage Panel — Basic Display (5 tests)
-// ============================================================
-
-test.describe('Token Usage Panel — Basic Display', () => {
-  let projectId: string;
-  let sessionId: string;
-
-  test.beforeEach(async () => {
-    await cleanupCreatedResources();
-    await resetTokenWeights();
-    const project = await seedProject('Token Test', '/tmp');
-    projectId = project.id;
-    const session = await seedSession(projectId, {
-      prompt: 'Test token usage',
-      startImmediately: false,
-    });
-    sessionId = session.id;
-  });
-
-  test.afterEach(async () => {
-    await cleanupCreatedResources();
-    await resetTokenWeights();
-  });
-
-  test('token usage panel is visible on conversation tab', async ({ page }) => {
-    seedConversationTokens(sessionId, null, { inputTokens: 5000, outputTokens: 2000 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.token-usage-panel')).toBeVisible({ timeout: 10000 });
-  });
-
-  test('displays total token count', async ({ page }) => {
-    // 15000 + 5000 = 20000 → formatTokenCount(20000) = "20.0K"
-    seedConversationTokens(sessionId, null, { inputTokens: 15000, outputTokens: 5000 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.token-usage-panel .total-label')).toHaveText('20.0K', { timeout: 10000 });
-  });
-
-  test('displays "tokens" suffix', async ({ page }) => {
-    seedConversationTokens(sessionId, null, { inputTokens: 5000, outputTokens: 2000 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.token-usage-panel .total-suffix')).toContainText('tokens', { timeout: 10000 });
-  });
-
-  test('displays context bar with correct percentage', async ({ page }) => {
-    // (30000 + 20000) / 200000 × 100 = 25%
-    seedConversationTokens(sessionId, null, {
-      inputTokens: 30000,
-      outputTokens: 20000,
-      contextWindow: 200000,
-    });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.context-pct')).toContainText('25%', { timeout: 10000 });
-  });
-
-  test('context bar shows critical color class at >90% usage', async ({ page }) => {
-    // (100000 + 90000) / 200000 × 100 = 95% → critical
-    seedConversationTokens(sessionId, null, {
-      inputTokens: 100000,
-      outputTokens: 90000,
-      contextWindow: 200000,
-    });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.context-bar-fill.critical')).toBeVisible({ timeout: 10000 });
-  });
-});
-
-// ============================================================
-// Category 3: Token Usage Panel — Expand/Collapse & Breakdown (5 tests)
-// ============================================================
-
-test.describe('Token Usage Panel — Expand/Collapse & Breakdown', () => {
-  let projectId: string;
-  let sessionId: string;
-
-  test.beforeEach(async () => {
-    await cleanupCreatedResources();
-    await resetTokenWeights();
-    const project = await seedProject('Token Test', '/tmp');
-    projectId = project.id;
-    const session = await seedSession(projectId, {
-      prompt: 'Test token breakdown',
-      startImmediately: false,
-    });
-    sessionId = session.id;
-  });
-
-  test.afterEach(async () => {
-    await cleanupCreatedResources();
-    await resetTokenWeights();
-  });
-
-  test('expand button appears when cache tokens exist', async ({ page }) => {
-    seedConversationTokens(sessionId, null, {
-      inputTokens: 5000,
-      outputTokens: 2000,
-      cacheReadInputTokens: 3000,
-      cacheCreationInputTokens: 1000,
-    });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.token-usage-panel .toggle-details')).toBeVisible({ timeout: 10000 });
-  });
-
-  test('expand button hidden when no cache tokens', async ({ page }) => {
-    seedConversationTokens(sessionId, null, { inputTokens: 5000, outputTokens: 2000 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.token-usage-panel .toggle-details')).not.toBeVisible({ timeout: 10000 });
-  });
-
-  test('clicking expand shows token breakdown', async ({ page }) => {
-    seedConversationTokens(sessionId, null, {
-      inputTokens: 5000,
-      outputTokens: 2000,
-      cacheReadInputTokens: 3000,
-      cacheCreationInputTokens: 1000,
-    });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await page.locator('.token-usage-panel .toggle-details').click();
-    await expect(page.locator('.usage-details')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('.usage-details .stat')).toHaveCount(4, { timeout: 10000 });
-  });
-
-  test('breakdown shows correct values for all 4 token types', async ({ page }) => {
-    // input=15000 → "15.0K", output=5000 → "5.0K", cacheRead=8000 → "8.0K", cacheCreation=2000 → "2.0K"
-    seedConversationTokens(sessionId, null, {
-      inputTokens: 15000,
-      outputTokens: 5000,
-      cacheReadInputTokens: 8000,
-      cacheCreationInputTokens: 2000,
-    });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await page.locator('.token-usage-panel .toggle-details').click();
-    await expect(page.locator('.usage-details')).toBeVisible({ timeout: 10000 });
-
-    const stats = page.locator('.usage-details .stat');
-    // Check labels
-    await expect(stats.nth(0).locator('.stat-label')).toContainText('Input');
-    await expect(stats.nth(1).locator('.stat-label')).toContainText('Output');
-    await expect(stats.nth(2).locator('.stat-label')).toContainText('Cache Read');
-    await expect(stats.nth(3).locator('.stat-label')).toContainText('Cache Creation');
-    // Check values
-    await expect(stats.nth(0).locator('.stat-value')).toHaveText('15.0K');
-    await expect(stats.nth(1).locator('.stat-value')).toHaveText('5.0K');
-    await expect(stats.nth(2).locator('.stat-value')).toHaveText('8.0K');
-    await expect(stats.nth(3).locator('.stat-value')).toHaveText('2.0K');
-  });
-
-  test('clicking collapse hides breakdown', async ({ page }) => {
-    seedConversationTokens(sessionId, null, {
-      inputTokens: 5000,
-      outputTokens: 2000,
-      cacheReadInputTokens: 3000,
-      cacheCreationInputTokens: 1000,
-    });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    // Expand
-    await page.locator('.token-usage-panel .toggle-details').click();
-    await expect(page.locator('.usage-details')).toBeVisible({ timeout: 10000 });
-    // Collapse
-    await page.locator('.token-usage-panel .toggle-details').click();
-    await expect(page.locator('.usage-details')).not.toBeVisible({ timeout: 10000 });
-  });
-});
-
-// ============================================================
-// Category 4: Token Cost Panel — BTE Display (5 tests)
+// Category 2: Token Cost Panel — BTE Display (5 tests)
 // ============================================================
 
 test.describe('Token Cost Panel — BTE Display', () => {
@@ -328,7 +163,7 @@ test.describe('Token Cost Panel — BTE Display', () => {
 });
 
 // ============================================================
-// Category 5: Token Weights Modal (6 tests)
+// Category 3: Token Weights Modal (6 tests)
 // ============================================================
 
 test.describe('Token Weights Modal', () => {
@@ -438,61 +273,7 @@ test.describe('Token Weights Modal', () => {
 });
 
 // ============================================================
-// Category 6: Human-Readable Formatting (4 tests)
-// ============================================================
-
-test.describe('Human-Readable Formatting', () => {
-  let projectId: string;
-  let sessionId: string;
-
-  test.beforeEach(async () => {
-    await cleanupCreatedResources();
-    await resetTokenWeights();
-    const project = await seedProject('Token Test', '/tmp');
-    projectId = project.id;
-    const session = await seedSession(projectId, {
-      prompt: 'Test token formatting',
-      startImmediately: false,
-    });
-    sessionId = session.id;
-  });
-
-  test.afterEach(async () => {
-    await cleanupCreatedResources();
-    await resetTokenWeights();
-  });
-
-  test('displays raw number for counts under 1000', async ({ page }) => {
-    // 300 + 200 = 500 tokens → formatTokenCount(500) = "500"
-    seedConversationTokens(sessionId, null, { inputTokens: 300, outputTokens: 200 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.token-usage-panel .total-label')).toHaveText('500', { timeout: 10000 });
-  });
-
-  test('displays K suffix for thousands', async ({ page }) => {
-    // 10000 + 5000 = 15000 → formatTokenCount(15000) = "15.0K"
-    seedConversationTokens(sessionId, null, { inputTokens: 10000, outputTokens: 5000 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.token-usage-panel .total-label')).toHaveText('15.0K', { timeout: 10000 });
-  });
-
-  test('displays decimal K for partial thousands', async ({ page }) => {
-    // 1000 + 500 = 1500 → formatTokenCount(1500) = "1.5K"
-    seedConversationTokens(sessionId, null, { inputTokens: 1000, outputTokens: 500 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.token-usage-panel .total-label')).toHaveText('1.5K', { timeout: 10000 });
-  });
-
-  test('displays M suffix for millions', async ({ page }) => {
-    // 1000000 + 500000 = 1500000 → formatTokenCount(1500000) = "1.5M"
-    seedConversationTokens(sessionId, null, { inputTokens: 1000000, outputTokens: 500000 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.token-usage-panel .total-label')).toHaveText('1.5M', { timeout: 10000 });
-  });
-});
-
-// ============================================================
-// Category 7: Per-Conversation Token Tracking (4 tests)
+// Category 4: Per-Conversation Token Tracking (3 tests)
 // ============================================================
 
 test.describe('Per-Conversation Token Tracking', () => {
@@ -536,16 +317,6 @@ test.describe('Per-Conversation Token Tracking', () => {
     expect(updatedB.outputTokens).toBe(20000);
   });
 
-  test('token panel reflects active conversation tokens', async ({ page }) => {
-    const conversations = await getConversations(sessionId);
-    const convA = conversations[0]; // active conversation
-
-    // Seed 10000 total on the active conversation → "10.0K"
-    seedConversationTokens(sessionId, convA.id, { inputTokens: 6000, outputTokens: 4000 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.token-usage-panel .total-label')).toHaveText('10.0K', { timeout: 10000 });
-  });
-
   test('BTE calculation uses active conversation tokens', async ({ page }) => {
     // Explicitly reset weights to defaults and verify to guard against cross-test contamination
     await resetTokenWeights();
@@ -582,57 +353,3 @@ test.describe('Per-Conversation Token Tracking', () => {
   });
 });
 
-// ============================================================
-// Category 8: Edge Cases (3 tests)
-// ============================================================
-
-test.describe('Edge Cases', () => {
-  let projectId: string;
-  let sessionId: string;
-
-  test.beforeEach(async () => {
-    await cleanupCreatedResources();
-    await resetTokenWeights();
-    const project = await seedProject('Token Test', '/tmp');
-    projectId = project.id;
-    const session = await seedSession(projectId, {
-      prompt: 'Test edge cases',
-      startImmediately: false,
-    });
-    sessionId = session.id;
-  });
-
-  test.afterEach(async () => {
-    await cleanupCreatedResources();
-    await resetTokenWeights();
-  });
-
-  test('zero tokens shows zero', async ({ page }) => {
-    // formatTokenCount(0) returns "0", NOT "-" (dash is only for null/undefined)
-    seedConversationTokens(sessionId, null, { inputTokens: 0, outputTokens: 0 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.token-usage-panel .total-label')).toHaveText('0', { timeout: 10000 });
-  });
-
-  test('context bar shows warning color at 70-90% usage', async ({ page }) => {
-    // (100000 + 50000) / 200000 × 100 = 75% → warning class
-    seedConversationTokens(sessionId, null, {
-      inputTokens: 100000,
-      outputTokens: 50000,
-      contextWindow: 200000,
-    });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.context-bar-fill.warning')).toBeVisible({ timeout: 10000 });
-  });
-
-  test('context bar shows normal color below 70%', async ({ page }) => {
-    // (30000 + 20000) / 200000 × 100 = 25% → normal class
-    seedConversationTokens(sessionId, null, {
-      inputTokens: 30000,
-      outputTokens: 20000,
-      contextWindow: 200000,
-    });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
-    await expect(page.locator('.context-bar-fill.normal')).toBeVisible({ timeout: 10000 });
-  });
-});
