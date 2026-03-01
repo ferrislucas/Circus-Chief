@@ -47,7 +47,7 @@
                   >
                     ↓
                   </button>
-                  <button class="action-button" @click="editResponse(response)" title="Edit">
+                  <button class="action-button" @click="editResponse(response)" title="Edit" aria-label="Edit">
                     ✏️
                   </button>
                   <button class="action-button action-danger" @click="confirmDelete(response)" title="Delete">
@@ -97,7 +97,7 @@
                   >
                     ↓
                   </button>
-                  <button class="action-button" @click="editResponse(response)" title="Edit">
+                  <button class="action-button" @click="editResponse(response)" title="Edit" aria-label="Edit">
                     ✏️
                   </button>
                   <button class="action-button action-danger" @click="confirmDelete(response)" title="Delete">
