@@ -30,7 +30,7 @@ export const CommandButtonListResponse = z.array(CommandButtonResponse);
 export const CommandRunResponse = z.object({
   runId: z.string(),
   buttonId: z.string(),
-  status: z.enum(['running', 'success', 'error']),
+  status: z.enum(['running', 'success', 'error', 'killed']),
   exitCode: z.number().int().nullable(),
   output: z.string().optional(),
 });

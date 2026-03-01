@@ -2,6 +2,7 @@ import { Page } from '@playwright/test';
 import { readFileSync, existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
+import { execSync } from 'child_process';
 
 export function getAPIURL(): string {
   if (process.env.API_URL) return process.env.API_URL;
@@ -16,11 +17,14 @@ export function getAPIURL(): string {
   return 'http://localhost:5000';
 }
 
-const API_URL = getAPIURL();
+export const API_URL = getAPIURL();
+
+// BASE_URL is used for frontend navigation (defaults to same as API_URL)
+export const BASE_URL = process.env.BASE_URL || API_URL;
 
 // Generate unique test prefix per test run to avoid race conditions between parallel tests
 const TEST_RUN_ID = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
-const TEST_PREFIX = `[TEST-${TEST_RUN_ID}] `;
+export const TEST_PREFIX = `[TEST-${TEST_RUN_ID}] `;
 
 // ============================================================
 // Resource Tracking for Scoped Cleanup
@@ -95,11 +99,27 @@ export async function waitForPageReady(page: Page, options: { timeout?: number }
 }
 
 /**
- * Navigate to a URL and wait for page to be ready
+ * Navigate to a URL and wait for page to be ready.
+ *
+ * Options:
+ *  - timeout: overall timeout for navigation + readiness (default 10000ms)
+ *  - waitFor: a CSS selector to wait for after networkidle (resolves race
+ *    conditions where async Vue data-fetching completes after the initial
+ *    load event). The selector is awaited with { state: 'visible' }.
  */
-export async function navigateAndWait(page: Page, url: string, options: { timeout?: number } = {}) {
+export async function navigateAndWait(
+  page: Page,
+  url: string,
+  options: { timeout?: number; waitFor?: string } = {},
+) {
   await page.goto(url);
   await waitForPageReady(page, options);
+  if (options.waitFor) {
+    await page.locator(options.waitFor).waitFor({
+      state: 'visible',
+      timeout: options.timeout || 10000,
+    });
+  }
 }
 
 /**
@@ -309,12 +329,18 @@ export async function seedProject(
 
 export async function seedSession(
   projectId: string,
-  data: { prompt: string; name?: string; mode?: string; startImmediately?: boolean }
+  data: { prompt: string; name?: string; mode?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string }
 ) {
+  // Default gitMode/gitBranch so tests pass for git-repo-backed projects
+  const payload = {
+    gitMode: 'none',
+    gitBranch: 'main',
+    ...data,
+  };
   const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify(payload),
   });
   if (!response.ok) throw new Error('Failed to seed session');
   const session = await response.json();
@@ -325,14 +351,29 @@ export async function seedSession(
 
 export async function seedCanvasItem(
   sessionId: string,
-  data: { type: string; content?: string; data?: string; mimeType?: string; label?: string; filePath?: string }
+  data: { type: string; content?: string; data?: string; mimeType?: string; label?: string; filePath?: string; filename?: string }
 ) {
+  // Auto-generate a filename if not provided (required for inline content mode)
+  const defaultExtensions: Record<string, string> = {
+    markdown: 'md',
+    text: 'txt',
+    json: 'json',
+    code: 'ts',
+  };
+  const payload = { ...data };
+  if (!payload.filename && !payload.filePath && payload.content !== undefined) {
+    const ext = defaultExtensions[payload.type] ?? 'txt';
+    payload.filename = `seed-${Date.now()}.${ext}`;
+  }
   const response = await fetch(`${API_URL}/api/sessions/${sessionId}/canvas`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error('Failed to seed canvas item');
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to seed canvas item (${response.status}): ${text}`);
+  }
   return response.json();
 }
 
@@ -342,15 +383,42 @@ export async function cleanupAll() {
 
   const projects = await projectsResponse.json();
   for (const project of projects) {
-    // Only delete test projects (prefixed with [TEST])
+    // Only delete test projects created by this worker (prefixed with TEST_PREFIX)
     if (project.name.startsWith(TEST_PREFIX)) {
       await fetch(`${API_URL}/api/projects/${project.id}`, { method: 'DELETE' });
     }
   }
 
-  // Delete all non-built-in providers whose names start with [TEST.
-  // This is safe here because cleanupAll() is only called from global-setup and
-  // global-teardown, which run sequentially (not in parallel with any workers).
+  // Delete providers created by this worker only (uses per-worker TEST_PREFIX).
+  // This is safe for parallel execution — each worker only cleans up its own providers.
+  // For a broader sweep (e.g. global-setup/teardown), use cleanupAllBroadly().
+  const providersResponse = await fetch(`${API_URL}/api/providers`);
+  if (!providersResponse.ok) return;
+
+  const providers = await providersResponse.json();
+  for (const provider of providers) {
+    if (provider.name.startsWith(TEST_PREFIX) && !provider.isBuiltIn) {
+      await fetch(`${API_URL}/api/providers/${provider.id}`, { method: 'DELETE' });
+    }
+  }
+}
+
+/**
+ * Broadly clean up ALL test resources across all workers.
+ * Only safe to call from global-setup and global-teardown, which run
+ * sequentially (not in parallel with any workers).
+ */
+export async function cleanupAllBroadly() {
+  const projectsResponse = await fetch(`${API_URL}/api/projects`);
+  if (!projectsResponse.ok) return;
+
+  const projects = await projectsResponse.json();
+  for (const project of projects) {
+    if (project.name.startsWith('[TEST') || project.name.startsWith(TEST_PREFIX)) {
+      await fetch(`${API_URL}/api/projects/${project.id}`, { method: 'DELETE' });
+    }
+  }
+
   const providersResponse = await fetch(`${API_URL}/api/providers`);
   if (!providersResponse.ok) return;
 
@@ -747,6 +815,17 @@ export async function waitForCommandRunComplete(
 }
 
 /**
+ * Kill a running command via POST /api/sessions/:sessionId/command-buttons/runs/:runId/kill.
+ * Returns the full fetch Response so callers can check response.ok / response.status
+ * for both success and 404 (already-completed) cases.
+ */
+export async function killCommandRun(sessionId: string, runId: string): Promise<Response> {
+  return fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/runs/${runId}/kill`, {
+    method: 'POST',
+  });
+}
+
+/**
  * Run a command button and wait for completion
  * Convenience function that combines runCommandButton + waitForCommandRunComplete
  */
@@ -798,7 +877,10 @@ export async function addProviderModel(providerId: string, data: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!response.ok) throw new Error('Failed to add provider model');
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Failed to add provider model (${response.status}): ${body}`);
+  }
   return response.json();
 }
 
@@ -908,7 +990,11 @@ export async function cleanupProviders() {
 // ============================================================
 
 /**
- * Update session with PR data
+ * Update a session's PR URL via PATCH.
+ *
+ * NOTE: Only `prUrl` is handled by the PATCH endpoint.
+ * Other PR fields (prState, hasMergeConflicts, ciStatus) live in
+ * session_summaries and must be seeded via seedSessionSummaryWithPR().
  */
 export async function updateSessionWithPR(sessionId: string, prData: {
   prUrl?: string;
@@ -998,6 +1084,1146 @@ export async function getChildSessions(parentSessionId: string) {
   const response = await fetch(`${API_URL}/api/sessions/${parentSessionId}/children`);
   if (!response.ok) return [];
   return response.json();
+}
+
+// ============================================================
+// Session Action Helpers (Star, Archive, Duplicate, Delete, etc.)
+// ============================================================
+
+/**
+ * Toggle session star status
+ */
+export async function toggleSessionStar(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/star`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to toggle session star');
+  return response.json();
+}
+
+/**
+ * Archive a session
+ */
+export async function archiveSession(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/archive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to archive session');
+  return response.json();
+}
+
+/**
+ * Unarchive a session
+ */
+export async function unarchiveSession(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/unarchive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to unarchive session');
+  return response.json();
+}
+
+/**
+ * Duplicate a session
+ */
+export async function duplicateSession(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/duplicate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to duplicate session');
+  return response.json();
+}
+
+/**
+ * Delete a session
+ */
+export async function deleteSession(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to delete session');
+  // DELETE returns 204 No Content
+  if (response.status === 204) return null;
+  return response.json();
+}
+
+/**
+ * Track an externally created session for cleanup
+ * (e.g., sessions created via UI or duplication that need to be cleaned up)
+ */
+export function trackSession(sessionId: string) {
+  createdResources.sessions.add(sessionId);
+}
+
+/**
+ * Stop a session
+ */
+export async function stopSession(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/stop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to stop session');
+  return response.json();
+}
+
+/**
+ * Restart a session
+ */
+export async function restartSession(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/restart`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) throw new Error('Failed to restart session');
+  return response.json();
+}
+
+/**
+ * Get all active sessions (across all projects)
+ */
+export async function getActiveSessions() {
+  const response = await fetch(`${API_URL}/api/sessions`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+/**
+ * Get archived sessions for a project
+ */
+export async function getArchivedSessions(projectId: string) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions?archived=true`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+// ============================================================
+// Session Note Helpers
+// ============================================================
+
+/**
+ * Create a session note
+ */
+export async function seedSessionNote(sessionId: string, data: { content: string }) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/notes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to seed session note');
+  return response.json();
+}
+
+/**
+ * Get notes for a session
+ */
+export async function getSessionNotes(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/notes`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+// ============================================================
+// Conversation Management Helpers
+// ============================================================
+
+/**
+ * Create a conversation for a session
+ */
+export async function seedConversation(sessionId: string, name?: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/conversations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name || null }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || `Failed to seed conversation: ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Create a conversation and return the raw response (for testing error cases)
+ */
+export async function seedConversationRaw(sessionId: string, name?: string) {
+  return fetch(`${API_URL}/api/sessions/${sessionId}/conversations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name || null }),
+  });
+}
+
+/**
+ * List all conversations for a session
+ */
+export async function getConversations(sessionId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/conversations`);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+/**
+ * Switch to a specific conversation (set as active)
+ */
+export async function switchConversation(sessionId: string, conversationId: string) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/conversations/${conversationId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isActive: true }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || `Failed to switch conversation: ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Delete a conversation (returns raw response for testing error cases)
+ */
+export async function deleteConversationRaw(sessionId: string, conversationId: string) {
+  return fetch(`${API_URL}/api/sessions/${sessionId}/conversations/${conversationId}`, {
+    method: 'DELETE',
+  });
+}
+
+/**
+ * Delete a conversation
+ */
+export async function deleteConversation(sessionId: string, conversationId: string) {
+  const response = await deleteConversationRaw(sessionId, conversationId);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || `Failed to delete conversation: ${response.status}`);
+  }
+  // 204 No Content
+  return null;
+}
+
+/**
+ * Branch from a message in a conversation
+ */
+export async function branchConversation(
+  sessionId: string,
+  conversationId: string,
+  messageId: string,
+  prompt: string
+) {
+  const response = await fetch(
+    `${API_URL}/api/sessions/${sessionId}/conversations/${conversationId}/branch`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId, prompt }),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || `Failed to branch conversation: ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * Get messages for a specific conversation
+ */
+export async function getConversationMessages(sessionId: string, conversationId: string) {
+  const response = await fetch(
+    `${API_URL}/api/sessions/${sessionId}/messages?conversation_id=${conversationId}`
+  );
+  if (!response.ok) return [];
+  return response.json();
+}
+
+/**
+ * Generate summary for a conversation
+ */
+export async function generateConversationSummary(sessionId: string, conversationId: string) {
+  const response = await fetch(
+    `${API_URL}/api/sessions/${sessionId}/conversations/${conversationId}/summary`,
+    { method: 'POST' }
+  );
+  // Don't throw on error - summary generation may fail if service is disabled
+  return response;
+}
+
+// ============================================================
+// Message Seeding Helpers (for messaging-chat tests)
+// Writes directly to the SQLite database via scripts/seed-message.mjs
+// — no API endpoint needed.
+// ============================================================
+
+function getDBPath(): string {
+  if (process.env.DB_PATH) return process.env.DB_PATH;
+  return join(process.cwd(), 'claudetools.db');
+}
+
+function runSeedMessage(payload: object): any {
+  const seedScript = join(process.cwd(), 'scripts', 'seed-message.mjs');
+  const input = JSON.stringify({ dbPath: getDBPath(), ...payload });
+  const result = execSync(`node "${seedScript}"`, {
+    input,
+    encoding: 'utf-8',
+    timeout: 10000,
+  });
+  return JSON.parse(result);
+}
+
+/**
+ * Seed a user message directly into the DB for a session
+ */
+export function seedUserMessage(
+  sessionId: string,
+  content: string,
+  conversationId?: string
+) {
+  return runSeedMessage({ sessionId, role: 'user', content, conversationId: conversationId ?? null });
+}
+
+/**
+ * Seed an assistant message directly into the DB for a session
+ */
+export function seedAssistantMessage(
+  sessionId: string,
+  content: string,
+  model?: string,
+  conversationId?: string
+) {
+  return runSeedMessage({
+    sessionId,
+    role: 'assistant',
+    content,
+    model: model ?? null,
+    conversationId: conversationId ?? null,
+  });
+}
+
+/**
+ * Seed an assistant message with tool use data directly into the DB for a session
+ */
+export function seedAssistantMessageWithTools(
+  sessionId: string,
+  content: string,
+  toolUse: Array<{ type: string; id: string; name: string; input: Record<string, any> }>,
+  model?: string,
+  conversationId?: string
+) {
+  return runSeedMessage({
+    sessionId,
+    role: 'assistant',
+    content,
+    toolUse,
+    model: model ?? null,
+    conversationId: conversationId ?? null,
+  });
+}
+
+/**
+ * Seed multiple alternating user/assistant messages to create a scrollable conversation
+ */
+export function seedConversationHistory(sessionId: string, messageCount: number) {
+  const msgs: any[] = [];
+  for (let i = 0; i < messageCount; i++) {
+    const isUser = i % 2 === 0;
+    const msg = isUser
+      ? seedUserMessage(sessionId, `User message ${i + 1}: Tell me about topic ${i + 1}.`)
+      : seedAssistantMessage(
+          sessionId,
+          `Assistant response ${i + 1}: Here is a detailed response about topic ${i}. `.repeat(5),
+          'claude-sonnet-4-20250514'
+        );
+    msgs.push(msg);
+  }
+  return msgs;
+}
+
+// ============================================================
+// Template System Helpers (for template-system tests)
+// ============================================================
+
+/**
+ * Find child sessions by querying the parent session's project sessions
+ * and filtering by parentSessionId. Works without a dedicated /children endpoint.
+ */
+async function findChildSessionsForParent(parentSessionId: string): Promise<any[]> {
+  // First get the parent session to find its projectId
+  const parent = await getSession(parentSessionId);
+  if (!parent) return [];
+
+  const allSessions = await getProjectSessions(parent.projectId);
+  return allSessions.filter((s: any) => s.parentSessionId === parentSessionId);
+}
+
+/**
+ * Wait for a child session to appear under a parent session
+ * Polls project sessions and filters by parentSessionId
+ */
+export async function waitForChildSession(
+  parentSessionId: string,
+  timeout = 15000
+): Promise<any> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const children = await findChildSessionsForParent(parentSessionId);
+    if (children.length > 0) {
+      // Track for cleanup
+      for (const child of children) {
+        createdResources.sessions.add(child.id);
+      }
+      return children[0];
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`No child session found for parent ${parentSessionId} after ${timeout}ms`);
+}
+
+/**
+ * Wait for N child sessions to appear under a parent session
+ */
+export async function waitForChildSessions(
+  parentSessionId: string,
+  count: number,
+  timeout = 15000
+): Promise<any[]> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const children = await findChildSessionsForParent(parentSessionId);
+    if (children.length >= count) {
+      for (const child of children) {
+        createdResources.sessions.add(child.id);
+      }
+      return children;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`Expected ${count} child sessions for parent ${parentSessionId}, found less after ${timeout}ms`);
+}
+
+/**
+ * Seed a session summary directly into the DB via scripts/seed-summary.mjs
+ */
+export function seedSessionSummaryDirect(
+  sessionId: string,
+  data: {
+    shortSummary: string;
+    fullSummary: string;
+    keyActions?: string[];
+    filesModified?: string[];
+    outcome?: string;
+  }
+) {
+  const seedScript = join(process.cwd(), 'scripts', 'seed-summary.mjs');
+  const input = JSON.stringify({ dbPath: getDBPath(), sessionId, ...data });
+  const result = execSync(`node "${seedScript}"`, {
+    input,
+    encoding: 'utf-8',
+    timeout: 10000,
+  });
+  return JSON.parse(result);
+}
+
+/**
+ * Seed a session summary with PR status fields via extended seed-summary.mjs.
+ * This is the PRIMARY way to seed PR state/CI data for tests.
+ *
+ * IMPORTANT: PR state fields (prState, ciStatus, etc.) live in
+ * session_summaries, NOT sessions. Use updateSessionWithPR() for prUrl only,
+ * and this function for everything else.
+ */
+export function seedSessionSummaryWithPR(
+  sessionId: string,
+  data: {
+    shortSummary?: string;
+    fullSummary?: string;
+    outcome?: string;
+    keyActions?: string[];
+    filesModified?: string[];
+    prState?: 'open' | 'merged' | 'closed' | 'draft';
+    prMerged?: boolean;
+    hasMergeConflicts?: boolean;
+    ciStatus?: 'success' | 'failure' | 'pending';
+    ciFailures?: string[];
+  }
+) {
+  const seedScript = join(process.cwd(), 'scripts', 'seed-summary.mjs');
+  const payload: any = {
+    dbPath: getDBPath(),
+    sessionId,
+    shortSummary: data.shortSummary ?? 'Test summary',
+    fullSummary: data.fullSummary ?? 'Test full summary',
+    outcome: data.outcome ?? 'completed',
+  };
+  if (data.keyActions) payload.keyActions = data.keyActions;
+  if (data.filesModified) payload.filesModified = data.filesModified;
+  if (data.prState !== undefined) payload.prState = data.prState;
+  if (data.prMerged !== undefined) payload.prMerged = data.prMerged;
+  if (data.hasMergeConflicts !== undefined) payload.hasMergeConflicts = data.hasMergeConflicts;
+  if (data.ciStatus !== undefined) payload.ciStatus = data.ciStatus;
+  if (data.ciFailures !== undefined) payload.ciFailures = data.ciFailures;
+
+  const input = JSON.stringify(payload);
+  const result = execSync(`node "${seedScript}"`, {
+    input,
+    encoding: 'utf-8',
+    timeout: 10000,
+  });
+  return JSON.parse(result);
+}
+
+/**
+ * Update a session's nextTemplateId via PATCH
+ */
+export async function setNextTemplate(
+  sessionId: string,
+  nextTemplateId: string | null
+): Promise<any> {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nextTemplateId }),
+  });
+  if (!response.ok) throw new Error('Failed to set next template');
+  return response.json();
+}
+
+/**
+ * Update a template via PATCH
+ */
+export async function updateTemplate(
+  id: string,
+  data: {
+    name?: string;
+    prompt?: string;
+    nextTemplateId?: string | null;
+    thinkingEnabled?: boolean | null;
+    gitBranch?: string | null;
+    gitMode?: string | null;
+    model?: string | null;
+    mode?: string;
+  }
+): Promise<any> {
+  const response = await fetch(`${API_URL}/api/templates/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to update template');
+  return response.json();
+}
+
+// ============================================================
+// Session Scheduling Helpers
+// ============================================================
+
+/**
+ * Create a scheduled session with auto-reschedule configuration
+ */
+export async function seedScheduledSession(
+  projectId: string,
+  data: {
+    prompt: string;
+    name?: string;
+    scheduledAt?: number;
+    autoRescheduleEnabled?: boolean;
+    rescheduleDelayMinutes?: number;
+    rescheduleOnTokenLimit?: boolean;
+    rescheduleOnServiceError?: boolean;
+    maxRescheduleCount?: number | null;
+    maxTotalTokens?: number | null;
+    rescheduleAtTokenCount?: number | null;
+  }
+): Promise<any> {
+  const body: any = {
+    prompt: data.prompt,
+    startImmediately: false,
+    scheduledAt: data.scheduledAt || Date.now() + 3600000, // default 1 hour from now
+  };
+  if (data.name) body.name = data.name;
+  if (data.autoRescheduleEnabled !== undefined) body.autoRescheduleEnabled = data.autoRescheduleEnabled;
+  if (data.rescheduleDelayMinutes !== undefined) body.rescheduleDelayMinutes = data.rescheduleDelayMinutes;
+  if (data.rescheduleOnTokenLimit !== undefined) body.rescheduleOnTokenLimit = data.rescheduleOnTokenLimit;
+  if (data.rescheduleOnServiceError !== undefined) body.rescheduleOnServiceError = data.rescheduleOnServiceError;
+  if (data.maxRescheduleCount !== undefined) body.maxRescheduleCount = data.maxRescheduleCount;
+  if (data.maxTotalTokens !== undefined) body.maxTotalTokens = data.maxTotalTokens;
+  if (data.rescheduleAtTokenCount !== undefined) body.rescheduleAtTokenCount = data.rescheduleAtTokenCount;
+
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Failed to seed scheduled session: ${response.status} ${err}`);
+  }
+  const session = await response.json();
+  createdResources.sessions.add(session.id);
+  return session;
+}
+
+/**
+ * Update session scheduling fields via PATCH
+ */
+export async function updateSessionScheduling(
+  sessionId: string,
+  data: {
+    scheduledAt?: number | null;
+    autoRescheduleEnabled?: boolean;
+    rescheduleDelayMinutes?: number;
+    rescheduleOnTokenLimit?: boolean;
+    rescheduleOnServiceError?: boolean;
+    maxRescheduleCount?: number | null;
+    maxTotalTokens?: number | null;
+    rescheduleCount?: number;
+    rescheduleAtTokenCount?: number | null;
+    status?: string;
+    pendingPrompt?: string;
+  }
+): Promise<any> {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Failed to update session scheduling: ${response.status} ${err}`);
+  }
+  return response.json();
+}
+
+/**
+ * Get all scheduled sessions (optionally filtered by project)
+ */
+export async function getScheduledSessions(projectId?: string): Promise<any[]> {
+  const url = projectId
+    ? `${API_URL}/api/sessions/scheduled?projectId=${projectId}`
+    : `${API_URL}/api/sessions/scheduled`;
+  const response = await fetch(url);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+/**
+ * Wait for a session to reach 'scheduled' status
+ */
+export async function waitForSessionScheduled(
+  sessionId: string,
+  timeout = 10000
+): Promise<any> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const session = await getSession(sessionId);
+    if (session && session.status === 'scheduled') return session;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`Session ${sessionId} did not reach 'scheduled' status after ${timeout}ms`);
+}
+
+/**
+ * Update session pending prompt via the dedicated endpoint
+ */
+export async function updatePendingPrompt(
+  sessionId: string,
+  pendingPrompt: string | null
+): Promise<any> {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/pending-prompt`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pendingPrompt }),
+  });
+  if (!response.ok) throw new Error('Failed to update pending prompt');
+  return response.json();
+}
+
+// ============================================================
+// Quick Response Helpers
+// ============================================================
+
+/**
+ * Create a quick response via POST /api/projects/:projectId/quick-responses.
+ * Returns the full response object.
+ */
+export async function seedQuickResponse(
+  projectId: string,
+  data: {
+    label: string;
+    content: string;
+    autoSubmit?: boolean;
+    category?: string;
+    sortOrder?: number;
+    isGlobal?: boolean;
+  }
+): Promise<any> {
+  const res = await fetch(`${API_URL}/api/projects/${projectId}/quick-responses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`seedQuickResponse failed: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Get all quick responses for a project (both project-scoped and global).
+ * Returns { project: [...], global: [...] }.
+ */
+export async function getQuickResponses(projectId: string): Promise<any> {
+  const res = await fetch(`${API_URL}/api/projects/${projectId}/quick-responses`);
+  if (!res.ok) throw new Error(`getQuickResponses failed: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Update a quick response via PATCH /api/quick-responses/:id.
+ * Returns the updated response object.
+ */
+export async function updateQuickResponse(
+  id: string,
+  data: { label?: string; content?: string; autoSubmit?: boolean; category?: string; sortOrder?: number }
+): Promise<any> {
+  const res = await fetch(`${API_URL}/api/quick-responses/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`updateQuickResponse failed: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Delete a quick response via DELETE /api/quick-responses/:id.
+ */
+export async function deleteQuickResponse(id: string): Promise<void> {
+  const res = await fetch(`${API_URL}/api/quick-responses/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`deleteQuickResponse failed: ${res.status}`);
+}
+
+/**
+ * Reorder quick responses via POST /api/projects/:projectId/quick-responses/reorder
+ * or POST /api/quick-responses/global/reorder.
+ * Returns updated list.
+ */
+export async function reorderQuickResponses(
+  projectId: string | null,
+  orders: Array<{ id: string; sortOrder: number }>
+): Promise<any> {
+  const url = projectId
+    ? `${API_URL}/api/projects/${projectId}/quick-responses/reorder`
+    : `${API_URL}/api/quick-responses/global/reorder`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(orders),
+  });
+  if (!res.ok) throw new Error(`reorderQuickResponses failed: ${res.status}`);
+  return res.json();
+}
+
+// ============================================================
+// Slash Command Helpers
+// ============================================================
+
+/**
+ * Get discovered slash commands for a directory via the API.
+ * Returns array of command objects.
+ */
+export async function getSlashCommands(directory: string): Promise<any[]> {
+  const res = await fetch(
+    `${API_URL}/api/commands?directory=${encodeURIComponent(directory)}`
+  );
+  if (!res.ok) throw new Error(`getSlashCommands failed: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Get a single slash command's details via the API.
+ * Returns command object or null.
+ */
+export async function getSlashCommand(directory: string, name: string): Promise<any> {
+  const res = await fetch(
+    `${API_URL}/api/commands/${encodeURIComponent(name)}?directory=${encodeURIComponent(directory)}`
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`getSlashCommand failed: ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Execute a slash command via the API (raw response for testing error cases).
+ */
+export async function executeSlashCommandRaw(
+  name: string,
+  sessionId: string,
+  args: Record<string, string> = {}
+): Promise<Response> {
+  return fetch(`${API_URL}/api/commands/${encodeURIComponent(name)}/execute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, args }),
+  });
+}
+
+/**
+ * Get the slash commands API URL (for raw fetch calls in tests)
+ */
+export function getSlashCommandsAPIURL(): string {
+  return `${API_URL}/api/commands`;
+}
+
+// ============================================================
+// Todo Tracking Helpers (for todo-tracking tests)
+// ============================================================
+
+/**
+ * Seed todos directly into the DB via scripts/seed-todos.mjs
+ */
+export function seedTodos(
+  sessionId: string,
+  conversationId: string,
+  todos: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>
+): any[] {
+  const seedScript = join(process.cwd(), 'scripts', 'seed-todos.mjs');
+  const payload = {
+    dbPath: getDBPath(),
+    sessionId,
+    conversationId,
+    todos,
+  };
+  const input = JSON.stringify(payload);
+  const result = execSync(`node "${seedScript}"`, {
+    input,
+    encoding: 'utf-8',
+    timeout: 10000,
+  });
+  return JSON.parse(result);
+}
+
+/**
+ * Get todos for a session via API
+ * If conversationId is provided, filters to that conversation
+ */
+export async function getTodos(
+  sessionId: string,
+  conversationId?: string
+): Promise<any[]> {
+  const url = conversationId
+    ? `${API_URL}/api/sessions/${sessionId}/todos?conversation_id=${conversationId}`
+    : `${API_URL}/api/sessions/${sessionId}/todos`;
+  const response = await fetch(url);
+  if (!response.ok) return [];
+  return response.json();
+}
+
+// ============================================================
+// Token Usage & Cost Helpers (for token-usage-cost tests)
+// ============================================================
+
+/**
+ * Seed token usage directly into the DB for a conversation.
+ * Uses scripts/seed-conversation-tokens.mjs for direct DB write.
+ * If conversationId is not provided, uses the active conversation for the session.
+ */
+export function seedConversationTokens(
+  sessionId: string,
+  conversationId: string | null,
+  tokens: {
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
+    contextWindow?: number;
+  }
+): any {
+  const seedScript = join(process.cwd(), 'scripts', 'seed-conversation-tokens.mjs');
+  const payload = {
+    dbPath: getDBPath(),
+    sessionId,
+    conversationId: conversationId ?? null,
+    ...tokens,
+  };
+  const input = JSON.stringify(payload);
+  const result = execSync(`node "${seedScript}"`, {
+    input,
+    encoding: 'utf-8',
+    timeout: 10000,
+  });
+  return JSON.parse(result);
+}
+
+/**
+ * Get token cost weights from the API.
+ * Returns { input, output, cacheRead, cacheCreation }.
+ */
+export async function getTokenWeights(): Promise<{
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+}> {
+  const response = await fetch(`${API_URL}/api/settings/token-weights`);
+  if (!response.ok) throw new Error(`getTokenWeights failed: ${response.status}`);
+  return response.json();
+}
+
+/**
+ * Update token cost weights via PUT /api/settings/token-weights.
+ * Returns the updated weights object.
+ */
+export async function updateTokenWeights(weights: {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+}): Promise<any> {
+  const response = await fetch(`${API_URL}/api/settings/token-weights`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(weights),
+  });
+  if (!response.ok) throw new Error(`updateTokenWeights failed: ${response.status}`);
+  return response.json();
+}
+
+/**
+ * Reset token cost weights to defaults via DELETE /api/settings/token-weights.
+ * Returns the default weights object.
+ */
+export async function resetTokenWeights(): Promise<any> {
+  const response = await fetch(`${API_URL}/api/settings/token-weights`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error(`resetTokenWeights failed: ${response.status}`);
+  return response.json();
+}
+
+/**
+ * Get summary settings from the API.
+ * Returns { disableSessionSummaries, disableConversationSummaries, sessionTitlePrompt, defaultSessionTitlePrompt }.
+ */
+export async function getSummarySettings(): Promise<{
+  disableSessionSummaries: boolean;
+  disableConversationSummaries: boolean;
+  sessionTitlePrompt: string;
+  defaultSessionTitlePrompt: string;
+}> {
+  const response = await fetch(`${API_URL}/api/settings/summary`);
+  if (!response.ok) throw new Error(`getSummarySettings failed: ${response.status}`);
+  return response.json();
+}
+
+/**
+ * Update summary settings via PUT /api/settings/summary.
+ * Returns the updated settings object.
+ */
+export async function updateSummarySettings(settings: {
+  disableSessionSummaries: boolean;
+  disableConversationSummaries: boolean;
+  sessionTitlePrompt: string;
+}): Promise<any> {
+  const response = await fetch(`${API_URL}/api/settings/summary`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!response.ok) throw new Error(`updateSummarySettings failed: ${response.status}`);
+  return response.json();
+}
+
+/**
+ * Reset summary settings to defaults via DELETE /api/settings/summary.
+ * Returns the default settings object.
+ */
+export async function resetSummarySettings(): Promise<any> {
+  const response = await fetch(`${API_URL}/api/settings/summary`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error(`resetSummarySettings failed: ${response.status}`);
+  return response.json();
+}
+
+// ============================================================
+// WebSocket Helpers (for WebSocket E2E tests)
+// ============================================================
+
+// Derive WS URL from API_URL
+export const WS_URL = API_URL.replace(/^http/, 'ws');
+
+/**
+ * Connect a raw WebSocket client to the server.
+ * Uses require() lazily to avoid static-import side-effects during
+ * Playwright's globalSetup / module-collection phase.
+ */
+export function connectWebSocket(): Promise<any> {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const WS = require('ws');
+  return new Promise((resolve, reject) => {
+    const ws = new WS(`${WS_URL}/ws`);
+    ws.on('open', () => resolve(ws));
+    ws.on('error', reject);
+    setTimeout(() => reject(new Error('WebSocket connect timeout')), 5000);
+  });
+}
+
+/** Subscribe to a session via WebSocket */
+export function subscribeToSession(ws: any, sessionId: string): void {
+  ws.send(JSON.stringify({ type: 'subscribe:session', sessionId }));
+}
+
+/** Unsubscribe from a session via WebSocket */
+export function unsubscribeFromSession(ws: any, sessionId: string): void {
+  ws.send(JSON.stringify({ type: 'unsubscribe:session', sessionId }));
+}
+
+/** Subscribe to a project via WebSocket */
+export function subscribeToProject(ws: any, projectId: string): void {
+  ws.send(JSON.stringify({ type: 'subscribe:project', projectId }));
+}
+
+/** Unsubscribe from a project via WebSocket */
+export function unsubscribeFromProject(ws: any, projectId: string): void {
+  ws.send(JSON.stringify({ type: 'unsubscribe:project', projectId }));
+}
+
+/**
+ * Wait for a specific WebSocket message type, with optional payload matcher.
+ * Resolves with the first matching message object.
+ */
+export function waitForWSMessage(
+  ws: any,
+  messageType: string,
+  timeout = 10000,
+  matcher?: (data: any) => boolean
+): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.removeListener('message', handler);
+      reject(new Error(`Timeout waiting for WS message: "${messageType}"`));
+    }, timeout);
+
+    function handler(raw: any) {
+      let data: any;
+      try { data = JSON.parse(raw.toString()); } catch { return; }
+      if (data.type === messageType && (!matcher || matcher(data))) {
+        clearTimeout(timer);
+        ws.removeListener('message', handler);
+        resolve(data);
+      }
+    }
+
+    ws.on('message', handler);
+  });
+}
+
+/**
+ * Collect all WebSocket messages received within a fixed duration window.
+ */
+export function collectWSMessages(ws: any, durationMs: number): Promise<any[]> {
+  return new Promise((resolve) => {
+    const messages: any[] = [];
+    function handler(raw: any) {
+      try { messages.push(JSON.parse(raw.toString())); } catch { /* ignore */ }
+    }
+    ws.on('message', handler);
+    setTimeout(() => {
+      ws.removeListener('message', handler);
+      resolve(messages);
+    }, durationMs);
+  });
+}
+
+/**
+ * Collect WebSocket messages until a specific message type (and optional
+ * matcher) is received. All messages — including the stop message — are
+ * included in the returned array. Resolves on stop message or timeout.
+ *
+ * @param ws          The WebSocket connection
+ * @param stopType    The message type that ends collection
+ * @param timeout     Max wait time in ms (default 15 000)
+ * @param stopMatcher Optional extra predicate on the stop message
+ */
+export function collectWSMessagesUntil(
+  ws: any,
+  stopType: string,
+  timeout = 15000,
+  stopMatcher?: (data: any) => boolean
+): Promise<any[]> {
+  return new Promise((resolve) => {
+    const messages: any[] = [];
+
+    const timer = setTimeout(() => {
+      ws.removeListener('message', handler);
+      // Resolve with whatever we collected — callers inspect the contents
+      resolve(messages);
+    }, timeout);
+
+    function handler(raw: any) {
+      let data: any;
+      try { data = JSON.parse(raw.toString()); } catch { return; }
+      messages.push(data);
+      if (data.type === stopType && (!stopMatcher || stopMatcher(data))) {
+        clearTimeout(timer);
+        ws.removeListener('message', handler);
+        resolve(messages);
+      }
+    }
+
+    ws.on('message', handler);
+  });
+}
+
+/**
+ * Assert that no message of a specific type is received within a timeout window.
+ */
+export async function assertNoWSMessage(
+  ws: any,
+  messageType: string,
+  timeout = 1000
+): Promise<void> {
+  let received = false;
+
+  const handler = (raw: any) => {
+    let data: any;
+    try { data = JSON.parse(raw.toString()); } catch { return; }
+    if (data.type === messageType) {
+      received = true;
+      ws.removeListener('message', handler);
+    }
+  };
+
+  ws.on('message', handler);
+  await new Promise((r) => setTimeout(r, timeout));
+  ws.removeListener('message', handler);
+
+  if (received) {
+    throw new Error(`Unexpected WS message "${messageType}" was received`);
+  }
+}
+
+/**
+ * Poll the REST API until the session reaches the target status.
+ */
+export async function waitForStatus(
+  sessionId: string,
+  status: string,
+  timeout = 60000
+): Promise<any> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const session = await getSession(sessionId);
+    if (session && session.status === status) {
+      return session;
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  throw new Error(`Session ${sessionId} did not reach status "${status}" within ${timeout}ms`);
 }
 
 // ============================================================

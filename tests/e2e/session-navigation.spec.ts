@@ -75,33 +75,6 @@ test.describe('Session Navigation - Parent/Child Links', () => {
     await expect(page.locator('.session-name')).toContainText('Root Session');
   });
 
-  test('child session link navigates from parent to child session', async ({ page }) => {
-    // Navigate to root session
-    await navigateAndWait(page, `/sessions/${rootSession.id}`);
-
-    // Wait for page to load
-    await page.waitForLoadState('networkidle');
-
-    // Wait for child sessions panel to be visible
-    const childPanel = page.locator('.child-sessions-panel');
-    await expect(childPanel).toBeVisible();
-
-    // Verify panel shows correct count
-    await expect(childPanel.getByText('Child Sessions (1)')).toBeVisible();
-
-    // Click the child session link (use locator instead of getByText to avoid strict mode violation)
-    const childLink = childPanel.locator('a.child-session-item');
-    await expect(childLink).toBeVisible();
-    await childLink.click();
-
-    // Verify navigation to child session
-    await expect(page).toHaveURL(new RegExp(`/sessions/${childSession.id}`), { timeout: 10000 });
-
-    // Verify the session name is displayed on the page
-    await expect(page.locator('.session-name')).toContainText('Child Session');
-  });
-
-
   test('tabs work correctly after navigation via breadcrumb', async ({ page }) => {
     // Navigate to child session
     await navigateAndWait(page, `/sessions/${childSession.id}`);

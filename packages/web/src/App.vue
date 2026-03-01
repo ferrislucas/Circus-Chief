@@ -6,6 +6,7 @@
           <img src="/logo.png" alt="ClaudeTools.io Logo" class="logo-image" />
         </router-link>
         <nav class="nav">
+          <SystemIndicators />
           <router-link to="/settings" class="nav-link" title="Settings">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="4" y1="21" x2="4" y2="14"></line>
@@ -34,6 +35,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
 import ToastContainer from './components/ToastContainer.vue';
+import SystemIndicators from './components/SystemIndicators.vue';
 import { useVisualViewport } from './composables/useVisualViewport.js';
 
 // Initialize visual viewport tracking for iOS Safari browser chrome offset
@@ -148,6 +150,8 @@ onUnmounted(() => {
   display: flex;
   gap: 1.5rem;
   align-items: center;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .nav-link {
@@ -161,6 +165,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .nav-link:hover {
@@ -170,6 +175,12 @@ onUnmounted(() => {
 .nav-link.router-link-active {
   color: var(--color-primary);
   border-bottom-color: var(--color-primary);
+}
+
+@media (max-width: 480px) {
+  .nav {
+    gap: 0.75rem;
+  }
 }
 
 .app-main {

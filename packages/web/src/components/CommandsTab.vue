@@ -24,7 +24,7 @@
     </div>
 
     <!-- Empty State (only when no buttons and not loading) -->
-    <div v-if="!commandButtonsStore.loading && commandButtonsStore.buttons.length === 0" class="empty-state">
+    <div v-if="!commandButtonsStore.loading && commandButtonsStore.buttons.length === 0" class="empty-state" data-testid="commands-tab-empty">
       <p>No command buttons configured for this project.</p>
       <router-link
         :to="`/projects/${projectId}/commands`"
@@ -35,7 +35,7 @@
     </div>
 
     <!-- Commands List (show when buttons exist, regardless of error state) -->
-    <div v-if="!commandButtonsStore.loading && commandButtonsStore.buttons.length > 0" class="commands-list">
+    <div v-if="!commandButtonsStore.loading && commandButtonsStore.buttons.length > 0" class="commands-list" data-testid="commands-tab-list">
       <CommandButtonItem
         v-for="button in commandButtonsStore.buttons"
         :key="button.id"

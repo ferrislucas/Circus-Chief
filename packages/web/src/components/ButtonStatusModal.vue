@@ -1,5 +1,5 @@
 <template>
-  <div v-if="isOpen" class="modal-overlay" @click="close">
+  <div v-if="isOpen" class="modal-overlay" @click="close" data-testid="button-status-modal">
     <div class="modal-dialog" @click.stop>
       <div class="modal-header">
         <h3>{{ button.label }}</h3>
@@ -19,7 +19,7 @@
         <div class="status-section">
           <div class="status-row">
             <span class="status-label">Status:</span>
-            <span :class="['status-badge', `status-${statusDisplay.color}`]">
+            <span :class="['status-badge', `status-${statusDisplay.color}`]" data-testid="button-status-badge">
               {{ statusDisplay.text }}
             </span>
           </div>
