@@ -3327,6 +3327,24 @@ describe('Sessions Store', () => {
     });
   });
 
+  describe('fetchSessions', () => {
+    it('should always fetch all sessions regardless of starredFilter', async () => {
+      const store = useSessionsStore();
+      store.starredFilter = 'starred'; // Set a filter
+
+      // Mock the API
+      const mockSessions = [{ id: '1', starred: true }, { id: '2', starred: false }];
+      api.getProjectSessions.mockResolvedValue(mockSessions);
+
+      await store.fetchSessions('project-1');
+
+      // Verify API was called with null for starred (not the store's starredFilter)
+      expect(api.getProjectSessions).toHaveBeenCalledWith('project-1', false, null);
+      // Verify ALL sessions are stored (not just starred)
+      expect(store.sessions).toEqual(mockSessions);
+    });
+  });
+
   describe('updateSessionCommandRun', () => {
     it('adds latestCommandRuns array if not present', () => {
       const store = useSessionsStore();
