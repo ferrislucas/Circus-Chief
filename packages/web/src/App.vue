@@ -150,6 +150,8 @@ onUnmounted(() => {
   display: flex;
   gap: 1.5rem;
   align-items: center;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .nav-link {
@@ -163,6 +165,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .nav-link:hover {
@@ -172,6 +175,12 @@ onUnmounted(() => {
 .nav-link.router-link-active {
   color: var(--color-primary);
   border-bottom-color: var(--color-primary);
+}
+
+@media (max-width: 480px) {
+  .nav {
+    gap: 0.75rem;
+  }
 }
 
 .app-main {

@@ -1,5 +1,6 @@
 import os from 'os';
-import { execFile } from 'child_process';
+import fs from 'fs';
+import { execFile, execFileSync } from 'child_process';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { broadcast } from '../ws/index.js';
 
@@ -49,13 +50,109 @@ export function computeCpuUsage(prevCpuSamples, currCpuSamples) {
 }
 
 /**
+ * Get available memory bytes using platform-specific methods.
+ *
+ * os.freemem() only reports truly "free" memory, ignoring reclaimable
+ * caches and buffers. On macOS especially, this makes memory appear nearly
+ * exhausted even when the system is not under pressure.
+ *
+ * - macOS: uses vm_stat to sum free + purgeable + speculative pages
+ * - Linux: reads MemAvailable from /proc/meminfo
+ * - Fallback: os.freemem()
+ *
+ * @returns {number} Available memory in bytes
+ */
+export function getAvailableMemoryBytes() {
+  const platform = os.platform();
+
+  if (platform === 'darwin') {
+    try {
+      const stdout = execFileSync('vm_stat', { encoding: 'utf8', timeout: 3000 });
+      return parseVmStatOutput(stdout);
+    } catch {
+      return os.freemem();
+    }
+  }
+
+  if (platform === 'linux') {
+    try {
+      const content = fs.readFileSync('/proc/meminfo', 'utf8');
+      return parseMemInfoOutput(content);
+    } catch {
+      return os.freemem();
+    }
+  }
+
+  return os.freemem();
+}
+
+/**
+ * Parse macOS vm_stat output to compute available memory bytes.
+ *
+ * macOS categorises physical pages as:
+ *   - free:        truly unused
+ *   - inactive:    not recently accessed, reclaimable immediately
+ *   - speculative: speculatively allocated, reclaimable
+ *   - purgeable:   marked purgeable by apps, reclaimable
+ *   - active:      recently accessed by running processes
+ *   - wired:       locked by the kernel, cannot be paged out
+ *   - compressed:  compressed in the compressor
+ *
+ * "Available" = free + inactive + purgeable + speculative
+ * This matches what macOS considers available (not under pressure).
+ *
+ * @param {string} stdout - Output from vm_stat command
+ * @returns {number} Available memory in bytes
+ */
+export function parseVmStatOutput(stdout) {
+  if (!stdout || typeof stdout !== 'string') return os.freemem();
+
+  // First line contains page size, e.g. "Mach Virtual Memory Statistics: (page size of 16384 bytes)"
+  const pageSizeMatch = stdout.match(/page size of (\d+) bytes/);
+  const pageSize = pageSizeMatch ? parseInt(pageSizeMatch[1], 10) : 16384;
+
+  // Parse page counts - vm_stat format: "Pages free:    123456."
+  const getValue = (label) => {
+    const match = stdout.match(new RegExp(`${label}:\\s+(\\d+)`));
+    return match ? parseInt(match[1], 10) : 0;
+  };
+
+  const free = getValue('Pages free');
+  const inactive = getValue('Pages inactive');
+  const purgeable = getValue('Pages purgeable');
+  const speculative = getValue('Pages speculative');
+
+  const availableBytes = (free + inactive + purgeable + speculative) * pageSize;
+
+  // Sanity check: if result is 0 or unreasonably small, fall back
+  if (availableBytes <= 0) return os.freemem();
+
+  return availableBytes;
+}
+
+/**
+ * Parse Linux /proc/meminfo to get MemAvailable.
+ *
+ * @param {string} content - Contents of /proc/meminfo
+ * @returns {number} Available memory in bytes
+ */
+export function parseMemInfoOutput(content) {
+  if (!content || typeof content !== 'string') return os.freemem();
+
+  const match = content.match(/MemAvailable:\s+(\d+)\s+kB/);
+  if (!match) return os.freemem();
+
+  return parseInt(match[1], 10) * 1024;
+}
+
+/**
  * Compute memory metrics from OS.
  * @param {number} [totalBytes] - Total memory bytes (defaults to os.totalmem()); injectable for testing
- * @param {number} [freeBytes] - Free memory bytes (defaults to os.freemem()); injectable for testing
+ * @param {number} [availableBytes] - Available memory bytes (defaults to platform-aware available memory); injectable for testing
  * @returns {{ usedPercent: number, usedGB: number, totalGB: number }}
  */
-export function computeMemoryMetrics(totalBytes = os.totalmem(), freeBytes = os.freemem()) {
-  const usedBytes = totalBytes - freeBytes;
+export function computeMemoryMetrics(totalBytes = os.totalmem(), availableBytes = getAvailableMemoryBytes()) {
+  const usedBytes = totalBytes - availableBytes;
 
   const totalGB = Math.round((totalBytes / (1024 ** 3)) * 10) / 10;
   const usedGB = Math.round((usedBytes / (1024 ** 3)) * 10) / 10;
@@ -134,7 +231,11 @@ async function collectAndBroadcast() {
   const disk = await collectDiskMetrics();
 
   const payload = {
-    cpu: { usagePercent: cpuUsagePercent },
+    cpu: {
+      usagePercent: cpuUsagePercent,
+      coreCount: currCpus.length,
+      model: currCpus[0]?.model || 'Unknown',
+    },
     memory,
     disk,
   };

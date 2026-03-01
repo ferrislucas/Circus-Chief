@@ -12,6 +12,8 @@ import {
   computeCpuUsage,
   computeMemoryMetrics,
   parseDfOutput,
+  parseVmStatOutput,
+  parseMemInfoOutput,
   BROADCAST_INTERVAL_MS,
   collectAndBroadcast,
 } from './systemMonitor.js';
@@ -88,8 +90,8 @@ describe('systemMonitor', () => {
   });
 
   describe('computeMemoryMetrics', () => {
-    it('returns usedPercent, usedGB, totalGB with correct values (16GB total, 8GB free)', () => {
-      // 16GB total, 8GB free -> 8GB used -> 50%
+    it('returns usedPercent, usedGB, totalGB with correct values (16GB total, 8GB available)', () => {
+      // 16GB total, 8GB available -> 8GB used -> 50%
       const result = computeMemoryMetrics(gbToBytes(16), gbToBytes(8));
       expect(result.usedPercent).toBe(50);
       expect(result.usedGB).toBe(8);
@@ -105,11 +107,99 @@ describe('systemMonitor', () => {
       expect(result.totalGB).toBeGreaterThan(0);
     });
 
-    it('correctly computes with 32GB total, 4GB free (87.5% used)', () => {
+    it('correctly computes with 32GB total, 4GB available (87.5% used)', () => {
       const result = computeMemoryMetrics(gbToBytes(32), gbToBytes(4));
       expect(result.totalGB).toBe(32);
       expect(result.usedGB).toBe(28);
       expect(result.usedPercent).toBe(87.5);
+    });
+  });
+
+  describe('parseVmStatOutput', () => {
+    const sampleVmStat = `Mach Virtual Memory Statistics: (page size of 16384 bytes)
+Pages free:                             1234567.
+Pages active:                           2000000.
+Pages inactive:                         1500000.
+Pages speculative:                       100000.
+Pages throttled:                              0.
+Pages wired down:                        800000.
+Pages purgeable:                         200000.
+Pages stored in compressor:              500000.`;
+
+    it('correctly parses free + inactive + purgeable + speculative pages', () => {
+      const result = parseVmStatOutput(sampleVmStat);
+      // (free + inactive + purgeable + speculative) * pageSize
+      const expected = (1234567 + 1500000 + 200000 + 100000) * 16384;
+      expect(result).toBe(expected);
+    });
+
+    it('handles 4096 byte page size', () => {
+      const output = `Mach Virtual Memory Statistics: (page size of 4096 bytes)
+Pages free:                              100000.
+Pages inactive:                           75000.
+Pages purgeable:                          50000.
+Pages speculative:                        25000.`;
+      const result = parseVmStatOutput(output);
+      expect(result).toBe((100000 + 75000 + 50000 + 25000) * 4096);
+    });
+
+    it('returns os.freemem() for null input', () => {
+      const result = parseVmStatOutput(null);
+      expect(result).toBeGreaterThan(0);
+    });
+
+    it('returns os.freemem() for empty string', () => {
+      const result = parseVmStatOutput('');
+      expect(result).toBeGreaterThan(0);
+    });
+
+    it('defaults to 16384 page size when not found', () => {
+      const output = `Mach Virtual Memory Statistics:
+Pages free:                              100000.
+Pages purgeable:                          50000.
+Pages speculative:                        25000.`;
+      const result = parseVmStatOutput(output);
+      expect(result).toBe((100000 + 50000 + 25000) * 16384);
+    });
+
+    it('handles missing purgeable/speculative fields gracefully', () => {
+      const output = `Mach Virtual Memory Statistics: (page size of 16384 bytes)
+Pages free:                              100000.`;
+      const result = parseVmStatOutput(output);
+      // Only free pages, purgeable and speculative default to 0
+      expect(result).toBe(100000 * 16384);
+    });
+  });
+
+  describe('parseMemInfoOutput', () => {
+    const sampleMemInfo = `MemTotal:       32768000 kB
+MemFree:         1024000 kB
+MemAvailable:   16384000 kB
+Buffers:         2048000 kB
+Cached:          8192000 kB`;
+
+    it('correctly parses MemAvailable from /proc/meminfo', () => {
+      const result = parseMemInfoOutput(sampleMemInfo);
+      // 16384000 kB * 1024 = 16,777,216,000 bytes
+      expect(result).toBe(16384000 * 1024);
+    });
+
+    it('returns os.freemem() for null input', () => {
+      const result = parseMemInfoOutput(null);
+      expect(result).toBeGreaterThan(0);
+    });
+
+    it('returns os.freemem() for empty string', () => {
+      const result = parseMemInfoOutput('');
+      expect(result).toBeGreaterThan(0);
+    });
+
+    it('returns os.freemem() when MemAvailable is missing', () => {
+      const content = `MemTotal:       32768000 kB
+MemFree:         1024000 kB`;
+      const result = parseMemInfoOutput(content);
+      // Should fall back to os.freemem() since MemAvailable is missing
+      expect(result).toBeGreaterThan(0);
     });
   });
 
@@ -213,7 +303,11 @@ describe('systemMonitor', () => {
 
       expect(broadcast).toHaveBeenCalled();
       expect(broadcast).toHaveBeenCalledWith('system:metrics', expect.objectContaining({
-        cpu: expect.objectContaining({ usagePercent: expect.any(Number) }),
+        cpu: expect.objectContaining({
+          usagePercent: expect.any(Number),
+          coreCount: expect.any(Number),
+          model: expect.any(String),
+        }),
         memory: expect.objectContaining({
           usedPercent: expect.any(Number),
           usedGB: expect.any(Number),
@@ -235,6 +329,28 @@ describe('systemMonitor', () => {
           totalGB: expect.any(Number),
         });
       }
+    });
+
+    it('cpu payload includes coreCount as a positive integer', async () => {
+      await collectAndBroadcast();
+
+      const call = broadcast.mock.calls[0];
+      const payload = call[1];
+
+      expect(payload.cpu.coreCount).toBeDefined();
+      expect(payload.cpu.coreCount).toBeGreaterThan(0);
+      expect(Number.isInteger(payload.cpu.coreCount)).toBe(true);
+    });
+
+    it('cpu payload includes model as a non-empty string', async () => {
+      await collectAndBroadcast();
+
+      const call = broadcast.mock.calls[0];
+      const payload = call[1];
+
+      expect(payload.cpu.model).toBeDefined();
+      expect(typeof payload.cpu.model).toBe('string');
+      expect(payload.cpu.model.length).toBeGreaterThan(0);
     });
   });
 
