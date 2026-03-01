@@ -68,6 +68,11 @@ describe('Sessions Summary API', () => {
 
     project = projects.create('Test Project', '/tmp/test');
     session = sessions.create(project.id, 'Test Session', 'Initial prompt', 'standard');
+
+    // Add enough messages to meet MIN_MESSAGES_FOR_SUMMARY threshold (Phase 2 optimization)
+    // Session creation adds 1 message (the prompt), so we need 2 more
+    messages.create(session.id, 'assistant', 'Response 1');
+    messages.create(session.id, 'user', 'Follow-up question');
   });
 
   afterEach(() => {
@@ -156,6 +161,10 @@ describe('Sessions Summary API', () => {
     it('multiple sessions have independent summaries', async () => {
       // Create another session
       const session2 = sessions.create(project.id, 'Session 2', 'Prompt 2', 'standard');
+
+      // Add messages to session2 to meet MIN_MESSAGES_FOR_SUMMARY threshold (Phase 2)
+      messages.create(session2.id, 'assistant', 'Response for session 2');
+      messages.create(session2.id, 'user', 'Follow-up for session 2');
 
       // Generate summaries for both
       await summaryService.generateSummary(session.id);
