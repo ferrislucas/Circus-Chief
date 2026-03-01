@@ -608,12 +608,6 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
     // Get recent messages
     const allMessages = messages.getBySessionId(sessionId);
 
-    // Skip generation for sessions with too few messages (not enough context)
-    if (allMessages.length < MIN_MESSAGES_FOR_SUMMARY) {
-      console.log(`[SummaryService] Session ${sessionId} has only ${allMessages.length} messages (minimum ${MIN_MESSAGES_FOR_SUMMARY}), skipping summary generation`);
-      return null;
-    }
-
     // Skip if summary is current and not forced to regenerate
     if (!force && !isSummaryStale(sessionId)) {
       console.log(`[SummaryService] Summary for ${sessionId} is current, skipping regeneration`);
@@ -626,11 +620,61 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
       return null;
     }
 
-    // Broadcast that we're generating
+    // Broadcast that we're generating (do this early so UI always gets the event)
     broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
       sessionId,
       generating: true,
     });
+
+    // Handle sessions with too few messages - create a minimal summary instead of skipping
+    if (allMessages.length < MIN_MESSAGES_FOR_SUMMARY) {
+      console.log(`[SummaryService] Session ${sessionId} has only ${allMessages.length} messages (minimum ${MIN_MESSAGES_FOR_SUMMARY}), creating minimal summary`);
+
+      const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
+
+      // Create a minimal summary based on available messages
+      const minimalSummary = {
+        shortSummary: 'Session in progress',
+        fullSummary: `Session with ${allMessages.length} message${allMessages.length !== 1 ? 's' : ''}`,
+        keyActions: [],
+        filesModified: [],
+        outcome: session.status === 'stopped' ? 'partial' : session.status === 'error' ? 'failed' : 'ongoing',
+        messageCount: allMessages.length,
+        lastSummarizedMessageId: lastMessage ? lastMessage.id : null,
+      };
+
+      const summary = sessionSummaries.upsert(sessionId, minimalSummary);
+
+      // Broadcast the minimal summary
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
+        sessionId,
+        summary,
+      });
+
+      // Also broadcast to project subscribers
+      if (session.projectId) {
+        broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
+          projectId: session.projectId,
+          sessionId,
+          summary,
+        });
+
+        // Also broadcast session:updated to project subscribers so session lists update
+        broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+          projectId: session.projectId,
+          sessionId,
+          session: sessions.getById(sessionId),
+        });
+      }
+
+      // Clear the generating flag
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
+        sessionId,
+        generating: false,
+      });
+
+      return summary;
+    }
 
     // Build child session context for workflow-aware summaries
     const childContext = buildChildSessionContext(sessionId);
@@ -749,6 +793,15 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
           projectId: session.projectId,
           sessionId,
           session: updatedSession,
+        });
+      }
+    } else {
+      // Even if name/PR URL didn't change, broadcast SESSION_UPDATED so project subscribers know summary was generated
+      if (session.projectId) {
+        broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+          projectId: session.projectId,
+          sessionId,
+          session: sessions.getById(sessionId),
         });
       }
     }
