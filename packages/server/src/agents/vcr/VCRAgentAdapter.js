@@ -23,7 +23,8 @@ export class VCRAgentAdapter {
   constructor(innerAgent, options = {}) {
     this.innerAgent = innerAgent;
     this.cassetteDir = options.cassetteDir || 'tests/e2e/cassettes';
-    this.mode = process.env.VCR_MODE || 'auto';
+    // Only enable VCR if VCR_MODE is explicitly set
+    this.mode = process.env.VCR_MODE || undefined;
   }
 
   /**

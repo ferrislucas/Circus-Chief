@@ -19,9 +19,23 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 // Mock the SDK to prevent real API calls in tests
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: vi.fn(),
-}));
+vi.mock('@anthropic-ai/claude-agent-sdk', () => {
+  const mockAgent = {
+    async *execute() {
+      yield { type: 'message_start', message: { id: 'msg_test' } };
+      yield { type: 'content_block_start', content_block: { type: 'text' } };
+      yield { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Test response' } };
+      yield { type: 'content_block_stop' };
+      yield { type: 'message_delta', delta: { stop_reason: 'end_turn' } };
+      yield { type: 'message_stop' };
+    },
+  };
+  return {
+    query: vi.fn(async function* () {
+      yield* mockAgent.execute();
+    }),
+  };
+});
 
 describe('sessionManager', () => {
   describe('buildPromptWithAttachments', () => {

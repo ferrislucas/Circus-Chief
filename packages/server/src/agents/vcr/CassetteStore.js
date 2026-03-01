@@ -96,6 +96,11 @@ export class CassetteStore {
    * @returns {any} Copied event
    */
   static deepCopyEvent(event) {
+    // Handle null and undefined explicitly
+    if (event === null || event === undefined) {
+      return event;
+    }
+
     try {
       return JSON.parse(JSON.stringify(event));
     } catch {

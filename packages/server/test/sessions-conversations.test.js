@@ -8,7 +8,31 @@ vi.mock('../src/websocket.js', () => ({
 
 // Mock the SDK to prevent real API calls in tests
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: vi.fn(),
+  query: vi.fn(async function* () {
+    // Default mock implementation: return a valid response with StructuredOutput
+    yield { type: 'system', subtype: 'init', session_id: 'test-session' };
+    yield {
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'StructuredOutput',
+            input: {
+              short_summary: 'Test session completed successfully',
+              full_summary: 'This is a test session that was completed with partial success',
+              key_actions: ['Executed test', 'Verified output'],
+              files_modified: ['test.js'],
+              outcome: 'partial',
+              pr_url: null,
+              session_title: 'Test Session',
+            },
+          },
+        ],
+      },
+    };
+    yield { type: 'result', subtype: 'success' };
+  }),
 }));
 
 // Import summaryService after mock setup
