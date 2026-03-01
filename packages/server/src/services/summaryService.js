@@ -49,6 +49,36 @@ Outcome guidelines:
 - "failed": Task encountered errors and couldn't proceed
 - "ongoing": Session is still active/waiting for user input`;
 
+// System prompt for conversation summary generation
+const CONVERSATION_SUMMARY_SYSTEM_PROMPT = `You are generating a brief summary for a conversation thread within a Claude Code session.
+
+Generate a concise summary of this conversation. Focus on:
+1. The main topic or goal discussed
+2. Key actions taken or decisions made
+3. Current status (completed, in progress, blocked, etc.)`;
+
+// Combined system prompt for generating both session and conversation summaries in one call
+const COMBINED_SUMMARY_SYSTEM_PROMPT = `You are generating summaries for a Claude Code session.
+
+Generate TWO summaries:
+
+1. SESSION SUMMARY - An overview of the entire session:
+   - Preserves important context from the existing summary
+   - Incorporates new actions and progress from recent messages
+   - Updates the outcome status if changed
+   - Maintains a coherent narrative of the full session
+
+   Session outcome guidelines:
+   - "completed": Task was fully accomplished
+   - "partial": Some progress made but task incomplete
+   - "failed": Task encountered errors and couldn't proceed
+   - "ongoing": Session is still active/waiting for user input
+
+2. CONVERSATION SUMMARY - A brief summary of the active conversation thread:
+   - The main topic or goal discussed
+   - Key actions taken or decisions made
+   - Current status (completed, in progress, blocked, etc.)`;
+
 /**
  * Mock query generator for summary generation in test mode
  * Mirrors the Claude Code SDK's async generator pattern
@@ -822,17 +852,25 @@ export function onSessionComplete(sessionId) {
     debounceTimers.delete(sessionId);
   }
 
-  // Generate summary immediately with force=true to update final state
-  generateSummary(sessionId, 0, true);
+  // Check if we should use combined generation (more efficient - one API call instead of two)
+  const activeConversation = conversations.getActiveBySessionId(sessionId);
+  const shouldGenerateConversationSummary = activeConversation && !activeConversation.summary && isConversationSummaryEnabled(sessionId);
 
-  // Generate conversation summary for the active conversation
-  if (isConversationSummaryEnabled(sessionId)) {
-    const activeConversation = conversations.getActiveBySessionId(sessionId);
-    if (activeConversation && !activeConversation.summary) {
-      generateConversationSummary(sessionId, activeConversation.id).catch((err) => {
-        console.error(`[SummaryService] Failed to generate conversation summary on session complete:`, err);
-      });
-    }
+  if (shouldGenerateConversationSummary) {
+    // Use combined generation - single API call for both summaries
+    generateSessionAndConversationSummary(sessionId, activeConversation.id).catch((err) => {
+      console.error(`[SummaryService] Failed to generate combined summary on session complete:`, err);
+      // Fallback to individual generations if combined fails
+      generateSummary(sessionId, 0, true);
+      if (activeConversation) {
+        generateConversationSummary(sessionId, activeConversation.id).catch((err2) => {
+          console.error(`[SummaryService] Failed fallback conversation summary:`, err2);
+        });
+      }
+    });
+  } else {
+    // Only generate session summary
+    generateSummary(sessionId, 0, true);
   }
 
   // Schedule follow-up CI checks for sessions with PRs
@@ -911,20 +949,9 @@ export function cleanupSession(sessionId) {
 function buildConversationSummaryPrompt(conversationMessages) {
   const formattedMessages = formatMessages(conversationMessages);
 
-  return `You are generating a brief summary for a conversation thread within a Claude Code session.
-
-CONVERSATION:
-${formattedMessages}
-
-Generate a concise summary of this conversation. Focus on:
-1. The main topic or goal discussed
-2. Key actions taken or decisions made
-3. Current status (completed, in progress, blocked, etc.)
-
-Respond with JSON only (no markdown code blocks):
-{
-  "summary": "A 2-3 sentence summary of the conversation (max 200 characters)"
-}`;
+  // Return only dynamic content - static instructions are in system prompt
+  return `CONVERSATION:
+${formattedMessages}`;
 }
 
 /**
@@ -950,6 +977,393 @@ function parseConversationSummaryResponse(responseText) {
     // If parsing fails, return the raw text truncated
     return textToParse.substring(0, 200);
   }
+}
+
+/**
+ * Generate both session and conversation summaries in a single API call
+ * This is more efficient than calling them separately
+ * @param {string} sessionId - The session ID
+ * @param {string} conversationId - The conversation ID
+ * @returns {Promise<Object>} Object with sessionSummary and conversationSummary
+ */
+export async function generateSessionAndConversationSummary(sessionId, conversationId) {
+  try {
+    const session = sessions.getById(sessionId);
+    if (!session) {
+      console.warn(`[SummaryService] Session ${sessionId} not found for combined summary generation`);
+      return { sessionSummary: null, conversationSummary: null };
+    }
+
+    const conversation = conversations.getById(conversationId);
+    if (!conversation || conversation.sessionId !== sessionId) {
+      console.warn(`[SummaryService] Conversation ${conversationId} not found for session ${sessionId}`);
+      return { sessionSummary: null, conversationSummary: null };
+    }
+
+    // Check if session summaries are disabled globally
+    const globalSettings = settings.getSummarySettings();
+    if (globalSettings?.disableSessionSummaries) {
+      console.log(`[SummaryService] Session summaries disabled globally, skipping combined generation`);
+      return { sessionSummary: null, conversationSummary: null };
+    }
+
+    // Get existing session summary and recent messages
+    const existingSummary = sessionSummaries.getBySessionId(sessionId);
+    const allMessages = messages.getBySessionId(sessionId);
+    const conversationMessages = messages.getByConversationId(conversationId);
+
+    // Check minimum message threshold
+    if (allMessages.length < MIN_MESSAGES_FOR_SUMMARY) {
+      console.log(
+        `[SummaryService] Session ${sessionId} has only ${allMessages.length} messages (minimum ${MIN_MESSAGES_FOR_SUMMARY}), skipping combined summary generation`
+      );
+      return { sessionSummary: null, conversationSummary: null };
+    }
+
+    // Get recent messages for session summary
+    const recentMessages = allMessages.slice(-MAX_MESSAGES);
+
+    // Broadcast that we're generating
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
+      sessionId,
+      generating: true,
+    });
+
+    // Build child session context
+    const childContext = buildChildSessionContext(sessionId);
+
+    // Build existing summary context
+    const existingContext = existingSummary
+      ? `EXISTING SESSION SUMMARY:
+${existingSummary.fullSummary}
+
+Key actions so far: ${JSON.stringify(existingSummary.keyActions || [])}
+Files modified: ${JSON.stringify(existingSummary.filesModified || [])}
+Previous outcome: ${existingSummary.outcome}
+Previous title: ${existingSummary.sessionTitle || 'Not set'}`
+      : 'EXISTING SESSION SUMMARY:\nNo previous summary - this is the first generation.';
+
+    // Build combined prompt with both session and conversation context
+    const formattedSessionMessages = formatMessages(recentMessages);
+    const formattedConversationMessages = formatMessages(conversationMessages);
+
+    const sessionTitlePrompt = globalSettings?.sessionTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT;
+
+    const combinedPrompt = `Current session status: ${session.status}
+
+${existingContext}
+${childContext}
+RECENT SESSION CONVERSATION:
+${formattedSessionMessages}
+
+ACTIVE CONVERSATION THREAD:
+${formattedConversationMessages}
+
+Session title guidelines:
+${globalSettings?.sessionTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT}`;
+
+    // Combined JSON schema with both session and conversation summary fields
+    const combinedSchema = {
+      type: 'object',
+      properties: {
+        // Session summary fields
+        short_summary: { type: 'string', description: '1-2 sentence preview for list view (max 150 characters)' },
+        full_summary: { type: 'string', description: 'Detailed summary with key accomplishments (max 500 characters)' },
+        key_actions: { type: 'array', items: { type: 'string' }, description: 'List of key actions taken' },
+        files_modified: { type: 'array', items: { type: 'string' }, description: 'List of files modified' },
+        outcome: { type: 'string', enum: ['completed', 'partial', 'failed', 'ongoing'], description: 'Session outcome' },
+        pr_url: { type: ['string', 'null'], description: 'GitHub PR URL if created' },
+        session_title: { type: ['string', 'null'], description: 'Concise session title (max 60 chars)' },
+        // Conversation summary field
+        conversation_summary: { type: 'string', description: '2-3 sentence summary of conversation (max 200 chars)' },
+      },
+      required: ['short_summary', 'full_summary', 'key_actions', 'files_modified', 'outcome', 'conversation_summary'],
+    };
+
+    // Call Claude with combined schema
+    const responseText = await callClaudeWithCustomSchema(
+      combinedPrompt,
+      recentMessages,
+      session.status,
+      {
+        sessionId,
+        conversationId,
+        callType: 'generateCombinedSummary',
+      },
+      COMBINED_SUMMARY_SYSTEM_PROMPT,
+      combinedSchema
+    );
+
+    // Parse response and convert from snake_case to camelCase
+    let summaryData;
+    let conversationSummaryText;
+    try {
+      const parsed = JSON.parse(responseText);
+
+      // Convert snake_case to camelCase to match repository expectations
+      summaryData = {
+        shortSummary: parsed.short_summary,
+        fullSummary: parsed.full_summary,
+        keyActions: parsed.key_actions || [],
+        filesModified: parsed.files_modified || [],
+        outcome: parsed.outcome || 'ongoing',
+        prUrl: parsed.pr_url || null,
+        sessionTitle: parsed.session_title || null,
+      };
+
+      // Extract conversation summary
+      conversationSummaryText = parsed.conversation_summary || 'Conversation summary generation failed';
+    } catch (parseError) {
+      console.error(`[SummaryService] Failed to parse combined summary response:`, parseError.message);
+      console.error(`[SummaryService] Response text:`, responseText);
+      return { sessionSummary: null, conversationSummary: null };
+    }
+
+    // Verify required fields exist
+    if (!summaryData.shortSummary || !summaryData.fullSummary) {
+      console.error(`[SummaryService] Combined summary missing required fields:`, Object.keys(summaryData));
+      return { sessionSummary: null, conversationSummary: null };
+    }
+
+    // Add message count for staleness tracking
+    summaryData.messageCount = allMessages.length;
+
+    // For root sessions, aggregate files from child sessions
+    if (!session.parentSessionId) {
+      summaryData.filesModified = aggregateFilesModified(sessionId, summaryData.filesModified);
+    }
+
+    // Validate and enrich PR URL
+    const prUrl = summaryData.prUrl || session.prUrl;
+    if (prUrl) {
+      const project = projects.getById(session.projectId);
+      const projectRepoUrl = project?.repoUrl;
+      const validation = validatePrUrl(prUrl, projectRepoUrl);
+
+      if (!validation.valid) {
+        console.warn(`[SummaryService] PR URL validation failed for session ${sessionId}:`, validation.error);
+        summaryData.prUrl = null;
+      } else {
+        try {
+          const prInfo = await ghService.getPrInfo(prUrl);
+          summaryData.prMerged = prInfo.merged;
+          summaryData.prState = prInfo.state;
+          summaryData.hasMergeConflicts = prInfo.hasMergeConflicts;
+          summaryData.ciStatus = prInfo.ciStatus;
+        } catch (error) {
+          console.warn(`[SummaryService] Failed to fetch PR info for ${prUrl}:`, error.message);
+        }
+      }
+    } else {
+      summaryData.prUrl = null;
+    }
+
+    // Save session summary
+    const savedSessionSummary = sessionSummaries.upsert(sessionId, summaryData);
+
+    // Save conversation summary
+    conversations.update(conversationId, { summary: conversationSummaryText });
+
+    // Broadcast updates
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
+      sessionId,
+      summary: savedSessionSummary,
+    });
+
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.CONVERSATION_SUMMARY_UPDATED, {
+      sessionId,
+      conversationId,
+      summary: conversationSummaryText,
+    });
+
+    // Clear the generating flag so the UI knows generation is complete
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
+      sessionId,
+      generating: false,
+    });
+
+    return {
+      sessionSummary: savedSessionSummary,
+      conversationSummary: conversationSummaryText,
+    };
+  } catch (error) {
+    console.error(`[SummaryService] Error generating combined summary for session ${sessionId}:`, error);
+
+    // Clear the generating flag on error
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
+      sessionId,
+      generating: false,
+    });
+
+    return { sessionSummary: null, conversationSummary: null };
+  }
+}
+
+/**
+ * Mock query generator for combined summary generation in test mode
+ * Mirrors the Claude Code SDK's async generator pattern
+ * @param {Object} params
+ * @param {string} params.prompt - The prompt string
+ * @param {Array} params.recentMessages - Messages for mock context
+ * @param {string} params.sessionStatus - Session status for mock outcome
+ */
+async function* mockCombinedSummaryQuery({ prompt: _prompt, recentMessages, sessionStatus }) {
+  // Yield system init event (matches SDK pattern)
+  yield {
+    type: 'system',
+    subtype: 'init',
+    session_id: 'mock-combined-' + Date.now(),
+  };
+
+  // Small delay to simulate processing
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Derive outcome from session status
+  let outcome = 'ongoing';
+  if (sessionStatus === 'stopped') outcome = 'partial';
+  else if (sessionStatus === 'error') outcome = 'failed';
+
+  // Create contextual mock response with both session and conversation summaries
+  const lastMessage = recentMessages[recentMessages.length - 1];
+  const shortPreview = lastMessage ? lastMessage.content.substring(0, 100) : 'testing session';
+
+  const mockResponse = JSON.stringify({
+    short_summary: `Mock summary: ${shortPreview}...`.substring(0, 150),
+    full_summary: `This is a mock summary for testing purposes. The session has ${recentMessages.length} messages and is currently ${sessionStatus}.`,
+    key_actions: ['Mock action 1', 'Mock action 2'],
+    files_modified: ['mock-file.js'],
+    outcome: outcome,
+    pr_url: null,
+    session_title: `Mock: ${shortPreview}`.substring(0, 60),
+    conversation_summary: `Mock conversation summary for testing with ${recentMessages.length} messages.`,
+  });
+
+  // Yield assistant message with mock response
+  yield {
+    type: 'assistant',
+    message: {
+      content: [{ type: 'text', text: mockResponse }],
+    },
+  };
+
+  // Yield result event
+  yield {
+    type: 'result',
+    subtype: 'success',
+    total_cost_usd: 0.0001,
+  };
+}
+
+/**
+ * Call Claude with a custom JSON schema (for combined summaries)
+ * @param {string} prompt - The prompt to send
+ * @param {Array} recentMessages - Messages for context
+ * @param {string} sessionStatus - Session status
+ * @param {Object} logMeta - Logging metadata
+ * @param {string} systemPrompt - System prompt
+ * @param {Object} jsonSchema - Custom JSON schema
+ * @returns {Promise<string>} The text response
+ */
+async function callClaudeWithCustomSchema(prompt, recentMessages, sessionStatus, logMeta, systemPrompt, jsonSchema) {
+  const queryFn = isMockMode() ? mockCombinedSummaryQuery : query;
+
+  const queryParams = isMockMode()
+    ? { prompt, recentMessages, sessionStatus }
+    : {
+        prompt,
+        options: {
+          cwd: process.cwd(),
+          permissionMode: 'bypassPermissions',
+          maxTurns: 1,
+          model: 'claude-haiku-4-5-20251001',
+          systemPrompt,
+          outputFormat: {
+            type: 'json_schema',
+            schema: jsonSchema,
+          },
+        },
+      };
+
+  // Start logging if metadata provided
+  let callId = null;
+  if (logMeta) {
+    callId = agentCallLogger.startCall({
+      sessionId: logMeta.sessionId,
+      conversationId: logMeta.conversationId || null,
+      agentType: 'summary',
+      model: isMockMode() ? 'mock' : 'claude-haiku-4-5-20251001',
+      callType: logMeta.callType,
+      promptLength: prompt.length,
+    });
+  }
+
+  let responseText = '';
+  let structuredOutput = null;
+
+  try {
+    for await (const event of queryFn(queryParams)) {
+      switch (event.type) {
+        case 'assistant': {
+          const content = event.message?.content || [];
+          for (const block of content) {
+            // Capture structured output from StructuredOutput tool use
+            if (block.type === 'tool_use' && block.name === 'StructuredOutput') {
+              structuredOutput = block.input;
+            } else if (block.type === 'text') {
+              responseText += block.text;
+            }
+          }
+          break;
+        }
+        case 'result': {
+          if (event.subtype === 'error') {
+            throw new Error(event.error || 'Claude SDK query failed');
+          }
+          // Capture usage for logging
+          if (callId) {
+            const modelUsageEntry = event.modelUsage
+              ? Object.values(event.modelUsage)[0]
+              : null;
+            if (modelUsageEntry || event.usage) {
+              agentCallLogger.updateUsage(callId, {
+                inputTokens:
+                  modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
+                outputTokens:
+                  modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
+                thinkingTokens: 0,
+                cacheReadInputTokens:
+                  modelUsageEntry?.cacheReadInputTokens ||
+                  event.usage?.cache_read_input_tokens ||
+                  0,
+                cacheCreationInputTokens:
+                  modelUsageEntry?.cacheCreationInputTokens ||
+                  event.usage?.cache_creation_input_tokens ||
+                  0,
+              });
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    // Complete the logged call on success
+    if (callId) {
+      agentCallLogger.completeCall(callId, { success: true });
+    }
+  } catch (error) {
+    // Complete the logged call on error
+    if (callId) {
+      agentCallLogger.completeCall(callId, { success: false, error });
+    }
+    throw error;
+  }
+
+  // Prefer structured output (already parsed JSON) over text response
+  if (structuredOutput) {
+    return JSON.stringify(structuredOutput);
+  }
+  return responseText;
 }
 
 /**
@@ -1022,7 +1436,7 @@ export async function generateConversationSummary(sessionId, conversationId) {
       sessionId,
       conversationId,
       callType: 'generateConversationSummary',
-    }, SUMMARY_SYSTEM_PROMPT);
+    }, CONVERSATION_SUMMARY_SYSTEM_PROMPT);
 
     // Parse response
     const summary = parseConversationSummaryResponse(responseText);
@@ -1067,4 +1481,4 @@ export async function propagateToParent(sessionId) {
 }
 
 // Export for testing
-export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified };
+export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, CONVERSATION_SUMMARY_SYSTEM_PROMPT, COMBINED_SUMMARY_SYSTEM_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified, generateSessionAndConversationSummary };
