@@ -168,6 +168,20 @@ export class SessionSummaryRepository extends BaseRepository {
   }
 
   /**
+   * Get summaries for multiple session IDs in a single query
+   * @param {string[]} sessionIds
+   * @returns {Object[]}
+   */
+  getBySessionIds(sessionIds) {
+    if (!sessionIds || sessionIds.length === 0) return [];
+    const placeholders = sessionIds.map(() => '?').join(',');
+    const rows = this.db
+      .prepare(`SELECT * FROM session_summaries WHERE session_id IN (${placeholders})`)
+      .all(...sessionIds);
+    return this.mapAll(rows);
+  }
+
+  /**
    * Delete summary by session ID
    * @param {string} sessionId
    */
