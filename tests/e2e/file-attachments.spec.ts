@@ -11,14 +11,26 @@ import {
   navigateAndWait,
   waitForSessionToExist,
   waitForPageReady,
+  getAPIURL,
 } from './helpers';
 
-// Helper to set session to waiting status for testing
+const API_URL = getAPIURL();
+
+// Helper to wait for session to finish VCR replay, then ensure it's in waiting status
 async function prepareSessionForTest(page: any, sessionId: string) {
-  // Force session to waiting status since there's no actual Claude process
+  // Wait for VCR replay to complete naturally (attachments need to be associated with messages)
+  let retries = 0;
+  while (retries < 30) {
+    const res = await fetch(`${API_URL}/api/sessions/${sessionId}`);
+    const s = await res.json();
+    if (s.status === 'waiting' || s.status === 'stopped' || s.status === 'error') break;
+    await new Promise((r) => setTimeout(r, 500));
+    retries++;
+  }
+  // Force session to waiting status
   await updateSessionStatus(sessionId, 'waiting');
   // Wait for status to be reflected
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(300);
 }
 
 test.describe('File Attachments - Session Creation', () => {
