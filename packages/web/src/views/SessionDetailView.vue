@@ -321,7 +321,7 @@ function startPolling() {
       // already handles conversation updates in real-time.
       await Promise.all([
         sessionsStore.fetchSession(sessionId, false),
-        sessionsStore.fetchMessages(sessionId, false),
+        sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId),
         sessionsStore.fetchWorkLogs(sessionId),
       ]);
       // Check for file changes during active session so the Changes tab indicator updates

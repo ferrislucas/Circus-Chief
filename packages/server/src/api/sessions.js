@@ -16,6 +16,40 @@ import { duplicateSession } from '../services/sessionDuplicator.js';
 
 const router = Router();
 
+// TTL cache for files-count endpoint (60 second TTL)
+const filesCountCache = new Map();
+const FILES_COUNT_CACHE_TTL = 60_000; // 60 seconds
+
+/**
+ * Get cached files count or null if expired/missing
+ * @param {string} sessionId
+ * @returns {{ count: number } | null}
+ */
+function getCachedFilesCount(sessionId) {
+  const cached = filesCountCache.get(sessionId);
+  if (cached && (Date.now() - cached.timestamp) < FILES_COUNT_CACHE_TTL) {
+    return { count: cached.count };
+  }
+  return null;
+}
+
+/**
+ * Set files count in cache
+ * @param {string} sessionId
+ * @param {number} count
+ */
+function setCachedFilesCount(sessionId, count) {
+  filesCountCache.set(sessionId, { count, timestamp: Date.now() });
+}
+
+/**
+ * Invalidate files count cache for a session
+ * @param {string} sessionId
+ */
+export function invalidateFilesCountCache(sessionId) {
+  filesCountCache.delete(sessionId);
+}
+
 // GET /api/sessions - Get all active/waiting sessions across all projects
 router.get('/', (req, res) => {
   const activeSessions = sessions.getActiveAndWaiting();
@@ -27,6 +61,28 @@ router.get('/scheduled', (req, res) => {
   const { projectId } = req.query;
   const scheduledSessions = sessions.getScheduledSessions(projectId || null);
   res.json(scheduledSessions);
+});
+
+// POST /api/sessions/summaries/batch - Get summaries for multiple sessions in one request
+// Must be registered before /:id routes to avoid Express matching 'summaries' as an :id param
+router.post('/summaries/batch', (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'ids array is required and must not be empty' });
+  }
+
+  const summaryList = sessionSummaries.getBySessionIds(ids);
+
+  // Build a map of sessionId -> summary (or null if not found)
+  const result = {};
+  for (const id of ids) {
+    result[id] = null;
+  }
+  for (const summary of summaryList) {
+    result[summary.sessionId] = summary;
+  }
+
+  res.json(result);
 });
 
 // GET /api/sessions/:id - Get session details
@@ -204,10 +260,17 @@ router.get('/:id/default-branch', async (req, res) => {
 });
 
 // GET /api/sessions/:id/files-count - Get count of modified files
+// Uses a 60-second TTL cache to avoid expensive git operations on every request
 router.get('/:id/files-count', async (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
     return res.status(404).json({ error: 'Session not found' });
+  }
+
+  // Check cache first
+  const cached = getCachedFilesCount(req.params.id);
+  if (cached) {
+    return res.json(cached);
   }
 
   const project = projects.getById(session.projectId);
@@ -222,6 +285,9 @@ router.get('/:id/files-count', async (req, res) => {
     // Get the default branch to compare against
     const defaultBranch = await gitService.getOriginDefaultBranch(directory);
     const count = await gitService.getModifiedFilesCount(directory, defaultBranch);
+
+    // Cache the result
+    setCachedFilesCount(req.params.id, count);
 
     res.json({ count });
   } catch (error) {
