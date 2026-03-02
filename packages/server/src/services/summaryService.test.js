@@ -831,6 +831,45 @@ describe('summaryService', () => {
       expect(session.name).toContain('Mock:');
     });
 
+    it('does not overwrite session name when manuallyNamed is true', async () => {
+      // Set manuallyNamed flag
+      sessions.update(sessionId, { manuallyNamed: true });
+      const originalName = sessions.getById(sessionId).name;
+
+      await summaryService.generateSummary(sessionId);
+
+      // Session name should NOT be updated
+      const session = sessions.getById(sessionId);
+      expect(session.name).toBe(originalName);
+      expect(session.name).not.toContain('Mock:');
+    });
+
+    it('still updates prUrl when manuallyNamed is true', async () => {
+      // Set manuallyNamed flag
+      sessions.update(sessionId, { manuallyNamed: true });
+      const originalName = sessions.getById(sessionId).name;
+
+      await summaryService.generateSummary(sessionId);
+
+      // Session name should NOT be updated
+      const session = sessions.getById(sessionId);
+      expect(session.name).toBe(originalName);
+
+      // But PR URL should still be updated (from mock response)
+      expect(session.prUrl).toBe('https://github.com/anthropics/claude-code/pull/123');
+    });
+
+    it('updates session name when manuallyNamed is false', async () => {
+      // Explicitly set manuallyNamed to false
+      sessions.update(sessionId, { manuallyNamed: false });
+
+      await summaryService.generateSummary(sessionId);
+
+      // Session name SHOULD be updated
+      const session = sessions.getById(sessionId);
+      expect(session.name).toContain('Mock:');
+    });
+
     it('broadcasts SESSION_UPDATED when session name changes', async () => {
       await summaryService.generateSummary(sessionId);
 

@@ -21,6 +21,8 @@ export const CreateSessionRequest = z.object({
 });
 
 export const UpdateSessionRequest = z.object({
+  name: z.string().min(1).optional(),
+  manuallyNamed: z.boolean().optional(),
   thinkingEnabled: z.boolean().optional(),
   nextTemplateId: z.string().uuid().nullable().optional(),
   // PR URL - GitHub PR URL (e.g., https://github.com/owner/repo/pull/123) or null to clear
@@ -52,6 +54,7 @@ export const SessionResponse = z.object({
   gitBranch: z.string().nullable(),
   gitWorktree: z.string().nullable(),
   prUrl: z.string().nullable(),
+  manuallyNamed: z.boolean(),
   error: z.string().nullable(),
   nextTemplateId: z.string().uuid().nullable(),
   parentSessionId: z.string().uuid().nullable(),
