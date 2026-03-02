@@ -9,6 +9,10 @@ import { agentCallLogger } from './agentCallLogger.js';
 // Debounce timers per session
 const debounceTimers = new Map();
 
+// Concurrency guard: tracks in-flight generation promises per session
+const activeGenerations = new Map(); // sessionId -> Promise
+const pendingRegenerations = new Set(); // sessionIds that need regeneration after current completes
+
 // Debounce delay in milliseconds (60 seconds - optimized for token efficiency and responsiveness)
 const DEBOUNCE_DELAY = 60000;
 
@@ -571,14 +575,47 @@ function parseSummaryResponse(responseText) {
 }
 
 /**
- * Generate summary for a session using Claude Code SDK
+ * Generate summary for a session using Claude Code SDK (with concurrency guard)
+ * Only one generation can be in-flight per session at a time. If a generation is already
+ * running, the call is coalesced and a single follow-up generation is scheduled after completion.
  * @param {string} sessionId
  * @param {number} retryCount - Internal retry counter (do not set manually)
  * @param {boolean} force - Force generation even if summary is current (skips debounce/staleness check, default: false)
- * @param {boolean} userInitiated - Whether this was triggered by an explicit user action (e.g. clicking "regenerate" in the UI). When true, bypasses the global disable setting. (default: false)
+ * @param {boolean} userInitiated - Whether this was triggered by an explicit user action (e.g. clicking "regenerate" in the UI). When true, bypasses the global disable setting and concurrency guard. (default: false)
  * @returns {Promise<Object|null>}
  */
 export async function generateSummary(sessionId, retryCount = 0, force = false, userInitiated = false) {
+  // Concurrency guard: if a generation is already in-flight for this session,
+  // queue a single follow-up instead of running concurrently
+  if (activeGenerations.has(sessionId) && !userInitiated) {
+    pendingRegenerations.add(sessionId);
+    return activeGenerations.get(sessionId);
+  }
+
+  const promise = _doGenerateSummary(sessionId, retryCount, force, userInitiated);
+  activeGenerations.set(sessionId, promise);
+
+  try {
+    return await promise;
+  } finally {
+    activeGenerations.delete(sessionId);
+    if (pendingRegenerations.has(sessionId)) {
+      pendingRegenerations.delete(sessionId);
+      // Use debounced path for follow-up, not immediate generation
+      onSessionActivity(sessionId);
+    }
+  }
+}
+
+/**
+ * Internal implementation of generateSummary (called by concurrency guard wrapper)
+ * @param {string} sessionId
+ * @param {number} retryCount
+ * @param {boolean} force
+ * @param {boolean} userInitiated
+ * @returns {Promise<Object|null>}
+ */
+async function _doGenerateSummary(sessionId, retryCount = 0, force = false, userInitiated = false) {
   try {
     // Get session info
     const session = sessions.getById(sessionId);
@@ -693,7 +730,7 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
       );
       const backoffMs = 1000 * (retryCount + 1); // 1s, 2s
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
-      return generateSummary(sessionId, retryCount + 1, force, userInitiated);
+      return _doGenerateSummary(sessionId, retryCount + 1, force, userInitiated);
     }
 
     // Clean up internal flag before saving
@@ -891,8 +928,9 @@ export async function generateSummaryNow(sessionId) {
 }
 
 /**
- * Called when session completes - generate immediately
- * Also schedules follow-up CI checks for sessions with PRs
+ * Called when session completes - generate immediately if summary is stale,
+ * otherwise do a lightweight outcome-only DB update (no LLM call).
+ * Also schedules follow-up CI checks for sessions with PRs.
  * @param {string} sessionId
  */
 export function onSessionComplete(sessionId) {
@@ -902,31 +940,62 @@ export function onSessionComplete(sessionId) {
     debounceTimers.delete(sessionId);
   }
 
-  // Check if we should use combined generation (more efficient - one API call instead of two)
-  const activeConversation = conversations.getActiveBySessionId(sessionId);
-  const shouldGenerateConversationSummary = activeConversation && !activeConversation.summary && isConversationSummaryEnabled(sessionId);
+  // Lightweight outcome update: if summary exists and is current,
+  // just update the outcome field without calling the LLM
+  const existingSummary = sessionSummaries.getBySessionId(sessionId);
+  const session = sessions.getById(sessionId);
+  if (existingSummary && !isSummaryStale(sessionId) && session) {
+    const newOutcome = session.status === 'error' ? 'failed'
+      : session.status === 'stopped' ? 'partial'
+      : 'completed';
+    if (existingSummary.outcome !== newOutcome) {
+      sessionSummaries.upsert(sessionId, { ...existingSummary, outcome: newOutcome });
+      console.log(`[SummaryService] Lightweight outcome update for session ${sessionId}: ${existingSummary.outcome} -> ${newOutcome}`);
 
-  if (shouldGenerateConversationSummary) {
-    // Use combined generation - single API call for both summaries
-    generateSessionAndConversationSummary(sessionId, activeConversation.id).catch((err) => {
-      console.error(`[SummaryService] Failed to generate combined summary on session complete:`, err);
-      // Fallback to individual generations if combined fails
-      generateSummary(sessionId, 0, true);
-      if (activeConversation) {
-        generateConversationSummary(sessionId, activeConversation.id).catch((err2) => {
-          console.error(`[SummaryService] Failed fallback conversation summary:`, err2);
+      // Broadcast the updated summary
+      const updatedSummary = sessionSummaries.getBySessionId(sessionId);
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
+        sessionId,
+        summary: updatedSummary,
+      });
+      if (session.projectId) {
+        broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
+          projectId: session.projectId,
+          sessionId,
+          summary: updatedSummary,
         });
       }
-    });
+    } else {
+      console.log(`[SummaryService] Summary for session ${sessionId} is current and outcome unchanged, skipping generation`);
+    }
+    // Still schedule CI checks below
   } else {
-    // Only generate session summary
-    generateSummary(sessionId, 0, true);
+    // Summary is stale or doesn't exist -- generate via LLM
+    // Check if we should use combined generation (more efficient - one API call instead of two)
+    const activeConversation = conversations.getActiveBySessionId(sessionId);
+    const shouldGenConvSummary = activeConversation && !activeConversation.summary && isConversationSummaryEnabled(sessionId);
+
+    if (shouldGenConvSummary) {
+      // Use combined generation - single API call for both summaries (no force=true)
+      generateSessionAndConversationSummary(sessionId, activeConversation.id).catch((err) => {
+        console.error(`[SummaryService] Failed to generate combined summary on session complete:`, err);
+        // Fallback to individual generations if combined fails (no force=true)
+        generateSummary(sessionId);
+        if (activeConversation) {
+          generateConversationSummary(sessionId, activeConversation.id).catch((err2) => {
+            console.error(`[SummaryService] Failed fallback conversation summary:`, err2);
+          });
+        }
+      });
+    } else {
+      // Only generate session summary (no force=true -- staleness check will determine if needed)
+      generateSummary(sessionId);
+    }
   }
 
   // Schedule follow-up CI checks for sessions with PRs
-  // CI might still be running after the session completes
-  const session = sessions.getById(sessionId);
-  if (session?.prUrl) {
+  const sessionForCi = session || sessions.getById(sessionId);
+  if (sessionForCi?.prUrl) {
     // Use dynamic import to avoid circular dependency with prStatusService
     const scheduleCiCheck = async () => {
       const prStatusService = await import('./prStatusService.js');
@@ -1048,13 +1117,42 @@ function parseConversationSummaryResponse(responseText) {
 }
 
 /**
- * Generate both session and conversation summaries in a single API call
- * This is more efficient than calling them separately
+ * Generate both session and conversation summaries in a single API call (with concurrency guard)
+ * This is more efficient than calling them separately.
+ * Shares the same concurrency guard as generateSummary to prevent overlapping generation.
  * @param {string} sessionId - The session ID
  * @param {string} conversationId - The conversation ID
  * @returns {Promise<Object>} Object with sessionSummary and conversationSummary
  */
 export async function generateSessionAndConversationSummary(sessionId, conversationId) {
+  // Concurrency guard: if a generation is already in-flight for this session,
+  // queue a single follow-up instead of running concurrently
+  if (activeGenerations.has(sessionId)) {
+    pendingRegenerations.add(sessionId);
+    return activeGenerations.get(sessionId);
+  }
+
+  const promise = _doGenerateSessionAndConversationSummary(sessionId, conversationId);
+  activeGenerations.set(sessionId, promise);
+
+  try {
+    return await promise;
+  } finally {
+    activeGenerations.delete(sessionId);
+    if (pendingRegenerations.has(sessionId)) {
+      pendingRegenerations.delete(sessionId);
+      onSessionActivity(sessionId);
+    }
+  }
+}
+
+/**
+ * Internal implementation of generateSessionAndConversationSummary (called by concurrency guard wrapper)
+ * @param {string} sessionId
+ * @param {string} conversationId
+ * @returns {Promise<Object>}
+ */
+async function _doGenerateSessionAndConversationSummary(sessionId, conversationId) {
   try {
     const session = sessions.getById(sessionId);
     if (!session) {
@@ -1077,6 +1175,13 @@ export async function generateSessionAndConversationSummary(sessionId, conversat
 
     // Get existing session summary and recent messages
     const existingSummary = sessionSummaries.getBySessionId(sessionId);
+
+    // Staleness check: skip combined generation if summary is current
+    if (!isSummaryStale(sessionId)) {
+      console.log(`[SummaryService] Summary for ${sessionId} is current, skipping combined generation`);
+      return { sessionSummary: existingSummary, conversationSummary: null };
+    }
+
     const allMessages = messages.getBySessionId(sessionId);
     const conversationMessages = messages.getByConversationId(conversationId);
 
@@ -1549,4 +1654,4 @@ export async function propagateToParent(sessionId) {
 }
 
 // Export for testing
-export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, CONVERSATION_SUMMARY_SYSTEM_PROMPT, COMBINED_SUMMARY_SYSTEM_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified };
+export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, CONVERSATION_SUMMARY_SYSTEM_PROMPT, COMBINED_SUMMARY_SYSTEM_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified, activeGenerations, pendingRegenerations };

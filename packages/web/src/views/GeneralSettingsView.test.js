@@ -15,9 +15,6 @@ let mockSettingsStore = reactive({
   updateGeneralSettings: vi.fn().mockResolvedValue({
     disableAnalytics: false,
   }),
-  resetGeneralSettings: vi.fn().mockResolvedValue({
-    disableAnalytics: false,
-  }),
 });
 
 vi.mock('../stores/settings.js', () => ({
@@ -88,11 +85,6 @@ describe('GeneralSettingsView', () => {
       expect(saveButton.text()).toContain('Save Settings');
     });
 
-    it('renders Reset to Defaults button', () => {
-      const resetButton = wrapper.find('button[type="button"]');
-      expect(resetButton.exists()).toBe(true);
-      expect(resetButton.text()).toContain('Reset to Defaults');
-    });
   });
 
   describe('checkbox interaction', () => {
@@ -168,10 +160,8 @@ describe('GeneralSettingsView', () => {
       await nextTick();
 
       const saveButton = wrapper.find('button[type="submit"]');
-      const resetButton = wrapper.find('button[type="button"]');
 
       expect(saveButton.attributes('disabled')).toBeDefined();
-      expect(resetButton.attributes('disabled')).toBeDefined();
 
       await flushPromises();
     });
@@ -208,77 +198,6 @@ describe('GeneralSettingsView', () => {
       await form.trigger('submit');
       await flushPromises();
       expect(wrapper.find('.error-message').exists()).toBe(false);
-    });
-  });
-
-  describe('reset functionality', () => {
-    it('shows confirmation dialog when reset is clicked', async () => {
-      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
-
-      const resetButton = wrapper.find('button[type="button"]');
-      await resetButton.trigger('click');
-
-      expect(confirmSpy).toHaveBeenCalledWith('Reset all general settings to defaults?');
-
-      confirmSpy.mockRestore();
-    });
-
-    it('does not reset if user cancels confirmation', async () => {
-      vi.spyOn(window, 'confirm').mockReturnValue(false);
-
-      const resetButton = wrapper.find('button[type="button"]');
-      await resetButton.trigger('click');
-      await flushPromises();
-
-      expect(mockSettingsStore.resetGeneralSettings).not.toHaveBeenCalled();
-    });
-
-    it('calls resetGeneralSettings if user confirms', async () => {
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
-
-      const resetButton = wrapper.find('button[type="button"]');
-      await resetButton.trigger('click');
-      await flushPromises();
-
-      expect(mockSettingsStore.resetGeneralSettings).toHaveBeenCalled();
-    });
-
-    it('shows success message on successful reset', async () => {
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
-
-      const resetButton = wrapper.find('button[type="button"]');
-      await resetButton.trigger('click');
-      await flushPromises();
-
-      expect(mockUiStore.success).toHaveBeenCalledWith('General settings reset to defaults');
-    });
-
-    it('shows error message on reset failure', async () => {
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
-      mockSettingsStore.resetGeneralSettings.mockRejectedValue(new Error('Reset failed'));
-
-      const resetButton = wrapper.find('button[type="button"]');
-      await resetButton.trigger('click');
-      await flushPromises();
-
-      expect(wrapper.find('.error-message').exists()).toBe(true);
-      expect(wrapper.find('.error-message').text()).toBe('Reset failed');
-    });
-
-    it('disables buttons while resetting', async () => {
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
-      mockSettingsStore.resetGeneralSettings.mockImplementation(
-        () => new Promise((resolve) => setTimeout(() => resolve({ disableAnalytics: false }), 100))
-      );
-
-      const resetButton = wrapper.find('button[type="button"]');
-      await resetButton.trigger('click');
-      await nextTick();
-
-      const saveButton = wrapper.find('button[type="submit"]');
-      expect(saveButton.attributes('disabled')).toBeDefined();
-
-      await flushPromises();
     });
   });
 
