@@ -656,7 +656,7 @@ onMounted(async () => {
     // If we have a new active conversation, fetch its messages
     if (newActiveConv) {
       console.log(`[CONV] CONVERSATION_DELETED: fetching messages for new active conversation ${newActiveConv.id}`);
-      sessionsStore.fetchMessages(props.sessionId, false);
+      sessionsStore.fetchMessages(props.sessionId, false, newActiveConv.id);
     }
   });
 
@@ -790,7 +790,8 @@ watch(
       // Clear any lingering streaming state (Step 2 - safety net)
       partialText.value = '';
       // Fetch messages first, then work logs - this ensures messages are visible
-      await sessionsStore.fetchMessages(props.sessionId, false);
+      // Pass activeConversationId to prevent fetching messages for the wrong conversation
+      await sessionsStore.fetchMessages(props.sessionId, false, sessionsStore.activeConversationId);
       await sessionsStore.fetchWorkLogs(props.sessionId);
     }
   }
@@ -844,7 +845,7 @@ watch(
       // Always refetch when conversation changes - no status check
       // This prevents the UI from showing stale messages from a previous conversation
       console.log(`[CONV] activeConversationId changed to ${newConvId}, refetching messages`);
-      await sessionsStore.fetchMessages(props.sessionId, false);
+      await sessionsStore.fetchMessages(props.sessionId, false, newConvId);
     }
   }
 );

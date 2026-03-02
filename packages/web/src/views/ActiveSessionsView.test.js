@@ -94,9 +94,11 @@ vi.mock('../stores/commandButtons.js', () => {
 
 // Mock API
 const mockGetSessionSummary = vi.fn();
+const mockGetSessionSummariesBatch = vi.fn();
 vi.mock('../composables/useApi.js', () => ({
   api: {
     getSessionSummary: (...args) => mockGetSessionSummary(...args),
+    getSessionSummariesBatch: (...args) => mockGetSessionSummariesBatch(...args),
   },
 }));
 
@@ -147,6 +149,8 @@ describe('ActiveSessionsView', () => {
     // Reset API mocks
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);
+    mockGetSessionSummariesBatch.mockReset();
+    mockGetSessionSummariesBatch.mockResolvedValue({});
 
     // Reset mock function call counts and reconfigure
     mockSessionsStore.fetchActiveSessions.mockClear();
@@ -365,6 +369,8 @@ describe('Status filtering', () => {
 
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);
+    mockGetSessionSummariesBatch.mockReset();
+    mockGetSessionSummariesBatch.mockResolvedValue({});
 
     // Update the module-level mockSessionsStore with test data
     mockSessionsStore.loading = false;
@@ -634,6 +640,8 @@ describe('ActiveSessionsView polling fallback', () => {
     // Reset API mocks
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);
+    mockGetSessionSummariesBatch.mockReset();
+    mockGetSessionSummariesBatch.mockResolvedValue({});
 
     // Reset mock function call counts and reconfigure
     mockSessionsStore.fetchActiveSessions.mockClear();
@@ -813,5 +821,125 @@ describe('ActiveSessionsView polling fallback', () => {
       const starButton = wrapper.find('.star-btn');
       expect(starButton.classes()).not.toContain('star-filter-active');
     });
+  });
+});
+
+describe('ActiveSessionsView batch summary fetching', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    setActivePinia(createPinia());
+
+    onSessionCreatedCallback = null;
+    onSessionUpdatedCallback = null;
+    onSessionDeletedCallback = null;
+    onSessionSummaryUpdatedCallback = null;
+
+    mockGetSessionSummary.mockReset();
+    mockGetSessionSummary.mockResolvedValue(null);
+    mockGetSessionSummariesBatch.mockReset();
+    mockGetSessionSummariesBatch.mockResolvedValue({});
+
+    mockSessionsStore.loading = false;
+    mockSessionsStore.error = null;
+    mockSessionsStore.statusFilter = null;
+    mockSessionsStore.starredFilter = null;
+    mockSessionsStore.activeSessions = [
+      { id: 'session-1', name: 'Active Session 1', status: 'running', projectId: 'project-1' },
+      { id: 'session-2', name: 'Active Session 2', status: 'waiting', projectId: 'project-2' },
+    ];
+    mockSessionsStore.fetchActiveSessions.mockClear();
+    mockSessionsStore.fetchActiveSessions.mockResolvedValue();
+    mockSessionsStore.restoreStatusFilter.mockClear();
+    mockSessionsStore.restoreStarredFilter.mockClear();
+
+    mockCommandButtonsStore.fetchButtons.mockClear();
+    mockCommandButtonsStore.fetchButtons.mockResolvedValue();
+    mockCommandButtonsStore.getButtonsByProjectId.mockClear();
+    mockCommandButtonsStore.getLatestRunForButton.mockClear();
+    mockCommandButtonsStore.buttons = [];
+    mockCommandButtonsStore.runs = {};
+    mockCommandButtonsStore.loading = false;
+    mockCommandButtonsStore.error = null;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('calls getSessionSummariesBatch with all active session IDs on mount', async () => {
+    mockGetSessionSummariesBatch.mockResolvedValue({
+      'session-1': { shortSummary: 'Summary 1' },
+      'session-2': { shortSummary: 'Summary 2' },
+    });
+
+    const wrapper = mount(ActiveSessionsView);
+    await flushAll(wrapper);
+
+    expect(mockGetSessionSummariesBatch).toHaveBeenCalledWith(['session-1', 'session-2']);
+  });
+
+  it('populates summaries from batch response', async () => {
+    mockGetSessionSummariesBatch.mockResolvedValue({
+      'session-1': { shortSummary: 'Batch summary 1' },
+      'session-2': { shortSummary: 'Batch summary 2' },
+    });
+
+    const wrapper = mount(ActiveSessionsView);
+    await flushAll(wrapper);
+
+    const card1 = wrapper.find('[data-session-id="session-1"]');
+    const card2 = wrapper.find('[data-session-id="session-2"]');
+    expect(card1.attributes('data-summary')).toContain('Batch summary 1');
+    expect(card2.attributes('data-summary')).toContain('Batch summary 2');
+  });
+
+  it('handles null summaries in batch response (session has no summary)', async () => {
+    mockGetSessionSummariesBatch.mockResolvedValue({
+      'session-1': { shortSummary: 'Has summary' },
+      'session-2': null,
+    });
+
+    const wrapper = mount(ActiveSessionsView);
+    await flushAll(wrapper);
+
+    const card1 = wrapper.find('[data-session-id="session-1"]');
+    expect(card1.attributes('data-summary')).toContain('Has summary');
+
+    // session-2 should have no summary (undefined passed to the prop)
+    const card2 = wrapper.find('[data-session-id="session-2"]');
+    expect(card2.exists()).toBe(true);
+  });
+
+  it('sets error state on all sessions when batch request fails', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockGetSessionSummariesBatch.mockRejectedValue(new Error('Network error'));
+
+    const wrapper = mount(ActiveSessionsView);
+    await flushAll(wrapper);
+
+    // The batch call should have been attempted
+    expect(mockGetSessionSummariesBatch).toHaveBeenCalled();
+
+    // Console warning should have been logged
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      'Failed to fetch summaries batch:',
+      'Network error'
+    );
+    consoleWarnSpy.mockRestore();
+  });
+
+  it('uses batch endpoint instead of individual calls for summaries', async () => {
+    mockGetSessionSummariesBatch.mockResolvedValue({
+      'session-1': { shortSummary: 'Summary 1' },
+      'session-2': { shortSummary: 'Summary 2' },
+    });
+
+    mount(ActiveSessionsView);
+    await flushPromises();
+
+    // Should use batch endpoint, not individual getSessionSummary calls
+    expect(mockGetSessionSummariesBatch).toHaveBeenCalled();
+    // The individual summary endpoint should NOT be called during initial fetch
+    expect(mockGetSessionSummary).not.toHaveBeenCalled();
   });
 });

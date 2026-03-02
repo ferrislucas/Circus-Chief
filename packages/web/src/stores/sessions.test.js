@@ -210,6 +210,42 @@ describe('Sessions Store', () => {
       expect(store.currentSession.status).toBe('stopped');
       expect(store.sessions[0].status).toBe('stopped');
     });
+
+    it('sets hasResponses=true when transitioning from running to waiting', () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', status: 'running', hasResponses: false };
+      store.sessions = [{ id: 'session-1', status: 'running', hasResponses: false }];
+
+      store.updateSessionStatus('session-1', 'waiting');
+
+      expect(store.currentSession.hasResponses).toBe(true);
+      expect(store.sessions[0].hasResponses).toBe(true);
+    });
+
+    it('sets hasResponses=true when transitioning from running to completed', () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', status: 'running', hasResponses: false };
+      store.sessions = [{ id: 'session-1', status: 'running', hasResponses: false }];
+
+      store.updateSessionStatus('session-1', 'completed');
+
+      expect(store.currentSession.hasResponses).toBe(true);
+      expect(store.sessions[0].hasResponses).toBe(true);
+    });
+
+    it('does not set hasResponses when transitioning from non-running status', () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', status: 'starting', hasResponses: false };
+      store.sessions = [{ id: 'session-1', status: 'starting', hasResponses: false }];
+
+      store.updateSessionStatus('session-1', 'waiting');
+
+      expect(store.currentSession.hasResponses).toBe(false);
+      expect(store.sessions[0].hasResponses).toBe(false);
+    });
   });
 
   describe('work logs', () => {
@@ -3718,11 +3754,14 @@ describe('Sessions Store', () => {
         { id: 'msg-1', role: 'user', content: 'Test' },
       ];
 
-      api.getSessionMessages.mockResolvedValue(mockMessages);
+      api.getConversationMessages.mockResolvedValue(mockMessages);
 
       const consoleLogSpy = vi.spyOn(console, 'log');
 
       await store.fetchMessages('session-456', false);
+
+      // Should use getConversationMessages since activeConversationId is set
+      expect(api.getConversationMessages).toHaveBeenCalledWith('session-456', 'conv-123');
 
       // Verify logging includes session ID, message count, and conversation ID
       expect(consoleLogSpy).toHaveBeenCalledWith(
@@ -3736,6 +3775,60 @@ describe('Sessions Store', () => {
       );
 
       consoleLogSpy.mockRestore();
+    });
+
+    it('uses getConversationMessages when conversationId parameter is provided', async () => {
+      const store = useSessionsStore();
+      const mockMessages = [{ id: 'msg-1', role: 'user', content: 'Hello' }];
+
+      api.getConversationMessages.mockResolvedValue(mockMessages);
+
+      await store.fetchMessages('session-123', false, 'conv-explicit');
+
+      expect(api.getConversationMessages).toHaveBeenCalledWith('session-123', 'conv-explicit');
+      expect(api.getSessionMessages).not.toHaveBeenCalled();
+      expect(store.messages).toEqual(mockMessages);
+    });
+
+    it('uses getConversationMessages with activeConversationId when no conversationId param is provided', async () => {
+      const store = useSessionsStore();
+      store.activeConversationId = 'conv-active';
+      const mockMessages = [{ id: 'msg-1', role: 'assistant', content: 'Hi' }];
+
+      api.getConversationMessages.mockResolvedValue(mockMessages);
+
+      await store.fetchMessages('session-123', false);
+
+      expect(api.getConversationMessages).toHaveBeenCalledWith('session-123', 'conv-active');
+      expect(api.getSessionMessages).not.toHaveBeenCalled();
+      expect(store.messages).toEqual(mockMessages);
+    });
+
+    it('falls back to getSessionMessages when neither conversationId param nor activeConversationId is set', async () => {
+      const store = useSessionsStore();
+      store.activeConversationId = null;
+      const mockMessages = [{ id: 'msg-1', role: 'user', content: 'Hello' }];
+
+      api.getSessionMessages.mockResolvedValue(mockMessages);
+
+      await store.fetchMessages('session-123', false);
+
+      expect(api.getSessionMessages).toHaveBeenCalledWith('session-123');
+      expect(api.getConversationMessages).not.toHaveBeenCalled();
+      expect(store.messages).toEqual(mockMessages);
+    });
+
+    it('prefers explicit conversationId param over activeConversationId', async () => {
+      const store = useSessionsStore();
+      store.activeConversationId = 'conv-active';
+      const mockMessages = [{ id: 'msg-1', role: 'user', content: 'Hello' }];
+
+      api.getConversationMessages.mockResolvedValue(mockMessages);
+
+      await store.fetchMessages('session-123', false, 'conv-explicit');
+
+      expect(api.getConversationMessages).toHaveBeenCalledWith('session-123', 'conv-explicit');
+      expect(store.messages).toEqual(mockMessages);
     });
 
     it('clears previous error on successful fetch', async () => {
