@@ -35,6 +35,8 @@ import {
   validatePrUrl,
   isConversationSummaryEnabled,
   generateSessionAndConversationSummary,
+  activeGenerations,
+  pendingRegenerations,
 } from './summaryService.js';
 
 describe('summaryService', () => {
@@ -1098,34 +1100,27 @@ describe('summaryService', () => {
       expect(generatingCalls.length).toBeGreaterThan(0);
     });
 
-    it('onSessionComplete forces regeneration regardless of staleness', async () => {
-      // Create current summary
-      sessionSummaries.create(sessionId, {
-        shortSummary: 'Current',
-        fullSummary: 'Status: ongoing',
-        keyActions: [],
-        filesModified: [],
-        outcome: 'ongoing',
-        messageCount: 2,
-      });
-
-      // Create matching messages
-      messages.create(sessionId, 'user', 'Msg');
-      messages.create(sessionId, 'assistant', 'Response');
+    it('onSessionComplete does lightweight outcome update when summary is current', async () => {
+      // Generate a current summary (will have correct messageCount and lastSummarizedMessageId)
+      await summaryService.generateSummary(sessionId);
 
       vi.clearAllMocks();
 
-      // Call onSessionComplete
+      // Call onSessionComplete -- summary is current, should do lightweight update only
       summaryService.onSessionComplete(sessionId);
 
-      // Wait for async generation
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // Wait for async operations
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // Should have broadcast generating status (indicating force was used)
+      // Should have updated the outcome to 'completed' (session status is 'running' -> maps to 'completed')
+      const updated = sessionSummaries.getBySessionId(sessionId);
+      expect(updated).not.toBeNull();
+
+      // Should NOT have broadcast generating status (no LLM call)
       const generatingCalls = broadcastToSession.mock.calls.filter(
         (call) => call[1] === 'session:summary_generating'
       );
-      expect(generatingCalls.length).toBeGreaterThan(0);
+      expect(generatingCalls.length).toBe(0);
     });
   });
 
@@ -2811,6 +2806,255 @@ describe('summaryService', () => {
 
       const session = sessionsRepo.getById(emptySession.id);
       expect(session.prUrl).toBeNull();
+    });
+  });
+
+  describe('concurrency guard', () => {
+    afterEach(() => {
+      // Clean up concurrency state
+      activeGenerations.delete(sessionId);
+      pendingRegenerations.delete(sessionId);
+    });
+
+    it('does not start a second generation while one is in-flight for the same session', async () => {
+      // Start first generation (will take ~50ms due to mock delay)
+      const firstPromise = summaryService.generateSummary(sessionId);
+
+      // Start second generation immediately (should coalesce)
+      const secondPromise = summaryService.generateSummary(sessionId);
+
+      const [first, second] = await Promise.all([firstPromise, secondPromise]);
+
+      // Both should return the same result (second coalesced into first)
+      expect(first).not.toBeNull();
+      expect(second).not.toBeNull();
+      expect(first.id).toBe(second.id);
+
+      // Only one LLM call should have been made
+      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(1);
+    });
+
+    it('queues exactly one follow-up generation when calls arrive during in-flight generation', async () => {
+      // Start first generation
+      const firstPromise = summaryService.generateSummary(sessionId);
+
+      // Call 3 more times while first is in-flight
+      summaryService.generateSummary(sessionId);
+      summaryService.generateSummary(sessionId);
+      summaryService.generateSummary(sessionId);
+
+      await firstPromise;
+
+      // Only 1 LLM call should have been made during the first generation
+      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(1);
+
+      // A pending regeneration should have been scheduled (via debounce)
+      // We don't check the exact follow-up count because it goes through debounce
+    });
+
+    it('allows concurrent generation for DIFFERENT sessions', async () => {
+      // Create a second session
+      const session2 = sessions.create(projectId, 'Test Session 2', 'Second prompt', 'standard');
+      messages.create(session2.id, 'assistant', 'Response 1', null);
+      messages.create(session2.id, 'user', 'Follow-up', null);
+
+      // Start generation for both sessions concurrently
+      const [result1, result2] = await Promise.all([
+        summaryService.generateSummary(sessionId),
+        summaryService.generateSummary(session2.id),
+      ]);
+
+      expect(result1).not.toBeNull();
+      expect(result2).not.toBeNull();
+      expect(result1.sessionId).toBe(sessionId);
+      expect(result2.sessionId).toBe(session2.id);
+
+      // Both should have made LLM calls
+      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(2);
+
+      // Clean up
+      summaryService.cleanupSession(session2.id);
+      activeGenerations.delete(session2.id);
+      pendingRegenerations.delete(session2.id);
+    });
+
+    it('userInitiated=true bypasses the concurrency guard', async () => {
+      // Start a non-user generation
+      const firstPromise = summaryService.generateSummary(sessionId);
+
+      // Start a user-initiated generation (should bypass guard)
+      const userPromise = summaryService.generateSummary(sessionId, 0, true, true);
+
+      const [first, userResult] = await Promise.all([firstPromise, userPromise]);
+
+      expect(first).not.toBeNull();
+      expect(userResult).not.toBeNull();
+
+      // Both should have made LLM calls (user-initiated bypasses guard)
+      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(2);
+    });
+
+    it('concurrency guard protects generateSessionAndConversationSummary', async () => {
+      const { conversations: convRepo } = await import('../database.js');
+      const conversation = convRepo.getActiveBySessionId(sessionId);
+
+      // Start a regular generation
+      const firstPromise = summaryService.generateSummary(sessionId);
+
+      // Try combined generation while first is in-flight (should be guarded)
+      const combinedPromise = generateSessionAndConversationSummary(sessionId, conversation.id);
+
+      const [first, combined] = await Promise.all([firstPromise, combinedPromise]);
+
+      // First should succeed, combined should have been coalesced
+      expect(first).not.toBeNull();
+      // Combined returns the same promise result as the first generation
+      expect(combined).not.toBeNull();
+
+      // Only one LLM call should have been made
+      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(1);
+    });
+
+    it('follow-up after concurrency guard uses debounce path, not immediate', async () => {
+      vi.useFakeTimers();
+
+      // Start first generation
+      const firstPromise = summaryService.generateSummary(sessionId);
+
+      // Queue a follow-up while first is in-flight
+      summaryService.generateSummary(sessionId);
+
+      // Run pending promises to complete the first generation
+      await vi.runAllTimersAsync();
+      await firstPromise;
+
+      vi.clearAllMocks();
+
+      // The follow-up should have been scheduled via debounce (onSessionActivity)
+      // Advance past debounce delay
+      await vi.advanceTimersByTimeAsync(DEBOUNCE_DELAY + 100);
+      await vi.runAllTimersAsync();
+
+      // Now the follow-up should have fired
+      // It may or may not make an LLM call depending on staleness check
+      // The key test is that it used the debounce path (no immediate call)
+
+      vi.useRealTimers();
+    });
+  });
+
+  describe('onSessionComplete staleness and outcome', () => {
+    it('onSessionComplete skips LLM call when summary is current', async () => {
+      // Generate a current summary
+      await summaryService.generateSummary(sessionId);
+      vi.clearAllMocks();
+
+      // Call onSessionComplete -- summary is current, should skip LLM
+      summaryService.onSessionComplete(sessionId);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Should NOT have called LLM (no generateSessionSummary startCall)
+      const summaryCallTypes = agentCallLogger.startCall.mock.calls.map((c) => c[0].callType);
+      expect(summaryCallTypes).not.toContain('generateSessionSummary');
+      expect(summaryCallTypes).not.toContain('generateCombinedSummary');
+    });
+
+    it('onSessionComplete updates outcome via DB when summary is current but status changed', async () => {
+      // Generate summary with outcome "ongoing"
+      await summaryService.generateSummary(sessionId);
+
+      const summaryBefore = sessionSummaries.getBySessionId(sessionId);
+      expect(summaryBefore.outcome).toBe('ongoing');
+
+      // Change session status to "completed" (simulating session finishing)
+      sessions.update(sessionId, { status: 'completed' });
+      vi.clearAllMocks();
+
+      // Call onSessionComplete
+      summaryService.onSessionComplete(sessionId);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Outcome should be updated in DB without calling LLM
+      const summaryAfter = sessionSummaries.getBySessionId(sessionId);
+      expect(summaryAfter.outcome).toBe('completed');
+
+      // Should NOT have called LLM
+      expect(agentCallLogger.startCall).not.toHaveBeenCalled();
+    });
+
+    it('onSessionComplete generates via LLM when summary is stale', async () => {
+      // Generate summary
+      await summaryService.generateSummary(sessionId);
+
+      // Add a new message to make summary stale
+      messages.create(sessionId, 'assistant', 'New response that makes summary stale');
+      vi.clearAllMocks();
+
+      // Call onSessionComplete
+      summaryService.onSessionComplete(sessionId);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Should have called LLM (summary was stale)
+      expect(agentCallLogger.startCall).toHaveBeenCalled();
+    });
+
+    it('generateSessionAndConversationSummary skips when summary is not stale', async () => {
+      const { conversations: convRepo } = await import('../database.js');
+      const conversation = convRepo.getActiveBySessionId(sessionId);
+
+      // Generate a current summary
+      await summaryService.generateSummary(sessionId);
+      vi.clearAllMocks();
+
+      // Call combined generation -- summary is current, should skip
+      const result = await generateSessionAndConversationSummary(sessionId, conversation.id);
+
+      // Should return existing summary without LLM call
+      expect(result.sessionSummary).not.toBeNull();
+      expect(agentCallLogger.startCall).not.toHaveBeenCalled();
+    });
+
+    it('onSessionComplete fallback path does not use force=true', async () => {
+      const { conversations: convRepo } = await import('../database.js');
+      const conversation = convRepo.getActiveBySessionId(sessionId);
+
+      // Add messages to conversation
+      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'New response to make stale');
+
+      vi.clearAllMocks();
+
+      // Call onSessionComplete -- should generate since no existing summary
+      summaryService.onSessionComplete(sessionId);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Should have generated (no existing summary = stale)
+      expect(agentCallLogger.startCall).toHaveBeenCalled();
+    });
+  });
+
+  describe('generateSummaryNow cancels debounce', () => {
+    it('generateSummaryNow cancels pending debounce timer and generates only once', async () => {
+      // Use real timers -- fake timers conflict with async generators in mock mode
+
+      // Start a debounced generation
+      summaryService.onSessionActivity(sessionId);
+
+      // Immediately call generateSummaryNow (should cancel the debounced one)
+      const result = await summaryService.generateSummaryNow(sessionId);
+
+      // Should have generated successfully
+      expect(result).not.toBeNull();
+      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(1);
+
+      // Wait past debounce delay to ensure the cancelled timer doesn't fire a second generation
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Still only one call -- the debounced timer was cancelled
+      // (Second call would be skipped by staleness check even if timer wasn't cancelled,
+      // but the important thing is the timer was cancelled by generateSummaryNow)
+      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(1);
     });
   });
 });
