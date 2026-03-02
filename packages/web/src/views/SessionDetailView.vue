@@ -26,7 +26,38 @@
         <!-- Main header row with status, name, and menu -->
         <div class="session-header-row">
           <!-- Session name -->
-          <h3 class="session-name">{{ sessionsStore.currentSession.name }}</h3>
+          <template v-if="isEditingName">
+            <div class="name-edit-form">
+              <input
+                v-model="editNameValue"
+                type="text"
+                class="name-edit-input"
+                placeholder="Session name"
+                @keyup.enter="saveSessionName"
+                @keyup.escape="cancelEditName"
+              />
+              <button class="btn-icon pr-edit-btn pr-save-btn" title="Save" @click="saveSessionName">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </button>
+              <button class="btn-icon pr-edit-btn pr-cancel-btn" title="Cancel" @click="cancelEditName">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+          </template>
+          <template v-else>
+            <h3 class="session-name">{{ sessionsStore.currentSession.name }}</h3>
+            <button class="btn-link pr-edit-trigger" @click="startEditName" title="Edit session name">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+              </svg>
+            </button>
+          </template>
 
           <!-- Overflow menu with secondary actions -->
           <OverflowMenu
@@ -289,6 +320,10 @@ const isDeleting = ref(false);
 // PR URL editing state
 const isEditingPrUrl = ref(false);
 const editPrUrlValue = ref('');
+
+// Name editing state
+const isEditingName = ref(false);
+const editNameValue = ref('');
 
 // Check for file system changes (staged, unstaged, untracked)
 async function checkForChanges() {
@@ -767,6 +802,40 @@ async function clearPrUrl() {
   editPrUrlValue.value = '';
   await savePrUrl();
 }
+
+// Name editing functions
+function startEditName() {
+  editNameValue.value = sessionsStore.currentSession?.name || '';
+  isEditingName.value = true;
+}
+
+function cancelEditName() {
+  isEditingName.value = false;
+  editNameValue.value = '';
+}
+
+async function saveSessionName() {
+  const newName = editNameValue.value.trim();
+  const sessionId = currentSessionId.value;
+
+  if (!newName) {
+    uiStore.error('Session name cannot be empty');
+    return;
+  }
+
+  try {
+    const updated = await api.updateSession(sessionId, {
+      name: newName,
+      manuallyNamed: true
+    });
+    sessionsStore.updateSession({ ...updated, id: sessionId });
+    uiStore.success('Session name updated');
+    isEditingName.value = false;
+    editNameValue.value = '';
+  } catch (err) {
+    uiStore.error(err.message || 'Failed to update session name');
+  }
+}
 </script>
 
 <style scoped>
@@ -967,6 +1036,33 @@ async function clearPrUrl() {
 
 .pr-clear-btn:hover {
   background: rgba(244, 67, 54, 0.1);
+}
+
+/* Name editing styles */
+.name-edit-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.name-edit-input {
+  background: var(--color-bg-input, #1e1e1e);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--color-text, #e0e0e0);
+  min-width: 200px;
+  max-width: 400px;
+}
+
+.name-edit-input:focus {
+  outline: none;
+  border-color: var(--color-primary, #00bcd4);
+}
+
+.name-edit-input::placeholder {
+  color: var(--color-text-soft, #888);
 }
 
 .pr-edit-trigger {

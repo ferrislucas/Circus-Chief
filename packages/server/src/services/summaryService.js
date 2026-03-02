@@ -768,12 +768,21 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
     // Update session name and prUrl if we have new data
     if (summaryData.sessionTitle || summaryData.prUrl) {
       const updateData = {};
-      if (summaryData.sessionTitle) {
+
+      // Re-fetch the session to check the manuallyNamed flag
+      // (The session object was fetched at line 584, potentially many seconds ago)
+      const freshSession = sessions.getById(sessionId);
+
+      // Only update name if session is not manually named
+      if (summaryData.sessionTitle && !freshSession.manuallyNamed) {
         updateData.name = summaryData.sessionTitle;
       }
+
+      // PR URL updates are always allowed (regardless of manuallyNamed)
       if (summaryData.prUrl) {
         updateData.prUrl = summaryData.prUrl;
       }
+
       const updatedSession = sessions.update(sessionId, updateData);
 
       // Broadcast session update for real-time UI sync (session detail view)

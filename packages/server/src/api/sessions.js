@@ -955,6 +955,7 @@ router.patch('/:id', (req, res) => {
 
   const {
     name,
+    manuallyNamed,
     thinkingEnabled,
     status,
     mode,
@@ -979,6 +980,14 @@ router.patch('/:id', (req, res) => {
   const updateData = {};
   if (name !== undefined) {
     updateData.name = name;
+    // Auto-set manuallyNamed when name is updated via user-facing PATCH endpoint
+    // (unless manuallyNamed is explicitly provided)
+    if (manuallyNamed === undefined) {
+      updateData.manuallyNamed = true;
+    }
+  }
+  if (manuallyNamed !== undefined) {
+    updateData.manuallyNamed = Boolean(manuallyNamed);
   }
   if (thinkingEnabled !== undefined) {
     updateData.thinkingEnabled = Boolean(thinkingEnabled);

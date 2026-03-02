@@ -584,6 +584,39 @@ describe('SessionRepository', () => {
       expect(updated.starred).toBe(false);
     });
 
+    it('defaults manuallyNamed to false', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      expect(session.manuallyNamed).toBe(false);
+    });
+
+    it('updates manuallyNamed to true', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      expect(session.manuallyNamed).toBe(false);
+
+      const updated = repo.update(session.id, { manuallyNamed: true });
+
+      expect(updated.manuallyNamed).toBe(true);
+    });
+
+    it('updates manuallyNamed back to false', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { manuallyNamed: true });
+
+      const updated = repo.update(session.id, { manuallyNamed: false });
+
+      expect(updated.manuallyNamed).toBe(false);
+    });
+
+    it('preserves manuallyNamed when updating other fields', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { manuallyNamed: true });
+
+      const updated = repo.update(session.id, { status: 'running' });
+
+      expect(updated.manuallyNamed).toBe(true);
+      expect(updated.status).toBe('running');
+    });
+
     it('updates pendingModel', () => {
       const session = repo.create(projectId, 'Test', 'Prompt');
       const updated = repo.update(session.id, { pendingModel: 'claude-sonnet-4-5' });
