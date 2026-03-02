@@ -1800,9 +1800,5 @@ async function handleBranchCreate({ messageId, prompt }) {
   .running-title {
     display: none;
   }
-
-  .running-model-label {
-    display: none;
-  }
 }
 </style>
