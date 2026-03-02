@@ -33,6 +33,10 @@ const { dbPath, sessionId, conversationId, todos } = JSON.parse(raw);
 
 const db = new Database(dbPath, { readonly: false });
 db.pragma('journal_mode = WAL');
+// better-sqlite3 v11+ enables foreign_keys ON by default; disable for seed scripts
+// since they insert test data directly and don't need FK enforcement.
+// The server itself enforces FKs via its own connection.
+db.pragma('foreign_keys = OFF');
 
 // Delete existing todos for this conversation
 db.prepare('DELETE FROM session_todos WHERE conversation_id = ?').run(conversationId);
