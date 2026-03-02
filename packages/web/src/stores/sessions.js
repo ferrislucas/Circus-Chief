@@ -755,12 +755,15 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
-    async fetchMessages(sessionId, showLoading = true) {
+    async fetchMessages(sessionId, showLoading = true, conversationId = null) {
       if (showLoading) this.loading = true;
       this.error = null;
       try {
-        const fetchedMessages = await api.getSessionMessages(sessionId);
-        console.log(`[STORE] fetchMessages: session ${sessionId}, received ${fetchedMessages.length} messages, activeConversationId: ${this.activeConversationId}`);
+        const cid = conversationId || this.activeConversationId;
+        const fetchedMessages = cid
+          ? await api.getConversationMessages(sessionId, cid)
+          : await api.getSessionMessages(sessionId);
+        console.log(`[STORE] fetchMessages: session ${sessionId}, conversationId: ${cid || 'none'}, received ${fetchedMessages.length} messages, activeConversationId: ${this.activeConversationId}`);
 
         // Smart merge: preserve any messages that were added via WebSocket but not yet in API response
         // This prevents a race condition where WebSocket delivers a message before the server has
