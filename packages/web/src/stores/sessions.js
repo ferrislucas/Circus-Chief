@@ -755,12 +755,15 @@ export const useSessionsStore = defineStore('sessions', {
       }
     },
 
-    async fetchMessages(sessionId, showLoading = true) {
+    async fetchMessages(sessionId, showLoading = true, conversationId = null) {
       if (showLoading) this.loading = true;
       this.error = null;
       try {
-        const fetchedMessages = await api.getSessionMessages(sessionId);
-        console.log(`[STORE] fetchMessages: session ${sessionId}, received ${fetchedMessages.length} messages, activeConversationId: ${this.activeConversationId}`);
+        const cid = conversationId || this.activeConversationId;
+        const fetchedMessages = cid
+          ? await api.getConversationMessages(sessionId, cid)
+          : await api.getSessionMessages(sessionId);
+        console.log(`[STORE] fetchMessages: session ${sessionId}, conversationId: ${cid || 'none'}, received ${fetchedMessages.length} messages, activeConversationId: ${this.activeConversationId}`);
 
         // Smart merge: preserve any messages that were added via WebSocket but not yet in API response
         // This prevents a race condition where WebSocket delivers a message before the server has
@@ -1165,9 +1168,18 @@ export const useSessionsStore = defineStore('sessions', {
     updateSessionStatus(sessionId, status) {
       const session = this.sessions.find((s) => s.id === sessionId);
       if (session) {
+        // If transitioning from running to waiting/completed, the session just
+        // finished producing a response — mark hasResponses true so isDraftSession
+        // doesn't hide the messages via the template v-if guard.
+        if (session.status === 'running' && (status === 'waiting' || status === 'completed')) {
+          session.hasResponses = true;
+        }
         session.status = status;
       }
       if (this.currentSession?.id === sessionId) {
+        if (this.currentSession.status === 'running' && (status === 'waiting' || status === 'completed')) {
+          this.currentSession.hasResponses = true;
+        }
         this.currentSession.status = status;
       }
     },

@@ -650,6 +650,16 @@ export class ApiClient {
   }
 
   /**
+   * Get summaries for multiple sessions in a single batch request
+   * @param {string[]} ids - Array of session IDs
+   * @returns {Promise<Object>} Map of sessionId -> summary (or null)
+   */
+  async getSessionSummariesBatch(ids) {
+    if (!ids || ids.length === 0) return {};
+    return this.#request('POST', '/sessions/summaries/batch', { ids });
+  }
+
+  /**
    * Generate/regenerate session summary
    * @param {string} sessionId - Session ID
    * @returns {Promise<Object>}
