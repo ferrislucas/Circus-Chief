@@ -1168,9 +1168,18 @@ export const useSessionsStore = defineStore('sessions', {
     updateSessionStatus(sessionId, status) {
       const session = this.sessions.find((s) => s.id === sessionId);
       if (session) {
+        // If transitioning from running to waiting/completed, the session just
+        // finished producing a response — mark hasResponses true so isDraftSession
+        // doesn't hide the messages via the template v-if guard.
+        if (session.status === 'running' && (status === 'waiting' || status === 'completed')) {
+          session.hasResponses = true;
+        }
         session.status = status;
       }
       if (this.currentSession?.id === sessionId) {
+        if (this.currentSession.status === 'running' && (status === 'waiting' || status === 'completed')) {
+          this.currentSession.hasResponses = true;
+        }
         this.currentSession.status = status;
       }
     },

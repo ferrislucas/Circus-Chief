@@ -210,6 +210,42 @@ describe('Sessions Store', () => {
       expect(store.currentSession.status).toBe('stopped');
       expect(store.sessions[0].status).toBe('stopped');
     });
+
+    it('sets hasResponses=true when transitioning from running to waiting', () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', status: 'running', hasResponses: false };
+      store.sessions = [{ id: 'session-1', status: 'running', hasResponses: false }];
+
+      store.updateSessionStatus('session-1', 'waiting');
+
+      expect(store.currentSession.hasResponses).toBe(true);
+      expect(store.sessions[0].hasResponses).toBe(true);
+    });
+
+    it('sets hasResponses=true when transitioning from running to completed', () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', status: 'running', hasResponses: false };
+      store.sessions = [{ id: 'session-1', status: 'running', hasResponses: false }];
+
+      store.updateSessionStatus('session-1', 'completed');
+
+      expect(store.currentSession.hasResponses).toBe(true);
+      expect(store.sessions[0].hasResponses).toBe(true);
+    });
+
+    it('does not set hasResponses when transitioning from non-running status', () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', status: 'starting', hasResponses: false };
+      store.sessions = [{ id: 'session-1', status: 'starting', hasResponses: false }];
+
+      store.updateSessionStatus('session-1', 'waiting');
+
+      expect(store.currentSession.hasResponses).toBe(false);
+      expect(store.sessions[0].hasResponses).toBe(false);
+    });
   });
 
   describe('work logs', () => {
