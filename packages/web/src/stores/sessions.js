@@ -649,7 +649,7 @@ export const useSessionsStore = defineStore('sessions', {
       this.loading = true;
       this.error = null;
       try {
-        this.sessions = await api.getProjectSessions(projectId, false, this.starredFilter);
+        this.sessions = await api.getProjectSessions(projectId, false, null);
       } catch (err) {
         this.error = err.message;
       } finally {
