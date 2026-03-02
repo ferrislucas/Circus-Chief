@@ -360,10 +360,33 @@ watch(
 );
 
 async function fetchSummaries() {
+  // Uses batch endpoint to fetch all summaries in a single HTTP request.
   const sessions = sessionsStore.activeSessions;
-  for (const session of sessions) {
-    if (!summaries[session.id] && !loadingSummaries[session.id]) {
-      fetchSummary(session.id);
+  const idsToFetch = sessions
+    .filter(s => !summaries[s.id] && !loadingSummaries[s.id])
+    .map(s => s.id);
+
+  if (idsToFetch.length === 0) return;
+
+  // Mark all as loading
+  for (const id of idsToFetch) {
+    loadingSummaries[id] = true;
+    summaryErrors[id] = false;
+  }
+
+  try {
+    const batchResult = await api.getSessionSummariesBatch(idsToFetch);
+    for (const id of idsToFetch) {
+      if (batchResult[id]) {
+        summaries[id] = batchResult[id];
+      }
+      loadingSummaries[id] = false;
+    }
+  } catch (error) {
+    console.warn('Failed to fetch summaries batch:', error.message);
+    for (const id of idsToFetch) {
+      summaryErrors[id] = true;
+      loadingSummaries[id] = false;
     }
   }
 }

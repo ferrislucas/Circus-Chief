@@ -19,6 +19,7 @@ export class SessionSummaryRepository extends BaseRepository {
       filesModified: row.files_modified ? JSON.parse(row.files_modified) : [],
       outcome: row.outcome,
       messageCount: row.message_count,
+      lastSummarizedMessageId: row.last_summarized_message_id,
       prMerged: row.pr_merged !== null ? Boolean(row.pr_merged) : null,
       prState: row.pr_state,
       hasMergeConflicts: row.has_merge_conflicts !== null ? Boolean(row.has_merge_conflicts) : null,
@@ -54,8 +55,8 @@ export class SessionSummaryRepository extends BaseRepository {
     this.db
       .prepare(
         `INSERT INTO session_summaries
-         (id, session_id, short_summary, full_summary, key_actions, files_modified, outcome, message_count, pr_merged, pr_state, has_merge_conflicts, ci_status, ci_failures, generated_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, session_id, short_summary, full_summary, key_actions, files_modified, outcome, message_count, last_summarized_message_id, pr_merged, pr_state, has_merge_conflicts, ci_status, ci_failures, generated_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -66,6 +67,7 @@ export class SessionSummaryRepository extends BaseRepository {
         data.filesModified ? JSON.stringify(data.filesModified) : null,
         data.outcome || 'ongoing',
         data.messageCount || 0,
+        data.lastSummarizedMessageId || null,
         data.prMerged !== undefined ? (data.prMerged ? 1 : 0) : null,
         data.prState || null,
         data.hasMergeConflicts !== undefined ? (data.hasMergeConflicts ? 1 : 0) : null,
@@ -111,6 +113,10 @@ export class SessionSummaryRepository extends BaseRepository {
     if (data.messageCount !== undefined) {
       updates.push('message_count = ?');
       values.push(data.messageCount);
+    }
+    if (data.lastSummarizedMessageId !== undefined) {
+      updates.push('last_summarized_message_id = ?');
+      values.push(data.lastSummarizedMessageId);
     }
     if (data.prMerged !== undefined) {
       updates.push('pr_merged = ?');
@@ -159,6 +165,20 @@ export class SessionSummaryRepository extends BaseRepository {
       return this.update(existing.id, data);
     }
     return this.create(sessionId, data);
+  }
+
+  /**
+   * Get summaries for multiple session IDs in a single query
+   * @param {string[]} sessionIds
+   * @returns {Object[]}
+   */
+  getBySessionIds(sessionIds) {
+    if (!sessionIds || sessionIds.length === 0) return [];
+    const placeholders = sessionIds.map(() => '?').join(',');
+    const rows = this.db
+      .prepare(`SELECT * FROM session_summaries WHERE session_id IN (${placeholders})`)
+      .all(...sessionIds);
+    return this.mapAll(rows);
   }
 
   /**
