@@ -698,7 +698,8 @@ watch(
       // Clear any lingering streaming state (Step 2 - safety net)
       sessionsStore.clearPartialText();
       // Fetch messages first, then work logs - this ensures messages are visible
-      await sessionsStore.fetchMessages(props.sessionId, false);
+      // Pass activeConversationId to prevent fetching messages for the wrong conversation
+      await sessionsStore.fetchMessages(props.sessionId, false, sessionsStore.activeConversationId);
       await sessionsStore.fetchWorkLogs(props.sessionId);
     }
   }
@@ -745,7 +746,7 @@ watch(
       // Always refetch when conversation changes - no status check
       // This prevents the UI from showing stale messages from a previous conversation
       console.log(`[CONV] activeConversationId changed to ${newConvId}, refetching messages`);
-      await sessionsStore.fetchMessages(props.sessionId, false);
+      await sessionsStore.fetchMessages(props.sessionId, false, newConvId);
     }
   }
 );
@@ -1698,10 +1699,6 @@ async function handleBranchCreate({ messageId, prompt }) {
 /* Hide "Claude is working..." text on extremely small screens */
 @media (max-width: 360px) {
   .running-title {
-    display: none;
-  }
-
-  .running-model-label {
     display: none;
   }
 }

@@ -276,8 +276,8 @@ test.describe('Template Variables', () => {
     // Should NOT contain the raw template variable
     expect(prompt).not.toContain('{{parentSession.summary}}');
     expect(prompt).toContain('Summary:');
-    // Mock summary contains "mock summary" or falls back to "No summary available"
-    expect(prompt).toMatch(/mock summary|No summary available/i);
+    // Summary could be: mock summary, minimal summary format, or "No summary available"
+    expect(prompt).toMatch(/mock summary|Session with \d+ message|No summary available/i);
   });
 
   test('rootSession variables resolve through chain', async () => {
