@@ -43,6 +43,39 @@ vi.mock('../composables/useApi.js', () => ({
   },
 }));
 
+// Mock useWebSocket so ensureSubscribed resolves immediately (no real WebSocket needed)
+// and useSessionSubscription returns no-op handler stubs.
+vi.mock('../composables/useWebSocket.js', () => {
+  const h = () => vi.fn(() => () => {});
+  return {
+    ensureSubscribed: vi.fn(() => Promise.resolve()),
+    useSessionSubscription: vi.fn(() => ({
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      onStatus: h(),
+      onMessage: h(),
+      onPartial: h(),
+      onError: h(),
+      onCanvasAdd: h(),
+      onCanvasRemove: h(),
+      onTodosUpdate: h(),
+      onSessionUpdate: h(),
+      onSummaryUpdate: h(),
+      onConversationCreated: h(),
+      onConversationUpdated: h(),
+      onConversationDeleted: h(),
+      onUsageUpdate: h(),
+      onChangesUpdate: h(),
+      onWorkLog: h(),
+      onWorkLogsAssociated: h(),
+      onThinkingPartial: h(),
+      onCommandOutput: h(),
+      onCommandComplete: h(),
+      onCommandError: h(),
+    })),
+  };
+});
+
 // Import the mocked api for use in tests
 import { api } from '../composables/useApi.js';
 
@@ -274,7 +307,7 @@ describe('SessionDetailView', () => {
       expect(wrapper.exists()).toBe(true);
     });
 
-    it('fetches canvas items during initialization (eager-loaded for tab indicator)', async () => {
+    it('fetches canvas items eagerly during initialization so tab count is correct immediately', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -304,10 +337,9 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Canvas items SHOULD be fetched during initialization to populate the tab indicator count
-      // Note: Due to test environment limitations with async lifecycle and WebSocket initialization,
-      // we verify the method is available and would be called in a real environment
-      expect(canvasStore.fetchItems).toBeDefined();
+      // Canvas items SHOULD be fetched during initialization so the Canvas tab badge
+      // shows the correct count even when the user starts on a different tab.
+      expect(canvasStore.fetchItems).toHaveBeenCalledWith('session-1');
     });
 
     it('fetches work logs on mount', async () => {
@@ -2137,6 +2169,118 @@ describe('SessionDetailView', () => {
 
       // clearTodos should have been called during cleanup
       expect(clearTodosSpy).toHaveBeenCalled();
+    });
+
+    it('clears messages, conversations, and workLogs on unmount to prevent stale state', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Session 1',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Simulate data that was loaded for the session
+      sessionsStore.messages = [{ id: 'msg-1', content: 'hello' }];
+      sessionsStore.conversations = [{ id: 'conv-1', name: 'main' }];
+      sessionsStore.workLogs = { 'msg-1': [{ id: 'log-1' }] };
+
+      wrapper.unmount();
+
+      // All session-specific state should be cleared on cleanup
+      expect(sessionsStore.messages).toEqual([]);
+      expect(sessionsStore.conversations).toEqual([]);
+      expect(sessionsStore.workLogs).toEqual({});
+    });
+
+    it('calls clearPartialText on unmount to stop any in-progress streaming display', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Session 1',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+
+      const clearPartialTextSpy = vi.spyOn(sessionsStore, 'clearPartialText');
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      clearPartialTextSpy.mockClear();
+
+      wrapper.unmount();
+
+      // clearPartialText should be called during cleanup to prevent stale streaming text
+      expect(clearPartialTextSpy).toHaveBeenCalled();
+    });
+
+    it('clears canvas items on unmount to prevent stale items when switching sessions', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Session 1',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Simulate some canvas items loaded for this session
+      canvasStore.items = [{ id: 'canvas-1', type: 'text', sessionId: 'session-1' }];
+
+      wrapper.unmount();
+
+      // Canvas items should be cleared on cleanup so the next session starts fresh
+      expect(canvasStore.items).toEqual([]);
     });
   });
 
