@@ -1693,8 +1693,8 @@ async function handleStreamEvent(sessionId, event) {
           text: '',
         });
 
-        // Trigger debounced summary generation on new message
-        summaryService.onSessionActivity(sessionId);
+        // Note: Per-message onSessionActivity removed to reduce redundant summary generation.
+        // Summary generation is triggered only on turn completion (waiting state) and session complete.
       }
 
       // Check for TodoWrite tool and update todos
