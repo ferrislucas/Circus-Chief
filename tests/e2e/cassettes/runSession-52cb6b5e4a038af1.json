@@ -1,0 +1,340 @@
+{
+  "prompt": "What is 2+2?",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/private/tmp/test-project",
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "default",
+      "slash_commands": [
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan"
+      ],
+      "skills": [],
+      "plugins": [],
+      "uuid": "d62f5416-4c0d-42a6-a566-0f7a6c1d1f4e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_start",
+        "message": {
+          "model": "claude-haiku-4-5-20251001",
+          "id": "msg_01MARfCSMSmxo9v1PqWA2Jvo",
+          "type": "message",
+          "role": "assistant",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "usage": {
+            "input_tokens": 3,
+            "cache_creation_input_tokens": 1677,
+            "cache_read_input_tokens": 15006,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 1677
+            },
+            "output_tokens": 1,
+            "service_tier": "standard",
+            "inference_geo": "not_available"
+          }
+        }
+      },
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "parent_tool_use_id": null,
+      "uuid": "96ebf1d6-5de8-4d8c-b166-f91bf3e37b1e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "text",
+          "text": ""
+        }
+      },
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "parent_tool_use_id": null,
+      "uuid": "cc1474d0-8dad-4970-97db-a6389b56bd36"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": "2 "
+        }
+      },
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "parent_tool_use_id": null,
+      "uuid": "fc53bac8-420e-4c6c-a196-81d3c5234f01"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": "+ 2 = **"
+        }
+      },
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "parent_tool_use_id": null,
+      "uuid": "6e81e56e-0a54-4efd-976e-eecb5687ab4a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": "4**\n\nThis is a basic arithmetic"
+        }
+      },
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "parent_tool_use_id": null,
+      "uuid": "62d7cdb4-9bd8-47b4-8a0e-34fac8337f86"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": " addition"
+        }
+      },
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "parent_tool_use_id": null,
+      "uuid": "0576872e-04d3-43bf-be41-77584188bf2c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": " problem. When"
+        }
+      },
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "parent_tool_use_id": null,
+      "uuid": "fa40af25-f1db-4383-938b-9a6d0dd6178a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": " you add 2 and"
+        }
+      },
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "parent_tool_use_id": null,
+      "uuid": "d646a2d7-6ad8-4f13-b678-1576fd5c9635"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": " 2 "
+        }
+      },
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "parent_tool_use_id": null,
+      "uuid": "b923711b-13cb-4661-9933-605312eaad7d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": "together, you get"
+        }
+      },
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "parent_tool_use_id": null,
+      "uuid": "0915aa69-6876-4a17-b8e0-59c599f1292a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": " 4."
+        }
+      },
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "parent_tool_use_id": null,
+      "uuid": "6e9d66ac-1465-4a7b-871a-b1fbbe8c1a59"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01MARfCSMSmxo9v1PqWA2Jvo",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "2 + 2 = **4**\n\nThis is a basic arithmetic addition problem. When you add 2 and 2 together, you get 4."
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 3,
+          "cache_creation_input_tokens": 1677,
+          "cache_read_input_tokens": 15006,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 1677
+          },
+          "output_tokens": 1,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "uuid": "cc95acc5-1c4c-4d82-a6a1-b529363d443f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "parent_tool_use_id": null,
+      "uuid": "50c5fb18-638e-45d3-b322-afc884271b56"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "end_turn",
+          "stop_sequence": null
+        },
+        "usage": {
+          "input_tokens": 3,
+          "cache_creation_input_tokens": 1677,
+          "cache_read_input_tokens": 15006,
+          "output_tokens": 40
+        }
+      },
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "parent_tool_use_id": null,
+      "uuid": "592f2346-c816-4e52-9cca-4be7c7920369"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_stop"
+      },
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "parent_tool_use_id": null,
+      "uuid": "486f2e14-784e-40d9-bedc-1684158d959c"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "duration_ms": 932,
+      "duration_api_ms": 864,
+      "num_turns": 1,
+      "result": "2 + 2 = **4**\n\nThis is a basic arithmetic addition problem. When you add 2 and 2 together, you get 4.",
+      "session_id": "73d9bc70-f036-4b55-8f90-c8f306ccd47a",
+      "total_cost_usd": 0.0037998500000000004,
+      "usage": {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": 1677,
+        "cache_read_input_tokens": 15006,
+        "output_tokens": 40,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 1677,
+          "ephemeral_5m_input_tokens": 0
+        }
+      },
+      "modelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 3,
+          "outputTokens": 40,
+          "cacheReadInputTokens": 15006,
+          "cacheCreationInputTokens": 1677,
+          "webSearchRequests": 0,
+          "costUSD": 0.0037998500000000004,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "4051218a-ffa4-4b93-9889-f339185b930a"
+    }
+  ],
+  "key": "runSession-52cb6b5e4a038af1",
+  "recordedAt": "2026-03-02T02:02:36.990Z"
+}

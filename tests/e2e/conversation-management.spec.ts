@@ -42,6 +42,30 @@ import {
 const API_URL = getAPIURL();
 
 /**
+ * Wait for a session to be idle (not running/starting).
+ * With VCR replays, sessions may briefly re-enter running state.
+ */
+async function waitForSessionIdle(sessionId: string, timeoutMs = 15000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const res = await fetch(`${API_URL}/api/sessions/${sessionId}`);
+    const s = await res.json();
+    if (s.status === 'waiting' || s.status === 'stopped' || s.status === 'error') {
+      // Briefly pause to avoid catching a transient state before re-running
+      await new Promise((r) => setTimeout(r, 200));
+      // Double-check status hasn't changed back
+      const res2 = await fetch(`${API_URL}/api/sessions/${sessionId}`);
+      const s2 = await res2.json();
+      if (s2.status === 'waiting' || s2.status === 'stopped' || s2.status === 'error') {
+        return s2;
+      }
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  throw new Error(`Session ${sessionId} did not reach idle status within ${timeoutMs}ms`);
+}
+
+/**
  * Helper to create a session that has completed its first exchange (has messages).
  * Waits for the session to complete its initial run and be in 'waiting' status.
  */
@@ -54,16 +78,12 @@ async function seedSessionWithMessages(
     name: opts.name,
   });
   await waitForSessionToExist(session.id);
+  await waitForSessionIdle(session.id);
 
-  // Wait for session to finish its initial exchange and return to waiting
-  let retries = 0;
-  while (retries < 20) {
-    const res = await fetch(`${API_URL}/api/sessions/${session.id}`);
-    const s = await res.json();
-    if (s.status === 'waiting' || s.status === 'stopped' || s.status === 'error') break;
-    await new Promise((r) => setTimeout(r, 500));
-    retries++;
-  }
+  // Force status to 'waiting' to prevent VCR-related race conditions
+  // where the session briefly re-enters 'running' due to summary generation
+  await updateSessionStatus(session.id, 'waiting');
+
   return session;
 }
 
