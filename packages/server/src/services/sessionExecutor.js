@@ -139,8 +139,8 @@ export async function executeSessionQuery({ sessionId, workingDirectory, control
 
       // Extract PR URL immediately (lightweight, no API call)
       summaryService.extractPrUrlIfNeeded(sessionId);
-      // Trigger summary generation when session completes a turn
-      summaryService.onSessionComplete(sessionId);
+      // Trigger debounced summary generation on turn completion (session is still waiting)
+      summaryService.onSessionActivity(sessionId);
 
       // Broadcast changes update when turn completes (real-time indicator)
       const currentSession = sessions.getById(sessionId);

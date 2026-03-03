@@ -92,6 +92,12 @@ export function useSessionWebSocket(currentSessionId) {
     cleanups = [];
     sessionsStore.clearRunningUsage();
     todosStore.clearTodos();
+    // Clear session-specific data to prevent stale state when switching sessions
+    sessionsStore.messages = [];
+    sessionsStore.conversations = [];
+    sessionsStore.workLogs = {};
+    sessionsStore.clearPartialText();
+    canvasStore.items = [];
     // Reset local state
     summary.value = null;
     hasChanges.value = false;

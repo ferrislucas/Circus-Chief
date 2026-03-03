@@ -7,6 +7,7 @@ import { isMockMode, resolveProviderFromModel, buildSessionEnv, getPermissionMod
 import { buildSystemPromptConfig } from './systemPromptBuilder.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForBranch, buildPromptWithAttachments } from './conversationContext.js';
 import { executeSessionQuery, broadcastSessionStatus } from './sessionExecutor.js';
+import * as summaryService from './summaryService.js';
 
 /**
  * Run a Claude session
@@ -353,6 +354,9 @@ export async function stopSession(sessionId) {
 
   sessions.update(sessionId, { status: 'stopped' });
   broadcastSessionStatus(sessionId, 'stopped');
+
+  // Trigger summary generation on session stop (session is truly complete)
+  summaryService.onSessionComplete(sessionId);
 }
 
 /**

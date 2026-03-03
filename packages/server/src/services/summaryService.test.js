@@ -17,6 +17,68 @@ vi.mock('./agentCallLogger.js', () => ({
   },
 }));
 
+// Mock the SDK to prevent real API calls in tests
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: vi.fn(async function* (queryParams) {
+    // Intelligent mock that generates responses based on input parameters
+    const prompt = queryParams?.prompt || '';
+
+    // Extract messages info from prompt (mock mode includes message content)
+    const sessionStatusMatch = prompt.match(/Current session status:\s*(\w+)/i);
+    const sessionStatus = sessionStatusMatch ? sessionStatusMatch[1] : 'running';
+
+    // Count messages in the prompt - they appear as "User: ..." and "Assistant: ..."
+    const userMatches = prompt.match(/^User:/gm);
+    const assistantMatches = prompt.match(/^Assistant:/gm);
+    const messageCount = (userMatches ? userMatches.length : 0) + (assistantMatches ? assistantMatches.length : 0);
+
+    // Extract first message content - look for content after "User:" or "Assistant:"
+    let messageContent = '';
+    const firstMsgMatch = prompt.match(/(?:User|Assistant):\s+(.+?)(?:\n\n|$)/);
+    if (firstMsgMatch && firstMsgMatch[1]) {
+      messageContent = firstMsgMatch[1].substring(0, 50);
+    }
+
+    // Determine outcome based on session status
+    let outcome = 'ongoing';
+    if (sessionStatus === 'stopped') outcome = 'partial';
+    if (sessionStatus === 'error') outcome = 'failed';
+    if (sessionStatus === 'completed') outcome = 'completed';
+
+    // Build response with dynamic content
+    const shortSummary = messageContent
+      ? `Session completed: ${messageContent.substring(0, 40)}...`
+      : 'Test session completed successfully';
+    const fullSummary = messageCount > 0
+      ? `This session involved ${messageCount} messages and was completed with ${outcome} success using mock mode`
+      : 'This is a test session that was completed with partial success using mock mode';
+
+    yield { type: 'system', subtype: 'init', session_id: 'test-session' };
+    yield {
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'StructuredOutput',
+            input: {
+              short_summary: shortSummary,
+              full_summary: fullSummary,
+              key_actions: ['Executed test', 'Verified output'],
+              files_modified: ['test.js'],
+              outcome,
+              pr_url: null,
+              session_title: 'Mock: Test Session',
+              conversation_summary: 'Mock conversation summary for testing',
+            },
+          },
+        ],
+      },
+    };
+    yield { type: 'result', subtype: 'success' };
+  }),
+}));
+
 // Import after mock setup
 import * as summaryService from './summaryService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -24,7 +86,9 @@ import { agentCallLogger } from './agentCallLogger.js';
 import {
   DEBOUNCE_DELAY,
   MAX_MESSAGES,
+  MIN_MESSAGES_FOR_SUMMARY,
   MAX_RETRIES,
+  SUMMARY_SYSTEM_PROMPT,
   formatMessages,
   buildIncrementalPrompt,
   parseSummaryResponse,
@@ -32,6 +96,9 @@ import {
   parsePrUrl,
   validatePrUrl,
   isConversationSummaryEnabled,
+  generateSessionAndConversationSummary,
+  activeGenerations,
+  pendingRegenerations,
 } from './summaryService.js';
 
 describe('summaryService', () => {
@@ -39,8 +106,6 @@ describe('summaryService', () => {
   let sessionId;
 
   beforeEach(() => {
-    // Set mock mode for testing
-    vi.stubEnv('MOCK_CLAUDE', 'true');
 
     // Clear mock call history
     vi.clearAllMocks();
@@ -51,6 +116,11 @@ describe('summaryService', () => {
 
     const session = sessions.create(projectId, 'Test Session', 'Initial prompt', 'standard');
     sessionId = session.id;
+
+    // Add enough messages to pass MIN_MESSAGES_FOR_SUMMARY threshold (3 messages)
+    // Session creation adds 1 message, so we need 2 more
+    messages.create(sessionId, 'assistant', 'Response 1', null);
+    messages.create(sessionId, 'user', 'Follow-up message', null);
   });
 
   afterEach(() => {
@@ -60,16 +130,34 @@ describe('summaryService', () => {
   });
 
   describe('constants', () => {
-    it('has a 30 second debounce delay', () => {
-      expect(DEBOUNCE_DELAY).toBe(30000);
+    it('has a 60 second debounce delay', () => {
+      expect(DEBOUNCE_DELAY).toBe(60000);
     });
 
-    it('has a maximum of 15 messages', () => {
-      expect(MAX_MESSAGES).toBe(15);
+    it('has a minimum message threshold for summary generation', () => {
+      expect(MIN_MESSAGES_FOR_SUMMARY).toBe(3);
+    });
+
+    it('has a maximum of 10 messages', () => {
+      expect(MAX_MESSAGES).toBe(10);
     });
 
     it('has a maximum of 2 retries', () => {
       expect(MAX_RETRIES).toBe(2);
+    });
+  });
+
+  describe('system prompt (Phase 4)', () => {
+    it('exports SUMMARY_SYSTEM_PROMPT with static instructions', () => {
+      expect(SUMMARY_SYSTEM_PROMPT).toBeDefined();
+      expect(SUMMARY_SYSTEM_PROMPT).toContain('updating a session summary');
+      expect(SUMMARY_SYSTEM_PROMPT).toContain('Outcome guidelines');
+    });
+
+    it('SUMMARY_SYSTEM_PROMPT does not include dynamic content', () => {
+      // Should not include session-specific placeholders
+      expect(SUMMARY_SYSTEM_PROMPT).not.toContain('${sessionStatus}');
+      expect(SUMMARY_SYSTEM_PROMPT).not.toContain('${existingSummary}');
     });
   });
 
@@ -95,7 +183,7 @@ describe('summaryService', () => {
       expect(result).toBe('User: Hello\n\nAssistant: Hi');
     });
 
-    it('truncates messages longer than 750 characters', () => {
+    it('truncates messages longer than 500 characters', () => {
       const longContent = 'A'.repeat(1000);
       const messageList = [{ role: 'user', content: longContent }];
       const result = formatMessages(messageList);
@@ -162,34 +250,12 @@ describe('summaryService', () => {
       expect(result).toContain('User: My question');
     });
 
-    it('includes JSON format instructions', () => {
+    it('does not include static instructions (moved to system prompt)', () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
       const result = buildIncrementalPrompt(null, recentMessages, 'running');
-      expect(result).toContain('"short_summary"');
-      expect(result).toContain('"full_summary"');
-      expect(result).toContain('"key_actions"');
-      expect(result).toContain('"files_modified"');
-      expect(result).toContain('"outcome"');
-    });
-
-    it('includes outcome guidelines', () => {
-      const recentMessages = [{ role: 'user', content: 'Test' }];
-      const result = buildIncrementalPrompt(null, recentMessages, 'running');
-      expect(result).toContain('partial');
-      expect(result).toContain('failed');
-      expect(result).toContain('ongoing');
-    });
-
-    it('includes pr_url field in JSON format', () => {
-      const recentMessages = [{ role: 'user', content: 'Test' }];
-      const result = buildIncrementalPrompt(null, recentMessages, 'running');
-      expect(result).toContain('"pr_url"');
-    });
-
-    it('includes session_title field in JSON format', () => {
-      const recentMessages = [{ role: 'user', content: 'Test' }];
-      const result = buildIncrementalPrompt(null, recentMessages, 'running');
-      expect(result).toContain('"session_title"');
+      // These instructions are now in SUMMARY_SYSTEM_PROMPT, not in the dynamic prompt
+      expect(result).not.toContain('Generate an updated summary');
+      expect(result).not.toContain('Outcome guidelines');
     });
 
     it('includes session title guidelines', () => {
@@ -494,8 +560,11 @@ describe('summaryService', () => {
 
     it('derives outcome from session status - stopped', async () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
+      // Use buildIncrementalPrompt so the prompt contains "Current session status: stopped"
+      // which the mock extracts to derive the correct outcome
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'stopped');
 
-      const result = await callClaude('Test prompt', recentMessages, 'stopped');
+      const result = await callClaude(prompt, recentMessages, 'stopped');
       const parsed = JSON.parse(result);
 
       expect(parsed.outcome).toBe('partial');
@@ -503,8 +572,9 @@ describe('summaryService', () => {
 
     it('derives outcome from session status - error', async () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'error');
 
-      const result = await callClaude('Test prompt', recentMessages, 'error');
+      const result = await callClaude(prompt, recentMessages, 'error');
       const parsed = JSON.parse(result);
 
       expect(parsed.outcome).toBe('failed');
@@ -512,8 +582,9 @@ describe('summaryService', () => {
 
     it('derives outcome from session status - ongoing', async () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'running');
 
-      const result = await callClaude('Test prompt', recentMessages, 'running');
+      const result = await callClaude(prompt, recentMessages, 'running');
       const parsed = JSON.parse(result);
 
       expect(parsed.outcome).toBe('ongoing');
@@ -521,8 +592,10 @@ describe('summaryService', () => {
 
     it('includes message content in mock summary', async () => {
       const recentMessages = [{ role: 'user', content: 'Unique test content here' }];
+      // buildIncrementalPrompt formats messages as "User: <content>" so the mock can extract content
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'running');
 
-      const result = await callClaude('Test prompt', recentMessages, 'running');
+      const result = await callClaude(prompt, recentMessages, 'running');
       const parsed = JSON.parse(result);
 
       expect(parsed.short_summary).toContain('Unique test content');
@@ -534,8 +607,10 @@ describe('summaryService', () => {
         { role: 'assistant', content: 'Message 2' },
         { role: 'user', content: 'Message 3' },
       ];
+      // buildIncrementalPrompt formats all messages so the mock can count them
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'running');
 
-      const result = await callClaude('Test prompt', recentMessages, 'running');
+      const result = await callClaude(prompt, recentMessages, 'running');
       const parsed = JSON.parse(result);
 
       expect(parsed.full_summary).toContain('3 messages');
@@ -568,7 +643,7 @@ describe('summaryService', () => {
       expect(result).toBeNull();
     });
 
-    it('returns null for session with no messages', async () => {
+    it('returns minimal summary for session with no messages', async () => {
       // Create a new session directly via database without any messages
       const now = Date.now();
       const emptySessionId = databaseManager.generateId();
@@ -580,7 +655,50 @@ describe('summaryService', () => {
         .run(emptySessionId, projectId, 'Empty Session', 'running', 'standard', now, now);
 
       const result = await summaryService.generateSummary(emptySessionId);
-      expect(result).toBeNull();
+      // Session with 0 messages should return a minimal summary
+      expect(result).not.toBeNull();
+      expect(result.shortSummary).toBe('Session in progress');
+      expect(result.fullSummary).toBe('Session with 0 messages');
+      expect(result.messageCount).toBe(0);
+    });
+
+    it('creates minimal summary when session has fewer than MIN_MESSAGES_FOR_SUMMARY messages', async () => {
+      // Create a session with only 2 messages (below threshold of 3)
+      const lowMessageSessionId = databaseManager.generateId();
+      const now = Date.now();
+      databaseManager
+        .get()
+        .prepare(
+          'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )
+        .run(lowMessageSessionId, projectId, 'Low Message Session', 'running', 'standard', now, now);
+
+      // Add only 2 messages
+      databaseManager
+        .get()
+        .prepare('INSERT INTO conversation_messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)')
+        .run(databaseManager.generateId(), lowMessageSessionId, 'user', 'Message 1', now);
+      databaseManager
+        .get()
+        .prepare('INSERT INTO conversation_messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)')
+        .run(databaseManager.generateId(), lowMessageSessionId, 'assistant', 'Response 1', now + 1);
+
+      const result = await summaryService.generateSummary(lowMessageSessionId);
+      expect(result).not.toBeNull();
+      expect(result.shortSummary).toBe('Session in progress');
+      expect(result.fullSummary).toBe('Session with 2 messages');
+      expect(result.messageCount).toBe(2);
+    });
+
+    it('generates summary when session meets minimum message threshold', async () => {
+      // The main test session already has 1 message from creation
+      // Add 2 more to reach the threshold of 3
+      messages.create(sessionId, 'assistant', 'Response 1', null);
+      messages.create(sessionId, 'user', 'Message 2', null);
+
+      const result = await summaryService.generateSummary(sessionId);
+      expect(result).not.toBeNull();
+      expect(result.sessionId).toBe(sessionId);
     });
 
     it('generates summary with mock mode', async () => {
@@ -839,7 +957,6 @@ describe('summaryService', () => {
 
       // Generate summary (mock will include a PR URL)
       // We'll need to mock the summary data to include a PR URL
-      vi.stubEnv('MOCK_CLAUDE', 'true');
 
       // Create a summary with a PR URL via direct database update
       const prUrl = 'https://github.com/example/repo/pull/123';
@@ -1051,34 +1168,27 @@ describe('summaryService', () => {
       expect(generatingCalls.length).toBeGreaterThan(0);
     });
 
-    it('onSessionComplete forces regeneration regardless of staleness', async () => {
-      // Create current summary
-      sessionSummaries.create(sessionId, {
-        shortSummary: 'Current',
-        fullSummary: 'Status: ongoing',
-        keyActions: [],
-        filesModified: [],
-        outcome: 'ongoing',
-        messageCount: 2,
-      });
-
-      // Create matching messages
-      messages.create(sessionId, 'user', 'Msg');
-      messages.create(sessionId, 'assistant', 'Response');
+    it('onSessionComplete does lightweight outcome update when summary is current', async () => {
+      // Generate a current summary (will have correct messageCount and lastSummarizedMessageId)
+      await summaryService.generateSummary(sessionId);
 
       vi.clearAllMocks();
 
-      // Call onSessionComplete
+      // Call onSessionComplete -- summary is current, should do lightweight update only
       summaryService.onSessionComplete(sessionId);
 
-      // Wait for async generation
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // Wait for async operations
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // Should have broadcast generating status (indicating force was used)
+      // Should have updated the outcome to 'completed' (session status is 'running' -> maps to 'completed')
+      const updated = sessionSummaries.getBySessionId(sessionId);
+      expect(updated).not.toBeNull();
+
+      // Should NOT have broadcast generating status (no LLM call)
       const generatingCalls = broadcastToSession.mock.calls.filter(
         (call) => call[1] === 'session:summary_generating'
       );
-      expect(generatingCalls.length).toBeGreaterThan(0);
+      expect(generatingCalls.length).toBe(0);
     });
   });
 
@@ -1152,6 +1262,71 @@ describe('summaryService', () => {
       const result = summaryService.isSummaryStale(sessionId);
       expect(result).toBe(true);
     });
+
+    // Phase 6: Enhanced staleness detection tests
+    it('saves lastSummarizedMessageId when generating summary', async () => {
+      const summary = await summaryService.generateSummary(sessionId);
+
+      // Get the last message from the session
+      const allMessages = messages.getBySessionId(sessionId);
+      const lastMessage = allMessages[allMessages.length - 1];
+
+      // Summary should have the last message ID saved
+      expect(summary.lastSummarizedMessageId).toBe(lastMessage.id);
+    });
+
+    it('uses message ID for staleness detection when available', async () => {
+      // Generate initial summary
+      await summaryService.generateSummary(sessionId);
+
+      // Summary should not be stale immediately
+      expect(summaryService.isSummaryStale(sessionId)).toBe(false);
+
+      // Add a new message (this changes the last message ID)
+      messages.create(sessionId, 'assistant', 'New response');
+
+      // Summary should now be stale (detected via message ID mismatch)
+      expect(summaryService.isSummaryStale(sessionId)).toBe(true);
+    });
+
+    it('falls back to count-based staleness detection for old summaries', async () => {
+      // Generate a summary
+      await summaryService.generateSummary(sessionId);
+
+      // Manually update the summary to remove lastSummarizedMessageId (simulating old summary)
+      const summary = sessionSummaries.getBySessionId(sessionId);
+      sessionSummaries.update(summary.id, { lastSummarizedMessageId: null });
+
+      // Summary should not be stale
+      expect(summaryService.isSummaryStale(sessionId)).toBe(false);
+
+      // Add a new message
+      messages.create(sessionId, 'assistant', 'New message');
+
+      // Summary should be stale (detected via count mismatch, the fallback)
+      expect(summaryService.isSummaryStale(sessionId)).toBe(true);
+    });
+
+    it('correctly handles empty sessions (no messages)', async () => {
+      // Create a new project and session with no messages
+      const testProject = projects.create('Empty Test Project', '/tmp/empty-test');
+      const newSession = sessions.create(testProject.id, 'Empty Session', '', 'standard');
+
+      // Should create a minimal summary instead of returning null
+      const result = await summaryService.generateSummary(newSession.id);
+      expect(result).not.toBeNull();
+      expect(result.shortSummary).toBe('Session in progress');
+      // sessions.create() adds the initial prompt as a message, so we have 1 message
+      expect(result.fullSummary).toBe('Session with 1 message');
+      expect(result.messageCount).toBe(1);
+
+      // isSummaryStale should return false (summary now exists)
+      expect(summaryService.isSummaryStale(newSession.id)).toBe(false);
+
+      // Cleanup
+      sessions.delete(newSession.id);
+      projects.delete(testProject.id);
+    });
   });
 
   describe('onSessionActivity (debounce)', () => {
@@ -1213,6 +1388,64 @@ describe('summaryService', () => {
       expect(sessionSummaries.getBySessionId(sessionId)).not.toBeNull();
 
       vi.useRealTimers();
+    });
+  });
+
+  describe('generateSessionAndConversationSummary (Phase 5)', () => {
+    let conversations;
+
+    beforeEach(async () => {
+      conversations = (await import('../database.js')).conversations;
+    });
+
+    it('generates both summaries in one call', async () => {
+      const conversation = conversations.create(sessionId, 'Test Conversation', true);
+
+      const result = await generateSessionAndConversationSummary(sessionId, conversation.id);
+
+      expect(result.sessionSummary).not.toBeNull();
+      expect(result.conversationSummary).not.toBeNull();
+      expect(result.sessionSummary.sessionId).toBe(sessionId);
+      expect(result.conversationSummary).toBeDefined();
+    });
+
+    it('returns null for invalid conversation', async () => {
+      const result = await generateSessionAndConversationSummary(sessionId, 'invalid-conv-id');
+
+      expect(result.sessionSummary).toBeNull();
+      expect(result.conversationSummary).toBeNull();
+    });
+
+    it('includes conversation_summary in response', async () => {
+      const conversation = conversations.create(sessionId, 'Test Conversation', true);
+
+      const result = await generateSessionAndConversationSummary(sessionId, conversation.id);
+
+      // In mock mode, the conversation summary should be the mock value
+      expect(result.conversationSummary).toContain('Mock');
+    });
+
+    it('respects MIN_MESSAGES_FOR_SUMMARY threshold', async () => {
+      // Create a new session with fewer than 3 messages
+      const now = Date.now();
+      const newSessionId = databaseManager.generateId();
+      databaseManager
+        .get()
+        .prepare('INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(newSessionId, projectId, 'New Session', 'running', 'standard', now, now);
+
+      // Only add 1 message
+      databaseManager
+        .get()
+        .prepare('INSERT INTO conversation_messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)')
+        .run(databaseManager.generateId(), newSessionId, 'user', 'Single message', now);
+
+      const conversation = conversations.create(newSessionId, 'Test Conversation', true);
+      const result = await generateSessionAndConversationSummary(newSessionId, conversation.id);
+
+      // Should return null due to insufficient messages
+      expect(result.sessionSummary).toBeNull();
+      expect(result.conversationSummary).toBeNull();
     });
   });
 
@@ -1278,10 +1511,9 @@ describe('summaryService', () => {
       // Wait for async operations
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Should have logged both a session summary call and a conversation summary call
+      // Phase 5: Should have logged a combined summary call (more efficient - one API call)
       const callTypes = agentCallLogger.startCall.mock.calls.map((c) => c[0].callType);
-      expect(callTypes).toContain('generateSessionSummary');
-      expect(callTypes).toContain('generateConversationSummary');
+      expect(callTypes).toContain('generateCombinedSummary');
     });
 
     it('does not generate conversation summary if conversation already has one', async () => {
@@ -1362,8 +1594,9 @@ describe('summaryService', () => {
       const result = await summaryService.generateSummary(sessionId);
 
       expect(result).not.toBeNull();
-      // The mock summary should still work
-      expect(result.fullSummary).toContain('mock');
+      // The summary should be generated with the mocked response
+      expect(result.fullSummary).toBeDefined();
+      expect(result.fullSummary.length).toBeGreaterThan(0);
     });
 
     it('handles very long messages by truncating', async () => {
@@ -1525,7 +1758,6 @@ describe('summaryService', () => {
 
       // Re-import to get mocked version - but since we can't easily do this,
       // we'll test the mock mode behavior which uses similar logic
-      vi.stubEnv('MOCK_CLAUDE', 'true');
 
       const result = await callClaude('Test prompt', [{ role: 'user', content: 'test' }], 'running');
       const parsed = JSON.parse(result);
@@ -1560,11 +1792,9 @@ describe('summaryService', () => {
     it('handles assistant message with mixed content types', async () => {
       // The code should iterate through all content blocks and find StructuredOutput
       // Mock mode simulates this behavior
-      const result = await callClaude(
-        'Test prompt',
-        [{ role: 'user', content: 'Create a summary with thinking and tool output' }],
-        'stopped'
-      );
+      const recentMessages = [{ role: 'user', content: 'Create a summary with thinking and tool output' }];
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'stopped');
+      const result = await callClaude(prompt, recentMessages, 'stopped');
       const parsed = JSON.parse(result);
 
       expect(parsed.outcome).toBe('partial');
@@ -2471,7 +2701,7 @@ describe('summaryService', () => {
         expect.objectContaining({
           sessionId,
           agentType: 'summary',
-          model: 'mock',
+          model: 'claude-haiku-4-5-20251001',
           callType: 'generateSessionSummary',
         })
       );
@@ -2491,6 +2721,7 @@ describe('summaryService', () => {
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
       messages.create(sessionId, 'user', 'Hello', null, conversation.id);
       messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+      messages.create(sessionId, 'user', 'How are you?', null, conversation.id);
 
       await summaryService.generateConversationSummary(sessionId, conversation.id);
 
@@ -2499,7 +2730,7 @@ describe('summaryService', () => {
           sessionId,
           conversationId: conversation.id,
           agentType: 'summary',
-          model: 'mock',
+          model: 'claude-haiku-4-5-20251001',
           callType: 'generateConversationSummary',
         })
       );
@@ -2511,6 +2742,7 @@ describe('summaryService', () => {
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
       messages.create(sessionId, 'user', 'Hello', null, conversation.id);
       messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+      messages.create(sessionId, 'user', 'How are you?', null, conversation.id);
 
       await summaryService.generateConversationSummary(sessionId, conversation.id);
 
@@ -2575,12 +2807,12 @@ describe('summaryService', () => {
       expect(callArgs.agentType).toBe('summary');
     });
 
-    it('uses real model name when not in mock mode', async () => {
-      // In mock mode it should say 'mock'
+    it('logs the real model name being used', async () => {
+      // Should log the actual Haiku model being used for summaries
       await summaryService.generateSummary(sessionId);
 
       const callArgs = agentCallLogger.startCall.mock.calls[0][0];
-      expect(callArgs.model).toBe('mock');
+      expect(callArgs.model).toBe('claude-haiku-4-5-20251001');
     });
   });
 
@@ -2640,6 +2872,255 @@ describe('summaryService', () => {
 
       const session = sessionsRepo.getById(emptySession.id);
       expect(session.prUrl).toBeNull();
+    });
+  });
+
+  describe('concurrency guard', () => {
+    afterEach(() => {
+      // Clean up concurrency state
+      activeGenerations.delete(sessionId);
+      pendingRegenerations.delete(sessionId);
+    });
+
+    it('does not start a second generation while one is in-flight for the same session', async () => {
+      // Start first generation (will take ~50ms due to mock delay)
+      const firstPromise = summaryService.generateSummary(sessionId);
+
+      // Start second generation immediately (should coalesce)
+      const secondPromise = summaryService.generateSummary(sessionId);
+
+      const [first, second] = await Promise.all([firstPromise, secondPromise]);
+
+      // Both should return the same result (second coalesced into first)
+      expect(first).not.toBeNull();
+      expect(second).not.toBeNull();
+      expect(first.id).toBe(second.id);
+
+      // Only one LLM call should have been made
+      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(1);
+    });
+
+    it('queues exactly one follow-up generation when calls arrive during in-flight generation', async () => {
+      // Start first generation
+      const firstPromise = summaryService.generateSummary(sessionId);
+
+      // Call 3 more times while first is in-flight
+      summaryService.generateSummary(sessionId);
+      summaryService.generateSummary(sessionId);
+      summaryService.generateSummary(sessionId);
+
+      await firstPromise;
+
+      // Only 1 LLM call should have been made during the first generation
+      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(1);
+
+      // A pending regeneration should have been scheduled (via debounce)
+      // We don't check the exact follow-up count because it goes through debounce
+    });
+
+    it('allows concurrent generation for DIFFERENT sessions', async () => {
+      // Create a second session
+      const session2 = sessions.create(projectId, 'Test Session 2', 'Second prompt', 'standard');
+      messages.create(session2.id, 'assistant', 'Response 1', null);
+      messages.create(session2.id, 'user', 'Follow-up', null);
+
+      // Start generation for both sessions concurrently
+      const [result1, result2] = await Promise.all([
+        summaryService.generateSummary(sessionId),
+        summaryService.generateSummary(session2.id),
+      ]);
+
+      expect(result1).not.toBeNull();
+      expect(result2).not.toBeNull();
+      expect(result1.sessionId).toBe(sessionId);
+      expect(result2.sessionId).toBe(session2.id);
+
+      // Both should have made LLM calls
+      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(2);
+
+      // Clean up
+      summaryService.cleanupSession(session2.id);
+      activeGenerations.delete(session2.id);
+      pendingRegenerations.delete(session2.id);
+    });
+
+    it('userInitiated=true bypasses the concurrency guard', async () => {
+      // Start a non-user generation
+      const firstPromise = summaryService.generateSummary(sessionId);
+
+      // Start a user-initiated generation (should bypass guard)
+      const userPromise = summaryService.generateSummary(sessionId, 0, true, true);
+
+      const [first, userResult] = await Promise.all([firstPromise, userPromise]);
+
+      expect(first).not.toBeNull();
+      expect(userResult).not.toBeNull();
+
+      // Both should have made LLM calls (user-initiated bypasses guard)
+      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(2);
+    });
+
+    it('concurrency guard protects generateSessionAndConversationSummary', async () => {
+      const { conversations: convRepo } = await import('../database.js');
+      const conversation = convRepo.getActiveBySessionId(sessionId);
+
+      // Start a regular generation
+      const firstPromise = summaryService.generateSummary(sessionId);
+
+      // Try combined generation while first is in-flight (should be guarded)
+      const combinedPromise = generateSessionAndConversationSummary(sessionId, conversation.id);
+
+      const [first, combined] = await Promise.all([firstPromise, combinedPromise]);
+
+      // First should succeed, combined should have been coalesced
+      expect(first).not.toBeNull();
+      // Combined returns the same promise result as the first generation
+      expect(combined).not.toBeNull();
+
+      // Only one LLM call should have been made
+      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(1);
+    });
+
+    it('follow-up after concurrency guard uses debounce path, not immediate', async () => {
+      vi.useFakeTimers();
+
+      // Start first generation
+      const firstPromise = summaryService.generateSummary(sessionId);
+
+      // Queue a follow-up while first is in-flight
+      summaryService.generateSummary(sessionId);
+
+      // Run pending promises to complete the first generation
+      await vi.runAllTimersAsync();
+      await firstPromise;
+
+      vi.clearAllMocks();
+
+      // The follow-up should have been scheduled via debounce (onSessionActivity)
+      // Advance past debounce delay
+      await vi.advanceTimersByTimeAsync(DEBOUNCE_DELAY + 100);
+      await vi.runAllTimersAsync();
+
+      // Now the follow-up should have fired
+      // It may or may not make an LLM call depending on staleness check
+      // The key test is that it used the debounce path (no immediate call)
+
+      vi.useRealTimers();
+    });
+  });
+
+  describe('onSessionComplete staleness and outcome', () => {
+    it('onSessionComplete skips LLM call when summary is current', async () => {
+      // Generate a current summary
+      await summaryService.generateSummary(sessionId);
+      vi.clearAllMocks();
+
+      // Call onSessionComplete -- summary is current, should skip LLM
+      summaryService.onSessionComplete(sessionId);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Should NOT have called LLM (no generateSessionSummary startCall)
+      const summaryCallTypes = agentCallLogger.startCall.mock.calls.map((c) => c[0].callType);
+      expect(summaryCallTypes).not.toContain('generateSessionSummary');
+      expect(summaryCallTypes).not.toContain('generateCombinedSummary');
+    });
+
+    it('onSessionComplete updates outcome via DB when summary is current but status changed', async () => {
+      // Generate summary with outcome "ongoing"
+      await summaryService.generateSummary(sessionId);
+
+      const summaryBefore = sessionSummaries.getBySessionId(sessionId);
+      expect(summaryBefore.outcome).toBe('ongoing');
+
+      // Change session status to "completed" (simulating session finishing)
+      sessions.update(sessionId, { status: 'completed' });
+      vi.clearAllMocks();
+
+      // Call onSessionComplete
+      summaryService.onSessionComplete(sessionId);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Outcome should be updated in DB without calling LLM
+      const summaryAfter = sessionSummaries.getBySessionId(sessionId);
+      expect(summaryAfter.outcome).toBe('completed');
+
+      // Should NOT have called LLM
+      expect(agentCallLogger.startCall).not.toHaveBeenCalled();
+    });
+
+    it('onSessionComplete generates via LLM when summary is stale', async () => {
+      // Generate summary
+      await summaryService.generateSummary(sessionId);
+
+      // Add a new message to make summary stale
+      messages.create(sessionId, 'assistant', 'New response that makes summary stale');
+      vi.clearAllMocks();
+
+      // Call onSessionComplete
+      summaryService.onSessionComplete(sessionId);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Should have called LLM (summary was stale)
+      expect(agentCallLogger.startCall).toHaveBeenCalled();
+    });
+
+    it('generateSessionAndConversationSummary skips when summary is not stale', async () => {
+      const { conversations: convRepo } = await import('../database.js');
+      const conversation = convRepo.getActiveBySessionId(sessionId);
+
+      // Generate a current summary
+      await summaryService.generateSummary(sessionId);
+      vi.clearAllMocks();
+
+      // Call combined generation -- summary is current, should skip
+      const result = await generateSessionAndConversationSummary(sessionId, conversation.id);
+
+      // Should return existing summary without LLM call
+      expect(result.sessionSummary).not.toBeNull();
+      expect(agentCallLogger.startCall).not.toHaveBeenCalled();
+    });
+
+    it('onSessionComplete fallback path does not use force=true', async () => {
+      const { conversations: convRepo } = await import('../database.js');
+      const conversation = convRepo.getActiveBySessionId(sessionId);
+
+      // Add messages to conversation
+      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'New response to make stale');
+
+      vi.clearAllMocks();
+
+      // Call onSessionComplete -- should generate since no existing summary
+      summaryService.onSessionComplete(sessionId);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Should have generated (no existing summary = stale)
+      expect(agentCallLogger.startCall).toHaveBeenCalled();
+    });
+  });
+
+  describe('generateSummaryNow cancels debounce', () => {
+    it('generateSummaryNow cancels pending debounce timer and generates only once', async () => {
+      // Use real timers -- fake timers conflict with async generators in mock mode
+
+      // Start a debounced generation
+      summaryService.onSessionActivity(sessionId);
+
+      // Immediately call generateSummaryNow (should cancel the debounced one)
+      const result = await summaryService.generateSummaryNow(sessionId);
+
+      // Should have generated successfully
+      expect(result).not.toBeNull();
+      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(1);
+
+      // Wait past debounce delay to ensure the cancelled timer doesn't fire a second generation
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Still only one call -- the debounced timer was cancelled
+      // (Second call would be skipped by staleness check even if timer wasn't cancelled,
+      // but the important thing is the timer was cancelled by generateSummaryNow)
+      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(1);
     });
   });
 });

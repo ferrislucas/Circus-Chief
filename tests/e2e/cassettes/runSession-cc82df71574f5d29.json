@@ -1,0 +1,2830 @@
+{
+  "prompt": "Test slash commands",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/private/tmp/test",
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "default",
+      "slash_commands": [
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan"
+      ],
+      "skills": [],
+      "plugins": [],
+      "uuid": "ccbc20d9-bddd-4b0d-bc9d-7fbc10252ba0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_start",
+        "message": {
+          "model": "claude-haiku-4-5-20251001",
+          "id": "msg_01YVerZbWpCztZecoZiuzZ3R",
+          "type": "message",
+          "role": "assistant",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "usage": {
+            "input_tokens": 10,
+            "cache_creation_input_tokens": 2086,
+            "cache_read_input_tokens": 15006,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 2086
+            },
+            "output_tokens": 7,
+            "service_tier": "standard",
+            "inference_geo": "not_available"
+          }
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "4d54bfe2-058e-4fcc-82a8-a6cc45b05ea5"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "thinking",
+          "thinking": "",
+          "signature": ""
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "5ad17fc3-ee19-4224-b384-8dbd8ef4a1a0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "The user is asking me to \""
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "d0242d4f-c7ad-4ad3-951a-137450018539"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "test slash commands\". They"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "ebd24134-9f9a-40f3-948e-f71e2bc22e2b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " want"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "a9d44313-1924-4528-be29-5f852682b037"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " me to demonstrate"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "bbc52367-9ec6-4b6d-b0b6-367c9e7502d6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " or"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "5848b991-0c87-4baf-bca9-6187a1062d73"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " test the available"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "fa570bf3-7e91-4519-9f10-cea1e10a774e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " slash commands in"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "30b6de71-52d3-40bc-a207-1e863baabc59"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " this"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "370a8c66-5662-400d-8a55-66d466c9a597"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " system."
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "c69774c1-f1e7-45c6-afb0-ece7c7973956"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n\nLooking"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "6e294c35-6a91-4725-9bc9-dddb90cb6130"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " at the"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "da1784ca-7c40-4853-bf0c-3a7fa1fa9f18"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " Skill"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "77274fab-740e-448b-b4e9-47d1dd5f5513"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " tool"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "8c526595-4d3a-4f13-a6c7-5addb845ae35"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " description"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "4ef86c12-2708-477f-ae04-67070281cbe0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ", it"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "b1445c71-80fd-4b98-a021-4646799790f0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " says"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "504eb861-456b-4b1c-83b6-063a667d2302"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ":\n\"When"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "7e8d7d25-2ea6-477f-947a-6a85a8c2e271"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " users"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "8b5c1530-a893-4217-ba23-2a6c5d120341"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " ask"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "2d5cb88f-a7a8-4cc8-b1f2-59bc0449d96c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " you"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "3c6d5a08-cda4-4f17-a22c-64f6f9501506"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " to run"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "36928ae0-33c5-4a4b-a345-24a7044f5406"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " a \""
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "eb812c50-6ce3-45d0-8601-29aae60561d6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "slash command\""
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "ea7ff9ed-b3ee-48d3-b479-9dd268478a55"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " or"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "3e4da11d-3a2a-4eaf-933d-0f57ad6a3064"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " reference"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "b23e281f-5c8d-448d-a0f7-94de6e09c2de"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " \""
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "19e50fd6-3f1b-4db3-bf8d-6984f06def7b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "/"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "8a823e68-dfbc-49b8-a542-888ab7e994bf"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "<something"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "0150e17d-c1d7-4720-b544-1ca3efff9d1f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ">\""
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "c9ae616b-1a26-4093-b5df-e6a93ad853ba"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " ("
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "39243a10-5c16-4461-8205-1a348e92f9ed"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "e"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "dc45c2ca-7c8b-433e-8c87-d7d974c5824a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ".g., \"/"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "abf3927f-2d5e-4c31-8567-8580c57af3e8"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "commit"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "ba337a67-bc5d-4a3d-9fb8-8bd1dc4386d0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\","
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "f7a07287-4452-45fb-a62a-3ad33a23ff18"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " \"/review"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "1b52c3d9-9f24-4fce-9dd8-7e745f6ecd12"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "-"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "1fad7623-d815-485f-ad8b-c5e4cd2264d4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "pr"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "11fdd301-71c2-4ef4-989a-fd7c26251a8e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\"),"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "abfc884d-31d2-4262-8890-48c693f8e22f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " they"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "577dc419-1c15-444b-90cb-dc44a72a0954"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " are"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "0437f9f6-a40d-460c-8e54-ddb5ecbee299"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " referring to a skill"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "61366a30-a837-47c4-88c6-c7e9afac0fc0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "."
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "6b0ac210-a440-4b4c-ba4d-81ffa7c317c8"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " Use"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "d1ec1c06-eeb4-41bb-9984-ad4b867880f1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " this"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "5a617875-097d-45d1-921d-38b8e4bbf565"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " tool to invoke"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "302d88e8-ab8b-4509-b663-72760952aefc"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " the"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "fde8ce95-2cfe-40e7-bf3f-7d2ed82ed597"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " corresponding"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "ade5c55c-e3c3-4ce7-9e6b-376f275664c1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " skill.\"\n\nHowever"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "b9f6610d-788e-4b61-b226-2c89333db690"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ", looking"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "7d5addc4-0800-493a-91f1-b70c765bf95a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " at the available skills listed"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "cc9c4bd7-6b02-4298-b821-89f84369ec13"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " at"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "4c839129-acb1-4ec1-bd4a-7d6c4d95419e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " the end"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "1908f789-0125-4cfe-b115-b4dbc2c29159"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " of the Skill tool description, it"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "bb557446-c658-41b9-9093-bd4dc5df0efc"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " shows"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "7dda98d4-9041-4541-90a3-b48a487d6826"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ":"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "8e1d9c8e-6f4f-47bb-9c5d-5a3ad3b8452c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n\n\""
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "597dbf5a-deac-449f-9504-0f5577855b03"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "Available skills:"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "fde54def-67ea-4d76-81fa-1e9e5595ac1d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n\n\""
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "9dcb33ed-497f-480e-9e2d-585f774e97ae"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n\nThe available"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "b0bf3f88-9963-4d49-b08d-37d55ece84ce"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " skills section"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "c6e8b065-79fa-44b4-8d65-cfa7769a0b36"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " is empty!"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "7ccb7f10-e536-4485-9bf9-2d2a5cf01114"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " There"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "9afc8561-1f88-4c03-8660-ff6b3980f71d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " are no skills listed"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "1dc41427-5c32-4bb4-9256-2b58f950c207"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " as"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "a9514c34-2287-4438-a0ec-cdb9547ce3ea"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " available."
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "c2be35cb-36ac-473d-b8c2-b6b00f79bfc1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n\nSo"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "1447a119-4317-4d59-bcf2-6ae46b114190"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " I should"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "8ff527c5-4322-40a5-a9ab-e756b2821a1b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " explain to"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "d398e273-36b5-4224-bbd1-71021fa580ec"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " the user that there are no slash"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "133ae19f-c969-4a3e-878b-d286066e6d64"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " commands/"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "778ed6e6-ed06-438f-9575-fe6e6d239e36"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "skills currently"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "c3c8ebdd-2caa-41e4-9bad-4f49f7a85565"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " available in this system,"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "af5f757e-e57d-46c5-8e9e-ba1bf6ec41c9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " but"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "5771bb0f-96d7-4a03-b272-f1ab98a99f84"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " I can demonstrate how"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "d8ca0ecb-70d2-48d7-9e1b-9f1c1fed4dc8"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " they"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "c6ec0eb6-6090-4524-aa82-adf1290b8792"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " would work"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "00754b69-f7d3-4265-95e8-423da0d375dd"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " if they were available"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "02d8af40-afde-4fef-8670-c635a10396c4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "."
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "26f31da2-b17c-4e95-b85f-c8e8e58ed56a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "signature_delta",
+          "signature": "EocHCkYICxgCKkCfSQpscDAY40lqLKX2dwPXa1Tc1t2+lWojR/hp2qGCufpBfwf5zGTpDXfTx4oM902Ruesu3dakn84/pLz47fwCEgx0/Hgc0UhSPPLmb1YaDDgrNy3Mw/zuQLmV/SIwxAXL8eFj/a01823tnIr/nhOSNh3p0o5R3YzTHc8fnBHq52aQDKT4ddfBB+lmExb6Ku4FGVTuOiVZOjE4Foolg3L3SwDdLaxtFa2tmvtDQLfnrruC8WR1p2Jwt6bdov1YFXc37wUBSyHAl1/b5pqOzR8NijQK2wT4hTbvGE3meLWUemXIUuizf5ylIFVjmNd8M0640J41WimzdQ3mHpMXsts2udIwXGf2dC88s4JTIDcc46S3UXMyb6Y9EEsuuXf7VwqzNSuUFdw0vGscNsy4hYSCJDezvdG1GGYvXmsYu9GcE7XDS3bZaew3aWK4szH2UeKIsDFBY1peG8wejvG3hb19gFgIq+De3tM1xBQu6mHwjbS+0xPt6AoDUQE5t1LpZt6BcGrrPH8YOUnYN6c23PsPX4YNPc9rTn+Jm7l7ADnHWjYKIKrN6IAQjnqyIkIPPIEP5d2Rbw7sfQQ++iaoPHAi/OqofCQzkj5dr9Kbk64g9QSvyT+2W5v4oSrSBcnEw196vhZqRgfkeH6r5vQogydbMdqGtQfscFKcKVWr7tOL7fnglQhhut+4LlQ2OybyopYPLYmjQ2mIoZx0V6PqJ64OhLaG11FpRy1n99fXPGjFRWZt1+iCfJ8kxFc636k48aOgPPM7vw8My7N20SlTaTWsh+Xsx5McNwZPiJynUQB4oYovkZt3EXITJQW28flF9vHm/exfSmQrEKtHFjAd+wFAQPVGb+sIN5id32vG2vkON4yjA73mnfKIMBfSxBmuJRKgBw8sLTebqAIHNgKq3cC6mJUYupvIwmmrPGs7XKXiWfkhWKqfzJi8f1VY1eOg2Myr5pCcpGSNHbsrCYkwqwGE9BxPVXL17Zx9Rj2/yUAFx1cJ6mo8GxXgPsWn2QfiZhde4NtXGT7Uu3uSjoKPfi+6w6Gpmbg8q3BMmy4rcK8i5OXa2Xb8Lp1pWWyW0GylVl66Qpv3OiMu7v4K1g+XjrMSeBM4nW5t/gwia0M0OiX9XmzFN5Ybt93QZ2rW1wgcR7iRzXdf8Pk38DilFjeOr2QMpJ/yzwyeQ9dcw9I5JvfkGAE="
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "01efe786-b1df-4570-9653-1b4c7d240296"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01YVerZbWpCztZecoZiuzZ3R",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user is asking me to \"test slash commands\". They want me to demonstrate or test the available slash commands in this system.\n\nLooking at the Skill tool description, it says:\n\"When users ask you to run a \"slash command\" or reference \"/<something>\" (e.g., \"/commit\", \"/review-pr\"), they are referring to a skill. Use this tool to invoke the corresponding skill.\"\n\nHowever, looking at the available skills listed at the end of the Skill tool description, it shows:\n\n\"Available skills:\n\n\"\n\nThe available skills section is empty! There are no skills listed as available.\n\nSo I should explain to the user that there are no slash commands/skills currently available in this system, but I can demonstrate how they would work if they were available.",
+            "signature": "EocHCkYICxgCKkCfSQpscDAY40lqLKX2dwPXa1Tc1t2+lWojR/hp2qGCufpBfwf5zGTpDXfTx4oM902Ruesu3dakn84/pLz47fwCEgx0/Hgc0UhSPPLmb1YaDDgrNy3Mw/zuQLmV/SIwxAXL8eFj/a01823tnIr/nhOSNh3p0o5R3YzTHc8fnBHq52aQDKT4ddfBB+lmExb6Ku4FGVTuOiVZOjE4Foolg3L3SwDdLaxtFa2tmvtDQLfnrruC8WR1p2Jwt6bdov1YFXc37wUBSyHAl1/b5pqOzR8NijQK2wT4hTbvGE3meLWUemXIUuizf5ylIFVjmNd8M0640J41WimzdQ3mHpMXsts2udIwXGf2dC88s4JTIDcc46S3UXMyb6Y9EEsuuXf7VwqzNSuUFdw0vGscNsy4hYSCJDezvdG1GGYvXmsYu9GcE7XDS3bZaew3aWK4szH2UeKIsDFBY1peG8wejvG3hb19gFgIq+De3tM1xBQu6mHwjbS+0xPt6AoDUQE5t1LpZt6BcGrrPH8YOUnYN6c23PsPX4YNPc9rTn+Jm7l7ADnHWjYKIKrN6IAQjnqyIkIPPIEP5d2Rbw7sfQQ++iaoPHAi/OqofCQzkj5dr9Kbk64g9QSvyT+2W5v4oSrSBcnEw196vhZqRgfkeH6r5vQogydbMdqGtQfscFKcKVWr7tOL7fnglQhhut+4LlQ2OybyopYPLYmjQ2mIoZx0V6PqJ64OhLaG11FpRy1n99fXPGjFRWZt1+iCfJ8kxFc636k48aOgPPM7vw8My7N20SlTaTWsh+Xsx5McNwZPiJynUQB4oYovkZt3EXITJQW28flF9vHm/exfSmQrEKtHFjAd+wFAQPVGb+sIN5id32vG2vkON4yjA73mnfKIMBfSxBmuJRKgBw8sLTebqAIHNgKq3cC6mJUYupvIwmmrPGs7XKXiWfkhWKqfzJi8f1VY1eOg2Myr5pCcpGSNHbsrCYkwqwGE9BxPVXL17Zx9Rj2/yUAFx1cJ6mo8GxXgPsWn2QfiZhde4NtXGT7Uu3uSjoKPfi+6w6Gpmbg8q3BMmy4rcK8i5OXa2Xb8Lp1pWWyW0GylVl66Qpv3OiMu7v4K1g+XjrMSeBM4nW5t/gwia0M0OiX9XmzFN5Ybt93QZ2rW1wgcR7iRzXdf8Pk38DilFjeOr2QMpJ/yzwyeQ9dcw9I5JvfkGAE="
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2086,
+          "cache_read_input_tokens": 15006,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 2086
+          },
+          "output_tokens": 7,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "uuid": "b319bf4c-5443-4316-a3c6-2c948f37715b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "6232d372-7bc3-414c-b0ea-4e45226f1bba"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 1,
+        "content_block": {
+          "type": "text",
+          "text": ""
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "ce168d3d-689b-453f-9f94-26a56dc20d00"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "I can"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "c9af5baa-a682-4367-9c56-9cd277207ba9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " help"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "85f8958e-33c1-4c83-a7fd-8d9a71ac4eb7"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " you test slash commands!"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "17fd39fa-0236-475b-a3a7-651ece4f7d71"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " Based"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "f5a003ac-be6f-486e-98bc-ecf74911d66e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " on the system configuration"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "4c2a2776-c4d5-45f7-960a-aad6021aec98"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ", slash"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "f7075d60-e6f3-475f-bef1-965e5056217c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " commands are"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "0742aa9e-222f-449c-9caf-94626244640f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " inv"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "8d8f8e05-3d88-4872-a771-c0678e9d8961"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "oked through"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "0a1313a1-66af-4fb2-834e-1125955665a7"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " the Skill tool."
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "d4567b95-7ce7-4f8b-9c18-7ed2fa6478ba"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " However"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "befe675f-627f-4614-8c2c-c7782ca64c76"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ", looking"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "f4c8b2d9-4c72-4389-83ac-992aa1072cd6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " at the available skills list"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "16ce9d44-9257-477c-9301-4780c062236e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ", **"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "6815a1dd-b1de-404d-a12b-db4b0271cf27"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "no"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "9e83eb6d-ade4-4697-8305-428dbe6d5dc4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " slash commands are"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "1711b380-1b0c-4e77-b2ff-46ddf9b065e7"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " currently available** in this system."
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "379d6441-3a58-427c-916f-5f615b47d67c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n\nHere's how slash"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "389eae4c-f850-452f-921c-af787e8b6089"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " commands would work if they were available:"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "ce14018d-4f4a-45e2-a834-d5ff352ab78f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n\n###"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "c1ff1ffe-9761-48d2-bf46-bbb296edb914"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " How"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "cac87c41-24bf-43c3-9cd1-74b65e1adedb"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " Slash Commands Work\n\nWhen"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "fef8c614-5f57-4db9-81c2-93280cef2e63"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " you request"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "dc0cffc5-f888-447a-b5a3-23d145c10c3a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " a slash command like"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "933d93d2-ee28-45fd-8903-4cdb4e38f999"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ":"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "5cb4482a-da1c-4aa8-8f7c-8c4c1d54352f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n-"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "cac5326c-feeb-4e5a-81c7-2b8d4da3aa5e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " `/commit` - would"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "fe700e88-c01b-431d-883d-6a64395e17e3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " create"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "616a53f3-a3ca-4715-94a3-b8a84d137a0b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " a git"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "df10caa1-d987-44dc-af99-d320e6269977"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " commit\n- `/review-pr`"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "22e140c1-a94a-422f-b267-62847bd57b58"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " - would review"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "88b4f4b1-2130-44a9-8dae-857cecfa6e84"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " a pull request"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "37d8ae7a-fa6e-4f88-8b92-65401b08fded"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n- `/pdf"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "7dfa861e-5bc8-46c1-9778-fa3a89bb81bf"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "` - would process"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "f6e34034-1b6b-49e0-8ef9-687c73137a62"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " PDF"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "856d9dfa-f9ac-4926-a28d-238bab4fb669"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " files\n\nI"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "9eb9fc44-4f25-421f-8a5f-756562825eaf"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " would"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "078e3c4b-0be2-4be7-9664-292123a67a1d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " invoke"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "dd82b495-c463-4f73-a6b2-feabd96315f4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " them"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "b9ee0174-2f28-4eb1-95e5-491507a7330c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " using the Skill tool, like"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "0f655d69-27f8-4d2e-bfca-d6ca18c545fa"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ":\n\n```"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "8cb7f671-381f-41c3-9707-53caf59b43a8"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\nskill"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "6667ab0a-d3b6-4bc7-a740-8d009bbad8f6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ":"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "e2adc368-9a16-43e9-b812-f5dfee670f62"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " \"commit"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "5a9bc001-b5dc-4173-86b3-0ee9aa7da4be"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\","
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "5bb5f187-edd6-4ea9-97ab-661ed661e306"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " args"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "c6c0988f-7060-47cb-999a-5451ecc23173"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ": \"-"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "bec8cc72-e1e7-4dd8-bba5-234c2872ff7b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "m 'Fix"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "69fb6c28-c1ae-4bf7-ad7c-bcb170263fd8"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " bug'\""
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "55ef0612-c4ce-4a7e-a472-40abb25edf28"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n```\n\n###"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "21126cd2-12dc-431f-977f-ec5ec73c55f4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " Current"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "a721a78f-eb17-472d-a8be-3b245015f2ea"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " Status"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "65ffee41-db9e-4d75-9144-1be86de53996"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n\nThe available"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "6e232df2-46e8-4b66-8d36-b252b5dcbeea"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " skills list"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "ab063df8-07e3-4698-b63d-eb5900026377"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " is"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "7c978903-7653-4e3e-aece-e701ea622517"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " currently"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "ed4c3b9e-eebd-4f3b-b4ad-3439ae9bf099"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " empty:"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "a5281206-45ce-49c0-87f9-8b738c71a5a8"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n```\nAvailable skills:"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "f2b626bb-eff3-4acd-9c67-bc935ae4691b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n```\n\nThis means no"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "fb8d23e4-956b-40b7-ac72-4092e12e03fd"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " slash commands are"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "15b612a3-7958-4800-ad9d-3da021286c68"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " configured"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "9d66638c-067f-4e73-9583-f45a78c4810f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " for"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "535a8240-5b33-46fc-be53-fcf2a10c93f5"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " this session"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "27c7e65c-9c42-458b-b052-e431587e2f1f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ". If"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "d2e92815-1447-4130-8c63-1a57cbfeb1f3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " you'd like to:"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "20eead1f-aa07-4151-bffa-f7b03cb71282"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n1. **"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "b64789e2-85b0-48c5-97dd-c099edce329a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "Use"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "39177fce-d9cf-4bd6-bb18-df0127bd9870"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " other"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "780a7750-5baa-4ee6-a4cd-e4012f4792b7"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " tools"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "6686e2e4-1f64-4712-ba13-774ce87f7c37"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "** -"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "3358572e-8a40-4b63-abba-c5fcd6cd5545"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " I"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "2a9f0b7d-7cca-44c2-ad8a-025d58b96345"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " have"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "2d09c51e-adc4-4029-bcb8-dfb92164cf96"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " access to"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "9b3c8937-41b4-40ba-a8bf-ac6b81b5227e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " Bash"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "02d33a02-f34b-4bb5-b96f-0048ffbbc1b2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ", Git"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "7fce6fbf-c50d-453c-95c7-07a802538a96"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ", file"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "5fd1db2a-301f-4d09-b7a0-582519df723b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " operations, code"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "263a93ba-f6eb-41bf-b3f3-eb00823104ee"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " analysis, and"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "416dce65-880c-4890-97fa-753284ec3bcf"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " more\n2. **Set"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "1b80aa8a-521f-4a52-ac4b-cdf28a84039f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " up skills"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "00df982c-14d7-4a50-be9d-9b92539538d1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "** -"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "81b312bf-ddbc-456a-b6aa-bd362feccc5e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " Depending"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "f2de94ad-f237-450e-9eaa-925312ffcab1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " on your system"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "6ce3aba4-0e90-4109-857c-56af49883a55"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " configuration, skills"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "f9696970-cad3-4af3-9f4d-28e10aff61ff"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " might"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "14ffcf95-ccb5-4469-93ba-b909a6f6e554"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " need"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "b68c643f-e3f7-4b91-9e31-4bb081686c08"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " to be enabled"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "5d96acec-9376-4e6c-bd79-e1d4c4f0499c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n3. **Try"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "b78560c1-df68-415e-8558-aad6380c40bc"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " other"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "e7b7a331-5ad6-4d26-8687-e3a518006635"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " features"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "2d4fd4ca-3b66-4047-9c39-3f4d70218407"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "** - I can help with code"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "df565dc4-87a2-4a32-997c-e344c86d8514"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " review, commit creation"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "d4812e30-9d4e-4cc6-bd64-c9eb04e66de8"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " via"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "39cfdaab-dd98-41dd-8ada-1aed134192b2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " standard"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "947c2265-7fc2-4996-9b2e-0999ccd349a3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " bash"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "017ce80e-84d6-4386-8d43-9a7b41024b6b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " commands, and"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "c87338ca-09de-4cc5-8d9b-5859c6763fe6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " other tasks\n\nWould you like me to"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "20290614-777a-4393-ae5f-30d1a2631a34"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " demonstrate any"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "074734c0-901a-4f4f-b758-4af2855aa898"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " of the"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "736fa0d2-af5c-457c-b5a4-b67ad9608ef4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " other"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "ba7aae80-40bc-4408-a6e8-28c5d6a9805e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " capabilities"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "4c62871e-e541-4524-9301-2340f58c3935"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " I"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "398df88c-1ffe-4d00-ad6e-363f04d675e4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " have available?"
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "0d768935-fe93-47f8-a6be-d93e2c332ab0"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01YVerZbWpCztZecoZiuzZ3R",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "I can help you test slash commands! Based on the system configuration, slash commands are invoked through the Skill tool. However, looking at the available skills list, **no slash commands are currently available** in this system.\n\nHere's how slash commands would work if they were available:\n\n### How Slash Commands Work\n\nWhen you request a slash command like:\n- `/commit` - would create a git commit\n- `/review-pr` - would review a pull request\n- `/pdf` - would process PDF files\n\nI would invoke them using the Skill tool, like:\n\n```\nskill: \"commit\", args: \"-m 'Fix bug'\"\n```\n\n### Current Status\n\nThe available skills list is currently empty:\n```\nAvailable skills:\n```\n\nThis means no slash commands are configured for this session. If you'd like to:\n1. **Use other tools** - I have access to Bash, Git, file operations, code analysis, and more\n2. **Set up skills** - Depending on your system configuration, skills might need to be enabled\n3. **Try other features** - I can help with code review, commit creation via standard bash commands, and other tasks\n\nWould you like me to demonstrate any of the other capabilities I have available?"
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2086,
+          "cache_read_input_tokens": 15006,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 2086
+          },
+          "output_tokens": 7,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "uuid": "f8e58509-50d6-453e-b690-bb0f6363c7b6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 1
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "35053d43-5ad7-4595-8ceb-a39bf5f1679d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "end_turn",
+          "stop_sequence": null
+        },
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2086,
+          "cache_read_input_tokens": 15006,
+          "output_tokens": 447
+        }
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "41cbba4c-7c38-4516-be73-40bae3ebc57e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_stop"
+      },
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "parent_tool_use_id": null,
+      "uuid": "322ac837-721a-489d-adf7-8ff551b23f7f"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "duration_ms": 5515,
+      "duration_api_ms": 10510,
+      "num_turns": 1,
+      "result": "I can help you test slash commands! Based on the system configuration, slash commands are invoked through the Skill tool. However, looking at the available skills list, **no slash commands are currently available** in this system.\n\nHere's how slash commands would work if they were available:\n\n### How Slash Commands Work\n\nWhen you request a slash command like:\n- `/commit` - would create a git commit\n- `/review-pr` - would review a pull request\n- `/pdf` - would process PDF files\n\nI would invoke them using the Skill tool, like:\n\n```\nskill: \"commit\", args: \"-m 'Fix bug'\"\n```\n\n### Current Status\n\nThe available skills list is currently empty:\n```\nAvailable skills:\n```\n\nThis means no slash commands are configured for this session. If you'd like to:\n1. **Use other tools** - I have access to Bash, Git, file operations, code analysis, and more\n2. **Set up skills** - Depending on your system configuration, skills might need to be enabled\n3. **Try other features** - I can help with code review, commit creation via standard bash commands, and other tasks\n\nWould you like me to demonstrate any of the other capabilities I have available?",
+      "session_id": "c4db6aed-e01b-458e-bc11-a5ed68af99df",
+      "total_cost_usd": 0.029922200000000003,
+      "usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 2086,
+        "cache_read_input_tokens": 15006,
+        "output_tokens": 447,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 2086,
+          "ephemeral_5m_input_tokens": 0
+        }
+      },
+      "modelUsage": {
+        "claude-opus-4-5-20251101": {
+          "inputTokens": 3934,
+          "outputTokens": 70,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 0,
+          "webSearchRequests": 0,
+          "costUSD": 0.02142,
+          "contextWindow": 200000
+        },
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 19,
+          "outputTokens": 656,
+          "cacheReadInputTokens": 25957,
+          "cacheCreationInputTokens": 2086,
+          "webSearchRequests": 0,
+          "costUSD": 0.008502200000000001,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "0508f975-5396-48dd-b181-f8837ba66558"
+    }
+  ],
+  "key": "runSession-cc82df71574f5d29",
+  "recordedAt": "2026-03-02T02:44:16.601Z"
+}

@@ -69,9 +69,10 @@ async function* mockSummaryQuery({ prompt: _prompt, recentMessages, sessionStatu
  * @param {Array} recentMessages - Messages (for mock mode context)
  * @param {string} sessionStatus - Session status (for mock mode context)
  * @param {Object|null} logMeta - Optional metadata for agent call logging
+ * @param {string|null} systemPrompt - Optional system prompt for prompt caching
  * @returns {Promise<string>} The text response
  */
-export async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null) {
+export async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null, systemPrompt = null) {
   const queryFn = isMockMode() ? mockSummaryQuery : query;
 
   // JSON Schema for structured output
@@ -98,6 +99,7 @@ export async function callClaude(prompt, recentMessages, sessionStatus, logMeta 
           permissionMode: 'bypassPermissions',
           maxTurns: 1,
           model: 'claude-haiku-4-5-20251001',
+          ...(systemPrompt && { systemPrompt }),
           outputFormat: {
             type: 'json_schema',
             schema: summarySchema,

@@ -3,6 +3,51 @@
  * Message formatting, prompt construction for both session and conversation summaries
  */
 
+// System prompt for summary generation (static instructions that benefit from prompt caching)
+export const SUMMARY_SYSTEM_PROMPT = `You are updating a session summary for a Claude Code session.
+
+Generate an updated summary that:
+1. Preserves important context from the existing summary
+2. Incorporates new actions and progress from recent messages
+3. Updates the outcome status if changed
+4. Maintains a coherent narrative of the full session
+
+Outcome guidelines:
+- "completed": Task was fully accomplished
+- "partial": Some progress made but task incomplete
+- "failed": Task encountered errors and couldn't proceed
+- "ongoing": Session is still active/waiting for user input`;
+
+// System prompt for conversation summary generation
+export const CONVERSATION_SUMMARY_SYSTEM_PROMPT = `You are generating a brief summary for a conversation thread within a Claude Code session.
+
+Generate a concise summary of this conversation. Focus on:
+1. The main topic or goal discussed
+2. Key actions taken or decisions made
+3. Current status (completed, in progress, blocked, etc.)`;
+
+// Combined system prompt for generating both session and conversation summaries in one call
+export const COMBINED_SUMMARY_SYSTEM_PROMPT = `You are generating summaries for a Claude Code session.
+
+Generate TWO summaries:
+
+1. SESSION SUMMARY - An overview of the entire session:
+   - Preserves important context from the existing summary
+   - Incorporates new actions and progress from recent messages
+   - Updates the outcome status if changed
+   - Maintains a coherent narrative of the full session
+
+   Session outcome guidelines:
+   - "completed": Task was fully accomplished
+   - "partial": Some progress made but task incomplete
+   - "failed": Task encountered errors and couldn't proceed
+   - "ongoing": Session is still active/waiting for user input
+
+2. CONVERSATION SUMMARY - A brief summary of the active conversation thread:
+   - The main topic or goal discussed
+   - Key actions taken or decisions made
+   - Current status (completed, in progress, blocked, etc.)`;
+
 // Default prompt for strategic session titles
 export const DEFAULT_SESSION_TITLE_PROMPT = `Guidelines for generating session titles:
 - The title should capture the SESSION'S STRATEGIC GOAL, not current tactical activity
@@ -65,35 +110,13 @@ Previous title: ${existingSummary.sessionTitle || 'Not set'}`
   // Use custom prompt if provided, otherwise use default
   const sessionTitlePrompt = projectTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT;
 
-  return `You are updating a session summary for a Claude Code session. Current session status: ${sessionStatus}
+  // Return only dynamic content - static instructions are in SUMMARY_SYSTEM_PROMPT
+  return `Current session status: ${sessionStatus}
 
 ${existingContext}
 ${childContext}
 RECENT CONVERSATION:
 ${formattedMessages}
-
-Generate an updated summary that:
-1. Preserves important context from the existing summary
-2. Incorporates new actions and progress from recent messages
-3. Updates the outcome status if changed
-4. Maintains a coherent narrative of the full session
-
-Respond with JSON only (no markdown code blocks), in this exact format:
-{
-  "short_summary": "1-2 sentence preview for list view (max 150 characters)",
-  "full_summary": "Detailed summary with key accomplishments and current state (max 500 characters)",
-  "key_actions": ["action 1", "action 2", ...],
-  "files_modified": ["file1.js", "file2.js", ...],
-  "outcome": "completed|partial|failed|ongoing",
-  "pr_url": "https://github.com/owner/repo/pull/123 or null if no PR was created/mentioned",
-  "session_title": "Concise title for this session (max 60 characters)"
-}
-
-Outcome guidelines:
-- "completed": Task was fully accomplished
-- "partial": Some progress made but task incomplete
-- "failed": Task encountered errors and couldn't proceed
-- "ongoing": Session is still active/waiting for user input
 
 Session title guidelines:
 ${sessionTitlePrompt}`;
@@ -107,18 +130,7 @@ ${sessionTitlePrompt}`;
 export function buildConversationSummaryPrompt(conversationMessages) {
   const formattedMessages = formatMessages(conversationMessages);
 
-  return `You are generating a brief summary for a conversation thread within a Claude Code session.
-
-CONVERSATION:
-${formattedMessages}
-
-Generate a concise summary of this conversation. Focus on:
-1. The main topic or goal discussed
-2. Key actions taken or decisions made
-3. Current status (completed, in progress, blocked, etc.)
-
-Respond with JSON only (no markdown code blocks):
-{
-  "summary": "A 2-3 sentence summary of the conversation (max 200 characters)"
-}`;
+  // Return only dynamic content - static instructions are in system prompt
+  return `CONVERSATION:
+${formattedMessages}`;
 }

@@ -210,6 +210,42 @@ describe('Sessions Store', () => {
       expect(store.currentSession.status).toBe('stopped');
       expect(store.sessions[0].status).toBe('stopped');
     });
+
+    it('sets hasResponses=true when transitioning from running to waiting', () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', status: 'running', hasResponses: false };
+      store.sessions = [{ id: 'session-1', status: 'running', hasResponses: false }];
+
+      store.updateSessionStatus('session-1', 'waiting');
+
+      expect(store.currentSession.hasResponses).toBe(true);
+      expect(store.sessions[0].hasResponses).toBe(true);
+    });
+
+    it('sets hasResponses=true when transitioning from running to completed', () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', status: 'running', hasResponses: false };
+      store.sessions = [{ id: 'session-1', status: 'running', hasResponses: false }];
+
+      store.updateSessionStatus('session-1', 'completed');
+
+      expect(store.currentSession.hasResponses).toBe(true);
+      expect(store.sessions[0].hasResponses).toBe(true);
+    });
+
+    it('does not set hasResponses when transitioning from non-running status', () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', status: 'starting', hasResponses: false };
+      store.sessions = [{ id: 'session-1', status: 'starting', hasResponses: false }];
+
+      store.updateSessionStatus('session-1', 'waiting');
+
+      expect(store.currentSession.hasResponses).toBe(false);
+      expect(store.sessions[0].hasResponses).toBe(false);
+    });
   });
 
   describe('work logs', () => {
@@ -3327,6 +3363,24 @@ describe('Sessions Store', () => {
     });
   });
 
+  describe('fetchSessions', () => {
+    it('should always fetch all sessions regardless of starredFilter', async () => {
+      const store = useSessionsStore();
+      store.starredFilter = 'starred'; // Set a filter
+
+      // Mock the API
+      const mockSessions = [{ id: '1', starred: true }, { id: '2', starred: false }];
+      api.getProjectSessions.mockResolvedValue(mockSessions);
+
+      await store.fetchSessions('project-1');
+
+      // Verify API was called with null for starred (not the store's starredFilter)
+      expect(api.getProjectSessions).toHaveBeenCalledWith('project-1', false, null);
+      // Verify ALL sessions are stored (not just starred)
+      expect(store.sessions).toEqual(mockSessions);
+    });
+  });
+
   describe('updateSessionCommandRun', () => {
     it('adds latestCommandRuns array if not present', () => {
       const store = useSessionsStore();
@@ -3700,11 +3754,14 @@ describe('Sessions Store', () => {
         { id: 'msg-1', role: 'user', content: 'Test' },
       ];
 
-      api.getSessionMessages.mockResolvedValue(mockMessages);
+      api.getConversationMessages.mockResolvedValue(mockMessages);
 
       const consoleLogSpy = vi.spyOn(console, 'log');
 
       await store.fetchMessages('session-456', false);
+
+      // Should use getConversationMessages since activeConversationId is set
+      expect(api.getConversationMessages).toHaveBeenCalledWith('session-456', 'conv-123');
 
       // Verify logging includes session ID, message count, and conversation ID
       expect(consoleLogSpy).toHaveBeenCalledWith(
@@ -3718,6 +3775,60 @@ describe('Sessions Store', () => {
       );
 
       consoleLogSpy.mockRestore();
+    });
+
+    it('uses getConversationMessages when conversationId parameter is provided', async () => {
+      const store = useSessionsStore();
+      const mockMessages = [{ id: 'msg-1', role: 'user', content: 'Hello' }];
+
+      api.getConversationMessages.mockResolvedValue(mockMessages);
+
+      await store.fetchMessages('session-123', false, 'conv-explicit');
+
+      expect(api.getConversationMessages).toHaveBeenCalledWith('session-123', 'conv-explicit');
+      expect(api.getSessionMessages).not.toHaveBeenCalled();
+      expect(store.messages).toEqual(mockMessages);
+    });
+
+    it('uses getConversationMessages with activeConversationId when no conversationId param is provided', async () => {
+      const store = useSessionsStore();
+      store.activeConversationId = 'conv-active';
+      const mockMessages = [{ id: 'msg-1', role: 'assistant', content: 'Hi' }];
+
+      api.getConversationMessages.mockResolvedValue(mockMessages);
+
+      await store.fetchMessages('session-123', false);
+
+      expect(api.getConversationMessages).toHaveBeenCalledWith('session-123', 'conv-active');
+      expect(api.getSessionMessages).not.toHaveBeenCalled();
+      expect(store.messages).toEqual(mockMessages);
+    });
+
+    it('falls back to getSessionMessages when neither conversationId param nor activeConversationId is set', async () => {
+      const store = useSessionsStore();
+      store.activeConversationId = null;
+      const mockMessages = [{ id: 'msg-1', role: 'user', content: 'Hello' }];
+
+      api.getSessionMessages.mockResolvedValue(mockMessages);
+
+      await store.fetchMessages('session-123', false);
+
+      expect(api.getSessionMessages).toHaveBeenCalledWith('session-123');
+      expect(api.getConversationMessages).not.toHaveBeenCalled();
+      expect(store.messages).toEqual(mockMessages);
+    });
+
+    it('prefers explicit conversationId param over activeConversationId', async () => {
+      const store = useSessionsStore();
+      store.activeConversationId = 'conv-active';
+      const mockMessages = [{ id: 'msg-1', role: 'user', content: 'Hello' }];
+
+      api.getConversationMessages.mockResolvedValue(mockMessages);
+
+      await store.fetchMessages('session-123', false, 'conv-explicit');
+
+      expect(api.getConversationMessages).toHaveBeenCalledWith('session-123', 'conv-explicit');
+      expect(store.messages).toEqual(mockMessages);
     });
 
     it('clears previous error on successful fetch', async () => {
@@ -4233,6 +4344,366 @@ describe('Sessions Store', () => {
         // Session-2 should still have its thinking
         store.currentSession = { id: 'session-2' };
         expect(store.partialThinking).toBe('Session 2 thinking');
+      });
+    });
+  });
+
+  // ==================== PARTIAL TEXT TESTS ====================
+
+  describe('partialText streaming state', () => {
+    describe('initial state', () => {
+      it('partialText starts as empty string', () => {
+        const store = useSessionsStore();
+        expect(store.partialText).toBe('');
+      });
+    });
+
+    describe('setPartialText', () => {
+      it('updates partialText immediately on first call', () => {
+        vi.useFakeTimers();
+        const store = useSessionsStore();
+
+        store.setPartialText('Hello world');
+
+        expect(store.partialText).toBe('Hello world');
+        vi.useRealTimers();
+      });
+
+      it('does not update partialText on a second rapid call (throttled)', () => {
+        vi.useFakeTimers();
+        const store = useSessionsStore();
+
+        store.setPartialText('First chunk');
+        expect(store.partialText).toBe('First chunk');
+
+        // Second call within throttle window - should not update yet
+        store.setPartialText('Second chunk');
+        expect(store.partialText).toBe('First chunk');
+
+        vi.useRealTimers();
+      });
+
+      it('applies the latest pending update after the throttle window expires', () => {
+        vi.useFakeTimers();
+        const store = useSessionsStore();
+
+        store.setPartialText('First chunk');
+        store.setPartialText('Second chunk');
+        store.setPartialText('Third chunk');
+
+        // Still showing first update immediately
+        expect(store.partialText).toBe('First chunk');
+
+        // Advance past the 150ms throttle window
+        vi.advanceTimersByTime(150);
+
+        // Now should show the latest pending value
+        expect(store.partialText).toBe('Third chunk');
+
+        vi.useRealTimers();
+      });
+
+      it('allows a new immediate update after the throttle window expires', () => {
+        vi.useFakeTimers();
+        const store = useSessionsStore();
+
+        store.setPartialText('First chunk');
+        vi.advanceTimersByTime(150);
+
+        // After throttle expires, the next call should update immediately again
+        store.setPartialText('New chunk');
+        expect(store.partialText).toBe('New chunk');
+
+        vi.useRealTimers();
+      });
+
+      it('does not flush if pending text matches current text after throttle', () => {
+        vi.useFakeTimers();
+        const store = useSessionsStore();
+
+        store.setPartialText('Same text');
+        // Call again with same text (no-op case)
+        store.setPartialText('Same text');
+
+        vi.advanceTimersByTime(150);
+
+        // Should still have the same text
+        expect(store.partialText).toBe('Same text');
+
+        vi.useRealTimers();
+      });
+    });
+
+    describe('clearPartialText', () => {
+      it('resets partialText to empty string', () => {
+        const store = useSessionsStore();
+        store.partialText = 'some streaming text';
+
+        store.clearPartialText();
+
+        expect(store.partialText).toBe('');
+      });
+
+      it('clears the throttle timer so next setPartialText updates immediately', () => {
+        vi.useFakeTimers();
+        const store = useSessionsStore();
+
+        // Start throttling
+        store.setPartialText('First chunk');
+        store.setPartialText('Second chunk'); // Queued
+
+        // Clear resets the timer
+        store.clearPartialText();
+        expect(store.partialText).toBe('');
+
+        // Next call should update immediately (no active timer)
+        store.setPartialText('Fresh chunk');
+        expect(store.partialText).toBe('Fresh chunk');
+
+        vi.useRealTimers();
+      });
+
+      it('does not apply queued partial text after clear even when timer would fire', () => {
+        vi.useFakeTimers();
+        const store = useSessionsStore();
+
+        store.setPartialText('First');
+        store.setPartialText('Second'); // Queued via _pendingPartialText
+
+        store.clearPartialText();
+        expect(store.partialText).toBe('');
+
+        // Advance timer - should NOT re-apply the queued "Second"
+        vi.advanceTimersByTime(200);
+
+        expect(store.partialText).toBe('');
+
+        vi.useRealTimers();
+      });
+    });
+  });
+
+  // ==================== SESSION-SCOPED GUARD TESTS ====================
+
+  describe('session-scoped guards (cross-session contamination prevention)', () => {
+    describe('addMessage guard', () => {
+      it('accepts messages for the current session', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+
+        store.addMessage({ id: 'msg-1', sessionId: 'session-1', content: 'hello' });
+
+        expect(store.messages).toHaveLength(1);
+        expect(store.messages[0].id).toBe('msg-1');
+      });
+
+      it('ignores messages for a different session', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+
+        store.addMessage({ id: 'msg-1', sessionId: 'session-2', content: 'wrong session' });
+
+        expect(store.messages).toHaveLength(0);
+      });
+
+      it('accepts messages when currentSession is null (no guard applied)', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+
+        store.addMessage({ id: 'msg-1', sessionId: 'session-1', content: 'hello' });
+
+        expect(store.messages).toHaveLength(1);
+      });
+
+      it('accepts messages with no sessionId (backwards compat)', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+
+        store.addMessage({ id: 'msg-1', content: 'no sessionId' });
+
+        expect(store.messages).toHaveLength(1);
+      });
+    });
+
+    describe('addWorkLog guard', () => {
+      it('accepts work logs for the current session', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+
+        store.addWorkLog({ id: 'log-1', sessionId: 'session-1', messageId: 'msg-1' });
+
+        expect(store.workLogs['msg-1']).toHaveLength(1);
+      });
+
+      it('ignores work logs for a different session', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+
+        store.addWorkLog({ id: 'log-1', sessionId: 'session-2', messageId: 'msg-1' });
+
+        expect(store.workLogs['msg-1']).toBeUndefined();
+      });
+
+      it('accepts work logs when currentSession is null', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+
+        store.addWorkLog({ id: 'log-1', sessionId: 'session-99', messageId: 'msg-1' });
+
+        expect(store.workLogs['msg-1']).toHaveLength(1);
+      });
+
+      it('accepts work logs with no sessionId', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+
+        store.addWorkLog({ id: 'log-1', messageId: 'msg-1' });
+
+        expect(store.workLogs['msg-1']).toHaveLength(1);
+      });
+    });
+
+    describe('addConversation guard', () => {
+      it('accepts conversations for the current session', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+
+        store.addConversation({ id: 'conv-1', sessionId: 'session-1' });
+
+        expect(store.conversations).toHaveLength(1);
+        expect(store.conversations[0].id).toBe('conv-1');
+      });
+
+      it('ignores conversations for a different session', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+
+        store.addConversation({ id: 'conv-1', sessionId: 'session-2' });
+
+        expect(store.conversations).toHaveLength(0);
+      });
+
+      it('accepts conversations when currentSession is null', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+
+        store.addConversation({ id: 'conv-1', sessionId: 'session-any' });
+
+        expect(store.conversations).toHaveLength(1);
+      });
+
+      it('accepts conversations with no sessionId', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+
+        store.addConversation({ id: 'conv-1' });
+
+        expect(store.conversations).toHaveLength(1);
+      });
+    });
+
+    describe('updateConversation guard', () => {
+      it('accepts conversation updates for the current session', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+        store.conversations = [{ id: 'conv-1', sessionId: 'session-1', name: 'Original' }];
+
+        store.updateConversation({ id: 'conv-1', sessionId: 'session-1', name: 'Updated' });
+
+        expect(store.conversations[0].name).toBe('Updated');
+      });
+
+      it('ignores conversation updates for a different session', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+        store.conversations = [{ id: 'conv-1', sessionId: 'session-1', name: 'Original' }];
+
+        store.updateConversation({ id: 'conv-1', sessionId: 'session-2', name: 'Should not apply' });
+
+        expect(store.conversations[0].name).toBe('Original');
+      });
+
+      it('accepts conversation updates when currentSession is null', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+        store.conversations = [{ id: 'conv-1', name: 'Original' }];
+
+        store.updateConversation({ id: 'conv-1', sessionId: 'session-any', name: 'Updated' });
+
+        expect(store.conversations[0].name).toBe('Updated');
+      });
+
+      it('accepts conversation updates with no sessionId', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+        store.conversations = [{ id: 'conv-1', name: 'Original' }];
+
+        store.updateConversation({ id: 'conv-1', name: 'Updated' });
+
+        expect(store.conversations[0].name).toBe('Updated');
+      });
+    });
+
+    describe('removeConversation guard', () => {
+      it('accepts conversation removals for the current session', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+        store.conversations = [{ id: 'conv-1' }, { id: 'conv-2' }];
+
+        store.removeConversation('conv-1', null, 'session-1');
+
+        expect(store.conversations).toHaveLength(1);
+        expect(store.conversations[0].id).toBe('conv-2');
+      });
+
+      it('ignores conversation removals for a different session', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+        store.conversations = [{ id: 'conv-1' }, { id: 'conv-2' }];
+
+        store.removeConversation('conv-1', null, 'session-2');
+
+        // Conversation should NOT have been removed
+        expect(store.conversations).toHaveLength(2);
+      });
+
+      it('accepts conversation removals when currentSession is null', () => {
+        const store = useSessionsStore();
+        store.currentSession = null;
+        store.conversations = [{ id: 'conv-1' }, { id: 'conv-2' }];
+
+        store.removeConversation('conv-1', null, 'session-any');
+
+        expect(store.conversations).toHaveLength(1);
+      });
+
+      it('accepts conversation removals with no sessionId (backwards compat)', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-1' };
+        store.conversations = [{ id: 'conv-1' }, { id: 'conv-2' }];
+
+        store.removeConversation('conv-1');
+
+        expect(store.conversations).toHaveLength(1);
+      });
+
+      it('cross-session contamination: events from session B do not affect session A view', () => {
+        const store = useSessionsStore();
+        store.currentSession = { id: 'session-A' };
+        store.conversations = [
+          { id: 'conv-A1', sessionId: 'session-A' },
+          { id: 'conv-A2', sessionId: 'session-A' },
+        ];
+
+        // Simulate WebSocket events from session B (background session)
+        store.addConversation({ id: 'conv-B1', sessionId: 'session-B' });
+        store.updateConversation({ id: 'conv-A1', sessionId: 'session-B', name: 'Tampered' });
+        store.removeConversation('conv-A2', null, 'session-B');
+
+        // All events from session-B should have been ignored
+        expect(store.conversations).toHaveLength(2);
+        expect(store.conversations[0].name).toBeUndefined(); // not tampered
+        expect(store.conversations[1].id).toBe('conv-A2'); // not removed
       });
     });
   });
