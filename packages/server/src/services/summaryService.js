@@ -113,7 +113,7 @@ async function* mockSummaryQuery({ prompt: _prompt, recentMessages, sessionStatu
     key_actions: ['Mock action 1', 'Mock action 2'],
     files_modified: ['mock-file.js'],
     outcome: outcome,
-    pr_url: null,
+    pr_url: 'https://github.com/anthropics/claude-code/pull/123',
     session_title: `Mock: ${shortPreview}`.substring(0, 60),
   });
 

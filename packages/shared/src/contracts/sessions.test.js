@@ -320,6 +320,7 @@ describe('SessionListResponse', () => {
         gitBranch: null,
         gitWorktree: null,
         prUrl: null,
+        manuallyNamed: false,
         error: null,
         nextTemplateId: null,
         parentSessionId: null,
