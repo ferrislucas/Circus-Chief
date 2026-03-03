@@ -36,7 +36,7 @@ vi.mock('../components/OverflowMenu.vue', () => ({
 }));
 vi.mock('../composables/useApi.js', () => ({
   api: {
-    getSessionSummary: vi.fn(),
+    getSessionSummary: vi.fn().mockResolvedValue(null),
     updateSession: vi.fn(),
     getSession: vi.fn(),
     getConversations: vi.fn(),
