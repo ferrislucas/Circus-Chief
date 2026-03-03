@@ -298,7 +298,6 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
-import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import { api } from '../composables/useApi.js';
@@ -368,13 +367,11 @@ const branchEditorRef = ref(null);
 const selectedModel = ref(null); // Currently selected model for next message
 let draftSaveTimer = null;
 
-const partialText = ref('');
+// partialText comes from the sessions store (set by SessionDetailView's WebSocket handlers)
+const partialText = computed(() => sessionsStore.partialText);
 const isNearBottom = ref(true);
 const hasNewMessages = ref(false);
 let debounceTimer = null;
-let partialThrottleTimer = null;
-let pendingPartialText = null;
-const PARTIAL_THROTTLE_MS = 150; // Throttle streaming updates to reduce CPU load on iPad
 
 const SCROLL_THRESHOLD = 100; // pixels from bottom to consider "at bottom"
 
@@ -506,25 +503,8 @@ const workingDirectory = computed(() => {
   return result;
 });
 
-// Subscribe to partial messages for streaming, work logs, and conversation events
-const {
-  onPartial,
-  onMessage,
-  onWorkLog,
-  onWorkLogsAssociated,
-  onThinkingPartial,
-  onConversationCreated,
-  onConversationUpdated,
-  onConversationDeleted,
-} = useSessionSubscription(props.sessionId);
-let unsubPartial = null;
-let unsubMessage = null;
-let unsubWorkLog = null;
-let unsubWorkLogsAssociated = null;
-let unsubThinkingPartial = null;
-let unsubConvCreated = null;
-let unsubConvUpdated = null;
-let unsubConvDeleted = null;
+// WebSocket handlers are now consolidated in SessionDetailView.
+// ConversationTab reads from the Pinia store reactively.
 
 function handleScroll() {
   const container = messagesContainer.value;
@@ -590,78 +570,10 @@ onMounted(async () => {
     }
   }
 
-  // Throttle partial text updates to reduce CPU load on iPad
-  // Without throttling, rapid updates cause excessive re-renders and markdown parsing
-  unsubPartial = onPartial((text) => {
-    pendingPartialText = text;
-
-    // If no throttle timer is running, update immediately and start timer
-    if (!partialThrottleTimer) {
-      partialText.value = text;
-      scrollToBottom();
-
-      partialThrottleTimer = setTimeout(() => {
-        // Apply any pending update that arrived during throttle period
-        if (pendingPartialText !== null && pendingPartialText !== partialText.value) {
-          partialText.value = pendingPartialText;
-          scrollToBottom();
-        }
-        partialThrottleTimer = null;
-        pendingPartialText = null;
-      }, PARTIAL_THROTTLE_MS);
-    }
-  });
-
-  // Clear partial text when full message arrives
-  unsubMessage = onMessage(() => {
-    partialText.value = '';
-  });
-
-  // Subscribe to work log updates
-  // Note: Work logs are displayed in LiveWorkLogPanel which has its own scroll management
-  unsubWorkLog = onWorkLog((log) => {
-    sessionsStore.addWorkLog(log);
-  });
-
-  // Subscribe to work log association events (re-associate _unassociated logs)
-  unsubWorkLogsAssociated = onWorkLogsAssociated((messageId) => {
-    sessionsStore.associateWorkLogs(messageId);
-  });
-
-  // Subscribe to partial thinking updates for streaming display
-  // Note: Partial thinking is displayed in LiveWorkLogPanel which has its own scroll management
-  unsubThinkingPartial = onThinkingPartial((thinking) => {
-    if (thinking === null) {
-      sessionsStore.clearPartialThinking(props.sessionId);
-    } else {
-      sessionsStore.setPartialThinking(thinking, props.sessionId);
-    }
-  });
-
-  // Subscribe to conversation events for real-time updates
-  unsubConvCreated = onConversationCreated((conversation) => {
-    console.log(`[CONV] CONVERSATION_CREATED event: conversation ${conversation.id}, isActive: ${conversation.isActive}`);
-    sessionsStore.addConversation(conversation);
-    // The watcher on activeConversationId will trigger the fetch automatically
-  });
-
-  unsubConvUpdated = onConversationUpdated((conversation) => {
-    console.log(`[CONV] CONVERSATION_UPDATED event: conversation ${conversation.id}, isActive: ${conversation.isActive}`);
-    sessionsStore.updateConversation(conversation);
-  });
-
-  unsubConvDeleted = onConversationDeleted((conversationId, newActiveConv) => {
-    console.log(`[CONV] CONVERSATION_DELETED event: deleted ${conversationId}, newActive: ${newActiveConv?.id || 'none'}`);
-    sessionsStore.removeConversation(conversationId, newActiveConv);
-    // If we have a new active conversation, fetch its messages
-    if (newActiveConv) {
-      console.log(`[CONV] CONVERSATION_DELETED: fetching messages for new active conversation ${newActiveConv.id}`);
-      sessionsStore.fetchMessages(props.sessionId, false, newActiveConv.id);
-    }
-  });
-
-  // NOTE: onUsageUpdate subscription moved to SessionDetailView.onMounted to ensure
-  // conversations are loaded before usage updates arrive (avoids race conditions)
+  // NOTE: All WebSocket handler subscriptions (onPartial, onMessage, onWorkLog,
+  // onWorkLogsAssociated, onThinkingPartial, onConversationCreated, onConversationUpdated,
+  // onConversationDeleted, onUsageUpdate) are now consolidated in SessionDetailView.
+  // ConversationTab reads from the Pinia store reactively.
 
   // Fetch initial work logs
   await sessionsStore.fetchWorkLogs(props.sessionId);
@@ -678,19 +590,10 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  if (unsubPartial) unsubPartial();
-  if (unsubMessage) unsubMessage();
-  if (unsubWorkLog) unsubWorkLog();
-  if (unsubWorkLogsAssociated) unsubWorkLogsAssociated();
-  if (unsubThinkingPartial) unsubThinkingPartial();
-  if (unsubConvCreated) unsubConvCreated();
-  if (unsubConvUpdated) unsubConvUpdated();
-  if (unsubConvDeleted) unsubConvDeleted();
-  // NOTE: unsubUsage removed - subscription moved to SessionDetailView
+  // NOTE: All WebSocket unsubs removed - handlers are now in SessionDetailView
   if (debounceTimer) clearTimeout(debounceTimer);
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
   if (inputSyncTimer) clearTimeout(inputSyncTimer);
-  if (partialThrottleTimer) clearTimeout(partialThrottleTimer);
   if (messagesContainer.value) {
     messagesContainer.value.removeEventListener('scroll', handleScroll);
   }
@@ -776,6 +679,11 @@ watch(
   }
 );
 
+// Watch partialText from store and scroll to bottom when streaming updates arrive
+watch(partialText, () => {
+  scrollToBottom();
+});
+
 // Re-fetch messages and work logs when session status changes from running to waiting/completed
 // This ensures the UI shows the correct messages after Claude's turn ends.
 // Note: fetchMessages() uses a smart merge strategy that preserves any messages
@@ -788,7 +696,7 @@ watch(
     if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
       console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
       // Clear any lingering streaming state (Step 2 - safety net)
-      partialText.value = '';
+      sessionsStore.clearPartialText();
       // Fetch messages first, then work logs - this ensures messages are visible
       // Pass activeConversationId to prevent fetching messages for the wrong conversation
       await sessionsStore.fetchMessages(props.sessionId, false, sessionsStore.activeConversationId);
@@ -826,15 +734,8 @@ watch(
   () => sessionsStore.activeConversationId,
   async (newConvId, oldConvId) => {
     if (newConvId && newConvId !== oldConvId) {
-      // Clear streaming message state from previous conversation (Step 1)
-      partialText.value = '';
-
-      // Clear throttle timer to prevent stale partial updates (Step 3)
-      if (partialThrottleTimer) {
-        clearTimeout(partialThrottleTimer);
-        partialThrottleTimer = null;
-      }
-      pendingPartialText = null;
+      // Clear streaming message state from previous conversation
+      sessionsStore.clearPartialText();
 
       // Reset scroll state when switching conversations
       hasNewMessages.value = false;
