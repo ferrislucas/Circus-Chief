@@ -19,6 +19,27 @@ vi.mock('./schedulerService.js', () => ({
   SchedulerService: class {},
 }));
 
+// Mock the SDK to prevent real API calls in tests
+vi.mock('@anthropic-ai/claude-agent-sdk', () => {
+  const mockAgent = {
+    async *execute() {
+      yield { type: 'message_start', message: { id: 'msg_test' } };
+      yield { type: 'content_block_start', content_block: { type: 'text' } };
+      yield { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Test response' } };
+      yield { type: 'content_block_stop' };
+      yield { type: 'message_delta', delta: { stop_reason: 'end_turn' } };
+      yield { type: 'message_stop' };
+    },
+    supportsResume: () => false,
+    getCapabilities: () => [],
+  };
+  return {
+    query: vi.fn(async function* () {
+      yield* mockAgent.execute();
+    }),
+  };
+});
+
 // Import the mocked service to get a reference for assertions
 import { schedulerService as mockSchedulerService } from './schedulerService.js';
 
@@ -57,7 +78,6 @@ describe('sessionManager - Proactive Rescheduling', () => {
     // Reset mock implementations to defaults
     mockSchedulerService.hasReachedLimits.mockReturnValue(false);
     mockSchedulerService.rescheduleSession.mockResolvedValue(true);
-    process.env.MOCK_CLAUDE = 'true';
 
     projectRepo = new ProjectRepository();
 
@@ -73,7 +93,6 @@ describe('sessionManager - Proactive Rescheduling', () => {
   });
 
   afterEach(() => {
-    delete process.env.MOCK_CLAUDE;
     if (existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
     }

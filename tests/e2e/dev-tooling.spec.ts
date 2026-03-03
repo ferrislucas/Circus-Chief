@@ -33,7 +33,7 @@ function runScript(
   options?: { cwd?: string; env?: Record<string, string>; timeout?: number }
 ): { stdout: string; stderr: string; exitCode: number } {
   // If options.env is provided, use it as the complete environment (don't merge with process.env).
-  // This allows callers like cleanEnvForUnitTests() to remove keys (e.g., MOCK_CLAUDE).
+  // This allows callers like cleanEnvForUnitTests() to remove keys (e.g., VCR_MODE).
   const env = options?.env ?? { ...process.env };
   try {
     const stdout = execSync(command, {
@@ -66,14 +66,14 @@ function readPortFile(dir?: string): string | null {
 
 /**
  * Build a clean environment for running unit tests.
- * Strips E2E-specific env vars (like MOCK_CLAUDE) that cause server unit test failures
+ * Strips E2E-specific env vars (like VCR_MODE) that cause server unit test failures
  * when inherited from the Playwright test runner context.
  */
 function cleanEnvForUnitTests(): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;
-  // MOCK_CLAUDE causes 69 server unit tests to fail (sessionManager, model switching, custom providers)
+  // VCR_MODE causes server unit tests to fail (sessionManager, model switching, custom providers)
   // because it changes runtime behavior of the server code that the unit tests exercise.
-  delete env.MOCK_CLAUDE;
+  delete env.VCR_MODE;
   // These don't cause failures but are E2E-specific and irrelevant for unit tests.
   delete env.API_URL;
   delete env.BASE_URL;
@@ -273,7 +273,7 @@ test.describe('Category 3: Vitest Unit Test Execution', () => {
   test('server unit tests pass', () => {
     // Use --maxWorkers=1 to avoid flaky ECONNRESET / SQLite contention failures
     // that occur when server test files run in parallel alongside the E2E server.
-    // Use cleanEnvForUnitTests() to strip MOCK_CLAUDE which causes test failures.
+    // Use cleanEnvForUnitTests() to strip VCR_MODE which causes test failures.
     const result = runScriptWithRetry('yarn workspace @claudetools/server test -- --maxWorkers=1', {
       timeout: 230_000,
       env: cleanEnvForUnitTests(),
@@ -461,25 +461,25 @@ test.describe('Category 5: pw.sh Enhancements', () => {
   });
 
   // Test 17
-  test('pw.sh sets MOCK_CLAUDE for test runs', () => {
+  test('pw.sh sets VCR_MODE for test runs', () => {
     const pwshSource = readFileSync(
       join(process.cwd(), 'scripts', 'pw.sh'),
       'utf-8'
     );
 
-    // Verify MOCK_CLAUDE is exported as true
-    expect(pwshSource).toContain('export MOCK_CLAUDE=true');
+    // Verify VCR_MODE is exported with auto default
+    expect(pwshSource).toContain('export VCR_MODE=${VCR_MODE:-auto}');
 
     // Verify it appears in cmd_test function context
     // The export should come before detect_or_start_server in cmd_test()
     const cmdTestStart = pwshSource.indexOf('cmd_test()');
     expect(cmdTestStart).toBeGreaterThan(-1);
 
-    const mockClaudePos = pwshSource.indexOf('export MOCK_CLAUDE=true', cmdTestStart);
-    expect(mockClaudePos).toBeGreaterThan(cmdTestStart);
+    const vcrModePos = pwshSource.indexOf('export VCR_MODE=${VCR_MODE:-auto}', cmdTestStart);
+    expect(vcrModePos).toBeGreaterThan(cmdTestStart);
 
-    const detectServerPos = pwshSource.indexOf('detect_or_start_server', mockClaudePos);
-    expect(detectServerPos).toBeGreaterThan(mockClaudePos);
+    const detectServerPos = pwshSource.indexOf('detect_or_start_server', vcrModePos);
+    expect(detectServerPos).toBeGreaterThan(vcrModePos);
   });
 
   // Test 18

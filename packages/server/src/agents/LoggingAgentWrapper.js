@@ -22,7 +22,7 @@ export class LoggingAgentWrapper {
     const callId = agentCallLogger.startCall(meta);
 
     try {
-      for await (const event of this.agent.execute(queryParams)) {
+      for await (const event of this.agent.execute(queryParams, meta)) {
         // Capture final usage from 'result' events
         if (event.type === 'result' && event.subtype !== 'error') {
           const modelUsageEntry = event.modelUsage

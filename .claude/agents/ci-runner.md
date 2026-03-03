@@ -165,9 +165,9 @@ if [ "$NEED_NEW_SERVER" = true ]; then
     # Remove any stale .server-port file
     rm -f .server-port
 
-    echo "Starting dedicated test server with MOCK_CLAUDE=true..."
+    echo "Starting dedicated test server with VCR_MODE=auto..."
     # Use start-server.sh which auto-assigns port 5001+ for worktrees
-    MOCK_CLAUDE=true ./scripts/start-server.sh &
+    VCR_MODE=auto ./scripts/start-server.sh &
     SERVER_PID=$!
 
     # Wait for server to be ready (max 30 seconds)
@@ -313,7 +313,7 @@ EOF
 - Be patient with E2E tests - they legitimately take 3-10+ minutes
 - Never run Playwright tests without ensuring a dedicated test server is running
 - Always read `.server-port` for the correct port after starting test server
-- Use `MOCK_CLAUDE=true` when starting server for E2E tests
+- Use `VCR_MODE=auto` when starting server for E2E tests
 - Use `./scripts/start-server.sh` which auto-assigns ports 5001+ in worktrees
 
 ## Cleanup

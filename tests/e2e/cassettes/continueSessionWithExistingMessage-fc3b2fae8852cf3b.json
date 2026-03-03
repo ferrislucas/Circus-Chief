@@ -1,0 +1,1645 @@
+{
+  "prompt": "Branch 1",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/private/tmp/test",
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "default",
+      "slash_commands": [
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan"
+      ],
+      "skills": [],
+      "plugins": [],
+      "uuid": "78c67674-a5b5-470a-a6da-dfaadfc16158"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_start",
+        "message": {
+          "model": "claude-haiku-4-5-20251001",
+          "id": "msg_011k8c9AR2W8j4oqx6vD5JxH",
+          "type": "message",
+          "role": "assistant",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "usage": {
+            "input_tokens": 10,
+            "cache_creation_input_tokens": 2057,
+            "cache_read_input_tokens": 15006,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 2057
+            },
+            "output_tokens": 3,
+            "service_tier": "standard",
+            "inference_geo": "not_available"
+          }
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "d0c21baa-f1e1-482d-b4b6-f198dcf60648"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "thinking",
+          "thinking": "",
+          "signature": ""
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "3fac20f7-a331-4585-8ee3-fbf2cbd1ba67"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "The user just"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "8027f71e-d8a1-4afc-8199-db690e8c2731"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " said \"Branch 1\" which seems"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "822a4c66-ff05-4e12-80e8-aedf82aa04a2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " like"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "0a37fa9a-9f7a-4ada-8a52-700bfded16a1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " they want to create"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "7f84f230-55e5-44bd-85c9-730a16bea8e2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " or"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "6e7dff63-3ee9-4707-bfdf-ae4c90d0dbdf"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " switch to a branch"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "41c315e4-7288-48a7-83f4-deddf91db68d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " called"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "7e5e2cd8-34dd-42e1-b753-554f332b7ad9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " \"Branch 1\". However, this"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "79a1ec9c-ee71-432f-8c28-0e286131e5d2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " is a bit amb"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "c1a4f046-e5a1-4365-ae88-bd50a0ac58ac"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "iguous - they could mean:\n\n1"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "5f1dcd85-82e9-4817-8983-e0ab4ac3e336"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ". Create"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "ba548baa-ab26-4fdd-b677-7597a2b6c2a8"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " a new git"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "fdf2750b-bb8b-4180-a91b-ec5ed115f02b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " branch called \"Branch 1\""
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "cb64e159-39a5-4c50-9aa0-a5975c844b06"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n2. Switch to an"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "3da76aa4-2457-4a69-9e04-d1dd96fa0a8a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " existing branch called \"Branch 1\""
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "22920a23-32b4-4a82-b114-c974d985edee"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n3. Create a new session"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "7c546568-fb08-4bfa-8280-e93d387baece"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " for"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "bdfc2ade-01cc-431c-b5a7-0a75f4d4b921"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " branch"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "e80198f5-80b1-450d-a813-6929097b8f47"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " "
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "bcec02ec-fb64-44fc-a124-69b96e39b9b6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "1 in"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "d3f3a5ac-c457-4231-9d93-9d85278a4e9e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " the project system"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "531682ac-8e4d-419e-82f0-d1755d3f1e93"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n4. Something else entirely"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "40d22da3-d1ad-4383-b389-3b5b4b50b783"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n\nSince they're"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "ef5ae229-8fd1-49fa-8fad-96c2a490d20c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " being"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "6607c813-8023-4511-a88d-c271dbb82245"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " very"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "7b305e5d-81cd-468d-9567-10cefa1af175"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " brief"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "01f3308a-8863-4ed4-ad10-b7a3a90a3a4d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ","
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "acf1e812-dbf2-484a-931a-3ca082a965ad"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " I should ask for clarification about what"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "1ccf1524-9578-47d5-bf15-6a0c1ab456eb"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " they want to do with"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "8e4e591a-9853-4cca-a3c5-d7f86609502d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " \""
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "f5e83667-fb48-44a1-a917-99f4737e54a6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "Branch 1\". But let me first"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "df5226a8-c56f-4972-afc2-0f941d9d0b96"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " check"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "2e73d4fa-f8c7-49d6-9c2a-29d53c29cfd0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " if there's any context about"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "628128f9-ca0c-443c-8df9-5e7fd884362e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " what project"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "109b27e2-a82f-4307-a923-f91867dc39a1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " we"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "e34ce64a-2a9d-4939-b5cf-d6418d6b402f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "'re working with and"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "6c291b4c-02ee-419f-a4aa-ec351de82a07"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " what might"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "5046c0f5-da5f-4323-a400-dae7d782b9fd"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " make"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "04ddd6e0-4165-404e-a4f9-1083b7b99b64"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " sense."
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "85c0f9bd-0547-4c0e-8a47-5bb7d462bcf4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n\nGiven"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "2147634e-9d39-40ea-87ec-aa11524b8410"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " the"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "3586f022-9074-45fe-b278-b635fa35682a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " context of the system"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "36b1fb09-6754-45a9-b31f-9745f3da760f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ","
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "e2d368ce-143b-411d-bcf8-f2812ff46357"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " they"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "6a72d20e-37ed-4bdc-adfc-0361641f4eee"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " might be asking"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "f6f318c1-771d-42d1-a324-95dcea3c0a8b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " me"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "c1f0cf6d-77ca-463f-91d4-8861d7bb86b2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " to work"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "10b0aa07-07c5-41a4-bd12-af936c97d8d2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " on"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "aca2c3ee-8e63-4aa4-ba00-17613633a52d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " a project branch"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "2aaddbf9-d546-4912-b3cb-01c6d589fb68"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "."
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "53b55a87-580f-4389-b852-a2daedb06787"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " However, without"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "f2ecf840-43fd-479b-955d-efb99a9fa37f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " more context, I should"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "cd9cb34b-46ac-458d-be72-c8441fd2ed97"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " ask what"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "0d7aeddf-2ef9-4ecd-9688-653ccb4e47d9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " they want to do with Branch"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "ed7ad540-3a11-4591-a211-9f7a835fcd42"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " 1."
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "8d18968b-f46f-40f1-bed5-319f4a2a13e3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n\nActually, let me rec"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "c29bec3c-e2f2-439b-af06-eccde1d31fdd"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "onsider -"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "641b7c9b-f9c5-419a-90f4-d2968e7ea351"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " they might"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "027e41d0-d5cd-48ae-8e1f-fd6b9574d73b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " be testing"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "4abc0662-e66c-498f-b08f-1d2b9188e650"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " if I'm"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "538da08f-2cc0-4921-9851-56960cd86997"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " ready"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "5eaf970b-409f-4944-bfef-9aa156c427ec"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " to work on something"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "cb15b65f-ad48-4bc9-98bb-564dfbcd5fb0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ". Or"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "b796f77e-9b7e-48cc-8251-b9c9b8cd771a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " they might want"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "b714d489-e788-459d-901a-593ea31d6984"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " me"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "ce21f3ce-2dc9-4766-99fd-332b4255fe1e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " to list"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "9c894426-bce7-4788-abab-de99cd0c1c78"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " branches. Given the minimal"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "a48ece32-59d7-4ce7-b8f7-935fefd9db14"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " input"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "6ebfb5f5-ec8e-45fb-b29f-7d3a543fd9ad"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ", I should ask for clarification."
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "75880021-27c0-43a1-97b0-cfc489607b9d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ""
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "f413d092-590f-4566-a500-f278f4fd99ae"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "signature_delta",
+          "signature": "ErAICkYICxgCKkBcjYCvDSo2VyyGUU8yxeL11IpnsK3ProaL+KxXjstq7pxScqu5BjhJK1IxqosNjFtEdCacmtPtqmAy3g4IqPL8EgwIVOZFNKEtB/bg8TYaDLFlpnE+FH0UJWPKICIwQe/bSHwSkuSSObEx2rRIgLEro2jUU4cifrQ2X6KubtDXSrP0XU/cLdACTjAnAFyWKpcHqrYxPfIUZd6lW5RGChpmETAfYb5WUyhPpDbkbZuOOSuoUweM4eJdy0nWIEA9OmmHAemPAURn8sAlW4m2nopNBMp33z58e8SAZur5tM5L4t15F9O+PasOpKkWFoFCfCXHZxAOLqzjRv4EufmgjQngMsPSg6G46S2xr160EU4sEGd2w3PLj1T6EMN8VXhPS+nNDZ7afX6MaVil5JJgpLfKpUR85X8PEWyPQ90W/FMT9s3k72LBX3vwCurxialGMJyLvZ1Bw9l0dArmiLRpABc0y/8rePt4D0hcE1UkUkYH7VNUCTf6+XMOY0EgyASB9HUNsRBV+Nj8JgQ8hyPJKEOsGDOSiXvkmJl/w6JVCSeb3rqGMetPwT1LIWKJqLMJkfDbt8QVhJWEhz7TdlHZKCcbWbkb35/MarVIFdePyuXFNqSldYji5gPl+6N93aLkv/l/aWsR+6NZYSjvmZBMDDM9RGOmpo6jkLNPYqtttvM39h0x1AcRcR7oKEKQUl3PP2CAiJ5UyB81N/WQq6bYj9kZuf+2f6A/hE3y7UdDGmXirBijrUWOsBF9CeSjGm0tjFctFVXxurdayqEEOZtBYi+xVGk3TnH1Zl8w3O7/0AJU6YgbPynEXXDCl2nb/859eT2nKpKhe6bmNWDWLBqg+4eDnx3FpWXsc0tSk7Xv2GUXPqqagW0XMT5l9LmeZZ8Tt8LSkZ6QpuW8tGZ/HDZWEsBJsM/SzM0YAKbfzPFxB/LstPB3ZNq6uLmwjJqIXXBsB0He1/V5Tqde7RXiQVHOUeVGNJQd9lehvRK44KzBFV8va9euMQcMkCs8MWxH5ea/TFfbPDsEXUnkSVhMWXdFxHrFdU/rNZfZnvrMU2mkUSmnBeoTV8pH8BHtwAWJiB8frq7hj08VOWrRRysLHLM+vGgW0PJX+MnpC8NkpY+aQU4sN/Dmxbc5gu2/qKmSP56KYW3hCx02hBJMPC9JkGoxnsS2nsSD5ibdKrF2jQ1a5aRy2idDPnK76CvKRgjkvyJaovSdmunTnvQWZ7Oo1P40aVlMkFwNNIBC7yXmIzX9PjeRhLSEsxpm098zP8NMJEWEJt12yepBm/xlny1Zv/41o7+XyQ7nXsPh/07exrwt0IUo/9Voc9C4ippK2WPOk/aliUJyxJJdhb8NYfNw2ic0+sT4fNBDwjMc9nChqyOzin6/c1lHPxVBYc9vhPmvAiM9qo7JLH3e+Q4gGhgB"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "9751daa7-98f8-4023-b43f-68a4df591160"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_011k8c9AR2W8j4oqx6vD5JxH",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user just said \"Branch 1\" which seems like they want to create or switch to a branch called \"Branch 1\". However, this is a bit ambiguous - they could mean:\n\n1. Create a new git branch called \"Branch 1\"\n2. Switch to an existing branch called \"Branch 1\"\n3. Create a new session for branch 1 in the project system\n4. Something else entirely\n\nSince they're being very brief, I should ask for clarification about what they want to do with \"Branch 1\". But let me first check if there's any context about what project we're working with and what might make sense.\n\nGiven the context of the system, they might be asking me to work on a project branch. However, without more context, I should ask what they want to do with Branch 1.\n\nActually, let me reconsider - they might be testing if I'm ready to work on something. Or they might want me to list branches. Given the minimal input, I should ask for clarification.",
+            "signature": "ErAICkYICxgCKkBcjYCvDSo2VyyGUU8yxeL11IpnsK3ProaL+KxXjstq7pxScqu5BjhJK1IxqosNjFtEdCacmtPtqmAy3g4IqPL8EgwIVOZFNKEtB/bg8TYaDLFlpnE+FH0UJWPKICIwQe/bSHwSkuSSObEx2rRIgLEro2jUU4cifrQ2X6KubtDXSrP0XU/cLdACTjAnAFyWKpcHqrYxPfIUZd6lW5RGChpmETAfYb5WUyhPpDbkbZuOOSuoUweM4eJdy0nWIEA9OmmHAemPAURn8sAlW4m2nopNBMp33z58e8SAZur5tM5L4t15F9O+PasOpKkWFoFCfCXHZxAOLqzjRv4EufmgjQngMsPSg6G46S2xr160EU4sEGd2w3PLj1T6EMN8VXhPS+nNDZ7afX6MaVil5JJgpLfKpUR85X8PEWyPQ90W/FMT9s3k72LBX3vwCurxialGMJyLvZ1Bw9l0dArmiLRpABc0y/8rePt4D0hcE1UkUkYH7VNUCTf6+XMOY0EgyASB9HUNsRBV+Nj8JgQ8hyPJKEOsGDOSiXvkmJl/w6JVCSeb3rqGMetPwT1LIWKJqLMJkfDbt8QVhJWEhz7TdlHZKCcbWbkb35/MarVIFdePyuXFNqSldYji5gPl+6N93aLkv/l/aWsR+6NZYSjvmZBMDDM9RGOmpo6jkLNPYqtttvM39h0x1AcRcR7oKEKQUl3PP2CAiJ5UyB81N/WQq6bYj9kZuf+2f6A/hE3y7UdDGmXirBijrUWOsBF9CeSjGm0tjFctFVXxurdayqEEOZtBYi+xVGk3TnH1Zl8w3O7/0AJU6YgbPynEXXDCl2nb/859eT2nKpKhe6bmNWDWLBqg+4eDnx3FpWXsc0tSk7Xv2GUXPqqagW0XMT5l9LmeZZ8Tt8LSkZ6QpuW8tGZ/HDZWEsBJsM/SzM0YAKbfzPFxB/LstPB3ZNq6uLmwjJqIXXBsB0He1/V5Tqde7RXiQVHOUeVGNJQd9lehvRK44KzBFV8va9euMQcMkCs8MWxH5ea/TFfbPDsEXUnkSVhMWXdFxHrFdU/rNZfZnvrMU2mkUSmnBeoTV8pH8BHtwAWJiB8frq7hj08VOWrRRysLHLM+vGgW0PJX+MnpC8NkpY+aQU4sN/Dmxbc5gu2/qKmSP56KYW3hCx02hBJMPC9JkGoxnsS2nsSD5ibdKrF2jQ1a5aRy2idDPnK76CvKRgjkvyJaovSdmunTnvQWZ7Oo1P40aVlMkFwNNIBC7yXmIzX9PjeRhLSEsxpm098zP8NMJEWEJt12yepBm/xlny1Zv/41o7+XyQ7nXsPh/07exrwt0IUo/9Voc9C4ippK2WPOk/aliUJyxJJdhb8NYfNw2ic0+sT4fNBDwjMc9nChqyOzin6/c1lHPxVBYc9vhPmvAiM9qo7JLH3e+Q4gGhgB"
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2057,
+          "cache_read_input_tokens": 15006,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 2057
+          },
+          "output_tokens": 3,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "uuid": "8b6f1271-dcf8-4488-aaa7-045f3bed2fed"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "dd25266b-ef43-4dd5-83ac-1dd04436ff8c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 1,
+        "content_block": {
+          "type": "text",
+          "text": ""
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "60b55831-abe2-4117-8325-49e60c346e3e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "I'd"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "9089d0f5-0d82-41cb-ad61-5b7b68df8003"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " be happy to help with"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "db4bcf45-3087-4698-8f20-33f6f349030b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " Branch"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "ed6a2b06-2407-40e1-a1af-101087639c6f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " 1! Could"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "ed9a95dd-45ef-4efe-bbf1-6f56b13a38ad"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " you clarify what you'd like me"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "db4ca844-87c0-421b-9cf6-b0374ae06446"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " to do?"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "2173e378-2035-4676-a739-69a0b1119a83"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n\nHere"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "0339f829-7bdf-4a56-acbd-57f12d2d4209"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " are some"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "3a045bf4-5d2a-41fa-b2ef-25dfe3ed02a2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " options"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "4eaf0804-9681-423a-b37a-a3444086c414"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ":\n\n1. **Create a new"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "340339cd-7ad8-4491-9b25-3c44061390a9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " git"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "76ecf7c2-5f65-4f3b-925d-068cf2b66af2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " branch**"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "428ed716-3822-4949-a316-1004ed907eb9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " called \"Branch 1\""
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "113c8b32-f5e5-4495-a0f4-f61caa8eb160"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n2. **Switch to an existing"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "19c4d686-1a0e-4767-b306-a779fd69a52a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " branch** called \"Branch 1\""
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "46ec7adc-dd92-4cbd-8ca1-8acac28ab3d6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n3. **Create a new session"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "9ce6ba2d-3a2d-4320-8c0b-faf8a930f5a7"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "** for working"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "c91614a2-4b0c-476e-8522-457f7ab2d96f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " on Branch 1"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "775992b8-3d14-413a-b102-32d741ada494"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n4. **Something"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "ded1bbf2-4873-48a1-b6ec-c99ed38c7df5"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " else specific"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "b316f28c-70de-4421-aeff-c36d8053300e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "**"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "5659b89a-ad1e-4f2f-9ee8-701249bd0129"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " you"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "eb5981c1-db6a-40ef-b958-c91ac3e646ec"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " have in mind?\n\nLet"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "818b07f6-bc62-479f-b648-0d33b6ce4d74"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " me know what you're"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "6b7a9161-f36d-441a-9782-26f7a18630f4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " working on and I'll help you get"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "1fd2e1c5-902e-43f2-8871-f9aca05ce373"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " set"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "698f0925-ff29-4487-b774-3337c23fbb39"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " up!"
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "c3f62037-bcc0-4e39-b265-bdc51af7c2db"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_011k8c9AR2W8j4oqx6vD5JxH",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "I'd be happy to help with Branch 1! Could you clarify what you'd like me to do?\n\nHere are some options:\n\n1. **Create a new git branch** called \"Branch 1\"\n2. **Switch to an existing branch** called \"Branch 1\"\n3. **Create a new session** for working on Branch 1\n4. **Something else specific** you have in mind?\n\nLet me know what you're working on and I'll help you get set up!"
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2057,
+          "cache_read_input_tokens": 15006,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 2057
+          },
+          "output_tokens": 3,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "uuid": "7bb22cdf-2fa3-4018-a5c9-2a34821d4ab1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 1
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "f8d92fca-eb12-4a41-ac78-d03194464fbe"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "end_turn",
+          "stop_sequence": null
+        },
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2057,
+          "cache_read_input_tokens": 15006,
+          "output_tokens": 339
+        }
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "9a16565b-fcfd-4263-8f2c-4f271f897ea6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_stop"
+      },
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "parent_tool_use_id": null,
+      "uuid": "656ca812-871c-42b7-b293-3bfcbeaaebb2"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "duration_ms": 3554,
+      "duration_api_ms": 3458,
+      "num_turns": 1,
+      "result": "I'd be happy to help with Branch 1! Could you clarify what you'd like me to do?\n\nHere are some options:\n\n1. **Create a new git branch** called \"Branch 1\"\n2. **Switch to an existing branch** called \"Branch 1\"\n3. **Create a new session** for working on Branch 1\n4. **Something else specific** you have in mind?\n\nLet me know what you're working on and I'll help you get set up!",
+      "session_id": "98a94fa9-5f62-4148-b5a9-97b2dd9b0dea",
+      "total_cost_usd": 0.008345950000000001,
+      "usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 2057,
+        "cache_read_input_tokens": 15006,
+        "output_tokens": 339,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 2057,
+          "ephemeral_5m_input_tokens": 0
+        }
+      },
+      "modelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 19,
+          "outputTokens": 632,
+          "cacheReadInputTokens": 25957,
+          "cacheCreationInputTokens": 2057,
+          "webSearchRequests": 0,
+          "costUSD": 0.008345950000000001,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "92ae29b4-3088-4224-98a8-bc90105b5694"
+    }
+  ],
+  "key": "continueSessionWithExistingMessage-fc3b2fae8852cf3b",
+  "recordedAt": "2026-03-02T02:30:33.316Z"
+}
