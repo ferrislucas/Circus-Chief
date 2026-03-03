@@ -1,0 +1,2052 @@
+{
+  "prompt": "Summary generation test",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/Users/ferrislucas/claudetools.io/.worktrees/e24cd98b-cce2-4fea-a707-bdb27f90d669",
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "default",
+      "slash_commands": [
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan",
+        "playwright-e2e-runner"
+      ],
+      "skills": [],
+      "plugins": [],
+      "uuid": "bfbf46fc-b3d3-414b-a469-67a03c12a247"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_start",
+        "message": {
+          "model": "claude-haiku-4-5-20251001",
+          "id": "msg_01FqfU9DNbuL6eDDTuExrxXR",
+          "type": "message",
+          "role": "assistant",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "usage": {
+            "input_tokens": 10,
+            "cache_creation_input_tokens": 6394,
+            "cache_read_input_tokens": 15493,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 6394
+            },
+            "output_tokens": 3,
+            "service_tier": "standard",
+            "inference_geo": "not_available"
+          }
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "950054cd-0453-4432-a1d7-a38733401cdb"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "thinking",
+          "thinking": "",
+          "signature": ""
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "dcc14f82-f915-4009-809a-911c80851a62"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "The user has"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "6cec735d-7dc6-425e-a641-c4fd8b950b96"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " just"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "00c1027d-bd8c-4cad-9799-4959ee164c9c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " sent \""
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "73b1349d-88fb-4e4d-b4c5-c7394e88037d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "Summary generation test\" which seems like"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "3f2c7c75-eee7-4137-a027-76ee6d2b6251"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " a very"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "0fbf19d7-9d6d-42af-85ac-37978b76c45a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " brief"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "9504233a-310f-4f8c-8a52-7e26fae189fb"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " message without"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "44a1c2e1-bcec-44e7-aeb8-0b2e7843f26e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " much context. Looking at the system"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "36693a35-9164-4b7d-b6a4-cd767b82b6c9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " reminder"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "6f70350c-f255-40d2-908d-1136c736e039"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ", I can"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "fe350c6a-fcd0-4458-a76c-b9a05e55a8c5"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " see this"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "4a87f66e-6aa3-45c0-b7e9-7cccd6f91080"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " is a"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "a893a117-2d46-4b29-9e19-d71515d22e0e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " claud"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "7ccd70af-0ff6-4ef0-923f-55e7ff1dc1a7"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "etools.io project"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "653c8d05-1189-43cf-96e4-cfe6d55bc239"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " -"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "83d2769a-6cea-40c1-a09d-3ae8a92ec51c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " a"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "b6077426-7ff6-40ab-84a8-dbee272a1b96"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " web"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "380dc5ac-a669-4e76-ad34-b9cbf7743dba"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " application for managing"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "8cc19352-e9cc-4ffc-aa9f-a43be969614d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " Claude"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "1eee55b6-23be-414c-b862-3de65d1a1fa2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " Code"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "1bf945b6-6d59-433b-b48c-547805f006da"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " sessions"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "206b9019-1885-49eb-bc5e-20345ae73e45"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ".\n\nThe message"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "986c3773-2312-4eba-b18f-96c47c4f01e8"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " \""
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "ad094e51-cbb0-4d0d-bea3-0162e121f7a7"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "Summary generation test\" is quite v"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "17517e87-21a2-435f-8cef-94d3088ba04c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "ague."
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "c9ca2ae2-95ff-4276-b0e8-d02440eac2fe"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " The user might be:"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "1f038f6b-d598-4259-9091-25beef9bec4e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n1."
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "65cb043a-5763-4d30-b88a-e5b2b53ba0e0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " Asking me to test"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "804b6b63-6473-456f-a533-01e4ea43678c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " summary"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "462638f4-3a5f-4dbf-be11-a6fd22a188bb"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " generation functionality\n2. Asking"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "7701407c-5c4a-4229-b946-db0b8517bc54"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " me to explain"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "8c79ad7a-4842-44ee-8ce3-0e5535a2ddca"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " what summary"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "053135e4-717a-4ab5-996d-ad1d2c2efc83"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " generation is\n3. Looking"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "e97f7513-5c14-469d-9abe-4ce93153a16c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " to"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "ff78819f-3ffd-4b2e-9f3b-20290550b384"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " generate"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "98b325db-b158-40a7-9777-07f4e9aac46b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " a summary"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "aedf7b03-8982-4587-8828-c55ab2b8d878"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n4. Testing if"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "f84084b0-f64a-4113-9d90-c3bb6bbdd63f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " I understand"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "b9d87050-7821-4406-87a7-e1893e4e7977"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " something"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "cfdbd935-ecdd-4f82-b053-6654c4aed42b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " about the project"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "f01c2071-f8ad-4145-ba2d-638854054391"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n\nGiven"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "ca967472-5f4a-40be-ba54-64df07330f33"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " the context about"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "897ebda6-2ce1-4a06-8694-e3cb8915a2e1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " claudetools.io having"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "281d3fed-9eaf-47e1-a673-7bd4da3d2a20"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " sessions"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "ccadeb51-a15c-4da9-8c9c-d7d2cee7f630"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " with summ"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "2d0f1d3f-3d23-4262-b359-d401a5ce663d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "aries ("
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "e60aa211-cb9b-4a2d-8daf-d3e6206e8c9d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "mentioned"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "9880bf37-6bb1-412f-91a3-cd73f5ee1d5b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " in the API"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "dd74300f-7118-46c9-8d7a-2507dfc8fb7c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " documentation showing"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "c1c21851-cf72-4ea3-bb1f-bae9cf6dabf3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " `/"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "1d122495-05cd-41c0-bc4b-99ae6cd43631"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "api/sessions"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "38893fe1-9cff-40c7-8639-c7f946d729a0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "/"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "723fdc8b-af06-4882-9ac3-fe4ce4ba0585"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "<session_id>/summary`), it"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "1decf44f-5f8f-4bfe-b65a-c3cb9f1864a4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " seems like they might"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "5acfd4db-5c65-46c7-99e0-2d80ec8ad0cd"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " want me to test or"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "e894ec0e-7c2e-41ac-9af1-2eda23ff6e60"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " work"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "ab5092fa-fb42-48d9-b710-5ec1b3c6f75e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " with the summary generation feature"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "7ddf9a28-acbc-4924-b564-b3e92d491911"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " in"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "d21e8a10-9016-4b53-ae24-27dce9464704"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " this"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "7534403b-015e-44eb-9322-445df44fcede"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " c"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "cb1a1bb6-4c54-4b30-8c7d-fe3c71c1fa9c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "odebase.\n\nHowever"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "b71bcd2f-3c2d-4297-90f4-b8d270aad747"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ", without"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "39245bd3-aa1f-417d-91ca-333be2b221c9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " more specific instructions,"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "4020887f-0ef6-44e5-8498-4d9ebede1c71"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " I should ask"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "5c83ebfb-43a0-4e25-b7c8-390ea6914161"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " for clarification about what exactly"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "8bd6f57f-8fca-4b06-847f-fa711d73e4ba"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " they want me to test or do"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "40953e7e-712a-4ce6-8639-00ab92c71fa1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " regarding"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "d37cdf01-3725-4c4c-92bf-afdc241b95b4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " summary generation."
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "b12d520a-fa0f-42cf-800b-f948a25e6412"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ""
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "92e9aba3-8501-41b9-b72a-50741b8b9f8f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "signature_delta",
+          "signature": "ErgICkYICxgCKkCQ5/eECbCBRK2Y9Y1PdrCiq3yqWt/qAUmdbFVSP/+3SZSEO/D6VEhbSCx/toUxZ4zOADfi2joWeIFq6173Q1ZSEgxSUjAD5r7q2hQJEuQaDBI5G+Rgr9ip2xB6ziIwlCzfZRniF49S92Wq9hybMgD30zkiEG3jecGE9SKNAmtyLmeU/vyaV2FzTENWxYutKp8Hax4q5RtkifyMIEATlnIvzCD1gnXDexMXaYiEt890tr08mhjqUvVQ0FSbOdvr8WXaR13bDBpZWtluAOSjdMPSJ+sSbcAk6jkqUaBhOCccL9N4h9wrV4MyaixYHMFHnaGM4ntgVqA+8rVxICmN+LNGIUQy5CaDtcJuT55PqC/ZQimNx9RJ51KXLxql66BbHOkuSOvndtydmXiBlRFDm12Lt1QdZZsL3zLWzN6hPJc8iCgUqJ/xIGYP5ZPSEzmdDybnFtZ/5vfwmSc8L3LG8L+AW4iJJlgKUCvaGv6lXTqNSpHqk1ukG6qP9KzX6gsVktz4UXPIyL+t75tnFsUw/ubRabkUR/wCYRNihJXqZO2hvu2Ln9JzfrLfImceJp8F5W/h9nDAnuX2L6AHh21Vngnq2eK//0JahNCcFXcSgnizybkSSsceGBJIimRulXkj0ChId1/RwMddmHQUOjfnYXnd4MKbBemr00Vc6uQ+YFMMtJG5DTj3KG5mn+Oa2XljiM3RlTNvIWsQynCBvmUu1OjDiF43AtyeXmbBDcBxS5xntzXXJUFqbYkNTzBRAbEyBenBbPwDvbAZbwY0WUIBdJjuv3WJ8BrsJUTJyM3/ihMucDMlYvw9M3RSpe9LTFvaWRBcMooQlFthW6ZZWdNJJ/KjhaKeG9OcVxtHNAUvtPpcG7rIhuqK6rf5owhjfyGSDX8ph9LXrmVg/0zZbyhiqxKbMw5DyExfjyLBKnwl387fVLOST5VrCi1YZXdHEvwywztgYUqYke8PQeZmv3cvN9MRa7GDA1Cjq2eA8bkL4gAFkFxnGC6JFuBVIfs16hVz+xvWImHr5SrFCrjQQaa64zOHt6+PtXSuvosrh0iThiJhyhvGIEVFbDJaldyhOtd1ccMdBz9B5pgvB0CaJa1BdoBfCj38dJ9F9gAhjmZQgCNUsv7ojMoVhqy5y3ytNh6XY1n5c9t/h2B0wvx1nW9DvChgqVnincrfAwoV8eLcQeKiO8ETh+KQYQ1Kd80cM9HjSS0VfIRINjq4Q0dYCfTj+AuELd+VKzbyuQ6g5RPmJTsc5fPyIuFzRmU/Ie39JoatlGBziSSO30NzqMVcbLrLT1NwrkNrghp4dQgUdQ6HMG928oas4f0BqYt4eO2aBGADoltzU2XDABeg0tFrw6WeOxUcvkPmRw2Q00NtXWN0rAm4fs4M4o//eMQfjqG7ooU5Sx9demj6OROau80BXr/OHvqNGAE="
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "ea76bbef-8d76-406b-8928-25a5583f4371"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01FqfU9DNbuL6eDDTuExrxXR",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user has just sent \"Summary generation test\" which seems like a very brief message without much context. Looking at the system reminder, I can see this is a claudetools.io project - a web application for managing Claude Code sessions.\n\nThe message \"Summary generation test\" is quite vague. The user might be:\n1. Asking me to test summary generation functionality\n2. Asking me to explain what summary generation is\n3. Looking to generate a summary\n4. Testing if I understand something about the project\n\nGiven the context about claudetools.io having sessions with summaries (mentioned in the API documentation showing `/api/sessions/<session_id>/summary`), it seems like they might want me to test or work with the summary generation feature in this codebase.\n\nHowever, without more specific instructions, I should ask for clarification about what exactly they want me to test or do regarding summary generation.",
+            "signature": "ErgICkYICxgCKkCQ5/eECbCBRK2Y9Y1PdrCiq3yqWt/qAUmdbFVSP/+3SZSEO/D6VEhbSCx/toUxZ4zOADfi2joWeIFq6173Q1ZSEgxSUjAD5r7q2hQJEuQaDBI5G+Rgr9ip2xB6ziIwlCzfZRniF49S92Wq9hybMgD30zkiEG3jecGE9SKNAmtyLmeU/vyaV2FzTENWxYutKp8Hax4q5RtkifyMIEATlnIvzCD1gnXDexMXaYiEt890tr08mhjqUvVQ0FSbOdvr8WXaR13bDBpZWtluAOSjdMPSJ+sSbcAk6jkqUaBhOCccL9N4h9wrV4MyaixYHMFHnaGM4ntgVqA+8rVxICmN+LNGIUQy5CaDtcJuT55PqC/ZQimNx9RJ51KXLxql66BbHOkuSOvndtydmXiBlRFDm12Lt1QdZZsL3zLWzN6hPJc8iCgUqJ/xIGYP5ZPSEzmdDybnFtZ/5vfwmSc8L3LG8L+AW4iJJlgKUCvaGv6lXTqNSpHqk1ukG6qP9KzX6gsVktz4UXPIyL+t75tnFsUw/ubRabkUR/wCYRNihJXqZO2hvu2Ln9JzfrLfImceJp8F5W/h9nDAnuX2L6AHh21Vngnq2eK//0JahNCcFXcSgnizybkSSsceGBJIimRulXkj0ChId1/RwMddmHQUOjfnYXnd4MKbBemr00Vc6uQ+YFMMtJG5DTj3KG5mn+Oa2XljiM3RlTNvIWsQynCBvmUu1OjDiF43AtyeXmbBDcBxS5xntzXXJUFqbYkNTzBRAbEyBenBbPwDvbAZbwY0WUIBdJjuv3WJ8BrsJUTJyM3/ihMucDMlYvw9M3RSpe9LTFvaWRBcMooQlFthW6ZZWdNJJ/KjhaKeG9OcVxtHNAUvtPpcG7rIhuqK6rf5owhjfyGSDX8ph9LXrmVg/0zZbyhiqxKbMw5DyExfjyLBKnwl387fVLOST5VrCi1YZXdHEvwywztgYUqYke8PQeZmv3cvN9MRa7GDA1Cjq2eA8bkL4gAFkFxnGC6JFuBVIfs16hVz+xvWImHr5SrFCrjQQaa64zOHt6+PtXSuvosrh0iThiJhyhvGIEVFbDJaldyhOtd1ccMdBz9B5pgvB0CaJa1BdoBfCj38dJ9F9gAhjmZQgCNUsv7ojMoVhqy5y3ytNh6XY1n5c9t/h2B0wvx1nW9DvChgqVnincrfAwoV8eLcQeKiO8ETh+KQYQ1Kd80cM9HjSS0VfIRINjq4Q0dYCfTj+AuELd+VKzbyuQ6g5RPmJTsc5fPyIuFzRmU/Ie39JoatlGBziSSO30NzqMVcbLrLT1NwrkNrghp4dQgUdQ6HMG928oas4f0BqYt4eO2aBGADoltzU2XDABeg0tFrw6WeOxUcvkPmRw2Q00NtXWN0rAm4fs4M4o//eMQfjqG7ooU5Sx9demj6OROau80BXr/OHvqNGAE="
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 6394,
+          "cache_read_input_tokens": 15493,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 6394
+          },
+          "output_tokens": 3,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "uuid": "ca9aeedf-e21c-4498-b19d-b8355d20c871"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "fac5842c-d823-4f4f-b72c-1a6c326a4955"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 1,
+        "content_block": {
+          "type": "text",
+          "text": ""
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "a81847d4-ea17-4beb-8634-1fe163fb8691"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "I'd"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "f89aaa91-fc26-4ec5-924d-72e0f0768574"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " be happy to help with"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "e377cd21-0adb-4d88-bda0-cebeaa5170b1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " summary generation testing"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "76027566-31ae-48d2-9d26-b2128ef34cf1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "! However, I need a bit more"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "d1c2fc72-aba1-4406-bc04-8396623c082b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " context about"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "e34afca3-cd42-49a6-b504-dd35c9ad9bc2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " what you'd like me to do"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "2a315fd1-06fd-4300-8be2-409823b949ce"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ". Could you clar"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "36257a20-d947-45fd-9b73-9696725fde86"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "ify:\n\n1. **Are"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "43e9727e-5144-47a0-9e60-21cf1394bb64"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " you asking"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "a2594502-43cf-4e4e-a01c-aae0558bf8b1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " me to**"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "2cd8a0c0-5db8-43f4-8f6d-9e08c0c3766c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ":\n   - Test the summary generation"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "06482a14-52ea-451a-9fdb-ed7ea45bc1f2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " functionality in"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "56196432-975d-44f1-bce8-dede62e4dd87"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " the claudetools.io code"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "ff982f12-21e1-49d5-8fa9-09db75cddd8e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "base?\n   - Generate"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "291e831c-a6e2-48bc-a556-91a119c89206"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " a"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "1a59af55-3d01-4498-b70f-d72e52b97ea9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " summary of the"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "18a49554-7a44-4f71-a833-26b465f6e102"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " current"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "d842fadb-aae5-4d21-b26c-c354d954bce8"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " session?\n   - Write"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "be8b21e8-6133-48a8-bd15-225aca25cdc9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "/"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "cb35dbef-cca6-4984-884a-6344b519892c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "run"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "bc2e2202-ec7d-4b7b-a18b-1d77fa8c5434"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " tests"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "5a73aa3b-6d1f-4b43-bffc-097c27186421"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " for summary generation?\n   - Something"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "e767c98b-69dd-4bbe-b98b-ea8533594ca0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " else?\n\n2. **If"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "2ba021fc-b003-400c-853b-42e2c6ecdb87"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " testing"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "b318fdaa-7841-4b77-9773-b8c9d5afcea0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " the feature"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "8e84e3c1-f371-4dff-a301-1c67f1ab6eab"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "**"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "b18ba53e-4831-472c-bd9d-1c0294c0b549"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ":\n   - Should"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "2636734e-4fec-48ca-931f-adda4870a46f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " I run"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "feb5179d-f7dd-42c4-8258-3b050f97ce78"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " the existing"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "dbb389ac-eace-46ec-9360-bcb2db0ff635"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " test"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "bb409afd-b752-44f8-bae9-9aff40d7c2f9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " suite?"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "c7568f59-d15c-49b9-ae0a-67b308853629"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n   - Do you want me to"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "37369268-aedd-44f1-9297-445a0d1b8122"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " create new tests?"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "547089da-3d34-48e3-bdfa-ba322a87e8f9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n   - Are"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "657baeec-d923-4bbf-ae7b-6c0f51bc0a41"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " there specific scenarios"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "7efe948e-25e4-45af-bc07-8f730c4d8fe3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " you want"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "5b3174a9-6b98-4fd6-8047-f32b83641d50"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " tested"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "6707df3b-4f58-467b-91b3-98507cd74f70"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "?\n\n3. **If"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "69a11387-286c-43bf-a96f-0690981ca1fa"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " generating"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "44eeffab-5649-4f2e-a850-8e9c91c8657a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " a session"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "38d5da1e-4a52-46f8-a183-8bae0c93402d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " summary**:\n   - Which"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "dbe96df9-97fe-4d93-8340-2b64a69f2cb7"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " session"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "00f729e0-5468-4c02-b3a6-98beba82038b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " should"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "cebe3579-b89c-44fd-97e8-b7aa10607942"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " I generate a summary for?\n   "
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "487729a5-e31e-483f-a1aa-77797f11e915"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "- Would"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "ec4cab6d-a23a-48f0-81b2-3f9a6747c185"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " you like me to use"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "8fa941aa-0733-42d4-9179-15c5b669a958"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " the API"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "d70004b7-86d5-4fdb-b00d-a0875219cff6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " endpoint"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "a71ccc94-df65-4eee-9423-fd9161130669"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " shown"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "69d829b6-c1b9-45aa-8595-b0592370a385"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " in the"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "336578cb-2cd1-4949-a18a-490e1b7991ce"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " CLAUDE"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "3cc6b919-641d-432e-a24a-88c002171e12"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "."
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "fe5e3932-447c-44aa-9a7d-d5838ad4e034"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "md?"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "21245194-6b45-4081-8b66-8603b59180e1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n\nPlease"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "aff87eb7-cdd4-49fb-87a5-f4cd551d5eb6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " provide"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "1f578eba-3657-49de-b8ba-69d2530afa5b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " more details so"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "f94741c4-aa9e-43e5-b06e-ff465b3534b5"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " I can assist you effectively!"
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "c222d4da-3f6c-447c-8d48-06e6e15ec43d"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01FqfU9DNbuL6eDDTuExrxXR",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "I'd be happy to help with summary generation testing! However, I need a bit more context about what you'd like me to do. Could you clarify:\n\n1. **Are you asking me to**:\n   - Test the summary generation functionality in the claudetools.io codebase?\n   - Generate a summary of the current session?\n   - Write/run tests for summary generation?\n   - Something else?\n\n2. **If testing the feature**:\n   - Should I run the existing test suite?\n   - Do you want me to create new tests?\n   - Are there specific scenarios you want tested?\n\n3. **If generating a session summary**:\n   - Which session should I generate a summary for?\n   - Would you like me to use the API endpoint shown in the CLAUDE.md?\n\nPlease provide more details so I can assist you effectively!"
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 6394,
+          "cache_read_input_tokens": 15493,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 6394
+          },
+          "output_tokens": 3,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "uuid": "0958bb1c-fc8c-469a-af26-622f64268192"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 1
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "8605eb37-1b33-4e3d-b138-d3644886508e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "end_turn",
+          "stop_sequence": null
+        },
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 6394,
+          "cache_read_input_tokens": 15493,
+          "output_tokens": 394
+        }
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "76af3054-2e9a-4dd5-9603-6df7fd366f64"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_stop"
+      },
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "parent_tool_use_id": null,
+      "uuid": "016034e9-a980-46e0-9eba-6dbe3804a12a"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "duration_ms": 3815,
+      "duration_api_ms": 6242,
+      "num_turns": 1,
+      "result": "I'd be happy to help with summary generation testing! However, I need a bit more context about what you'd like me to do. Could you clarify:\n\n1. **Are you asking me to**:\n   - Test the summary generation functionality in the claudetools.io codebase?\n   - Generate a summary of the current session?\n   - Write/run tests for summary generation?\n   - Something else?\n\n2. **If testing the feature**:\n   - Should I run the existing test suite?\n   - Do you want me to create new tests?\n   - Are there specific scenarios you want tested?\n\n3. **If generating a session summary**:\n   - Which session should I generate a summary for?\n   - Would you like me to use the API endpoint shown in the CLAUDE.md?\n\nPlease provide more details so I can assist you effectively!",
+      "session_id": "25c42950-e4ac-4972-bdc3-a60ff4f2d38d",
+      "total_cost_usd": 0.0139029,
+      "usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 6394,
+        "cache_read_input_tokens": 15493,
+        "output_tokens": 394,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 6394,
+          "ephemeral_5m_input_tokens": 0
+        }
+      },
+      "modelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 20,
+          "outputTokens": 556,
+          "cacheReadInputTokens": 31104,
+          "cacheCreationInputTokens": 6394,
+          "webSearchRequests": 0,
+          "costUSD": 0.0139029,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "1fb96713-25b0-4180-9d03-66521c593680"
+    }
+  ],
+  "key": "runSession-2f875b1efd5b9dbc",
+  "recordedAt": "2026-03-02T02:47:02.006Z"
+}

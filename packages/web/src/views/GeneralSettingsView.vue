@@ -21,9 +21,6 @@
     <div v-if="error" class="error-message">{{ error }}</div>
 
     <div class="form-actions">
-      <button type="button" class="btn btn-secondary" @click="handleReset" :disabled="saving">
-        Reset to Defaults
-      </button>
       <button type="submit" class="btn btn-primary" :disabled="saving">
         <span v-if="saving" class="loading-spinner"></span>
         {{ saving ? 'Saving...' : 'Save Settings' }}
@@ -72,21 +69,6 @@ async function handleSave() {
   }
 }
 
-async function handleReset() {
-  if (!confirm('Reset all general settings to defaults?')) return;
-
-  saving.value = true;
-  error.value = null;
-
-  try {
-    await settingsStore.resetGeneralSettings();
-    uiStore.success('General settings reset to defaults');
-  } catch (err) {
-    error.value = err.message;
-  } finally {
-    saving.value = false;
-  }
-}
 </script>
 
 <style scoped>

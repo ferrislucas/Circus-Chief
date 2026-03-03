@@ -61,7 +61,7 @@ test.describe('Summary Regenerate', () => {
     await expect(page.locator('.generating-state')).not.toBeVisible();
 
     // The summary should now show the mock-generated text or the regenerated summary
-    // (Since we're using MOCK_CLAUDE=true in E2E tests, it will return a mock summary)
+    // (Since we're using VCR_MODE in E2E tests, it will return a recorded/replayed summary)
     const summaryText = await page.locator('.full-summary').textContent();
     expect(summaryText).toBeTruthy();
     expect(summaryText?.length).toBeGreaterThan(0);

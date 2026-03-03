@@ -528,13 +528,24 @@ export async function seedWorkLog(
 }
 
 export async function updateSessionStatus(sessionId: string, status: string) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
-  });
-  if (!response.ok) throw new Error('Failed to update session status');
-  return response.json();
+  const maxRetries = 3;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (!response.ok) throw new Error('Failed to update session status');
+      return response.json();
+    } catch (err: any) {
+      if (attempt < maxRetries - 1 && (err?.cause?.code === 'ECONNRESET' || err?.message?.includes('fetch failed'))) {
+        await new Promise(r => setTimeout(r, 200 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 export async function updateSessionMode(sessionId: string, mode: string) {
@@ -1430,22 +1441,38 @@ export function seedAssistantMessageWithTools(
 }
 
 /**
- * Seed multiple alternating user/assistant messages to create a scrollable conversation
+ * Seed multiple alternating user/assistant messages to create a scrollable conversation.
+ * Uses a batch script to insert all messages in a single process/transaction
+ * instead of spawning a separate process per message.
  */
 export function seedConversationHistory(sessionId: string, messageCount: number) {
-  const msgs: any[] = [];
+  const messages: any[] = [];
   for (let i = 0; i < messageCount; i++) {
     const isUser = i % 2 === 0;
-    const msg = isUser
-      ? seedUserMessage(sessionId, `User message ${i + 1}: Tell me about topic ${i + 1}.`)
-      : seedAssistantMessage(
-          sessionId,
-          `Assistant response ${i + 1}: Here is a detailed response about topic ${i}. `.repeat(5),
-          'claude-sonnet-4-20250514'
-        );
-    msgs.push(msg);
+    if (isUser) {
+      messages.push({
+        sessionId,
+        role: 'user',
+        content: `User message ${i + 1}: Tell me about topic ${i + 1}.`,
+      });
+    } else {
+      messages.push({
+        sessionId,
+        role: 'assistant',
+        content: `Assistant response ${i + 1}: Here is a detailed response about topic ${i}. `.repeat(5),
+        model: 'claude-sonnet-4-20250514',
+      });
+    }
   }
-  return msgs;
+
+  const seedScript = join(process.cwd(), 'scripts', 'seed-messages-batch.mjs');
+  const input = JSON.stringify({ dbPath: getDBPath(), messages });
+  const result = execSync(`node "${seedScript}"`, {
+    input,
+    encoding: 'utf-8',
+    timeout: 30000,
+  });
+  return JSON.parse(result);
 }
 
 // ============================================================

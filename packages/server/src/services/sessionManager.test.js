@@ -18,6 +18,19 @@ import { mkdtempSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
+// Mock the SDK to prevent real API calls in tests
+vi.mock('@anthropic-ai/claude-agent-sdk', () => {
+  return {
+    query: vi.fn(async function* () {
+      // Yield Claude Agent SDK-level events (not raw Anthropic API streaming events).
+      // handleStreamEvent expects: 'system', 'assistant', 'result' event types.
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'claude-haiku-4-5-20251001', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    }),
+  };
+});
+
 describe('sessionManager', () => {
   describe('buildPromptWithAttachments', () => {
     it('returns original prompt when no attachments', () => {
@@ -573,8 +586,6 @@ describe('sessionManager', () => {
     let tempDir;
 
     beforeEach(() => {
-      // Enable mock mode to avoid calling the real Claude API
-      process.env.MOCK_CLAUDE = 'true';
 
       sessionRepo = new SessionRepository();
       messageRepo = new MessageRepository();
@@ -590,7 +601,6 @@ describe('sessionManager', () => {
     });
 
     afterEach(() => {
-      delete process.env.MOCK_CLAUDE;
       if (tempDir && existsSync(tempDir)) {
         rmSync(tempDir, { recursive: true, force: true });
       }
@@ -704,8 +714,6 @@ describe('sessionManager', () => {
       // - No errors occur when events arrive after cleanup
       // - The session cleanup doesn't cause race conditions
 
-      process.env.MOCK_CLAUDE = 'true';
-
       const sessionRepo = new SessionRepository();
       const projectRepo = new ProjectRepository();
       const tempDir = mkdtempSync(join(tmpdir(), 'stream-event-test-'));
@@ -738,7 +746,6 @@ describe('sessionManager', () => {
         // that the session transitioned to the 'waiting' state, which means the
         // finally block executed and cleaned up activeSessions
       } finally {
-        delete process.env.MOCK_CLAUDE;
         if (existsSync(tempDir)) {
           rmSync(tempDir, { recursive: true, force: true });
         }
@@ -748,8 +755,6 @@ describe('sessionManager', () => {
     it('handles rapid session stop and event processing', async () => {
       // Tests the race condition where a session is stopped while events are still
       // being processed. The guard clause in handleStreamEvent prevents crashes.
-
-      process.env.MOCK_CLAUDE = 'true';
 
       const sessionRepo = new SessionRepository();
       const projectRepo = new ProjectRepository();
@@ -775,7 +780,6 @@ describe('sessionManager', () => {
         const finalSession = sessionRepo.getById(session.id);
         expect(finalSession.status).toBe('waiting');
       } finally {
-        delete process.env.MOCK_CLAUDE;
         if (existsSync(tempDir)) {
           rmSync(tempDir, { recursive: true, force: true });
         }
@@ -787,8 +791,6 @@ describe('sessionManager', () => {
       // ({@code if (!activeSessions.has(sessionId)) { return; }})
       // prevents trying to process or broadcast events for sessions that
       // have already been cleaned up.
-
-      process.env.MOCK_CLAUDE = 'true';
 
       const sessionRepo = new SessionRepository();
       const projectRepo = new ProjectRepository();
@@ -814,7 +816,6 @@ describe('sessionManager', () => {
         expect(finalSession.status).toBe('waiting');
         expect(finalSession.error).toBeNull();
       } finally {
-        delete process.env.MOCK_CLAUDE;
         if (existsSync(tempDir)) {
           rmSync(tempDir, { recursive: true, force: true });
         }

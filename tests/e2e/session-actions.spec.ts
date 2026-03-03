@@ -260,9 +260,10 @@ test.describe('Stop / Restart Sessions', () => {
     const session = await seedSession(project.id, {
       prompt: 'Running session',
       name: 'Running Session',
+      startImmediately: false,
     });
 
-    // Update status to running
+    // Update status to running (no actual agent process — avoids VCR race)
     await updateSessionStatus(session.id, 'running');
 
     // Call stop API
@@ -277,6 +278,7 @@ test.describe('Stop / Restart Sessions', () => {
     const session = await seedSession(project.id, {
       prompt: 'Error session',
       name: 'Error Session',
+      startImmediately: false,
     });
 
     // Set session to error state (the state restart is designed to recover from)
@@ -302,6 +304,7 @@ test.describe('Stop / Restart Sessions', () => {
     const session = await seedSession(project.id, {
       prompt: 'Stopped session',
       name: 'Stopped Session',
+      startImmediately: false,
     });
 
     // Set status to stopped
@@ -329,11 +332,17 @@ test.describe('Active Sessions View', () => {
     const session1 = await seedSession(project1.id, {
       prompt: 'Session 1',
       name: 'Session 1',
+      startImmediately: false,
     });
     const session2 = await seedSession(project2.id, {
       prompt: 'Session 2',
       name: 'Session 2',
+      startImmediately: false,
     });
+
+    // Set sessions to waiting so they appear in the active view
+    await updateSessionStatus(session1.id, 'waiting');
+    await updateSessionStatus(session2.id, 'waiting');
 
     await navigateAndWait(page, '/sessions/active');
 
@@ -434,11 +443,17 @@ test.describe('Active Sessions View', () => {
     const session1 = await seedSession(project1.id, {
       prompt: `StarFilterA-${uniqueId}`,
       name: `StarFilterA-${uniqueId}`,
+      startImmediately: false,
     });
     const session2 = await seedSession(project2.id, {
       prompt: `StarFilterB-${uniqueId}`,
       name: `StarFilterB-${uniqueId}`,
+      startImmediately: false,
     });
+
+    // Set sessions to waiting so they appear in the active view
+    await updateSessionStatus(session1.id, 'waiting');
+    await updateSessionStatus(session2.id, 'waiting');
 
     // Star one session via API
     await toggleSessionStar(session1.id);
