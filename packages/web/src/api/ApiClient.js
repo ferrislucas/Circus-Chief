@@ -1115,6 +1115,14 @@ export class ApiClient {
     return this.#request('GET', '/agent-calls/filter-options');
   }
 
+  /**
+   * Delete all agent call logs
+   * @returns {Promise<{success: boolean, deleted: number}>}
+   */
+  async deleteAllAgentCallLogs() {
+    return this.#request('DELETE', '/agent-calls');
+  }
+
   // Settings
 
   /**
