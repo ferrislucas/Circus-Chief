@@ -193,6 +193,13 @@
       </div>
     </form>
 
+    <!-- Quick Response Settings Modal -->
+    <QuickResponseSettings
+      :isOpen="quickResponseSettingsOpen"
+      :projectId="route.params.id"
+      @close="quickResponseSettingsOpen = false"
+    />
+
     <!-- Slash Command Wizard Modal -->
     <SlashCommandWizard
       v-model:isOpen="showSlashCommandWizard"
@@ -219,6 +226,7 @@ import FileAttachment from '../components/FileAttachment.vue';
 import ModelSelector from '../components/ModelSelector.vue';
 import ModeSelector from '../components/ModeSelector.vue';
 import QuickResponsesPanel from '../components/QuickResponsesPanel.vue';
+import QuickResponseSettings from '../components/QuickResponseSettings.vue';
 import SchedulingOptions from '../components/SchedulingOptions.vue';
 import ResizableTextarea from '../components/ResizableTextarea.vue';
 import SlashCommandButton from '../components/SlashCommandButton.vue';
