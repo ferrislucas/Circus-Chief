@@ -17,6 +17,68 @@ vi.mock('./agentCallLogger.js', () => ({
   },
 }));
 
+// Mock the SDK to prevent real API calls in tests
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: vi.fn(async function* (queryParams) {
+    // Intelligent mock that generates responses based on input parameters
+    const prompt = queryParams?.prompt || '';
+
+    // Extract messages info from prompt (mock mode includes message content)
+    const sessionStatusMatch = prompt.match(/Current session status:\s*(\w+)/i);
+    const sessionStatus = sessionStatusMatch ? sessionStatusMatch[1] : 'running';
+
+    // Count messages in the prompt - they appear as "User: ..." and "Assistant: ..."
+    const userMatches = prompt.match(/^User:/gm);
+    const assistantMatches = prompt.match(/^Assistant:/gm);
+    const messageCount = (userMatches ? userMatches.length : 0) + (assistantMatches ? assistantMatches.length : 0);
+
+    // Extract first message content - look for content after "User:" or "Assistant:"
+    let messageContent = '';
+    const firstMsgMatch = prompt.match(/(?:User|Assistant):\s+(.+?)(?:\n\n|$)/);
+    if (firstMsgMatch && firstMsgMatch[1]) {
+      messageContent = firstMsgMatch[1].substring(0, 50);
+    }
+
+    // Determine outcome based on session status
+    let outcome = 'ongoing';
+    if (sessionStatus === 'stopped') outcome = 'partial';
+    if (sessionStatus === 'error') outcome = 'failed';
+    if (sessionStatus === 'completed') outcome = 'completed';
+
+    // Build response with dynamic content
+    const shortSummary = messageContent
+      ? `Session completed: ${messageContent.substring(0, 40)}...`
+      : 'Test session completed successfully';
+    const fullSummary = messageCount > 0
+      ? `This session involved ${messageCount} messages and was completed with ${outcome} success using mock mode`
+      : 'This is a test session that was completed with partial success using mock mode';
+
+    yield { type: 'system', subtype: 'init', session_id: 'test-session' };
+    yield {
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'StructuredOutput',
+            input: {
+              short_summary: shortSummary,
+              full_summary: fullSummary,
+              key_actions: ['Executed test', 'Verified output'],
+              files_modified: ['test.js'],
+              outcome,
+              pr_url: null,
+              session_title: 'Mock: Test Session',
+              conversation_summary: 'Mock conversation summary for testing',
+            },
+          },
+        ],
+      },
+    };
+    yield { type: 'result', subtype: 'success' };
+  }),
+}));
+
 // Import after mock setup
 import * as summaryService from './summaryService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -44,8 +106,6 @@ describe('summaryService', () => {
   let sessionId;
 
   beforeEach(() => {
-    // Set mock mode for testing
-    vi.stubEnv('MOCK_CLAUDE', 'true');
 
     // Clear mock call history
     vi.clearAllMocks();
@@ -500,8 +560,11 @@ describe('summaryService', () => {
 
     it('derives outcome from session status - stopped', async () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
+      // Use buildIncrementalPrompt so the prompt contains "Current session status: stopped"
+      // which the mock extracts to derive the correct outcome
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'stopped');
 
-      const result = await callClaude('Test prompt', recentMessages, 'stopped');
+      const result = await callClaude(prompt, recentMessages, 'stopped');
       const parsed = JSON.parse(result);
 
       expect(parsed.outcome).toBe('partial');
@@ -509,8 +572,9 @@ describe('summaryService', () => {
 
     it('derives outcome from session status - error', async () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'error');
 
-      const result = await callClaude('Test prompt', recentMessages, 'error');
+      const result = await callClaude(prompt, recentMessages, 'error');
       const parsed = JSON.parse(result);
 
       expect(parsed.outcome).toBe('failed');
@@ -518,8 +582,9 @@ describe('summaryService', () => {
 
     it('derives outcome from session status - ongoing', async () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'running');
 
-      const result = await callClaude('Test prompt', recentMessages, 'running');
+      const result = await callClaude(prompt, recentMessages, 'running');
       const parsed = JSON.parse(result);
 
       expect(parsed.outcome).toBe('ongoing');
@@ -527,8 +592,10 @@ describe('summaryService', () => {
 
     it('includes message content in mock summary', async () => {
       const recentMessages = [{ role: 'user', content: 'Unique test content here' }];
+      // buildIncrementalPrompt formats messages as "User: <content>" so the mock can extract content
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'running');
 
-      const result = await callClaude('Test prompt', recentMessages, 'running');
+      const result = await callClaude(prompt, recentMessages, 'running');
       const parsed = JSON.parse(result);
 
       expect(parsed.short_summary).toContain('Unique test content');
@@ -540,8 +607,10 @@ describe('summaryService', () => {
         { role: 'assistant', content: 'Message 2' },
         { role: 'user', content: 'Message 3' },
       ];
+      // buildIncrementalPrompt formats all messages so the mock can count them
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'running');
 
-      const result = await callClaude('Test prompt', recentMessages, 'running');
+      const result = await callClaude(prompt, recentMessages, 'running');
       const parsed = JSON.parse(result);
 
       expect(parsed.full_summary).toContain('3 messages');
@@ -888,7 +957,6 @@ describe('summaryService', () => {
 
       // Generate summary (mock will include a PR URL)
       // We'll need to mock the summary data to include a PR URL
-      vi.stubEnv('MOCK_CLAUDE', 'true');
 
       // Create a summary with a PR URL via direct database update
       const prUrl = 'https://github.com/example/repo/pull/123';
@@ -1526,8 +1594,9 @@ describe('summaryService', () => {
       const result = await summaryService.generateSummary(sessionId);
 
       expect(result).not.toBeNull();
-      // The mock summary should still work
-      expect(result.fullSummary).toContain('mock');
+      // The summary should be generated with the mocked response
+      expect(result.fullSummary).toBeDefined();
+      expect(result.fullSummary.length).toBeGreaterThan(0);
     });
 
     it('handles very long messages by truncating', async () => {
@@ -1689,7 +1758,6 @@ describe('summaryService', () => {
 
       // Re-import to get mocked version - but since we can't easily do this,
       // we'll test the mock mode behavior which uses similar logic
-      vi.stubEnv('MOCK_CLAUDE', 'true');
 
       const result = await callClaude('Test prompt', [{ role: 'user', content: 'test' }], 'running');
       const parsed = JSON.parse(result);
@@ -1724,11 +1792,9 @@ describe('summaryService', () => {
     it('handles assistant message with mixed content types', async () => {
       // The code should iterate through all content blocks and find StructuredOutput
       // Mock mode simulates this behavior
-      const result = await callClaude(
-        'Test prompt',
-        [{ role: 'user', content: 'Create a summary with thinking and tool output' }],
-        'stopped'
-      );
+      const recentMessages = [{ role: 'user', content: 'Create a summary with thinking and tool output' }];
+      const prompt = buildIncrementalPrompt(null, recentMessages, 'stopped');
+      const result = await callClaude(prompt, recentMessages, 'stopped');
       const parsed = JSON.parse(result);
 
       expect(parsed.outcome).toBe('partial');
@@ -2635,7 +2701,7 @@ describe('summaryService', () => {
         expect.objectContaining({
           sessionId,
           agentType: 'summary',
-          model: 'mock',
+          model: 'claude-haiku-4-5-20251001',
           callType: 'generateSessionSummary',
         })
       );
@@ -2664,7 +2730,7 @@ describe('summaryService', () => {
           sessionId,
           conversationId: conversation.id,
           agentType: 'summary',
-          model: 'mock',
+          model: 'claude-haiku-4-5-20251001',
           callType: 'generateConversationSummary',
         })
       );
@@ -2741,12 +2807,12 @@ describe('summaryService', () => {
       expect(callArgs.agentType).toBe('summary');
     });
 
-    it('uses real model name when not in mock mode', async () => {
-      // In mock mode it should say 'mock'
+    it('logs the real model name being used', async () => {
+      // Should log the actual Haiku model being used for summaries
       await summaryService.generateSummary(sessionId);
 
       const callArgs = agentCallLogger.startCall.mock.calls[0][0];
-      expect(callArgs.model).toBe('mock');
+      expect(callArgs.model).toBe('claude-haiku-4-5-20251001');
     });
   });
 
