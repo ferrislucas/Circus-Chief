@@ -41,19 +41,19 @@
         :max-height="400"
       />
       <p class="form-help">
-        Customize how session titles are generated. Edit the prompt above or reset to defaults.
+        Customize how session titles are generated.
       </p>
     </div>
 
     <div v-if="error" class="error-message">{{ error }}</div>
 
     <div class="form-actions">
-      <button type="button" class="btn btn-secondary" @click="handleReset" :disabled="saving">
-        Reset to Defaults
-      </button>
       <button type="submit" class="btn btn-primary" :disabled="saving">
         <span v-if="saving" class="loading-spinner"></span>
         {{ saving ? 'Saving...' : 'Save Settings' }}
+      </button>
+      <button type="button" class="btn btn-secondary" :disabled="saving" @click="handleReset">
+        Reset to Defaults
       </button>
     </div>
   </form>

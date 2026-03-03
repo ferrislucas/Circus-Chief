@@ -15,6 +15,9 @@ export const useSessionsStore = defineStore('sessions', {
     activeConversationId: null, // Currently selected conversation ID
     workLogs: {}, // Keyed by messageId: { [messageId]: WorkLog[] }
     partialThinkingBySession: {}, // Keyed by sessionId: { [sessionId]: string | null }
+    partialText: '', // Streaming partial text for current assistant response
+    _partialThrottleTimer: null, // Timer for throttling partial text updates (not reactive)
+    _pendingPartialText: null, // Pending partial text during throttle window (not reactive)
     expandedSessions: new Set(), // Track which parent sessions are expanded
     statusFilter: null, // 'running' | 'idle' | null (null = show all)
     starredFilter: null, // 'starred' | 'unstarred' | null (null = show all)
@@ -649,7 +652,7 @@ export const useSessionsStore = defineStore('sessions', {
       this.loading = true;
       this.error = null;
       try {
-        this.sessions = await api.getProjectSessions(projectId, false, this.starredFilter);
+        this.sessions = await api.getProjectSessions(projectId, false, null);
       } catch (err) {
         this.error = err.message;
       } finally {
@@ -972,6 +975,10 @@ export const useSessionsStore = defineStore('sessions', {
     },
 
     addMessage(message) {
+      // Guard: only accept messages for the currently-viewed session
+      if (this.currentSession && message.sessionId && message.sessionId !== this.currentSession.id) {
+        return;
+      }
       // Prevent duplicate additions (can happen if WebSocket delivers message multiple times
       // or if fetchMessages returns the message while we're also receiving it via WebSocket)
       const exists = this.messages.some(m => m.id === message.id);
@@ -1016,6 +1023,10 @@ export const useSessionsStore = defineStore('sessions', {
     },
 
     addWorkLog(log) {
+      // Guard: only accept work logs for the currently-viewed session
+      if (this.currentSession && log.sessionId && log.sessionId !== this.currentSession.id) {
+        return;
+      }
       const messageId = log.messageId || '_unassociated';
       const currentLogs = this.workLogs[messageId] || [];
       // Prevent duplicate work logs - check if log with same id already exists
@@ -1080,6 +1091,43 @@ export const useSessionsStore = defineStore('sessions', {
     // Clear all partial thinking (for cleanup)
     clearAllPartialThinking() {
       this.partialThinkingBySession = {};
+    },
+
+    // ==================== PARTIAL TEXT ACTIONS ====================
+
+    /**
+     * Set partial text with throttling to reduce CPU load on iPad
+     * @param {string} text - The streaming partial text
+     */
+    setPartialText(text) {
+      const PARTIAL_THROTTLE_MS = 150;
+      this._pendingPartialText = text;
+
+      // If no throttle timer is running, update immediately and start timer
+      if (!this._partialThrottleTimer) {
+        this.partialText = text;
+
+        this._partialThrottleTimer = setTimeout(() => {
+          // Apply any pending update that arrived during throttle period
+          if (this._pendingPartialText !== null && this._pendingPartialText !== this.partialText) {
+            this.partialText = this._pendingPartialText;
+          }
+          this._partialThrottleTimer = null;
+          this._pendingPartialText = null;
+        }, PARTIAL_THROTTLE_MS);
+      }
+    },
+
+    /**
+     * Clear partial text and reset throttle state
+     */
+    clearPartialText() {
+      this.partialText = '';
+      this._pendingPartialText = null;
+      if (this._partialThrottleTimer) {
+        clearTimeout(this._partialThrottleTimer);
+        this._partialThrottleTimer = null;
+      }
     },
 
     // ==================== USAGE ACTIONS ====================
@@ -1655,6 +1703,10 @@ export const useSessionsStore = defineStore('sessions', {
      */
     updateConversation(conversation) {
       if (!conversation?.id) return;
+      // Guard: only accept conversations for the currently-viewed session
+      if (this.currentSession && conversation.sessionId && conversation.sessionId !== this.currentSession.id) {
+        return;
+      }
 
       const index = this.conversations.findIndex((c) => c.id === conversation.id);
       if (index !== -1) {
@@ -1679,6 +1731,10 @@ export const useSessionsStore = defineStore('sessions', {
      */
     addConversation(conversation) {
       if (!conversation?.id) return;
+      // Guard: only accept conversations for the currently-viewed session
+      if (this.currentSession && conversation.sessionId && conversation.sessionId !== this.currentSession.id) {
+        return;
+      }
 
       // Check if already exists
       const exists = this.conversations.some((c) => c.id === conversation.id);
@@ -1703,7 +1759,11 @@ export const useSessionsStore = defineStore('sessions', {
      * @param {string} conversationId - Conversation ID
      * @param {Object|null} newActiveConversation - New active conversation if any
      */
-    removeConversation(conversationId, newActiveConversation = null) {
+    removeConversation(conversationId, newActiveConversation = null, sessionId = null) {
+      // Guard: only accept conversation removals for the currently-viewed session
+      if (this.currentSession && sessionId && sessionId !== this.currentSession.id) {
+        return;
+      }
       this.conversations = this.conversations.filter((c) => c.id !== conversationId);
 
       if (newActiveConversation) {

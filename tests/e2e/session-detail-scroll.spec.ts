@@ -73,38 +73,50 @@ test.describe('Session Detail Scroll Behavior', () => {
     await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await expect(page.locator('[data-testid="message-user"]')).toBeVisible({ timeout: 10000 });
 
-    // The page itself should be scrollable (not just an inner container)
-    const pageInfo = await page.evaluate(() => {
-      const docEl = document.documentElement;
+    // The messages container uses max-height (viewport-relative) with overflow-y: auto.
+    // This is intentional for layout stability. The key check is that the container
+    // itself is scrollable and not trapped in a tiny fixed-pixel container.
+    const containerInfo = await page.evaluate(() => {
+      const container = document.querySelector('.messages');
+      if (!container) return null;
+      const style = window.getComputedStyle(container);
       return {
-        scrollHeight: docEl.scrollHeight,
-        clientHeight: docEl.clientHeight,
-        isScrollable: docEl.scrollHeight > docEl.clientHeight + 100,
+        scrollHeight: container.scrollHeight,
+        clientHeight: container.clientHeight,
+        isScrollable: container.scrollHeight > container.clientHeight + 100,
+        maxHeight: style.maxHeight,
+        // Verify it's not a tiny fixed-pixel container (old bug was 500px)
+        clientHeightPx: container.clientHeight,
       };
     });
 
-    // With 80 paragraphs of content, the page should be well scrollable.
-    // If the messages are trapped in a 500px container, the page won't be very scrollable.
-    expect(pageInfo.isScrollable).toBe(true);
+    expect(containerInfo).not.toBeNull();
+    // With 80 paragraphs, the messages container should be scrollable
+    expect(containerInfo!.isScrollable).toBe(true);
+    // Container should be at least 300px tall (not trapped in a tiny box)
+    expect(containerInfo!.clientHeightPx).toBeGreaterThan(300);
 
-    // Scroll to the very bottom of the page
+    // Scroll to the very bottom of the messages container
     await page.evaluate(() => {
-      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
+      const container = document.querySelector('.messages');
+      if (container) container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
     });
     await page.waitForTimeout(300);
 
     // Verify we reached the bottom
     const afterScroll = await page.evaluate(() => {
-      const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
-      return { distanceFromBottom: scrollHeight - scrollTop - clientHeight };
+      const container = document.querySelector('.messages');
+      if (!container) return { distanceFromBottom: 999 };
+      return { distanceFromBottom: container.scrollHeight - container.scrollTop - container.clientHeight };
     });
     expect(afterScroll.distanceFromBottom).toBeLessThan(5);
 
     // Wait and verify no bounce-back
     await page.waitForTimeout(500);
     const afterWait = await page.evaluate(() => {
-      const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
-      return { distanceFromBottom: scrollHeight - scrollTop - clientHeight };
+      const container = document.querySelector('.messages');
+      if (!container) return { distanceFromBottom: 999 };
+      return { distanceFromBottom: container.scrollHeight - container.scrollTop - container.clientHeight };
     });
     expect(afterWait.distanceFromBottom).toBeLessThan(5);
   });

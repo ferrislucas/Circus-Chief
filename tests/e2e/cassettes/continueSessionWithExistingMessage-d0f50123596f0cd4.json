@@ -1,0 +1,1380 @@
+{
+  "prompt": "Branch 2",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/private/tmp/test",
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "default",
+      "slash_commands": [
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan"
+      ],
+      "skills": [],
+      "plugins": [],
+      "uuid": "ed46032e-97e5-4ea2-aae9-0f8cc78f3f1c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_start",
+        "message": {
+          "model": "claude-haiku-4-5-20251001",
+          "id": "msg_01PAqUoBDCMDYRGaLdVfHJa3",
+          "type": "message",
+          "role": "assistant",
+          "content": [
+            {
+              "type": "thinking",
+              "thinking": "",
+              "signature": ""
+            }
+          ],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "usage": {
+            "input_tokens": 10,
+            "cache_creation_input_tokens": 494,
+            "cache_read_input_tokens": 16569,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 494
+            },
+            "output_tokens": 3,
+            "service_tier": "standard",
+            "inference_geo": "not_available"
+          }
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "0a8b8e2c-db7a-4eb5-876a-7bdfeff2dec5"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "thinking",
+          "thinking": "",
+          "signature": ""
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "95e24138-673c-4a93-82d0-84fc8e5e3c3a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "The user just"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "a534c7a6-0e25-41b9-8a5d-aa3d158cd2ab"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " said \"Branch 2\". This is"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "89af9542-ca50-4ede-998b-5423307b20df"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " a very"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "7c4142c9-6582-4db9-984e-3328ae37dd9f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " short"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "fc2122e0-e6f9-4ca8-b860-38f0280de1c1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " message. Let"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "76d13361-4c98-4e4e-9c89-7a9e67c93757"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " me think"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "62448d50-40d9-4033-9a60-309c160251df"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " about what they might mean:\n\n1"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "cb534cb7-bbf5-467b-9c1f-a3ed40663e15"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ". They could"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "2e33bb7a-c902-4de9-b791-8c77523daaa7"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " be asking me to create"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "5ab1572f-11eb-44b7-96e6-22929dc67c19"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " a new branch called"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "ad98a622-e045-4a4e-88db-07d5a784f939"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " \"Branch 2\"\n2."
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "698916bd-f9ce-4882-9f23-61f51aab7c17"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " They could be asking me to switch to"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "c9a3d529-6f2f-4781-a005-406227541c19"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " a"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "dad278b2-7cc6-469a-a782-8aea8f70551f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " branch"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "7ee3abb8-4fac-4c04-97f1-b8fe737aa7b4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " called \"Branch 2\""
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "5c760f61-8c0b-4f82-b4b5-5c36275bcf8f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n3. They could be asking me"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "88de72eb-c696-4715-85ae-7d035afd3531"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " to list branches and"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "8f1767f6-3466-4ea2-9446-4065d568987c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " show"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "4cdf3927-2773-47a2-a83c-dbc31073ecb6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " \""
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "6fe9466d-3fc3-45fd-ae14-4854cc6d2f85"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "Branch 2\"\n4. They"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "440046ab-8971-4a83-b78e-dfbb4756e243"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " could be referring"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "71ed42b6-c1f7-4eb1-a53b-b1d2ae5ab475"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " to something"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "5fa76488-2c3a-4c88-8768-31089b9dfb87"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " from"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "5ffec072-7dba-493e-9012-e824eab4f68c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " a"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "23af85d5-0fe3-4c9f-a192-581934a30ed2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " previous conversation\n5. They could be"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "1c2d316f-a9de-400d-b02f-8d89f253f956"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " asking"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "010b14eb-9b8a-428a-a229-7cd06b4e2630"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " for"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "4ad1f493-aa80-46e0-a672-084e215ad98a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " clar"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "921182cb-7630-4677-a046-f1aaa521e5b5"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "ification or"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "185a2e98-4b81-43c4-941b-66f74e75f9ec"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " continuation"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "9c02f480-ce31-41df-8ba2-25ab29673f50"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " of"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "5c5688ab-4e13-4050-b157-d06d440a3005"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " something"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "ee591e30-435c-4d98-9862-c3847eb867cf"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n\nSince I"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "65c8d0b2-60a7-40d1-8283-0dc23def814c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " don't have context"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "9a65f8ac-d25f-4af1-8bba-daa590891a60"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " about what they were"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "a32838fa-43c4-4853-9d33-e6cd19b5077b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " doing"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "c9fe3347-5a11-4d7e-863d-005ccf31d8d5"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " before, I should ask for clarification"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "c020f4fe-0417-45fc-a9b2-0f6744ca073b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " about"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "74c4803e-b5f1-4d01-b963-e16e65d7dccf"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " what they want to do with"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "fee8494d-2505-46c7-bf3b-065aee4a2403"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " \"Branch 2\". Are"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "fd6fd9a3-a52f-4276-b043-b7f851abf2c9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " they asking"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "2339e608-c587-41b2-b679-666f5468df9c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " me to:\n- Create a new"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "5d38390b-59ef-4f5f-8d47-e831b502990c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " git"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "eca814cb-29e1-4721-b10e-95a8b0c3c76a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " branch?"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "70cd00bc-6232-447a-81aa-2edf8f7e0ca1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n- Switch to an"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "a492f813-a25a-456d-a249-b7e731808a95"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " existing branch?\n- Something"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "42f44325-e6f7-4e3d-80b4-b6250b0045b3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " else?\n\nLet"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "9d5f7f8d-30a2-42e8-b93e-f6e4adda715c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " me ask them"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "37d0875b-c9b9-42d1-86de-263273a885a3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " to clarify what they'd"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "681a13e2-8650-4e49-8707-ec5ecb7c2cff"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " like me"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "04761bf9-b051-415e-a8d1-af64104991a5"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " to do."
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "1f9c02e1-54e0-4492-bce8-2b8971cb6119"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ""
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "f8fa3a7f-06b6-41b4-8210-1eb2c87ecb6e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "signature_delta",
+          "signature": "EoMHCkYICxgCKkAOc8+hmvSUrLjFZgxEda3gg8XQNixgrt2KMUHO8ZeUdpB1rBKy5NOivG2XWm9nWFgDmjjgXfHhpvilZgskuVoEEgyZ0G/g1271tDjY8xgaDM4szpXMJaypXlFV3SIwlMbmnbvD2YutTu6OU61K9+O+tw6abBSP1++nY+z38B0BZMsslsPL+6S5cbbN3YM5KuoFmPcFR4QHIWgcVtGO3NSC4qImJFzeciTv7Yrv8sjMrnPWyO6vzMmlB/+H+Az4OD9T6gSSDaT8BN/7gSulj7mq+zgxS9SUukmosd+mb9riGuw8iUW7A0kc9PZgDVEYItnGj6mAuKX8lVnMMWTKOAXQYyHG5QHrbqJvZa0/d0a6xAR64aDoQ//POryzvU+dd6FP3v83Ak0u3vVZfzgceVQheBxZI2EQHfgLLh8np/1jhJTekIxZKvCcyBy631ARyDKD6DueOqu1Y+yzI5RyYYfVpOlX1K0117sQzFzPT+8uiduHbuzpqDCVaw6lMVJJ3t9X91MLwc3XHuF2F5eyDAFp48ZsY2YBljY/2F4Pi99svG5NXI5BCZOC1/8cub9Jjk8ednMd6NPT6V4/0itNIRUb3PFyyQ8vq44fNlZn9Ylm0JSDvE73wpfgP+sUzqyQkfmpzfb7y3Z0b0hUq0Yv0FY9vWsAa5Zv0/DgnHrGzMGSwXXyKTNzxXDMgKlx8VfQ8qVapATfq0asT1vwFWWe8ahou0abbQgFx2GixSZnkvuXZAv//PqfJF4cUEwy/L2KGLWGgKP8TCH7b1ewT/lliM98sMJ3HnbS2SX6KBvEViWrmGSfSO4gjMx/5G0zbW5mt2DueppJok90LSCqCogmbiy2uhFanSJaFmsuhaAiDafc+Te/nhlNnyppKtCyVfWM78ScyLdZNHb3ftfptU7AVBfW5mvt8KbU2EthskHWI9fcmPNcHQnXbrVjdYQg0yuDL9QabWBNwS4naaAfdoR3ZJD088DE2LnXPcFeEf6syu4jzyK6pEhTexmEswW//qEP5WWW2Tv9dT6jTm1BiyOnb3S6VJ42GueQjWAhvbdkBPzI2SQJSM0U1462lIbVvVDRRIjzK+qAiyJVAG/kMiYKk1pOTEGZWXCUawboxZ0lvz7sYpEUQOuP64zadJGZDf8uWkvtiO0LRjOTinCKla9m9Q3O/oR2O6PLhh+IAoQYAQ=="
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "16540ce7-a4df-4f79-a09a-8ef6d4ad4f7b"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01PAqUoBDCMDYRGaLdVfHJa3",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user just said \"Branch 2\". This is a very short message. Let me think about what they might mean:\n\n1. They could be asking me to create a new branch called \"Branch 2\"\n2. They could be asking me to switch to a branch called \"Branch 2\"\n3. They could be asking me to list branches and show \"Branch 2\"\n4. They could be referring to something from a previous conversation\n5. They could be asking for clarification or continuation of something\n\nSince I don't have context about what they were doing before, I should ask for clarification about what they want to do with \"Branch 2\". Are they asking me to:\n- Create a new git branch?\n- Switch to an existing branch?\n- Something else?\n\nLet me ask them to clarify what they'd like me to do.",
+            "signature": "EoMHCkYICxgCKkAOc8+hmvSUrLjFZgxEda3gg8XQNixgrt2KMUHO8ZeUdpB1rBKy5NOivG2XWm9nWFgDmjjgXfHhpvilZgskuVoEEgyZ0G/g1271tDjY8xgaDM4szpXMJaypXlFV3SIwlMbmnbvD2YutTu6OU61K9+O+tw6abBSP1++nY+z38B0BZMsslsPL+6S5cbbN3YM5KuoFmPcFR4QHIWgcVtGO3NSC4qImJFzeciTv7Yrv8sjMrnPWyO6vzMmlB/+H+Az4OD9T6gSSDaT8BN/7gSulj7mq+zgxS9SUukmosd+mb9riGuw8iUW7A0kc9PZgDVEYItnGj6mAuKX8lVnMMWTKOAXQYyHG5QHrbqJvZa0/d0a6xAR64aDoQ//POryzvU+dd6FP3v83Ak0u3vVZfzgceVQheBxZI2EQHfgLLh8np/1jhJTekIxZKvCcyBy631ARyDKD6DueOqu1Y+yzI5RyYYfVpOlX1K0117sQzFzPT+8uiduHbuzpqDCVaw6lMVJJ3t9X91MLwc3XHuF2F5eyDAFp48ZsY2YBljY/2F4Pi99svG5NXI5BCZOC1/8cub9Jjk8ednMd6NPT6V4/0itNIRUb3PFyyQ8vq44fNlZn9Ylm0JSDvE73wpfgP+sUzqyQkfmpzfb7y3Z0b0hUq0Yv0FY9vWsAa5Zv0/DgnHrGzMGSwXXyKTNzxXDMgKlx8VfQ8qVapATfq0asT1vwFWWe8ahou0abbQgFx2GixSZnkvuXZAv//PqfJF4cUEwy/L2KGLWGgKP8TCH7b1ewT/lliM98sMJ3HnbS2SX6KBvEViWrmGSfSO4gjMx/5G0zbW5mt2DueppJok90LSCqCogmbiy2uhFanSJaFmsuhaAiDafc+Te/nhlNnyppKtCyVfWM78ScyLdZNHb3ftfptU7AVBfW5mvt8KbU2EthskHWI9fcmPNcHQnXbrVjdYQg0yuDL9QabWBNwS4naaAfdoR3ZJD088DE2LnXPcFeEf6syu4jzyK6pEhTexmEswW//qEP5WWW2Tv9dT6jTm1BiyOnb3S6VJ42GueQjWAhvbdkBPzI2SQJSM0U1462lIbVvVDRRIjzK+qAiyJVAG/kMiYKk1pOTEGZWXCUawboxZ0lvz7sYpEUQOuP64zadJGZDf8uWkvtiO0LRjOTinCKla9m9Q3O/oR2O6PLhh+IAoQYAQ=="
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 494,
+          "cache_read_input_tokens": 16569,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 494
+          },
+          "output_tokens": 3,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "uuid": "7510e2c5-89d1-4d7a-a255-c291dd86405a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "cf4ce988-7e25-432b-a378-4ac0c07f30d1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 1,
+        "content_block": {
+          "type": "text",
+          "text": ""
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "9712e134-15f0-4037-bc4b-6c8b9851000e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "I'm not"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "72a43579-e868-47dc-9c80-1ce4bb317396"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " sure what you'd like me to do"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "873a46cc-343a-4179-949d-b34241b5664f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " with \"Branch 2\". Could you"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "44abe6db-a476-4e8b-9f81-195989b0c1d3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " provide"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "bee12c8d-d856-40a8-b8d9-0839342d0be4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " more context?"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "abd5821b-2529-42dc-ab6e-d9ee07e8b4bc"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " Are"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "d8041173-4fd7-4edc-bff1-e7e40424307b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " you asking me to:\n\n1"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "f0b48d63-603f-406b-82d3-ece8ff4e70b3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ". **"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "fce616ab-29be-432c-8c6f-67a83645507b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "Create a new git"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "e6669712-d161-427e-87d2-2e63785ffd21"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " branch**"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "d84ce40a-14ef-4b87-9e01-15aaea48a9a9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " called \"Branch 2\""
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "dc93422c-2987-4338-bec3-98162cc0df6b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "?\n2. **Switch to an"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "e6b0f828-ff9a-48e3-b851-368456ec4f99"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " existing branch** called \"Branch 2"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "8eb38a1d-e244-4888-bab5-1f1977f26811"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\"?\n3. **List all"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "7c08ed5f-af5b-43a3-82c3-e67ae5a7e4c3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " git"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "af53c863-1733-42b3-ad4c-4224138cd32c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " branches** to"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "eccb33f4-6524-4ab3-ba07-216fdeabf174"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " see Branch"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "b9057119-5b4e-4c1f-8a26-4f24076d292b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " 2?\n4. Something"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "add4e8b6-6542-42b2-b7ca-ad1b2e2710ea"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " else related"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "075ce381-06e2-4a07-a304-42c03b2f0922"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " to branches in"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "69899513-70cb-4999-93e9-5f78dfdb4c6d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " your project"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "a780960f-285a-417a-a6fe-b3e484dc9b40"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "?\n\nPlease let me know what you"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "f47be547-6a10-420c-b9f8-3d7365eb6005"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "'d like to"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "f10037ee-6d61-4160-bc3d-fe5411db4dce"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " accomplish,"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "d1b48923-5594-4f15-b63a-e1d16d599e15"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " and I'll be happy to help!"
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "f6fe27ea-642a-49fa-b279-a464aefadee2"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01PAqUoBDCMDYRGaLdVfHJa3",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "I'm not sure what you'd like me to do with \"Branch 2\". Could you provide more context? Are you asking me to:\n\n1. **Create a new git branch** called \"Branch 2\"?\n2. **Switch to an existing branch** called \"Branch 2\"?\n3. **List all git branches** to see Branch 2?\n4. Something else related to branches in your project?\n\nPlease let me know what you'd like to accomplish, and I'll be happy to help!"
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 494,
+          "cache_read_input_tokens": 16569,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 494
+          },
+          "output_tokens": 3,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "uuid": "ab3e5c95-171e-49ed-9fbd-3e64b0b6c65f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 1
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "f172fcde-d887-4603-a4e7-704740b5b857"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "end_turn",
+          "stop_sequence": null
+        },
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 494,
+          "cache_read_input_tokens": 16569,
+          "output_tokens": 304
+        }
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "0a918a36-28dd-4f7d-81d8-d4d78662ce13"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_stop"
+      },
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "parent_tool_use_id": null,
+      "uuid": "82746896-6f98-427b-b823-450f0ccdeb7b"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "duration_ms": 3241,
+      "duration_api_ms": 8202,
+      "num_turns": 1,
+      "result": "I'm not sure what you'd like me to do with \"Branch 2\". Could you provide more context? Are you asking me to:\n\n1. **Create a new git branch** called \"Branch 2\"?\n2. **Switch to an existing branch** called \"Branch 2\"?\n3. **List all git branches** to see Branch 2?\n4. Something else related to branches in your project?\n\nPlease let me know what you'd like to accomplish, and I'll be happy to help!",
+      "session_id": "e42c1d25-d74c-419a-a79c-dc278c2d29d8",
+      "total_cost_usd": 0.0272335,
+      "usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 494,
+        "cache_read_input_tokens": 16569,
+        "output_tokens": 304,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 494,
+          "ephemeral_5m_input_tokens": 0
+        }
+      },
+      "modelUsage": {
+        "claude-opus-4-5-20251101": {
+          "inputTokens": 3934,
+          "outputTokens": 70,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 0,
+          "webSearchRequests": 0,
+          "costUSD": 0.02142,
+          "contextWindow": 200000
+        },
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 19,
+          "outputTokens": 485,
+          "cacheReadInputTokens": 27520,
+          "cacheCreationInputTokens": 494,
+          "webSearchRequests": 0,
+          "costUSD": 0.005813500000000001,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "29ec5ea8-9872-4e71-b0b7-bae20b51a761"
+    }
+  ],
+  "key": "continueSessionWithExistingMessage-d0f50123596f0cd4",
+  "recordedAt": "2026-03-02T02:30:43.418Z"
+}

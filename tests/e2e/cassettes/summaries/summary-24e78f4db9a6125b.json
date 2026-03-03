@@ -1,0 +1,209 @@
+{
+  "prompt": "CONVERSATION:\nUser: Test conversation switching\n\nAssistant: I'll help you test conversation switching by creating a new session and demonstrating how to work with multiple sessions.\n\nAssistant: I see ",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/Users/ferrislucas/claudetools.io/.worktrees/e24cd98b-cce2-4fea-a707-bdb27f90d669",
+      "session_id": "eb6dd3bc-2201-4a28-a0ad-7182ca78e919",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP",
+        "StructuredOutput"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "bypassPermissions",
+      "slash_commands": [
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan"
+      ],
+      "skills": [],
+      "plugins": [],
+      "uuid": "8963d29b-3e26-4402-b16d-0b541fdbcd96"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01JrY44vRzQ9nXLbr7Z1rcBA",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user is asking me to generate a summary of a conversation about \"Test conversation switching\". Based on the conversation provided, it appears that:\n\n1. The user asked to test conversation switching\n2. The assistant explained how conversation switching works in the system\n3. The assistant provided information about the current session (Session ID and Project ID)\n4. The assistant was explaining common conversation switching operations but the message got truncated\n\nThis seems to be a simple informational session where the assistant provided documentation/explanation about conversation switching capabilities rather than actually implementing something or making code changes.\n\nSince this is about summarizing a conversation, I should use the StructuredOutput tool to provide:\n- short_summary: A brief 1-2 sentence overview\n- full_summary: More detailed explanation\n- key_actions: What was done\n- files_modified: Any files changed (appears to be none)\n- outcome: Status of the task\n\nLet me generate an appropriate summary.",
+            "signature": "EqcJCkYICxgCKkC7Ks8qHYP4G79ge7hwWK2TQn4Vs4BIO3F4ZVvcMbIFZMABEO5OYu990r6Mvl8CyhgFjwxr9NEMUWBCDNme13+gEgyC/jLmcNG3VXM5gaoaDC1nT9eFzKH0ddgRnSIwnMUiFL13LE186Nr/z1jRKP0zIcN9HTaxjk6Tzop6uzO2fBI4RLaAc4SSb4eix3MyKo4Iun4gNjpxA5bgeSgfvm3z5RoFmGuMU9yukkSD7dEYGqhPOGGxf48ODGNE2687Bc5YOL7c46uLXWB298LhvSG3PF0NBfLjxMZ2kGgksPPAXjMK9za9ErTLDZi+SuP23bP/wBFj99bx1RPVcHUsTd+2mQO6qCmOd8RNkNDQHrW37tafgRfBft4lC76pkaVhPa6EoFz97LCpbpvNi39OzQ8Ce9z6Nv7jmZT2/Fp66DA6Nyq6YXAWFi9Ocud/S7Y48GVYc6FYeySOR+JG+5n0yBhor8Q2eLGfPBBvJ/EvBp/aKnXeFLiblHm8JodSy+qqY9FM7QDUem6yDkmjh91Th9Qv07vGJ7ybupQKa2ZhHiZV0cEFbOzoV/lZC5gR69z8kW2sruHbSGA5x2WhHK/jtQYr/xd1WC913lvTQGqtM82Lq29ylobzL3cQ6hJahwrBRPksA5pFudi018y9YGbx97yeh98zf4UUUaETxHeG3VLqDB9Xe0B9b/8R+E9DaHNnwWch3LTC2JlYRKdggbwQ6SvxldQZEOqUyBmdximLwf2uHtjJOK/FZjXwiRxOOFWt0nOmaxA8Uv8rsgZ8KwZi5k77O+hW+eo+M02c3kPIGWGYFs4F9AAiOlPtTz6lnjLp8FPMYe/wynm5QE2HCw69Hso7E9YEU0VbuiHdtoSerTmcecxyFIehawvVJJoTtzaWG6XUgEiO99bWMO8WKUMIcICnd71f35S/JJmcZa0vKyexSYCSD92dI6NnGUlCtrz/IiiyDsAHPbv1g12/qAFAd1voyDSR6G8tfZBfck/0+34IpdqiZTKQz9YA+83ZViSsvavrXpUMxJxS/Ms3Tk/aAxVmEiC8OlJ9xVDNxk8bb12L3YjNp59I+K93bUWIMdJiNpEPQJSrkvo9dKZOpEDJFA5gPNbH1C5GjgaIOyhwcpiygKtB+KkDhGObTvYYG/t7H9eM4uzS9MnquAqGGD+CCcy1L/J3jm7qnVL+kgpfbgWog0xbudmSm14t3idJ8sO8AU/eXw5PSM/yPwYy2ehhCS0oqv7enHafBMDHOOGhdbS444gfGS6gzyFNRMq7RmrBt48s3Z1UCef/v8hnvZCaYiPNb8GAiYwY6DMR2Heho+IcyxKieEscXmW4XfpUmxjegiK7MGi4astSwxyHNgHSm4gouERmmkOjbwRJMsx/NjQtibKLtevWu6YE2gO9o0pgIOpxGJWW20MWXt/9ADmT9qmK8yX0uQs1ZwRmxyRYCZxK0yzEwO1Y6mPQdte4MntNirrdICMckA7OJFQDBT3UYoBq6xHEpCbXd3s/FIlhN3RupVaMTynQiTt5uXqMYgqvjB5S9vncU8DdKeOERzLdVSUkBxo7PrxnqJhqegU4lgAjGAE="
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 16054,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 0
+          },
+          "output_tokens": 7,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "eb6dd3bc-2201-4a28-a0ad-7182ca78e919",
+      "uuid": "e05328ec-398f-4991-adda-cb5768c546ed"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01JrY44vRzQ9nXLbr7Z1rcBA",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01Khh789dcKAG1p1uQYonNd1",
+            "name": "StructuredOutput",
+            "input": {
+              "session_title": "Conversation Switching Explanation",
+              "short_summary": "User requested testing conversation switching. Assistant provided documentation on how the session management system works.",
+              "full_summary": "The user asked to test conversation switching. The assistant responded by explaining the conversation switching capabilities of the system, including details about the Session Management API and the current session identifiers (Session ID: 2cc2a2af-7953-4ff1-bee6-e702e2f625ad, Project ID: 0ec6a64f-bf5e-4325-a794-ea30de22969a). The response outlined common conversation switching operations but was truncated before completion. No actual implementation or file modifications were performed.",
+              "key_actions": [
+                "Explained conversation switching system architecture",
+                "Provided current session and project identifiers",
+                "Outlined common conversation switching operations (response truncated)"
+              ],
+              "files_modified": [],
+              "outcome": "partial"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 16054,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 0
+          },
+          "output_tokens": 7,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "eb6dd3bc-2201-4a28-a0ad-7182ca78e919",
+      "uuid": "a309a981-eb6e-4f17-8a6f-71e875c67614"
+    },
+    {
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "tool_use_id": "toolu_01Khh789dcKAG1p1uQYonNd1",
+            "type": "tool_result",
+            "content": "Structured output provided successfully"
+          }
+        ]
+      },
+      "parent_tool_use_id": null,
+      "session_id": "eb6dd3bc-2201-4a28-a0ad-7182ca78e919",
+      "uuid": "a3964b95-1ac9-43b0-a515-4d9c6bedc8cb",
+      "tool_use_result": "Structured output provided successfully"
+    },
+    {
+      "type": "result",
+      "subtype": "error_max_turns",
+      "duration_ms": 4852,
+      "duration_api_ms": 10849,
+      "is_error": false,
+      "num_turns": 2,
+      "session_id": "eb6dd3bc-2201-4a28-a0ad-7182ca78e919",
+      "total_cost_usd": 0.011829600000000001,
+      "usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 16054,
+        "output_tokens": 523,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 0
+        }
+      },
+      "modelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 20,
+          "outputTokens": 757,
+          "cacheReadInputTokens": 27316,
+          "cacheCreationInputTokens": 0,
+          "webSearchRequests": 0,
+          "costUSD": 0.0065366,
+          "contextWindow": 200000
+        },
+        "claude-opus-4-5-20251101": {
+          "inputTokens": 10,
+          "outputTokens": 125,
+          "cacheReadInputTokens": 4236,
+          "cacheCreationInputTokens": 0,
+          "webSearchRequests": 0,
+          "costUSD": 0.005293000000000001,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "8b98c24b-4ca0-4a4d-96ff-cc171c22cb80",
+      "errors": []
+    }
+  ],
+  "key": "summary-24e78f4db9a6125b",
+  "recordedAt": "2026-03-02T02:30:01.124Z"
+}

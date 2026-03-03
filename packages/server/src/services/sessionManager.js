@@ -9,6 +9,7 @@ import { createClaudeCodeSpawner, createRobustEnv } from './nodeSpawnHelper.js';
 import { schedulerService } from './schedulerService.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
+import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
 
 /** @type {Map<string, string|null>} Track last message ID for end-of-turn work log association */
 const lastMessageIds = new Map();
@@ -99,27 +100,22 @@ function updateTurnUsage(conversationId, usage, eventType) {
   };
 }
 
-/** Check if mock mode is enabled (for E2E testing) */
-const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
-
 /**
- * Create the agent for a session, using gateway + logging.
- * In mock mode, returns a mock agent that delegates to mockQuery.
+ * Create the agent for a session, using gateway + logging + VCR.
  *
  * @param {string} agentType - The agent type (e.g., 'claude-code')
- * @returns {{ execute: (queryParams: any, meta?: any) => AsyncGenerator }}
+ * @returns {{ execute: (queryParams: any, meta?: any) => AsyncGenerator }
  */
 function createAgentForSession(agentType = 'claude-code') {
-  if (isMockMode()) {
-    // Mock mode: return a fake "agent" that delegates to mockQuery
-    return {
-      async *execute(queryParams) {
-        yield* mockQuery(queryParams);
-      },
-    };
-  }
   const baseAgent = agentGateway.createAgent(agentType);
-  return new LoggingAgentWrapper(baseAgent);
+
+  // Wrap with VCR adapter if in VCR mode
+  const agent = process.env.VCR_MODE
+    ? new VCRAgentAdapter(baseAgent, { cassetteDir: 'tests/e2e/cassettes' })
+    : baseAgent;
+
+  // Always wrap with logging
+  return new LoggingAgentWrapper(agent);
 }
 
 /**
@@ -445,125 +441,6 @@ CRITICAL: Do NOT start coding until you have presented a plan and received appro
 `;
 
 /**
- * Mock query generator for E2E testing
- * Simulates the Claude SDK's behavior for multi-turn conversations
- * @param {Object} params
- * @param {string} params.prompt - The prompt string
- */
-async function* mockQuery({ prompt }) {
-  // Yield system init event
-  yield {
-    type: 'system',
-    subtype: 'init',
-    session_id: 'mock-session-' + Date.now(),
-    model: 'claude-sonnet-4-6',
-  };
-
-  // Small delay to simulate processing
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  // Yield message_start event with initial usage (enables real-time token updates)
-  yield {
-    type: 'stream_event',
-    event: {
-      type: 'message_start',
-      message: {
-        usage: {
-          input_tokens: prompt.split(' ').length, // Simple estimate: one token per word
-          output_tokens: 0,
-        },
-      },
-    },
-  };
-
-  // Simulate thinking (creates a work log)
-  yield {
-    type: 'stream_event',
-    event: {
-      type: 'content_block_delta',
-      delta: { type: 'thinking_delta', thinking: 'Analyzing the request...' },
-    },
-  };
-  yield {
-    type: 'stream_event',
-    event: { type: 'content_block_stop' },
-  };
-
-  // Simulate tool use (creates work logs for input)
-  const toolUseId = 'mock-tool-' + Date.now();
-  yield {
-    type: 'assistant',
-    message: {
-      content: [
-        {
-          type: 'tool_use',
-          id: toolUseId,
-          name: 'Bash',
-          input: { command: 'echo "mock command"' },
-        },
-      ],
-    },
-  };
-
-  // Simulate tool result (creates work log for output)
-  yield {
-    type: 'tool_result',
-    tool_name: 'Bash',
-    content: 'mock command output',
-  };
-
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  // Generate a mock response based on the user's message
-  const responseText = `Mock response to: "${prompt}"`;
-
-  // Yield content_block_delta events to simulate real-time text streaming
-  // (In the real Claude API, text content comes via content_block_delta, not message_delta)
-  const words = responseText.split(' ');
-  let outputTokens = 0;
-  for (const word of words) {
-    outputTokens += 2; // Simulate 2 tokens per word
-    yield {
-      type: 'stream_event',
-      event: {
-        type: 'content_block_delta',
-        delta: { type: 'text_delta', text: word + ' ' },
-      },
-    };
-    // Small delay to simulate streaming
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-
-  // Yield message_delta for output token count update (separate from text streaming)
-  yield {
-    type: 'stream_event',
-    event: {
-      type: 'message_delta',
-      usage: { output_tokens: outputTokens },
-    },
-  };
-
-  // Yield assistant message with text
-  yield {
-    type: 'assistant',
-    message: {
-      content: [{ type: 'text', text: responseText }],
-    },
-  };
-
-  // Yield result event with usage
-  yield {
-    type: 'result',
-    subtype: 'success',
-    total_cost_usd: 0.001,
-    usage: {
-      input_tokens: prompt.split(' ').length,
-      output_tokens: outputTokens,
-    },
-  };
-}
-
-/**
  * Build system prompt with canvas write instructions
  * @param {string} sessionId
  * @returns {string}
@@ -832,8 +709,8 @@ function buildSessionEnv(provider, thinkingEnabled = false) {
     delete sessionEnv.ANTHROPIC_BASE_URL;
   }
 
-  // Add thinking tokens if enabled
-  if (thinkingEnabled) {
+  // Add thinking tokens if enabled (but suppress in VCR mode to minimize cost)
+  if (thinkingEnabled && !process.env.VCR_MODE) {
     sessionEnv.MAX_THINKING_TOKENS = '10240';
   }
 
@@ -1003,22 +880,24 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     const provider = resolveProviderFromModel(model);
     const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled);
 
-    const queryParams = isMockMode()
-      ? { prompt: promptWithAttachments }
-      : {
-          prompt: promptWithAttachments,
-          options: {
-            cwd: workingDirectory,
-            abortController: controller,
-            includePartialMessages: true,
-            permissionMode: getPermissionModeForSession(session.mode),
-            settingSources: ['project'],
-            env: sessionEnv,
-            spawnClaudeCodeProcess: createClaudeCodeSpawner(),
-            model: model,
-            systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
-          },
-        };
+    // Determine model (force Haiku in VCR mode to minimize cost)
+    const isVCR = !!process.env.VCR_MODE;
+    const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;
+
+    const queryParams = {
+      prompt: promptWithAttachments,
+      options: {
+        cwd: workingDirectory,
+        abortController: controller,
+        includePartialMessages: true,
+        permissionMode: getPermissionModeForSession(session.mode),
+        settingSources: ['project'],
+        env: sessionEnv,
+        spawnClaudeCodeProcess: createClaudeCodeSpawner(),
+        model: effectiveModel,
+        systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+      },
+    };
 
     // Log query params for debugging third-party provider issues
     console.log(`[SessionManager] runSession query params:`, {
@@ -1220,25 +1099,27 @@ export async function continueSession(sessionId, content, workingDirectory, syst
       hasConversationContext: conversationContext.length > 0,
     });
 
-    const queryParams = isMockMode()
-      ? { prompt: promptWithContext }
-      : {
-          prompt: promptWithContext,
-          options: {
-            cwd: workingDirectory,
-            abortController: controller,
-            includePartialMessages: true,
-            permissionMode: getPermissionModeForSession(session.mode),
-            settingSources: ['project'],
-            // Use conversation's claudeSessionId for context isolation
-            // Only pass resume if we have an existing session AND model hasn't changed
-            ...(canResume && { resume: activeConversation.claudeSessionId }),
-            env: sessionEnv,
-            spawnClaudeCodeProcess: createClaudeCodeSpawner(),
-            model: model,
-            systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
-          },
-        };
+    // Determine model (force Haiku in VCR mode to minimize cost)
+    const isVCR = !!process.env.VCR_MODE;
+    const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;
+
+    const queryParams = {
+      prompt: promptWithContext,
+      options: {
+        cwd: workingDirectory,
+        abortController: controller,
+        includePartialMessages: true,
+        permissionMode: getPermissionModeForSession(session.mode),
+        settingSources: ['project'],
+        // Use conversation's claudeSessionId for context isolation
+        // Only pass resume if we have an existing session AND model hasn't changed
+        ...(canResume && { resume: activeConversation.claudeSessionId }),
+        env: sessionEnv,
+        spawnClaudeCodeProcess: createClaudeCodeSpawner(),
+        model: effectiveModel,
+        systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+      },
+    };
 
     // Logging metadata for agent call tracking
     const agentCallMeta = {
@@ -1419,25 +1300,27 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     }
     const promptWithContext = conversationContext + lastUserMessage.content;
 
-    const queryParams = isMockMode()
-      ? { prompt: promptWithContext }
-      : {
-          prompt: promptWithContext,
-          options: {
-            cwd: workingDirectory,
-            abortController: controller,
-            includePartialMessages: true,
-            permissionMode: getPermissionModeForSession(session.mode),
-            settingSources: ['project'],
-            // Use conversation's claudeSessionId for context isolation
-            // Only pass resume if we have an existing session AND model hasn't changed
-            ...(canResume && { resume: conversation.claudeSessionId }),
-            env: sessionEnv,
-            spawnClaudeCodeProcess: createClaudeCodeSpawner(),
-            model: model,
-            systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
-          },
-        };
+    // Determine model (force Haiku in VCR mode to minimize cost)
+    const isVCR = !!process.env.VCR_MODE;
+    const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;
+
+    const queryParams = {
+      prompt: promptWithContext,
+      options: {
+        cwd: workingDirectory,
+        abortController: controller,
+        includePartialMessages: true,
+        permissionMode: getPermissionModeForSession(session.mode),
+        settingSources: ['project'],
+        // Use conversation's claudeSessionId for context isolation
+        // Only pass resume if we have an existing session AND model hasn't changed
+        ...(canResume && { resume: conversation.claudeSessionId }),
+        env: sessionEnv,
+        spawnClaudeCodeProcess: createClaudeCodeSpawner(),
+        model: effectiveModel,
+        systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+      },
+    };
 
     // Logging metadata for agent call tracking
     const agentCallMeta = {
@@ -1693,8 +1576,8 @@ async function handleStreamEvent(sessionId, event) {
           text: '',
         });
 
-        // Trigger debounced summary generation on new message
-        summaryService.onSessionActivity(sessionId);
+        // Note: Per-message onSessionActivity removed to reduce redundant summary generation.
+        // Summary generation is triggered only on turn completion (waiting state) and session complete.
       }
 
       // Check for TodoWrite tool and update todos

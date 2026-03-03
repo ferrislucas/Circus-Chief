@@ -1,0 +1,1948 @@
+{
+  "prompt": "Test work log association",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/private/tmp/test",
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "default",
+      "slash_commands": [
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan"
+      ],
+      "skills": [],
+      "plugins": [],
+      "uuid": "1d933396-5ea4-40ca-b334-aa00374a43d6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_start",
+        "message": {
+          "model": "claude-haiku-4-5-20251001",
+          "id": "msg_01BsX2Ctx9N4vZQf56KXZUf7",
+          "type": "message",
+          "role": "assistant",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "usage": {
+            "input_tokens": 10,
+            "cache_creation_input_tokens": 2087,
+            "cache_read_input_tokens": 15006,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 2087
+            },
+            "output_tokens": 3,
+            "service_tier": "standard",
+            "inference_geo": "not_available"
+          }
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "fda030a8-38ac-41cf-8578-4effc1fc235f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "thinking",
+          "thinking": "",
+          "signature": ""
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "62d49dff-5d3e-4d44-bc13-83a77124410d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "The user is"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "65e1fe13-0f3e-4ffa-b2e9-19846a8ce979"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " asking me to \""
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "566fdc01-5781-4b59-9a63-c495bf9ca771"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "Test work log association\". This is"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "f560b2b4-49e5-44c7-8367-84b3e4d87cd3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " a fairly"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "c18b8ea8-6bfa-426e-a4f7-b973450ae1ef"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " v"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "7678e372-6697-4704-96dd-15ea2d66dc9c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "ague request. They might"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "cdeae7de-30aa-4b56-a9d6-9c5a527d5062"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " be"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "2e17d920-8eff-4b27-b247-ba1da0839aad"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " asking me"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "5d972d7c-22b4-47db-99a4-f1432696fcfa"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " to:\n\n1. Test"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "544abaa4-3ed1-48ce-9021-e4b29234ce31"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " work"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "69343a62-5c17-4423-a4f4-7be1bda65a17"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " log association in"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "d2f1e2a7-06d4-42ed-ac20-4d499cde33e1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " some"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "aaa3cdd9-2189-4ea1-943a-11a940218cba"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " c"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "1e733579-79e0-41d2-9f8b-b7a017226124"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "odebase (if"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "07cfda69-c8c2-4698-80e2-d7158a70b201"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " there's a"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "00b7ee50-8adb-4026-a869-33f3f8aa6988"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " project"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "7b49551b-e16c-4858-9089-568f3c60eb99"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " loaded"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "98e022cd-4bfc-4374-bf4d-23244fb5dab2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ")\n2. Create"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "288155bd-8458-42fb-bc30-3dd0ca476470"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " a test for work log association"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "36dfc36b-d366-4f27-8609-e0a1275bbcad"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " functionality"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "fb2adb10-bb6c-4bfa-b053-6c6f42dffd9c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n3. Debug"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "2a30fced-f32a-44b6-8754-dd3ac272554e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " an"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "493e8a19-0443-4887-bd40-2726e7e5d81c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " issue with work log association"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "009fe7a5-e75a-4621-800f-625d6bc2b49f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n4."
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "d5021f30-f007-4872-8fc7-1bac398ed8da"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " Verify"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "b4560f91-8d53-4cd6-bf32-a402c23e591b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " that work logs"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "57dc6b46-38bf-44d5-b91b-6fbff73f03bd"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " are properly associated with something"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "ab7c6368-02fc-4d94-b93b-3c12c3e892ed"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " ("
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "0f119946-de1f-4de0-bfd8-d02a4813b50d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "tickets"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "6ee252a5-9a03-43e1-92e8-d8334d0b4deb"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ", projects"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "94098c09-cb83-4e16-b0a3-2cbfd3093624"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ", etc.)\n\nSince the request is"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "915e06c5-c033-424a-8e64-69a8c26e03ec"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " ambiguous and"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "94ac0158-b977-48ed-a3ce-6667dc6c95a6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " I"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "c01b8aaa-06a1-4642-93de-84b9a78e9dbb"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " don't have context about what project"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "700c6418-dcd7-4dec-9a31-9e936847bb4e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " or"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "3e6a7e16-3a73-4b68-b332-3edd8cc1012c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " codebase we"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "64f0545a-330d-4de6-8e60-91efc9b20bf5"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "'re working with, I should ask the"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "2c2c9d79-1001-40b4-8689-67614e9c38d8"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " user to clarify what they mean"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "c872d72e-ac75-4c4f-85e0-240c6be29e71"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " by \"test work log association\" and"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "68a2f9e2-438a-42d5-a9ce-5f3b7a050404"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " what c"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "4d7643b3-c76a-4f9d-8ebb-cbdde6fef660"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "odebase or"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "6d34afe3-9a3d-4c62-b3b2-f2e4c42a4773"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " system"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "9a3e1e08-32a8-4ce5-8547-10467537d6ed"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " they're referring"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "e5ad0b15-8cfe-4552-b7bd-2b8b0c2c8c17"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " to.\n\nHowever, let"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "7ccce876-4535-473f-98dd-e033635eea62"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " me first"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "8a3ff661-a0dd-48c2-8ff4-21d9ab2b33c4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " check"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "061d7917-2a2e-482a-95c0-0b9cc152af04"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " if there's a"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "5a7dd93b-3414-402b-a389-1de45573e90f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " git"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "9bb558b6-926b-4484-bb50-a89cb0aa2b8b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " repository or project context available that"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "b4d69984-aa4f-4358-9a7d-9105eae75f4f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " might give me some clues."
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "8c1dfb2d-fd63-4852-9ace-62376cdddc9a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ""
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "290752c1-0213-44c5-a7a9-de62cd3b2630"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "signature_delta",
+          "signature": "EoUHCkYICxgCKkBLzeMr/HRp8Ijy3J8stRtfLSq4NOe1aVsC+6CDcEF0a7KgyyxHNT7x/nhBVh/yBHncIZLl8oPEDTkLioX+RxA/EgwEwIyFJWAr0ezyHE8aDNllMYWMdiVpECNVpyIw81b7xplAfZA6j759Un0CxlAAx4lhnaIT4V+rrAh/QS87qf7+eV5yWq5bm7vOvGSCKuwFF3zwi4ds0VMAgaiI/z7yLWNiKxBO73wUG0RXZtWZxq7jzewREVJhrXD06PeYjt/yNUCrJSCbRWhfgZdQvr8YxsxBH1KDgbezUdpiPKSdVN17S7ocBr4Pld9qyuiwIicO+fWxKf9g0lRGoDIjQuG2pcq6YyAwODaypMym2iI8h0AnRxQPMIL9mAb3czntfHGIGg9Ex7Epeh9+ItRmQLBQ4tz2lqSGEuZ0v0pV+DxHpKcdGlzeVAnw9wX6thN2uCMiWwV2Nva2WwXRzuyTGbF0ublx93e6E3Gn5ZGVmH8A0Mm3SD+oIE8cgsp19E5HkmfZ3S+axdm+VrLALFcS7JoCsASICxtbr7VxaJ+5OGd7Q3kM+tHndQdvcPDr25d9tG5vKSCIJ8M6bYFx+e6Gt26xuV4YWXGVfJq2fuLafn+1eYu6ceM5RqU4OnhSc2suwZ4+KqAmPKx2Wz4ztJQF9jwt3lMUc9ZJvDt8Kua3lmUONix1JdSwmZjKFkgNpCn1yoS5z+oE7i/a6TJMmDs8D85vnM4+VJ6Mgv3hivZbxT09O88cN5bxGlR4ZzL1skfjJqmj5+c03K7tghEhaJLtkWgjIQOtf7wR0W0n5ozK8uaa7yz2zzc2l0luPYEgohrxf9vj5zVGQ7SS4dQJtTaZtyIXZYleLPlC4xySLQq7/aVOZK67o2rSBKBX62j7VK88YAEMnXVILqaeZIz/lHofDEC7x/lii+Gl5vYzfuhX02iTZLolnmJ01UdFpgO8Y6nNqu2QxC9Pb0jEzWyVYfqC2ZVD7DSuWymcp7XST2wLpquz9WbKsV855qJzFvxNNJfbHoFO5szvjCdSxLrjpIAP/lrxRcgcHUTQ1HP+eZ+Z/4cOcIUuY/OUyWsSmDPoIZuaX/vKKw/KUnMK6353S+Teka56djRChKyoObWzGKpCJsnlOEk5hrFhhOKOmmoA+qSwciPHrg8Dpjxymdt9JMld5VOp5WZmNQWmIsCaqrqEORgB"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "2e0af2f1-07df-4db1-8734-1bd7158e62c7"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01BsX2Ctx9N4vZQf56KXZUf7",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user is asking me to \"Test work log association\". This is a fairly vague request. They might be asking me to:\n\n1. Test work log association in some codebase (if there's a project loaded)\n2. Create a test for work log association functionality\n3. Debug an issue with work log association\n4. Verify that work logs are properly associated with something (tickets, projects, etc.)\n\nSince the request is ambiguous and I don't have context about what project or codebase we're working with, I should ask the user to clarify what they mean by \"test work log association\" and what codebase or system they're referring to.\n\nHowever, let me first check if there's a git repository or project context available that might give me some clues.",
+            "signature": "EoUHCkYICxgCKkBLzeMr/HRp8Ijy3J8stRtfLSq4NOe1aVsC+6CDcEF0a7KgyyxHNT7x/nhBVh/yBHncIZLl8oPEDTkLioX+RxA/EgwEwIyFJWAr0ezyHE8aDNllMYWMdiVpECNVpyIw81b7xplAfZA6j759Un0CxlAAx4lhnaIT4V+rrAh/QS87qf7+eV5yWq5bm7vOvGSCKuwFF3zwi4ds0VMAgaiI/z7yLWNiKxBO73wUG0RXZtWZxq7jzewREVJhrXD06PeYjt/yNUCrJSCbRWhfgZdQvr8YxsxBH1KDgbezUdpiPKSdVN17S7ocBr4Pld9qyuiwIicO+fWxKf9g0lRGoDIjQuG2pcq6YyAwODaypMym2iI8h0AnRxQPMIL9mAb3czntfHGIGg9Ex7Epeh9+ItRmQLBQ4tz2lqSGEuZ0v0pV+DxHpKcdGlzeVAnw9wX6thN2uCMiWwV2Nva2WwXRzuyTGbF0ublx93e6E3Gn5ZGVmH8A0Mm3SD+oIE8cgsp19E5HkmfZ3S+axdm+VrLALFcS7JoCsASICxtbr7VxaJ+5OGd7Q3kM+tHndQdvcPDr25d9tG5vKSCIJ8M6bYFx+e6Gt26xuV4YWXGVfJq2fuLafn+1eYu6ceM5RqU4OnhSc2suwZ4+KqAmPKx2Wz4ztJQF9jwt3lMUc9ZJvDt8Kua3lmUONix1JdSwmZjKFkgNpCn1yoS5z+oE7i/a6TJMmDs8D85vnM4+VJ6Mgv3hivZbxT09O88cN5bxGlR4ZzL1skfjJqmj5+c03K7tghEhaJLtkWgjIQOtf7wR0W0n5ozK8uaa7yz2zzc2l0luPYEgohrxf9vj5zVGQ7SS4dQJtTaZtyIXZYleLPlC4xySLQq7/aVOZK67o2rSBKBX62j7VK88YAEMnXVILqaeZIz/lHofDEC7x/lii+Gl5vYzfuhX02iTZLolnmJ01UdFpgO8Y6nNqu2QxC9Pb0jEzWyVYfqC2ZVD7DSuWymcp7XST2wLpquz9WbKsV855qJzFvxNNJfbHoFO5szvjCdSxLrjpIAP/lrxRcgcHUTQ1HP+eZ+Z/4cOcIUuY/OUyWsSmDPoIZuaX/vKKw/KUnMK6353S+Teka56djRChKyoObWzGKpCJsnlOEk5hrFhhOKOmmoA+qSwciPHrg8Dpjxymdt9JMld5VOp5WZmNQWmIsCaqrqEORgB"
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2087,
+          "cache_read_input_tokens": 15006,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 2087
+          },
+          "output_tokens": 3,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "uuid": "6a8f9053-276c-4053-98e7-8dc41aabcbab"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "de06be07-9093-41fa-a30a-040daab0abfb"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 1,
+        "content_block": {
+          "type": "text",
+          "text": ""
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "2d2fde6c-6df9-415a-bf46-9fa2254fde8c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "I'd be happy to help you test"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "2ff0cdea-809c-4b30-89b4-9ef896357750"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " work log association! However, I need"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "9ebc368b-5fa8-4703-800b-5c0126945235"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " a"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "1cfd3c83-32a3-4b5f-a222-85417f3e8015"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " bit more context to understand"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "e7e3d744-dd44-4b17-81d2-e8a939f46324"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " what you're looking"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "2551716c-7ac7-452a-a6fe-efce899d33ae"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " for. Could you clar"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "dd132d4c-2478-4c75-b13e-3a69a61e2288"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "ify:\n\n1. **What system"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "b9222f19-4ef8-49bd-b0da-aa40654ad26c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " or c"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "7fdf71ce-1602-4677-8583-d5d0960b5a52"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "odebase are we"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "7c18f189-7d84-4ff6-8117-7e676232bced"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " testing"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "30e85167-03d2-4352-9c34-3282dbb3e5c1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "?"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "9acfea11-7477-4d30-b98b-6e6ca8240152"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "** (e.g., a project"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "98d8f537-7029-4d19-b7d0-154bb22cb685"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " management"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "1d370331-e01c-490c-8595-726ba8793804"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " tool"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "ffe5bd0d-221c-4bbc-a220-6defa5aaf16d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ", time"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "1de0368e-cd94-4037-b77f-dfd0032199a2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " tracking system,"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "386c7684-17e1-4cf8-94bf-cdb51cba223e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " JIRA plugin"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "3b7c2eb8-9b4d-473d-8dd9-88e9c3c5c4ac"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ", custom"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "fc82a5b0-111a-452d-bb52-24b591261945"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " application, etc.)\n\n2. **"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "decc2893-c877-4267-8566-7e7ebab03873"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "What kind"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "efb310d0-ac3e-4987-b47a-70929b6514ca"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " of work log"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "9407d1ee-7c92-45a1-863e-f61729719989"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " association?"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "b6a660ec-417c-4b41-b108-e52489beee55"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "** (e.g., associ"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "d2aabf1a-3429-4b96-9875-0320efec6119"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "ating work logs with:"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "3fe0fa72-877d-4439-98ff-4d01029bf1d0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n   - Issues"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "45c85905-3999-4051-b7a1-3e1ef34ef9b4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "/tickets?"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "0f767ef6-ab40-4d93-ba90-4dc32ab29575"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n   - Projects?"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "d5ac3e6a-3fe7-4206-9676-2b579cb9f292"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n   - Users"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "8a55f0ec-7655-4fd7-a1c9-688b8ddf3147"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "/"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "c01cfb66-7e2c-4fe1-b559-87537d5180e6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "team"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "f1829494-4815-4b95-8d0f-d934ef7355dc"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " members?\n   - Time"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "a347942a-6b22-4b94-831c-3e9befc8cd90"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " periods"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "314c8243-3c3a-4ef6-baa4-56d833d00ddf"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "?\n   - Tasks"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "1824fd96-a29a-4782-b5e2-a0c522996fc0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "?)"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "4651eb56-92ba-4cf7-b323-315778fbe54f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n\n3. **What testing"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "648ae0ff-c574-4a2d-97d6-975c40d72559"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " approach"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "a253c435-05a2-48a5-bd25-192f71c65102"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " do"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "987750f3-28c4-48ff-8a9e-6700ae0613a3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " you want?**"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "9c1a479c-1a63-4ca9-9d04-6aca142214e3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n   - Unit tests?\n   "
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "a2b2c304-fce9-42fe-94a0-a1812e803498"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "- Integration tests?\n   - Manual"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "cf704b00-84b9-4999-92cf-740f4a149fc0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " testing/"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "324aa605-f7b9-4bd5-83d3-dde732e7b817"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "verification"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "3aa81dc0-09c5-44da-b63a-e077446410a0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "?\n   - Test"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "351a64bd-7779-49de-9734-3384bcb2f4e6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " data setup"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "f4aca3e3-aaa5-49fe-ab5e-4ce522034c9e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " and"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "6d86a677-0b39-45b2-8488-cba226526884"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " validation"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "010783a9-ba9c-4298-a591-7ea1c210a103"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "?\n\n4"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "f5994023-3fb9-465e-8633-5a3a6445ad39"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ". **Do"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "b676bdbe-0379-4d22-a742-e471ea3adcff"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " you have existing"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "fba595bd-ebba-4c3d-8ea0-3e1537f36d94"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " code"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "6f2a31c6-18c0-4514-8e19-ce0fd55b75ed"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " I"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "867b6626-aaa2-4de9-9aad-18b62dac14eb"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " should look"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "deb45e8c-5e22-4150-b41a-aa7c122f0cf5"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " at?**"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "bca92229-5a1c-47c7-9328-1134328c8991"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n\nIf"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "55cdd524-d626-464c-b5d8-7c6d75f339af"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " you have a project"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "c04b33f8-1014-459a-8190-34332c3b9c68"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " loaded"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "3a689762-f264-4e56-8f00-2f339dc19b68"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": ", I can explore"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "20947c99-1083-45d5-8e06-d7dc7431d3ca"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " the codebase to"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "068568d0-7d58-48c9-97bc-242478b6ca07"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " understand the current"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "62acf4df-3bd6-4f6d-bbfe-ae2f8758071c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " implementation"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "7d12a58e-fc2f-4c78-b964-cf9544cab1dd"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " and then"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "c4716522-9f6f-4218-af5b-1e0a59f6efce"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " help you create"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "30ec8e7f-fb03-4755-b691-7c60d81262a6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " appropriate"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "3150964e-30d7-42be-a3ce-103cd8c004d6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " tests."
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "d22d2821-1c63-43e1-94d8-de919c0c94cb"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " Just"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "77a14510-bdc3-4dbf-b060-65f81673ffe7"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " let me know what you'd like me"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "099012f1-a630-4aed-b92e-382933764013"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " to test!"
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "6d97875b-b9ae-4084-a408-3afbec8db210"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01BsX2Ctx9N4vZQf56KXZUf7",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "I'd be happy to help you test work log association! However, I need a bit more context to understand what you're looking for. Could you clarify:\n\n1. **What system or codebase are we testing?** (e.g., a project management tool, time tracking system, JIRA plugin, custom application, etc.)\n\n2. **What kind of work log association?** (e.g., associating work logs with:\n   - Issues/tickets?\n   - Projects?\n   - Users/team members?\n   - Time periods?\n   - Tasks?)\n\n3. **What testing approach do you want?**\n   - Unit tests?\n   - Integration tests?\n   - Manual testing/verification?\n   - Test data setup and validation?\n\n4. **Do you have existing code I should look at?**\n\nIf you have a project loaded, I can explore the codebase to understand the current implementation and then help you create appropriate tests. Just let me know what you'd like me to test!"
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2087,
+          "cache_read_input_tokens": 15006,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 2087
+          },
+          "output_tokens": 3,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "uuid": "1b038695-de57-475b-9b10-e8d2339bbe24"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 1
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "df4c4506-330e-4963-8c7f-9e02759bb46d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "end_turn",
+          "stop_sequence": null
+        },
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2087,
+          "cache_read_input_tokens": 15006,
+          "output_tokens": 401
+        }
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "4b194371-70eb-4f06-904e-20f7af389c5f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_stop"
+      },
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "parent_tool_use_id": null,
+      "uuid": "0c8c39a9-6232-4053-88df-78af325a62b4"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "duration_ms": 4637,
+      "duration_api_ms": 15060,
+      "num_turns": 1,
+      "result": "I'd be happy to help you test work log association! However, I need a bit more context to understand what you're looking for. Could you clarify:\n\n1. **What system or codebase are we testing?** (e.g., a project management tool, time tracking system, JIRA plugin, custom application, etc.)\n\n2. **What kind of work log association?** (e.g., associating work logs with:\n   - Issues/tickets?\n   - Projects?\n   - Users/team members?\n   - Time periods?\n   - Tasks?)\n\n3. **What testing approach do you want?**\n   - Unit tests?\n   - Integration tests?\n   - Manual testing/verification?\n   - Test data setup and validation?\n\n4. **Do you have existing code I should look at?**\n\nIf you have a project loaded, I can explore the codebase to understand the current implementation and then help you create appropriate tests. Just let me know what you'd like me to test!",
+      "session_id": "c2a5e552-f723-4cef-b5fc-91abef6b01ec",
+      "total_cost_usd": 0.03955245,
+      "usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 2087,
+        "cache_read_input_tokens": 15006,
+        "output_tokens": 401,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 2087,
+          "ephemeral_5m_input_tokens": 0
+        }
+      },
+      "modelUsage": {
+        "claude-opus-4-5-20251101": {
+          "inputTokens": 3943,
+          "outputTokens": 245,
+          "cacheReadInputTokens": 11068,
+          "cacheCreationInputTokens": 0,
+          "webSearchRequests": 0,
+          "costUSD": 0.031374,
+          "contextWindow": 200000
+        },
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 19,
+          "outputTokens": 591,
+          "cacheReadInputTokens": 25957,
+          "cacheCreationInputTokens": 2087,
+          "webSearchRequests": 0,
+          "costUSD": 0.00817845,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "726e68fc-bb56-4064-a928-31526d29d121"
+    }
+  ],
+  "key": "runSession-2df202396f81141f",
+  "recordedAt": "2026-03-02T02:47:37.301Z"
+}
