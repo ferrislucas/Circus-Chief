@@ -32,7 +32,7 @@ test.describe('Session Name Editing', () => {
     trackSession(session.id);
 
     // Navigate to session detail page
-    await page.goto(`/projects/${project.id}/sessions/${session.id}`);
+    await page.goto(`/sessions/${session.id}`);
     await waitForPageReady(page);
 
     // Click the edit pencil icon
@@ -71,7 +71,7 @@ test.describe('Session Name Editing', () => {
     expect(initialSession.manuallyNamed).toBe(false);
 
     // Navigate to session detail page
-    await page.goto(`/projects/${project.id}/sessions/${session.id}`);
+    await page.goto(`/sessions/${session.id}`);
     await waitForPageReady(page);
 
     // Click the edit pencil icon and update name
@@ -94,7 +94,7 @@ test.describe('Session Name Editing', () => {
     trackSession(session.id);
 
     // Navigate to session detail page
-    await page.goto(`/projects/${project.id}/sessions/${session.id}`);
+    await page.goto(`/sessions/${session.id}`);
     await waitForPageReady(page);
 
     // Click the edit pencil icon
@@ -124,7 +124,7 @@ test.describe('Session Name Editing', () => {
     trackSession(session.id);
 
     // Navigate to session detail page
-    await page.goto(`/projects/${project.id}/sessions/${session.id}`);
+    await page.goto(`/sessions/${session.id}`);
     await waitForPageReady(page);
 
     // Click the edit pencil icon
@@ -153,7 +153,7 @@ test.describe('Session Name Editing', () => {
     trackSession(session.id);
 
     // Navigate to session detail page
-    await page.goto(`/projects/${project.id}/sessions/${session.id}`);
+    await page.goto(`/sessions/${session.id}`);
     await waitForPageReady(page);
 
     // Click the edit pencil icon
@@ -180,7 +180,7 @@ test.describe('Session Name Editing', () => {
     trackSession(session.id);
 
     // Navigate to session detail page
-    await page.goto(`/projects/${project.id}/sessions/${session.id}`);
+    await page.goto(`/sessions/${session.id}`);
     await waitForPageReady(page);
 
     // Verify the pencil icon is visible
