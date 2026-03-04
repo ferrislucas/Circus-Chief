@@ -1106,17 +1106,39 @@ test.describe('WebSocket Communication', () => {
     test('46. conversation:updated broadcasts with cumulative usage after follow-up', async () => {
       test.setTimeout(90000);
       const project = await seedProject('WS MultiTurn Conv Updated', process.cwd());
-      const session = await seedSession(project.id, { prompt: 'First message for cumulative usage' });
+      const session = await seedSession(project.id, { prompt: 'Hello' });
       await waitForStatus(session.id, 'waiting', 45000);
 
       const ws = await connect();
       subscribeToSession(ws, session.id);
       await new Promise(r => setTimeout(r, 100));
 
-      const msgPromise = waitForWSMessage(ws, 'conversation:updated', 45000);
-      await sendSessionMessage(session.id, 'Second message to accumulate usage');
-      const msg = await msgPromise;
+      // Collect all messages until session is waiting again (like test 45)
+      const messagesPromise = collectWSMessagesUntil(
+        ws,
+        'session:status',
+        45000,
+        (d) => d.status === 'waiting'
+      );
 
+      await sendSessionMessage(session.id, 'Hi again');
+
+      const messages = await messagesPromise;
+
+      // Debug: what messages did we receive?
+      console.log(`[TEST 46] Received ${messages.length} messages`);
+      console.log(`[TEST 46] Message types:`, [...new Set(messages.map((m: any) => m.type))]);
+      const errorMessages = messages.filter((m: any) => m.type === 'session:error');
+      if (errorMessages.length > 0) {
+        console.log(`[TEST 46] Received error:`, errorMessages[0]);
+      }
+
+      // Check that we received conversation:updated
+      const convUpdatedMessages = messages.filter((m: any) => m.type === 'conversation:updated');
+      console.log(`[TEST 46] conversation:updated messages: ${convUpdatedMessages.length}`);
+      expect(convUpdatedMessages.length).toBeGreaterThan(0);
+
+      const msg = convUpdatedMessages[convUpdatedMessages.length - 1]; // Get the last one
       expect(msg.type).toBe('conversation:updated');
       expect(msg.conversation).toBeDefined();
       // Conversation should have cumulative usage (from both turns)

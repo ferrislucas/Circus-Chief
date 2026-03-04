@@ -1,0 +1,243 @@
+{
+  "prompt": "Reply with exactly: \"UI creation persistence test.\" Nothing else.",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/Users/ferrislucas/claudetools.io/.worktrees/2f7a52de-0769-4aeb-93c8-ecddc57c2de1/.worktrees/6c33aca8-1dfb-417f-9c53-dfdba6df6b83",
+      "session_id": "9e85f9f9-3a15-4912-893d-fe6ac21d85dd",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "bypassPermissions",
+      "slash_commands": [
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan",
+        "playwright-e2e-runner"
+      ],
+      "skills": [],
+      "plugins": [],
+      "uuid": "c7685767-031e-4592-823a-368887361b15"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_start",
+        "message": {
+          "model": "claude-haiku-4-5-20251001",
+          "id": "msg_01Jo7j6AUFuc93y2n1tvckkU",
+          "type": "message",
+          "role": "assistant",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "usage": {
+            "input_tokens": 3,
+            "cache_creation_input_tokens": 8575,
+            "cache_read_input_tokens": 15493,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 8575
+            },
+            "output_tokens": 1,
+            "service_tier": "standard",
+            "inference_geo": "not_available"
+          }
+        }
+      },
+      "session_id": "9e85f9f9-3a15-4912-893d-fe6ac21d85dd",
+      "parent_tool_use_id": null,
+      "uuid": "5fe16f86-4e28-437c-a42f-33b4cead78fe"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "text",
+          "text": ""
+        }
+      },
+      "session_id": "9e85f9f9-3a15-4912-893d-fe6ac21d85dd",
+      "parent_tool_use_id": null,
+      "uuid": "423d644e-6d90-446f-985f-429e5ad94684"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": "UI"
+        }
+      },
+      "session_id": "9e85f9f9-3a15-4912-893d-fe6ac21d85dd",
+      "parent_tool_use_id": null,
+      "uuid": "b1c27113-d644-4502-919d-3894abf13f91"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": " creation persistence test."
+        }
+      },
+      "session_id": "9e85f9f9-3a15-4912-893d-fe6ac21d85dd",
+      "parent_tool_use_id": null,
+      "uuid": "af40dacf-2f96-4140-a50d-6fdc177a34cd"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01Jo7j6AUFuc93y2n1tvckkU",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "UI creation persistence test."
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 3,
+          "cache_creation_input_tokens": 8575,
+          "cache_read_input_tokens": 15493,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 8575
+          },
+          "output_tokens": 1,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "9e85f9f9-3a15-4912-893d-fe6ac21d85dd",
+      "uuid": "5b9e0f36-9138-4650-a4bd-dfd338830a4e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      "session_id": "9e85f9f9-3a15-4912-893d-fe6ac21d85dd",
+      "parent_tool_use_id": null,
+      "uuid": "dcd02b0c-7c4d-4e11-a85f-63b8c2212c32"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "end_turn",
+          "stop_sequence": null
+        },
+        "usage": {
+          "input_tokens": 3,
+          "cache_creation_input_tokens": 8575,
+          "cache_read_input_tokens": 15493,
+          "output_tokens": 8
+        }
+      },
+      "session_id": "9e85f9f9-3a15-4912-893d-fe6ac21d85dd",
+      "parent_tool_use_id": null,
+      "uuid": "75c4c227-9b99-4c69-83b6-1ea491aefe2c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_stop"
+      },
+      "session_id": "9e85f9f9-3a15-4912-893d-fe6ac21d85dd",
+      "parent_tool_use_id": null,
+      "uuid": "b6676050-13f6-465e-a44e-e31738490ad8"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "duration_ms": 745,
+      "duration_api_ms": 718,
+      "num_turns": 1,
+      "result": "UI creation persistence test.",
+      "session_id": "9e85f9f9-3a15-4912-893d-fe6ac21d85dd",
+      "total_cost_usd": 0.012311049999999999,
+      "usage": {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": 8575,
+        "cache_read_input_tokens": 15493,
+        "output_tokens": 8,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 8575,
+          "ephemeral_5m_input_tokens": 0
+        }
+      },
+      "modelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 3,
+          "outputTokens": 8,
+          "cacheReadInputTokens": 15493,
+          "cacheCreationInputTokens": 8575,
+          "webSearchRequests": 0,
+          "costUSD": 0.012311049999999999,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "ebe36936-0c15-41b7-8aeb-b3f4a3c246b9"
+    }
+  ],
+  "key": "runSession-f607a7ab0f6ee1fa",
+  "recordedAt": "2026-03-04T00:16:17.875Z"
+}

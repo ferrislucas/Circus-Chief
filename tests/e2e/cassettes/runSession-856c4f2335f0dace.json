@@ -1,0 +1,229 @@
+{
+  "prompt": "Reply with exactly: \"Refresh comparison test.\" Nothing else.",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/Users/ferrislucas/claudetools.io/.worktrees/2f7a52de-0769-4aeb-93c8-ecddc57c2de1",
+      "session_id": "ec397fe7-52b0-4bfa-8dfa-b96e059cf9d8",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "default",
+      "slash_commands": [
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan",
+        "playwright-e2e-runner"
+      ],
+      "skills": [],
+      "plugins": [],
+      "uuid": "adc34301-e50a-4cb5-90ce-140f65421bdf"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_start",
+        "message": {
+          "model": "claude-haiku-4-5-20251001",
+          "id": "msg_013V86thFheKEfiMVSQoTG4d",
+          "type": "message",
+          "role": "assistant",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "usage": {
+            "input_tokens": 3,
+            "cache_creation_input_tokens": 6237,
+            "cache_read_input_tokens": 15493,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 6237
+            },
+            "output_tokens": 8,
+            "service_tier": "standard",
+            "inference_geo": "not_available"
+          }
+        }
+      },
+      "session_id": "ec397fe7-52b0-4bfa-8dfa-b96e059cf9d8",
+      "parent_tool_use_id": null,
+      "uuid": "eb8d83c5-b927-45f1-9df6-38f119e1d096"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "text",
+          "text": ""
+        }
+      },
+      "session_id": "ec397fe7-52b0-4bfa-8dfa-b96e059cf9d8",
+      "parent_tool_use_id": null,
+      "uuid": "829e3da1-d897-4c9a-8aad-70a8317f96ae"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": "Refresh comparison test."
+        }
+      },
+      "session_id": "ec397fe7-52b0-4bfa-8dfa-b96e059cf9d8",
+      "parent_tool_use_id": null,
+      "uuid": "b4e152c3-6143-42c4-8045-ec35c3140c8c"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_013V86thFheKEfiMVSQoTG4d",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Refresh comparison test."
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 3,
+          "cache_creation_input_tokens": 6237,
+          "cache_read_input_tokens": 15493,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 6237
+          },
+          "output_tokens": 8,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "ec397fe7-52b0-4bfa-8dfa-b96e059cf9d8",
+      "uuid": "5cc9b7af-fd20-4451-b806-d3f1ffbe6c30"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      "session_id": "ec397fe7-52b0-4bfa-8dfa-b96e059cf9d8",
+      "parent_tool_use_id": null,
+      "uuid": "d53920ab-2512-455b-81d6-17133895a1b1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "end_turn",
+          "stop_sequence": null
+        },
+        "usage": {
+          "input_tokens": 3,
+          "cache_creation_input_tokens": 6237,
+          "cache_read_input_tokens": 15493,
+          "output_tokens": 8
+        }
+      },
+      "session_id": "ec397fe7-52b0-4bfa-8dfa-b96e059cf9d8",
+      "parent_tool_use_id": null,
+      "uuid": "3da4621c-166e-431c-ac1b-db6421b8fab2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_stop"
+      },
+      "session_id": "ec397fe7-52b0-4bfa-8dfa-b96e059cf9d8",
+      "parent_tool_use_id": null,
+      "uuid": "915bafac-5365-4f64-bae7-90d3f2760fa8"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "duration_ms": 1723,
+      "duration_api_ms": 1663,
+      "num_turns": 1,
+      "result": "Refresh comparison test.",
+      "session_id": "ec397fe7-52b0-4bfa-8dfa-b96e059cf9d8",
+      "total_cost_usd": 0.00938855,
+      "usage": {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": 6237,
+        "cache_read_input_tokens": 15493,
+        "output_tokens": 8,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 6237,
+          "ephemeral_5m_input_tokens": 0
+        }
+      },
+      "modelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 3,
+          "outputTokens": 8,
+          "cacheReadInputTokens": 15493,
+          "cacheCreationInputTokens": 6237,
+          "webSearchRequests": 0,
+          "costUSD": 0.00938855,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "16982224-44fd-478a-8e69-fff0074ae700"
+    }
+  ],
+  "key": "runSession-856c4f2335f0dace",
+  "recordedAt": "2026-03-04T00:16:16.867Z"
+}
