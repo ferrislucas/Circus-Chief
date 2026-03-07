@@ -743,4 +743,365 @@ describe('CanvasItemRepository', () => {
       });
     });
   });
+
+  describe('JSON data parsing in #mapCanvasItem', () => {
+    it('parses JSON data when type is "json" and data is a valid JSON string', () => {
+      const jsonObject = { key: 'value', nested: { a: 1, b: [1, 2, 3] } };
+      const item = repo.create(sessionId, {
+        type: 'json',
+        data: jsonObject,
+      });
+
+      // Data should be returned as an object, not a string
+      expect(item.data).toEqual(jsonObject);
+      expect(typeof item.data).toBe('object');
+      expect(item.data).not.toBe(JSON.stringify(jsonObject));
+    });
+
+    it('does not parse JSON when type is not "json"', () => {
+      const jsonString = '{"key":"value"}';
+      const item = repo.create(sessionId, {
+        type: 'text',
+        data: jsonString,
+      });
+
+      // Data should remain as string for non-json types
+      expect(item.data).toBe(jsonString);
+      expect(typeof item.data).toBe('string');
+    });
+
+    it('handles nested JSON objects correctly', () => {
+      const nestedData = {
+        user: {
+          name: 'Test User',
+          age: 30,
+          address: {
+            street: '123 Test St',
+            city: 'Test City',
+          },
+        },
+        tags: ['tag1', 'tag2', 'tag3'],
+        active: true,
+      };
+
+      const item = repo.create(sessionId, {
+        type: 'json',
+        data: nestedData,
+      });
+
+      expect(item.data).toEqual(nestedData);
+      expect(item.data.user.address.city).toBe('Test City');
+      expect(item.data.tags).toHaveLength(3);
+      expect(item.data.active).toBe(true);
+    });
+
+    it('handles invalid JSON gracefully by keeping original string', () => {
+      // Insert invalid JSON directly into database
+      const id = databaseManager.generateId();
+      const now = Date.now();
+      const invalidJson = '{invalid json without closing brace';
+
+      databaseManager
+        .get()
+        .prepare(
+          `INSERT INTO canvas_items (id, session_id, type, content, data, mime_type, filename, width, height, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(id, sessionId, 'json', null, invalidJson, null, null, null, null, now, now);
+
+      const item = repo.getById(id);
+
+      // Should keep the invalid string as-is
+      expect(item.data).toBe(invalidJson);
+      expect(typeof item.data).toBe('string');
+    });
+
+    it('handles malformed JSON gracefully', () => {
+      const id = databaseManager.generateId();
+      const now = Date.now();
+      const malformedJson = '{"key": undefined value}';
+
+      databaseManager
+        .get()
+        .prepare(
+          `INSERT INTO canvas_items (id, session_id, type, content, data, mime_type, filename, width, height, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(id, sessionId, 'json', null, malformedJson, null, null, null, null, now, now);
+
+      const item = repo.getById(id);
+
+      // Should keep the malformed string
+      expect(item.data).toBe(malformedJson);
+    });
+
+    it('returns null for null data field', () => {
+      const item = repo.create(sessionId, {
+        type: 'json',
+        content: 'No data field',
+      });
+
+      expect(item.data).toBeNull();
+    });
+
+    it('handles empty JSON object', () => {
+      const item = repo.create(sessionId, {
+        type: 'json',
+        data: {},
+      });
+
+      expect(item.data).toEqual({});
+      expect(typeof item.data).toBe('object');
+      expect(Object.keys(item.data)).toHaveLength(0);
+    });
+
+    it('handles JSON array', () => {
+      const jsonArray = [1, 2, 3, { key: 'value' }, ['nested', 'array']];
+      const item = repo.create(sessionId, {
+        type: 'json',
+        data: jsonArray,
+      });
+
+      expect(item.data).toEqual(jsonArray);
+      expect(Array.isArray(item.data)).toBe(true);
+      expect(item.data).toHaveLength(5);
+    });
+
+    it('handles JSON primitives (string, number, boolean)', () => {
+      // Note: When creating, objects are stringified, but primitives at top level
+      // are not typically used. Testing the parsing behavior:
+      const id = databaseManager.generateId();
+      const now = Date.now();
+
+      // Insert as string (as it would be stored)
+      databaseManager
+        .get()
+        .prepare(
+          `INSERT INTO canvas_items (id, session_id, type, content, data, mime_type, filename, width, height, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(id, sessionId, 'json', null, '"just a string"', null, null, null, null, now, now);
+
+      const item = repo.getById(id);
+      expect(item.data).toBe('just a string');
+    });
+
+    it('preserves JSON data through retrieval after creation', () => {
+      const originalData = {
+        timestamp: Date.now(),
+        message: 'Test message',
+        count: 42,
+        items: ['a', 'b', 'c'],
+      };
+
+      const created = repo.create(sessionId, {
+        type: 'json',
+        data: originalData,
+        filename: 'test.json',
+      });
+
+      // Retrieve by ID
+      const retrieved = repo.getById(created.id);
+      expect(retrieved.data).toEqual(originalData);
+
+      // Retrieve by session
+      const sessionItems = repo.getBySessionId(sessionId);
+      const fromSession = sessionItems.find(i => i.id === created.id);
+      expect(fromSession.data).toEqual(originalData);
+
+      // Retrieve latest versions
+      const latestItems = repo.getLatestVersionsBySessionId(sessionId);
+      const fromLatest = latestItems.find(i => i.id === created.id);
+      expect(fromLatest.data).toEqual(originalData);
+    });
+
+    it('keeps data as string for non-json types even if it looks like JSON', () => {
+      const jsonString = '{"looks":"like json"}';
+
+      const textItem = repo.create(sessionId, {
+        type: 'text',
+        data: jsonString,
+      });
+
+      const markdownItem = repo.create(sessionId, {
+        type: 'markdown',
+        data: jsonString,
+      });
+
+      const codeItem = repo.create(sessionId, {
+        type: 'code',
+        data: jsonString,
+      });
+
+      // All should keep data as string
+      expect(textItem.data).toBe(jsonString);
+      expect(typeof textItem.data).toBe('string');
+
+      expect(markdownItem.data).toBe(jsonString);
+      expect(typeof markdownItem.data).toBe('string');
+
+      expect(codeItem.data).toBe(jsonString);
+      expect(typeof codeItem.data).toBe('string');
+    });
+
+    it('handles JSON with special characters', () => {
+      const specialData = {
+        unicode: 'Hello 世界 🌍',
+        newlines: 'Line 1\nLine 2\nLine 3',
+        quotes: 'He said "hello"',
+        mixed: 'Path: C:\\Users\\Test\nNext: "quoted"',
+      };
+
+      const item = repo.create(sessionId, {
+        type: 'json',
+        data: specialData,
+      });
+
+      expect(item.data).toEqual(specialData);
+      expect(item.data.unicode).toBe('Hello 世界 🌍');
+      expect(item.data.newlines).toContain('\n');
+      expect(item.data.quotes).toBe('He said "hello"');
+    });
+
+    it('preserves JSON data when duplicating sessions', () => {
+      const sourceData = {
+        config: { setting1: true, setting2: false },
+        items: [{ id: 1, name: 'Item 1' }],
+        metadata: { version: '1.0.0', created: Date.now() },
+      };
+
+      repo.create(sessionId, {
+        type: 'json',
+        data: sourceData,
+        filename: 'config.json',
+      });
+
+      // Create target session
+      const project = projectRepo.create('Target Project', '/tmp/target');
+      const targetSessionId = databaseManager.generateId();
+      const now = Date.now();
+      databaseManager
+        .get()
+        .prepare(
+          'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )
+        .run(targetSessionId, project.id, 'Target Session', 'running', 'standard', now, now);
+
+      // Duplicate
+      repo.duplicateForSession(sessionId, targetSessionId);
+
+      // Verify data is preserved and parsed correctly
+      const targetItems = repo.getBySessionId(targetSessionId);
+      expect(targetItems).toHaveLength(1);
+      expect(targetItems[0].data).toEqual(sourceData);
+      expect(targetItems[0].data.config.setting1).toBe(true);
+      expect(targetItems[0].data.items).toHaveLength(1);
+    });
+  });
+
+  describe('batch operations', () => {
+    describe('softDeleteBatch', () => {
+      it('deletes multiple items atomically', () => {
+        const item1 = repo.create(sessionId, { type: 'text', content: 'Item 1' });
+        const item2 = repo.create(sessionId, { type: 'text', content: 'Item 2' });
+        const item3 = repo.create(sessionId, { type: 'text', content: 'Item 3' });
+
+        const count = repo.softDeleteBatch([item1.id, item2.id]);
+
+        expect(count).toBe(2);
+        expect(repo.getById(item1.id).deletedAt).not.toBeNull();
+        expect(repo.getById(item2.id).deletedAt).not.toBeNull();
+        expect(repo.getById(item3.id).deletedAt).toBeNull();
+      });
+
+      it('returns 0 for empty array', () => {
+        const count = repo.softDeleteBatch([]);
+        expect(count).toBe(0);
+      });
+
+      it('returns 0 for undefined/null', () => {
+        expect(repo.softDeleteBatch()).toBe(0);
+        expect(repo.softDeleteBatch(null)).toBe(0);
+      });
+
+      it('only deletes items that are not already deleted', () => {
+        const item1 = repo.create(sessionId, { type: 'text', content: 'Item 1' });
+        const item2 = repo.create(sessionId, { type: 'text', content: 'Item 2' });
+
+        repo.softDelete(item1.id);
+
+        const count = repo.softDeleteBatch([item1.id, item2.id]);
+
+        // Should only count item2 since item1 was already deleted
+        expect(count).toBe(1);
+      });
+    });
+
+    describe('recoverBatch', () => {
+      it('recovers multiple items atomically', () => {
+        const item1 = repo.create(sessionId, { type: 'text', content: 'Item 1' });
+        const item2 = repo.create(sessionId, { type: 'text', content: 'Item 2' });
+        const item3 = repo.create(sessionId, { type: 'text', content: 'Item 3' });
+
+        repo.softDeleteBatch([item1.id, item2.id, item3.id]);
+
+        const count = repo.recoverBatch([item1.id, item2.id]);
+
+        expect(count).toBe(2);
+        expect(repo.getById(item1.id).deletedAt).toBeNull();
+        expect(repo.getById(item2.id).deletedAt).toBeNull();
+        expect(repo.getById(item3.id).deletedAt).not.toBeNull();
+      });
+
+      it('returns 0 for empty array', () => {
+        const count = repo.recoverBatch([]);
+        expect(count).toBe(0);
+      });
+
+      it('only recovers items that are deleted', () => {
+        const item1 = repo.create(sessionId, { type: 'text', content: 'Item 1' });
+        const item2 = repo.create(sessionId, { type: 'text', content: 'Item 2' });
+
+        repo.softDelete(item1.id);
+
+        const count = repo.recoverBatch([item1.id, item2.id]);
+
+        // Should only count item1 since item2 wasn't deleted
+        expect(count).toBe(1);
+      });
+    });
+
+    describe('permanentDeleteBatch', () => {
+      it('permanently deletes multiple items from trash', () => {
+        const item1 = repo.create(sessionId, { type: 'text', content: 'Item 1' });
+        const item2 = repo.create(sessionId, { type: 'text', content: 'Item 2' });
+        const item3 = repo.create(sessionId, { type: 'text', content: 'Item 3' });
+
+        repo.softDeleteBatch([item1.id, item2.id, item3.id]);
+
+        const count = repo.permanentDeleteBatch([item1.id, item2.id]);
+
+        expect(count).toBe(2);
+        expect(repo.getById(item1.id)).toBeNull();
+        expect(repo.getById(item2.id)).toBeNull();
+        expect(repo.getById(item3.id)).not.toBeNull();
+      });
+
+      it('does not delete active items', () => {
+        const item1 = repo.create(sessionId, { type: 'text', content: 'Item 1' });
+        const item2 = repo.create(sessionId, { type: 'text', content: 'Item 2' });
+
+        const count = repo.permanentDeleteBatch([item1.id, item2.id]);
+
+        expect(count).toBe(0);
+        expect(repo.getById(item1.id)).not.toBeNull();
+        expect(repo.getById(item2.id)).not.toBeNull();
+      });
+
+      it('returns 0 for empty array', () => {
+        const count = repo.permanentDeleteBatch([]);
+        expect(count).toBe(0);
+      });
+    });
+  });
 });
