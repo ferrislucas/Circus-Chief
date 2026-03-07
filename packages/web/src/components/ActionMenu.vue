@@ -21,8 +21,10 @@
     <Transition name="slide">
       <ul
         v-if="isOpen"
+        ref="menuRef"
         class="menu-items"
         role="menu"
+        :style="menuStyle"
         @keydown="handleKeyDown"
       >
         <li
@@ -48,7 +50,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, defineExpose } from 'vue';
+import { ref, onMounted, onUnmounted, defineExpose, nextTick } from 'vue';
 
 const emit = defineEmits(['action-click']);
 
@@ -76,12 +78,41 @@ const props = defineProps({
 
 const isOpen = ref(false);
 const containerRef = ref(null);
+const menuRef = ref(null);
 const highlightedIndex = ref(null);
+const menuStyle = ref({});
+
+async function updateMenuPosition() {
+  await nextTick();
+  const menuEl = menuRef.value;
+  if (!menuEl) return;
+
+  // Get the menu's bounding rectangle
+  const rect = menuEl.getBoundingClientRect();
+
+  // Default: anchor right edge to container right edge
+  const style = {};
+
+  // If menu overflows left edge of viewport, flip to left-anchored
+  if (rect.left < 0) {
+    style.right = 'auto';
+    style.left = '0';
+  }
+
+  // If menu overflows right edge of viewport, ensure right-anchored
+  if (rect.right > window.innerWidth) {
+    style.left = 'auto';
+    style.right = '0';
+  }
+
+  menuStyle.value = style;
+}
 
 function toggleMenu() {
   isOpen.value = !isOpen.value;
   if (isOpen.value) {
     highlightedIndex.value = 0;
+    updateMenuPosition();
   } else {
     highlightedIndex.value = null;
   }
@@ -90,6 +121,7 @@ function toggleMenu() {
 function closeMenu() {
   isOpen.value = false;
   highlightedIndex.value = null;
+  menuStyle.value = {};
 }
 
 function handleOutsideClick() {
@@ -150,6 +182,7 @@ onUnmounted(() => {
 defineExpose({
   isOpen,
   highlightedIndex,
+  menuStyle,
   toggleMenu,
   closeMenu,
   handleItemClick,

@@ -1,0 +1,168 @@
+{
+  "prompt": "Current session status: waiting\n\nEXISTING SUMMARY:\nNo previous summary - this is the first generation.\n\nRECENT CONVERSATION:\nUser: Test session with thinking enabled - solve a simple coding problem\n\nA",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/Users/ferrislucas/claudetools.io/.worktrees/2f7a52de-0769-4aeb-93c8-ecddc57c2de1",
+      "session_id": "d0f83968-2237-483b-a310-2cc93f95ec18",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP",
+        "StructuredOutput"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "bypassPermissions",
+      "slash_commands": [
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan"
+      ],
+      "skills": [],
+      "plugins": [],
+      "uuid": "08d2ec21-9c3d-4a0c-bcb1-916c6210d0de"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01Kr5xjjwGJCmAcefc2zFiqQ",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_0119g8hLcF4ABN8UD2bdnewJ",
+            "name": "StructuredOutput",
+            "input": {
+              "session_title": "Test session with thinking enabled",
+              "short_summary": "Successfully solved a simple coding problem (longest substring without repeating characters) using sliding window technique with optimal O(n) complexity.",
+              "full_summary": "Completed a test session with thinking enabled to solve a coding interview-style problem. The task was to find the longest substring without repeating characters. Implemented a sliding window solution using two pointers and a dictionary to track character positions. The solution achieved optimal time complexity of O(n) with a single pass through the string and space complexity of O(min(m,n)) where m is the size of the character set. The implementation was clean, efficient, and demonstrated proper algorithm design principles.",
+              "key_actions": [
+                "Solved longest substring without repeating characters problem",
+                "Implemented sliding window technique with two pointers",
+                "Achieved optimal O(n) time complexity",
+                "Used dictionary for character position tracking",
+                "Demonstrated proper algorithm design and implementation"
+              ],
+              "files_modified": [],
+              "outcome": "completed"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 3,
+          "cache_creation_input_tokens": 663,
+          "cache_read_input_tokens": 15438,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 663
+          },
+          "output_tokens": 29,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "d0f83968-2237-483b-a310-2cc93f95ec18",
+      "uuid": "689db719-a637-490d-9147-ec6cfe703c87"
+    },
+    {
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "tool_use_id": "toolu_0119g8hLcF4ABN8UD2bdnewJ",
+            "type": "tool_result",
+            "content": "Structured output provided successfully"
+          }
+        ]
+      },
+      "parent_tool_use_id": null,
+      "session_id": "d0f83968-2237-483b-a310-2cc93f95ec18",
+      "uuid": "dd478232-6ced-4615-abfb-32e19957a3ac",
+      "tool_use_result": "Structured output provided successfully"
+    },
+    {
+      "type": "result",
+      "subtype": "error_max_turns",
+      "duration_ms": 2403,
+      "duration_api_ms": 4315,
+      "is_error": false,
+      "num_turns": 2,
+      "session_id": "d0f83968-2237-483b-a310-2cc93f95ec18",
+      "total_cost_usd": 0.00573505,
+      "usage": {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": 663,
+        "cache_read_input_tokens": 15438,
+        "output_tokens": 327,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 663,
+          "ephemeral_5m_input_tokens": 0
+        }
+      },
+      "modelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 6,
+          "outputTokens": 450,
+          "cacheReadInputTokens": 26503,
+          "cacheCreationInputTokens": 663,
+          "webSearchRequests": 0,
+          "costUSD": 0.00573505,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "9e640540-24c0-45ad-a5eb-584c6bbb48a0",
+      "errors": []
+    }
+  ],
+  "key": "summary-623d3d3b2d78aeb1",
+  "recordedAt": "2026-03-04T02:16:43.959Z"
+}
