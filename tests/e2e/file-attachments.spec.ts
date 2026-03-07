@@ -234,6 +234,19 @@ test.describe('File Attachments - UI Display', () => {
 
     await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
+
+    // Poll for attachment linkage before asserting (attachments are linked asynchronously
+    // by runSession after the session is created, so we need to wait for that to complete)
+    let attachRetries = 0;
+    while (attachRetries < 30) {
+      const msgRes = await fetch(`${API_URL}/api/sessions/${session.id}/messages`);
+      const msgs = await msgRes.json();
+      const firstMsg = msgs.find((m: any) => m.role === 'user');
+      if (firstMsg?.attachments?.length > 0) break;
+      await new Promise((r) => setTimeout(r, 500));
+      attachRetries++;
+    }
+
     await page.reload();
     await page.waitForLoadState('networkidle');
 
@@ -254,6 +267,19 @@ test.describe('File Attachments - UI Display', () => {
 
     await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await prepareSessionForTest(page, session.id);
+
+    // Poll for attachment linkage before asserting (attachments are linked asynchronously
+    // by runSession after the session is created, so we need to wait for that to complete)
+    let attachRetries = 0;
+    while (attachRetries < 30) {
+      const msgRes = await fetch(`${API_URL}/api/sessions/${session.id}/messages`);
+      const msgs = await msgRes.json();
+      const firstMsg = msgs.find((m: any) => m.role === 'user');
+      if (firstMsg?.attachments?.length > 0) break;
+      await new Promise((r) => setTimeout(r, 500));
+      attachRetries++;
+    }
+
     await page.reload();
     await page.waitForLoadState('networkidle');
 
