@@ -882,7 +882,7 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
 
     // Determine model (force Haiku in VCR mode to minimize cost)
     const isVCR = !!process.env.VCR_MODE;
-    const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : (model || undefined);
+    const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;
 
     const queryParams = {
       prompt: promptWithAttachments,
@@ -1101,7 +1101,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
 
     // Determine model (force Haiku in VCR mode to minimize cost)
     const isVCR = !!process.env.VCR_MODE;
-    const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : (model || undefined);
+    const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;
 
     const queryParams = {
       prompt: promptWithContext,
@@ -1318,7 +1318,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
 
     // Determine model (force Haiku in VCR mode to minimize cost)
     const isVCR = !!process.env.VCR_MODE;
-    const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : (model || undefined);
+    const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;
 
     const queryParams = {
       prompt: promptWithContext,
