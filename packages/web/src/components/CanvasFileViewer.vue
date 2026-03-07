@@ -149,6 +149,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import hljs from 'highlight.js';
 import { useCanvasStore } from '../stores/canvas.js';
+import { useUiStore } from '../stores/ui.js';
 
 // Map file extensions to highlight.js language names
 const EXT_TO_LANG = {
@@ -213,6 +214,7 @@ const props = defineProps({
 });
 
 const canvasStore = useCanvasStore();
+const uiStore = useUiStore();
 
 const emit = defineEmits(['back', 'selectVersion', 'deleteAll']);
 
@@ -281,28 +283,36 @@ function closeMenu() {
 
 async function handleMenuCopyContents() {
   // Fetch content on demand if not yet loaded
-  if (props.item.content === undefined && props.item.data === undefined) {
-    await canvasStore.fetchItemContent(props.sessionId, props.item.filename);
-  }
+  const fetched = await canvasStore.fetchItemContent(props.sessionId, props.item.filename);
 
   let content = '';
 
   if (props.item.type === 'markdown' || props.item.type === 'text' || props.item.type === 'code') {
-    content = props.item.content || '';
+    content = props.item.content ?? fetched?.content ?? '';
   } else if (props.item.type === 'json') {
-    content = props.item.data || '';
+    content = props.item.data ?? fetched?.data ?? '';
   } else if (props.item.type === 'image') {
     // For images, copy the base64 or filename
     content = props.item.filename || 'image';
   }
 
   const success = await copyToClipboard(content);
+  if (success) {
+    uiStore.success('Copied file contents to clipboard');
+  } else {
+    uiStore.error('Failed to copy file contents to clipboard');
+  }
   closeMenu();
 }
 
 async function handleMenuCopyFilename() {
   const filename = props.item.filename || 'Untitled';
-  await copyToClipboard(filename);
+  const success = await copyToClipboard(filename);
+  if (success) {
+    uiStore.success('Copied filename to clipboard');
+  } else {
+    uiStore.error('Failed to copy filename to clipboard');
+  }
   closeMenu();
 }
 

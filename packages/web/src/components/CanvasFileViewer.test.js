@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick, defineComponent } from 'vue';
 import { setActivePinia, createPinia } from 'pinia';
+import { useCanvasStore } from '../stores/canvas.js';
+import { useUiStore } from '../stores/ui.js';
 
 // Mock the API module before importing component
 vi.mock('../composables/useApi.js', () => ({
@@ -141,6 +143,9 @@ describe('CanvasFileViewer', () => {
         item: { id: '1', filename: 'test.txt', type: 'text', content: 'File content here', createdAt: Date.now() },
       });
 
+      const uiStore = useUiStore();
+      const successSpy = vi.spyOn(uiStore, 'success');
+
       const menuButton = wrapper.find('.btn-menu');
       await menuButton.trigger('click');
       await flushAll(wrapper);
@@ -150,12 +155,99 @@ describe('CanvasFileViewer', () => {
       await flushAll(wrapper);
 
       expect(mockClipboard.writeText).toHaveBeenCalledWith('File content here');
+      expect(successSpy).toHaveBeenCalledWith('Copied file contents to clipboard');
+    });
+
+    it('copies file contents using fetchItemContent return value', async () => {
+      const item = { id: '1', filename: 'doc.md', type: 'markdown', createdAt: Date.now() };
+      const wrapper = mountComponent({ item });
+
+      const canvasStore = useCanvasStore();
+      const uiStore = useUiStore();
+      const successSpy = vi.spyOn(uiStore, 'success');
+
+      // Mock fetchItemContent to return content
+      const fetchSpy = vi.spyOn(canvasStore, 'fetchItemContent').mockResolvedValue({
+        content: '# Fetched Content',
+        data: null
+      });
+
+      const menuButton = wrapper.find('.btn-menu');
+      await menuButton.trigger('click');
+      await flushAll(wrapper);
+
+      const menuItems = wrapper.findAll('.menu-item');
+      await menuItems[1].trigger('click');
+      await flushAll(wrapper);
+
+      expect(fetchSpy).toHaveBeenCalledWith('test-session', 'doc.md');
+      expect(mockClipboard.writeText).toHaveBeenCalledWith('# Fetched Content');
+      expect(successSpy).toHaveBeenCalledWith('Copied file contents to clipboard');
+    });
+
+    it('copies JSON data using fetchItemContent return value', async () => {
+      const item = { id: '1', filename: 'data.json', type: 'json', createdAt: Date.now() };
+      const wrapper = mountComponent({ item });
+
+      const canvasStore = useCanvasStore();
+      const uiStore = useUiStore();
+      const successSpy = vi.spyOn(uiStore, 'success');
+
+      // Mock fetchItemContent to return data
+      const fetchSpy = vi.spyOn(canvasStore, 'fetchItemContent').mockResolvedValue({
+        content: null,
+        data: '{"key": "value"}'
+      });
+
+      const menuButton = wrapper.find('.btn-menu');
+      await menuButton.trigger('click');
+      await flushAll(wrapper);
+
+      const menuItems = wrapper.findAll('.menu-item');
+      await menuItems[1].trigger('click');
+      await flushAll(wrapper);
+
+      expect(fetchSpy).toHaveBeenCalledWith('test-session', 'data.json');
+      expect(mockClipboard.writeText).toHaveBeenCalledWith('{"key": "value"}');
+      expect(successSpy).toHaveBeenCalledWith('Copied file contents to clipboard');
+    });
+
+    it('shows error toast when clipboard fails during contents copy', async () => {
+      const wrapper = mountComponent({
+        item: { id: '1', filename: 'test.txt', type: 'text', content: 'File content here', createdAt: Date.now() },
+      });
+
+      const canvasStore = useCanvasStore();
+      const uiStore = useUiStore();
+      const errorSpy = vi.spyOn(uiStore, 'error');
+
+      // Mock fetchItemContent
+      vi.spyOn(canvasStore, 'fetchItemContent').mockResolvedValue({
+        content: 'File content here',
+        data: null
+      });
+
+      // Mock clipboard to fail
+      mockClipboard.writeText = vi.fn().mockRejectedValue(new Error('Clipboard failed'));
+
+      const menuButton = wrapper.find('.btn-menu');
+      await menuButton.trigger('click');
+      await flushAll(wrapper);
+
+      const menuItems = wrapper.findAll('.menu-item');
+      await menuItems[1].trigger('click');
+      await flushAll(wrapper);
+
+      expect(errorSpy).toHaveBeenCalledWith('Failed to copy file contents to clipboard');
     });
 
     it('copies filename when menu option is clicked', async () => {
       const wrapper = mountComponent({
         item: { id: '1', filename: 'myfile.txt', type: 'text', content: 'Content', createdAt: Date.now() },
       });
+
+      const uiStore = useUiStore();
+      const successSpy = vi.spyOn(uiStore, 'success');
 
       const menuButton = wrapper.find('.btn-menu');
       await menuButton.trigger('click');
@@ -166,6 +258,29 @@ describe('CanvasFileViewer', () => {
       await flushAll(wrapper);
 
       expect(mockClipboard.writeText).toHaveBeenCalledWith('myfile.txt');
+      expect(successSpy).toHaveBeenCalledWith('Copied filename to clipboard');
+    });
+
+    it('shows error toast when clipboard fails during filename copy', async () => {
+      const wrapper = mountComponent({
+        item: { id: '1', filename: 'myfile.txt', type: 'text', content: 'Content', createdAt: Date.now() },
+      });
+
+      const uiStore = useUiStore();
+      const errorSpy = vi.spyOn(uiStore, 'error');
+
+      // Mock clipboard to fail
+      mockClipboard.writeText = vi.fn().mockRejectedValue(new Error('Clipboard failed'));
+
+      const menuButton = wrapper.find('.btn-menu');
+      await menuButton.trigger('click');
+      await flushAll(wrapper);
+
+      const menuItems = wrapper.findAll('.menu-item');
+      await menuItems[0].trigger('click');
+      await flushAll(wrapper);
+
+      expect(errorSpy).toHaveBeenCalledWith('Failed to copy filename to clipboard');
     });
 
     it('shows delete file option with version count when multiple versions exist', async () => {

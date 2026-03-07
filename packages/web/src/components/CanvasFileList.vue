@@ -88,8 +88,10 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useCanvasStore } from '../stores/canvas.js';
+import { useUiStore } from '../stores/ui.js';
 
 const canvasStore = useCanvasStore();
+const uiStore = useUiStore();
 
 const props = defineProps({
   items: {
@@ -139,7 +141,6 @@ function handleRowClick(itemId) {
   }
 }
 
-const copiedItemId = ref(null);
 const openMenuItemId = ref(null);
 const menuHighlightedIndex = ref(null);
 const menuContainerRefs = ref({});
@@ -172,13 +173,6 @@ async function copyToClipboard(text) {
   }
 }
 
-function showCopiedFeedback(itemId) {
-  copiedItemId.value = itemId;
-  setTimeout(() => {
-    copiedItemId.value = null;
-  }, 1500);
-}
-
 // Menu functions
 function toggleMenu(itemId, event) {
   event.stopPropagation();
@@ -192,8 +186,12 @@ function closeMenu() {
 }
 
 async function handleMenuCopyFilename(item) {
-  await copyToClipboard(item.filename || 'Untitled');
-  showCopiedFeedback(item.id);
+  const success = await copyToClipboard(item.filename || 'Untitled');
+  if (success) {
+    uiStore.success('Copied filename to clipboard');
+  } else {
+    uiStore.error('Failed to copy filename to clipboard');
+  }
   closeMenu();
 }
 
@@ -201,17 +199,21 @@ async function handleMenuCopyContents(item) {
   // Fetch content on demand if not yet loaded.
   // Use === undefined, NOT falsy check.
   // '' (empty text file) and null (field N/A for type) are valid fetched values.
-  if (item.content === undefined && item.data === undefined) {
-    await canvasStore.fetchItemContent(props.sessionId, item.filename);
-  }
+  const fetched = await canvasStore.fetchItemContent(props.sessionId, item.filename);
 
   let content = '';
   if (item.type === 'markdown' || item.type === 'text' || item.type === 'code') {
-    content = item.content || '';
+    content = item.content ?? fetched?.content ?? '';
   } else if (item.type === 'json') {
-    content = item.data || '';
+    content = item.data ?? fetched?.data ?? '';
   }
-  await copyToClipboard(content);
+
+  const success = await copyToClipboard(content);
+  if (success) {
+    uiStore.success('Copied file contents to clipboard');
+  } else {
+    uiStore.error('Failed to copy file contents to clipboard');
+  }
   closeMenu();
 }
 

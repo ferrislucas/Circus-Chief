@@ -10,22 +10,12 @@ export class CanvasItemRepository extends BaseRepository {
   }
 
   static #mapCanvasItem(row) {
-    // Parse JSON data for json type
-    let data = row.data;
-    if (row.type === 'json' && typeof data === 'string') {
-      try {
-        data = JSON.parse(data);
-      } catch (e) {
-        // If parsing fails, keep as string
-      }
-    }
-
     return {
       id: row.id,
       sessionId: row.session_id,
       type: row.type,
       content: row.content,
-      data: data,
+      data: row.data,  // Keep as string (don't parse JSON)
       mimeType: row.mime_type,
       filename: row.filename,
       width: row.width,
