@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import sessionsRouter from './sessions.js';
 import { projects, sessions } from '../database.js';
 
 // Mock websocket
@@ -10,10 +9,24 @@ vi.mock('../websocket.js', () => ({
   broadcastToProject: vi.fn(),
 }));
 
+// Mock sessionManager so POST /start doesn't try to spawn real Claude processes
+vi.mock('../services/sessionManager.js', () => ({
+  runSession: vi.fn().mockResolvedValue(undefined),
+  continueSession: vi.fn().mockResolvedValue(undefined),
+  stopSession: vi.fn(),
+  restartSession: vi.fn(),
+  cleanupActiveSession: vi.fn(),
+  continueSessionWithExistingMessage: vi.fn(),
+}));
+
 // Mock summary service
 vi.mock('../services/summaryService.js', () => ({
   generateConversationSummary: vi.fn().mockResolvedValue('mock summary'),
 }));
+
+// Import after mocks
+import sessionsRouter from './sessions.js';
+import { runSession } from '../services/sessionManager.js';
 
 describe('Sessions API - pendingModel Field', () => {
   let app;
@@ -275,6 +288,77 @@ describe('Sessions API - pendingModel Field', () => {
         .expect(200);
 
       expect(response.body.pendingModel).toBeNull();
+    });
+  });
+
+  describe('POST /api/sessions/:id/start - pendingModel fallback', () => {
+    beforeEach(() => {
+      vi.mocked(runSession).mockClear();
+      vi.mocked(runSession).mockResolvedValue(undefined);
+    });
+
+    it('uses session.pendingModel when no model in request body', async () => {
+      sessions.update(session.id, { pendingModel: 'claude-opus-4-6-20250616' });
+
+      await request(app)
+        .post(`/api/sessions/${session.id}/start`)
+        .send({})
+        .expect(200);
+
+      expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
+      // model is the 6th argument (index 5) to runSession
+      const modelArg = vi.mocked(runSession).mock.calls[0][5];
+      expect(modelArg).toBe('claude-opus-4-6-20250616');
+    });
+
+    it('uses req.body.model over session.pendingModel when both exist', async () => {
+      sessions.update(session.id, { pendingModel: 'claude-opus-4-6-20250616' });
+
+      await request(app)
+        .post(`/api/sessions/${session.id}/start`)
+        .send({ model: 'claude-sonnet-4-5-20251219' })
+        .expect(200);
+
+      expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
+      const modelArg = vi.mocked(runSession).mock.calls[0][5];
+      expect(modelArg).toBe('claude-sonnet-4-5-20251219');
+    });
+
+    it('falls back to session.model when pendingModel is null', async () => {
+      sessions.update(session.id, { model: 'claude-opus-4-6-20250616', pendingModel: null });
+
+      await request(app)
+        .post(`/api/sessions/${session.id}/start`)
+        .send({})
+        .expect(200);
+
+      expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
+      const modelArg = vi.mocked(runSession).mock.calls[0][5];
+      expect(modelArg).toBe('claude-opus-4-6-20250616');
+    });
+
+    it('passes null model to runSession when no model is set anywhere', async () => {
+      // session.model and session.pendingModel are null by default
+      await request(app)
+        .post(`/api/sessions/${session.id}/start`)
+        .send({})
+        .expect(200);
+
+      expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
+      const modelArg = vi.mocked(runSession).mock.calls[0][5];
+      expect(modelArg).toBeNull();
+    });
+
+    it('clears pendingModel after session is started', async () => {
+      sessions.update(session.id, { pendingModel: 'claude-opus-4-6-20250616' });
+
+      await request(app)
+        .post(`/api/sessions/${session.id}/start`)
+        .send({})
+        .expect(200);
+
+      const updated = sessions.getById(session.id);
+      expect(updated.pendingModel).toBeNull();
     });
   });
 });
