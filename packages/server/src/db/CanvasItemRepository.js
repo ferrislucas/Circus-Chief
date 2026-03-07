@@ -10,12 +10,23 @@ export class CanvasItemRepository extends BaseRepository {
   }
 
   static #mapCanvasItem(row) {
+    // Parse JSON data if type is 'json' and data is a valid JSON string
+    let dataValue = row.data;
+    if (row.type === 'json' && dataValue && typeof dataValue === 'string') {
+      try {
+        dataValue = JSON.parse(dataValue);
+      } catch (e) {
+        // If parsing fails, keep the original string value
+        console.warn('Failed to parse JSON data for canvas item:', row.id, e.message);
+      }
+    }
+
     return {
       id: row.id,
       sessionId: row.session_id,
       type: row.type,
       content: row.content,
-      data: row.data,  // Keep as string (don't parse JSON)
+      data: dataValue,
       mimeType: row.mime_type,
       filename: row.filename,
       width: row.width,
