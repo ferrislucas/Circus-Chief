@@ -1191,6 +1191,19 @@ export async function continueSession(sessionId, content, workingDirectory, syst
       // Normal error handling (no reschedule or reschedule limits reached)
       sessions.update(sessionId, { status: 'error', error: error.message });
       broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
+      // Broadcast error status to project and session subscribers (matches handleStreamEvent result error path)
+      broadcastSessionStatus(sessionId, 'error');
+      // Broadcast final conversation state so clients get cumulative usage even on error
+      const errorConversationId = activeConversationIds.get(sessionId);
+      if (errorConversationId) {
+        const finalConversation = conversations.getById(errorConversationId);
+        if (finalConversation) {
+          broadcastToSession(sessionId, WS_MESSAGE_TYPES.CONVERSATION_UPDATED, {
+            sessionId,
+            conversation: finalConversation,
+          });
+        }
+      }
       // Trigger summary generation on error
       summaryService.onSessionComplete(sessionId);
     }
@@ -1201,6 +1214,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     currentModels.delete(sessionId);
     loggedToolUseIds.delete(sessionId);
     activeSessions.delete(sessionId);
+    activeConversationIds.delete(sessionId);
   }
 }
 

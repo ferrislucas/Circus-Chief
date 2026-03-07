@@ -1113,12 +1113,12 @@ test.describe('WebSocket Communication', () => {
       subscribeToSession(ws, session.id);
       await new Promise(r => setTimeout(r, 100));
 
-      // Collect all messages until session is waiting again (like test 45)
+      // Collect all messages until session reaches 'waiting' or 'error' status
       const messagesPromise = collectWSMessagesUntil(
         ws,
         'session:status',
         45000,
-        (d) => d.status === 'waiting'
+        (d) => d.status === 'waiting' || d.status === 'error'
       );
 
       await sendSessionMessage(session.id, 'Hi again');
