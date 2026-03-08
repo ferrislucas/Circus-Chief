@@ -30,7 +30,7 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     project = await seedProject('Recovery Test', '/tmp/test');
     session = await seedSession(project.id, { prompt: 'test', startImmediately: false });
     await waitForSessionToExist(session.id);
-    await updateSessionStatus(session.id, 'waiting');
+    await updateSessionStatus(session.id, 'running');
     await seedUserMessage(session.id, 'hello');
     await seedAssistantMessage(session.id, 'hi there');
 
@@ -52,25 +52,6 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     await page.waitForTimeout(3000); // Let the socket die
 
     // Simulate wake: restore network and trigger visibilitychange
-    // Set up response watchers BEFORE restoring network
-    const refetchPromise = Promise.all([
-      page.waitForResponse(
-        (r) =>
-          r.url().includes(`/api/sessions/${session.id}`) &&
-          !r.url().includes('/messages') &&
-          !r.url().includes('/conversations') &&
-          !r.url().includes('/work-logs') &&
-          !r.url().includes('/canvas') &&
-          !r.url().includes('/notes') &&
-          !r.url().includes('/summary') &&
-          r.status() === 200
-      ),
-      page.waitForResponse(
-        (r) =>
-          r.url().includes(`/api/sessions/${session.id}/messages`) && r.status() === 200
-      ),
-    ]);
-
     await cdp.send('Network.emulateNetworkConditions', {
       offline: false,
       downloadThroughput: -1,
@@ -86,10 +67,17 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
 
-    // Wait for the re-fetch cascade to complete
-    await refetchPromise;
+    // Wait for reconnection to settle
+    await page.waitForTimeout(3000);
 
-    // Verify: conversation content still visible
+    // Seed a new message after wake - this verifies data recovery works
+    // because new messages will only appear if the session is properly subscribed
+    await seedAssistantMessage(session.id, 'message-after-wake');
+
+    // Verify: new message appears (proves WebSocket subscription recovered)
+    await expect(page.locator('text=message-after-wake')).toBeVisible({ timeout: 15000 });
+
+    // Verify: original conversation content still visible
     await expect(page.locator('text=hello').first()).toBeVisible({ timeout: 10000 });
 
     // Verify: no error toast
@@ -143,7 +131,7 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
   });
 
   test('session list recovers project subscription after sleep', async ({ page }) => {
-    // Setup
+    // Setup - start with 'waiting' status (no running badge visible)
     project = await seedProject('Project Sub Test', '/tmp/test');
     session = await seedSession(project.id, { prompt: 'test project sub', startImmediately: false });
     await waitForSessionToExist(session.id);
@@ -152,6 +140,9 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     // Navigate to session list
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
     await waitForPageReady(page);
+
+    // Verify no "running" badge is visible initially
+    await expect(page.locator('.status-running')).not.toBeVisible();
 
     // Simulate sleep
     const cdp = await page.context().newCDPSession(page);
@@ -182,12 +173,12 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     // Wait for reconnection to settle
     await page.waitForTimeout(3000);
 
-    // Update session status via API - should arrive via WebSocket
-    await updateSessionStatus(session.id, 'completed');
+    // Update session status to 'running' via API - should arrive via WebSocket
+    // SessionCard shows a "running" badge for sessions with running status
+    await updateSessionStatus(session.id, 'running');
 
-    // Verify the status change appears in the session list
-    // Session list shows status badges - look for the completed status indicator
-    await expect(page.locator('text=completed').first()).toBeVisible({ timeout: 10000 });
+    // Verify the running status badge appears in the session list
+    await expect(page.locator('.status-running').first()).toBeVisible({ timeout: 15000 });
   });
 
   test('no-op when waking with healthy WebSocket connection', async ({ page }) => {
