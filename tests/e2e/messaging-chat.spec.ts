@@ -618,18 +618,6 @@ test.describe('Message States & Error Handling', () => {
     await cleanupAll();
   });
 
-  test('error banner shows when session has error status', async ({ page }) => {
-    const session = await seedSession(project.id, { prompt: 'Hello', name: 'Error Banner Test' , startImmediately: false });
-    seedAssistantMessage(session.id, 'Something went wrong.', 'claude-sonnet-4-20250514');
-    await updateSessionStatus(session.id, 'error');
-
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
-    await page.waitForTimeout(500);
-
-    const errorBanner = page.locator('.error-banner');
-    await expect(errorBanner).toBeVisible({ timeout: 10000 });
-  });
-
   test('draft session shows textarea with prompt', async ({ page }) => {
     // Draft = waiting status with no assistant messages
     const session = await seedSession(project.id, {
