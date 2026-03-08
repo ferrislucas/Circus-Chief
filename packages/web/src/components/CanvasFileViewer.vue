@@ -81,25 +81,13 @@
                   <span class="menu-item-text">Copy filename</span>
                 </button>
               </li>
-              <li role="none">
-                <button
-                  :class="['menu-item', { 'is-highlighted': menuHighlightedIndex === 1 }]"
-                  role="menuitem"
-                  @click="handleMenuCopyContents"
-                  @mouseenter="menuHighlightedIndex = 1"
-                  @mouseleave="menuHighlightedIndex = null"
-                >
-                  <span class="menu-item-icon">📋</span>
-                  <span class="menu-item-text">Copy file contents</span>
-                </button>
-              </li>
               <li role="none" class="menu-divider"></li>
               <li role="none">
                 <button
-                  :class="['menu-item', 'is-danger', { 'is-highlighted': menuHighlightedIndex === 2 }]"
+                  :class="['menu-item', 'is-danger', { 'is-highlighted': menuHighlightedIndex === 1 }]"
                   role="menuitem"
                   @click="handleMenuDeleteAll"
-                  @mouseenter="menuHighlightedIndex = 2"
+                  @mouseenter="menuHighlightedIndex = 1"
                   @mouseleave="menuHighlightedIndex = null"
                 >
                   <span class="menu-item-icon">🗑</span>
@@ -279,27 +267,6 @@ function closeMenu() {
   menuHighlightedIndex.value = null;
 }
 
-async function handleMenuCopyContents() {
-  // Fetch content on demand if not yet loaded
-  if (props.item.content === undefined && props.item.data === undefined) {
-    await canvasStore.fetchItemContent(props.sessionId, props.item.filename);
-  }
-
-  let content = '';
-
-  if (props.item.type === 'markdown' || props.item.type === 'text' || props.item.type === 'code') {
-    content = props.item.content || '';
-  } else if (props.item.type === 'json') {
-    content = props.item.data || '';
-  } else if (props.item.type === 'image') {
-    // For images, copy the base64 or filename
-    content = props.item.filename || 'image';
-  }
-
-  const success = await copyToClipboard(content);
-  closeMenu();
-}
-
 async function handleMenuCopyFilename() {
   const filename = props.item.filename || 'Untitled';
   await copyToClipboard(filename);
@@ -313,7 +280,7 @@ function handleMenuDeleteAll() {
 }
 
 function handleMenuKeyDown(event) {
-  const itemCount = 3;
+  const itemCount = 2;
 
   switch (event.key) {
     case 'ArrowDown': {
@@ -332,8 +299,6 @@ function handleMenuKeyDown(event) {
         if (menuHighlightedIndex.value === 0) {
           handleMenuCopyFilename();
         } else if (menuHighlightedIndex.value === 1) {
-          handleMenuCopyContents();
-        } else if (menuHighlightedIndex.value === 2) {
           handleMenuDeleteAll();
         }
       }
