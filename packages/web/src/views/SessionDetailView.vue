@@ -180,7 +180,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
-import { useSessionSubscription, ensureSubscribed } from '../composables/useWebSocket.js';
+import { useSessionSubscription, ensureSubscribed, useWebSocket } from '../composables/useWebSocket.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
 import { api } from '../composables/useApi.js';
 import { parseDiff } from '../utils/diffParser.js';
@@ -587,6 +587,20 @@ async function initializeSession(sessionId) {
 
   // Check for file system changes initially
   checkForChanges();
+
+  // Re-fetch all critical data when WebSocket reconnects (e.g., after wake-from-sleep)
+  const { onReconnect } = useWebSocket();
+  cleanups.push(
+    onReconnect(async () => {
+      await sessionsStore.fetchSession(sessionId);
+      await sessionsStore.fetchConversations(sessionId);
+      await sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId);
+      await sessionsStore.fetchWorkLogs(sessionId);
+      await canvasStore.fetchItems(sessionId);
+      canvasItemCount.value = canvasStore.groupedItems.length;
+      checkForChanges();
+    })
+  );
 
   // Fetch templates for the selector
   if (sessionsStore.currentSession?.projectId) {
