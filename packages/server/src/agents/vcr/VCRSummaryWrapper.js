@@ -5,11 +5,14 @@ import { CassetteStore } from './CassetteStore.js';
  * Summary prompts are built from a fixed template + message content, so these are stable
  *
  * @param {object} queryParams - Query parameters
+ * @param {string|null} keyHint - Optional stable key hint to use instead of prompt text.
+ *   When provided, the cassette key is derived from keyHint rather than the dynamic prompt,
+ *   ensuring stable keys across test runs even when prompt content changes.
  * @returns {string} Cassette key
  */
-function buildSummaryKey(queryParams) {
-  const promptText = queryParams.prompt || '';
-  return CassetteStore.buildKey('summary', promptText);
+function buildSummaryKey(queryParams, keyHint = null) {
+  const keySource = keyHint || queryParams.prompt || '';
+  return CassetteStore.buildKey('summary', keySource);
 }
 
 /**
@@ -20,14 +23,17 @@ function buildSummaryKey(queryParams) {
  *
  * @param {function} realQueryFn - The real query function to wrap
  * @param {string} cassetteDir - Directory for cassette files
+ * @param {string|null} keyHint - Optional stable key hint for cassette key generation.
+ *   When provided, overrides the default prompt-based key, ensuring stable cassette
+ *   keys across test runs even when prompt content is dynamic.
  * @returns {function} VCR-wrapped query function
  */
-export function createVCRQueryFn(realQueryFn, cassetteDir) {
+export function createVCRQueryFn(realQueryFn, cassetteDir, keyHint = null) {
   // Only enable VCR if VCR_MODE is explicitly set
   const mode = process.env.VCR_MODE || undefined;
 
   return async function* vcrQuery(queryParams) {
-    const key = buildSummaryKey(queryParams);
+    const key = buildSummaryKey(queryParams, keyHint);
     const cassette = CassetteStore.load(cassetteDir, key);
 
     // VCR disabled - pass through to real query

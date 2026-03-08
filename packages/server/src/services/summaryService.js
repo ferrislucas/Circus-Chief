@@ -26,9 +26,6 @@ const MAX_MESSAGES = 10;
 // Maximum retry attempts for failed parsing
 const MAX_RETRIES = 2;
 
-// Check if running in mock mode (for tests)
-const isMockMode = () => process.env.MOCK_CLAUDE === 'true';
-
 // Default prompt for strategic session titles
 const DEFAULT_SESSION_TITLE_PROMPT = `Guidelines for generating session titles:
 - The title should capture the SESSION'S STRATEGIC GOAL, not current tactical activity
@@ -94,9 +91,15 @@ Generate TWO summaries:
  * @returns {Promise<string>} The text response
  */
 async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null, systemPrompt = null) {
+  // Build stable key for VCR cassette (session prompts are hardcoded strings in E2E tests)
+  let keyHint = null;
+  if (process.env.VCR_MODE && logMeta?.sessionId) {
+    const session = sessions.getById(logMeta.sessionId);
+    keyHint = session ? `${logMeta.callType}:${session.prompt}` : null;
+  }
   // Use VCR wrapper if in VCR mode, otherwise use real SDK query
   const queryFn = process.env.VCR_MODE
-    ? createVCRQueryFn(query, 'tests/e2e/cassettes/summaries')
+    ? createVCRQueryFn(query, 'tests/e2e/cassettes/summaries', keyHint)
     : query;
 
   // JSON Schema for structured output
@@ -1321,61 +1324,6 @@ ${globalSettings?.sessionTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT}`;
 }
 
 /**
- * Mock query generator for combined summary generation in test mode
- * Mirrors the Claude Code SDK's async generator pattern
- * @param {Object} params
- * @param {string} params.prompt - The prompt string
- * @param {Array} params.recentMessages - Messages for mock context
- * @param {string} params.sessionStatus - Session status for mock outcome
- */
-async function* mockCombinedSummaryQuery({ prompt: _prompt, recentMessages, sessionStatus }) {
-  // Yield system init event (matches SDK pattern)
-  yield {
-    type: 'system',
-    subtype: 'init',
-    session_id: 'mock-combined-' + Date.now(),
-  };
-
-  // Small delay to simulate processing
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  // Derive outcome from session status
-  let outcome = 'ongoing';
-  if (sessionStatus === 'stopped') outcome = 'partial';
-  else if (sessionStatus === 'error') outcome = 'failed';
-
-  // Create contextual mock response with both session and conversation summaries
-  const lastMessage = recentMessages[recentMessages.length - 1];
-  const shortPreview = lastMessage ? lastMessage.content.substring(0, 100) : 'testing session';
-
-  const mockResponse = JSON.stringify({
-    short_summary: `Mock summary: ${shortPreview}...`.substring(0, 150),
-    full_summary: `This is a mock summary for testing purposes. The session has ${recentMessages.length} messages and is currently ${sessionStatus}.`,
-    key_actions: ['Mock action 1', 'Mock action 2'],
-    files_modified: ['mock-file.js'],
-    outcome: outcome,
-    pr_url: null,
-    session_title: `Mock: ${shortPreview}`.substring(0, 60),
-    conversation_summary: `Mock conversation summary for testing with ${recentMessages.length} messages.`,
-  });
-
-  // Yield assistant message with mock response
-  yield {
-    type: 'assistant',
-    message: {
-      content: [{ type: 'text', text: mockResponse }],
-    },
-  };
-
-  // Yield result event
-  yield {
-    type: 'result',
-    subtype: 'success',
-    total_cost_usd: 0.0001,
-  };
-}
-
-/**
  * Call Claude with a custom JSON schema (for combined summaries)
  * @param {string} prompt - The prompt to send
  * @param {Array} recentMessages - Messages for context
@@ -1386,24 +1334,30 @@ async function* mockCombinedSummaryQuery({ prompt: _prompt, recentMessages, sess
  * @returns {Promise<string>} The text response
  */
 async function callClaudeWithCustomSchema(prompt, recentMessages, sessionStatus, logMeta, systemPrompt, jsonSchema) {
-  const queryFn = isMockMode() ? mockCombinedSummaryQuery : query;
+  // Build stable key for VCR cassette (session prompts are hardcoded strings in E2E tests)
+  let keyHint = null;
+  if (process.env.VCR_MODE && logMeta?.sessionId) {
+    const session = sessions.getById(logMeta.sessionId);
+    keyHint = session ? `${logMeta.callType}:${session.prompt}` : null;
+  }
+  const queryFn = process.env.VCR_MODE
+    ? createVCRQueryFn(query, 'tests/e2e/cassettes/summaries', keyHint)
+    : query;
 
-  const queryParams = isMockMode()
-    ? { prompt, recentMessages, sessionStatus }
-    : {
-        prompt,
-        options: {
-          cwd: process.cwd(),
-          permissionMode: 'bypassPermissions',
-          maxTurns: 1,
-          model: 'claude-haiku-4-5-20251001',
-          systemPrompt,
-          outputFormat: {
-            type: 'json_schema',
-            schema: jsonSchema,
-          },
-        },
-      };
+  const queryParams = {
+    prompt,
+    options: {
+      cwd: process.cwd(),
+      permissionMode: 'bypassPermissions',
+      maxTurns: 1,
+      model: 'claude-haiku-4-5-20251001',
+      systemPrompt,
+      outputFormat: {
+        type: 'json_schema',
+        schema: jsonSchema,
+      },
+    },
+  };
 
   // Start logging if metadata provided
   let callId = null;
@@ -1412,7 +1366,7 @@ async function callClaudeWithCustomSchema(prompt, recentMessages, sessionStatus,
       sessionId: logMeta.sessionId,
       conversationId: logMeta.conversationId || null,
       agentType: 'summary',
-      model: isMockMode() ? 'mock' : 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-4-5-20251001',
       callType: logMeta.callType,
       promptLength: prompt.length,
     });
@@ -1602,4 +1556,4 @@ export async function propagateToParent(sessionId) {
 }
 
 // Export for testing
-export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, CONVERSATION_SUMMARY_SYSTEM_PROMPT, COMBINED_SUMMARY_SYSTEM_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified, activeGenerations, pendingRegenerations };
+export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, CONVERSATION_SUMMARY_SYSTEM_PROMPT, COMBINED_SUMMARY_SYSTEM_PROMPT, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified, activeGenerations, pendingRegenerations };
