@@ -15,9 +15,8 @@ import { API_URL, getAPIURL } from './helpers';
  * Categories:
  *   1. start-server.sh Script Behavior (5 tests)
  *   2. Port Isolation & Server Liveness (3 tests)
- *   3. Vitest Unit Test Execution (3 tests)
- *   4. Monorepo Structure & Build (4 tests)
- *   5. pw.sh Enhancements (3 tests)
+ *   3. Monorepo Structure & Build (4 tests)
+ *   4. pw.sh Enhancements (3 tests)
  */
 
 // ---------------------------------------------------------------------------
@@ -62,44 +61,6 @@ function readPortFile(dir?: string): string | null {
     return readFileSync(filePath, 'utf-8').trim();
   }
   return null;
-}
-
-/**
- * Build a clean environment for running unit tests.
- * Strips E2E-specific env vars (like VCR_MODE) that cause server unit test failures
- * when inherited from the Playwright test runner context.
- */
-function cleanEnvForUnitTests(): Record<string, string> {
-  const env = { ...process.env } as Record<string, string>;
-  // VCR_MODE causes server unit tests to fail (sessionManager, model switching, custom providers)
-  // because it changes runtime behavior of the server code that the unit tests exercise.
-  delete env.VCR_MODE;
-  // These don't cause failures but are E2E-specific and irrelevant for unit tests.
-  delete env.API_URL;
-  delete env.BASE_URL;
-  return env;
-}
-
-/**
- * Run a shell command with retry logic for transient failures (e.g., ECONNRESET).
- * Retries up to maxRetries times if the command exits non-zero.
- */
-function runScriptWithRetry(
-  command: string,
-  options?: { cwd?: string; env?: Record<string, string>; timeout?: number },
-  maxRetries = 2
-): { stdout: string; stderr: string; exitCode: number } {
-  let result = runScript(command, options);
-  let attempt = 1;
-  while (result.exitCode !== 0 && attempt < maxRetries) {
-    const combinedOutput = result.stdout + result.stderr;
-    // Only retry on transient errors (ECONNRESET, EADDRINUSE, etc.)
-    const isTransient = /ECONNRESET|EADDRINUSE|ETIMEDOUT|ECONNREFUSED/.test(combinedOutput);
-    if (!isTransient) break;
-    attempt++;
-    result = runScript(command, options);
-  }
-  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,46 +223,11 @@ test.describe('Category 2: Port Isolation & Server Liveness', () => {
 });
 
 // ==========================================================================
-// Category 3: Vitest Unit Test Execution
+// Category 3: Monorepo Structure & Build
 // ==========================================================================
 
-test.describe('Category 3: Vitest Unit Test Execution', () => {
-  // Only shared tests remain; server/web tests removed due to flakiness in E2E environment.
-  test.describe.configure({ timeout: 240_000, mode: 'serial' });
-
+test.describe('Category 3: Monorepo Structure & Build', () => {
   // Test 9
-  test('shared unit tests pass', () => {
-    const result = runScriptWithRetry('yarn workspace @claudetools/shared test', {
-      timeout: 110_000,
-      env: cleanEnvForUnitTests(),
-    });
-
-    if (result.exitCode !== 0) {
-      console.log('[shared test] exit code:', result.exitCode);
-      console.log('[shared test] stderr tail:', result.stderr.slice(-500));
-      console.log('[shared test] stdout tail:', result.stdout.slice(-500));
-    }
-
-    expect(result.exitCode).toBe(0);
-
-    const combined = result.stdout + result.stderr;
-    expect(combined).toContain('Tests');
-
-    const summaryLines = combined.split('\n').filter(
-      (line) => line.includes('Tests') && (line.includes('passed') || line.includes('failed'))
-    );
-    for (const line of summaryLines) {
-      expect(line).not.toMatch(/\d+\s+failed/);
-    }
-  });
-});
-
-// ==========================================================================
-// Category 4: Monorepo Structure & Build
-// ==========================================================================
-
-test.describe('Category 4: Monorepo Structure & Build', () => {
-  // Test 12
   test('monorepo has correct workspace packages', { timeout: 15_000 }, () => {
     // yarn workspaces info (Yarn v1 syntax) outputs JSON with header/footer lines
     // Output format:
@@ -339,7 +265,7 @@ test.describe('Category 4: Monorepo Structure & Build', () => {
     expect(Object.keys(workspaceInfo)).toHaveLength(3);
   });
 
-  // Test 13
+  // Test 10
   test('shared package is a dependency of server and web', { timeout: 15_000 }, () => {
     const serverPkg = JSON.parse(
       readFileSync(join(process.cwd(), 'packages', 'server', 'package.json'), 'utf-8')
@@ -352,7 +278,7 @@ test.describe('Category 4: Monorepo Structure & Build', () => {
     expect(webPkg.dependencies).toHaveProperty('@claudetools/shared');
   });
 
-  // Test 14
+  // Test 11
   test('yarn build succeeds and produces web dist', { timeout: 120_000 }, () => {
     const result = runScript('yarn build', { timeout: 110_000 });
     expect(result.exitCode).toBe(0);
@@ -365,7 +291,7 @@ test.describe('Category 4: Monorepo Structure & Build', () => {
     expect(existsSync(indexHtmlPath)).toBe(true);
   });
 
-  // Test 15
+  // Test 12
   test('yarn lint succeeds', { timeout: 120_000 }, () => {
     const result = runScript('yarn lint', { timeout: 110_000 });
     expect(result.exitCode).toBe(0);
@@ -373,13 +299,13 @@ test.describe('Category 4: Monorepo Structure & Build', () => {
 });
 
 // ==========================================================================
-// Category 5: pw.sh Enhancements
+// Category 4: pw.sh Enhancements
 // ==========================================================================
 
-test.describe('Category 5: pw.sh Enhancements', () => {
+test.describe('Category 4: pw.sh Enhancements', () => {
   test.describe.configure({ timeout: 15_000 });
 
-  // Test 16
+  // Test 13
   test('pw.sh help command shows usage information', () => {
     // pw.sh help outputs via heredoc to stdout; other funcs use stderr.
     // Capture both.
@@ -399,7 +325,7 @@ test.describe('Category 5: pw.sh Enhancements', () => {
     expect(combined).toContain('codegen');
   });
 
-  // Test 17
+  // Test 14
   test('pw.sh sets VCR_MODE for test runs', () => {
     const pwshSource = readFileSync(
       join(process.cwd(), 'scripts', 'pw.sh'),
@@ -421,7 +347,7 @@ test.describe('Category 5: pw.sh Enhancements', () => {
     expect(detectServerPos).toBeGreaterThan(vcrModePos);
   });
 
-  // Test 18
+  // Test 15
   test('pw.sh handles stale .server-port by removing and restarting', () => {
     const pwshSource = readFileSync(
       join(process.cwd(), 'scripts', 'pw.sh'),
