@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { projects, sessions, messages, conversations } from '../src/database.js';
+import { projects, sessions, messages, conversations, settings } from '../src/database.js';
 
 // Mock the websocket module
 vi.mock('../src/websocket.js', () => ({
@@ -51,6 +51,7 @@ describe('Sessions Conversations API', () => {
 
   afterEach(() => {
     summaryService.cleanupSession(session.id);
+    settings.resetSummarySettings();
     vi.unstubAllEnvs();
   });
 
@@ -299,6 +300,7 @@ describe('Sessions Conversations API', () => {
 
   describe('Conversation summary generation', () => {
     it('generates summary for conversation', async () => {
+      settings.setSummarySettings({ disableConversationSummaries: false, disableSessionSummaries: false, sessionTitlePrompt: '' });
       const conv = conversations.create(session.id, 'Test Conv', true);
       messages.create(session.id, 'user', 'Help me with this', null, conv.id);
       messages.create(session.id, 'assistant', 'Sure, I can help', null, conv.id);
@@ -312,6 +314,7 @@ describe('Sessions Conversations API', () => {
     });
 
     it('stores summary on conversation record', async () => {
+      settings.setSummarySettings({ disableConversationSummaries: false, disableSessionSummaries: false, sessionTitlePrompt: '' });
       const conv = conversations.create(session.id, 'Test Conv', true);
       messages.create(session.id, 'user', 'Help me', null, conv.id);
       messages.create(session.id, 'assistant', 'Sure thing', null, conv.id);
@@ -325,6 +328,7 @@ describe('Sessions Conversations API', () => {
     });
 
     it('returns brief message for single message conversation', async () => {
+      settings.setSummarySettings({ disableConversationSummaries: false, disableSessionSummaries: false, sessionTitlePrompt: '' });
       const conv = conversations.create(session.id, 'Brief', true);
       messages.create(session.id, 'user', 'Hello', null, conv.id);
 

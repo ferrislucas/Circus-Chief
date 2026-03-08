@@ -32,7 +32,6 @@ vi.mock('../websocket.js', () => ({
 
 // Mock summaryService to avoid side effects
 vi.mock('./summaryService.js', () => ({
-  onSessionActivity: vi.fn(),
   onSessionComplete: vi.fn(),
   extractPrUrlIfNeeded: vi.fn(),
   generateSummaryNow: vi.fn().mockResolvedValue({ id: 'summary-1' }),
@@ -1414,14 +1413,12 @@ describe('sessionManager broadcasts', () => {
 
   describe('summary service integration', () => {
     let onSessionComplete;
-    let onSessionActivity;
     let extractPrUrlIfNeeded;
 
     beforeEach(async () => {
       // Import the mocked functions
       const summaryService = await import('./summaryService.js');
       onSessionComplete = summaryService.onSessionComplete;
-      onSessionActivity = summaryService.onSessionActivity;
       extractPrUrlIfNeeded = summaryService.extractPrUrlIfNeeded;
     });
 
@@ -1437,7 +1434,7 @@ describe('sessionManager broadcasts', () => {
       expect(extractPrUrlIfNeeded).toHaveBeenCalledWith(sessionId);
     });
 
-    it('calls both extractPrUrlIfNeeded and onSessionActivity when turn completes successfully', async () => {
+    it('calls only extractPrUrlIfNeeded when turn completes successfully', async () => {
       query.mockImplementation(async function* () {
         yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
         yield { type: 'result', subtype: 'success' };
@@ -1445,13 +1442,11 @@ describe('sessionManager broadcasts', () => {
 
       await runSession(sessionId, 'Test prompt', tempDir);
 
-      // Phase 1: Both should be called (onSessionActivity for debounced summary generation)
       expect(extractPrUrlIfNeeded).toHaveBeenCalledWith(sessionId);
-      expect(onSessionActivity).toHaveBeenCalledWith(sessionId);
       expect(onSessionComplete).not.toHaveBeenCalled();
     });
 
-    it('calls onSessionActivity when turn completes successfully', async () => {
+    it('does not call onSessionComplete when turn completes successfully', async () => {
       query.mockImplementation(async function* () {
         yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-3' };
         yield { type: 'result', subtype: 'success' };
@@ -1459,8 +1454,6 @@ describe('sessionManager broadcasts', () => {
 
       await runSession(sessionId, 'Test prompt', tempDir);
 
-      // Phase 1: Verify onSessionActivity was called (not onSessionComplete)
-      expect(onSessionActivity).toHaveBeenCalledWith(sessionId);
       expect(onSessionComplete).not.toHaveBeenCalled();
     });
 
@@ -1477,7 +1470,7 @@ describe('sessionManager broadcasts', () => {
       expect(onSessionComplete).toHaveBeenCalledWith(sessionId);
     });
 
-    it('calls extractPrUrlIfNeeded and onSessionActivity in continueSession', async () => {
+    it('calls extractPrUrlIfNeeded in continueSession', async () => {
       const { continueSession } = await import('./sessionManager.js');
 
       // Update claude session ID for continue
@@ -1490,13 +1483,11 @@ describe('sessionManager broadcasts', () => {
 
       await continueSession(sessionId, 'Continue prompt', tempDir);
 
-      // Phase 1: Verify both functions were called (onSessionActivity for debounced generation)
       expect(extractPrUrlIfNeeded).toHaveBeenCalledWith(sessionId);
-      expect(onSessionActivity).toHaveBeenCalledWith(sessionId);
       expect(onSessionComplete).not.toHaveBeenCalled();
     });
 
-    it('calls extractPrUrlIfNeeded and onSessionComplete in continueSessionWithExistingMessage', async () => {
+    it('calls extractPrUrlIfNeeded in continueSessionWithExistingMessage', async () => {
       const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
       const { messages, conversations } = await import('../database.js');
 
@@ -1518,10 +1509,7 @@ describe('sessionManager broadcasts', () => {
       // continueSessionWithExistingMessage takes conversationId, not messageId
       await continueSessionWithExistingMessage(sessionId, conversation.id, tempDir);
 
-      // Phase 1: extractPrUrlIfNeeded is still called
       expect(extractPrUrlIfNeeded).toHaveBeenCalledWith(sessionId);
-      // Phase 1: onSessionActivity is called instead of onSessionComplete for successful completion
-      expect(onSessionActivity).toHaveBeenCalledWith(sessionId);
       expect(onSessionComplete).not.toHaveBeenCalled();
     });
 
