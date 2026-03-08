@@ -954,9 +954,12 @@ async function handleStart() {
 
   restarting.value = true;
   try {
-    // Pass the current prompt to the start method via the store
+    // Pass the current prompt and model to the start method via the store
     // This ensures the UI updates immediately via Vue reactivity
-    await sessionsStore.startSession(props.sessionId, currentValue);
+    // Use pendingModel (set at draft creation time) or fall back to session.model
+    const sessionModel = sessionsStore.currentSession?.pendingModel
+      || sessionsStore.currentSession?.model;
+    await sessionsStore.startSession(props.sessionId, currentValue, sessionModel);
   } catch (err) {
     uiStore.error(err.message);
   } finally {

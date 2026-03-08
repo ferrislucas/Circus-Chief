@@ -584,6 +584,84 @@ describe.skip('ConversationTab', () => {
     });
   });
 
+  describe('Draft session start - model passthrough', () => {
+    it('passes pendingModel to startSession when starting a draft session', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        mode: 'standard',
+        thinkingEnabled: false,
+        pendingModel: 'claude-opus-4-6-20250616',
+        model: null,
+      };
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(true);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('My initial prompt');
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.startSession).toHaveBeenCalledWith(
+        'sess-123',
+        'My initial prompt',
+        'claude-opus-4-6-20250616'
+      );
+    });
+
+    it('falls back to session.model when pendingModel is null', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        mode: 'standard',
+        thinkingEnabled: false,
+        pendingModel: null,
+        model: 'claude-sonnet-4-5-20251219',
+      };
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(true);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('My initial prompt');
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.startSession).toHaveBeenCalledWith(
+        'sess-123',
+        'My initial prompt',
+        'claude-sonnet-4-5-20251219'
+      );
+    });
+
+    it('passes undefined model when neither pendingModel nor model is set', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        mode: 'standard',
+        thinkingEnabled: false,
+        pendingModel: null,
+        model: null,
+      };
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(true);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('textarea').setValue('My initial prompt');
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      // Both pendingModel and model are null/falsy, sessionModel will be null
+      expect(mockSessionsStore.startSession).toHaveBeenCalledWith(
+        'sess-123',
+        'My initial prompt',
+        null
+      );
+    });
+  });
+
   describe('Fetching data on mount', () => {
     it('fetches conversations on mount', async () => {
       const wrapper = mountComponent();
