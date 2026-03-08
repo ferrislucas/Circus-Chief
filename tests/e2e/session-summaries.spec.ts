@@ -679,6 +679,8 @@ test.describe('Session Summaries', () => {
   // ============================================================
 
   test.describe('Category 6: Summary Settings', () => {
+    test.describe.configure({ mode: 'serial' });
+
     test('GET /settings/summary returns default settings', async () => {
       // Reset to defaults first
       await fetch(`${API_URL}/api/settings/summary`, { method: 'DELETE' });

@@ -1,0 +1,1617 @@
+{
+  "prompt": "What is in this file?\n\n## Attached Files\n--- File: unique-test.txt (text/plain) ---\nUNIQUE_TEST_CONTENT_1772767334892\n--- End of unique-test.txt ---",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/private/tmp/test",
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "default",
+      "slash_commands": [
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan"
+      ],
+      "skills": [],
+      "plugins": [],
+      "uuid": "5d8a90e2-7591-470a-bd42-1b8f7c0a8448"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_start",
+        "message": {
+          "model": "claude-haiku-4-5-20251001",
+          "id": "msg_012L6YzX5FRTr1ZMzbgKye9d",
+          "type": "message",
+          "role": "assistant",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "usage": {
+            "input_tokens": 10,
+            "cache_creation_input_tokens": 2258,
+            "cache_read_input_tokens": 15006,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 2258,
+              "ephemeral_1h_input_tokens": 0
+            },
+            "output_tokens": 5,
+            "service_tier": "standard",
+            "inference_geo": "not_available"
+          }
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "7ceedbdf-1cda-45b2-a783-9bf8511ab0d0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "thinking",
+          "thinking": "",
+          "signature": ""
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "850db24b-f430-41a1-9bc5-2106c6df4e64"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "The user is asking what"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "66431595-21bc-4cae-97e3-cb47b6fe4579"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "'s in the"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "f7d3c4a8-8a5e-4429-9e38-de2fbb239374"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " attached"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "995e67c9-0cae-4e33-81b4-8b785cf4f522"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " file. They"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "f936d935-4cd4-4096-ab41-53566797505f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "'ve shown"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "a525dba3-2075-4af5-9cf3-5a61487174c1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " me the"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "ac2bb6a9-8776-4def-8105-2b2f776a1d61"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " content"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "cb77d0cd-5e37-4fa0-bfc2-b836e006192a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " directly"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "0b299c7e-257c-4ee1-91dd-dc31c2becfe3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " in their message. The"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "94f8e2ef-a3d5-4af3-adf9-379c577cad0c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " file is `"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "86a070aa-bf16-4d9f-bba7-1ffd1ebb5b9f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "unique-test.txt` and it"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "11c23ac0-c499-462c-86d5-c35b6a863577"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " contains:\n\n```"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "e7c5cb00-a2bc-4858-8007-df2a16b54be1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\nUNIQUE_TEST_CONTENT"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "dd44964e-a29b-4695-8a01-61a862556515"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "_1772767334892\n```"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "0c57dc59-bac0-498b-8ed2-c198cc849d68"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n\nThis appears to be a unique identifier"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "4ed27bbc-4542-469e-8d10-77c18742c4e0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " or"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "e316e0b5-9911-4cb0-a5be-54383d7929f0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " test"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "9eb7115b-e284-4d04-84d8-22aa93d572af"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " content"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "bcfdadb4-8d24-4990-b21f-5bf6fb8c353f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " string"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "39c31828-f364-4ba8-a709-89982a83ade3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ". I"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "4c15903e-ebd0-4ded-a6df-600cd54dd8af"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " can"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "cd8b33d6-8703-4539-95c9-d0fad7f4ad24"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " see this from"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "5fc4ee17-e311-4272-988a-c7535bcf991a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " what"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "34c1984b-5a7a-445c-99e1-b497a62674dc"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " they've shown me. However"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "56b85fb1-9250-462f-a546-5ed22b53ac75"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ", let"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "de10ad11-3671-42d9-be27-7e3550e7b862"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " me also"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "b5305274-eddb-493b-902b-1f10a6273e0a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " read"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "efcc933d-b1b1-45ea-a2d6-28f077f27dd8"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " it"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "e3434a25-8044-479c-af50-a15896706037"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " using"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "84d7fae0-690b-441a-b1ef-0a98d19f4915"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " the Read"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "8fdbba46-c01d-4793-8b68-43055d7e0378"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " tool"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "12be6963-c8cd-4417-927a-8b87900594ae"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " to confirm"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "558282ab-fa6a-4cee-a080-4691c1c0df00"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ","
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "e9a35168-341f-49bf-bd47-f6ceaaa660d7"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " since I"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "74c99775-8827-4f4c-91ee-ae353652f807"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " have"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "a11beed3-4f0e-4f18-968c-d49ca6cf87a0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " the file"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "4844f164-5a9c-4195-be64-4947dc8ff14d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " path"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "4a86b261-8b03-4199-9fb2-8d78e84676ed"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " available"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "127c6aed-3cab-49cf-81cb-7b00f737bddf"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " from"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "72e66f58-cb32-4a3a-87cc-72b9648c5284"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " the"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "8e0e2c16-0b29-4818-995a-5067009df3ba"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " session"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "831e4e99-6c3c-4d61-b2c2-929616be3d25"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " context"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "b9bc2f73-175c-4c41-9cc1-359e13ec5626"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "."
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "d01f9bae-93d0-4164-9dde-d1c318a945ba"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n\nActually, looking at the"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "61f59769-b0e4-4132-9439-a74594353d53"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " message more carefully, the user has already"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "085ab8fc-be44-4ba0-be2b-01d141a9b534"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " shown me the contents"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "0290c4a1-98a4-4936-b19c-8a9ed5f0e141"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ". The"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "8dd43159-a699-4172-9b9a-ec4d3e2172dc"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " file"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "88e8e7b1-f4fd-4f99-89fa-01c9d01623c8"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " contains"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "06bcf289-f08c-4f8c-abed-57441336d962"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " the"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "33f1bb32-622e-4919-890f-5110425b2f15"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " text:"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "1e8c5b74-8257-4986-b2f0-7329491e7808"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " `"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "0432b21c-25f2-4dc7-baa9-12c4645cfa59"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "UNIQUE_TEST_CONTENT_"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "b162ebff-fac9-4f8a-959d-066e12856fdb"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "1772767334892`\n\nI"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "09e3e9f0-1839-42d8-9715-7233d5e1e034"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " don"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "c1a9ffd2-e2ef-4428-9fc1-a8c4cbcd0104"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "'t necessarily"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "12f34a86-aa35-43e8-886e-cad7d49c2a22"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " need to use"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "e6cc8c69-b681-4d8a-b1bd-fa266b2fd99d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " the Read tool since"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "d606c0f5-c7fe-44bc-bc09-5b1d719122fd"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " they've already displayed"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "ac505ea8-45fa-48f5-9cfd-42030c36e7b4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " it"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "62b5e5a3-efa7-4a58-a649-6983c8aa665d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ","
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "2a181957-4cd8-4b51-8b20-fbfa2402a953"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " but I"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "8d575692-a3dc-4888-86df-3095ac838839"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " could"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "ebe900d4-3779-40b8-8277-0213441ea6c6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " verify"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "0241762f-f0aa-447b-938e-0f194c559bd9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " it"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "4868f724-8120-4a63-ad30-db8a4537fbbb"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " to"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "c150f954-9e43-4ca1-bbd6-4b99c2b20665"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " be thor"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "c45959cf-8035-4ea4-aa3a-1ca266388eb9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "ough. Let me just"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "a0beee44-027b-4110-8c3a-f358f19dbb6c"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " answer"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "6d81c903-8f72-4505-8b78-9914f8ce1a8a"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " based"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "a374ad9b-7346-4c16-a805-5936e1cc7274"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " on what they've shown"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "3c1762ef-b5d7-4e57-99c4-99913d2e9b10"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " me."
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "32142e6f-5795-4085-a9db-407c8238388e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ""
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "eba6a351-06e2-4bdf-af34-74fcc821c907"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "signature_delta",
+          "signature": "EpYHCkYICxgCKkB6xgyFeXOPQFofkvLVatCjsTzeLeaKE8ROHfmwTo5WMLvC0dACLZQHi86rSZB1kCib+OrW5kZtwgqeeQF+9L/vEgxePEK4ZR1FLJHm6ZgaDN+h1J+0H6aPh/tv2iIwrJpVVJyK8xKEWwJ7Jx+PMkqLVyRwcNJmOpa0eVXUprQYyRUlrIQWwvHYy3yh3zXgKv0FgWLQ8gv2UaLg7lNAswd5lzelljCr8Qkm8hfYsbIVC/0FqPtNYYPMKPUVzhR6n/nw/xUbikzErna3HPz07swchpsO0WQYmNjHBJ/PFh0HTUCJOPPX2OUpilU3mvLaeTgQ5d74WeJ1aGnX3p4TN9koSRrdwmHhd66QKrOuZaNrzXfMUKSaWlMyWkZKniQNAVoqoJBm4epH8rJ5AhMPmCpiVsrCaOJKuj3+Vi8OrUaCCwIGzudyiT7dzqfB+MPR3QQVsWWX3YI2ope42GBRen2HDD5M/wChFSFExbgX0SxiQA6UlLQoSLccl3JI6ioyR/UlzdTdcg2GrkOKcURm+m3kWFitn76qlwEMKrS+sfS+XFPudb4TTcwc55VFmfy1x7pFNzKpFgAw/fCdE5s8tNTePHW8vzQmSDWCephNp+eKo+Xj+tu1ZeSZyhdoUyOzUz3F9PTXU0r+McYBKKeSnUJGAwESv3Q9Pkax0sRda07lxGDrZFi5hzS66MvJDvsChFrAHnxTdao+fnjAWcJpRHJBwCeK9i3BidjLydnT5ZOAHRVllUkXqz1t0meyNPRXoSeulQLjg/IOVJfogRu9AZBKMm3P0b5WLRP/R/jiYPy7ZSLj4o7NjxcGZ6NqT13DHyhihjFGnYMeq1M9lPiacJJxcS9KRUYMXZWfMhNBMrzM1Ezq6smAtq5N+y19Yghfjc1EuKaaw1bBlNgkoNcN2Z/zGa1qoFrl++DzOXB6Ri5daM+TQcwFk2stbqT5xUDE5pEeEXpMaUO5za571UKzbaTw5aWz0CMWL+8EOU2/L/I2Fy0AkPi59AyLUM2RSIN4v91IxtyIfz4qxCywc2Z6Hrmk0IJGgUa4+VNY47QRrYIXZoxiEwTx3vhNRh69r2+Li8XZPCNu8PsQBv2j5ICtax23apK1O8/ecsUSeM3spaeIfXdwFkU40Hn6c+FCj9l0vjfPeAIUmcnxGXnIXe0JJCDn+Qr7XJd/x3jSgwQzE1daBV+oo7RkGLlOSip3PXZpGAE="
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "31b0f0e1-309a-48d2-b52d-cdd93e7a1ac2"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_012L6YzX5FRTr1ZMzbgKye9d",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user is asking what's in the attached file. They've shown me the content directly in their message. The file is `unique-test.txt` and it contains:\n\n```\nUNIQUE_TEST_CONTENT_1772767334892\n```\n\nThis appears to be a unique identifier or test content string. I can see this from what they've shown me. However, let me also read it using the Read tool to confirm, since I have the file path available from the session context.\n\nActually, looking at the message more carefully, the user has already shown me the contents. The file contains the text: `UNIQUE_TEST_CONTENT_1772767334892`\n\nI don't necessarily need to use the Read tool since they've already displayed it, but I could verify it to be thorough. Let me just answer based on what they've shown me.",
+            "signature": "EpYHCkYICxgCKkB6xgyFeXOPQFofkvLVatCjsTzeLeaKE8ROHfmwTo5WMLvC0dACLZQHi86rSZB1kCib+OrW5kZtwgqeeQF+9L/vEgxePEK4ZR1FLJHm6ZgaDN+h1J+0H6aPh/tv2iIwrJpVVJyK8xKEWwJ7Jx+PMkqLVyRwcNJmOpa0eVXUprQYyRUlrIQWwvHYy3yh3zXgKv0FgWLQ8gv2UaLg7lNAswd5lzelljCr8Qkm8hfYsbIVC/0FqPtNYYPMKPUVzhR6n/nw/xUbikzErna3HPz07swchpsO0WQYmNjHBJ/PFh0HTUCJOPPX2OUpilU3mvLaeTgQ5d74WeJ1aGnX3p4TN9koSRrdwmHhd66QKrOuZaNrzXfMUKSaWlMyWkZKniQNAVoqoJBm4epH8rJ5AhMPmCpiVsrCaOJKuj3+Vi8OrUaCCwIGzudyiT7dzqfB+MPR3QQVsWWX3YI2ope42GBRen2HDD5M/wChFSFExbgX0SxiQA6UlLQoSLccl3JI6ioyR/UlzdTdcg2GrkOKcURm+m3kWFitn76qlwEMKrS+sfS+XFPudb4TTcwc55VFmfy1x7pFNzKpFgAw/fCdE5s8tNTePHW8vzQmSDWCephNp+eKo+Xj+tu1ZeSZyhdoUyOzUz3F9PTXU0r+McYBKKeSnUJGAwESv3Q9Pkax0sRda07lxGDrZFi5hzS66MvJDvsChFrAHnxTdao+fnjAWcJpRHJBwCeK9i3BidjLydnT5ZOAHRVllUkXqz1t0meyNPRXoSeulQLjg/IOVJfogRu9AZBKMm3P0b5WLRP/R/jiYPy7ZSLj4o7NjxcGZ6NqT13DHyhihjFGnYMeq1M9lPiacJJxcS9KRUYMXZWfMhNBMrzM1Ezq6smAtq5N+y19Yghfjc1EuKaaw1bBlNgkoNcN2Z/zGa1qoFrl++DzOXB6Ri5daM+TQcwFk2stbqT5xUDE5pEeEXpMaUO5za571UKzbaTw5aWz0CMWL+8EOU2/L/I2Fy0AkPi59AyLUM2RSIN4v91IxtyIfz4qxCywc2Z6Hrmk0IJGgUa4+VNY47QRrYIXZoxiEwTx3vhNRh69r2+Li8XZPCNu8PsQBv2j5ICtax23apK1O8/ecsUSeM3spaeIfXdwFkU40Hn6c+FCj9l0vjfPeAIUmcnxGXnIXe0JJCDn+Qr7XJd/x3jSgwQzE1daBV+oo7RkGLlOSip3PXZpGAE="
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2258,
+          "cache_read_input_tokens": 15006,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 2258,
+            "ephemeral_1h_input_tokens": 0
+          },
+          "output_tokens": 5,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "uuid": "38610179-4d13-45ab-ae74-5da70ed1c6c6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "827aa75b-50f4-4ffd-b1d8-100d741455ce"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 1,
+        "content_block": {
+          "type": "text",
+          "text": ""
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "acd9284b-284a-4fde-b5c9-53d8ae9d7c31"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "The"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "0520bf74-7895-427d-b38a-e181abbefaee"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " file **"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "291febb6-f7b7-4d76-9e64-b310ddb919bf"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "unique-test.txt** contains a"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "7907e0a6-4490-497a-a506-95f0529048d9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " single"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "1327ef17-3a68-4126-9c2d-8de36cb1d1ed"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " line of text:"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "71817caf-a2c8-44ab-b61f-a4f4682d6776"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n\n```\nUNIQUE_TEST_"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "64a9fc5b-903f-4ca5-b42c-3c0fa39f01fd"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "CONTENT_1772767334892"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "4e62e384-ba13-47fb-8221-d7eeb37685b0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "\n```\n\nThis appears to be a"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "9fd6a6a0-6639-443f-bd18-760f7a2275fa"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " unique identifier or test content string,"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "8f2b82c2-abcd-485c-b805-292fbef11320"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " likely"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "88390a39-1314-4630-a73e-a5274a7fd178"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " used for"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "f56dd605-eeea-4cb9-a9f8-67296ad7fb63"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " testing or"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "3b04acd4-730f-47f3-91e7-fbe6c04a0665"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " validation"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "daaa8d95-7042-44f1-aba8-0a7aaba598f9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " purposes. The string"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "46ee6089-93a6-4d2a-971a-5244a2b8ac53"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " combines"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "80bb2de4-e500-44ee-b0f8-0d5caee9eb9f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " the prefix"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "f6663998-7825-4699-9c3d-33b0d45f2f8e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " \"UNIQUE_TEST_CONTENT"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "2b7dd3ec-dae9-4aa7-a6e5-50c8738216fb"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "_\" followed"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "1b63bd21-4057-42da-b986-77e7823a40b9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " by a numeric ID ("
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "58db57fb-801f-4af3-afb7-8e6470e204ab"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "1772767334892,"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "148aff30-1f4b-4848-a82f-be3ed43a481e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " which looks"
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "36ac69ac-da94-40a0-8d2c-c1ffd462e44e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " like a timestamp)."
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "f62f8643-867d-43fa-858b-10bfa4f78b45"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_012L6YzX5FRTr1ZMzbgKye9d",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "The file **unique-test.txt** contains a single line of text:\n\n```\nUNIQUE_TEST_CONTENT_1772767334892\n```\n\nThis appears to be a unique identifier or test content string, likely used for testing or validation purposes. The string combines the prefix \"UNIQUE_TEST_CONTENT_\" followed by a numeric ID (1772767334892, which looks like a timestamp)."
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2258,
+          "cache_read_input_tokens": 15006,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 2258,
+            "ephemeral_1h_input_tokens": 0
+          },
+          "output_tokens": 283,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "uuid": "f840d40e-aeb7-455b-a594-f8924d8ed8ec"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 1
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "99eff3b5-aacf-41af-b145-42b459814191"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "end_turn",
+          "stop_sequence": null
+        },
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2258,
+          "cache_read_input_tokens": 15006,
+          "output_tokens": 283
+        }
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "d0311cbb-e836-4988-b31e-018c38aae90d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_stop"
+      },
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "parent_tool_use_id": null,
+      "uuid": "17321d83-04ef-4f69-a96d-7a5e9949611c"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "duration_ms": 3428,
+      "duration_api_ms": 6038,
+      "num_turns": 1,
+      "result": "The file **unique-test.txt** contains a single line of text:\n\n```\nUNIQUE_TEST_CONTENT_1772767334892\n```\n\nThis appears to be a unique identifier or test content string, likely used for testing or validation purposes. The string combines the prefix \"UNIQUE_TEST_CONTENT_\" followed by a numeric ID (1772767334892, which looks like a timestamp).",
+      "session_id": "14c7d017-100d-480d-85fc-74327b5064b0",
+      "total_cost_usd": 0.0078472,
+      "usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 2258,
+        "cache_read_input_tokens": 15006,
+        "output_tokens": 283,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 2258
+        }
+      },
+      "modelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 19,
+          "outputTokens": 482,
+          "cacheReadInputTokens": 25957,
+          "cacheCreationInputTokens": 2258,
+          "webSearchRequests": 0,
+          "costUSD": 0.0078472,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "ff2722d6-b49a-431a-bee7-32346eb07b2a"
+    }
+  ],
+  "key": "runSession-ca07252c139c782a",
+  "recordedAt": "2026-03-06T03:22:22.494Z"
+}
