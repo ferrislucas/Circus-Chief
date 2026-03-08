@@ -1,0 +1,200 @@
+{
+  "prompt": "Current session status: waiting\n\nEXISTING SUMMARY:\nNo previous summary - this is the first generation.\n\nRECENT CONVERSATION:\nUser: Write a simple hello world function in Python\n\nAssistant: I'll write ",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/Users/ferrislucas/claudetools.io/.worktrees/2f7a52de-0769-4aeb-93c8-ecddc57c2de1",
+      "session_id": "2f57f827-d081-409c-b9fb-37cb2bbdb195",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP",
+        "StructuredOutput"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "bypassPermissions",
+      "slash_commands": [
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan"
+      ],
+      "skills": [],
+      "plugins": [],
+      "uuid": "03b89082-31f5-4f50-b841-1889887b9c1c"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01NgjcZgDNchzg2GqxLCN2a1",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "I'll generate the updated session summary based on the conversation."
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 3,
+          "cache_creation_input_tokens": 3320,
+          "cache_read_input_tokens": 12783,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 3320
+          },
+          "output_tokens": 3,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "2f57f827-d081-409c-b9fb-37cb2bbdb195",
+      "uuid": "a0f3001d-853f-43df-8c3b-7bee8c77d383"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01NgjcZgDNchzg2GqxLCN2a1",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01PCjyzx31W3CKveEu5d4QLs",
+            "name": "StructuredOutput",
+            "input": {
+              "session_title": "Write Hello World function",
+              "short_summary": "Created a simple Hello World function in Python with documentation and example usage.",
+              "full_summary": "User requested a simple Hello World function in Python. The assistant created a well-documented function that prints \"Hello, World!\" including proper main block execution guard. The function demonstrates Python best practices with docstring documentation and conditional main execution.",
+              "key_actions": [
+                "Created a hello_world() function that prints 'Hello, World!'",
+                "Added docstring documentation to the function",
+                "Included if __name__ == '__main__': block for proper module behavior",
+                "Provided explanation of how the code works"
+              ],
+              "files_modified": [],
+              "outcome": "completed"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 3,
+          "cache_creation_input_tokens": 3320,
+          "cache_read_input_tokens": 12783,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 3320
+          },
+          "output_tokens": 286,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "2f57f827-d081-409c-b9fb-37cb2bbdb195",
+      "uuid": "6cd0f3e2-4fe1-4788-a369-9dbe763b9494"
+    },
+    {
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "tool_use_id": "toolu_01PCjyzx31W3CKveEu5d4QLs",
+            "type": "tool_result",
+            "content": "Structured output provided successfully"
+          }
+        ]
+      },
+      "parent_tool_use_id": null,
+      "session_id": "2f57f827-d081-409c-b9fb-37cb2bbdb195",
+      "uuid": "69dd3854-006e-4d1e-8efa-2fb25455f49b",
+      "tool_use_result": "Structured output provided successfully"
+    },
+    {
+      "type": "result",
+      "subtype": "error_max_turns",
+      "duration_ms": 2912,
+      "duration_api_ms": 5119,
+      "is_error": false,
+      "num_turns": 2,
+      "session_id": "2f57f827-d081-409c-b9fb-37cb2bbdb195",
+      "total_cost_usd": 0.0104893,
+      "usage": {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": 3320,
+        "cache_read_input_tokens": 12783,
+        "output_tokens": 286,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 3320,
+          "ephemeral_5m_input_tokens": 0
+        }
+      },
+      "modelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 6,
+          "outputTokens": 451,
+          "cacheReadInputTokens": 22483,
+          "cacheCreationInputTokens": 4784,
+          "webSearchRequests": 0,
+          "costUSD": 0.0104893,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "d5ca9732-b487-4886-9cf4-dc013d0e826e",
+      "errors": []
+    }
+  ],
+  "key": "summary-9b854e8377c0e3bb",
+  "recordedAt": "2026-03-04T00:18:39.761Z"
+}

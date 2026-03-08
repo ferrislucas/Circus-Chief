@@ -347,9 +347,12 @@ export class ApiClient {
    * @param {string|undefined} prompt - Optional updated prompt to use when starting
    * @returns {Promise<Object>}
    */
-  async startSession(id, prompt) {
-    const data = prompt !== undefined ? { prompt } : undefined;
-    return this.#request('POST', `/sessions/${id}/start`, data);
+  async startSession(id, prompt, model) {
+    const data = {};
+    if (prompt !== undefined) data.prompt = prompt;
+    if (model !== undefined) data.model = model;
+    return this.#request('POST', `/sessions/${id}/start`,
+      Object.keys(data).length > 0 ? data : undefined);
   }
 
   /**

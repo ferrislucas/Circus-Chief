@@ -479,6 +479,45 @@ test.describe('Category 3: Quick Response Panel in New Session View', () => {
     // Verify we navigate away (URL changes to session detail)
     await expect(page).not.toHaveURL(/\/sessions\/new/, { timeout: 10000 });
   });
+
+  test('settings gear opens settings modal from new session view', async ({ page }) => {
+    const project = await seedProject('QR NewSession Settings', '/tmp/qr-new-settings');
+    await seedQuickResponse(project.id, { label: 'Settings Test', content: 'Settings content' });
+
+    // Wait for the quick-responses API call to complete before interacting.
+    // The store fetch fires without await in onMounted, so we need to catch it.
+    const apiDone = page.waitForResponse(
+      (resp) => resp.url().includes('/quick-responses') && resp.status() === 200,
+      { timeout: 30000 }
+    );
+
+    await page.goto(`/projects/${project.id}/sessions/new`);
+    await apiDone;
+
+    // Expand the panel
+    const panel = page.locator('.quick-responses-panel');
+    await expect(panel).toBeVisible({ timeout: 10000 });
+    await panel.click();
+
+    // Wait for responses content or empty state to appear
+    await expect(
+      page.locator('.responses-content, .empty-state')
+    ).toBeVisible({ timeout: 5000 });
+
+    // Click the settings gear button (only visible when panel is expanded)
+    const settingsBtn = page.locator('button[aria-label="Manage quick responses"]');
+    await expect(settingsBtn).toBeVisible({ timeout: 5000 });
+    await settingsBtn.click();
+
+    // Verify settings modal opens with correct title
+    const settingsModal = page.locator('.settings-panel[role="dialog"]');
+    await expect(settingsModal).toBeVisible({ timeout: 5000 });
+    await expect(settingsModal.locator('.settings-title')).toContainText('Quick Responses');
+
+    // Verify modal can be closed
+    await page.locator('.close-button').click();
+    await expect(settingsModal).not.toBeVisible({ timeout: 3000 });
+  });
 });
 
 // ============================================================
