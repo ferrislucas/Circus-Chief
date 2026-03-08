@@ -196,23 +196,25 @@ async function handleMenuCopyFilename(item) {
 }
 
 async function handleMenuCopyContents(item) {
-  // Fetch content on demand if not yet loaded.
-  // Use === undefined, NOT falsy check.
-  // '' (empty text file) and null (field N/A for type) are valid fetched values.
-  const fetched = await canvasStore.fetchItemContent(props.sessionId, item.filename);
-
-  let content = '';
-  if (item.type === 'markdown' || item.type === 'text' || item.type === 'code') {
-    content = item.content ?? fetched?.content ?? '';
-  } else if (item.type === 'json') {
-    content = item.data ?? fetched?.data ?? '';
-  }
-
-  const success = await copyToClipboard(content);
-  if (success) {
-    uiStore.success('Copied file contents to clipboard');
-  } else {
-    uiStore.error('Failed to copy file contents to clipboard');
+  try {
+    const fetched = await canvasStore.fetchItemContent(props.sessionId, item.filename);
+    let content = '';
+    if (item.type === 'json') {
+      const raw = fetched?.data ?? '';
+      content = typeof raw === 'object' && raw !== null
+        ? JSON.stringify(raw, null, 2)
+        : raw;
+    } else {
+      content = fetched?.content ?? '';
+    }
+    const success = await copyToClipboard(content);
+    if (success) {
+      uiStore.success('Copied to clipboard');
+    } else {
+      uiStore.error('Failed to copy');
+    }
+  } catch (err) {
+    uiStore.error('Failed to load file contents');
   }
   closeMenu();
 }

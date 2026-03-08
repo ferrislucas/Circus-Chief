@@ -324,7 +324,7 @@ test.describe('Canvas Copy File Contents', () => {
 
     const clipboardWrites = await page.evaluate(() => (window as any).__clipboardWrites);
     expect(clipboardWrites.length).toBeGreaterThan(0);
-    expect(clipboardWrites[0]).toBe(testData);
+    expect(JSON.parse(clipboardWrites[0])).toEqual({ hello: 'world', number: 42 });
   });
 
   test('copy filename copies the filename correctly', async ({ page, context }) => {

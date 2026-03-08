@@ -282,25 +282,25 @@ function closeMenu() {
 }
 
 async function handleMenuCopyContents() {
-  // Fetch content on demand if not yet loaded
-  const fetched = await canvasStore.fetchItemContent(props.sessionId, props.item.filename);
-
-  let content = '';
-
-  if (props.item.type === 'markdown' || props.item.type === 'text' || props.item.type === 'code') {
-    content = props.item.content ?? fetched?.content ?? '';
-  } else if (props.item.type === 'json') {
-    content = props.item.data ?? fetched?.data ?? '';
-  } else if (props.item.type === 'image') {
-    // For images, copy the base64 or filename
-    content = props.item.filename || 'image';
-  }
-
-  const success = await copyToClipboard(content);
-  if (success) {
-    uiStore.success('Copied file contents to clipboard');
-  } else {
-    uiStore.error('Failed to copy file contents to clipboard');
+  try {
+    const fetched = await canvasStore.fetchItemContent(props.sessionId, props.item.filename);
+    let content = '';
+    if (props.item.type === 'json') {
+      const raw = fetched?.data ?? '';
+      content = typeof raw === 'object' && raw !== null
+        ? JSON.stringify(raw, null, 2)
+        : raw;
+    } else {
+      content = fetched?.content ?? '';
+    }
+    const success = await copyToClipboard(content);
+    if (success) {
+      uiStore.success('Copied to clipboard');
+    } else {
+      uiStore.error('Failed to copy');
+    }
+  } catch (err) {
+    uiStore.error('Failed to load file contents');
   }
   closeMenu();
 }
