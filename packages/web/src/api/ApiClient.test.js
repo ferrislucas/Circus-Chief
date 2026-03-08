@@ -676,6 +676,40 @@ describe('ApiClient', () => {
           await client.startSession('sess-123', 'new prompt');
           expect(mockFetch).toHaveBeenCalled();
         });
+
+        it('sends model in request body when provided', async () => {
+          mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+          await client.startSession('sess-123', 'test prompt', 'claude-opus-4-6-20250616');
+          const callArgs = mockFetch.mock.calls[0];
+          const body = JSON.parse(callArgs[1].body);
+          expect(body.model).toBe('claude-opus-4-6-20250616');
+          expect(body.prompt).toBe('test prompt');
+        });
+
+        it('does not include model key when model is undefined', async () => {
+          mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+          await client.startSession('sess-123', 'test prompt');
+          const callArgs = mockFetch.mock.calls[0];
+          const body = JSON.parse(callArgs[1].body);
+          expect(body.model).toBeUndefined();
+          expect(body.prompt).toBe('test prompt');
+        });
+
+        it('sends only model when prompt is undefined', async () => {
+          mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+          await client.startSession('sess-123', undefined, 'claude-opus-4-6-20250616');
+          const callArgs = mockFetch.mock.calls[0];
+          const body = JSON.parse(callArgs[1].body);
+          expect(body.model).toBe('claude-opus-4-6-20250616');
+          expect(body.prompt).toBeUndefined();
+        });
+
+        it('sends no body when both prompt and model are undefined', async () => {
+          mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+          await client.startSession('sess-123', undefined, undefined);
+          const callArgs = mockFetch.mock.calls[0];
+          expect(callArgs[1].body).toBeUndefined();
+        });
       });
     });
 
