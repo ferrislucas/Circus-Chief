@@ -7,15 +7,9 @@ import { agentCallLogger } from './agentCallLogger.js';
 import { createVCRQueryFn } from '../agents/vcr/VCRSummaryWrapper.js';
 // Note: prStatusService is imported dynamically in onSessionComplete to avoid circular dependency
 
-// Debounce timers per session
-const debounceTimers = new Map();
-
 // Concurrency guard: tracks in-flight generation promises per session
 const activeGenerations = new Map(); // sessionId -> Promise
 const pendingRegenerations = new Set(); // sessionIds that need regeneration after current completes
-
-// Debounce delay in milliseconds (60 seconds - optimized for token efficiency and responsiveness)
-const DEBOUNCE_DELAY = 60000;
 
 // Minimum number of messages before generating a summary (skip trivial sessions)
 const MIN_MESSAGES_FOR_SUMMARY = 3;
@@ -549,8 +543,8 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
     activeGenerations.delete(sessionId);
     if (pendingRegenerations.has(sessionId)) {
       pendingRegenerations.delete(sessionId);
-      // Use debounced path for follow-up, not immediate generation
-      onSessionActivity(sessionId);
+      // Schedule follow-up generation directly (debounce removed)
+      generateSummary(sessionId);
     }
   }
 }
@@ -753,7 +747,7 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     // Update session name and prUrl if we have new data
     if (summaryData.sessionTitle || summaryData.prUrl) {
       const updateData = {};
-      if (summaryData.sessionTitle) {
+      if (summaryData.sessionTitle && !existingSummary) {
         updateData.name = summaryData.sessionTitle;
       }
       if (summaryData.prUrl) {
@@ -834,43 +828,12 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
 }
 
 /**
- * Called on every new message - debounces summary generation
- * @param {string} sessionId
- */
-export function onSessionActivity(sessionId) {
-  // Cancel existing timer
-  if (debounceTimers.has(sessionId)) {
-    clearTimeout(debounceTimers.get(sessionId));
-  }
-
-  // Get project-specific debounce delay
-  const session = sessions.getById(sessionId);
-  if (!session) return;
-
-  const project = projects.getById(session.projectId);
-  const debounceDelay = project?.summaryDebounceMs || DEBOUNCE_DELAY;
-
-  // Set new debounce timer with project-specific delay
-  const timer = setTimeout(() => {
-    generateSummary(sessionId);
-    debounceTimers.delete(sessionId);
-  }, debounceDelay);
-
-  debounceTimers.set(sessionId, timer);
-}
-
-/**
  * Generate summary immediately and wait for completion (synchronous)
  * Used by template trigger to ensure summary is ready before creating new session
  * @param {string} sessionId
  * @returns {Promise<Object|null>}
  */
 export async function generateSummaryNow(sessionId) {
-  // Cancel any pending debounced generation for this session
-  if (debounceTimers.has(sessionId)) {
-    clearTimeout(debounceTimers.get(sessionId));
-    debounceTimers.delete(sessionId);
-  }
   // Generate summary immediately and wait for completion
   return await generateSummary(sessionId);
 }
@@ -882,12 +845,6 @@ export async function generateSummaryNow(sessionId) {
  * @param {string} sessionId
  */
 export function onSessionComplete(sessionId) {
-  // Cancel debounce timer if exists
-  if (debounceTimers.has(sessionId)) {
-    clearTimeout(debounceTimers.get(sessionId));
-    debounceTimers.delete(sessionId);
-  }
-
   // Lightweight outcome update: if summary exists and is current,
   // just update the outcome field without calling the LLM
   const existingSummary = sessionSummaries.getBySessionId(sessionId);
@@ -1016,14 +973,11 @@ export function isSummaryStale(sessionId) {
 }
 
 /**
- * Clean up debounce timer for a session (call on session deletion)
+ * Clean up any in-flight state for a session (call on session deletion)
  * @param {string} sessionId
  */
 export function cleanupSession(sessionId) {
-  if (debounceTimers.has(sessionId)) {
-    clearTimeout(debounceTimers.get(sessionId));
-    debounceTimers.delete(sessionId);
-  }
+  pendingRegenerations.delete(sessionId);
 }
 
 /**
@@ -1089,7 +1043,8 @@ export async function generateSessionAndConversationSummary(sessionId, conversat
     activeGenerations.delete(sessionId);
     if (pendingRegenerations.has(sessionId)) {
       pendingRegenerations.delete(sessionId);
-      onSessionActivity(sessionId);
+      // Schedule follow-up generation directly (debounce removed)
+      generateSummary(sessionId);
     }
   }
 }
@@ -1597,9 +1552,9 @@ export async function propagateToParent(sessionId) {
   if (!session || !session.parentSessionId) return;
 
   // Trigger a summary regeneration for the parent session
-  // This is debounced so multiple child updates don't cause multiple parent regenerations
-  onSessionActivity(session.parentSessionId);
+  // The activeGenerations concurrency guard prevents concurrent duplicate generations
+  generateSummary(session.parentSessionId);
 }
 
 // Export for testing
-export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, CONVERSATION_SUMMARY_SYSTEM_PROMPT, COMBINED_SUMMARY_SYSTEM_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified, activeGenerations, pendingRegenerations };
+export { MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, CONVERSATION_SUMMARY_SYSTEM_PROMPT, COMBINED_SUMMARY_SYSTEM_PROMPT, isMockMode, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified, activeGenerations, pendingRegenerations };
