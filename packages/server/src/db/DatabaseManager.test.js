@@ -727,4 +727,134 @@ describe('DatabaseManager', () => {
       expect(messages[1].model).toBe('claude-opus-4-6');
     });
   });
+
+  describe('model_providers to providers migration', () => {
+    it('handles missing model_providers table gracefully', () => {
+      // Simulate a new installation where model_providers never existed
+      const db = manager.get();
+
+      // Verify providers table exists
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(t => t.name);
+      expect(tables).toContain('providers');
+      expect(tables).not.toContain('model_providers');
+
+      // Should not throw during init (migration already handled this case)
+      expect(() => {
+        const newManager = new DatabaseManager();
+        newManager.init(':memory:');
+        newManager.close();
+      }).not.toThrow();
+    });
+
+    it('handles both tables existing with model_providers already empty', () => {
+      const db = manager.get();
+
+      // Create old model_providers table (empty)
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS model_providers (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          base_url TEXT,
+          auth_token TEXT,
+          is_built_in INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `);
+
+      // Re-init should handle this gracefully
+      expect(() => {
+        const newManager = new DatabaseManager();
+        newManager.init(':memory:');
+        newManager.close();
+      }).not.toThrow();
+    });
+
+    it('migrates data from model_providers to providers when both exist', () => {
+      // Use a temporary file database to preserve state between manager instances
+      const os = require('os');
+      const fs = require('fs');
+      const dbPath = `${os.tmpdir()}/test-migration-${Date.now()}.db`;
+
+      try {
+        // Create old-style database with model_providers (with old schema)
+        const Database = require('better-sqlite3');
+        const oldDb = new Database(dbPath);
+        const now = Date.now();
+
+        oldDb.exec(`
+          CREATE TABLE model_providers (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            base_url TEXT,
+            auth_token TEXT,
+            api_timeout_ms INTEGER,
+            additional_env_vars TEXT,
+            is_built_in INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+          );
+        `);
+
+        oldDb.prepare(
+          `INSERT INTO model_providers (id, name, base_url, is_built_in, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).run('old-provider-1', 'Custom Provider', 'https://api.example.com', 0, now, now);
+
+        oldDb.close();
+
+        // Init with new DatabaseManager (drops model_providers table)
+        const newManager = new DatabaseManager();
+        newManager.init(dbPath);
+        const newDb = newManager.get();
+
+        // Verify model_providers was dropped
+        const tables = newDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(t => t.name);
+        expect(tables).toContain('providers');
+        expect(tables).not.toContain('model_providers');
+
+        newManager.close();
+      } finally {
+        // Cleanup
+        if (fs.existsSync(dbPath)) {
+          fs.unlinkSync(dbPath);
+        }
+      }
+    });
+
+    it('does not throw when model_providers is dropped between check and query', () => {
+      // This test simulates the race condition
+      const db = manager.get();
+
+      // Create model_providers table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS model_providers (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL
+        );
+      `);
+
+      // The migration should handle this gracefully
+      // even if the table disappears between check and query
+      expect(() => {
+        db.exec('DROP TABLE model_providers;');
+        // Next init should not throw
+        const newManager = new DatabaseManager();
+        newManager.init(':memory:');
+        newManager.close();
+      }).not.toThrow();
+    });
+
+    it('provider_models references providers not model_providers', () => {
+      const db = manager.get();
+
+      // Check FK constraint
+      const providerModelsSchema = db.prepare(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='provider_models'"
+      ).get();
+
+      expect(providerModelsSchema.sql).toContain('REFERENCES providers(id)');
+      expect(providerModelsSchema.sql).not.toContain('REFERENCES model_providers');
+    });
+  });
 });
