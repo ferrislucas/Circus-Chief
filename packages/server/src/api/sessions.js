@@ -543,7 +543,8 @@ router.post('/:id/start', async (req, res) => {
     const workingDirectory = session.gitWorktree || project.workingDirectory;
 
     // Model to use for this session (optional - SDK will use default if not provided)
-    const model = req.body.model || null;
+    // Fallback chain: explicit request body > pendingModel (set at draft creation) > session.model > null (SDK default)
+    const model = req.body.model || session.pendingModel || session.model || null;
 
     // Get or create the initial user message (prompt)
     let userMessages = allMessages.filter(msg => msg.role === 'user');
@@ -600,8 +601,8 @@ router.post('/:id/start', async (req, res) => {
     // Get session attachments for context
     const sessionAttachments = attachments.getBySessionId(session.id);
 
-    // Update session status to starting and begin processing
-    sessions.update(session.id, { status: 'starting' });
+    // Update session status to starting and clear pendingModel (mirrors pendingPrompt cleanup above)
+    sessions.update(session.id, { status: 'starting', pendingModel: null });
 
     // Start session manager (non-blocking)
     const { runSession } = await import('../services/sessionManager.js');
