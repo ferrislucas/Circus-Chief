@@ -36,6 +36,30 @@ const ciFailuresJson = ciFailures != null ? JSON.stringify(ciFailures) : null;
 const db = new Database(dbPath, { readonly: false });
 db.pragma('journal_mode = WAL');
 
+// Ensure session exists before creating summary (fixes foreign key constraint error)
+const existingSession = db.prepare('SELECT id FROM sessions WHERE id = ?').get(sessionId);
+if (!existingSession) {
+  // First ensure project exists (sessions have a foreign key to projects)
+  const dummyProjectId = '00000000-0000-0000-0000-000000000000';
+  const existingProject = db.prepare('SELECT id FROM projects WHERE id = ?').get(dummyProjectId);
+  if (!existingProject) {
+    const now = Date.now();
+    db.prepare(
+      `INSERT INTO projects (id, name, working_directory, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(dummyProjectId, 'Test Project', '/tmp/test', now, now);
+    console.error(`⚠️ Created placeholder project ${dummyProjectId} - this should have been created via API first`);
+  }
+
+  // Create a minimal session row for testing
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(sessionId, dummyProjectId, 'Test Session', 'waiting', 'standard', 0, now, now);
+  console.error(`⚠️ Created placeholder session ${sessionId} - this should have been created via API first`);
+}
+
 // Check if a summary already exists for this session
 const existing = db.prepare('SELECT id FROM session_summaries WHERE session_id = ?').get(sessionId);
 
