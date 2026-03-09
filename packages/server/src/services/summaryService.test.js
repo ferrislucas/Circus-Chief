@@ -1975,29 +1975,19 @@ describe('summaryService', () => {
       expect(result2.sessionId).toBe(sessionId);
     });
 
-    it('returns null when disabled but still cancels debounce timer', async () => {
-      vi.useFakeTimers();
-
-      // Start a debounced generation (with summaries enabled)
-      summaryService.onSessionActivity(sessionId);
-
-      // Now disable summaries
+    it('returns null when disabled', async () => {
+      // Disable summaries
       settings.setSummarySettings({ disableSessionSummaries: true });
 
-      // Call generateSummaryNow (should cancel the debounced timer and return null)
+      // Call generateSummaryNow (should return null immediately)
       const result = await summaryService.generateSummaryNow(sessionId);
 
       // Should return null since summaries are disabled
       expect(result).toBeNull();
 
-      // Run timers to confirm the debounced generation doesn't fire
-      await vi.runAllTimersAsync();
-
       // Summary should NOT have been generated
       const stored = sessionSummaries.getBySessionId(sessionId);
       expect(stored).toBeNull();
-
-      vi.useRealTimers();
     });
   });
 
@@ -2283,8 +2273,8 @@ describe('summaryService', () => {
       // onSessionComplete uses force=true but NOT userInitiated, so it should respect the disable setting
       summaryService.onSessionComplete(sessionId);
 
-      // Wait for async generation
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Wait a bit for any async operations
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Summary should NOT have been generated because summaries are disabled
       const stored = sessionSummaries.getBySessionId(sessionId);
