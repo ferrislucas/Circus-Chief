@@ -170,6 +170,18 @@ ensure_directories() {
     mkdir -p "$PROJECT_ROOT/tests"
 }
 
+# Clear provider environment variables to prevent leakage into tests
+# This ensures test isolation and prevents accidental use of production credentials
+clear_provider_env_vars() {
+    unset ANTHROPIC_BASE_URL
+    unset ANTHROPIC_API_KEY
+    unset ANTHROPIC_AUTH_TOKEN
+    unset ANTHROPIC_DEFAULT_OPUS_MODEL
+    unset ANTHROPIC_DEFAULT_SONNET_MODEL
+    unset ANTHROPIC_DEFAULT_HAIKU_MODEL
+    unset API_TIMEOUT_MS
+}
+
 # Build the container
 cmd_build() {
     if [ "$USE_DOCKER" = true ]; then
@@ -187,6 +199,9 @@ cmd_build() {
 cmd_test() {
     ensure_dependencies
     ensure_directories
+
+    # Clear provider environment variables before running tests
+    clear_provider_env_vars
 
     # Enable VCR mode for E2E tests (replay existing cassettes, record new ones)
     export VCR_MODE=${VCR_MODE:-auto}
@@ -256,6 +271,9 @@ cmd_screenshot() {
 cmd_codegen() {
     ensure_dependencies
 
+    # Clear provider environment variables before running codegen
+    clear_provider_env_vars
+
     # Ensure server is running to provide a default URL
     local SERVER_PORT
     SERVER_PORT=$(detect_or_start_server)
@@ -300,6 +318,9 @@ cmd_shell() {
 cmd_debug() {
     ensure_dependencies
     ensure_directories
+
+    # Clear provider environment variables before running tests
+    clear_provider_env_vars
 
     # Enable VCR mode for E2E tests (replay existing cassettes, record new ones)
     export VCR_MODE=${VCR_MODE:-auto}

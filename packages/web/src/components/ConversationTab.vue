@@ -423,6 +423,20 @@ async function handleStop() {
   }
 }
 
+async function handleRestart() {
+  if (restarting.value) return;
+
+  restarting.value = true;
+  try {
+    await sessionsStore.restartSession(props.sessionId);
+    uiStore.success('Session restarted');
+  } catch (err) {
+    uiStore.error(err.message);
+  } finally {
+    restarting.value = false;
+  }
+}
+
 async function savePendingPrompt(prompt) {
   try {
     saveStatus.value = 'saving';
@@ -449,7 +463,12 @@ async function handleStart() {
 
   restarting.value = true;
   try {
-    await sessionsStore.startSession(props.sessionId, currentValue);
+    // Pass the current prompt and model to the start method via the store
+    // This ensures the UI updates immediately via Vue reactivity
+    // Use pendingModel (set at draft creation time) or fall back to session.model
+    const sessionModel = sessionsStore.currentSession?.pendingModel
+      || sessionsStore.currentSession?.model;
+    await sessionsStore.startSession(props.sessionId, currentValue, sessionModel);
   } catch (err) {
     uiStore.error(err.message);
   } finally {

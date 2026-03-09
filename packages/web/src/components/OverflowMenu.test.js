@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { describe, it, expect, vi } from 'vitest';
+import { mount, flushPromises } from '@vue/test-utils';
 import OverflowMenu from './OverflowMenu.vue';
 
 describe('OverflowMenu.vue', () => {
@@ -196,6 +196,75 @@ describe('OverflowMenu.vue', () => {
 
       await menu.trigger('keydown', { key: 'ArrowDown' });
       expect(wrapper.vm.highlightedIndex).not.toBeNull();
+    });
+  });
+
+  describe('Menu Positioning', () => {
+    it('positions menu with left: 0 when it would overflow left edge', async () => {
+      const wrapper = mount(OverflowMenu, {
+        attachTo: document.body
+      });
+
+      // Mock getBoundingClientRect to simulate overflow on the left
+      const mockRect = { left: -50, right: 150, top: 0, bottom: 100, width: 200, height: 100 };
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(mockRect);
+
+      wrapper.vm.toggleMenu();
+      await flushPromises();
+
+      // Should flip to left-anchored
+      expect(wrapper.vm.menuStyle).toEqual({
+        right: 'auto',
+        left: '0'
+      });
+
+      wrapper.unmount();
+    });
+
+    it('keeps default right: 0 positioning when menu fits in viewport', async () => {
+      const wrapper = mount(OverflowMenu, {
+        attachTo: document.body
+      });
+
+      // Mock getBoundingClientRect to show menu fits in viewport
+      const mockRect = { left: 100, right: 300, top: 0, bottom: 100, width: 200, height: 100 };
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(mockRect);
+
+      wrapper.vm.toggleMenu();
+      await flushPromises();
+
+      // Should keep default positioning (empty style object)
+      expect(wrapper.vm.menuStyle).toEqual({});
+
+      wrapper.unmount();
+    });
+
+    it('resets menuStyle when menu is closed', async () => {
+      const wrapper = mount(OverflowMenu, {
+        attachTo: document.body
+      });
+
+      // Mock getBoundingClientRect to simulate overflow
+      const mockRect = { left: -50, right: 150, top: 0, bottom: 100, width: 200, height: 100 };
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(mockRect);
+
+      wrapper.vm.toggleMenu();
+      await flushPromises();
+
+      // Menu should have positioning override
+      expect(wrapper.vm.menuStyle).toEqual({
+        right: 'auto',
+        left: '0'
+      });
+
+      // Close the menu
+      wrapper.vm.closeMenu();
+      await flushPromises();
+
+      // menuStyle should be reset
+      expect(wrapper.vm.menuStyle).toEqual({});
+
+      wrapper.unmount();
     });
   });
 });
