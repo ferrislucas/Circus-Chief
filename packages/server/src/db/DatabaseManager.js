@@ -316,6 +316,14 @@ export class DatabaseManager {
       this.#db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_starred ON sessions(archived, starred)');
     }
 
+    // Check if sessions table has the manually_named column, add it if not
+    const manuallyNamedSessionsTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const manuallyNamedSessionsColumns = manuallyNamedSessionsTableInfo.map((col) => col.name);
+
+    if (!manuallyNamedSessionsColumns.includes('manually_named')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN manually_named INTEGER NOT NULL DEFAULT 0');
+    }
+
     // Create project_session_defaults table if it doesn't exist
     this.#db.exec(`
       CREATE TABLE IF NOT EXISTS project_session_defaults (
@@ -673,6 +681,7 @@ export class DatabaseManager {
         context_window INTEGER DEFAULT 200000,
         archived INTEGER NOT NULL DEFAULT 0,
         starred INTEGER NOT NULL DEFAULT 0,
+        manually_named INTEGER NOT NULL DEFAULT 0,
         scheduled_at INTEGER DEFAULT NULL,
         reschedule_delay_minutes INTEGER DEFAULT 15,
         auto_reschedule_enabled INTEGER DEFAULT 0,
@@ -711,6 +720,7 @@ export class DatabaseManager {
       'context_window',
       'archived',
       'starred',
+      'manually_named',
       'scheduled_at',
       'reschedule_delay_minutes',
       'auto_reschedule_enabled',
