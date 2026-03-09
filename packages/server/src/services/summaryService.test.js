@@ -2586,7 +2586,6 @@ describe('summaryService', () => {
       sessionSummaries.upsert(sessionId, existingSummary);
 
       // Update session to completed status
-      const session = sessions.getById(sessionId);
       sessions.update(sessionId, { status: 'completed' });
 
       // Disable session summaries
