@@ -158,6 +158,46 @@ describe('UpdateSessionRequest', () => {
       expect(result.success).toBe(false);
     });
   });
+
+  describe('name validation', () => {
+    it('accepts valid name', () => {
+      const result = UpdateSessionRequest.safeParse({
+        name: 'Updated Session Name',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects empty name', () => {
+      const result = UpdateSessionRequest.safeParse({
+        name: '',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('manuallyNamed validation', () => {
+    it('accepts manuallyNamed: true', () => {
+      const result = UpdateSessionRequest.safeParse({
+        manuallyNamed: true,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts manuallyNamed: false', () => {
+      const result = UpdateSessionRequest.safeParse({
+        manuallyNamed: false,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts name and manuallyNamed together', () => {
+      const result = UpdateSessionRequest.safeParse({
+        name: 'Custom Name',
+        manuallyNamed: true,
+      });
+      expect(result.success).toBe(true);
+    });
+  });
 });
 
 describe('SendMessageRequest', () => {
@@ -193,6 +233,7 @@ describe('SessionResponse', () => {
     gitBranch: null,
     gitWorktree: null,
     prUrl: null,
+    manuallyNamed: false,
     error: null,
     nextTemplateId: null,
     parentSessionId: null,
@@ -242,6 +283,22 @@ describe('SessionResponse', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('validates session with manuallyNamed: true', () => {
+    const result = SessionResponse.safeParse({
+      ...validSession,
+      manuallyNamed: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates session with manuallyNamed: false', () => {
+    const result = SessionResponse.safeParse({
+      ...validSession,
+      manuallyNamed: false,
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe('SessionListResponse', () => {
@@ -263,6 +320,7 @@ describe('SessionListResponse', () => {
         gitBranch: null,
         gitWorktree: null,
         prUrl: null,
+        manuallyNamed: false,
         error: null,
         nextTemplateId: null,
         parentSessionId: null,

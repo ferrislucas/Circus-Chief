@@ -49,6 +49,9 @@ temp/
 # Server port file (auto-generated)
 .server-port
 
+# VCR mode state file (auto-generated)
+.vcr-mode
+
 # Git worktrees
 .worktrees/
 

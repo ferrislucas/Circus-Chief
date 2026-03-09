@@ -16,8 +16,6 @@ describe('PUT /api/sessions/:id/summary', () => {
   let app;
 
   beforeEach(() => {
-    // Set mock mode for testing
-    vi.stubEnv('MOCK_CLAUDE', 'true');
     vi.clearAllMocks();
 
     // Create express app with the sessions router
