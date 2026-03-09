@@ -6,7 +6,7 @@
       "type": "system",
       "subtype": "init",
       "cwd": "/private/tmp/test",
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "tools": [
         "Task",
         "TaskOutput",
@@ -52,7 +52,7 @@
       ],
       "skills": [],
       "plugins": [],
-      "uuid": "1e90aca4-b975-4f64-a827-e6b110561033"
+      "uuid": "1d415600-b78c-4b7b-af50-80e389f81311"
     },
     {
       "type": "stream_event",
@@ -60,7 +60,7 @@
         "type": "message_start",
         "message": {
           "model": "claude-haiku-4-5-20251001",
-          "id": "msg_01HYNFyPaatmyZqBhEBgyrtG",
+          "id": "msg_01Ay8K8vBjDv9tMV9YdrbZGp",
           "type": "message",
           "role": "assistant",
           "content": [],
@@ -68,21 +68,21 @@
           "stop_sequence": null,
           "usage": {
             "input_tokens": 10,
-            "cache_creation_input_tokens": 2086,
+            "cache_creation_input_tokens": 2075,
             "cache_read_input_tokens": 15006,
             "cache_creation": {
-              "ephemeral_5m_input_tokens": 0,
-              "ephemeral_1h_input_tokens": 2086
+              "ephemeral_5m_input_tokens": 2075,
+              "ephemeral_1h_input_tokens": 0
             },
-            "output_tokens": 7,
+            "output_tokens": 3,
             "service_tier": "standard",
             "inference_geo": "not_available"
           }
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "1b836731-f1c9-488d-878b-0803014722a4"
+      "uuid": "1c7f6562-dc06-4b91-9dde-b729576a2e7f"
     },
     {
       "type": "stream_event",
@@ -95,9 +95,9 @@
           "signature": ""
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "9308983b-e7d8-49dd-b94f-a6db6e57a008"
+      "uuid": "1ddd0bb7-777c-4067-b2f7-39554bf15851"
     },
     {
       "type": "stream_event",
@@ -106,12 +106,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": "The user is asking me to \""
+          "thinking": "The user is"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "a2153263-ea03-4e35-8d69-220964d1242e"
+      "uuid": "7f9c6ba7-a3b6-4e53-a84b-940125261da1"
     },
     {
       "type": "stream_event",
@@ -120,12 +120,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": "test thinking dedup\". This seems like"
+          "thinking": " asking me to \""
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "402f34ce-d69a-4398-98b1-cfbe1427b533"
+      "uuid": "869a7ff9-09a9-48e8-9200-f8a407e82dd5"
     },
     {
       "type": "stream_event",
@@ -134,12 +134,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " a test"
+          "thinking": "Test thinking dedup\". This seems like"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "1d2c2bda-2387-4757-ac5c-e9657929c1cf"
+      "uuid": "8b43ef5f-a641-4d32-a386-ac035c3d45a6"
     },
     {
       "type": "stream_event",
@@ -148,12 +148,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " to see if the"
+          "thinking": " a request"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "c1d8c8d8-7e7b-405f-89d5-12ae368a8ec0"
+      "uuid": "aacc6f40-10d7-43c9-b93b-0369768866e5"
     },
     {
       "type": "stream_event",
@@ -162,12 +162,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " thinking"
+          "thinking": " to test the thinking"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "8c046e09-7c65-4f94-ab09-77737f715d8c"
+      "uuid": "ee071785-4ef4-4adc-b0f1-8b4c241c4b5f"
     },
     {
       "type": "stream_event",
@@ -176,12 +176,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " mode"
+          "thinking": " dedu"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "2c54cf40-7217-4595-b879-710160df6823"
+      "uuid": "15a08626-d271-4a46-8a41-86a06a24bae6"
     },
     {
       "type": "stream_event",
@@ -190,12 +190,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " is"
+          "thinking": "plication functionality. This is likely"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "c3f52545-72d7-4176-b9e1-d82212a6d8b9"
+      "uuid": "8d17e856-9780-487f-9adc-4907fe225c66"
     },
     {
       "type": "stream_event",
@@ -204,12 +204,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " working correctly"
+          "thinking": " an"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "2dff2d50-bc46-4bb8-876c-a57e360d7654"
+      "uuid": "af5e0cbc-3bb1-4768-8e5f-d3e463c7eab7"
     },
     {
       "type": "stream_event",
@@ -218,12 +218,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " and"
+          "thinking": " internal test"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "cfe48f44-a4c4-4033-90d8-c8d4e17cfd65"
+      "uuid": "09b77dc1-ff58-45f8-b7b7-26eabc9c1444"
     },
     {
       "type": "stream_event",
@@ -232,12 +232,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " if duplicate"
+          "thinking": " request"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "a7873928-1c08-47e2-94a3-6dba67139047"
+      "uuid": "7591e03f-7291-4abe-baa5-bd830d44e7b7"
     },
     {
       "type": "stream_event",
@@ -246,12 +246,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " thoughts are being ded"
+          "thinking": " to verify"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "beaec421-fb71-46df-919c-24353f9ecb47"
+      "uuid": "219ad042-0e46-442f-9aef-97ca3442ca04"
     },
     {
       "type": "stream_event",
@@ -260,853 +260,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": "uplicated properly.\n\nLet"
+          "thinking": " that my"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "0fbd2813-70b1-4786-bc7c-43c1e45c9eda"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " me just"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "effccfed-9e6d-4b30-ba8d-4e47605de9fb"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " acknowledge"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "410f6271-0bf5-4c8f-b990-1045ef373d23"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " this and maybe"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "8ca639e0-4602-499d-8cf3-a4dc527d820b"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " do"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "bf6f1019-8708-47d2-a902-b13ab28faf4b"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " a simple test to show"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "11169e37-760f-4efb-bf98-82d019525ccc"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " that thinking is"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "90ce4d1a-52cf-4bac-a027-3fa7ec635159"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " working"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "6c4b6bc1-dedb-4e8f-8d95-8ae76ab06fc2"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": "."
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "22c14a45-2669-48d5-ba64-d1e03211cbf7"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": ""
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "b9b69b2c-505f-4ed1-b777-7a67f5310800"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "signature_delta",
-          "signature": "ErYDCkYICxgCKkC43ZdHo+Vv8DB6Ghova2+8C6xS1ivNHKT08r+9tmEbIAeWKDpisIYtecVF8ZjLogW9FkljAKMvGZ+iR+9AwK1qEgwALLou68n2m+2e6t4aDOZNWT2QKvIGir+Z5SIwnTci1QnysrjAH5E10jTPs+QJxhQmC7PytNU/BXHFiP5mEamQfFJu1RscqkMPdx1wKp0Cfh9MnRM81gPt53GWTaoiPbZadfDvF/SSn5XJJuCL/M147IaItqHNvUXM9yoJELGoHCSk+YY+9Ask/J+4Kb79ijI74YwxvwRicAxGN2+VgSiieitSmS82uxYe5N+9V21rHQ5ORcW8EukLLLSOAN0uXCs6tAdETRls159jqWmXFW0F5BILftiQn6ZVRdHT4QomaPJdFg7O/SOdPjaYJg06wVbZ/ncQxboG6d6lroW5vNDrrRgML4gGJn2jMqFUlISsas01hvo51JG6ghEBd888tyiprIfFd2Yt2cp9NuehtxZdaIMrdloWyHelMqPVE57PFp0FtMSRw0n1sSTaJLXz5wbKCmLuXDg32F/hwruGBOAFNNyHxNoTkUktbw10GAE="
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "832e8123-f369-43a7-80ab-cd5d6db90531"
-    },
-    {
-      "type": "assistant",
-      "message": {
-        "model": "claude-haiku-4-5-20251001",
-        "id": "msg_01HYNFyPaatmyZqBhEBgyrtG",
-        "type": "message",
-        "role": "assistant",
-        "content": [
-          {
-            "type": "thinking",
-            "thinking": "The user is asking me to \"test thinking dedup\". This seems like a test to see if the thinking mode is working correctly and if duplicate thoughts are being deduplicated properly.\n\nLet me just acknowledge this and maybe do a simple test to show that thinking is working.",
-            "signature": "ErYDCkYICxgCKkC43ZdHo+Vv8DB6Ghova2+8C6xS1ivNHKT08r+9tmEbIAeWKDpisIYtecVF8ZjLogW9FkljAKMvGZ+iR+9AwK1qEgwALLou68n2m+2e6t4aDOZNWT2QKvIGir+Z5SIwnTci1QnysrjAH5E10jTPs+QJxhQmC7PytNU/BXHFiP5mEamQfFJu1RscqkMPdx1wKp0Cfh9MnRM81gPt53GWTaoiPbZadfDvF/SSn5XJJuCL/M147IaItqHNvUXM9yoJELGoHCSk+YY+9Ask/J+4Kb79ijI74YwxvwRicAxGN2+VgSiieitSmS82uxYe5N+9V21rHQ5ORcW8EukLLLSOAN0uXCs6tAdETRls159jqWmXFW0F5BILftiQn6ZVRdHT4QomaPJdFg7O/SOdPjaYJg06wVbZ/ncQxboG6d6lroW5vNDrrRgML4gGJn2jMqFUlISsas01hvo51JG6ghEBd888tyiprIfFd2Yt2cp9NuehtxZdaIMrdloWyHelMqPVE57PFp0FtMSRw0n1sSTaJLXz5wbKCmLuXDg32F/hwruGBOAFNNyHxNoTkUktbw10GAE="
-          }
-        ],
-        "stop_reason": null,
-        "stop_sequence": null,
-        "usage": {
-          "input_tokens": 10,
-          "cache_creation_input_tokens": 2086,
-          "cache_read_input_tokens": 15006,
-          "cache_creation": {
-            "ephemeral_5m_input_tokens": 0,
-            "ephemeral_1h_input_tokens": 2086
-          },
-          "output_tokens": 7,
-          "service_tier": "standard",
-          "inference_geo": "not_available"
-        },
-        "context_management": null
-      },
-      "parent_tool_use_id": null,
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "uuid": "92883b21-9d4e-4530-a247-cb98b9fbfe55"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_stop",
-        "index": 0
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "21af6376-a9b4-49c3-a421-bf528f40622c"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_start",
-        "index": 1,
-        "content_block": {
-          "type": "text",
-          "text": ""
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "7f9cf23f-89fb-47c2-a125-6a7c675d2535"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": "I'll help"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "e1759eef-b223-49c8-95f0-9e3aae5d0d69"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": " you test thinking"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "7109d525-d735-4735-ab79-856fbbc1992f"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": " dedup. Let me run a simple"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "5e8ba331-de82-4ea8-9677-5fe24e6086de"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": " test to demonstrate"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "5f0851a2-5a84-4bd7-a9dc-64922915aa6f"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": " that the thinking feature"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "5cdc8eb6-9b5f-4c5b-99e7-fcdeed9308c7"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": " is working:"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "b2bbbab4-2223-4832-a975-2660730ee0ac"
-    },
-    {
-      "type": "assistant",
-      "message": {
-        "model": "claude-haiku-4-5-20251001",
-        "id": "msg_01HYNFyPaatmyZqBhEBgyrtG",
-        "type": "message",
-        "role": "assistant",
-        "content": [
-          {
-            "type": "text",
-            "text": "I'll help you test thinking dedup. Let me run a simple test to demonstrate that the thinking feature is working:"
-          }
-        ],
-        "stop_reason": null,
-        "stop_sequence": null,
-        "usage": {
-          "input_tokens": 10,
-          "cache_creation_input_tokens": 2086,
-          "cache_read_input_tokens": 15006,
-          "cache_creation": {
-            "ephemeral_5m_input_tokens": 0,
-            "ephemeral_1h_input_tokens": 2086
-          },
-          "output_tokens": 7,
-          "service_tier": "standard",
-          "inference_geo": "not_available"
-        },
-        "context_management": null
-      },
-      "parent_tool_use_id": null,
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "uuid": "d680eaf5-2ea5-4ebd-bf50-84e3030707b7"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_stop",
-        "index": 1
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "cb788ad7-947d-46ed-b819-38fc3ded360d"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_start",
-        "index": 2,
-        "content_block": {
-          "type": "tool_use",
-          "id": "toolu_01VDAnQjpjLPH5Lox5QGY8sn",
-          "name": "Bash",
-          "input": {},
-          "caller": {
-            "type": "direct"
-          }
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "a2f60174-c0a1-41b1-bb72-5353e69e64de"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 2,
-        "delta": {
-          "type": "input_json_delta",
-          "partial_json": ""
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "bc3c46f7-8220-4e2e-a698-627e28329f5b"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 2,
-        "delta": {
-          "type": "input_json_delta",
-          "partial_json": "{\"comman"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "f2ce6293-899a-44d8-a0c3-8ad459ed986f"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 2,
-        "delta": {
-          "type": "input_json_delta",
-          "partial_json": "d\": \"echo"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "c37f61f3-be7c-4945-a00b-3cf67aa4af48"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 2,
-        "delta": {
-          "type": "input_json_delta",
-          "partial_json": " \\\"Te"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "6640f6ec-a905-4ceb-ab6a-356489e82506"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 2,
-        "delta": {
-          "type": "input_json_delta",
-          "partial_json": "sting think"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "e0fca67a-b2ed-4f15-8582-68f936b6ab7e"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 2,
-        "delta": {
-          "type": "input_json_delta",
-          "partial_json": "ing dedu"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "a19b7e48-aa4d-40ac-b3a6-bf49ceb359d8"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 2,
-        "delta": {
-          "type": "input_json_delta",
-          "partial_json": "p\\\" && "
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "ee89d6df-460f-4a3e-ae44-536ca932914c"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 2,
-        "delta": {
-          "type": "input_json_delta",
-          "partial_json": "date\""
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "2028a8e5-af30-49ea-9069-f0ead2ebd528"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 2,
-        "delta": {
-          "type": "input_json_delta",
-          "partial_json": ", \"des"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "1c48a415-4906-4a94-ac4d-109e51190c38"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 2,
-        "delta": {
-          "type": "input_json_delta",
-          "partial_json": "cripti"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "0d2296e7-1965-4b9e-bd44-e0cde4d57163"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 2,
-        "delta": {
-          "type": "input_json_delta",
-          "partial_json": "on\": \"Simple"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "79536022-5129-4f21-951a-46cb560462c0"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 2,
-        "delta": {
-          "type": "input_json_delta",
-          "partial_json": " test c"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "7131b2a0-358d-4746-9d63-d3c7b18cbb11"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 2,
-        "delta": {
-          "type": "input_json_delta",
-          "partial_json": "omman"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "cac92764-e2aa-4669-9bb1-7cfb0430ab67"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 2,
-        "delta": {
-          "type": "input_json_delta",
-          "partial_json": "d\"}"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "e8b9e088-9b2d-4e46-a48d-1881e12c0891"
-    },
-    {
-      "type": "assistant",
-      "message": {
-        "model": "claude-haiku-4-5-20251001",
-        "id": "msg_01HYNFyPaatmyZqBhEBgyrtG",
-        "type": "message",
-        "role": "assistant",
-        "content": [
-          {
-            "type": "tool_use",
-            "id": "toolu_01VDAnQjpjLPH5Lox5QGY8sn",
-            "name": "Bash",
-            "input": {
-              "command": "echo \"Testing thinking dedup\" && date",
-              "description": "Simple test command"
-            },
-            "caller": {
-              "type": "direct"
-            }
-          }
-        ],
-        "stop_reason": null,
-        "stop_sequence": null,
-        "usage": {
-          "input_tokens": 10,
-          "cache_creation_input_tokens": 2086,
-          "cache_read_input_tokens": 15006,
-          "cache_creation": {
-            "ephemeral_5m_input_tokens": 0,
-            "ephemeral_1h_input_tokens": 2086
-          },
-          "output_tokens": 7,
-          "service_tier": "standard",
-          "inference_geo": "not_available"
-        },
-        "context_management": null
-      },
-      "parent_tool_use_id": null,
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "uuid": "5955f60a-eab0-4dda-bbb3-dd70c1c6fe65"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_stop",
-        "index": 2
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "a53696bb-1446-4021-93e9-38513c818dce"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "message_delta",
-        "delta": {
-          "stop_reason": "tool_use",
-          "stop_sequence": null
-        },
-        "usage": {
-          "input_tokens": 10,
-          "cache_creation_input_tokens": 2086,
-          "cache_read_input_tokens": 15006,
-          "output_tokens": 168
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "f7cad637-cfda-4bd0-8c4e-1a7a5de154b5"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "message_stop"
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "49f6c4ae-3516-4876-8e2c-7cb9aa2f948c"
-    },
-    {
-      "type": "user",
-      "message": {
-        "role": "user",
-        "content": [
-          {
-            "tool_use_id": "toolu_01VDAnQjpjLPH5Lox5QGY8sn",
-            "type": "tool_result",
-            "content": "Testing thinking dedup\nSun Mar  1 20:26:37 CST 2026",
-            "is_error": false
-          }
-        ]
-      },
-      "parent_tool_use_id": null,
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "uuid": "93b8e730-6fba-4da6-8edc-a1bcf1ee20fe",
-      "tool_use_result": {
-        "stdout": "Testing thinking dedup\nSun Mar  1 20:26:37 CST 2026",
-        "stderr": "",
-        "interrupted": false,
-        "isImage": false
-      }
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "message_start",
-        "message": {
-          "model": "claude-haiku-4-5-20251001",
-          "id": "msg_01X52hRSR8bFMEBc7BNziRz8",
-          "type": "message",
-          "role": "assistant",
-          "content": [],
-          "stop_reason": null,
-          "stop_sequence": null,
-          "usage": {
-            "input_tokens": 13,
-            "cache_creation_input_tokens": 205,
-            "cache_read_input_tokens": 17092,
-            "cache_creation": {
-              "ephemeral_5m_input_tokens": 0,
-              "ephemeral_1h_input_tokens": 205
-            },
-            "output_tokens": 1,
-            "service_tier": "standard",
-            "inference_geo": "not_available"
-          }
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "83ca140a-6f34-4d0f-8cd6-97be9b9cd7ca"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_start",
-        "index": 0,
-        "content_block": {
-          "type": "thinking",
-          "thinking": "",
-          "signature": ""
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "4f9f35c2-55ca-42e1-897e-6a5b0f0a7cd4"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": "Good"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "846359f9-ca39-449f-a69d-df9b461be9c8"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": ", the command"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "5cf95380-54c3-4eb4-a50b-f1abe1892521"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " executed successfully."
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "5d41b841-de5e-4e11-83f8-5cf701eb2bea"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " The thinking mode"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "6aa43219-a20c-4051-a641-d147e71674db"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " appears"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "d99452b2-dc52-4213-94da-90017c54f257"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " to be working correctly."
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "c7a12195-6b43-485b-bb7e-0981d6bd8700"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " I"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "ab1ce5e2-3267-4b4c-a6ce-a22a4aa2a833"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " can see that"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "b9db638c-5dc0-458f-a1f2-4d4b537b4281"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": ":\n1. I"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "a1009e55-a459-474f-8861-f231c982c14d"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " was able"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "cfe89898-ee15-4bee-9b23-c30022436d88"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "thinking_delta",
-          "thinking": " to use"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "6c0efe88-2171-40dd-a361-c697ff4f2e50"
+      "uuid": "eecd9070-1b1f-41ae-a4dd-691e8893e01c"
     },
     {
       "type": "stream_event",
@@ -1118,9 +277,9 @@
           "thinking": " thinking"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "372c4002-2205-4577-a70e-dc535584aab2"
+      "uuid": "b6801c22-f310-46a1-94b1-4ce27f6a41c2"
     },
     {
       "type": "stream_event",
@@ -1132,9 +291,9 @@
           "thinking": " blocks"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "927182bb-6553-4106-8b09-f27c4ea9606f"
+      "uuid": "5a8cebf9-a95c-4d92-9c08-0de2a47edd1a"
     },
     {
       "type": "stream_event",
@@ -1143,12 +302,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " (both"
+          "thinking": " are being"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "e6f1a27f-5636-486b-a9fb-87ca8e2e40e3"
+      "uuid": "77a486c8-68a1-4683-90c7-ffe458f4e0a2"
     },
     {
       "type": "stream_event",
@@ -1157,12 +316,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " before"
+          "thinking": " ded"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "9e3d9c96-77b1-41f7-99b4-8efa4282a03a"
+      "uuid": "d3624fd4-6a65-43bf-8f2f-b2354028617b"
     },
     {
       "type": "stream_event",
@@ -1171,12 +330,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " and after the"
+          "thinking": "uplicated correctly.\n\nSince"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "230ec04f-f5d0-4b7a-912e-785f075ba925"
+      "uuid": "132a6f11-5c70-4eb2-a80d-03a191573936"
     },
     {
       "type": "stream_event",
@@ -1185,12 +344,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " function"
+          "thinking": " this is a simple"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "cbb092e3-afbe-4507-a1b2-c91b069164c1"
+      "uuid": "e3c434dd-478a-4312-ab04-79835a0b1fc7"
     },
     {
       "type": "stream_event",
@@ -1199,12 +358,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " call)\n2. The function"
+          "thinking": " test"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "9fcb752b-ff6d-40d6-972a-7c099188588c"
+      "uuid": "e4a7f060-a080-455a-bca5-c6ba391ce5fc"
     },
     {
       "type": "stream_event",
@@ -1213,12 +372,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " executed"
+          "thinking": " request"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "c19225dc-0451-4fb6-8775-462150b1b612"
+      "uuid": "077dd1ab-a113-4362-9cc0-f3581f321b79"
     },
     {
       "type": "stream_event",
@@ -1227,12 +386,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " properly"
+          "thinking": " and"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "e98e516b-7f47-4c83-9b81-f8f0cb1eff5f"
+      "uuid": "4dd55d9b-0727-4ed6-b349-9926588ed339"
     },
     {
       "type": "stream_event",
@@ -1241,12 +400,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": "\n3. The de"
+          "thinking": " doesn't require"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "647089a8-378b-416c-b8f9-bda855fe3084"
+      "uuid": "f1bdaf7c-1ebb-4aa6-b166-328e2e481cc6"
     },
     {
       "type": "stream_event",
@@ -1255,12 +414,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": "dup"
+          "thinking": " any actual work"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "06a81b66-8df9-46dd-86a1-d6daeca48e06"
+      "uuid": "38e5feae-8d60-4c88-9105-d20f041f356f"
     },
     {
       "type": "stream_event",
@@ -1269,12 +428,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " mechanism"
+          "thinking": " on"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "f87257b6-e24c-4320-b377-cb19e04a21e6"
+      "uuid": "74634520-0ccc-4fac-b2c7-12ba11abf61b"
     },
     {
       "type": "stream_event",
@@ -1283,12 +442,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " should"
+          "thinking": " a"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "30fa1e78-b88d-4973-ae60-9f26814b6be4"
+      "uuid": "5f5f9bc9-7f00-492e-b03b-e03e388e2c14"
     },
     {
       "type": "stream_event",
@@ -1297,12 +456,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " be handling"
+          "thinking": " c"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "8e0cf276-a442-493e-8150-bb59a45806f6"
+      "uuid": "8f366786-5433-4492-919b-aa40b78277a6"
     },
     {
       "type": "stream_event",
@@ -1311,12 +470,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " any"
+          "thinking": "odebase or"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "b333af49-ffd4-46f3-aa54-9e24fe37cc93"
+      "uuid": "d566a6b6-2d12-49f8-a64f-352322a3546c"
     },
     {
       "type": "stream_event",
@@ -1325,12 +484,12 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " duplicate thoughts appropriately\n\nThe test completed"
+          "thinking": " complex operations, I should just"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "2462f11a-5763-491d-a272-b4f95fe92c71"
+      "uuid": "8c89c6d8-e76b-4339-af8e-2fb06f4aaef1"
     },
     {
       "type": "stream_event",
@@ -1339,12 +498,810 @@
         "index": 0,
         "delta": {
           "type": "thinking_delta",
-          "thinking": " successfully."
+          "thinking": " acknowledge"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "51f160ae-ef37-4570-be77-edd9d5e48335"
+      "uuid": "7136f2fe-7a36-4a27-95d7-dfbfcc2df533"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " this"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "811d47dd-46cd-4566-9f5e-e366ddcd5d99"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " and"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "ac152ad4-e7a3-4c72-840b-1dca9727c709"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " explain what"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "f4874a22-abc3-4669-89f1-b30eed7bfcd2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " thinking"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "8399c94c-ed6d-4e19-af50-f924cc597920"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " dedup"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "1afcae53-cfda-45e8-9e95-4bc8fb6ef7f5"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " does"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "277a30d6-4827-4b45-a0d2-8ea84cf687ed"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ", or"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "8bdbce63-1218-45e6-8dba-18cecc7fb7a1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " ask for clarification if needed"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "ea8d099e-8014-4c03-b845-939d2c2a60a8"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ".\n\nHowever"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "985eff16-ecf4-4ff4-b590-27be07372e12"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ", the"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "fda6739c-221b-4467-8977-408e495ba037"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " request"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "edaab598-82fc-4ee3-a064-51f5bd03f6c6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " is"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "56941b47-4818-4ab4-a4ee-35332c6c2875"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " quite"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "d181155a-38fd-48e1-a69f-1a9d6cc676f3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " vague."
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "0b3a646d-7d39-46c3-9c04-49c85693a533"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " \""
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "761d145b-3581-466f-bad1-be2d6f449488"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "Test thinking dedup\" could mean:"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "7c1328cc-1bf4-41ad-a020-8d5f20abcef9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "\n1. They"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "ff61c623-4c98-49d8-a69b-85c1420418bf"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " want me to verify"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "0e3f713f-51fe-4750-86cd-6868006d2554"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " that thinking"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "7f0012d1-4fb9-4b21-b962-4edf013b1150"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " blocks"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "e8d8b7cb-4162-45b7-955d-b4eb6044362d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " are being deduplicated\n2."
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "55b30a7b-2ea7-40ce-8741-7ce5f534a229"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " They want me to test a feature"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "d25129f3-2115-4932-8065-dbe7bcf2328f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " or tool"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "2b3e3eb1-6d1f-4f7c-bf69-2076d1f92391"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " called"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "c2aa7595-679f-41f2-90b0-f242f487eff6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " \"thinking dedup\"\n3."
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "0f7cb2c9-3472-4d41-bb1f-786aa2aa18dc"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " They want me to demonstrate"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "b6c2ec6e-b6b4-45e9-b760-b05cb41697e1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " how"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "37039a9e-9978-478a-9977-04e0e6a4e146"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " thinking"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "6ca24487-dc94-4da4-9f3e-436567014f9f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " dedu"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "70b83972-2170-4d98-a0fc-03c8fe633bee"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "plication works\n\nSince this"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "56969e60-754c-435b-818b-b1d737408645"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " is in"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "eb1b690c-4821-4562-b036-c521433358da"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " the context of my"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "cfc71fbe-0f42-4240-b5a4-f578712c94a4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " system"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "5a4e8df8-c5ea-42e2-a858-09749282c827"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " instructions ment"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "9219440d-3639-481b-a739-98f4d5527c50"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "ioning that I have"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "29838a43-7f38-455c-ada5-24ad78365a47"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " \"thinking"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "8e26fe5d-0095-4418-80cd-c29e50011506"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "_"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "54c3f743-383b-4f7b-94ed-20719b3dc363"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "mode"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "89d342cc-3367-4028-aa71-23afcc332969"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ":"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "cf74aca9-b6e2-42cd-98a9-63bb6df4d9a0"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " interleaved\", this"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "e923422a-2b89-4e69-b506-f39d210e6b23"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " is"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "2b75e1ea-c265-4574-974a-eb787a3da6ce"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " likely a test to"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "a09ded62-b556-451c-af8a-68104f096749"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " ensure"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "01005190-4232-44f1-a504-8bcb0200cb0d"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " that"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "566758e7-1b07-4bed-8313-9bd0cb6553e1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " my thinking"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "a3771acd-aa55-4a7a-90fa-fefdfffee6de"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " blocks work"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "bd77b02d-2f65-4b2d-a59c-25629b0205e5"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " correctly and"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "f73cbb37-29ed-408f-be27-7bed1c912903"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " are"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "ef3d8a75-2940-4a79-9f44-4ab139b9c325"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " ded"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "97cee8ee-6c5b-45cf-b8f5-79715ec51346"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "uplicated when"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "240b0a9a-4085-48b7-a639-73453adf82c7"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " appropriate"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "fb95f7bd-8f43-449a-aa66-ece846844594"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ".\n\nLet"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "5cb48cbd-77bc-4eed-931f-0f54250816e4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " me provide"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "00720c37-df7c-48a0-a67f-4445c392b500"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " a response"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "bd121e19-ec22-4658-82bd-15239ce5d5ea"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " acknowled"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "93cb38e1-accc-4f98-9e9b-e28b0d6376b3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "ging this test"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "cf7bb018-fcfd-449d-8980-f456450e89ec"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "."
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "d41a045f-a93f-4f32-aed5-a4a521ad08e2"
     },
     {
       "type": "stream_event",
@@ -1356,9 +1313,9 @@
           "thinking": ""
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "9c27a3b4-3055-4621-9f2a-154c3d04df96"
+      "uuid": "4193ef77-c95b-48d6-b796-e1b195eddc67"
     },
     {
       "type": "stream_event",
@@ -1367,46 +1324,46 @@
         "index": 0,
         "delta": {
           "type": "signature_delta",
-          "signature": "EvUDCkYICxgCKkDOXm6zwDFHzrVkIbOuMn7JCgRA22EcKzd8YOYKEPVknHlLDIq2gtAO92mSrcAuLyvh0cz6J138Yse0YlMv6gKwEgzkFr+DyA8DybROPgwaDEJxQdkA0DO+Oee3wSIw1ctx2bc+EEby6h95HJ4ay0wJ/SE9NPkXfJrDUxBe1dAnnUjnoZS7oWvwMJ5AdH5KKtwCT/zqKsrKoRi0tu33QJy1E+OK/YbajuhkVARSKStPurzVsnrmTAw/xDhHOE3R04WSOXXLAgpqs75fSbtutjlUzjWrAmAC4WreP661QrkkRPHdRoyaCbz5Fa+rjNShA63hZlaN6QTMP/PEFB6KVIewPkbOz0allhmEyQihX/BJ/jwicqAq/8+ZLbxdneVpcVjs2ex40TakOcRSHkOnXY863mGQw8s6CZfZYUXA2pq8IDHfovAZlY6JUP8gZiKik2CssVyc3skK2heCXXjzuNsKKM4rGsY8C2uCfw86Arv8umRks8ubWobfQjqtDIiUJpSFaFTlU+Nn3YA3QzzMwLrWj8KMwMOSDKWP3Uqc3AIkmW7Yo3dUecQ8UiokJGbtz1EsZef97+yx2LW5GfqALfrU3SzYIm3+5nM/BheSbTL/yKte7XnRDUKMVdPiACicMhyiQYeHmQNBdBf9VlPeGAE="
+          "signature": "EoUJCkYICxgCKkCWesOwmj4GJY/CgGU1+o5lrqmF5rpWUXM3O9Pm3SbEIcigbHWXz3OvLxGLHKoyoQCoUAVn9did1B98jzfa2iD+EgzgWHms9lI3WbROyRIaDOyzC5K+BBqMHCXvNCIwM3pP1frg3QZgPkzUwQzT+8hVwB0TP7KkkjlOdaVeMkEQ6iYDG9lndv32eH1VGbHtKuwHFvltOQjRjiFag+LAm63ebbUkv3TPICtCeAdoHlzjWRxYYPcte4Vbc7H2iRzx4JCKs3gppDlp+6eAdmQTAPwmSsPgtCAF2vl+7THk8AEfvoWSmjpyF2SygSyCKJ2PF+ZyFXFGAT/fGa9a9U5Stsom2UJmKsRXDFwCIurgK1aNnom/qk48DzwUbxOdLpbU0DKfnwhE9y4LNUiciXN5RRcXn0+ziVhz/WCtzoLXIcKcjF8qBIGn+a1GW/HQ9zATDnWYw7bvtPyQAmQPKfQrhbYI1kjWzVBFndVjrqGu966yiwmiDMLWX/6RaGmDyp1tKcLlNlZsOsxwjWXoat9MTcQgeZXhrV6E6hFcz1dw1+z2HgQ/+NP5vB2FQDCZsyClKvTDstbxXnzFNFQoe5hj61op4nR/7kHu1GnsOnr0UXazyRZPrOGL3ikxUnEgGLtKCCVziZgjy1xhZ/WBN3MW/HIMuWcvlzRKrlQMlJxsdocOCWhCBjfWq5JaO8j1eBxWiNAXLv500KmDvhn1TeetgVavNdmQCLT90BX7+39RTwdDvCjNsUYldWDt5f9c7Hu+ZPe2H4GRRqvP9bH26yev7aOog23x6jvWgAaU2917zHl+lUMWQrXMKMGXNv3KEdDYyeft+S10InNhq5fgbYQY5v+JB9uYAoaeWggnZ/Q/kqznWp7AelRJrHjmHy70CZmA2WS1vpQ85CsjziLYF51/6wkqAyWQ3IK7kbzQHFV3FsuU8hYrDzyrDfes39/337vzL9ZcJv5ibQp+hQVqZKmryqoQr9Dba3prL0pjbByqyxvt/FB4OYqsSc4+/8mch6+4Haf5UcXgG7tozgt72y+iq4fHbzzhfvIDDulz8tPx139vy+o3B1LSjR1V+Mk2SY+0VVlU21vUYiozXIWuFoToWJkFhe5rQPBgRFw8GslQc0WSnwGLkHBF2YxDkcPLDhaiHSVY8DNipom3G0GMEqwu3SNGdSerAR28dfpmndaf4QCVmK72fjVtrbAiDRPEwJUxnfoy6xdRXd0Tr6CLCkLkdIecCJtEOvBXxS6sTiwbtG/e+GIVrh1aUwSoG6O85bXyTo+MOyYi41yf0+lxNyFaNaD7BFsXEnp4rXMOJKcqaM287kkr1SDkvmi35rW9cfm6E7/d4WG18/9zyTBGD9tm2n2hQ/VqBPJWwrVEk202UgWrBumONjYbmVXuQNWyKmrOQeb0skU99yle3NP7AOkTosvKlz8vmNqQyktS4tgEY21Nz1aE9tLRlFXub8ncSSwj72EPHQwGoQ1isIcatskQm4patqvCLt8cgL0TS2/z2wPHH6S5r9edUywS0eL2QWgYAQ=="
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "298a0097-7133-4d48-908c-bced2979b9b5"
+      "uuid": "54af77c3-0dc9-4387-9671-8540273c2d59"
     },
     {
       "type": "assistant",
       "message": {
         "model": "claude-haiku-4-5-20251001",
-        "id": "msg_01X52hRSR8bFMEBc7BNziRz8",
+        "id": "msg_01Ay8K8vBjDv9tMV9YdrbZGp",
         "type": "message",
         "role": "assistant",
         "content": [
           {
             "type": "thinking",
-            "thinking": "Good, the command executed successfully. The thinking mode appears to be working correctly. I can see that:\n1. I was able to use thinking blocks (both before and after the function call)\n2. The function executed properly\n3. The dedup mechanism should be handling any duplicate thoughts appropriately\n\nThe test completed successfully.",
-            "signature": "EvUDCkYICxgCKkDOXm6zwDFHzrVkIbOuMn7JCgRA22EcKzd8YOYKEPVknHlLDIq2gtAO92mSrcAuLyvh0cz6J138Yse0YlMv6gKwEgzkFr+DyA8DybROPgwaDEJxQdkA0DO+Oee3wSIw1ctx2bc+EEby6h95HJ4ay0wJ/SE9NPkXfJrDUxBe1dAnnUjnoZS7oWvwMJ5AdH5KKtwCT/zqKsrKoRi0tu33QJy1E+OK/YbajuhkVARSKStPurzVsnrmTAw/xDhHOE3R04WSOXXLAgpqs75fSbtutjlUzjWrAmAC4WreP661QrkkRPHdRoyaCbz5Fa+rjNShA63hZlaN6QTMP/PEFB6KVIewPkbOz0allhmEyQihX/BJ/jwicqAq/8+ZLbxdneVpcVjs2ex40TakOcRSHkOnXY863mGQw8s6CZfZYUXA2pq8IDHfovAZlY6JUP8gZiKik2CssVyc3skK2heCXXjzuNsKKM4rGsY8C2uCfw86Arv8umRks8ubWobfQjqtDIiUJpSFaFTlU+Nn3YA3QzzMwLrWj8KMwMOSDKWP3Uqc3AIkmW7Yo3dUecQ8UiokJGbtz1EsZef97+yx2LW5GfqALfrU3SzYIm3+5nM/BheSbTL/yKte7XnRDUKMVdPiACicMhyiQYeHmQNBdBf9VlPeGAE="
+            "thinking": "The user is asking me to \"Test thinking dedup\". This seems like a request to test the thinking deduplication functionality. This is likely an internal test request to verify that my thinking blocks are being deduplicated correctly.\n\nSince this is a simple test request and doesn't require any actual work on a codebase or complex operations, I should just acknowledge this and explain what thinking dedup does, or ask for clarification if needed.\n\nHowever, the request is quite vague. \"Test thinking dedup\" could mean:\n1. They want me to verify that thinking blocks are being deduplicated\n2. They want me to test a feature or tool called \"thinking dedup\"\n3. They want me to demonstrate how thinking deduplication works\n\nSince this is in the context of my system instructions mentioning that I have \"thinking_mode: interleaved\", this is likely a test to ensure that my thinking blocks work correctly and are deduplicated when appropriate.\n\nLet me provide a response acknowledging this test.",
+            "signature": "EoUJCkYICxgCKkCWesOwmj4GJY/CgGU1+o5lrqmF5rpWUXM3O9Pm3SbEIcigbHWXz3OvLxGLHKoyoQCoUAVn9did1B98jzfa2iD+EgzgWHms9lI3WbROyRIaDOyzC5K+BBqMHCXvNCIwM3pP1frg3QZgPkzUwQzT+8hVwB0TP7KkkjlOdaVeMkEQ6iYDG9lndv32eH1VGbHtKuwHFvltOQjRjiFag+LAm63ebbUkv3TPICtCeAdoHlzjWRxYYPcte4Vbc7H2iRzx4JCKs3gppDlp+6eAdmQTAPwmSsPgtCAF2vl+7THk8AEfvoWSmjpyF2SygSyCKJ2PF+ZyFXFGAT/fGa9a9U5Stsom2UJmKsRXDFwCIurgK1aNnom/qk48DzwUbxOdLpbU0DKfnwhE9y4LNUiciXN5RRcXn0+ziVhz/WCtzoLXIcKcjF8qBIGn+a1GW/HQ9zATDnWYw7bvtPyQAmQPKfQrhbYI1kjWzVBFndVjrqGu966yiwmiDMLWX/6RaGmDyp1tKcLlNlZsOsxwjWXoat9MTcQgeZXhrV6E6hFcz1dw1+z2HgQ/+NP5vB2FQDCZsyClKvTDstbxXnzFNFQoe5hj61op4nR/7kHu1GnsOnr0UXazyRZPrOGL3ikxUnEgGLtKCCVziZgjy1xhZ/WBN3MW/HIMuWcvlzRKrlQMlJxsdocOCWhCBjfWq5JaO8j1eBxWiNAXLv500KmDvhn1TeetgVavNdmQCLT90BX7+39RTwdDvCjNsUYldWDt5f9c7Hu+ZPe2H4GRRqvP9bH26yev7aOog23x6jvWgAaU2917zHl+lUMWQrXMKMGXNv3KEdDYyeft+S10InNhq5fgbYQY5v+JB9uYAoaeWggnZ/Q/kqznWp7AelRJrHjmHy70CZmA2WS1vpQ85CsjziLYF51/6wkqAyWQ3IK7kbzQHFV3FsuU8hYrDzyrDfes39/337vzL9ZcJv5ibQp+hQVqZKmryqoQr9Dba3prL0pjbByqyxvt/FB4OYqsSc4+/8mch6+4Haf5UcXgG7tozgt72y+iq4fHbzzhfvIDDulz8tPx139vy+o3B1LSjR1V+Mk2SY+0VVlU21vUYiozXIWuFoToWJkFhe5rQPBgRFw8GslQc0WSnwGLkHBF2YxDkcPLDhaiHSVY8DNipom3G0GMEqwu3SNGdSerAR28dfpmndaf4QCVmK72fjVtrbAiDRPEwJUxnfoy6xdRXd0Tr6CLCkLkdIecCJtEOvBXxS6sTiwbtG/e+GIVrh1aUwSoG6O85bXyTo+MOyYi41yf0+lxNyFaNaD7BFsXEnp4rXMOJKcqaM287kkr1SDkvmi35rW9cfm6E7/d4WG18/9zyTBGD9tm2n2hQ/VqBPJWwrVEk202UgWrBumONjYbmVXuQNWyKmrOQeb0skU99yle3NP7AOkTosvKlz8vmNqQyktS4tgEY21Nz1aE9tLRlFXub8ncSSwj72EPHQwGoQ1isIcatskQm4patqvCLt8cgL0TS2/z2wPHH6S5r9edUywS0eL2QWgYAQ=="
           }
         ],
         "stop_reason": null,
         "stop_sequence": null,
         "usage": {
-          "input_tokens": 13,
-          "cache_creation_input_tokens": 205,
-          "cache_read_input_tokens": 17092,
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2075,
+          "cache_read_input_tokens": 15006,
           "cache_creation": {
-            "ephemeral_5m_input_tokens": 0,
-            "ephemeral_1h_input_tokens": 205
+            "ephemeral_5m_input_tokens": 2075,
+            "ephemeral_1h_input_tokens": 0
           },
-          "output_tokens": 1,
+          "output_tokens": 3,
           "service_tier": "standard",
           "inference_geo": "not_available"
         },
         "context_management": null
       },
       "parent_tool_use_id": null,
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "uuid": "ad165aec-4d23-493e-9dd2-77958cb6fbbc"
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "uuid": "e25526cd-a1e9-4dc6-940d-bde894a09ff7"
     },
     {
       "type": "stream_event",
@@ -1414,9 +1371,9 @@
         "type": "content_block_stop",
         "index": 0
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "11b0a828-912d-4ba2-a4d5-d3d8675fee41"
+      "uuid": "c5c59a28-37b1-4cd7-a501-0673855f589f"
     },
     {
       "type": "stream_event",
@@ -1428,9 +1385,9 @@
           "text": ""
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "97b7c873-b638-481b-9854-8c5f95d60c10"
+      "uuid": "6963a779-fe31-43cc-a915-d3405fbbbddc"
     },
     {
       "type": "stream_event",
@@ -1439,12 +1396,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": "Great! The thinking de"
+          "text": "I'm"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "d0ad144d-c155-477a-be10-5fa80b2e55e2"
+      "uuid": "eae7b793-13db-42a8-ab90-b0fbfb989a4a"
     },
     {
       "type": "stream_event",
@@ -1453,12 +1410,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": "dup feature is working properly. Here"
+          "text": " ready to help"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "8aa1b36d-8f95-4771-91e2-2c58af63a8b2"
+      "uuid": "ff8a20d4-d6d8-40f4-841d-88cae0180bdc"
     },
     {
       "type": "stream_event",
@@ -1467,12 +1424,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": "'s what we"
+          "text": " test"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "a6463100-e3e5-4736-81ad-7db2dfe0ea33"
+      "uuid": "43b43754-07cb-4c54-904b-8ff583cd0208"
     },
     {
       "type": "stream_event",
@@ -1481,12 +1438,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " can observe"
+          "text": " thinking"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "8585ba87-194b-4cd5-bf5c-a3765ad84eaa"
+      "uuid": "4f9b5397-2ddd-40ef-8eb5-0075566f1ceb"
     },
     {
       "type": "stream_event",
@@ -1495,12 +1452,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": ":\n\n1. **Thinking"
+          "text": " dedup! This appears"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "9097f677-86bf-450d-a675-031eba271abf"
+      "uuid": "2b8cce4b-ccf4-4e36-9300-5616e23e5cf7"
     },
     {
       "type": "stream_event",
@@ -1509,12 +1466,138 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " blocks are functional"
+          "text": " to be a test of the"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "7e5440c8-e139-4f8d-a5a1-bcddbeb1eadf"
+      "uuid": "63b3b2a2-5743-4a22-b316-531aaa500210"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " thinking"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "b3453a87-9d9c-41b6-9c91-49af7e5ec050"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " deduplication functionality in"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "41a09a4a-eacf-430f-a471-8d72315cc226"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " my system.\n\nCould"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "6bced0e4-c224-41df-b159-728ec58adf48"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " you clar"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "842332b1-805a-42c9-b7ac-28e1d7788a1f"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "ify what specifically"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "29d21b93-5fbd-493a-b7d9-6cfefc23acc3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " you'd like me to test? For"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "56c33ea1-8961-4095-8da3-88ef32d06d2b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " example:\n\n1. **"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "a3e3b563-5fa6-46da-ad74-b7ca0cade28b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "Demonstrate"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "930cd53e-57bd-4563-a16f-2d12fa65a179"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": " thinking blocks"
+        }
+      },
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "parent_tool_use_id": null,
+      "uuid": "4cd70b03-8605-4545-83d4-9845ef95b455"
     },
     {
       "type": "stream_event",
@@ -1526,9 +1609,9 @@
           "text": "**"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "6c21fb30-ee0a-4308-a5d7-c8b0e5e2c1ff"
+      "uuid": "7fc47047-f363-4da5-914a-d3a071c3998b"
     },
     {
       "type": "stream_event",
@@ -1537,12 +1620,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " - I"
+          "text": " - Show how I"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "c1eae024-5d25-4aae-9bbe-adb5136d0f6d"
+      "uuid": "1344c3dc-0da5-4375-91d3-dd0cb6ee3984"
     },
     {
       "type": "stream_event",
@@ -1551,12 +1634,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " was able to use thinking blocks before and"
+          "text": " use"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "b4cadeec-6231-4566-83e2-84435d0143d0"
+      "uuid": "a6d55d50-8fc2-4e6f-9540-594ae028fcb7"
     },
     {
       "type": "stream_event",
@@ -1565,12 +1648,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " after the"
+          "text": " thinking"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "874e1735-8386-4351-9f6b-8c3a4c547267"
+      "uuid": "27a7712f-52c3-4153-8612-f5dc402e1aa5"
     },
     {
       "type": "stream_event",
@@ -1579,12 +1662,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " function call\n2. **No"
+          "text": " blocks"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "8bc18613-62ba-4eb7-9174-d83ee3a77185"
+      "uuid": "66b79c3c-e19d-465f-92c5-4361e6bb43b3"
     },
     {
       "type": "stream_event",
@@ -1593,12 +1676,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " duplicate thoughts visible"
+          "text": " in"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "0554290f-879c-4376-bcfd-248e1921af51"
+      "uuid": "823662df-af45-4a3e-8f7f-f0f60f3df831"
     },
     {
       "type": "stream_event",
@@ -1607,12 +1690,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": "** - The de"
+          "text": " my responses\n2. **Test de"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "ed235f71-1fa5-4ac4-a27b-169c055a0765"
+      "uuid": "7c53769d-13ec-4b40-b9e0-c68fbfb14212"
     },
     {
       "type": "stream_event",
@@ -1621,12 +1704,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": "dup mechanism is working by"
+          "text": "duplication** - Verify that duplicate"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "857096dc-e63b-4872-972a-6d7dd969cff2"
+      "uuid": "40ad4229-3e70-440c-baed-d5f40f02e8ea"
     },
     {
       "type": "stream_event",
@@ -1635,12 +1718,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " filtering"
+          "text": " thinking blocks are properly ded"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "90981646-b661-44fe-a7ad-f6c53817d6cd"
+      "uuid": "b131c413-404e-44b4-9598-3d7d47ae951b"
     },
     {
       "type": "stream_event",
@@ -1649,12 +1732,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " out redund"
+          "text": "uplicated\n3. **Test a"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "88d2e1d4-c117-49ff-b400-cfe974a500ea"
+      "uuid": "46fa956c-bd5b-4a94-b472-b33b5e594f52"
     },
     {
       "type": "stream_event",
@@ -1663,12 +1746,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": "ant thinking"
+          "text": " specific scenario"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "a7e384c1-956a-4cde-9b94-c2f513237921"
+      "uuid": "27fc8707-414e-4a37-88a4-bc816a5994ee"
     },
     {
       "type": "stream_event",
@@ -1677,12 +1760,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": "\n3. **Inter"
+          "text": "** - Have"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "91f43750-d654-41dc-866f-03bc559ed89c"
+      "uuid": "b1d92fda-f4e5-4152-aa00-cc438963efcc"
     },
     {
       "type": "stream_event",
@@ -1691,12 +1774,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": "leaved thinking mode"
+          "text": " me perform"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "253f843e-a3c1-4b0b-bf78-b3075aaa2d69"
+      "uuid": "ebc9bb6d-19c2-43d9-b5d6-c059144e84ca"
     },
     {
       "type": "stream_event",
@@ -1705,12 +1788,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " is active"
+          "text": " a task and verify the thinking"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "46ca9a76-c52a-408e-9352-75e3ffc145b1"
+      "uuid": "5db26802-ef4e-4832-aa27-7712fd400933"
     },
     {
       "type": "stream_event",
@@ -1719,12 +1802,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": "** - I"
+          "text": " blocks"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "9fe129b3-668c-4947-a6da-672fd71f8f72"
+      "uuid": "bbdf62d3-2cc7-4f6a-a42c-47f52533d61b"
     },
     {
       "type": "stream_event",
@@ -1733,12 +1816,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " can think"
+          "text": " work correctly"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "c8621ad4-2573-4eb0-8dd0-51a9375df0b5"
+      "uuid": "fc74d030-729a-43ce-8d24-6b3c8dc91e46"
     },
     {
       "type": "stream_event",
@@ -1747,12 +1830,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " both"
+          "text": "\n4. **Test the feature"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "d8bcc85b-8dee-4654-9c12-e7eab7c2d46b"
+      "uuid": "40784a70-0b59-4fc3-a462-94114238b4f6"
     },
     {
       "type": "stream_event",
@@ -1761,12 +1844,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " before making"
+          "text": "** - Run"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "e4f6dc17-6b24-4d3e-af1d-ee14af24e0b8"
+      "uuid": "e9df6fd2-8ec3-416e-9cd6-d01fb16fe23c"
     },
     {
       "type": "stream_event",
@@ -1775,12 +1858,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " function"
+          "text": " specific"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "355de788-0fd2-4365-981d-a4ef872feb41"
+      "uuid": "70d8ef65-1bdd-436b-a8c0-476778819135"
     },
     {
       "type": "stream_event",
@@ -1789,12 +1872,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " calls and after receiving"
+          "text": " test"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "5fe7eced-dc3a-409c-a888-28a180fdf8a3"
+      "uuid": "c3a1cc90-fd6f-4efd-8f56-a5387a4c242c"
     },
     {
       "type": "stream_event",
@@ -1803,12 +1886,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " results\n\nThe system"
+          "text": " cases for"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "e33cde4e-1581-48b5-8d2d-a9c8d943828e"
+      "uuid": "197d3f2f-8a8e-471f-abb1-52ae95fc2c2f"
     },
     {
       "type": "stream_event",
@@ -1817,12 +1900,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " successfully"
+          "text": " the"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "d34ae155-e0b1-43d6-880e-c7139b46e79d"
+      "uuid": "56ff746d-1a8e-4ae6-b561-0c0ccae0c7fe"
     },
     {
       "type": "stream_event",
@@ -1831,12 +1914,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " prevents"
+          "text": " de"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "e07fa277-5350-4eb5-9314-553bf1fcf1b7"
+      "uuid": "bba4ea1a-5f98-4c13-87a8-38be6bc1adb0"
     },
     {
       "type": "stream_event",
@@ -1845,12 +1928,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " duplicate or"
+          "text": "dup"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "ac682383-67bc-471f-8e75-aaae6d233214"
+      "uuid": "0c9cc8d6-a01b-45ed-a225-3b1493093b4b"
     },
     {
       "type": "stream_event",
@@ -1859,12 +1942,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " redundant thinking statements"
+          "text": " system"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "d4f161b5-83f8-4bd4-97d6-e0f85a050949"
+      "uuid": "60ec04ed-5b7c-41d2-8b7a-2abb8ea6c7eb"
     },
     {
       "type": "stream_event",
@@ -1873,12 +1956,12 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " from"
+          "text": "\n\nWhat would be"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "c8fc3e4f-ba23-45ae-b709-512c8fdf5d5a"
+      "uuid": "d79e19f3-15d4-40b7-a201-e388b20ab27c"
     },
     {
       "type": "stream_event",
@@ -1887,171 +1970,45 @@
         "index": 1,
         "delta": {
           "type": "text_delta",
-          "text": " appearing"
+          "text": " most helpful?"
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "cf4e7a13-0a64-48e9-90c7-140c862343c4"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": " in the output while"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "331944ea-ab3e-4c5c-9b72-600a0f78583a"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": " still"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "b7ee62b0-6327-4d1d-9602-21183743d927"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": " allowing me"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "3842603b-51e6-41f6-b2de-06bb4a097e83"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": " to reason"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "afec47d4-76f2-41d4-94a1-d36ab983f5c8"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": " through problems"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "62583cd7-fc1c-46f1-b046-3e6736989bad"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": "."
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "bd0a2128-173e-4000-b224-eb0c83807d88"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": " Is"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "20b1ade7-9fa8-4ee3-8b19-99304d75ae77"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": " there anything specific about the thinking feature you"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "b03479cd-b1b6-4068-bec8-1a1880b619ca"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 1,
-        "delta": {
-          "type": "text_delta",
-          "text": "'d like to test further?"
-        }
-      },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "parent_tool_use_id": null,
-      "uuid": "c8cdd066-30f7-4893-939f-9c6ac0083d7c"
+      "uuid": "c8a8c285-8c7a-41fe-bb36-291eb9c39f4c"
     },
     {
       "type": "assistant",
       "message": {
         "model": "claude-haiku-4-5-20251001",
-        "id": "msg_01X52hRSR8bFMEBc7BNziRz8",
+        "id": "msg_01Ay8K8vBjDv9tMV9YdrbZGp",
         "type": "message",
         "role": "assistant",
         "content": [
           {
             "type": "text",
-            "text": "Great! The thinking dedup feature is working properly. Here's what we can observe:\n\n1. **Thinking blocks are functional** - I was able to use thinking blocks before and after the function call\n2. **No duplicate thoughts visible** - The dedup mechanism is working by filtering out redundant thinking\n3. **Interleaved thinking mode is active** - I can think both before making function calls and after receiving results\n\nThe system successfully prevents duplicate or redundant thinking statements from appearing in the output while still allowing me to reason through problems. Is there anything specific about the thinking feature you'd like to test further?"
+            "text": "I'm ready to help test thinking dedup! This appears to be a test of the thinking deduplication functionality in my system.\n\nCould you clarify what specifically you'd like me to test? For example:\n\n1. **Demonstrate thinking blocks** - Show how I use thinking blocks in my responses\n2. **Test deduplication** - Verify that duplicate thinking blocks are properly deduplicated\n3. **Test a specific scenario** - Have me perform a task and verify the thinking blocks work correctly\n4. **Test the feature** - Run specific test cases for the dedup system\n\nWhat would be most helpful?"
           }
         ],
         "stop_reason": null,
         "stop_sequence": null,
         "usage": {
-          "input_tokens": 13,
-          "cache_creation_input_tokens": 205,
-          "cache_read_input_tokens": 17092,
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2075,
+          "cache_read_input_tokens": 15006,
           "cache_creation": {
-            "ephemeral_5m_input_tokens": 0,
-            "ephemeral_1h_input_tokens": 205
+            "ephemeral_5m_input_tokens": 2075,
+            "ephemeral_1h_input_tokens": 0
           },
-          "output_tokens": 1,
+          "output_tokens": 3,
           "service_tier": "standard",
           "inference_geo": "not_available"
         },
         "context_management": null
       },
       "parent_tool_use_id": null,
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "uuid": "48f39052-7b6b-44d8-8409-cc2db1eb33d9"
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "uuid": "14bd848e-f7cf-4f55-8465-0322efb362eb"
     },
     {
       "type": "stream_event",
@@ -2059,9 +2016,9 @@
         "type": "content_block_stop",
         "index": 1
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "0344d242-280b-4ca3-bf03-256acf119f0d"
+      "uuid": "0682a946-dcd3-4fac-91fe-75f2747b4a9b"
     },
     {
       "type": "stream_event",
@@ -2072,74 +2029,74 @@
           "stop_sequence": null
         },
         "usage": {
-          "input_tokens": 13,
-          "cache_creation_input_tokens": 205,
-          "cache_read_input_tokens": 17092,
-          "output_tokens": 209
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 2075,
+          "cache_read_input_tokens": 15006,
+          "output_tokens": 357
         }
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "5ecc56f1-700a-4d39-938c-8ced43e8a10e"
+      "uuid": "6df4ff92-dea7-48dd-a213-6d3bf5062a07"
     },
     {
       "type": "stream_event",
       "event": {
         "type": "message_stop"
       },
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
       "parent_tool_use_id": null,
-      "uuid": "31581691-2fe8-4514-9d2c-7ce6eae2cc0d"
+      "uuid": "c29c9cf5-9158-420a-bd86-9051bcb57811"
     },
     {
       "type": "result",
       "subtype": "success",
       "is_error": false,
-      "duration_ms": 4873,
-      "duration_api_ms": 11367,
-      "num_turns": 2,
-      "result": "Great! The thinking dedup feature is working properly. Here's what we can observe:\n\n1. **Thinking blocks are functional** - I was able to use thinking blocks before and after the function call\n2. **No duplicate thoughts visible** - The dedup mechanism is working by filtering out redundant thinking\n3. **Interleaved thinking mode is active** - I can think both before making function calls and after receiving results\n\nThe system successfully prevents duplicate or redundant thinking statements from appearing in the output while still allowing me to reason through problems. Is there anything specific about the thinking feature you'd like to test further?",
-      "session_id": "3290d3a2-2028-469a-aa8d-d3969413b276",
-      "total_cost_usd": 0.03349765,
+      "duration_ms": 4183,
+      "duration_api_ms": 8944,
+      "num_turns": 1,
+      "result": "I'm ready to help test thinking dedup! This appears to be a test of the thinking deduplication functionality in my system.\n\nCould you clarify what specifically you'd like me to test? For example:\n\n1. **Demonstrate thinking blocks** - Show how I use thinking blocks in my responses\n2. **Test deduplication** - Verify that duplicate thinking blocks are properly deduplicated\n3. **Test a specific scenario** - Have me perform a task and verify the thinking blocks work correctly\n4. **Test the feature** - Run specific test cases for the dedup system\n\nWhat would be most helpful?",
+      "session_id": "2fb1e313-cf03-43e8-8ed6-7da1cd4e8f36",
+      "total_cost_usd": 0.02926845,
       "usage": {
-        "input_tokens": 23,
-        "cache_creation_input_tokens": 2291,
-        "cache_read_input_tokens": 32098,
-        "output_tokens": 377,
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 2075,
+        "cache_read_input_tokens": 15006,
+        "output_tokens": 357,
         "server_tool_use": {
           "web_search_requests": 0,
           "web_fetch_requests": 0
         },
         "service_tier": "standard",
         "cache_creation": {
-          "ephemeral_1h_input_tokens": 2291,
-          "ephemeral_5m_input_tokens": 0
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 2075
         }
       },
       "modelUsage": {
         "claude-haiku-4-5-20251001": {
-          "inputTokens": 369,
-          "outputTokens": 643,
-          "cacheReadInputTokens": 43049,
-          "cacheCreationInputTokens": 2291,
+          "inputTokens": 19,
+          "outputTokens": 483,
+          "cacheReadInputTokens": 25957,
+          "cacheCreationInputTokens": 2075,
           "webSearchRequests": 0,
-          "costUSD": 0.01075265,
+          "costUSD": 0.00762345,
           "contextWindow": 200000
         },
         "claude-opus-4-5-20251101": {
           "inputTokens": 3934,
-          "outputTokens": 123,
+          "outputTokens": 79,
           "cacheReadInputTokens": 0,
           "cacheCreationInputTokens": 0,
           "webSearchRequests": 0,
-          "costUSD": 0.022745,
+          "costUSD": 0.021645,
           "contextWindow": 200000
         }
       },
       "permission_denials": [],
-      "uuid": "baa11535-c962-4534-b657-e10768189adc"
+      "uuid": "4a869aa1-1ccd-462e-abb4-d4180feaa95e"
     }
   ],
   "key": "runSession-2f90e346c70d5ac7",
-  "recordedAt": "2026-03-02T02:26:41.299Z"
+  "recordedAt": "2026-03-08T21:13:59.945Z"
 }

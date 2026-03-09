@@ -79,6 +79,20 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   }),
 }));
 
+// Mock ghService to avoid real `gh` CLI calls in tests
+vi.mock('./ghService.js', () => ({
+  getPrInfo: vi.fn().mockResolvedValue({
+    merged: false,
+    state: 'open',
+    hasMergeConflicts: false,
+    ciStatus: 'success',
+  }),
+  isGhAvailable: vi.fn().mockResolvedValue(true),
+  resetGhAvailableCache: vi.fn(),
+  extractPrInfo: vi.fn(),
+  validatePrRepository: vi.fn(),
+}));
+
 // Import after mock setup
 import * as summaryService from './summaryService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -898,6 +912,51 @@ describe('summaryService', () => {
       await summaryService.generateSummary(sessionId);
 
       // Session name should be updated from mock response session_title
+      const session = sessions.getById(sessionId);
+      expect(session.name).toContain('Mock:');
+    });
+
+    it('does not overwrite session name when manuallyNamed is true', async () => {
+      // Set manuallyNamed flag
+      sessions.update(sessionId, { manuallyNamed: true });
+      const originalName = sessions.getById(sessionId).name;
+
+      await summaryService.generateSummary(sessionId);
+
+      // Session name should NOT be updated
+      const session = sessions.getById(sessionId);
+      expect(session.name).toBe(originalName);
+      expect(session.name).not.toContain('Mock:');
+    });
+
+    it('still updates prUrl when manuallyNamed is true', async () => {
+      // Set manuallyNamed flag and pre-set a prUrl on the session
+      // (The mock returns pr_url: null, so we test that the session's existing prUrl
+      // is preserved and not cleared when manuallyNamed is true)
+      sessions.update(sessionId, {
+        manuallyNamed: true,
+        prUrl: 'https://github.com/anthropics/claude-code/pull/123',
+      });
+      const originalName = sessions.getById(sessionId).name;
+
+      await summaryService.generateSummary(sessionId);
+
+      // Session name should NOT be updated
+      const session = sessions.getById(sessionId);
+      expect(session.name).toBe(originalName);
+      expect(session.name).not.toContain('Mock:');
+
+      // PR URL should be preserved (not cleared) regardless of manuallyNamed flag
+      expect(session.prUrl).toBe('https://github.com/anthropics/claude-code/pull/123');
+    });
+
+    it('updates session name when manuallyNamed is false', async () => {
+      // Explicitly set manuallyNamed to false
+      sessions.update(sessionId, { manuallyNamed: false });
+
+      await summaryService.generateSummary(sessionId);
+
+      // Session name SHOULD be updated
       const session = sessions.getById(sessionId);
       expect(session.name).toContain('Mock:');
     });
