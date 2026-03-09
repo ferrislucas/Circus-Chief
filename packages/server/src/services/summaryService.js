@@ -888,25 +888,29 @@ export function onSessionComplete(sessionId) {
     // Still schedule CI checks below
   } else {
     // Summary is stale or doesn't exist -- generate via LLM
-    // Check if we should use combined generation (more efficient - one API call instead of two)
-    const activeConversation = conversations.getActiveBySessionId(sessionId);
-    const shouldGenConvSummary = activeConversation && !activeConversation.summary && isConversationSummaryEnabled(sessionId);
+    // Early exit if session summaries are disabled globally
+    const globalSettings = settings.getSummarySettings();
+    if (!globalSettings?.disableSessionSummaries) {
+      // Check if we should use combined generation (more efficient - one API call instead of two)
+      const activeConversation = conversations.getActiveBySessionId(sessionId);
+      const shouldGenConvSummary = activeConversation && !activeConversation.summary && isConversationSummaryEnabled(sessionId);
 
-    if (shouldGenConvSummary) {
-      // Use combined generation - single API call for both summaries (no force=true)
-      generateSessionAndConversationSummary(sessionId, activeConversation.id).catch((err) => {
-        console.error(`[SummaryService] Failed to generate combined summary on session complete:`, err);
-        // Fallback to individual generations if combined fails (no force=true)
+      if (shouldGenConvSummary) {
+        // Use combined generation - single API call for both summaries (no force=true)
+        generateSessionAndConversationSummary(sessionId, activeConversation.id).catch((err) => {
+          console.error(`[SummaryService] Failed to generate combined summary on session complete:`, err);
+          // Fallback to individual generations if combined fails (no force=true)
+          generateSummary(sessionId);
+          if (activeConversation) {
+            generateConversationSummary(sessionId, activeConversation.id).catch((err2) => {
+              console.error(`[SummaryService] Failed fallback conversation summary:`, err2);
+            });
+          }
+        });
+      } else {
+        // Only generate session summary (no force=true -- staleness check will determine if needed)
         generateSummary(sessionId);
-        if (activeConversation) {
-          generateConversationSummary(sessionId, activeConversation.id).catch((err2) => {
-            console.error(`[SummaryService] Failed fallback conversation summary:`, err2);
-          });
-        }
-      });
-    } else {
-      // Only generate session summary (no force=true -- staleness check will determine if needed)
-      generateSummary(sessionId);
+      }
     }
   }
 
@@ -937,6 +941,9 @@ export async function getSummary(sessionId, generateIfMissing = false) {
   let summary = sessionSummaries.getBySessionId(sessionId);
 
   if (!summary && generateIfMissing) {
+    // Don't generate if session summaries are disabled globally
+    const globalSettings = settings.getSummarySettings();
+    if (globalSettings?.disableSessionSummaries) return null;
     summary = await generateSummary(sessionId);
   }
 

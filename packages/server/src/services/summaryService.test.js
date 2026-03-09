@@ -1974,6 +1974,31 @@ describe('summaryService', () => {
       expect(result1.sessionId).toBe(sessionId);
       expect(result2.sessionId).toBe(sessionId);
     });
+
+    it('returns null when disabled but still cancels debounce timer', async () => {
+      vi.useFakeTimers();
+
+      // Start a debounced generation (with summaries enabled)
+      summaryService.onSessionActivity(sessionId);
+
+      // Now disable summaries
+      settings.setSummarySettings({ disableSessionSummaries: true });
+
+      // Call generateSummaryNow (should cancel the debounced timer and return null)
+      const result = await summaryService.generateSummaryNow(sessionId);
+
+      // Should return null since summaries are disabled
+      expect(result).toBeNull();
+
+      // Run timers to confirm the debounced generation doesn't fire
+      await vi.runAllTimersAsync();
+
+      // Summary should NOT have been generated
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).toBeNull();
+
+      vi.useRealTimers();
+    });
   });
 
   describe('parsePrUrl', () => {
@@ -2367,6 +2392,68 @@ describe('summaryService', () => {
       );
 
       consoleSpy.mockRestore();
+
+      // Re-enable for other tests
+      settings.setSummarySettings({ disableSessionSummaries: false });
+    });
+
+    it('onSessionComplete does lightweight outcome update when disabled but skips LLM', async () => {
+      // Get the current session state to create a matching non-stale summary
+      const allMessages = messages.getBySessionId(sessionId);
+      const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
+
+      // Create a non-stale summary with outcome 'in_progress'
+      const existingSummary = {
+        sessionId,
+        outcome: 'in_progress',
+        shortSummary: 'Test summary',
+        fullSummary: 'Full test summary content',
+        messageCount: allMessages.length,
+        lastSummarizedMessageId: lastMessage ? lastMessage.id : null,
+        generatedAt: Date.now(),
+      };
+      sessionSummaries.upsert(sessionId, existingSummary);
+
+      // Update session to completed status
+      sessions.update(sessionId, { status: 'completed' });
+
+      // Disable session summaries
+      settings.setSummarySettings({ disableSessionSummaries: true });
+
+      // Call onSessionComplete - should do lightweight update but skip LLM
+      summaryService.onSessionComplete(sessionId);
+
+      // Wait for any async operations
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Verify outcome was updated to 'completed' (lightweight path ran)
+      const updatedSummary = sessionSummaries.getBySessionId(sessionId);
+      expect(updatedSummary).not.toBeNull();
+      expect(updatedSummary.outcome).toBe('completed');
+
+      // Verify no new LLM call was made (summary content should be unchanged)
+      expect(updatedSummary.fullSummary).toBe('Full test summary content');
+
+      // Re-enable for other tests
+      settings.setSummarySettings({ disableSessionSummaries: false });
+    });
+
+    it('onSessionComplete skips LLM generation when disabled and summary is stale', async () => {
+      // Ensure no existing summary or a stale one
+      sessionSummaries.delete(sessionId);
+
+      // Disable session summaries
+      settings.setSummarySettings({ disableSessionSummaries: true });
+
+      // Call onSessionComplete - should skip LLM generation entirely
+      summaryService.onSessionComplete(sessionId);
+
+      // Wait for any async operations
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Verify no summary was generated
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).toBeNull();
 
       // Re-enable for other tests
       settings.setSummarySettings({ disableSessionSummaries: false });
