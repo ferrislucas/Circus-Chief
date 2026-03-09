@@ -233,6 +233,12 @@ describe('prStatusService', () => {
     it('checks and updates CI status for session with PR URL', async () => {
       sessions.update(sessionId, { prUrl, status: 'stopped' });
 
+      // Create a summary first (PR tracking only works when summary exists)
+      sessionSummaries.upsert(sessionId, {
+        shortSummary: 'Test summary',
+        fullSummary: 'Test full summary',
+      });
+
       ghService.getPrInfo.mockResolvedValue({
         state: 'open',
         merged: false,
@@ -412,8 +418,34 @@ describe('prStatusService', () => {
       expect(broadcastToSession).not.toHaveBeenCalled();
     });
 
-    it('creates summary if none exists and status changes', async () => {
+    it('does not create summary or broadcast when none exists', async () => {
       // No existing summary
+      ghService.getPrInfo.mockResolvedValue({
+        state: 'open',
+        merged: false,
+        hasMergeConflicts: false,
+        ciStatus: 'pending',
+        ciFailures: [],
+      });
+
+      const result = await checkPrStatus(sessionId, prUrl);
+      expect(result).toBe(false);  // Changed from true
+
+      // Verify no summary was created
+      const summary = sessionSummaries.getBySessionId(sessionId);
+      expect(summary).toBeNull();
+
+      // Verify no broadcast was sent
+      expect(broadcastToSession).not.toHaveBeenCalled();
+    });
+
+    it('tracks PR status when summary already exists', async () => {
+      // First create a summary
+      sessionSummaries.upsert(sessionId, {
+        shortSummary: 'Existing summary',
+        fullSummary: 'A summary that already exists',
+      });
+
       ghService.getPrInfo.mockResolvedValue({
         state: 'open',
         merged: false,
@@ -427,6 +459,33 @@ describe('prStatusService', () => {
 
       const summary = sessionSummaries.getBySessionId(sessionId);
       expect(summary.prState).toBe('open');
+      expect(summary.shortSummary).toBe('Existing summary'); // Original summary preserved
+    });
+
+    it('preserves original summary text when updating PR status', async () => {
+      // Create a summary with PR status
+      sessionSummaries.upsert(sessionId, {
+        shortSummary: 'Original summary',
+        fullSummary: 'Original full summary',
+        prState: 'open',
+        ciStatus: 'pending',
+      });
+
+      // Update PR status
+      ghService.getPrInfo.mockResolvedValue({
+        state: 'merged',
+        merged: true,
+        hasMergeConflicts: false,
+        ciStatus: 'success',
+        ciFailures: [],
+      });
+
+      await checkPrStatus(sessionId, prUrl);
+
+      const summary = sessionSummaries.getBySessionId(sessionId);
+      expect(summary.prState).toBe('merged');
+      expect(summary.shortSummary).toBe('Original summary'); // Original text preserved
+      expect(summary.fullSummary).toBe('Original full summary'); // Original text preserved
     });
   });
 
