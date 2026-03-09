@@ -1139,9 +1139,6 @@ describe('summary service integration', () => {
   let summaryServiceSpy;
 
   beforeEach(() => {
-    // Enable mock mode to avoid calling the real Claude API
-    process.env.MOCK_CLAUDE = 'true';
-
     sessionRepo = new SessionRepository();
     messageRepo = new MessageRepository();
     conversationRepo = new ConversationRepository();
@@ -1156,7 +1153,6 @@ describe('summary service integration', () => {
   });
 
   afterEach(() => {
-    delete process.env.MOCK_CLAUDE;
     if (tempDir && existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
     }

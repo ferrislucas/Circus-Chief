@@ -50,6 +50,15 @@ vi.mock('../composables/useWebSocket.js', () => {
   const h = () => vi.fn(() => () => {});
   return {
     ensureSubscribed: vi.fn(() => Promise.resolve()),
+    useWebSocket: vi.fn(() => ({
+      isConnected: { value: true },
+      send: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
+      disconnect: vi.fn(),
+      clearSessionBuffer: vi.fn(),
+      onReconnect: vi.fn(() => () => {}),
+    })),
     useSessionSubscription: vi.fn(() => ({
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),

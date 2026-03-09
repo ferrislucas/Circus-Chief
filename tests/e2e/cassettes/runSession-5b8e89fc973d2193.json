@@ -1,12 +1,12 @@
 {
-  "prompt": "What is in this file?\n\n## Attached Files\n--- File: unique-test.txt (text/plain) ---\nUNIQUE_TEST_CONTENT_1772501610502\n--- End of unique-test.txt ---",
+  "prompt": "What is in this file?\n\n## Attached Files\n--- File: unique-test.txt (text/plain) ---\nUNIQUE_TEST_CONTENT_1772940404309\n--- End of unique-test.txt ---",
   "model": "claude-haiku-4-5-20251001",
   "events": [
     {
       "type": "system",
       "subtype": "init",
       "cwd": "/private/tmp/test",
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "tools": [
         "Task",
         "TaskOutput",
@@ -52,7 +52,7 @@
       ],
       "skills": [],
       "plugins": [],
-      "uuid": "ecdb34ed-ea47-4027-873c-4ec851fe5a41"
+      "uuid": "45649c09-938a-45db-bf77-a201fc81fab9"
     },
     {
       "type": "stream_event",
@@ -60,7 +60,7 @@
         "type": "message_start",
         "message": {
           "model": "claude-haiku-4-5-20251001",
-          "id": "msg_01RQAkqw1MG7Bid2eyhPCKbr",
+          "id": "msg_01PVMHXxAwTT6Mo8fR4NE5sX",
           "type": "message",
           "role": "assistant",
           "content": [],
@@ -68,11 +68,11 @@
           "stop_sequence": null,
           "usage": {
             "input_tokens": 3,
-            "cache_creation_input_tokens": 2067,
+            "cache_creation_input_tokens": 2089,
             "cache_read_input_tokens": 15006,
             "cache_creation": {
-              "ephemeral_5m_input_tokens": 0,
-              "ephemeral_1h_input_tokens": 2067
+              "ephemeral_5m_input_tokens": 2089,
+              "ephemeral_1h_input_tokens": 0
             },
             "output_tokens": 1,
             "service_tier": "standard",
@@ -80,9 +80,9 @@
           }
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "94c159fc-3151-46ad-b0d5-6a2d9b1c7d53"
+      "uuid": "c5085661-2217-421a-823a-fe65f3623e6f"
     },
     {
       "type": "stream_event",
@@ -94,9 +94,9 @@
           "text": ""
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "8c4c273f-963d-49c2-8652-9b180f9349ea"
+      "uuid": "977c586e-86de-4746-af1b-36145f68b01e"
     },
     {
       "type": "stream_event",
@@ -108,9 +108,9 @@
           "text": "The"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "36174906-9c27-44fb-bf18-9d088262d531"
+      "uuid": "1b667848-b0be-4fa3-b3e3-df0d8c3296e8"
     },
     {
       "type": "stream_event",
@@ -122,9 +122,9 @@
           "text": " file `"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "8f666a86-15c3-4420-a956-4b163e339fae"
+      "uuid": "5f47de68-4a3e-43f5-ab2d-5aef22922971"
     },
     {
       "type": "stream_event",
@@ -136,9 +136,9 @@
           "text": "unique-test.txt` contains a"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "e210fc51-7865-4938-ab86-6e215f1ffb0a"
+      "uuid": "bb66fc15-1494-47c9-9dcd-1fa0e05d25bc"
     },
     {
       "type": "stream_event",
@@ -147,12 +147,12 @@
         "index": 0,
         "delta": {
           "type": "text_delta",
-          "text": " single"
+          "text": " single line with the text"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "f77cddcd-ae3e-4761-a1a1-041846ba5e36"
+      "uuid": "ea404f87-f9fe-47cb-b6db-d1033d2a5d41"
     },
     {
       "type": "stream_event",
@@ -161,12 +161,12 @@
         "index": 0,
         "delta": {
           "type": "text_delta",
-          "text": " line of"
+          "text": ":"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "83ccf6f6-102e-4845-836c-93f9b970d33f"
+      "uuid": "7ef996e0-ed49-4c26-9edc-aacb03042e5e"
     },
     {
       "type": "stream_event",
@@ -175,12 +175,12 @@
         "index": 0,
         "delta": {
           "type": "text_delta",
-          "text": " text:\n\n```"
+          "text": "\n\n```"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "91a518a4-1338-40de-aea5-2e9b19f5b9d0"
+      "uuid": "e2424fbc-4b8e-4a4d-b1a6-5b473408e618"
     },
     {
       "type": "stream_event",
@@ -192,9 +192,9 @@
           "text": "\nUNIQUE_TEST_CONTENT"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "7312e219-75eb-4b42-be16-5c3ffee10ad9"
+      "uuid": "ef061bf7-2b74-40b7-96b8-d27d68283a94"
     },
     {
       "type": "stream_event",
@@ -203,12 +203,12 @@
         "index": 0,
         "delta": {
           "type": "text_delta",
-          "text": "_1772501610502\n```"
+          "text": "_1772940404309\n```"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "53bd0d3b-e254-4402-970a-399e534067f7"
+      "uuid": "62196f47-26ad-4c75-8a91-0bf408f8de93"
     },
     {
       "type": "stream_event",
@@ -217,12 +217,12 @@
         "index": 0,
         "delta": {
           "type": "text_delta",
-          "text": "\n\nThis appears to be a unique identifier"
+          "text": "\n\nThis appears"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "04d7b051-c9af-4f1a-b51d-eada66779fe8"
+      "uuid": "cf63dcec-c823-42b9-91d2-6a9065f9dca2"
     },
     {
       "type": "stream_event",
@@ -231,12 +231,54 @@
         "index": 0,
         "delta": {
           "type": "text_delta",
-          "text": " or token,"
+          "text": " to be a unique identifier or test"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "68dcdf8b-db93-43d9-838b-7fce7a21dea7"
+      "uuid": "3ff839eb-6539-4e4f-b15f-d79521b64d80"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": " content"
+        }
+      },
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
+      "parent_tool_use_id": null,
+      "uuid": "d9591238-3afc-44d6-b802-bc52e8f18f56"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": " string"
+        }
+      },
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
+      "parent_tool_use_id": null,
+      "uuid": "203d3b6a-6dd7-496d-ac93-0c93e5b1c6ad"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "text_delta",
+          "text": ","
+        }
+      },
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
+      "parent_tool_use_id": null,
+      "uuid": "fd78f9f4-fc6c-49e1-a048-bdcd99cdc601"
     },
     {
       "type": "stream_event",
@@ -248,9 +290,9 @@
           "text": " possibly"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "8c080924-2c3d-4d6d-89bf-ff2d2d03df9a"
+      "uuid": "cad46a38-eafd-4e38-bcdd-1547809bf834"
     },
     {
       "type": "stream_event",
@@ -262,9 +304,9 @@
           "text": " generated"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "caacfac4-c2af-4030-b259-13ef976aab45"
+      "uuid": "e414a9ca-793d-4556-823b-46ad8fb9c550"
     },
     {
       "type": "stream_event",
@@ -276,9 +318,9 @@
           "text": " with"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "282f63a2-23bf-4c6c-8d4d-28366e3c9951"
+      "uuid": "05426ca3-8f9e-4f1d-9bed-6c81b55943db"
     },
     {
       "type": "stream_event",
@@ -287,12 +329,12 @@
         "index": 0,
         "delta": {
           "type": "text_delta",
-          "text": " a timestamp"
+          "text": " a"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "12ad2ca3-e7e7-4687-a24c-bfe0ecce8ae9"
+      "uuid": "c125abc4-1783-4d6a-b94a-c817757e5acb"
     },
     {
       "type": "stream_event",
@@ -301,12 +343,12 @@
         "index": 0,
         "delta": {
           "type": "text_delta",
-          "text": " component"
+          "text": " timestamp"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "1aad04a8-c14d-44bb-a3f0-8d1dc06a3455"
+      "uuid": "33fd32c9-9313-4294-8e80-b4fa99fdeef2"
     },
     {
       "type": "stream_event",
@@ -318,9 +360,9 @@
           "text": " ("
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "408c85df-a534-4d8b-b01c-1c5684236770"
+      "uuid": "e9c7263f-0164-4687-bb89-a218363dd4cf"
     },
     {
       "type": "stream_event",
@@ -329,12 +371,12 @@
         "index": 0,
         "delta": {
           "type": "text_delta",
-          "text": "the"
+          "text": "1772940404309) as"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "afe77264-70c6-4047-b65e-195863735897"
+      "uuid": "346be366-352c-40a3-8769-9e0332b55f70"
     },
     {
       "type": "stream_event",
@@ -343,12 +385,12 @@
         "index": 0,
         "delta": {
           "type": "text_delta",
-          "text": " number"
+          "text": " part of its"
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "e2f8aacf-adc4-4245-8c76-758511831a19"
+      "uuid": "c43da25c-50c2-4da1-87ea-44b28d0a2d9d"
     },
     {
       "type": "stream_event",
@@ -357,129 +399,45 @@
         "index": 0,
         "delta": {
           "type": "text_delta",
-          "text": " `"
+          "text": " name."
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "9edb1ef3-8a5c-4137-851c-014456eb2697"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "text_delta",
-          "text": "1772501610502`"
-        }
-      },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
-      "parent_tool_use_id": null,
-      "uuid": "abb2d3e8-bd9b-4444-9bff-f02d2a52f51b"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "text_delta",
-          "text": " could"
-        }
-      },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
-      "parent_tool_use_id": null,
-      "uuid": "26a806f2-55c8-416e-b1aa-27888e01b49e"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "text_delta",
-          "text": " be a Unix"
-        }
-      },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
-      "parent_tool_use_id": null,
-      "uuid": "a3f1b479-56dc-479a-b6e6-dbe4402c19d1"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "text_delta",
-          "text": " timestamp or"
-        }
-      },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
-      "parent_tool_use_id": null,
-      "uuid": "9924f17b-ef07-465b-af79-55b6c4f1c394"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "text_delta",
-          "text": " similar identifier"
-        }
-      },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
-      "parent_tool_use_id": null,
-      "uuid": "fdfa7e3f-8a68-4d4d-ab17-f319b534f877"
-    },
-    {
-      "type": "stream_event",
-      "event": {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {
-          "type": "text_delta",
-          "text": ")."
-        }
-      },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
-      "parent_tool_use_id": null,
-      "uuid": "a8b2ec54-a451-494f-ab37-7542d4f453ad"
+      "uuid": "80ac4f6d-e5d0-4b13-9b65-15df0b9d9421"
     },
     {
       "type": "assistant",
       "message": {
         "model": "claude-haiku-4-5-20251001",
-        "id": "msg_01RQAkqw1MG7Bid2eyhPCKbr",
+        "id": "msg_01PVMHXxAwTT6Mo8fR4NE5sX",
         "type": "message",
         "role": "assistant",
         "content": [
           {
             "type": "text",
-            "text": "The file `unique-test.txt` contains a single line of text:\n\n```\nUNIQUE_TEST_CONTENT_1772501610502\n```\n\nThis appears to be a unique identifier or token, possibly generated with a timestamp component (the number `1772501610502` could be a Unix timestamp or similar identifier)."
+            "text": "The file `unique-test.txt` contains a single line with the text:\n\n```\nUNIQUE_TEST_CONTENT_1772940404309\n```\n\nThis appears to be a unique identifier or test content string, possibly generated with a timestamp (1772940404309) as part of its name."
           }
         ],
         "stop_reason": null,
         "stop_sequence": null,
         "usage": {
           "input_tokens": 3,
-          "cache_creation_input_tokens": 2067,
+          "cache_creation_input_tokens": 2089,
           "cache_read_input_tokens": 15006,
           "cache_creation": {
-            "ephemeral_5m_input_tokens": 0,
-            "ephemeral_1h_input_tokens": 2067
+            "ephemeral_5m_input_tokens": 2089,
+            "ephemeral_1h_input_tokens": 0
           },
-          "output_tokens": 73,
+          "output_tokens": 69,
           "service_tier": "standard",
           "inference_geo": "not_available"
         },
         "context_management": null
       },
       "parent_tool_use_id": null,
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
-      "uuid": "4748b4b9-43c8-4b83-9484-e8854508c31a"
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
+      "uuid": "7becce13-0db4-4f12-8834-d8a6cc62d311"
     },
     {
       "type": "stream_event",
@@ -487,9 +445,9 @@
         "type": "content_block_stop",
         "index": 0
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "c63657ca-61c2-4aaa-87ce-84915ee4466b"
+      "uuid": "a47f9f16-6591-4bf7-b795-9891b005d1ce"
     },
     {
       "type": "stream_event",
@@ -501,64 +459,64 @@
         },
         "usage": {
           "input_tokens": 3,
-          "cache_creation_input_tokens": 2067,
+          "cache_creation_input_tokens": 2089,
           "cache_read_input_tokens": 15006,
-          "output_tokens": 73
+          "output_tokens": 69
         }
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "9ce7b1ce-ca7d-4590-b458-b692c7af5eb6"
+      "uuid": "c238e5a7-f637-4f05-a2f3-162d6a9200f4"
     },
     {
       "type": "stream_event",
       "event": {
         "type": "message_stop"
       },
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
       "parent_tool_use_id": null,
-      "uuid": "d756ae0a-3162-4218-acb2-aa9eb97d5067"
+      "uuid": "b915830f-8e2e-43f0-bf1b-6b2af324aa87"
     },
     {
       "type": "result",
       "subtype": "success",
       "is_error": false,
-      "duration_ms": 1357,
-      "duration_api_ms": 1251,
+      "duration_ms": 1493,
+      "duration_api_ms": 1337,
       "num_turns": 1,
-      "result": "The file `unique-test.txt` contains a single line of text:\n\n```\nUNIQUE_TEST_CONTENT_1772501610502\n```\n\nThis appears to be a unique identifier or token, possibly generated with a timestamp component (the number `1772501610502` could be a Unix timestamp or similar identifier).",
-      "session_id": "6e16d99e-5287-4139-9c2d-1b5a16de3089",
-      "total_cost_usd": 0.00445235,
+      "result": "The file `unique-test.txt` contains a single line with the text:\n\n```\nUNIQUE_TEST_CONTENT_1772940404309\n```\n\nThis appears to be a unique identifier or test content string, possibly generated with a timestamp (1772940404309) as part of its name.",
+      "session_id": "1087705b-c6d9-4444-8238-6b55801de8e8",
+      "total_cost_usd": 0.0044598500000000004,
       "usage": {
         "input_tokens": 3,
-        "cache_creation_input_tokens": 2067,
+        "cache_creation_input_tokens": 2089,
         "cache_read_input_tokens": 15006,
-        "output_tokens": 73,
+        "output_tokens": 69,
         "server_tool_use": {
           "web_search_requests": 0,
           "web_fetch_requests": 0
         },
         "service_tier": "standard",
         "cache_creation": {
-          "ephemeral_1h_input_tokens": 2067,
-          "ephemeral_5m_input_tokens": 0
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 2089
         }
       },
       "modelUsage": {
         "claude-haiku-4-5-20251001": {
           "inputTokens": 3,
-          "outputTokens": 73,
+          "outputTokens": 69,
           "cacheReadInputTokens": 15006,
-          "cacheCreationInputTokens": 2067,
+          "cacheCreationInputTokens": 2089,
           "webSearchRequests": 0,
-          "costUSD": 0.00445235,
+          "costUSD": 0.0044598500000000004,
           "contextWindow": 200000
         }
       },
       "permission_denials": [],
-      "uuid": "7109bc91-2e9a-4cbb-9759-2f3836a9abc1"
+      "uuid": "9864a9ce-c1d9-4553-a669-c322412fc987"
     }
   ],
-  "key": "runSession-d99e8159d8c566a4",
-  "recordedAt": "2026-03-03T01:33:35.972Z"
+  "key": "runSession-5b8e89fc973d2193",
+  "recordedAt": "2026-03-08T03:26:50.227Z"
 }

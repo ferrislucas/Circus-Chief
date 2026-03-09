@@ -59,12 +59,6 @@
                 <span class="menu-item-text">Copy filename</span>
               </button>
             </li>
-            <li role="none">
-              <button class="menu-item" role="menuitem" @click.stop="handleMenuCopyContents(item)">
-                <span class="menu-item-icon">📋</span>
-                <span class="menu-item-text">Copy file contents</span>
-              </button>
-            </li>
             <li role="none" class="menu-divider"></li>
             <li role="none">
               <button class="menu-item is-danger" role="menuitem" @click.stop="handleMenuDelete(item)">
@@ -197,24 +191,6 @@ async function handleMenuCopyFilename(item) {
   closeMenu();
 }
 
-async function handleMenuCopyContents(item) {
-  // Fetch content on demand if not yet loaded.
-  // Use === undefined, NOT falsy check.
-  // '' (empty text file) and null (field N/A for type) are valid fetched values.
-  if (item.content === undefined && item.data === undefined) {
-    await canvasStore.fetchItemContent(props.sessionId, item.filename);
-  }
-
-  let content = '';
-  if (item.type === 'markdown' || item.type === 'text' || item.type === 'code') {
-    content = item.content || '';
-  } else if (item.type === 'json') {
-    content = item.data || '';
-  }
-  await copyToClipboard(content);
-  closeMenu();
-}
-
 function handleMenuDelete(item) {
   emit('deleteItem', item);
   closeMenu();
@@ -257,7 +233,6 @@ defineExpose({
   toggleMenu,
   closeMenu,
   handleMenuCopyFilename,
-  handleMenuCopyContents,
   handleMenuDelete,
   handleDocumentClick,
 });

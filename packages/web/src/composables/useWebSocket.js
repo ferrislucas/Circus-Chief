@@ -4,6 +4,7 @@ import { WS_RECONNECT_BASE_DELAY, WS_RECONNECT_MAX_DELAY, parseMessage, createMe
 let socket = null;
 let reconnectTimeout = null;
 let reconnectDelay = WS_RECONNECT_BASE_DELAY;
+let hasConnectedBefore = false;
 const listeners = new Map();
 const isConnected = ref(false);
 // Buffer for messages that arrive before handlers are registered
@@ -11,6 +12,10 @@ const isConnected = ref(false);
 const messageBuffer = new Map(); // Map of sessionId -> array of buffered messages
 // Queue for outbound messages to send once connected
 const outboundQueue = [];
+// Reconnect callbacks - fired when WebSocket reconnects (not on initial connect)
+const reconnectCallbacks = new Set();
+// Track active project subscriptions for re-subscription on reconnect
+const projectSubscriptionIds = new Set();
 
 function getWebSocketUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -32,6 +37,24 @@ function connect() {
       const msg = outboundQueue.shift();
       socket.send(msg);
     }
+
+    // Re-subscribe to all tracked sessions
+    for (const sessionId of sessionSubscriptionCounts.keys()) {
+      socket.send(createMessage(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId }));
+    }
+
+    // Re-subscribe to all tracked projects
+    for (const projectId of projectSubscriptionIds) {
+      socket.send(createMessage(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId }));
+    }
+
+    // Notify reconnect listeners (only on RE-connections, not the initial connect)
+    if (hasConnectedBefore) {
+      for (const cb of reconnectCallbacks) {
+        cb();
+      }
+    }
+    hasConnectedBefore = true;
   };
 
   socket.onmessage = (event) => {
@@ -80,6 +103,36 @@ function connect() {
   socket.onerror = (error) => {
     console.error('WebSocket error:', error);
   };
+}
+
+// Detect wake-from-sleep: when the page becomes visible, check if the WebSocket
+// is dead (null or zombie) and force a clean reconnect. The onopen handler above
+// will re-subscribe all tracked sessions and projects automatically.
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        // Kill zombie socket so connect() creates a fresh one
+        if (socket) {
+          socket.onclose = null; // prevent reconnect loop from old socket
+          socket.close();
+          socket = null;
+        }
+        connect();
+      }
+    }
+  });
+}
+
+/**
+ * Register a callback that fires when the WebSocket reconnects
+ * (not on the initial connection, only on subsequent re-connections)
+ * @param {Function} callback - The callback to fire on reconnect
+ * @returns {Function} - Cleanup function to remove the callback
+ */
+function onReconnect(callback) {
+  reconnectCallbacks.add(callback);
+  return () => reconnectCallbacks.delete(callback);
 }
 
 function disconnect() {
@@ -162,6 +215,7 @@ export function useWebSocket() {
     off,
     disconnect,
     clearSessionBuffer,
+    onReconnect,
   };
 }
 
@@ -454,43 +508,48 @@ export function useSessionSubscription(sessionId) {
 
 /**
  * Ensure the WebSocket is connected and subscribed to a session
- * Waits for the socket to be OPEN before sending the subscription message
+ * Handles zombie sockets (socket object exists but TCP is dead) by killing
+ * them and creating a fresh connection. Uses the outbound queue + send() helper
+ * instead of monkey-patching socket.onopen.
  * @param {string} sessionId - The session ID to subscribe to
  * @returns {Promise<void>} - Resolves when subscription message is sent
  */
 export async function ensureSubscribed(sessionId) {
+  const { send } = useWebSocket();
+
+  // If socket is already open, send immediately
+  if (socket?.readyState === WebSocket.OPEN) {
+    send(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId });
+    return;
+  }
+
+  // Kill zombie sockets - not OPEN and not actively CONNECTING
+  if (socket && socket.readyState !== WebSocket.CONNECTING) {
+    socket.onclose = null;
+    socket.close();
+    socket = null;
+  }
+
+  // Use the send() helper which queues the message if not connected
+  // and triggers connect() if socket is null. The queued message
+  // will be flushed automatically when socket.onopen fires.
+  send(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId });
+
+  // Wait for connection to confirm the message was sent
   return new Promise((resolve, reject) => {
-    // Set a 5-second timeout for subscription
     const timeout = setTimeout(() => {
       reject(new Error(`Subscription timeout for session ${sessionId}`));
     }, 5000);
 
-    const { send, isConnected: wsIsConnected } = useWebSocket();
-
-    // Helper to send subscription and resolve
-    const sendSubscription = () => {
-      send(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId });
-      clearTimeout(timeout);
-      resolve();
+    const checkConnection = () => {
+      if (isConnected.value) {
+        clearTimeout(timeout);
+        resolve();
+      } else {
+        setTimeout(checkConnection, 100);
+      }
     };
-
-    // If socket is already open, send immediately
-    if (socket?.readyState === WebSocket.OPEN) {
-      sendSubscription();
-      return;
-    }
-
-    // Otherwise, wait for socket to open
-    if (!socket) {
-      connect();
-    }
-
-    // Wrap the original onopen handler to preserve any existing behavior
-    const originalOnOpen = socket.onopen;
-    socket.onopen = () => {
-      originalOnOpen?.();
-      sendSubscription();
-    };
+    checkConnection();
   });
 }
 
@@ -502,10 +561,12 @@ export function useProjectSubscription(projectId) {
   const { send, on, off } = useWebSocket();
 
   const subscribe = () => {
+    projectSubscriptionIds.add(projectId);
     send(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId });
   };
 
   const unsubscribe = () => {
+    projectSubscriptionIds.delete(projectId);
     send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId });
   };
 
