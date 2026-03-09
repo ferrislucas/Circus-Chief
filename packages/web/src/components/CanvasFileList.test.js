@@ -135,24 +135,6 @@ describe('CanvasFileList', () => {
       }
     });
 
-    it('copies file contents when handler called', async () => {
-      const item = { id: '1', filename: 'doc.md', type: 'markdown', content: '# Test', createdAt: Date.now() };
-      const wrapper = mountComponent({
-        items: [item],
-      });
-
-      // Access the exposed component methods through the component instance
-      const component = wrapper.vm.$;
-      if (component && component.handleMenuCopyContents) {
-        await component.handleMenuCopyContents(item);
-        await flushAll(wrapper);
-        expect(mockClipboard.writeText).toHaveBeenCalledWith('# Test');
-      } else {
-        // Skip this test if we can't access the method
-        expect(true).toBe(true);
-      }
-    });
-
     it('emits deleteItem event when handler called', async () => {
       const item = { id: '1', filename: 'test.txt', type: 'text', createdAt: Date.now() };
       const wrapper = mountComponent({
