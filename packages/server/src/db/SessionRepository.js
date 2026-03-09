@@ -25,6 +25,7 @@ export class SessionRepository extends BaseRepository {
       thinkingEnabled: Boolean(row.thinking_enabled),
       archived: Boolean(row.archived),
       starred: Boolean(row.starred),
+      manuallyNamed: Boolean(row.manually_named),
       gitBranch: row.git_branch,
       gitWorktree: row.git_worktree,
       prUrl: row.pr_url,
@@ -232,6 +233,10 @@ export class SessionRepository extends BaseRepository {
     if (data.starred !== undefined) {
       updates.push('starred = ?');
       values.push(data.starred ? 1 : 0);
+    }
+    if (data.manuallyNamed !== undefined) {
+      updates.push('manually_named = ?');
+      values.push(data.manuallyNamed ? 1 : 0);
     }
     // Scheduling fields
     if (data.scheduledAt !== undefined) {
