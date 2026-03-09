@@ -189,5 +189,117 @@ describe('VCRSummaryWrapper', () => {
       const cassette = CassetteStore.load(testCassetteDir, key);
       expect(cassette).not.toBeNull();
     });
+
+    it('should use keyHint over prompt when keyHint is provided', async () => {
+      process.env.VCR_MODE = 'record';
+      const events = [{ type: 'result', subtype: 'success' }];
+      const mockQuery = createMockQueryFn(events);
+      const vcrQuery = createVCRQueryFn(mockQuery, testCassetteDir, 'override');
+
+      for await (const _event of vcrQuery({ prompt: 'test' })) {
+        // consume
+      }
+
+      // Cassette should be stored under keyHint-derived key
+      const overrideKey = CassetteStore.buildKey('summary', 'override');
+      const cassette = CassetteStore.load(testCassetteDir, overrideKey);
+      expect(cassette).not.toBeNull();
+
+      // Cassette should NOT be stored under prompt-derived key
+      const promptKey = CassetteStore.buildKey('summary', 'test');
+      const promptCassette = CassetteStore.load(testCassetteDir, promptKey);
+      expect(promptCassette).toBeNull();
+    });
+
+    it('should fall back to prompt when keyHint is null', async () => {
+      process.env.VCR_MODE = 'record';
+      const events = [{ type: 'result', subtype: 'success' }];
+      const mockQuery = createMockQueryFn(events);
+      const vcrQuery = createVCRQueryFn(mockQuery, testCassetteDir, null);
+
+      for await (const _event of vcrQuery({ prompt: 'test' })) {
+        // consume
+      }
+
+      // Cassette should be stored under prompt-derived key (same as no keyHint)
+      const promptKey = CassetteStore.buildKey('summary', 'test');
+      const cassette = CassetteStore.load(testCassetteDir, promptKey);
+      expect(cassette).not.toBeNull();
+    });
+  });
+
+  describe('keyHint', () => {
+    it('keyHint overrides prompt for cassette key', async () => {
+      process.env.VCR_MODE = 'record';
+      const events = [
+        { type: 'stream_event', event: { type: 'message_start' } },
+        { type: 'result', subtype: 'success' },
+      ];
+      const mockQuery = createMockQueryFn(events);
+      const vcrQuery = createVCRQueryFn(mockQuery, testCassetteDir, 'stable-key');
+
+      const collectedEvents = [];
+      for await (const event of vcrQuery({ prompt: 'some dynamic prompt' })) {
+        collectedEvents.push(event);
+      }
+
+      // Verify events were yielded
+      expect(collectedEvents).toEqual(events);
+
+      // Verify cassette saved under keyHint-derived key
+      const expectedKey = CassetteStore.buildKey('summary', 'stable-key');
+      const cassette = CassetteStore.load(testCassetteDir, expectedKey);
+      expect(cassette).not.toBeNull();
+      expect(cassette.events).toEqual(events);
+
+      // Verify NO cassette under prompt-derived key
+      const promptKey = CassetteStore.buildKey('summary', 'some dynamic prompt');
+      const promptCassette = CassetteStore.load(testCassetteDir, promptKey);
+      expect(promptCassette).toBeNull();
+    });
+
+    it('keyHint=null falls back to prompt hashing', async () => {
+      process.env.VCR_MODE = 'record';
+      const events = [{ type: 'result', subtype: 'success' }];
+      const mockQuery = createMockQueryFn(events);
+      const vcrQuery = createVCRQueryFn(mockQuery, testCassetteDir);
+
+      for await (const _event of vcrQuery({ prompt: 'Test prompt' })) {
+        // consume
+      }
+
+      // Verify cassette saved under prompt-derived key
+      const expectedKey = CassetteStore.buildKey('summary', 'Test prompt');
+      const cassette = CassetteStore.load(testCassetteDir, expectedKey);
+      expect(cassette).not.toBeNull();
+    });
+
+    it('same keyHint with different prompts replays same cassette', async () => {
+      // Record with prompt A + keyHint 'shared-key'
+      process.env.VCR_MODE = 'record';
+      const events = [
+        { type: 'stream_event', event: { type: 'content_block_start' } },
+        { type: 'result', subtype: 'success' },
+      ];
+      const mockQuery = createMockQueryFn(events);
+      const recordQuery = createVCRQueryFn(mockQuery, testCassetteDir, 'shared-key');
+
+      const recordedEvents = [];
+      for await (const event of recordQuery({ prompt: 'prompt A' })) {
+        recordedEvents.push(event);
+      }
+
+      // Switch to replay mode with prompt B + same keyHint
+      process.env.VCR_MODE = 'replay';
+      const replayQuery = createVCRQueryFn(mockQuery, testCassetteDir, 'shared-key');
+
+      const replayedEvents = [];
+      for await (const event of replayQuery({ prompt: 'prompt B' })) {
+        replayedEvents.push(event);
+      }
+
+      // Replayed events should match recorded events
+      expect(replayedEvents).toEqual(recordedEvents);
+    });
   });
 });
