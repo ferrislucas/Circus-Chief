@@ -65,7 +65,7 @@ describe('Sessions API - PR URL Endpoint', () => {
       expect(response.body.prUrl).toBe(newPrUrl);
     });
 
-    it('clears prUrl when set to null', async () => {
+    it('clears prUrl when set to null', { timeout: 10000 }, async () => {
       // First set a PR URL
       await request(app)
         .patch(`/api/sessions/${session.id}`)

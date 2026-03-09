@@ -76,12 +76,35 @@ detect_or_start_server() {
 
         # Check if server is actually running on that port
         if curl -s "http://localhost:$detected_port/api/projects" > /dev/null 2>&1; then
-            print_success "Server is already running on port $detected_port"
-            echo "$detected_port"
-            return 0
+            # Check if VCR_MODE matches what we need
+            local vcr_mode_file="$PROJECT_ROOT/.vcr-mode"
+            local server_vcr_mode=""
+            if [ -f "$vcr_mode_file" ]; then
+                server_vcr_mode=$(cat "$vcr_mode_file")
+            fi
+
+            if [ "${VCR_MODE:-}" != "$server_vcr_mode" ]; then
+                print_warning "Server VCR_MODE mismatch: server='$server_vcr_mode', needed='${VCR_MODE:-}'. Restarting..."
+                local server_pid
+                server_pid=$(lsof -t -i:"$detected_port" 2>/dev/null)
+                if [ -n "$server_pid" ]; then
+                    kill "$server_pid" 2>/dev/null
+                    # Wait for port to be released (up to 5 seconds)
+                    local wait_count=0
+                    while lsof -i:"$detected_port" >/dev/null 2>&1 && [ $wait_count -lt 5 ]; do
+                        sleep 1
+                        ((wait_count++))
+                    done
+                fi
+                rm -f "$port_file" "$vcr_mode_file"
+            else
+                print_success "Server is already running on port $detected_port (VCR_MODE=$server_vcr_mode)"
+                echo "$detected_port"
+                return 0
+            fi
         else
             print_warning "Server not running on port $detected_port (stale .server-port file)"
-            rm -f "$port_file"
+            rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode"
         fi
     fi
 
@@ -203,8 +226,8 @@ cmd_test() {
     # Clear provider environment variables before running tests
     clear_provider_env_vars
 
-    # Enable VCR mode for E2E tests (replay existing cassettes, record new ones)
-    export VCR_MODE=${VCR_MODE:-auto}
+    # Enable VCR mode for E2E tests (replay committed cassettes; use VCR_MODE=record to re-record)
+    export VCR_MODE=${VCR_MODE:-replay}
 
     # Ensure server is running
     local TEST_SERVER_PORT
@@ -322,8 +345,8 @@ cmd_debug() {
     # Clear provider environment variables before running tests
     clear_provider_env_vars
 
-    # Enable VCR mode for E2E tests (replay existing cassettes, record new ones)
-    export VCR_MODE=${VCR_MODE:-auto}
+    # Enable VCR mode for E2E tests (replay committed cassettes; use VCR_MODE=record to re-record)
+    export VCR_MODE=${VCR_MODE:-replay}
 
     # Check if X11 is available (only needed for Docker on Linux)
     if [ "$USE_DOCKER" = true ] && [ -z "$DISPLAY" ]; then
