@@ -502,4 +502,31 @@ describe('AgentCallLogRepository', () => {
       expect(repo.getById(id1)).toBeNull();
     });
   });
+
+  describe('deleteAll', () => {
+    it('deletes all rows and returns the count', () => {
+      // Create 3 entries
+      repo.create({ id: databaseManager.generateId(), sessionId, agentType: 'claude-code', callType: 'runSession', promptLength: 100 });
+      repo.create({ id: databaseManager.generateId(), sessionId, agentType: 'claude-code', callType: 'continueSession', promptLength: 200 });
+      repo.create({ id: databaseManager.generateId(), sessionId, agentType: 'other-agent', callType: 'runSession', promptLength: 300 });
+
+      // Verify they exist
+      let result = repo.getAll();
+      expect(result.total).toBe(3);
+
+      // Delete all
+      const deletedCount = repo.deleteAll();
+      expect(deletedCount).toBe(3);
+
+      // Verify they're gone
+      result = repo.getAll();
+      expect(result.rows).toEqual([]);
+      expect(result.total).toBe(0);
+    });
+
+    it('returns 0 when table is already empty', () => {
+      const deletedCount = repo.deleteAll();
+      expect(deletedCount).toBe(0);
+    });
+  });
 });

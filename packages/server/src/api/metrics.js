@@ -159,4 +159,16 @@ router.post('/agent-calls', (req, res) => {
   }
 });
 
+// DELETE /api/agent-calls
+// Deletes all agent call logs from the database and clears the in-memory active calls map
+router.delete('/agent-calls', (req, res) => {
+  try {
+    const deleted = agentCallLogger.deleteAllLogs();
+    res.json({ success: true, deleted });
+  } catch (err) {
+    console.error('Failed to delete agent call logs:', err);
+    res.status(500).json({ error: 'Failed to delete agent call logs' });
+  }
+});
+
 export default router;
