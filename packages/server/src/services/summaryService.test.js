@@ -79,6 +79,20 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   }),
 }));
 
+// Mock ghService to avoid real `gh` CLI calls in tests
+vi.mock('./ghService.js', () => ({
+  getPrInfo: vi.fn().mockResolvedValue({
+    merged: false,
+    state: 'open',
+    hasMergeConflicts: false,
+    ciStatus: 'success',
+  }),
+  isGhAvailable: vi.fn().mockResolvedValue(true),
+  resetGhAvailableCache: vi.fn(),
+  extractPrInfo: vi.fn(),
+  validatePrRepository: vi.fn(),
+}));
+
 // Import after mock setup
 import * as summaryService from './summaryService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -898,6 +912,51 @@ describe('summaryService', () => {
       await summaryService.generateSummary(sessionId);
 
       // Session name should be updated from mock response session_title
+      const session = sessions.getById(sessionId);
+      expect(session.name).toContain('Mock:');
+    });
+
+    it('does not overwrite session name when manuallyNamed is true', async () => {
+      // Set manuallyNamed flag
+      sessions.update(sessionId, { manuallyNamed: true });
+      const originalName = sessions.getById(sessionId).name;
+
+      await summaryService.generateSummary(sessionId);
+
+      // Session name should NOT be updated
+      const session = sessions.getById(sessionId);
+      expect(session.name).toBe(originalName);
+      expect(session.name).not.toContain('Mock:');
+    });
+
+    it('still updates prUrl when manuallyNamed is true', async () => {
+      // Set manuallyNamed flag and pre-set a prUrl on the session
+      // (The mock returns pr_url: null, so we test that the session's existing prUrl
+      // is preserved and not cleared when manuallyNamed is true)
+      sessions.update(sessionId, {
+        manuallyNamed: true,
+        prUrl: 'https://github.com/anthropics/claude-code/pull/123',
+      });
+      const originalName = sessions.getById(sessionId).name;
+
+      await summaryService.generateSummary(sessionId);
+
+      // Session name should NOT be updated
+      const session = sessions.getById(sessionId);
+      expect(session.name).toBe(originalName);
+      expect(session.name).not.toContain('Mock:');
+
+      // PR URL should be preserved (not cleared) regardless of manuallyNamed flag
+      expect(session.prUrl).toBe('https://github.com/anthropics/claude-code/pull/123');
+    });
+
+    it('updates session name when manuallyNamed is false', async () => {
+      // Explicitly set manuallyNamed to false
+      sessions.update(sessionId, { manuallyNamed: false });
+
+      await summaryService.generateSummary(sessionId);
+
+      // Session name SHOULD be updated
       const session = sessions.getById(sessionId);
       expect(session.name).toContain('Mock:');
     });
@@ -2030,6 +2089,31 @@ describe('summaryService', () => {
       expect(result1.sessionId).toBe(sessionId);
       expect(result2.sessionId).toBe(sessionId);
     });
+
+    it('returns null when disabled but still cancels debounce timer', async () => {
+      vi.useFakeTimers();
+
+      // Start a debounced generation (with summaries enabled)
+      summaryService.onSessionActivity(sessionId);
+
+      // Now disable summaries
+      settings.setSummarySettings({ disableSessionSummaries: true });
+
+      // Call generateSummaryNow (should cancel the debounced timer and return null)
+      const result = await summaryService.generateSummaryNow(sessionId);
+
+      // Should return null since summaries are disabled
+      expect(result).toBeNull();
+
+      // Run timers to confirm the debounced generation doesn't fire
+      await vi.runAllTimersAsync();
+
+      // Summary should NOT have been generated
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).toBeNull();
+
+      vi.useRealTimers();
+    });
   });
 
   describe('parsePrUrl', () => {
@@ -2272,14 +2356,18 @@ describe('summaryService', () => {
 
     it('onSessionActivity respects disableSessionSummaries (does not generate)', async () => {
       vi.useFakeTimers();
+      const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
 
       // Disable session summaries
       settings.setSummarySettings({ disableSessionSummaries: true });
 
-      // Trigger activity (should schedule generation but skip due to disabled flag)
+      // Trigger activity (should not schedule generation at all)
       summaryService.onSessionActivity(sessionId);
 
-      // Fast-forward past the debounce delay
+      // No debounce timer should have been set
+      expect(setTimeoutSpy).not.toHaveBeenCalled();
+
+      // Fast-forward past the debounce delay to confirm no timer fires
       await vi.advanceTimersByTimeAsync(60000);
       await vi.runAllTimersAsync();
 
@@ -2287,6 +2375,7 @@ describe('summaryService', () => {
       const stored = sessionSummaries.getBySessionId(sessionId);
       expect(stored).toBeNull();
 
+      setTimeoutSpy.mockRestore();
       vi.useRealTimers();
     });
 
@@ -2474,6 +2563,68 @@ describe('summaryService', () => {
       );
 
       consoleSpy.mockRestore();
+
+      // Re-enable for other tests
+      settings.setSummarySettings({ disableSessionSummaries: false });
+    });
+
+    it('onSessionComplete does lightweight outcome update when disabled but skips LLM', async () => {
+      // Get the current session state to create a matching non-stale summary
+      const allMessages = messages.getBySessionId(sessionId);
+      const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
+
+      // Create a non-stale summary with outcome 'in_progress'
+      const existingSummary = {
+        sessionId,
+        outcome: 'in_progress',
+        shortSummary: 'Test summary',
+        fullSummary: 'Full test summary content',
+        messageCount: allMessages.length,
+        lastSummarizedMessageId: lastMessage ? lastMessage.id : null,
+        generatedAt: Date.now(),
+      };
+      sessionSummaries.upsert(sessionId, existingSummary);
+
+      // Update session to completed status
+      sessions.update(sessionId, { status: 'completed' });
+
+      // Disable session summaries
+      settings.setSummarySettings({ disableSessionSummaries: true });
+
+      // Call onSessionComplete - should do lightweight update but skip LLM
+      summaryService.onSessionComplete(sessionId);
+
+      // Wait for any async operations
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Verify outcome was updated to 'completed' (lightweight path ran)
+      const updatedSummary = sessionSummaries.getBySessionId(sessionId);
+      expect(updatedSummary).not.toBeNull();
+      expect(updatedSummary.outcome).toBe('completed');
+
+      // Verify no new LLM call was made (summary content should be unchanged)
+      expect(updatedSummary.fullSummary).toBe('Full test summary content');
+
+      // Re-enable for other tests
+      settings.setSummarySettings({ disableSessionSummaries: false });
+    });
+
+    it('onSessionComplete skips LLM generation when disabled and summary is stale', async () => {
+      // Ensure no existing summary or a stale one
+      sessionSummaries.delete(sessionId);
+
+      // Disable session summaries
+      settings.setSummarySettings({ disableSessionSummaries: true });
+
+      // Call onSessionComplete - should skip LLM generation entirely
+      summaryService.onSessionComplete(sessionId);
+
+      // Wait for any async operations
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Verify no summary was generated
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).toBeNull();
 
       // Re-enable for other tests
       settings.setSummarySettings({ disableSessionSummaries: false });

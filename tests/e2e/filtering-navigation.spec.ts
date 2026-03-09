@@ -41,6 +41,7 @@ test.describe('Status Filter', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     const statusFilters = page.locator('.status-filters');
+    await statusFilters.waitFor({ state: 'visible', timeout: 10000 });
     await expect(statusFilters).toBeVisible();
 
     // Check for running and idle filter buttons
@@ -55,6 +56,9 @@ test.describe('Status Filter', () => {
     await seedSession(project.id, { prompt: 'Idle 2', name: 'Idle Two', startImmediately: false });
 
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
+
+    // Wait for status filters to be rendered
+    await page.locator('.status-filters').waitFor({ state: 'visible', timeout: 10000 });
 
     // Click the running filter button
     const runningBtn = page.locator('.status-filters .filter-btn', { hasText: /running/i });

@@ -7,6 +7,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useTodosStore } from '../stores/todos.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { useUiStore } from '../stores/ui.js';
 
 // Mock components
 vi.mock('../components/ConversationTab.vue', () => ({
@@ -49,6 +50,15 @@ vi.mock('../composables/useWebSocket.js', () => {
   const h = () => vi.fn(() => () => {});
   return {
     ensureSubscribed: vi.fn(() => Promise.resolve()),
+    useWebSocket: vi.fn(() => ({
+      isConnected: { value: true },
+      send: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
+      disconnect: vi.fn(),
+      clearSessionBuffer: vi.fn(),
+      onReconnect: vi.fn(() => () => {}),
+    })),
     useSessionSubscription: vi.fn(() => ({
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),
@@ -2687,6 +2697,361 @@ describe('SessionDetailView', () => {
 
       const indicator = wrapper.find('.session-active-indicator');
       expect(indicator.attributes('title')).toBe('Session starting...');
+    });
+  });
+
+  describe('Session Name Editing', () => {
+    beforeEach(async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Original Session Name',
+        status: 'waiting',
+        projectId: 'proj-1',
+        manuallyNamed: false,
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+    });
+
+    it('shows the edit button when not editing', async () => {
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Should show the session name
+      expect(wrapper.find('.session-name').text()).toBe('Original Session Name');
+
+      // Should show the edit trigger button
+      const editTrigger = wrapper.find('.name-edit-trigger');
+      expect(editTrigger.exists()).toBe(true);
+      expect(editTrigger.attributes('title')).toBe('Edit session name');
+
+      // Should NOT show the edit form
+      expect(wrapper.find('.name-edit-form').exists()).toBe(false);
+    });
+
+    it('enters edit mode when clicking the edit button', async () => {
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Click the edit button
+      await wrapper.find('.name-edit-trigger').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      // Should now show the edit form
+      const editForm = wrapper.find('.name-edit-form');
+      expect(editForm.exists()).toBe(true);
+
+      // Should show the input with current name
+      const input = wrapper.find('.name-edit-input');
+      expect(input.exists()).toBe(true);
+      expect(input.element.value).toBe('Original Session Name');
+
+      // Should show save and cancel buttons
+      expect(wrapper.find('.pr-save-btn').exists()).toBe(true);
+      expect(wrapper.find('.pr-cancel-btn').exists()).toBe(true);
+
+      // Should NOT show the edit trigger button
+      expect(wrapper.find('.name-edit-trigger').exists()).toBe(false);
+    });
+
+    it('saves the edited name when clicking save', async () => {
+      api.updateSession.mockResolvedValue({
+        id: 'session-1',
+        name: 'Updated Session Name',
+        manuallyNamed: true,
+      });
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Enter edit mode
+      await wrapper.find('.name-edit-trigger').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      // Change the input value
+      const input = wrapper.find('.name-edit-input');
+      await input.setValue('Updated Session Name');
+      await wrapper.vm.$nextTick();
+
+      // Click save
+      await wrapper.find('.pr-save-btn').trigger('click');
+      await flushPromises();
+
+      // Should have called the API to update
+      expect(api.updateSession).toHaveBeenCalledWith('session-1', {
+        name: 'Updated Session Name',
+        manuallyNamed: true,
+      });
+
+      // Should update the store
+      expect(sessionsStore.currentSession.name).toBe('Updated Session Name');
+      expect(sessionsStore.currentSession.manuallyNamed).toBe(true);
+    });
+
+    it('saves the edited name when pressing Enter', async () => {
+      api.updateSession.mockResolvedValue({
+        id: 'session-1',
+        name: 'New Name',
+        manuallyNamed: true,
+      });
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Enter edit mode
+      await wrapper.find('.name-edit-trigger').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      // Change the input and press Enter
+      const input = wrapper.find('.name-edit-input');
+      await input.setValue('New Name');
+      await input.trigger('keyup.enter');
+
+      await flushPromises();
+
+      // Should have saved
+      expect(api.updateSession).toHaveBeenCalledWith('session-1', {
+        name: 'New Name',
+        manuallyNamed: true,
+      });
+    });
+
+    it('cancels editing when pressing Escape', async () => {
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Enter edit mode
+      await wrapper.find('.name-edit-trigger').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      // Change the input value
+      const input = wrapper.find('.name-edit-input');
+      await input.setValue('This Should Not Save');
+      await wrapper.vm.$nextTick();
+
+      // Press Escape
+      await input.trigger('keyup.escape');
+      await wrapper.vm.$nextTick();
+
+      // Should NOT have called the API
+      expect(api.updateSession).not.toHaveBeenCalled();
+
+      // Should exit edit mode
+      expect(wrapper.find('.name-edit-form').exists()).toBe(false);
+      expect(wrapper.find('.session-name').text()).toBe('Original Session Name');
+
+      // Name should remain unchanged
+      expect(sessionsStore.currentSession.name).toBe('Original Session Name');
+    });
+
+    it('cancels editing when clicking cancel button', async () => {
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Enter edit mode
+      await wrapper.find('.name-edit-trigger').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      // Change the input and click cancel
+      await wrapper.find('.name-edit-input').setValue('Cancelled Edit');
+      await wrapper.find('.pr-cancel-btn').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      // Should NOT have called the API
+      expect(api.updateSession).not.toHaveBeenCalled();
+
+      // Should exit edit mode
+      expect(wrapper.find('.name-edit-form').exists()).toBe(false);
+    });
+
+    it('prevents saving empty names', async () => {
+      const uiStore = useUiStore();
+      vi.spyOn(uiStore, 'error');
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Enter edit mode
+      await wrapper.find('.name-edit-trigger').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      // Clear the input and try to save
+      await wrapper.find('.name-edit-input').setValue('   ');
+      await wrapper.find('.pr-save-btn').trigger('click');
+      await flushPromises();
+
+      // Should NOT have called the API
+      expect(api.updateSession).not.toHaveBeenCalled();
+
+      // Should show error
+      expect(uiStore.error).toHaveBeenCalledWith('Session name cannot be empty');
+
+      // Should remain in edit mode
+      expect(wrapper.find('.name-edit-form').exists()).toBe(true);
+    });
+
+    it('trims whitespace from the name before saving', async () => {
+      api.updateSession.mockResolvedValue({
+        id: 'session-1',
+        name: 'Trimmed Name',
+        manuallyNamed: true,
+      });
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Enter edit mode
+      await wrapper.find('.name-edit-trigger').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      // Set a name with extra whitespace
+      await wrapper.find('.name-edit-input').setValue('  Trimmed Name  ');
+      await wrapper.find('.pr-save-btn').trigger('click');
+      await flushPromises();
+
+      // Should save the trimmed name
+      expect(api.updateSession).toHaveBeenCalledWith('session-1', {
+        name: 'Trimmed Name',
+        manuallyNamed: true,
+      });
+    });
+
+    it('handles API errors when saving', async () => {
+      const uiStore = useUiStore();
+      vi.spyOn(uiStore, 'error');
+
+      api.updateSession.mockRejectedValue(new Error('API Error'));
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Enter edit mode and try to save
+      await wrapper.find('.name-edit-trigger').trigger('click');
+      await wrapper.vm.$nextTick();
+      await wrapper.find('.name-edit-input').setValue('Error Test');
+      await wrapper.find('.pr-save-btn').trigger('click');
+      await flushPromises();
+
+      // Should show error message
+      expect(uiStore.error).toHaveBeenCalled();
     });
   });
 });

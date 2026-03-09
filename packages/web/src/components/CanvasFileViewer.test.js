@@ -122,7 +122,7 @@ describe('CanvasFileViewer', () => {
       expect(wrapper.find('.file-menu-items').exists()).toBe(true);
     });
 
-    it('shows copy file contents, copy filename, and delete options', async () => {
+    it('shows copy filename and delete options', async () => {
       const wrapper = mountComponent();
 
       const menuButton = wrapper.find('.btn-menu');
@@ -130,26 +130,9 @@ describe('CanvasFileViewer', () => {
       await flushAll(wrapper);
 
       const menuItems = wrapper.findAll('.menu-item');
-      expect(menuItems.length).toBe(3);
+      expect(menuItems.length).toBe(2);
       expect(menuItems[0].text()).toContain('Copy filename');
-      expect(menuItems[1].text()).toContain('Copy file contents');
-      expect(menuItems[2].text()).toContain('Delete file');
-    });
-
-    it('copies file contents when menu option is clicked', async () => {
-      const wrapper = mountComponent({
-        item: { id: '1', filename: 'test.txt', type: 'text', content: 'File content here', createdAt: Date.now() },
-      });
-
-      const menuButton = wrapper.find('.btn-menu');
-      await menuButton.trigger('click');
-      await flushAll(wrapper);
-
-      const menuItems = wrapper.findAll('.menu-item');
-      await menuItems[1].trigger('click');
-      await flushAll(wrapper);
-
-      expect(mockClipboard.writeText).toHaveBeenCalledWith('File content here');
+      expect(menuItems[1].text()).toContain('Delete file');
     });
 
     it('copies filename when menu option is clicked', async () => {
@@ -182,8 +165,8 @@ describe('CanvasFileViewer', () => {
       await flushAll(wrapper);
 
       const menuItems = wrapper.findAll('.menu-item');
-      expect(menuItems.length).toBe(3);
-      expect(menuItems[2].text()).toContain('Delete file');
+      expect(menuItems.length).toBe(2);
+      expect(menuItems[1].text()).toContain('Delete file');
     });
   });
 
