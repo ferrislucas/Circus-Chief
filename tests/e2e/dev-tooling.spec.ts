@@ -406,15 +406,15 @@ test.describe('Category 5: pw.sh Enhancements', () => {
       'utf-8'
     );
 
-    // Verify VCR_MODE is exported with auto default
-    expect(pwshSource).toContain('export VCR_MODE=${VCR_MODE:-auto}');
+    // Verify VCR_MODE is exported with replay default (prevents accidental token burn)
+    expect(pwshSource).toContain('export VCR_MODE=${VCR_MODE:-replay}');
 
     // Verify it appears in cmd_test function context
     // The export should come before detect_or_start_server in cmd_test()
     const cmdTestStart = pwshSource.indexOf('cmd_test()');
     expect(cmdTestStart).toBeGreaterThan(-1);
 
-    const vcrModePos = pwshSource.indexOf('export VCR_MODE=${VCR_MODE:-auto}', cmdTestStart);
+    const vcrModePos = pwshSource.indexOf('export VCR_MODE=${VCR_MODE:-replay}', cmdTestStart);
     expect(vcrModePos).toBeGreaterThan(cmdTestStart);
 
     const detectServerPos = pwshSource.indexOf('detect_or_start_server', vcrModePos);

@@ -118,6 +118,9 @@ fi
 # -----------------------------------------------------------------------------
 echo "$SELECTED_PORT" > "$PORT_FILE"
 
+# Write VCR mode for pw.sh to detect mismatches
+echo "${VCR_MODE:-}" > ".vcr-mode"
+
 # -----------------------------------------------------------------------------
 # Start the server
 #
