@@ -1,0 +1,210 @@
+{
+  "prompt": "CONVERSATION:\nUser: Test conversation switching\n\nAssistant: I'll test conversation switching by creating a new session and demonstrating the ability to work with multiple sessions. Let me use the Sess",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/Users/ferrislucas/claudetools.io/.worktrees/3b630ddf-4929-4d38-9bba-3f7961e5c0e7",
+      "session_id": "39bb142c-cf33-427d-9fc2-d7e441c7e5b4",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP",
+        "StructuredOutput"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "bypassPermissions",
+      "slash_commands": [
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan"
+      ],
+      "skills": [],
+      "plugins": [],
+      "uuid": "adea1e3a-9b98-4ce4-9c08-977c0defe132"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01RaHAye6u65nqbvv2YyDEL6",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user is asking me to generate a summary of the conversation shown. Looking at the conversation:\n\n1. The user asked to \"Test conversation switching\"\n2. The assistant (A) attempted to test conversation switching using the Session Management API\n3. The assistant noted that HTTP requests require approval for security reasons\n4. The assistant confirmed that conversation switching infrastructure is available through various endpoints and features\n\nThe key points are:\n- Main topic: Testing conversation switching capabilities\n- Key actions: Attempted to use Session Management API, identified that HTTP requests need approval\n- Current status: Partially completed - the infrastructure exists but the HTTP requests couldn't be fully tested due to security restrictions\n- Key findings: The conversation switching infrastructure is available with endpoints for creating sessions, listing sessions, and switching between them\n\nI should use the StructuredOutput tool to provide this summary in the requested format.",
+            "signature": "EpQJCkYICxgCKkAt34ldfgMLH4gtycjTZ+Ocx4XoiC5d99/R9H7Oib8wVhJlgJR8lJ2vPSbkst0xskk6n4qcTstGy0z3eLDspWvjEgxtgSUt1t+4X+poGOwaDFUhUpKAtP+5siraOiIwmNdI5xRypkYtVar0oQZGu0bzdVdLyBmvN5C1iJWEjp1WhV4Yrurnid3zoTuaAFM4KvsH8XBl7+q61DSKuIJIYw1UppEmttw8geBZOpOq0lJdL/AC+VDl/eRVqZ6ZeONet81+pL7BVTW8TaxXgmoOKLXmnCV6+npKMDzOufebDj4Pi/aCm5CYyGIb2fcDuOL+N5zM2PdUZNQ7VPaD08aNX869C+XaDeqI7r6ce/K/cdapNCS6VtJ8/AHQq5EF7FJBSudazoiBhVuqzPhEFiM/6GsRgl5Ijgqoo3YX8WZ1RxtjWU6EQA9Q8tr+UO/t/Nm00HQPVDX0iViyjaNTsV3EvOSQO873ozcNWYHrOpxU54HU5ZqQjXUbucnIAeR601OR6V98h3N/wNgLEmcthXminmVtUh599ou/aqaB5a0p8MI80XHWTvhKR++nAY+E1GlJ9nufNx2HjIQ98thsH5oRq9h7TJTzpWZTxkcnrm4/Y1tWGRtR3KtDkULk3wK+HWQSBPepMG5+5N7Eoz4UtrixQrb50taYlnLW49NpbRd7cX2DVnYP1WOtkTyclT0RYqae26TlfOKks0qoJFckign4PVvtqTc5bcp6Oq1Tai9Fh7G0Sp4eQliDw7rS7rAd58qtFRJ06oixAxVHkK1qR9TXxvQwYxmFwxY4zQknt3PHgPbR0iEoxATk0P19HRihr58wgPVLhHTmeqqNrfalQ5eTFzDlWogHNTpbP5fc/CmV1YOh96lUVs6tacLVhUeliNItegzvf9K6cg5qqCDY0xfPtgc0xiX6rRQT0dOKhjtqzUXxz1jBmO9tSG0MSDryUcnmMdCQuPatfa0qEtSWY+XFnOU8plv5zxtOrCpVIuPxhHiN93q0c7eL2bzEMN7+VvgssfZhPFclSeB94acNViSNpJ1c9ti/dL2fmDznswcnXNUx+FP424az6p0JZV/NwMx36Wd2Tm5HW05sA5Xxd1atfwROm8K9UOu521PTJk2B4kdfjr73BMyvqxqaUcZmLUiFZe3EjVD9Q6ZIbNwYWkq0oZTgl6CqWU4aSjAmX1FyychIkwjgtbxwOzFQ8sWlBOFqeyeqwD6/XCMDfJENJhXDgVOITbHMKlIkaVcdYqB46F2ZzXiomUGPJpt3CASLbZxbJDXZHvZ3K673thEPWBosp7f1P67o5cwTcHPNI2J5K3zPOObyssW6wbM4yHF9ZoFyiXTJBSFS1mOOv1Wnw8geeeiI85kt/0qv2qcwPS/PYwR4FXGcV93U3eFCNCOT7KyjOsy7SbvRaYihOByEQvF44xdPuEcY9Q9q35PEbLtniZ8tYgDaS5a6yFRDp6up03esunZC/dcvsK3EW/oRt0aZX6QDwSGwgKnO1vm0I9fjVpirn4046I4ZKxq+S7ZD+JybEShMY923ItzqTmf6TwIYAQ=="
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 638,
+          "cache_read_input_tokens": 15383,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 638,
+            "ephemeral_1h_input_tokens": 0
+          },
+          "output_tokens": 8,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "39bb142c-cf33-427d-9fc2-d7e441c7e5b4",
+      "uuid": "f9aa454b-537e-482f-a969-5d6ac4696907"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01RaHAye6u65nqbvv2YyDEL6",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_013RC1pTNqmiJE14JUcBX2cQ",
+            "name": "StructuredOutput",
+            "input": {
+              "session_title": "Test Conversation Switching Infrastructure",
+              "short_summary": "Tested conversation switching capabilities; confirmed infrastructure exists but HTTP requests require security approval.",
+              "full_summary": "The assistant tested the conversation switching functionality by attempting to use the Session Management API. HTTP requests for this testing required security approval. The assessment confirmed that conversation switching infrastructure is available and operational, featuring endpoints for creating new sessions/conversation threads, listing all active sessions, and switching between different sessions independently while maintaining separate context for each.",
+              "key_actions": [
+                "Attempted to test conversation switching using Session Management API",
+                "Identified that HTTP requests require security approval",
+                "Confirmed availability of session creation, listing, and switching endpoints",
+                "Documented the independent context preservation for each session"
+              ],
+              "files_modified": [],
+              "outcome": "partial"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 638,
+          "cache_read_input_tokens": 15383,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 638,
+            "ephemeral_1h_input_tokens": 0
+          },
+          "output_tokens": 8,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "39bb142c-cf33-427d-9fc2-d7e441c7e5b4",
+      "uuid": "d1a83c3c-0715-4672-b148-2bb5319b8412"
+    },
+    {
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "tool_use_id": "toolu_013RC1pTNqmiJE14JUcBX2cQ",
+            "type": "tool_result",
+            "content": "Structured output provided successfully"
+          }
+        ]
+      },
+      "parent_tool_use_id": null,
+      "session_id": "39bb142c-cf33-427d-9fc2-d7e441c7e5b4",
+      "uuid": "cc31bfc6-b006-4293-8295-aad3017f7bd7",
+      "tool_use_result": "Structured output provided successfully"
+    },
+    {
+      "type": "result",
+      "subtype": "error_max_turns",
+      "duration_ms": 5587,
+      "duration_api_ms": 12394,
+      "is_error": false,
+      "num_turns": 2,
+      "session_id": "39bb142c-cf33-427d-9fc2-d7e441c7e5b4",
+      "total_cost_usd": 0.013627600000000002,
+      "usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 638,
+        "cache_read_input_tokens": 15383,
+        "output_tokens": 467,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 638
+        }
+      },
+      "modelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 20,
+          "outputTokens": 642,
+          "cacheReadInputTokens": 28966,
+          "cacheCreationInputTokens": 638,
+          "webSearchRequests": 0,
+          "costUSD": 0.006924100000000001,
+          "contextWindow": 200000
+        },
+        "claude-opus-4-5-20251101": {
+          "inputTokens": 10,
+          "outputTokens": 135,
+          "cacheReadInputTokens": 6557,
+          "cacheCreationInputTokens": 0,
+          "webSearchRequests": 0,
+          "costUSD": 0.0067035,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "47f7a8aa-a9f0-4ef7-9b75-443339df84ac",
+      "errors": []
+    }
+  ],
+  "key": "summary-c6378f8489fd745d",
+  "recordedAt": "2026-03-08T22:31:03.297Z"
+}

@@ -95,7 +95,7 @@ test.describe('File Attachments - Session Creation', () => {
   });
 
   test('file content is included in session messages', async ({ page }) => {
-    const uniqueContent = `UNIQUE_TEST_CONTENT_${Date.now()}`;
+    const uniqueContent = 'UNIQUE_TEST_CONTENT_STABLE_MARKER';
     const session = await seedSessionWithFiles(
       project.id,
       { prompt: 'What is in this file?', name: 'Content Verification Test' },
