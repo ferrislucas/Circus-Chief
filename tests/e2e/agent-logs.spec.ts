@@ -568,4 +568,88 @@ test.describe('Agent Logs - Settings Tab', () => {
     // Error banner should disappear after successful retry
     await expect(page.locator('.error-banner')).not.toBeVisible();
   });
+
+  // ============================================================
+  // 7. Clear All Logs (3 tests)
+  // ============================================================
+
+  test('Clear All Logs button is always visible on the page', async ({ page }) => {
+    await scopeLogsToSession(page, session.id);
+    await page.goto('/settings/logs');
+    await page.waitForLoadState('networkidle');
+
+    // Button should be visible even with no data
+    await expect(page.locator('.btn-clear-all')).toBeVisible();
+    await expect(page.locator('.btn-clear-all')).toHaveText('Clear All Logs');
+  });
+
+  test('clicking Clear All Logs shows confirmation state, auto-reverts after timeout', async ({ page }) => {
+    await scopeLogsToSession(page, session.id);
+    await page.goto('/settings/logs');
+    await page.waitForLoadState('networkidle');
+
+    const button = page.locator('.btn-clear-all');
+
+    // First click: enter confirmation state
+    await button.click();
+    await expect(button).toHaveText('Confirm Clear All?');
+    await expect(button).toHaveClass(/confirming/);
+
+    // Wait for auto-revert (3 seconds + small buffer)
+    await page.waitForTimeout(3500);
+
+    // Should revert to default state
+    await expect(button).toHaveText('Clear All Logs');
+    await expect(button).not.toHaveClass(/confirming/);
+  });
+
+  test('confirming Clear All sends DELETE request and empties the table', async ({ page }) => {
+    // Seed some logs
+    await seedAgentCallLog(session.id, { agentType: 'claude-code' });
+    await seedAgentCallLog(session.id, { agentType: 'other-agent' });
+    await seedAgentCallLog(session.id, { agentType: 'claude-code' });
+
+    await scopeLogsToSession(page, session.id);
+    await page.goto('/settings/logs');
+    await page.waitForLoadState('networkidle');
+
+    // Verify logs are visible
+    await expect(page.locator('.log-row')).toHaveCount(3);
+
+    // Intercept DELETE /api/agent-calls to verify it's called and mock response
+    let deleteCallCount = 0;
+    await page.route('**/api/agent-calls', async (route, request) => {
+      if (request.method() === 'DELETE') {
+        deleteCallCount++;
+        // Mock successful deletion
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, deleted: 3 }),
+        });
+      } else {
+        // Continue other requests (GET, etc.)
+        await route.continue();
+      }
+    });
+
+    const button = page.locator('.btn-clear-all');
+
+    // First click: enter confirmation
+    await button.click();
+    await expect(button).toHaveText('Confirm Clear All?');
+
+    // Second click: confirm deletion (within 3 seconds)
+    await button.click();
+
+    // Wait for DELETE request and page update
+    await page.waitForLoadState('networkidle');
+
+    // Verify DELETE was called exactly once
+    expect(deleteCallCount).toBe(1);
+
+    // Verify table shows empty state
+    await expect(page.locator('.empty-cell')).toBeVisible();
+    await expect(page.locator('.empty-cell')).toHaveText('No agent call logs found.');
+  });
 });

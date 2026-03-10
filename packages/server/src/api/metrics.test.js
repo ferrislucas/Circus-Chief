@@ -396,4 +396,59 @@ describe('Metrics API', () => {
       expect(res.body.logs[0].sessionName).toBe('Test session');
     });
   });
+
+  describe('DELETE /api/agent-calls', () => {
+    it('returns { success: true, deleted: N } and removes all logs', async () => {
+      // Create 3 log entries
+      agentCallLogs.create({
+        id: 'del-1',
+        sessionId,
+        conversationId: null,
+        agentType: 'claude-code',
+        model: null,
+        callType: 'runSession',
+        promptLength: 100,
+      });
+      agentCallLogs.create({
+        id: 'del-2',
+        sessionId,
+        conversationId: null,
+        agentType: 'claude-code',
+        model: null,
+        callType: 'continueSession',
+        promptLength: 200,
+      });
+      agentCallLogs.create({
+        id: 'del-3',
+        sessionId,
+        conversationId: null,
+        agentType: 'other-agent',
+        model: null,
+        callType: 'runSession',
+        promptLength: 300,
+      });
+
+      // Verify they exist
+      let res = await request(app).get('/api/agent-calls');
+      expect(res.status).toBe(200);
+      expect(res.body.pagination.total).toBe(3);
+
+      // Delete all
+      res = await request(app).delete('/api/agent-calls');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, deleted: 3 });
+
+      // Verify they're gone
+      res = await request(app).get('/api/agent-calls');
+      expect(res.status).toBe(200);
+      expect(res.body.logs).toEqual([]);
+      expect(res.body.pagination.total).toBe(0);
+    });
+
+    it('returns { success: true, deleted: 0 } when no logs exist', async () => {
+      const res = await request(app).delete('/api/agent-calls');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, deleted: 0 });
+    });
+  });
 });
