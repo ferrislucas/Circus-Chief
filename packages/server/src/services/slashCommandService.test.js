@@ -271,12 +271,60 @@ Hello, world!`
 
       expect(body).toBeNull();
     });
+
+    it('returns the body content of a skill using parseSkillFile', async () => {
+      const skillsDir = join(testDir, '.claude', 'skills');
+      await mkdir(join(skillsDir, 'review'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'review', 'SKILL.md'),
+        `---
+name: review
+description: Review code
+argument-hint: "[file]"
+user-invocable: true
+---
+Review the code in $ARGUMENTS`
+      );
+
+      const body = await getCommandBody(testDir, 'review');
+
+      expect(body).toBe('Review the code in $ARGUMENTS');
+    });
+
+    it('returns skill body (not command body) when both share same name', async () => {
+      // Create a command
+      await writeFile(
+        join(projectCommandsDir, 'deploy.md'),
+        `---
+description: Deploy command
+---
+Command body here`
+      );
+
+      // Create a skill with the same name
+      const skillsDir = join(testDir, '.claude', 'skills');
+      await mkdir(join(skillsDir, 'deploy'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'deploy', 'SKILL.md'),
+        `---
+name: deploy
+description: Deploy skill
+---
+Skill body here`
+      );
+
+      const body = await getCommandBody(testDir, 'deploy');
+
+      expect(body).toBe('Skill body here'); // Skill wins per Anthropic docs
+    });
   });
 
   describe('buildCommandString', () => {
     beforeEach(async () => {
       await rm(projectCommandsDir, { recursive: true, force: true });
       await mkdir(projectCommandsDir, { recursive: true });
+      // Also clean skills dir to avoid leaking from other tests
+      await rm(join(testDir, '.claude', 'skills'), { recursive: true, force: true });
     });
 
     it('substitutes arguments in the command body', async () => {
@@ -526,7 +574,7 @@ This skill is model-only`
       expect(skills).toEqual([]);
     });
 
-    it('command takes precedence over skill with same name', async () => {
+    it('skill takes precedence over command with same name', async () => {
       // Create a command
       await mkdir(projectCommandsDir, { recursive: true });
       await writeFile(
@@ -552,8 +600,8 @@ Deploy skill body`
       const deployItems = commands.filter((c) => c.name === 'deploy');
 
       expect(deployItems).toHaveLength(1);
-      expect(deployItems[0].source).toBe('project'); // Command, not skill
-      expect(deployItems[0].isSkill).toBeUndefined();
+      expect(deployItems[0].source).toBe('project-skill'); // Skill wins per Anthropic docs
+      expect(deployItems[0].isSkill).toBe(true);
     });
 
     it('uses directory name when skill name not specified', async () => {
