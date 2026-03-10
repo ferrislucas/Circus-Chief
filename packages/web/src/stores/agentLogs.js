@@ -100,5 +100,21 @@ export const useAgentLogsStore = defineStore('agentLogs', {
       this.currentPage = 1;
       this.fetchLogs();
     },
+
+    async clearAllLogs() {
+      this.loading = true;
+      this.error = null;
+      try {
+        await api.deleteAllAgentCallLogs();
+        this.logs = [];
+        this.pagination = { total: 0, limit: this.perPage, offset: 0, hasMore: false };
+        this.currentPage = 1;
+        await this.fetchFilterOptions();
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.loading = false;
+      }
+    },
   },
 });

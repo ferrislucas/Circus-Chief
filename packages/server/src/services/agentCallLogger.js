@@ -90,6 +90,15 @@ export class AgentCallLogger {
   getFilterOptions() {
     return agentCallLogs.getFilterOptions();
   }
+
+  /**
+   * Delete all logs from both the database and the in-memory active calls map.
+   * @returns {number} Number of deleted rows
+   */
+  deleteAllLogs() {
+    this.activeCalls.clear();
+    return agentCallLogs.deleteAll();
+  }
 }
 
 // Singleton
