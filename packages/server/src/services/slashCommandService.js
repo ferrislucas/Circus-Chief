@@ -448,24 +448,24 @@ export async function getCommands(workingDirectory) {
     arguments: [],
   }));
 
-  // Deduplicate: commands take precedence over skills with same name
-  // Priority: project > user > plugin > builtin
+  // Skills take precedence over commands with the same name (per Anthropic docs)
+  // Priority: project > user > plugin; then commands fill remaining slots
   const seen = new Set();
   const commands = [];
 
-  // Add all commands first (they take precedence)
-  for (const cmd of [...projectCommands, ...userCommands, ...pluginCommands, ...builtinCommands]) {
-    if (!seen.has(cmd.name)) {
-      seen.add(cmd.name);
-      commands.push(cmd);
-    }
-  }
-
-  // Then add skills (only if name not already taken by a command)
+  // Add all skills first (they take precedence)
   for (const skill of [...projectSkills, ...userSkills, ...pluginSkills]) {
     if (!seen.has(skill.name)) {
       seen.add(skill.name);
       commands.push(skill);
+    }
+  }
+
+  // Then add commands (only if name not already taken by a skill)
+  for (const cmd of [...projectCommands, ...userCommands, ...pluginCommands, ...builtinCommands]) {
+    if (!seen.has(cmd.name)) {
+      seen.add(cmd.name);
+      commands.push(cmd);
     }
   }
 
@@ -504,6 +504,10 @@ export async function getCommandBody(workingDirectory, name) {
   // Read and parse the file to get the body
   try {
     const content = await readFile(command.filePath, 'utf-8');
+    if (command.isSkill) {
+      const parsed = parseSkillFile(content, command.name);
+      return parsed.body;
+    }
     const parsed = parseCommandFile(content);
     return parsed.body;
   } catch (err) {
