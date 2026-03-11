@@ -380,13 +380,13 @@ test.describe('Settings', () => {
       // Reset
       const resetResult = await resetSummarySettings();
       expect(resetResult.disableSessionSummaries).toBe(false);
-      expect(resetResult.disableConversationSummaries).toBe(false);
+      expect(resetResult.disableConversationSummaries).toBe(true);
       expect(resetResult.sessionTitlePrompt).toBe('');
 
       // Verify via GET
       const settings = await getSummarySettings();
       expect(settings.disableSessionSummaries).toBe(false);
-      expect(settings.disableConversationSummaries).toBe(false);
+      expect(settings.disableConversationSummaries).toBe(true);
       expect(settings.sessionTitlePrompt).toBe('');
       expect(typeof settings.defaultSessionTitlePrompt).toBe('string');
     });
