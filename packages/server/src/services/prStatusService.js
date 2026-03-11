@@ -155,10 +155,9 @@ export async function checkPrStatus(sessionId, prUrl) {
       ciFailures: prInfo.ciFailures,
     };
 
-    // If no summary exists, provide required fields for creation
+    // Don't create a summary just for PR tracking - only track if summary already exists
     if (!currentSummary) {
-      updateData.shortSummary = 'PR status pending summary generation';
-      updateData.fullSummary = 'Summary will be generated when session activity occurs.';
+      return false;
     }
 
     // Update database

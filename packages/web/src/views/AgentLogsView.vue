@@ -72,6 +72,13 @@
         >
           Clear Filters
         </button>
+        <button
+          class="btn-clear-all"
+          :class="{ confirming }"
+          @click="onClearAll"
+        >
+          {{ confirming ? 'Confirm Clear All?' : 'Clear All Logs' }}
+        </button>
       </div>
     </div>
 
@@ -196,10 +203,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref, onUnmounted } from 'vue';
 import { useAgentLogsStore } from '../stores/agentLogs.js';
 
 const store = useAgentLogsStore();
+const confirming = ref(false);
+const confirmTimer = ref(null);
 
 const logs = computed(() => store.logs);
 const pagination = computed(() => store.pagination);
@@ -321,9 +330,34 @@ function relativeTime(ts) {
   return `${Math.floor(diff / 86400000)}d ago`;
 }
 
+function onClearAll() {
+  if (!confirming.value) {
+    // First click: start confirmation
+    confirming.value = true;
+    confirmTimer.value = setTimeout(() => {
+      confirming.value = false;
+      confirmTimer.value = null;
+    }, 3000);
+  } else {
+    // Second click: confirm and clear
+    if (confirmTimer.value) {
+      clearTimeout(confirmTimer.value);
+      confirmTimer.value = null;
+    }
+    confirming.value = false;
+    store.clearAllLogs();
+  }
+}
+
 onMounted(() => {
   store.fetchLogs();
   store.fetchFilterOptions();
+});
+
+onUnmounted(() => {
+  if (confirmTimer.value) {
+    clearTimeout(confirmTimer.value);
+  }
 });
 </script>
 
@@ -392,6 +426,30 @@ onMounted(() => {
 .btn-clear:hover {
   border-color: var(--color-text, #f3f4f6);
   color: var(--color-text, #f3f4f6);
+}
+
+.btn-clear-all {
+  background-color: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  border-radius: 0.375rem;
+  color: #f87171;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  align-self: flex-end;
+  transition: all 0.2s;
+}
+
+.btn-clear-all:hover {
+  border-color: rgba(239, 68, 68, 0.8);
+  color: #fca5a5;
+}
+
+.btn-clear-all.confirming {
+  background-color: rgba(239, 68, 68, 0.2);
+  border-color: #f87171;
+  color: #fca5a5;
+  font-weight: 600;
 }
 
 .error-banner {
