@@ -296,4 +296,13 @@ export class AgentCallLogRepository extends BaseRepository {
       )
       .all(startDate, endDate);
   }
+
+  /**
+   * Delete all call logs from the database.
+   * Returns the number of deleted rows.
+   */
+  deleteAll() {
+    const result = this.db.prepare('DELETE FROM agent_call_logs').run();
+    return result.changes;
+  }
 }

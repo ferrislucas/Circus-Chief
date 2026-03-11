@@ -7,6 +7,7 @@ vi.mock('../composables/useApi.js', () => ({
   api: {
     getAgentCallLogs: vi.fn(),
     getAgentCallFilterOptions: vi.fn(),
+    deleteAllAgentCallLogs: vi.fn(),
   },
 }));
 
@@ -282,6 +283,75 @@ describe('useAgentLogsStore', () => {
       expect(store.sortOrder).toBe('ASC');
       expect(store.currentPage).toBe(1);
       expect(api.getAgentCallLogs).toHaveBeenCalled();
+    });
+  });
+
+  describe('clearAllLogs', () => {
+    it('calls API, resets logs/pagination/currentPage, and refreshes filter options', async () => {
+      const store = useAgentLogsStore();
+      // Pre-populate store state
+      store.logs = [{ id: '1', agentType: 'claude-code' }];
+      store.pagination = { total: 10, limit: 25, offset: 0, hasMore: true };
+      store.currentPage = 2;
+
+      api.deleteAllAgentCallLogs.mockResolvedValue({ success: true, deleted: 10 });
+      api.getAgentCallFilterOptions.mockResolvedValue({
+        agentTypes: [],
+        callTypes: [],
+        statuses: [],
+        models: [],
+      });
+
+      await store.clearAllLogs();
+
+      expect(api.deleteAllAgentCallLogs).toHaveBeenCalledTimes(1);
+      expect(store.logs).toEqual([]);
+      expect(store.pagination).toEqual({ total: 0, limit: 25, offset: 0, hasMore: false });
+      expect(store.currentPage).toBe(1);
+      expect(api.getAgentCallFilterOptions).toHaveBeenCalledTimes(1);
+    });
+
+    it('sets loading=true during call and false after', async () => {
+      const store = useAgentLogsStore();
+      let loadingDuringCall = false;
+
+      api.deleteAllAgentCallLogs.mockImplementation(() => {
+        loadingDuringCall = store.loading;
+        return Promise.resolve({ success: true, deleted: 0 });
+      });
+
+      await store.clearAllLogs();
+
+      expect(loadingDuringCall).toBe(true);
+      expect(store.loading).toBe(false);
+    });
+
+    it('sets error on API failure', async () => {
+      const store = useAgentLogsStore();
+      api.deleteAllAgentCallLogs.mockRejectedValue(new Error('Delete failed'));
+
+      await store.clearAllLogs();
+
+      expect(store.error).toBe('Delete failed');
+      expect(store.loading).toBe(false);
+    });
+
+    it('clears error on subsequent success', async () => {
+      const store = useAgentLogsStore();
+      api.deleteAllAgentCallLogs.mockRejectedValueOnce(new Error('fail'));
+      await store.clearAllLogs();
+      expect(store.error).toBe('fail');
+
+      api.deleteAllAgentCallLogs.mockResolvedValue({ success: true, deleted: 0 });
+      api.getAgentCallFilterOptions.mockResolvedValue({
+        agentTypes: [],
+        callTypes: [],
+        statuses: [],
+        models: [],
+      });
+
+      await store.clearAllLogs();
+      expect(store.error).toBeNull();
     });
   });
 });
