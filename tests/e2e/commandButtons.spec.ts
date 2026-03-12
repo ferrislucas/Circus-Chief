@@ -6,6 +6,7 @@ import {
   seedCommandButton,
   navigateAndWait,
   waitForSessionToExist,
+  runCommandButtonAndWait,
 } from './helpers';
 
 test.describe('Command Buttons', () => {
@@ -91,45 +92,51 @@ test.describe('Command Buttons', () => {
   });
 
   test('show error state when command fails', async ({ page }) => {
-    // Create a command button with a failing command
-    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
-    await page.fill('#label', 'Failing Command');
-    await page.fill('#command', 'exit 1');
-    await page.click('button:has-text("Create")');
+    // Create a command button with a failing command via API (more reliable)
+    const button = await seedCommandButton(project.id, {
+      label: 'Failing Command',
+      command: 'exit 1',
+    });
 
-    // Run the command
-    await navigateAndWait(page, `/sessions/${session.id}/commands`);
-    await page.click('button:has-text("▶ Run")');
+    // Run via API and wait for completion before checking UI
+    const completedRun = await runCommandButtonAndWait(session.id, button.id, 15000);
+    expect(completedRun.status).toBe('error');
 
-    // Wait for completion
-    await page.waitForTimeout(2000);
+    // Navigate to commands tab after command completes
+    await navigateAndWait(page, `/sessions/${session.id}/commands`, {
+      waitFor: '[data-testid="command-status"]',
+      timeout: 10000,
+    });
 
     // Should show error indicator
-    await expect(page.locator('.status-error')).toBeVisible();
+    await expect(page.locator('.status-error')).toBeVisible({ timeout: 5000 });
 
-    // Should show exit code
-    await expect(page.getByText('exit code: 1')).toBeVisible();
+    // Should show non-zero exit code
+    await expect(page.locator('.exit-code')).toBeVisible({ timeout: 5000 });
   });
 
   test('show success state when command succeeds', async ({ page }) => {
-    // Create a command button that succeeds
-    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
-    await page.fill('#label', 'Successful Command');
-    await page.fill('#command', 'echo "Success"');
-    await page.click('button:has-text("Create")');
+    // Create a command button that succeeds via API (more reliable)
+    const button = await seedCommandButton(project.id, {
+      label: 'Successful Command',
+      command: 'echo "Success"',
+    });
 
-    // Run the command
-    await navigateAndWait(page, `/sessions/${session.id}/commands`);
-    await page.click('button:has-text("▶ Run")');
+    // Run via API and wait for completion before checking UI
+    const completedRun = await runCommandButtonAndWait(session.id, button.id, 15000);
+    expect(completedRun.status).toBe('success');
 
-    // Wait for completion
-    await page.waitForTimeout(2000);
+    // Navigate to commands tab after command completes
+    await navigateAndWait(page, `/sessions/${session.id}/commands`, {
+      waitFor: '[data-testid="command-status"]',
+      timeout: 10000,
+    });
 
     // Should show success indicator
-    await expect(page.locator('.status-success')).toBeVisible();
+    await expect(page.locator('.status-success')).toBeVisible({ timeout: 5000 });
 
     // Should show exit code 0
-    await expect(page.getByText('exit code: 0')).toBeVisible();
+    await expect(page.getByText('exit code: 0')).toBeVisible({ timeout: 5000 });
   });
 
   test('display command buttons in table on management page', async ({ page }) => {

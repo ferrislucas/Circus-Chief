@@ -846,6 +846,11 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
  * @returns {Promise<Object|null>}
  */
 export async function generateSummaryNow(sessionId) {
+  // Check if session summaries are disabled globally (early exit before concurrency bookkeeping)
+  const globalSettings = settings.getSummarySettings();
+  if (globalSettings?.disableSessionSummaries) {
+    return null;
+  }
   // Generate summary immediately and wait for completion
   return await generateSummary(sessionId);
 }
