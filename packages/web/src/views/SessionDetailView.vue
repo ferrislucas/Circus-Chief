@@ -29,6 +29,7 @@
           <template v-if="isEditingName">
             <div class="name-edit-form">
               <input
+                ref="nameEditInput"
                 v-model="editNameValue"
                 type="text"
                 class="name-edit-input"
@@ -45,6 +46,12 @@
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18"></line>
                   <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+              <button v-if="editNameValue" class="btn-icon pr-edit-btn pr-clear-btn" title="Clear name" @click="clearSessionName">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                 </svg>
               </button>
             </div>
@@ -207,7 +214,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, onActivated, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, onActivated, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCanvasStore } from '../stores/canvas.js';
@@ -326,6 +333,7 @@ const editPrUrlValue = ref('');
 // Name editing state
 const isEditingName = ref(false);
 const editNameValue = ref('');
+const nameEditInput = ref(null);
 
 // Check for file system changes (staged, unstaged, untracked)
 async function checkForChanges() {
@@ -882,6 +890,13 @@ function startEditName() {
 function cancelEditName() {
   isEditingName.value = false;
   editNameValue.value = '';
+}
+
+function clearSessionName() {
+  editNameValue.value = '';
+  nextTick(() => {
+    nameEditInput.value?.focus();
+  });
 }
 
 async function saveSessionName() {
