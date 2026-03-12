@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { mkdir, writeFile, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -14,17 +14,30 @@ import {
 describe('slashCommandService', () => {
   let testDir;
   let projectCommandsDir;
+  let originalHome;
+  let fakeHome;
 
   beforeAll(async () => {
     // Create a temporary directory for test files
     testDir = join(tmpdir(), `slash-command-test-${Date.now()}`);
     projectCommandsDir = join(testDir, '.claude', 'commands');
     await mkdir(projectCommandsDir, { recursive: true });
+
+    // Isolate from real ~/.claude/plugins to prevent real marketplace plugins
+    // from leaking into tests
+    originalHome = process.env.HOME;
+    fakeHome = join(tmpdir(), `slash-cmd-home-${Date.now()}`);
+    await mkdir(fakeHome, { recursive: true });
+    process.env.HOME = fakeHome;
   });
 
   afterAll(async () => {
-    // Clean up test directory
+    // Restore HOME
+    process.env.HOME = originalHome;
+
+    // Clean up test directories
     await rm(testDir, { recursive: true, force: true });
+    await rm(fakeHome, { recursive: true, force: true });
   });
 
   describe('parseCommandFile', () => {
@@ -703,6 +716,284 @@ First: $0, Second: $1, Third: $2, All: $ARGUMENTS`
       const result = await buildCommandString(testDir, 'multi', { _raw: 'one two three' });
 
       expect(result).toBe('First: one, Second: two, Third: three, All: one two three');
+    });
+  });
+
+  describe('marketplace plugin discovery', () => {
+    let marketplaceDir;
+    let originalHome;
+
+    beforeEach(async () => {
+      // Save original HOME and set to temp directory so known_marketplaces.json is discovered
+      originalHome = process.env.HOME;
+      marketplaceDir = join(tmpdir(), `marketplace-test-${Date.now()}`);
+      process.env.HOME = marketplaceDir;
+
+      // Clean project commands/skills to avoid interference
+      await rm(join(testDir, '.claude', 'commands'), { recursive: true, force: true });
+      await mkdir(join(testDir, '.claude', 'commands'), { recursive: true });
+      await rm(join(testDir, '.claude', 'skills'), { recursive: true, force: true });
+    });
+
+    afterEach(async () => {
+      process.env.HOME = originalHome;
+      await rm(marketplaceDir, { recursive: true, force: true });
+    });
+
+    async function setupMarketplace(structure = {}) {
+      const installLocation = join(marketplaceDir, '.claude', 'plugins', 'marketplaces', 'official');
+      const knownMarketplacesPath = join(marketplaceDir, '.claude', 'plugins', 'known_marketplaces.json');
+
+      await mkdir(join(marketplaceDir, '.claude', 'plugins'), { recursive: true });
+      await writeFile(knownMarketplacesPath, JSON.stringify({
+        'official': { installLocation, ...structure.marketplaceProps },
+      }));
+
+      return installLocation;
+    }
+
+    // Marketplace skill tests
+
+    it('discovers skills from marketplace plugins', async () => {
+      const installLocation = await setupMarketplace();
+      const skillDir = join(installLocation, 'plugins', 'test-plugin', 'skills', 'test-skill');
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, 'SKILL.md'), `---
+name: test-skill
+description: A marketplace skill
+argument-hint: "[file]"
+---
+Process $ARGUMENTS`);
+
+      const commands = await getCommands(testDir);
+      const skill = commands.find(c => c.name === 'test-plugin:test-skill');
+
+      expect(skill).toBeDefined();
+      expect(skill.source).toBe('plugin-skill');
+      expect(skill.isSkill).toBe(true);
+      expect(skill.description).toBe('A marketplace skill');
+      expect(skill.argumentHint).toBe('[file]');
+    });
+
+    it('discovers skills from external_plugins', async () => {
+      const installLocation = await setupMarketplace();
+      const skillDir = join(installLocation, 'external_plugins', 'ext-plugin', 'skills', 'ext-skill');
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, 'SKILL.md'), `---
+name: ext-skill
+description: An external plugin skill
+---
+Body`);
+
+      const commands = await getCommands(testDir);
+      const skill = commands.find(c => c.name === 'ext-plugin:ext-skill');
+
+      expect(skill).toBeDefined();
+      expect(skill.source).toBe('plugin-skill');
+      expect(skill.isSkill).toBe(true);
+      expect(skill.description).toBe('An external plugin skill');
+    });
+
+    it('filters out non-user-invocable marketplace skills', async () => {
+      const installLocation = await setupMarketplace();
+      const skillDir = join(installLocation, 'plugins', 'test-plugin', 'skills', 'hidden');
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, 'SKILL.md'), `---
+name: hidden
+description: Model-only skill
+user-invocable: false
+---
+Hidden body`);
+
+      const commands = await getCommands(testDir);
+      const skill = commands.find(c => c.name === 'test-plugin:hidden');
+
+      expect(skill).toBeUndefined();
+    });
+
+    it('handles missing known_marketplaces.json gracefully', async () => {
+      // Don't create known_marketplaces.json — just set HOME to empty temp dir
+      await mkdir(join(marketplaceDir, '.claude', 'plugins'), { recursive: true });
+
+      const commands = await getCommands(testDir);
+      // Should not throw, just return no marketplace items
+      expect(Array.isArray(commands)).toBe(true);
+    });
+
+    it('handles marketplace with no plugins directory', async () => {
+      // Create known_marketplaces.json pointing to directory with no plugins/ or external_plugins/
+      await setupMarketplace();
+
+      const commands = await getCommands(testDir);
+      // Should not throw
+      expect(Array.isArray(commands)).toBe(true);
+    });
+
+    it('marketplace skills are included in getCommands()', async () => {
+      const installLocation = await setupMarketplace();
+      const skillDir = join(installLocation, 'plugins', 'frontend-design', 'skills', 'frontend-design');
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, 'SKILL.md'), `---
+name: frontend-design
+description: Create frontend interfaces
+---
+Design $ARGUMENTS`);
+
+      const commands = await getCommands(testDir);
+      const skill = commands.find(c => c.name === 'frontend-design:frontend-design');
+
+      expect(skill).toBeDefined();
+      expect(skill.isSkill).toBe(true);
+    });
+
+    // Marketplace command tests
+
+    it('discovers commands from marketplace plugins', async () => {
+      const installLocation = await setupMarketplace();
+      const commandsDir = join(installLocation, 'plugins', 'test-plugin', 'commands');
+      await mkdir(commandsDir, { recursive: true });
+      await writeFile(join(commandsDir, 'test.md'), `---
+description: A test command
+---
+Test command body`);
+
+      const commands = await getCommands(testDir);
+      const cmd = commands.find(c => c.name === 'test-plugin:test');
+
+      expect(cmd).toBeDefined();
+      expect(cmd.source).toBe('plugin');
+      expect(cmd.description).toBe('A test command');
+    });
+
+    it('discovers commands from external_plugins', async () => {
+      const installLocation = await setupMarketplace();
+      const commandsDir = join(installLocation, 'external_plugins', 'ext-plugin', 'commands');
+      await mkdir(commandsDir, { recursive: true });
+      await writeFile(join(commandsDir, 'run.md'), `---
+description: An external command
+---
+Run something`);
+
+      const commands = await getCommands(testDir);
+      const cmd = commands.find(c => c.name === 'ext-plugin:run');
+
+      expect(cmd).toBeDefined();
+      expect(cmd.source).toBe('plugin');
+      expect(cmd.description).toBe('An external command');
+    });
+
+    it('marketplace commands are included in getCommands()', async () => {
+      const installLocation = await setupMarketplace();
+      const commandsDir = join(installLocation, 'plugins', 'code-review', 'commands');
+      await mkdir(commandsDir, { recursive: true });
+      await writeFile(join(commandsDir, 'review.md'), `---
+description: Review code
+---
+Review the code`);
+
+      const commands = await getCommands(testDir);
+      const cmd = commands.find(c => c.name === 'code-review:review');
+
+      expect(cmd).toBeDefined();
+    });
+
+    // Deduplication tests
+
+    it('installed_plugins.json skill entries take precedence over marketplace duplicates', async () => {
+      const installLocation = await setupMarketplace();
+
+      // Create the same skill in both installed plugins (cache path) and marketplace
+      // Set up installed_plugins.json
+      const cachePluginPath = join(marketplaceDir, '.claude', 'plugins', 'cache', 'duped-plugin');
+      const cacheSkillDir = join(cachePluginPath, 'skills', 'my-skill');
+      await mkdir(cacheSkillDir, { recursive: true });
+      await writeFile(join(cacheSkillDir, 'SKILL.md'), `---
+name: my-skill
+description: Installed version
+---
+Installed body`);
+
+      const installedPluginsPath = join(marketplaceDir, '.claude', 'plugins', 'installed_plugins.json');
+      await writeFile(installedPluginsPath, JSON.stringify({
+        plugins: {
+          'duped-plugin@official': [{
+            scope: 'global',
+            installPath: cachePluginPath,
+          }],
+        },
+      }));
+
+      // Create same skill in marketplace
+      const marketplaceSkillDir = join(installLocation, 'plugins', 'duped-plugin', 'skills', 'my-skill');
+      await mkdir(marketplaceSkillDir, { recursive: true });
+      await writeFile(join(marketplaceSkillDir, 'SKILL.md'), `---
+name: my-skill
+description: Marketplace version
+---
+Marketplace body`);
+
+      const commands = await getCommands(testDir);
+      const matches = commands.filter(c => c.name === 'duped-plugin:my-skill');
+
+      expect(matches).toHaveLength(1);
+      // The installed_plugins.json version should win (its filePath is in the cache dir)
+      expect(matches[0].filePath).toContain('cache');
+      expect(matches[0].description).toBe('Installed version');
+    });
+
+    it('installed_plugins.json command entries take precedence over marketplace duplicates', async () => {
+      const installLocation = await setupMarketplace();
+
+      // Set up installed_plugins.json with commit-commands
+      const cachePluginPath = join(marketplaceDir, '.claude', 'plugins', 'cache', 'commit-commands');
+      const cacheCommandsDir = join(cachePluginPath, 'commands');
+      await mkdir(cacheCommandsDir, { recursive: true });
+      await writeFile(join(cacheCommandsDir, 'commit.md'), `---
+description: Installed commit command
+---
+Installed commit body`);
+
+      const installedPluginsPath = join(marketplaceDir, '.claude', 'plugins', 'installed_plugins.json');
+      await writeFile(installedPluginsPath, JSON.stringify({
+        plugins: {
+          'commit-commands@claude-plugins-official': [{
+            scope: 'global',
+            installPath: cachePluginPath,
+          }],
+        },
+      }));
+
+      // Create same command in marketplace
+      const marketplaceCommandsDir = join(installLocation, 'plugins', 'commit-commands', 'commands');
+      await mkdir(marketplaceCommandsDir, { recursive: true });
+      await writeFile(join(marketplaceCommandsDir, 'commit.md'), `---
+description: Marketplace commit command
+---
+Marketplace commit body`);
+
+      const commands = await getCommands(testDir);
+      const matches = commands.filter(c => c.name === 'commit-commands:commit');
+
+      expect(matches).toHaveLength(1);
+      expect(matches[0].filePath).toContain('cache');
+      expect(matches[0].description).toBe('Installed commit command');
+    });
+
+    // Integration test
+
+    it('buildCommandString works with marketplace-discovered skills', async () => {
+      const installLocation = await setupMarketplace();
+      const skillDir = join(installLocation, 'plugins', 'test-plugin', 'skills', 'process');
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, 'SKILL.md'), `---
+name: process
+description: Process files
+---
+Process these files: $ARGUMENTS`);
+
+      const result = await buildCommandString(testDir, 'test-plugin:process', { _raw: 'file1.txt file2.txt' });
+
+      expect(result).toBe('Process these files: file1.txt file2.txt');
     });
   });
 });
