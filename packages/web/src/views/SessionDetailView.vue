@@ -190,9 +190,6 @@
         </div>
       </div>
 
-      <!-- Scheduling Info Panel -->
-      <SchedulingInfo v-if="sessionsStore.currentSession" :session="sessionsStore.currentSession" />
-
       <div class="tab-content">
         <!-- CRITICAL: :key ensures components remount when navigating between sessions,
              preventing stale WebSocket handlers from capturing the wrong sessionId -->
@@ -225,7 +222,6 @@ import CommandsTab from '../components/CommandsTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
 import DuplicateSessionButton from '../components/DuplicateSessionButton.vue';
 import OverflowMenu from '../components/OverflowMenu.vue';
-import SchedulingInfo from '../components/SchedulingInfo.vue';
 import CommandButtonStatusBar from '../components/CommandButtonStatusBar.vue';
 import SessionHierarchyBreadcrumb from '../components/SessionHierarchyBreadcrumb.vue';
 import { useTemplatesStore } from '../stores/templates.js';
