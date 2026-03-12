@@ -53,6 +53,75 @@ export class ApiClient {
     return response.json();
   }
 
+  /**
+   * POST a FormData body (for file uploads) and handle the response
+   * @param {string} path - API path
+   * @param {FormData} formData - FormData body
+   * @returns {Promise<any>}
+   */
+  async #uploadFormData(path, formData) {
+    const response = await fetch(`${this.#baseUrl}${path}`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * HTTP GET convenience method
+   * @param {string} path - API path
+   * @returns {Promise<any>}
+   */
+  _get(path) {
+    return this.#request('GET', path);
+  }
+
+  /**
+   * HTTP POST convenience method
+   * @param {string} path - API path
+   * @param {Object} [data] - Request body data
+   * @returns {Promise<any>}
+   */
+  _post(path, data) {
+    return this.#request('POST', path, data);
+  }
+
+  /**
+   * HTTP PUT convenience method
+   * @param {string} path - API path
+   * @param {Object} [data] - Request body data
+   * @returns {Promise<any>}
+   */
+  _put(path, data) {
+    return this.#request('PUT', path, data);
+  }
+
+  /**
+   * HTTP PATCH convenience method
+   * @param {string} path - API path
+   * @param {Object} [data] - Request body data
+   * @returns {Promise<any>}
+   */
+  _patch(path, data) {
+    return this.#request('PATCH', path, data);
+  }
+
+  /**
+   * HTTP DELETE convenience method
+   * @param {string} path - API path
+   * @param {Object} [data] - Optional request body data
+   * @returns {Promise<any>}
+   */
+  _delete(path, data) {
+    return this.#request('DELETE', path, data);
+  }
+
   // Projects
 
   /**
@@ -60,7 +129,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getProjects() {
-    return this.#request('GET', '/projects');
+    return this._get('/projects');
   }
 
   /**
@@ -69,7 +138,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async getProject(id) {
-    return this.#request('GET', `/projects/${id}`);
+    return this._get(`/projects/${id}`);
   }
 
   /**
@@ -78,7 +147,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async createProject(data) {
-    return this.#request('POST', '/projects', data);
+    return this._post('/projects', data);
   }
 
   /**
@@ -88,7 +157,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async updateProject(id, data) {
-    return this.#request('PUT', `/projects/${id}`, data);
+    return this._put(`/projects/${id}`, data);
   }
 
   /**
@@ -97,7 +166,7 @@ export class ApiClient {
    * @returns {Promise<void>}
    */
   async deleteProject(id) {
-    return this.#request('DELETE', `/projects/${id}`);
+    return this._delete(`/projects/${id}`);
   }
 
   // Sessions
@@ -107,7 +176,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getActiveSessions() {
-    return this.#request('GET', '/sessions');
+    return this._get('/sessions');
   }
 
   /**
@@ -117,7 +186,7 @@ export class ApiClient {
    */
   async getScheduledSessions(projectId = null) {
     const params = projectId ? `?projectId=${projectId}` : '';
-    return this.#request('GET', `/sessions/scheduled${params}`);
+    return this._get(`/sessions/scheduled${params}`);
   }
 
   /**
@@ -153,7 +222,7 @@ export class ApiClient {
     if (query) {
       path += `?${query}`;
     }
-    return this.#request('GET', path);
+    return this._get(path);
   }
 
   /**
@@ -186,20 +255,10 @@ export class ApiClient {
         formData.append('files', file);
       }
 
-      const response = await fetch(`${this.#baseUrl}/projects/${projectId}/sessions`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${response.status}`);
-      }
-
-      return response.json();
+      return this.#uploadFormData(`/projects/${projectId}/sessions`, formData);
     }
 
-    return this.#request('POST', `/projects/${projectId}/sessions`, jsonData);
+    return this._post(`/projects/${projectId}/sessions`, jsonData);
   }
 
   /**
@@ -208,7 +267,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async getSession(id) {
-    return this.#request('GET', `/sessions/${id}`);
+    return this._get(`/sessions/${id}`);
   }
 
   /**
@@ -217,7 +276,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getSessionMessages(id) {
-    return this.#request('GET', `/sessions/${id}/messages`);
+    return this._get(`/sessions/${id}/messages`);
   }
 
   /**
@@ -226,7 +285,7 @@ export class ApiClient {
    * @returns {Promise<Object>} Work logs grouped by message ID
    */
   async getSessionWorkLogs(sessionId) {
-    return this.#request('GET', `/sessions/${sessionId}/work-logs`);
+    return this._get(`/sessions/${sessionId}/work-logs`);
   }
 
   /**
@@ -253,20 +312,10 @@ export class ApiClient {
         formData.append('files', file);
       }
 
-      const response = await fetch(`${this.#baseUrl}/sessions/${sessionId}/message`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${response.status}`);
-      }
-
-      return response.json();
+      return this.#uploadFormData(`/sessions/${sessionId}/message`, formData);
     }
 
-    return this.#request('POST', `/sessions/${sessionId}/message`, { content, model });
+    return this._post(`/sessions/${sessionId}/message`, { content, model });
   }
 
   /**
@@ -275,7 +324,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async stopSession(id) {
-    return this.#request('POST', `/sessions/${id}/stop`);
+    return this._post(`/sessions/${id}/stop`);
   }
 
   /**
@@ -301,7 +350,7 @@ export class ApiClient {
       path += `?${query}`;
     }
 
-    return this.#request('GET', path);
+    return this._get(path);
   }
 
   /**
@@ -310,7 +359,7 @@ export class ApiClient {
    * @returns {Promise<{branch: string}>}
    */
   async getSessionDefaultBranch(sessionId) {
-    return this.#request('GET', `/sessions/${sessionId}/default-branch`);
+    return this._get(`/sessions/${sessionId}/default-branch`);
   }
 
   /**
@@ -319,7 +368,7 @@ export class ApiClient {
    * @returns {Promise<{count: number}>}
    */
   async getSessionFilesCount(sessionId) {
-    return this.#request('GET', `/sessions/${sessionId}/files-count`);
+    return this._get(`/sessions/${sessionId}/files-count`);
   }
 
   /**
@@ -329,7 +378,7 @@ export class ApiClient {
    * @returns {Promise<{data: string, mimeType: string, filename: string}>}
    */
   async getSessionFile(sessionId, filePath) {
-    return this.#request('GET', `/sessions/${sessionId}/file?path=${encodeURIComponent(filePath)}`);
+    return this._get(`/sessions/${sessionId}/file?path=${encodeURIComponent(filePath)}`);
   }
 
   /**
@@ -338,7 +387,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async restartSession(id) {
-    return this.#request('POST', `/sessions/${id}/restart`);
+    return this._post(`/sessions/${id}/restart`);
   }
 
   /**
@@ -351,7 +400,7 @@ export class ApiClient {
     const data = {};
     if (prompt !== undefined) data.prompt = prompt;
     if (model !== undefined) data.model = model;
-    return this.#request('POST', `/sessions/${id}/start`,
+    return this._post(`/sessions/${id}/start`,
       Object.keys(data).length > 0 ? data : undefined);
   }
 
@@ -362,7 +411,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async updateSessionInitialPrompt(id, prompt) {
-    return this.#request('PUT', `/sessions/${id}/initial-prompt`, { prompt });
+    return this._put(`/sessions/${id}/initial-prompt`, { prompt });
   }
 
   /**
@@ -372,7 +421,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async updateSession(id, data) {
-    return this.#request('PATCH', `/sessions/${id}`, data);
+    return this._patch(`/sessions/${id}`, data);
   }
 
   /**
@@ -382,7 +431,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async updateSessionPendingPrompt(id, pendingPrompt) {
-    return this.#request('PATCH', `/sessions/${id}/pending-prompt`, { pendingPrompt });
+    return this._patch(`/sessions/${id}/pending-prompt`, { pendingPrompt });
   }
 
   /**
@@ -391,7 +440,7 @@ export class ApiClient {
    * @returns {Promise<void>}
    */
   async deleteSession(id) {
-    return this.#request('DELETE', `/sessions/${id}`);
+    return this._delete(`/sessions/${id}`);
   }
 
   /**
@@ -400,7 +449,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async archiveSession(id) {
-    return this.#request('POST', `/sessions/${id}/archive`);
+    return this._post(`/sessions/${id}/archive`);
   }
 
   /**
@@ -409,7 +458,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async unarchiveSession(id) {
-    return this.#request('POST', `/sessions/${id}/unarchive`);
+    return this._post(`/sessions/${id}/unarchive`);
   }
 
   /**
@@ -418,7 +467,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async toggleSessionStar(id) {
-    return this.#request('POST', `/sessions/${id}/star`);
+    return this._post(`/sessions/${id}/star`);
   }
 
   /**
@@ -431,7 +480,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async duplicateSession(id, options = {}) {
-    return this.#request('POST', `/sessions/${id}/duplicate`, options);
+    return this._post(`/sessions/${id}/duplicate`, options);
   }
 
   /**
@@ -450,7 +499,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async scheduleSession(id, data) {
-    return this.#request('POST', `/sessions/${id}/schedule`, data);
+    return this._post(`/sessions/${id}/schedule`, data);
   }
 
   // Canvas
@@ -461,7 +510,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getCanvasItems(sessionId) {
-    return this.#request('GET', `/sessions/${sessionId}/canvas`);
+    return this._get(`/sessions/${sessionId}/canvas`);
   }
 
   /**
@@ -471,7 +520,7 @@ export class ApiClient {
    * @returns {Promise<{content: string|null, data: string|null, type: string, mimeType: string, filename: string}>}
    */
   async getCanvasFileContent(sessionId, filename) {
-    return this.#request('GET', `/sessions/${sessionId}/canvas/file/${encodeURIComponent(filename)}/content`);
+    return this._get(`/sessions/${sessionId}/canvas/file/${encodeURIComponent(filename)}/content`);
   }
 
   /**
@@ -480,7 +529,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getAllCanvasItems(sessionId) {
-    return this.#request('GET', `/sessions/${sessionId}/canvas/all`);
+    return this._get(`/sessions/${sessionId}/canvas/all`);
   }
 
   /**
@@ -492,18 +541,7 @@ export class ApiClient {
   async uploadCanvasItem(sessionId, file) {
     const formData = new FormData();
     formData.append('file', file);
-
-    const response = await fetch(`${this.#baseUrl}/sessions/${sessionId}/canvas`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP ${response.status}`);
-    }
-
-    return response.json();
+    return this.#uploadFormData(`/sessions/${sessionId}/canvas`, formData);
   }
 
   /**
@@ -516,7 +554,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async createCanvasItem(sessionId, data) {
-    return this.#request('POST', `/sessions/${sessionId}/canvas`, data);
+    return this._post(`/sessions/${sessionId}/canvas`, data);
   }
 
   /**
@@ -526,7 +564,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async deleteCanvasItem(sessionId, itemId) {
-    return this.#request('DELETE', `/sessions/${sessionId}/canvas/${itemId}`);
+    return this._delete(`/sessions/${sessionId}/canvas/${itemId}`);
   }
 
   /**
@@ -535,7 +573,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getCanvasTrash(sessionId) {
-    return this.#request('GET', `/sessions/${sessionId}/canvas-trash`);
+    return this._get(`/sessions/${sessionId}/canvas-trash`);
   }
 
   /**
@@ -545,7 +583,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async recoverCanvasItem(sessionId, itemId) {
-    return this.#request('POST', `/sessions/${sessionId}/canvas/${itemId}/recover`);
+    return this._post(`/sessions/${sessionId}/canvas/${itemId}/recover`);
   }
 
   /**
@@ -555,7 +593,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async recoverCanvasFile(sessionId, filename) {
-    return this.#request('POST', `/sessions/${sessionId}/canvas-trash/recover-file/${encodeURIComponent(filename)}`);
+    return this._post(`/sessions/${sessionId}/canvas-trash/recover-file/${encodeURIComponent(filename)}`);
   }
 
   /**
@@ -565,7 +603,7 @@ export class ApiClient {
    * @returns {Promise<void>}
    */
   async permanentlyDeleteCanvasItem(sessionId, itemId) {
-    return this.#request('DELETE', `/sessions/${sessionId}/canvas/${itemId}/permanent`);
+    return this._delete(`/sessions/${sessionId}/canvas/${itemId}/permanent`);
   }
 
   /**
@@ -575,7 +613,7 @@ export class ApiClient {
    * @returns {Promise<Object>} - { deletedCount: number }
    */
   async bulkDeleteCanvasItems(sessionId, itemIds) {
-    return this.#request('POST', `/sessions/${sessionId}/canvas/bulk-delete`, { itemIds });
+    return this._post(`/sessions/${sessionId}/canvas/bulk-delete`, { itemIds });
   }
 
   /**
@@ -585,7 +623,7 @@ export class ApiClient {
    * @returns {Promise<Object>} - { recoveredCount: number }
    */
   async bulkRecoverCanvasItems(sessionId, itemIds) {
-    return this.#request('POST', `/sessions/${sessionId}/canvas/bulk-recover`, { itemIds });
+    return this._post(`/sessions/${sessionId}/canvas/bulk-recover`, { itemIds });
   }
 
   /**
@@ -595,7 +633,7 @@ export class ApiClient {
    * @returns {Promise<Object>} - { deletedCount: number }
    */
   async bulkPermanentlyDeleteCanvasItems(sessionId, itemIds) {
-    return this.#request('DELETE', `/sessions/${sessionId}/canvas/bulk-delete-permanent`, { itemIds });
+    return this._delete(`/sessions/${sessionId}/canvas/bulk-delete-permanent`, { itemIds });
   }
 
   // Git
@@ -606,7 +644,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async getGitStatus(projectId) {
-    return this.#request('GET', `/git/projects/${projectId}/status`);
+    return this._get(`/git/projects/${projectId}/status`);
   }
 
   /**
@@ -615,7 +653,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getWorktrees(projectId) {
-    return this.#request('GET', `/git/projects/${projectId}/worktrees`);
+    return this._get(`/git/projects/${projectId}/worktrees`);
   }
 
   // Todos
@@ -628,7 +666,7 @@ export class ApiClient {
    */
   async getSessionTodos(sessionId, conversationId = null) {
     const params = conversationId ? `?conversation_id=${conversationId}` : '';
-    return this.#request('GET', `/sessions/${sessionId}/todos${params}`);
+    return this._get(`/sessions/${sessionId}/todos${params}`);
   }
 
   // Summaries
@@ -642,7 +680,7 @@ export class ApiClient {
   async getSessionSummary(sessionId, generateIfMissing = false) {
     const params = generateIfMissing ? '?generate=true' : '';
     try {
-      return await this.#request('GET', `/sessions/${sessionId}/summary${params}`);
+      return await this._get(`/sessions/${sessionId}/summary${params}`);
     } catch (err) {
       // Return null instead of throwing for 404 (no summary yet)
       if (err.message.includes('404') || err.message.includes('not found')) {
@@ -659,7 +697,7 @@ export class ApiClient {
    */
   async getSessionSummariesBatch(ids) {
     if (!ids || ids.length === 0) return {};
-    return this.#request('POST', '/sessions/summaries/batch', { ids });
+    return this._post('/sessions/summaries/batch', { ids });
   }
 
   /**
@@ -668,7 +706,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async generateSessionSummary(sessionId) {
-    return this.#request('POST', `/sessions/${sessionId}/summary`);
+    return this._post(`/sessions/${sessionId}/summary`);
   }
 
   // Notes
@@ -679,7 +717,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getSessionNotes(sessionId) {
-    return this.#request('GET', `/sessions/${sessionId}/notes`);
+    return this._get(`/sessions/${sessionId}/notes`);
   }
 
   /**
@@ -689,7 +727,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async createNote(sessionId, content) {
-    return this.#request('POST', `/sessions/${sessionId}/notes`, { content });
+    return this._post(`/sessions/${sessionId}/notes`, { content });
   }
 
   /**
@@ -700,7 +738,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async updateNote(sessionId, noteId, content) {
-    return this.#request('PUT', `/sessions/${sessionId}/notes/${noteId}`, { content });
+    return this._put(`/sessions/${sessionId}/notes/${noteId}`, { content });
   }
 
   /**
@@ -710,7 +748,7 @@ export class ApiClient {
    * @returns {Promise<void>}
    */
   async deleteNote(sessionId, noteId) {
-    return this.#request('DELETE', `/sessions/${sessionId}/notes/${noteId}`);
+    return this._delete(`/sessions/${sessionId}/notes/${noteId}`);
   }
 
   // Filesystem
@@ -722,7 +760,7 @@ export class ApiClient {
    */
   async browseDirectory(path = '') {
     const params = path ? `?path=${encodeURIComponent(path)}` : '';
-    return this.#request('GET', `/filesystem/browse${params}`);
+    return this._get(`/filesystem/browse${params}`);
   }
 
   // Templates
@@ -732,7 +770,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getGlobalTemplates() {
-    return this.#request('GET', '/templates');
+    return this._get('/templates');
   }
 
   /**
@@ -741,7 +779,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async createGlobalTemplate(data) {
-    return this.#request('POST', '/templates', data);
+    return this._post('/templates', data);
   }
 
   /**
@@ -750,7 +788,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async getTemplate(id) {
-    return this.#request('GET', `/templates/${id}`);
+    return this._get(`/templates/${id}`);
   }
 
   /**
@@ -760,7 +798,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async updateTemplate(id, data) {
-    return this.#request('PATCH', `/templates/${id}`, data);
+    return this._patch(`/templates/${id}`, data);
   }
 
   /**
@@ -769,7 +807,7 @@ export class ApiClient {
    * @returns {Promise<void>}
    */
   async deleteTemplate(id) {
-    return this.#request('DELETE', `/templates/${id}`);
+    return this._delete(`/templates/${id}`);
   }
 
   /**
@@ -778,7 +816,7 @@ export class ApiClient {
    * @returns {Promise<{project: Array, global: Array}>}
    */
   async getProjectTemplates(projectId) {
-    return this.#request('GET', `/projects/${projectId}/templates`);
+    return this._get(`/projects/${projectId}/templates`);
   }
 
   /**
@@ -788,7 +826,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async createProjectTemplate(projectId, data) {
-    return this.#request('POST', `/projects/${projectId}/templates`, data);
+    return this._post(`/projects/${projectId}/templates`, data);
   }
 
   // Conversations
@@ -799,7 +837,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getConversations(sessionId) {
-    return this.#request('GET', `/sessions/${sessionId}/conversations`);
+    return this._get(`/sessions/${sessionId}/conversations`);
   }
 
   /**
@@ -809,7 +847,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async createConversation(sessionId, name = null) {
-    return this.#request('POST', `/sessions/${sessionId}/conversations`, { name });
+    return this._post(`/sessions/${sessionId}/conversations`, { name });
   }
 
   /**
@@ -819,7 +857,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async getConversation(sessionId, conversationId) {
-    return this.#request('GET', `/sessions/${sessionId}/conversations/${conversationId}`);
+    return this._get(`/sessions/${sessionId}/conversations/${conversationId}`);
   }
 
   /**
@@ -830,7 +868,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async updateConversation(sessionId, conversationId, data) {
-    return this.#request('PATCH', `/sessions/${sessionId}/conversations/${conversationId}`, data);
+    return this._patch(`/sessions/${sessionId}/conversations/${conversationId}`, data);
   }
 
   /**
@@ -840,7 +878,7 @@ export class ApiClient {
    * @returns {Promise<void>}
    */
   async deleteConversation(sessionId, conversationId) {
-    return this.#request('DELETE', `/sessions/${sessionId}/conversations/${conversationId}`);
+    return this._delete(`/sessions/${sessionId}/conversations/${conversationId}`);
   }
 
   /**
@@ -850,7 +888,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async generateConversationSummary(sessionId, conversationId) {
-    return this.#request('POST', `/sessions/${sessionId}/conversations/${conversationId}/summary`);
+    return this._post(`/sessions/${sessionId}/conversations/${conversationId}/summary`);
   }
 
   /**
@@ -864,7 +902,7 @@ export class ApiClient {
    * @returns {Promise<Object>} The created branch conversation
    */
   async branchConversation(sessionId, conversationId, data) {
-    return this.#request('POST', `/sessions/${sessionId}/conversations/${conversationId}/branch`, data);
+    return this._post(`/sessions/${sessionId}/conversations/${conversationId}/branch`, data);
   }
 
   /**
@@ -874,7 +912,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getConversationMessages(sessionId, conversationId) {
-    return this.#request('GET', `/sessions/${sessionId}/messages?conversation_id=${conversationId}`);
+    return this._get(`/sessions/${sessionId}/messages?conversation_id=${conversationId}`);
   }
 
   // Command Buttons
@@ -885,7 +923,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getCommandButtons(projectId) {
-    return this.#request('GET', `/projects/${projectId}/command-buttons`);
+    return this._get(`/projects/${projectId}/command-buttons`);
   }
 
   /**
@@ -895,7 +933,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async createCommandButton(projectId, data) {
-    return this.#request('POST', `/projects/${projectId}/command-buttons`, data);
+    return this._post(`/projects/${projectId}/command-buttons`, data);
   }
 
   /**
@@ -905,7 +943,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async getCommandButton(projectId, buttonId) {
-    return this.#request('GET', `/projects/${projectId}/command-buttons/${buttonId}`);
+    return this._get(`/projects/${projectId}/command-buttons/${buttonId}`);
   }
 
   /**
@@ -916,7 +954,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async updateCommandButton(projectId, buttonId, data) {
-    return this.#request('PATCH', `/projects/${projectId}/command-buttons/${buttonId}`, data);
+    return this._patch(`/projects/${projectId}/command-buttons/${buttonId}`, data);
   }
 
   /**
@@ -926,7 +964,7 @@ export class ApiClient {
    * @returns {Promise<void>}
    */
   async deleteCommandButton(projectId, buttonId) {
-    return this.#request('DELETE', `/projects/${projectId}/command-buttons/${buttonId}`);
+    return this._delete(`/projects/${projectId}/command-buttons/${buttonId}`);
   }
 
   /**
@@ -936,7 +974,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async runCommandButton(sessionId, buttonId) {
-    return this.#request('POST', `/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+    return this._post(`/sessions/${sessionId}/command-buttons/${buttonId}/run`);
   }
 
   /**
@@ -945,7 +983,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getActiveRuns(sessionId) {
-    return this.#request('GET', `/sessions/${sessionId}/command-buttons/runs`);
+    return this._get(`/sessions/${sessionId}/command-buttons/runs`);
   }
 
   /**
@@ -955,7 +993,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async getCommandRun(sessionId, runId) {
-    return this.#request('GET', `/sessions/${sessionId}/command-buttons/runs/${runId}`);
+    return this._get(`/sessions/${sessionId}/command-buttons/runs/${runId}`);
   }
 
   /**
@@ -964,7 +1002,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getLatestRunsForProject(projectId) {
-    return this.#request('GET', `/projects/${projectId}/command-buttons/latest-runs`);
+    return this._get(`/projects/${projectId}/command-buttons/latest-runs`);
   }
 
   /**
@@ -974,7 +1012,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async killCommandRun(sessionId, runId) {
-    return this.#request('POST', `/sessions/${sessionId}/command-buttons/runs/${runId}/kill`);
+    return this._post(`/sessions/${sessionId}/command-buttons/runs/${runId}/kill`);
   }
 
   // Project Session Defaults
@@ -985,7 +1023,7 @@ export class ApiClient {
    * @returns {Promise<Object|null>}
    */
   async getProjectSessionDefaults(projectId) {
-    return this.#request('GET', `/projects/${projectId}/session-defaults`);
+    return this._get(`/projects/${projectId}/session-defaults`);
   }
 
   /**
@@ -995,7 +1033,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async updateProjectSessionDefaults(projectId, data) {
-    return this.#request('POST', `/projects/${projectId}/session-defaults`, data);
+    return this._post(`/projects/${projectId}/session-defaults`, data);
   }
 
   /**
@@ -1004,7 +1042,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async resetProjectSessionDefaults(projectId) {
-    return this.#request('DELETE', `/projects/${projectId}/session-defaults`);
+    return this._delete(`/projects/${projectId}/session-defaults`);
   }
 
   // Quick Responses
@@ -1015,7 +1053,7 @@ export class ApiClient {
    * @returns {Promise<{project: Array, global: Array}>}
    */
   async getQuickResponses(projectId) {
-    return this.#request('GET', `/projects/${projectId}/quick-responses`);
+    return this._get(`/projects/${projectId}/quick-responses`);
   }
 
   /**
@@ -1023,7 +1061,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getGlobalQuickResponses() {
-    return this.#request('GET', '/quick-responses/global');
+    return this._get('/quick-responses/global');
   }
 
   /**
@@ -1033,7 +1071,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async createQuickResponse(projectId, data) {
-    return this.#request('POST', `/projects/${projectId}/quick-responses`, data);
+    return this._post(`/projects/${projectId}/quick-responses`, data);
   }
 
   /**
@@ -1043,7 +1081,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async updateQuickResponse(id, data) {
-    return this.#request('PATCH', `/quick-responses/${id}`, data);
+    return this._patch(`/quick-responses/${id}`, data);
   }
 
   /**
@@ -1052,7 +1090,7 @@ export class ApiClient {
    * @returns {Promise<void>}
    */
   async deleteQuickResponse(id) {
-    return this.#request('DELETE', `/quick-responses/${id}`);
+    return this._delete(`/quick-responses/${id}`);
   }
 
   /**
@@ -1062,7 +1100,7 @@ export class ApiClient {
    * @returns {Promise<{project: Array, global: Array}>}
    */
   async reorderQuickResponses(projectId, orders) {
-    return this.#request('POST', `/projects/${projectId}/quick-responses/reorder`, orders);
+    return this._post(`/projects/${projectId}/quick-responses/reorder`, orders);
   }
 
   /**
@@ -1071,7 +1109,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async reorderGlobalQuickResponses(orders) {
-    return this.#request('POST', '/quick-responses/global/reorder', orders);
+    return this._post('/quick-responses/global/reorder', orders);
   }
 
   // Agent Call Logs
@@ -1107,7 +1145,7 @@ export class ApiClient {
     if (sortBy) params.append('sortBy', sortBy);
     if (sortOrder) params.append('sortOrder', sortOrder);
     const query = params.toString();
-    return this.#request('GET', `/agent-calls${query ? '?' + query : ''}`);
+    return this._get(`/agent-calls${query ? '?' + query : ''}`);
   }
 
   /**
@@ -1115,7 +1153,7 @@ export class ApiClient {
    * @returns {Promise<{agentTypes: string[], callTypes: string[], statuses: string[], models: string[]}>}
    */
   async getAgentCallFilterOptions() {
-    return this.#request('GET', '/agent-calls/filter-options');
+    return this._get('/agent-calls/filter-options');
   }
 
   /**
@@ -1123,7 +1161,7 @@ export class ApiClient {
    * @returns {Promise<{success: boolean, deleted: number}>}
    */
   async deleteAllAgentCallLogs() {
-    return this.#request('DELETE', '/agent-calls');
+    return this._delete('/agent-calls');
   }
 
   // Settings
@@ -1133,7 +1171,7 @@ export class ApiClient {
    * @returns {Promise<{input: number, output: number, cacheRead: number, cacheCreation: number}>}
    */
   async getTokenCostWeights() {
-    return this.#request('GET', '/settings/token-weights');
+    return this._get('/settings/token-weights');
   }
 
   /**
@@ -1146,7 +1184,7 @@ export class ApiClient {
    * @returns {Promise<{input: number, output: number, cacheRead: number, cacheCreation: number}>}
    */
   async updateTokenCostWeights(weights) {
-    return this.#request('PUT', '/settings/token-weights', weights);
+    return this._put('/settings/token-weights', weights);
   }
 
   /**
@@ -1154,7 +1192,7 @@ export class ApiClient {
    * @returns {Promise<{input: number, output: number, cacheRead: number, cacheCreation: number}>}
    */
   async resetTokenCostWeights() {
-    return this.#request('DELETE', '/settings/token-weights');
+    return this._delete('/settings/token-weights');
   }
 
   /**
@@ -1162,7 +1200,7 @@ export class ApiClient {
    * @returns {Promise<{disableSessionSummaries: boolean, disableConversationSummaries: boolean, sessionTitlePrompt: string}>}
    */
   async getSummarySettings() {
-    return this.#request('GET', '/settings/summary');
+    return this._get('/settings/summary');
   }
 
   /**
@@ -1174,7 +1212,7 @@ export class ApiClient {
    * @returns {Promise<{disableSessionSummaries: boolean, disableConversationSummaries: boolean, sessionTitlePrompt: string}>}
    */
   async updateSummarySettings(settings) {
-    return this.#request('PUT', '/settings/summary', settings);
+    return this._put('/settings/summary', settings);
   }
 
   /**
@@ -1182,7 +1220,7 @@ export class ApiClient {
    * @returns {Promise<{disableSessionSummaries: boolean, disableConversationSummaries: boolean, sessionTitlePrompt: string}>}
    */
   async resetSummarySettings() {
-    return this.#request('DELETE', '/settings/summary');
+    return this._delete('/settings/summary');
   }
 
   /**
@@ -1190,7 +1228,7 @@ export class ApiClient {
    * @returns {Promise<{disableAnalytics: boolean}>}
    */
   async getGeneralSettings() {
-    return this.#request('GET', '/settings/general');
+    return this._get('/settings/general');
   }
 
   /**
@@ -1200,7 +1238,7 @@ export class ApiClient {
    * @returns {Promise<{disableAnalytics: boolean}>}
    */
   async updateGeneralSettings(settings) {
-    return this.#request('PUT', '/settings/general', settings);
+    return this._put('/settings/general', settings);
   }
 
   /**
@@ -1208,7 +1246,7 @@ export class ApiClient {
    * @returns {Promise<{disableAnalytics: boolean}>}
    */
   async resetGeneralSettings() {
-    return this.#request('DELETE', '/settings/general');
+    return this._delete('/settings/general');
   }
 
   // Model Providers
@@ -1218,7 +1256,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getProviders() {
-    return this.#request('GET', '/providers');
+    return this._get('/providers');
   }
 
   /**
@@ -1227,7 +1265,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async getProvider(id) {
-    return this.#request('GET', `/providers/${id}`);
+    return this._get(`/providers/${id}`);
   }
 
   /**
@@ -1236,7 +1274,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async createProvider(data) {
-    return this.#request('POST', '/providers', data);
+    return this._post('/providers', data);
   }
 
   /**
@@ -1246,7 +1284,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async updateProvider(id, data) {
-    return this.#request('PATCH', `/providers/${id}`, data);
+    return this._patch(`/providers/${id}`, data);
   }
 
   /**
@@ -1255,7 +1293,7 @@ export class ApiClient {
    * @returns {Promise<void>}
    */
   async deleteProvider(id) {
-    return this.#request('DELETE', `/providers/${id}`);
+    return this._delete(`/providers/${id}`);
   }
 
   /**
@@ -1264,7 +1302,7 @@ export class ApiClient {
    * @returns {Promise<{success: boolean, message: string, details?: Object}>}
    */
   async testProviderConnection(config) {
-    return this.#request('POST', '/providers/test', config);
+    return this._post('/providers/test', config);
   }
 
   /**
@@ -1273,7 +1311,7 @@ export class ApiClient {
    * @returns {Promise<{success: boolean, message: string, details?: Object}>}
    */
   async testExistingProvider(id) {
-    return this.#request('POST', `/providers/${id}/test`);
+    return this._post(`/providers/${id}/test`);
   }
 
   /**
@@ -1282,7 +1320,7 @@ export class ApiClient {
    * @returns {Promise<Array>}
    */
   async getProviderModels(providerId) {
-    return this.#request('GET', `/providers/${providerId}/models`);
+    return this._get(`/providers/${providerId}/models`);
   }
 
   /**
@@ -1292,7 +1330,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async addProviderModel(providerId, data) {
-    return this.#request('POST', `/providers/${providerId}/models`, data);
+    return this._post(`/providers/${providerId}/models`, data);
   }
 
   /**
@@ -1303,7 +1341,7 @@ export class ApiClient {
    * @returns {Promise<Object>}
    */
   async updateProviderModel(providerId, modelId, data) {
-    return this.#request('PATCH', `/providers/${providerId}/models/${modelId}`, data);
+    return this._patch(`/providers/${providerId}/models/${modelId}`, data);
   }
 
   /**
@@ -1313,7 +1351,7 @@ export class ApiClient {
    * @returns {Promise<void>}
    */
   async removeProviderModel(providerId, modelId) {
-    return this.#request('DELETE', `/providers/${providerId}/models/${modelId}`);
+    return this._delete(`/providers/${providerId}/models/${modelId}`);
   }
 
   // Slash Commands
@@ -1324,7 +1362,7 @@ export class ApiClient {
    * @returns {Promise<Array>} Array of command objects
    */
   async getSlashCommands(directory) {
-    return this.#request('GET', `/commands?directory=${encodeURIComponent(directory)}`);
+    return this._get(`/commands?directory=${encodeURIComponent(directory)}`);
   }
 
   /**
@@ -1334,7 +1372,7 @@ export class ApiClient {
    * @returns {Promise<Object>} Command object
    */
   async getSlashCommand(directory, name) {
-    return this.#request('GET', `/commands/${encodeURIComponent(name)}?directory=${encodeURIComponent(directory)}`);
+    return this._get(`/commands/${encodeURIComponent(name)}?directory=${encodeURIComponent(directory)}`);
   }
 
   /**
@@ -1345,7 +1383,7 @@ export class ApiClient {
    * @returns {Promise<Object>} Execution result
    */
   async executeSlashCommand(sessionId, name, args = {}) {
-    return this.#request('POST', `/commands/${encodeURIComponent(name)}/execute`, {
+    return this._post(`/commands/${encodeURIComponent(name)}/execute`, {
       sessionId,
       args,
     });
