@@ -412,6 +412,117 @@ async function discoverPluginSkills(workingDirectory) {
 }
 
 /**
+ * Discover skills from marketplace plugins
+ * Reads ~/.claude/plugins/known_marketplaces.json and scans each marketplace's
+ * plugins/ and external_plugins/ directories for skills
+ *
+ * @returns {Promise<Array>} Array of marketplace skill objects
+ */
+async function discoverMarketplaceSkills() {
+  const skills = [];
+  const knownMarketplacesPath = join(homedir(), '.claude', 'plugins', 'known_marketplaces.json');
+
+  try {
+    const content = await readFile(knownMarketplacesPath, 'utf-8');
+    const marketplaces = JSON.parse(content);
+
+    for (const [marketplaceId, marketplace] of Object.entries(marketplaces)) {
+      const basePath = marketplace.installLocation;
+      if (!basePath) continue;
+
+      // Scan both plugins/ and external_plugins/ directories
+      for (const subdir of ['plugins', 'external_plugins']) {
+        const pluginsDir = join(basePath, subdir);
+
+        try {
+          await access(pluginsDir, constants.R_OK);
+          const pluginDirs = await readdir(pluginsDir, { withFileTypes: true });
+
+          for (const pluginEntry of pluginDirs) {
+            if (!pluginEntry.isDirectory()) continue;
+
+            const pluginPath = join(pluginsDir, pluginEntry.name);
+            const namespace = pluginEntry.name;
+            const skillsDir = join(pluginPath, 'skills');
+
+            try {
+              await access(skillsDir, constants.R_OK);
+              const skillEntries = await readdir(skillsDir, { withFileTypes: true });
+
+              for (const entry of skillEntries) {
+                if (!entry.isDirectory()) continue;
+
+                const skillMdPath = join(skillsDir, entry.name, 'SKILL.md');
+                try {
+                  const skillContent = await readFile(skillMdPath, 'utf-8');
+                  const parsed = parseSkillFile(skillContent, entry.name);
+                  if (!parsed.userInvocable) continue;
+
+                  skills.push({
+                    name: `${namespace}:${parsed.name}`,
+                    description: parsed.description,
+                    arguments: [],
+                    argumentHint: parsed.argumentHint,
+                    source: 'plugin-skill',
+                    filePath: skillMdPath,
+                    isSkill: true,
+                    disableModelInvocation: parsed.disableModelInvocation,
+                  });
+                } catch { /* no SKILL.md */ }
+              }
+            } catch { /* no skills dir */ }
+          }
+        } catch { /* subdir doesn't exist */ }
+      }
+    }
+  } catch { /* no known_marketplaces.json */ }
+
+  return skills;
+}
+
+/**
+ * Discover commands from marketplace plugins
+ * Reads ~/.claude/plugins/known_marketplaces.json and scans each marketplace's
+ * plugins/ and external_plugins/ directories for commands
+ *
+ * @returns {Promise<Array>} Array of marketplace command objects
+ */
+async function discoverMarketplaceCommands() {
+  const commands = [];
+  const knownMarketplacesPath = join(homedir(), '.claude', 'plugins', 'known_marketplaces.json');
+
+  try {
+    const content = await readFile(knownMarketplacesPath, 'utf-8');
+    const marketplaces = JSON.parse(content);
+
+    for (const [marketplaceId, marketplace] of Object.entries(marketplaces)) {
+      const basePath = marketplace.installLocation;
+      if (!basePath) continue;
+
+      for (const subdir of ['plugins', 'external_plugins']) {
+        const pluginsDir = join(basePath, subdir);
+
+        try {
+          await access(pluginsDir, constants.R_OK);
+          const pluginDirs = await readdir(pluginsDir, { withFileTypes: true });
+
+          for (const pluginEntry of pluginDirs) {
+            if (!pluginEntry.isDirectory()) continue;
+
+            const namespace = pluginEntry.name;
+            const pluginCommandsDir = join(pluginsDir, pluginEntry.name, 'commands');
+            const pluginCommands = await discoverCommandsFromDir(pluginCommandsDir, 'plugin', namespace);
+            commands.push(...pluginCommands);
+          }
+        } catch { /* subdir doesn't exist */ }
+      }
+    }
+  } catch { /* no known_marketplaces.json */ }
+
+  return commands;
+}
+
+/**
  * Get all available slash commands for a working directory
  * Commands are discovered from:
  * 1. Project .claude/commands/ (highest priority)
@@ -436,10 +547,14 @@ export async function getCommands(workingDirectory) {
 
   const pluginCommands = await discoverPluginCommands(workingDirectory);
 
+  // Discover marketplace plugins (global, not scoped to installed_plugins.json)
+  const marketplaceCommands = await discoverMarketplaceCommands();
+
   // Discover skills from all sources
   const projectSkills = await discoverSkillsFromDir(workingDirectory, 'project-skill');
   const userSkills = await discoverSkillsFromDir(homedir(), 'user-skill');
   const pluginSkills = await discoverPluginSkills(workingDirectory);
+  const marketplaceSkills = await discoverMarketplaceSkills();
 
   // Create built-in command objects
   const builtinCommands = BUILTIN_COMMANDS.map(cmd => ({
@@ -449,12 +564,13 @@ export async function getCommands(workingDirectory) {
   }));
 
   // Skills take precedence over commands with the same name (per Anthropic docs)
-  // Priority: project > user > plugin; then commands fill remaining slots
+  // Priority: project > user > installed-plugin > marketplace; then commands fill remaining slots
   const seen = new Set();
   const commands = [];
 
   // Add all skills first (they take precedence)
-  for (const skill of [...projectSkills, ...userSkills, ...pluginSkills]) {
+  // installed_plugins.json entries come before marketplace to win dedup
+  for (const skill of [...projectSkills, ...userSkills, ...pluginSkills, ...marketplaceSkills]) {
     if (!seen.has(skill.name)) {
       seen.add(skill.name);
       commands.push(skill);
@@ -462,7 +578,8 @@ export async function getCommands(workingDirectory) {
   }
 
   // Then add commands (only if name not already taken by a skill)
-  for (const cmd of [...projectCommands, ...userCommands, ...pluginCommands, ...builtinCommands]) {
+  // installed_plugins.json entries come before marketplace to win dedup
+  for (const cmd of [...projectCommands, ...userCommands, ...pluginCommands, ...marketplaceCommands, ...builtinCommands]) {
     if (!seen.has(cmd.name)) {
       seen.add(cmd.name);
       commands.push(cmd);
