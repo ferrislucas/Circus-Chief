@@ -4706,5 +4706,70 @@ describe('Sessions Store', () => {
         expect(store.conversations[1].id).toBe('conv-A2'); // not removed
       });
     });
+
+    describe('getWorkflowAggregatedStatus', () => {
+      it('totalCount is 0 for a session with no children', () => {
+        const store = useSessionsStore();
+        store.sessions = [{ id: 'root', status: 'running', parentSessionId: null }];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        expect(result.totalCount).toBe(0);
+      });
+
+      it('totalCount is 1 for a session with one child', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'running', parentSessionId: null },
+          { id: 'child-1', status: 'running', parentSessionId: 'root' },
+        ];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        expect(result.totalCount).toBe(1);
+      });
+
+      it('totalCount is 3 for a session with three children', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'running', parentSessionId: null },
+          { id: 'child-1', status: 'running', parentSessionId: 'root' },
+          { id: 'child-2', status: 'running', parentSessionId: 'root' },
+          { id: 'child-3', status: 'running', parentSessionId: 'root' },
+        ];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        expect(result.totalCount).toBe(3);
+      });
+
+      it('totalCount counts nested descendants (grandchildren)', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'running', parentSessionId: null },
+          { id: 'child-1', status: 'running', parentSessionId: 'root' },
+          { id: 'grandchild-1', status: 'running', parentSessionId: 'child-1' },
+        ];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        // root has 2 descendants (child-1 and grandchild-1), but not counting root itself
+        expect(result.totalCount).toBe(2);
+      });
+
+      it('status counts still include the root session', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'running', parentSessionId: null },
+          { id: 'child-1', status: 'scheduled', parentSessionId: 'root' },
+        ];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        expect(result.runningCount).toBe(1); // the root
+        expect(result.scheduledCount).toBe(1); // the child
+        expect(result.totalCount).toBe(1); // only the child (descendants only)
+      });
+    });
   });
 });
