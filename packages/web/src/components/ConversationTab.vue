@@ -267,6 +267,9 @@
       mode="execute"
       @executed="handleSlashCommandExecuted"
     />
+
+    <!-- Scheduling Info Panel -->
+    <SchedulingInfo v-if="sessionsStore.currentSession" :session="sessionsStore.currentSession" />
   </div>
 </template>
 
@@ -300,6 +303,7 @@ import ResizableTextarea from './ResizableTextarea.vue';
 import SlashCommandButton from './SlashCommandButton.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
 import OrchestrationPanel from './OrchestrationPanel.vue';
+import SchedulingInfo from './SchedulingInfo.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useProjectsStore } from '../stores/projects.js';
 
