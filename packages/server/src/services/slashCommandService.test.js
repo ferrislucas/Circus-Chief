@@ -9,6 +9,10 @@ import {
   getCommand,
   getCommandBody,
   buildCommandString,
+  buildSkillInvocation,
+  buildSkillSystemPrompt,
+  buildSkillUserMessage,
+  resolvePromptSkillOrCommand,
 } from './slashCommandService.js';
 
 describe('slashCommandService', () => {
@@ -994,6 +998,248 @@ Process these files: $ARGUMENTS`);
       const result = await buildCommandString(testDir, 'test-plugin:process', { _raw: 'file1.txt file2.txt' });
 
       expect(result).toBe('Process these files: file1.txt file2.txt');
+    });
+  });
+
+  describe('buildSkillInvocation', () => {
+    let skillsDir;
+
+    beforeEach(async () => {
+      skillsDir = join(testDir, '.claude', 'skills');
+      await rm(skillsDir, { recursive: true, force: true });
+    });
+
+    it('returns null for non-skill commands', async () => {
+      await mkdir(join(testDir, '.claude', 'commands'), { recursive: true });
+      await writeFile(
+        join(testDir, '.claude', 'commands', 'deploy.md'),
+        `---
+description: Deploy command
+---
+Deploy now`
+      );
+
+      const result = await buildSkillInvocation(testDir, 'deploy', {});
+      expect(result).toBeNull();
+    });
+
+    it('returns null for unknown commands', async () => {
+      const result = await buildSkillInvocation(testDir, 'nonexistent', {});
+      expect(result).toBeNull();
+    });
+
+    it('returns structured skill invocation with no args', async () => {
+      await mkdir(join(skillsDir, 'design'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'design', 'SKILL.md'),
+        `---
+name: design
+description: Design skill
+---
+Create distinctive interfaces for $ARGUMENTS`
+      );
+
+      const result = await buildSkillInvocation(testDir, 'design', {});
+
+      expect(result).not.toBeNull();
+      expect(result.skillName).toBe('design');
+      expect(result.skillContent).toBe('Create distinctive interfaces for ');
+      expect(result.userMessage).toBeNull();
+    });
+
+    it('returns structured skill invocation with args', async () => {
+      await mkdir(join(skillsDir, 'design'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'design', 'SKILL.md'),
+        `---
+name: design
+description: Design skill
+---
+Create distinctive interfaces for $ARGUMENTS`
+      );
+
+      const result = await buildSkillInvocation(testDir, 'design', { _raw: 'a landing page' });
+
+      expect(result).not.toBeNull();
+      expect(result.skillName).toBe('design');
+      expect(result.skillContent).toBe('Create distinctive interfaces for a landing page');
+      expect(result.userMessage).toBe('a landing page');
+    });
+
+    it('substitutes positional args in skill content', async () => {
+      await mkdir(join(skillsDir, 'copy'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'copy', 'SKILL.md'),
+        `---
+name: copy
+---
+Copy $0 to $1`
+      );
+
+      const result = await buildSkillInvocation(testDir, 'copy', { _raw: 'source.txt dest.txt' });
+
+      expect(result.skillContent).toBe('Copy source.txt to dest.txt');
+      expect(result.userMessage).toBe('source.txt dest.txt');
+    });
+  });
+
+  describe('buildSkillSystemPrompt', () => {
+    it('combines project system prompt with skill content', () => {
+      const result = buildSkillSystemPrompt('You are a helpful assistant.', {
+        skillName: 'design',
+        skillContent: 'Create distinctive interfaces.',
+      });
+
+      expect(result).toContain('You are a helpful assistant.');
+      expect(result).toContain('<skill name="design">');
+      expect(result).toContain('Create distinctive interfaces.');
+      expect(result).toContain('</skill>');
+    });
+
+    it('handles null project system prompt', () => {
+      const result = buildSkillSystemPrompt(null, {
+        skillName: 'design',
+        skillContent: 'Create distinctive interfaces.',
+      });
+
+      expect(result).not.toContain('null');
+      expect(result).toContain('<skill name="design">');
+      expect(result).toContain('Create distinctive interfaces.');
+    });
+
+    it('handles empty project system prompt', () => {
+      const result = buildSkillSystemPrompt('', {
+        skillName: 'design',
+        skillContent: 'Create distinctive interfaces.',
+      });
+
+      expect(result).toContain('<skill name="design">');
+      // Should not have leading empty content
+      expect(result.startsWith('<skill')).toBe(true);
+    });
+  });
+
+  describe('buildSkillUserMessage', () => {
+    it('returns user args when provided', () => {
+      const result = buildSkillUserMessage({
+        skillName: 'design',
+        userMessage: 'create a 1999 landing page',
+      });
+
+      expect(result).toBe('create a 1999 landing page');
+    });
+
+    it('returns default prompt when no args provided', () => {
+      const result = buildSkillUserMessage({
+        skillName: 'design',
+        userMessage: null,
+      });
+
+      expect(result).toContain('/design');
+      expect(result).toContain('skill');
+    });
+  });
+
+  describe('resolvePromptSkillOrCommand', () => {
+    beforeEach(async () => {
+      await rm(join(testDir, '.claude', 'commands'), { recursive: true, force: true });
+      await mkdir(join(testDir, '.claude', 'commands'), { recursive: true });
+      await rm(join(testDir, '.claude', 'skills'), { recursive: true, force: true });
+    });
+
+    it('returns skill resolution when prompt starts with a valid skill name', async () => {
+      const skillsDir = join(testDir, '.claude', 'skills');
+      await mkdir(join(skillsDir, 'design'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'design', 'SKILL.md'),
+        '---\nname: design\ndescription: Design skill\n---\nCreate interfaces for $ARGUMENTS'
+      );
+
+      const result = await resolvePromptSkillOrCommand(
+        testDir, '/design create a landing page', 'You are helpful.'
+      );
+
+      expect(result).not.toBeNull();
+      expect(result.type).toBe('skill');
+      expect(result.userMessage).toBe('create a landing page');
+      expect(result.systemPrompt).toContain('You are helpful.');
+      expect(result.systemPrompt).toContain('<skill name="design">');
+      expect(result.systemPrompt).toContain('Create interfaces for create a landing page');
+    });
+
+    it('returns default user message when skill invoked with no args', async () => {
+      const skillsDir = join(testDir, '.claude', 'skills');
+      await mkdir(join(skillsDir, 'design'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'design', 'SKILL.md'),
+        '---\nname: design\n---\nCreate interfaces for $ARGUMENTS'
+      );
+
+      const result = await resolvePromptSkillOrCommand(testDir, '/design', null);
+
+      expect(result).not.toBeNull();
+      expect(result.type).toBe('skill');
+      expect(result.userMessage).toContain('/design');
+      expect(result.userMessage).toContain('skill');
+    });
+
+    it('returns command resolution for a non-skill command', async () => {
+      await writeFile(
+        join(projectCommandsDir, 'deploy.md'),
+        '---\ndescription: Deploy\n---\nDeploy to production now!'
+      );
+
+      const result = await resolvePromptSkillOrCommand(
+        testDir, '/deploy', 'Project prompt.'
+      );
+
+      expect(result).not.toBeNull();
+      expect(result.type).toBe('command');
+      expect(result.userMessage).toBe('Deploy to production now!');
+      expect(result.systemPrompt).toBe('Project prompt.');
+    });
+
+    it('returns null for plain text prompts', async () => {
+      const result = await resolvePromptSkillOrCommand(testDir, 'hello world', 'sys');
+      expect(result).toBeNull();
+    });
+
+    it('returns null for unrecognized slash commands', async () => {
+      const result = await resolvePromptSkillOrCommand(testDir, '/nonexistent foo bar', null);
+      expect(result).toBeNull();
+    });
+
+    it('returns null for null or empty prompts', async () => {
+      expect(await resolvePromptSkillOrCommand(testDir, null, null)).toBeNull();
+      expect(await resolvePromptSkillOrCommand(testDir, '', null)).toBeNull();
+    });
+
+    it('handles null project system prompt for skills', async () => {
+      const skillsDir = join(testDir, '.claude', 'skills');
+      await mkdir(join(skillsDir, 'test'), { recursive: true });
+      await writeFile(
+        join(skillsDir, 'test', 'SKILL.md'),
+        '---\nname: test\n---\nDo something'
+      );
+
+      const result = await resolvePromptSkillOrCommand(testDir, '/test args', null);
+
+      expect(result).not.toBeNull();
+      expect(result.systemPrompt).toContain('<skill name="test">');
+      expect(result.systemPrompt).not.toContain('null');
+    });
+
+    it('handles null project system prompt for commands', async () => {
+      await writeFile(
+        join(projectCommandsDir, 'cmd.md'),
+        '---\ndescription: A command\n---\nRun this'
+      );
+
+      const result = await resolvePromptSkillOrCommand(testDir, '/cmd', null);
+
+      expect(result).not.toBeNull();
+      expect(result.type).toBe('command');
+      expect(result.systemPrompt).toBeNull();
     });
   });
 });

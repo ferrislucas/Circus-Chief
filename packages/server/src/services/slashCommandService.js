@@ -426,7 +426,7 @@ async function discoverMarketplaceSkills() {
     const content = await readFile(knownMarketplacesPath, 'utf-8');
     const marketplaces = JSON.parse(content);
 
-    for (const [marketplaceId, marketplace] of Object.entries(marketplaces)) {
+    for (const [_marketplaceId, marketplace] of Object.entries(marketplaces)) {
       const basePath = marketplace.installLocation;
       if (!basePath) continue;
 
@@ -495,7 +495,7 @@ async function discoverMarketplaceCommands() {
     const content = await readFile(knownMarketplacesPath, 'utf-8');
     const marketplaces = JSON.parse(content);
 
-    for (const [marketplaceId, marketplace] of Object.entries(marketplaces)) {
+    for (const [_marketplaceId, marketplace] of Object.entries(marketplaces)) {
       const basePath = marketplace.installLocation;
       if (!basePath) continue;
 
@@ -729,11 +729,135 @@ export async function buildCommandString(workingDirectory, name, args = {}) {
   return commandString;
 }
 
+/**
+ * Build a structured skill invocation, separating skill content (for system prompt)
+ * from user arguments (for user message).
+ *
+ * Returns null if the command is not a skill or not found.
+ *
+ * @param {string} workingDirectory - The project working directory
+ * @param {string} name - Skill name (e.g., "frontend-design" or "frontend-design:frontend-design")
+ * @param {Object} args - Arguments object, with _raw for the raw argument string
+ * @returns {Promise<{skillContent: string, userMessage: string|null, skillName: string}|null>}
+ */
+export async function buildSkillInvocation(workingDirectory, name, args = {}) {
+  const command = await getCommand(workingDirectory, name);
+  if (!command || !command.isSkill) return null;
+
+  const body = await getCommandBody(workingDirectory, name);
+  if (!body) return null;
+
+  const rawArgs = args._raw || '';
+
+  // Process $ARGUMENTS and positional args in the body
+  let processedBody = body;
+  processedBody = processedBody
+    .replace(/\$\{ARGUMENTS\}/g, rawArgs)
+    .replace(/\$ARGUMENTS\b/g, rawArgs);
+
+  const argParts = rawArgs.split(/\s+/).filter(Boolean);
+  for (let i = 0; i < argParts.length; i++) {
+    processedBody = processedBody
+      .replace(new RegExp(`\\$\\{${i}\\}`, 'g'), argParts[i])
+      .replace(new RegExp(`\\$${i}\\b`, 'g'), argParts[i]);
+  }
+
+  return {
+    skillContent: processedBody,
+    userMessage: rawArgs.trim() || null,
+    skillName: name,
+  };
+}
+
+/**
+ * Build a system prompt that includes skill content as context.
+ * Merges the project system prompt with the skill body wrapped in a <skill> tag.
+ *
+ * @param {string|null} projectSystemPrompt - The project's custom system prompt
+ * @param {{skillContent: string, skillName: string}} skillInvocation - From buildSkillInvocation()
+ * @returns {string} Combined system prompt
+ */
+export function buildSkillSystemPrompt(projectSystemPrompt, skillInvocation) {
+  const parts = [];
+  if (projectSystemPrompt) {
+    parts.push(projectSystemPrompt);
+  }
+  parts.push(`<skill name="${skillInvocation.skillName}">\n${skillInvocation.skillContent}\n</skill>`);
+  return parts.join('\n\n');
+}
+
+/**
+ * Build the user message for a skill invocation.
+ * Returns the user's args if provided, otherwise a default prompt
+ * telling Claude the skill was invoked.
+ *
+ * @param {{userMessage: string|null, skillName: string}} skillInvocation - From buildSkillInvocation()
+ * @returns {string} User message to send
+ */
+export function buildSkillUserMessage(skillInvocation) {
+  return skillInvocation.userMessage
+    || `The user invoked the /${skillInvocation.skillName} skill. Follow the skill instructions above and ask the user what they would like you to build.`;
+}
+
+/**
+ * Detect and resolve a skill or command invocation from a prompt string.
+ * Returns null if the prompt is not a recognized skill/command (pass it through as plain text).
+ *
+ * @param {string} workingDirectory - Project working directory for command discovery
+ * @param {string} prompt - The user's prompt text
+ * @param {string|null} projectSystemPrompt - The project's system prompt
+ * @returns {Promise<{type: 'skill'|'command', userMessage: string, systemPrompt: string|null}|null>}
+ */
+export async function resolvePromptSkillOrCommand(workingDirectory, prompt, projectSystemPrompt) {
+  if (!prompt || typeof prompt !== 'string' || !prompt.startsWith('/')) return null;
+
+  const match = prompt.match(/^\/(\S+)(?:\s+([\s\S]*))?$/);
+  if (!match) return null;
+
+  const [, commandName, rawArgs] = match;
+
+  // Try skill first — skills take precedence over commands
+  try {
+    const skillInvocation = await buildSkillInvocation(
+      workingDirectory, commandName, { _raw: rawArgs || '' }
+    );
+    if (skillInvocation) {
+      return {
+        type: 'skill',
+        userMessage: buildSkillUserMessage(skillInvocation),
+        systemPrompt: buildSkillSystemPrompt(projectSystemPrompt, skillInvocation),
+      };
+    }
+  } catch (err) {
+    // Skill lookup failed — fall through
+  }
+
+  // Try regular (non-skill) command
+  try {
+    const commandString = await buildCommandString(workingDirectory, commandName, { _raw: rawArgs || '' });
+    if (commandString) {
+      return {
+        type: 'command',
+        userMessage: commandString,
+        systemPrompt: projectSystemPrompt || null,
+      };
+    }
+  } catch (err) {
+    // Command not found — fall through
+  }
+
+  return null;
+}
+
 export default {
   getCommands,
   getCommand,
   getCommandBody,
   buildCommandString,
+  buildSkillInvocation,
+  buildSkillSystemPrompt,
+  buildSkillUserMessage,
+  resolvePromptSkillOrCommand,
   parseCommandFile,
   parseSkillFile,
 };
