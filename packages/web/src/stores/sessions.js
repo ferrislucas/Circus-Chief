@@ -266,7 +266,7 @@ export const useSessionsStore = defineStore('sessions', {
         scheduledCount,
         waitingCount,
         completedCount,
-        totalCount: allSessions.length,
+        totalCount: allSessions.length - 1,
         hasScheduledDescendant: allSessions.slice(1).some((s) => s.status === 'scheduled'),
         rootIsScheduled: root.status === 'scheduled',
       };
