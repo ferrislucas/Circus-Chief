@@ -165,7 +165,7 @@
               title="Uncommitted changes"
             ></span>
             <span
-              v-if="tab.id === 'canvas' && canvasItemCount > 0"
+              v-if="tab.id === 'canvas' && canvasStore.groupedItems.length > 0"
               class="canvas-indicator"
               title="Canvas contains files"
             ></span>
@@ -184,7 +184,7 @@
         <div class="tabs-mobile">
           <select :value="activeTab" @change="navigateToTab($event.target.value)" class="tab-select">
             <option v-for="tab in tabs" :key="tab.id" :value="tab.id">
-              {{ tab.label }}{{ tab.id === 'changes' && hasChanges ? ' •' : '' }}{{ tab.id === 'canvas' && canvasItemCount > 0 ? ' •' : '' }}{{ tab.id === 'conversation' && isSessionActive ? ' ...' : '' }}
+              {{ tab.label }}{{ tab.id === 'changes' && hasChanges ? ' •' : '' }}{{ tab.id === 'canvas' && canvasStore.groupedItems.length > 0 ? ' •' : '' }}{{ tab.id === 'conversation' && isSessionActive ? ' ...' : '' }}
             </option>
           </select>
         </div>
@@ -273,8 +273,6 @@ const sessionPath = computed(() => {
   return sessionsStore.getSessionPath(route.params.id);
 });
 
-const canvasItemCount = ref(0);
-
 // Command button status indicators for real-time updates (mirrors SessionCard behavior)
 const buttonStatusesToDisplay = computed(() => {
   // Access commandRunVersion to establish Vue dependency tracking.
@@ -316,7 +314,7 @@ const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
   { id: 'conversation', label: 'Conversations' },
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
-  { id: 'canvas', label: canvasItemCount.value > 0 ? `Canvas (${canvasItemCount.value})` : 'Canvas' },
+  { id: 'canvas', label: canvasStore.groupedItems.length > 0 ? `Canvas (${canvasStore.groupedItems.length})` : 'Canvas' },
   { id: 'commands', label: 'Commands' }
 ]);
 
@@ -361,7 +359,6 @@ function cleanup() {
   canvasStore.items = [];
   // Reset local state
   summary.value = null;
-  canvasItemCount.value = 0;
   canvasStore.$reset();
 }
 
@@ -464,14 +461,12 @@ async function initializeSession(sessionId) {
   cleanups.push(
     onCanvasAdd((item) => {
       canvasStore.addItem(item);
-      canvasItemCount.value = canvasStore.groupedItems.length;
     })
   );
 
   cleanups.push(
     onCanvasRemove((itemId) => {
       canvasStore.removeItem(itemId);
-      canvasItemCount.value = canvasStore.groupedItems.length;
     })
   );
 
@@ -574,7 +569,6 @@ async function initializeSession(sessionId) {
   // even when the user is on a different tab. CanvasTab still calls fetchItems on mount
   // to ensure fresh data (the fetch is idempotent).
   await canvasStore.fetchItems(sessionId);
-  canvasItemCount.value = canvasStore.groupedItems.length;
   todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
 
   // Fetch summary for PR indicators (don't await, not critical)
@@ -596,7 +590,6 @@ async function initializeSession(sessionId) {
       await sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId);
       await sessionsStore.fetchWorkLogs(sessionId);
       await canvasStore.fetchItems(sessionId);
-      canvasItemCount.value = canvasStore.groupedItems.length;
       checkForChanges();
     })
   );
