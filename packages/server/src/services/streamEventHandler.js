@@ -550,7 +550,7 @@ export function cleanupSessionState(sessionId, includeConversationId = false) {
  * @param {Function} handleTemplateTriggerIfNeeded
  * @param {Function} _checkProactiveReschedule
  */
-export async function handleTurnCompletion(sessionId, workingDirectory, handleTemplateTriggerIfNeeded, _checkProactiveReschedule) {
+export async function handleTurnCompletion(sessionId, workingDirectory, handleTemplateTriggerIfNeeded, _checkProactiveReschedule, handleAutoSendIfNeeded) {
   // Associate work logs with the last message now that the turn is complete
   const lastMessageId = lastMessageIds.get(sessionId);
   if (lastMessageId) {
@@ -583,6 +583,11 @@ export async function handleTurnCompletion(sessionId, workingDirectory, handleTe
 
     // Check if template should be triggered after turn completion
     await handleTemplateTriggerIfNeeded(sessionId);
+
+    // Auto-send queued prompt if enabled (MUST be inside the abort guard block)
+    if (handleAutoSendIfNeeded) {
+      await handleAutoSendIfNeeded(sessionId);
+    }
   }
   return false;
 }

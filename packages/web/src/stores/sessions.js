@@ -637,6 +637,10 @@ export const useSessionsStore = defineStore('sessions', {
       return this.updateSessionFields(sessionId, { nextTemplateId });
     },
 
+    async updateAutoSendPendingPrompt(sessionId, autoSendPendingPrompt) {
+      return this.updateSessionFields(sessionId, { autoSendPendingPrompt });
+    },
+
     async updateSessionFields(sessionId, updates) {
       this.error = null;
       try {

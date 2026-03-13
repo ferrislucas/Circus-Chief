@@ -116,91 +116,8 @@
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
 
-    <form v-if="canSendMessage || isScheduledForFuture" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
-      <ResizableTextarea
-        ref="textareaRef"
-        v-model="input"
-        class="form-input form-textarea"
-        :placeholder="isScheduledForFuture ? 'Edit your scheduled prompt...' : (isDraft || isScheduledDraft) ? 'Edit your prompt...' : 'Send a follow-up message...'"
-        :min-height="80"
-        @input="handleInput"
-        @keydown="handleKeydown"
-      />
-
-      <!-- Quick Responses Panel - shows below the textarea when not running or for draft sessions -->
-      <QuickResponsesPanel
-        v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
-        :show-empty="true"
-        @insert="handleQuickResponseInsert"
-        @openSettings="quickResponseSettingsOpen = true"
-      />
-
-      <!-- Send button row -->
-      <div v-if="!isScheduledForFuture" class="send-button-row">
-        <div v-if="isDraft" class="draft-actions">
-          <button type="submit" class="btn btn-primary btn-send-full" :disabled="restarting || saveStatus === 'saving'">
-            <span v-if="restarting" class="loading-spinner"></span>
-            {{ restarting ? 'Sending...' : 'Send' }}
-          </button>
-        </div>
-        <template v-else>
-          <button
-            type="submit"
-            class="btn btn-primary btn-send-full"
-            :disabled="isSendDisabled"
-            :title="sendButtonDisabledReason"
-          >
-            <span v-if="sending" class="loading-spinner"></span>
-            {{ sending ? 'Sending...' : 'Send' }}
-          </button>
-        </template>
-      </div>
-
-      <div v-if="!isScheduledForFuture" class="input-controls">
-        <div class="session-options">
-          <div class="mode-switcher">
-            <ModeSelector :sessionId="sessionId" />
-          </div>
-
-          <ModelSelector v-model="selectedModel" />
-
-          <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
-          <SlashCommandButton
-            v-if="workingDirectory"
-            @open="showSlashCommandWizard = true"
-          />
-          <div class="thinking-toggle">
-            <label class="toggle-switch">
-              <input
-                type="checkbox"
-                :checked="sessionsStore.currentSession?.thinkingEnabled"
-                @change="handleThinkingToggle"
-                :disabled="togglingThinking"
-              />
-              <span class="toggle-slider"></span>
-            </label>
-            <span class="toggle-label">Thinking</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Orchestration Panel - shows after input controls -->
-      <OrchestrationPanel
-        v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
-        :session-id="sessionId"
-        :project-id="sessionsStore.currentSession?.projectId"
-        :current-template-id="sessionsStore.currentSession?.nextTemplateId"
-        :session-status="sessionsStore.currentSession?.status"
-        :is-draft="isDraft"
-        :input-has-content="inputHasContent"
-        :auto-reschedule-enabled="sessionsStore.currentSession?.autoRescheduleEnabled"
-        @openSchedule="showScheduleModal = true"
-        @openAutoReschedule="showAutoRescheduleModal = true"
-        @update:templateId="handleTemplateChange"
-      />
-    </form>
-
-    <div v-else-if="sessionsStore.currentSession?.status === 'running'" class="running-state">
+    <!-- Running state banner - shows above the form when Claude is working -->
+    <div v-if="sessionsStore.currentSession?.status === 'running'" class="running-state">
       <!-- Header row with status, token display, and stop button -->
       <div class="running-header">
         <div class="running-status">
@@ -236,6 +153,103 @@
         <span class="template-pending-description">will trigger when Claude finishes</span>
       </div>
     </div>
+
+    <form v-if="canSendMessage || isRunning || isScheduledForFuture" @submit.prevent="(isDraft || isScheduledDraft) ? handleStart() : handleSend()" class="input-form">
+      <ResizableTextarea
+        ref="textareaRef"
+        v-model="input"
+        class="form-input form-textarea"
+        :placeholder="isRunning ? 'Queue a follow-up message for when Claude finishes...' : isScheduledForFuture ? 'Edit your scheduled prompt...' : (isDraft || isScheduledDraft) ? 'Edit your prompt...' : 'Send a follow-up message...'"
+        :min-height="80"
+        @input="handleInput"
+        @keydown="handleKeydown"
+      />
+
+      <!-- Quick Responses Panel - shows below the textarea when not running or for draft sessions -->
+      <QuickResponsesPanel
+        v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
+        :show-empty="true"
+        @insert="handleQuickResponseInsert"
+        @openSettings="quickResponseSettingsOpen = true"
+      />
+
+      <!-- Auto-send toggle - shows when running and input has content -->
+      <div v-if="isRunning && inputHasContent" class="auto-send-row">
+        <label class="auto-send-label">
+          <input
+            type="checkbox"
+            :checked="sessionsStore.currentSession?.autoSendPendingPrompt"
+            @change="handleAutoSendToggle"
+            class="auto-send-checkbox"
+          />
+          <span class="auto-send-text">Send automatically when Claude finishes</span>
+        </label>
+      </div>
+
+      <!-- Send button row - only shows when not running -->
+      <div v-if="!isScheduledForFuture && !isRunning" class="send-button-row">
+        <div v-if="isDraft" class="draft-actions">
+          <button type="submit" class="btn btn-primary btn-send-full" :disabled="restarting || saveStatus === 'saving'">
+            <span v-if="restarting" class="loading-spinner"></span>
+            {{ restarting ? 'Sending...' : 'Send' }}
+          </button>
+        </div>
+        <template v-else>
+          <button
+            type="submit"
+            class="btn btn-primary btn-send-full"
+            :disabled="isSendDisabled"
+            :title="sendButtonDisabledReason"
+          >
+            <span v-if="sending" class="loading-spinner"></span>
+            {{ sending ? 'Sending...' : 'Send' }}
+          </button>
+        </template>
+      </div>
+
+      <div v-if="!isScheduledForFuture && !isRunning" class="input-controls">
+        <div class="session-options">
+          <div class="mode-switcher">
+            <ModeSelector :sessionId="sessionId" />
+          </div>
+
+          <ModelSelector v-model="selectedModel" />
+
+          <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
+          <SlashCommandButton
+            v-if="workingDirectory"
+            @open="showSlashCommandWizard = true"
+          />
+          <div class="thinking-toggle">
+            <label class="toggle-switch">
+              <input
+                type="checkbox"
+                :checked="sessionsStore.currentSession?.thinkingEnabled"
+                @change="handleThinkingToggle"
+                :disabled="togglingThinking"
+              />
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Thinking</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Orchestration Panel - shows after input controls (visible during running too) -->
+      <OrchestrationPanel
+        v-if="(canSendMessage || isDraft || isRunning) && !isScheduledForFuture"
+        :session-id="sessionId"
+        :project-id="sessionsStore.currentSession?.projectId"
+        :current-template-id="sessionsStore.currentSession?.nextTemplateId"
+        :session-status="sessionsStore.currentSession?.status"
+        :is-draft="isDraft"
+        :input-has-content="inputHasContent"
+        :auto-reschedule-enabled="sessionsStore.currentSession?.autoRescheduleEnabled"
+        @openSchedule="showScheduleModal = true"
+        @openAutoReschedule="showAutoRescheduleModal = true"
+        @update:templateId="handleTemplateChange"
+      />
+    </form>
 
     <!-- Quick Response Settings Modal -->
     <QuickResponseSettings
@@ -363,6 +377,10 @@ const partialText = computed(() => sessionsStore.partialText);
 const canSendMessage = computed(() => {
   const status = sessionsStore.currentSession?.status;
   return status === 'waiting' || status === 'scheduled' || status === 'stopped' || status === 'error';
+});
+
+const isRunning = computed(() => {
+  return sessionsStore.currentSession?.status === 'running';
 });
 
 const canBranch = computed(() => {
@@ -584,8 +602,8 @@ function handleInput(event) {
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
 
   inputSyncTimer = setTimeout(() => {
-    // Auto-save to server (for all waiting/stopped/error sessions)
-    if (canSendMessage.value) {
+    // Auto-save to server (for all waiting/stopped/error sessions AND running)
+    if (canSendMessage.value || isRunning.value) {
       savePendingPrompt(value);
     }
   }, 500); // Debounce 500ms for server save
@@ -873,6 +891,21 @@ async function handleThinkingToggle(event) {
     uiStore.error(err.message);
   } finally {
     togglingThinking.value = false;
+  }
+}
+
+async function handleAutoSendToggle(event) {
+  const newValue = event.target.checked;
+  try {
+    // When enabling auto-send, also save the current pending prompt
+    if (newValue && input.value.trim()) {
+      await savePendingPrompt(input.value);
+    }
+    await sessionsStore.updateAutoSendPendingPrompt(props.sessionId, newValue);
+  } catch (err) {
+    // Revert the checkbox on error
+    event.target.checked = !newValue;
+    uiStore.error(err.message);
   }
 }
 
@@ -1252,6 +1285,36 @@ async function handleBranchCreate({ messageId, prompt }) {
 
 .draft-actions {
   width: 100%;
+}
+
+.auto-send-row {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0;
+}
+
+.auto-send-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+}
+
+.auto-send-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-accent);
+}
+
+.auto-send-text {
+  user-select: none;
+}
+
+.auto-send-label:hover .auto-send-text {
+  color: var(--color-text);
 }
 
 .template-pending {

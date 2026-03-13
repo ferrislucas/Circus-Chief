@@ -428,6 +428,47 @@ describe('streamEventHandler', () => {
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
     });
+
+    it('calls handleAutoSendIfNeeded after template trigger when not aborted', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+      const mockAutoSend = vi.fn().mockResolvedValue(undefined);
+
+      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, mockAutoSend);
+
+      expect(mockAutoSend).toHaveBeenCalledWith('sess-1');
+    });
+
+    it('does not call handleAutoSendIfNeeded when session was aborted', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: true } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, mockAutoSend);
+
+      expect(mockAutoSend).not.toHaveBeenCalled();
+    });
+
+    it('does not call handleAutoSendIfNeeded when rescheduled', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(true);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, mockAutoSend);
+
+      expect(mockAutoSend).not.toHaveBeenCalled();
+    });
   });
 
   // ── handleSessionError ────────────────────────────────────────────────
