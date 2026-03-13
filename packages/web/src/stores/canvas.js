@@ -15,11 +15,13 @@ export const useCanvasStore = defineStore('canvas', {
     selectedItemCount: (state) => state.selectedItemIds.size,
 
     isAllItemsSelected: (state) => {
-      return state.items.length > 0 && state.selectedItemIds.size === state.items.length;
+      const uniqueFiles = new Set(state.items.map(i => i.filename || i.id));
+      return uniqueFiles.size > 0 && state.selectedItemIds.size === uniqueFiles.size;
     },
 
     isPartialSelection: (state) => {
-      return state.selectedItemIds.size > 0 && state.selectedItemIds.size < state.items.length;
+      const uniqueFiles = new Set(state.items.map(i => i.filename || i.id));
+      return state.selectedItemIds.size > 0 && state.selectedItemIds.size < uniqueFiles.size;
     },
 
     selectedItems: (state) => {
@@ -202,8 +204,13 @@ export const useCanvasStore = defineStore('canvas', {
     },
 
     selectAllItems() {
+      const seen = new Set();
       for (const item of this.items) {
-        this.selectedItemIds.add(item.id);
+        const key = item.filename || item.id;
+        if (!seen.has(key)) {
+          seen.add(key);
+          this.selectedItemIds.add(item.id);
+        }
       }
     },
 
@@ -217,10 +224,17 @@ export const useCanvasStore = defineStore('canvas', {
       this.error = null;
       try {
         const result = await api.bulkDeleteCanvasItems(sessionId, itemIds);
+        const allDeletedIds = new Set(result.deletedIds);
 
-        // Remove from active items
-        const deletedIds = new Set(itemIds);
-        this.items = this.items.filter((i) => !deletedIds.has(i.id));
+        // Move to trash
+        const now = Date.now();
+        const deletedItems = this.items
+          .filter((i) => allDeletedIds.has(i.id))
+          .map((i) => ({ ...i, deletedAt: now }));
+        this.trashedItems.unshift(...deletedItems);
+
+        // Remove from active
+        this.items = this.items.filter((i) => !allDeletedIds.has(i.id));
 
         // Clear selection
         this.selectedItemIds.clear();
@@ -240,13 +254,13 @@ export const useCanvasStore = defineStore('canvas', {
       this.error = null;
       try {
         const result = await api.bulkRecoverCanvasItems(sessionId, itemIds);
+        const allRecoveredIds = new Set(result.recoveredIds);
 
         // Get the items from trash before removing
-        const recoveredIds = new Set(itemIds);
-        const recoveredItems = this.trashedItems.filter((i) => recoveredIds.has(i.id));
+        const recoveredItems = this.trashedItems.filter((i) => allRecoveredIds.has(i.id));
 
         // Remove from trash
-        this.trashedItems = this.trashedItems.filter((i) => !recoveredIds.has(i.id));
+        this.trashedItems = this.trashedItems.filter((i) => !allRecoveredIds.has(i.id));
 
         // Add back to active items
         this.items.unshift(...recoveredItems);
@@ -269,10 +283,10 @@ export const useCanvasStore = defineStore('canvas', {
       this.error = null;
       try {
         const result = await api.bulkPermanentlyDeleteCanvasItems(sessionId, itemIds);
+        const allDeletedIds = new Set(result.deletedIds);
 
         // Remove from trash
-        const deletedIds = new Set(itemIds);
-        this.trashedItems = this.trashedItems.filter((i) => !deletedIds.has(i.id));
+        this.trashedItems = this.trashedItems.filter((i) => !allDeletedIds.has(i.id));
 
         // Clear selection
         this.selectedItemIds.clear();
