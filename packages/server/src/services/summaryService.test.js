@@ -97,6 +97,7 @@ vi.mock('./ghService.js', () => ({
 import * as summaryService from './summaryService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { agentCallLogger } from './agentCallLogger.js';
+import * as ghService from './ghService.js';
 import {
   DEBOUNCE_DELAY,
   MAX_MESSAGES,
@@ -113,6 +114,9 @@ import {
   generateSessionAndConversationSummary,
   activeGenerations,
   pendingRegenerations,
+  _stripMarkdownCodeBlock,
+  _trackMessageMetadata,
+  _enrichPrData,
 } from './summaryService.js';
 
 describe('summaryService', () => {
@@ -554,6 +558,193 @@ describe('summaryService', () => {
 
         consoleSpy.mockRestore();
       });
+    });
+  });
+
+  describe('_stripMarkdownCodeBlock', () => {
+    it('strips ```json code blocks', () => {
+      const input = '```json\n{"key": "value"}\n```';
+      const result = _stripMarkdownCodeBlock(input);
+      expect(result).toBe('{"key": "value"}');
+    });
+
+    it('strips ``` code blocks without language specifier', () => {
+      const input = '```\n{"key": "value"}\n```';
+      const result = _stripMarkdownCodeBlock(input);
+      expect(result).toBe('{"key": "value"}');
+    });
+
+    it('handles code blocks with extra whitespace', () => {
+      const input = '```json  \n  {"key": "value"}  \n  ```  ';
+      const result = _stripMarkdownCodeBlock(input);
+      expect(result).toBe('{"key": "value"}');
+    });
+
+    it('does not strip when content does not start with ```', () => {
+      const input = '{"key": "value"}';
+      const result = _stripMarkdownCodeBlock(input);
+      expect(result).toBe('{"key": "value"}');
+    });
+
+    it('trims whitespace from result', () => {
+      const input = '```json\n  {"key": "value"}  \n```';
+      const result = _stripMarkdownCodeBlock(input);
+      expect(result).toBe('{"key": "value"}');
+    });
+
+    it('handles empty string', () => {
+      const result = _stripMarkdownCodeBlock('');
+      expect(result).toBe('');
+    });
+
+    it('handles malformed code block (missing closing)', () => {
+      const input = '```json\n{"key": "value"}';
+      const result = _stripMarkdownCodeBlock(input);
+      expect(result).toBe('```json\n{"key": "value"}');
+    });
+  });
+
+  describe('_trackMessageMetadata', () => {
+    it('adds message count and last message ID to summary data', () => {
+      const summaryData = { short_summary: 'Test' };
+      const allMessages = [
+        { id: 'msg-1', role: 'user', content: 'Hello' },
+        { id: 'msg-2', role: 'assistant', content: 'Hi' },
+        { id: 'msg-3', role: 'user', content: 'How are you?' },
+      ];
+
+      _trackMessageMetadata(summaryData, allMessages);
+
+      expect(summaryData.messageCount).toBe(3);
+      expect(summaryData.lastSummarizedMessageId).toBe('msg-3');
+    });
+
+    it('handles empty messages array', () => {
+      const summaryData = { short_summary: 'Test' };
+      const allMessages = [];
+
+      _trackMessageMetadata(summaryData, allMessages);
+
+      expect(summaryData.messageCount).toBe(0);
+      expect(summaryData.lastSummarizedMessageId).toBeNull();
+    });
+
+    it('handles single message', () => {
+      const summaryData = { short_summary: 'Test' };
+      const allMessages = [{ id: 'msg-1', role: 'user', content: 'Hello' }];
+
+      _trackMessageMetadata(summaryData, allMessages);
+
+      expect(summaryData.messageCount).toBe(1);
+      expect(summaryData.lastSummarizedMessageId).toBe('msg-1');
+    });
+
+    it('preserves existing summary data fields', () => {
+      const summaryData = {
+        short_summary: 'Test',
+        prUrl: 'https://github.com/user/repo/pull/123',
+        outcome: 'completed',
+      };
+      const allMessages = [{ id: 'msg-1', role: 'user', content: 'Hello' }];
+
+      _trackMessageMetadata(summaryData, allMessages);
+
+      expect(summaryData.short_summary).toBe('Test');
+      expect(summaryData.prUrl).toBe('https://github.com/user/repo/pull/123');
+      expect(summaryData.outcome).toBe('completed');
+      expect(summaryData.messageCount).toBe(1);
+    });
+  });
+
+  describe('_enrichPrData', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it('enriches summary data with PR info when URL is valid', async () => {
+      const summaryData = {
+        prUrl: 'https://github.com/user/repo/pull/123',
+      };
+      const prUrl = 'https://github.com/user/repo/pull/123';
+      const projectRepoUrl = 'https://github.com/user/repo';
+      const sessionId = 'sess-1';
+
+      ghService.getPrInfo.mockResolvedValue({
+        state: 'OPEN',
+        merged: false,
+        hasMergeConflicts: false,
+        ciStatus: 'passing',
+        ciFailures: 0,
+      });
+
+      await _enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId);
+
+      expect(summaryData.prState).toBe('OPEN');
+      expect(summaryData.prMerged).toBe(false);
+      expect(summaryData.hasMergeConflicts).toBe(false);
+      expect(summaryData.ciStatus).toBe('passing');
+      expect(summaryData.ciFailures).toBe(0);
+      expect(summaryData.prUrl).toBe(prUrl);
+    });
+
+    it('sets prUrl to null when validation fails', async () => {
+      const summaryData = {
+        prUrl: 'https://github.com/wrong-repo/pull/123',
+      };
+      const prUrl = 'https://github.com/wrong-repo/pull/123';
+      const projectRepoUrl = 'https://github.com/correct-repo';
+      const sessionId = 'sess-1';
+
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await _enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId);
+
+      expect(summaryData.prUrl).toBeNull();
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        '[SummaryService] PR URL validation failed for session sess-1:',
+        expect.any(String)
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('handles ghService errors gracefully', async () => {
+      const summaryData = {
+        prUrl: 'https://github.com/user/repo/pull/123',
+      };
+      const prUrl = 'https://github.com/user/repo/pull/123';
+      const projectRepoUrl = 'https://github.com/user/repo';
+      const sessionId = 'sess-1';
+
+      ghService.getPrInfo.mockRejectedValue(new Error('API error'));
+
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await _enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId);
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        '[SummaryService] Failed to get PR info for https://github.com/user/repo/pull/123:',
+        'API error'
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('does not modify summary data when ghService returns null', async () => {
+      const summaryData = {
+        prUrl: 'https://github.com/user/repo/pull/123',
+      };
+      const prUrl = 'https://github.com/user/repo/pull/123';
+      const projectRepoUrl = 'https://github.com/user/repo';
+      const sessionId = 'sess-1';
+
+      ghService.getPrInfo.mockResolvedValue(null);
+
+      await _enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId);
+
+      expect(summaryData.prUrl).toBe(prUrl);
+      expect(summaryData.prState).toBeUndefined();
+      expect(summaryData.prMerged).toBeUndefined();
     });
   });
 

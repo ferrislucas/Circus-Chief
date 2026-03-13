@@ -2104,4 +2104,114 @@ describe('Canvas API', () => {
       expect(res.body.content).toBe('Only version');
     });
   });
+
+  describe('Bulk endpoints with version expansion', () => {
+    let app;
+    let sessionId;
+
+    beforeEach(() => {
+      app = express();
+      app.use(express.json());
+      app.use('/api/sessions', canvasRouter);
+
+      const project = projects.create('Test Project', '/tmp/test');
+      const now = Date.now();
+      const id = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, project.id, 'Test Session', 'running', 'standard', now, now);
+      sessionId = id;
+    });
+
+    it('POST /bulk-delete expands IDs to include all versions', async () => {
+      const v1 = canvasItems.create(sessionId, { type: 'text', content: 'V1', filename: 'file.png' });
+      const v2 = canvasItems.create(sessionId, { type: 'text', content: 'V2', filename: 'file.png' });
+      const v3 = canvasItems.create(sessionId, { type: 'text', content: 'V3', filename: 'file.png' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${sessionId}/canvas/bulk-delete`)
+        .send({ itemIds: [v3.id] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.deletedCount).toBe(3);
+      expect(res.body.deletedIds).toHaveLength(3);
+      expect(res.body.deletedIds).toContain(v1.id);
+      expect(res.body.deletedIds).toContain(v2.id);
+      expect(res.body.deletedIds).toContain(v3.id);
+
+      // Verify all 3 appear in trash
+      const trashRes = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`);
+      expect(trashRes.body).toHaveLength(3);
+    });
+
+    it('POST /bulk-recover expands IDs to include all versions', async () => {
+      const v1 = canvasItems.create(sessionId, { type: 'text', content: 'V1', filename: 'file.png' });
+      const v2 = canvasItems.create(sessionId, { type: 'text', content: 'V2', filename: 'file.png' });
+      const v3 = canvasItems.create(sessionId, { type: 'text', content: 'V3', filename: 'file.png' });
+
+      // Soft delete all
+      canvasItems.softDeleteBatch([v1.id, v2.id, v3.id]);
+
+      const res = await request(app)
+        .post(`/api/sessions/${sessionId}/canvas/bulk-recover`)
+        .send({ itemIds: [v1.id] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.recoveredCount).toBe(3);
+      expect(res.body.recoveredIds).toHaveLength(3);
+      expect(res.body.recoveredIds).toContain(v1.id);
+      expect(res.body.recoveredIds).toContain(v2.id);
+      expect(res.body.recoveredIds).toContain(v3.id);
+
+      // Verify all are active again
+      const listRes = await request(app).get(`/api/sessions/${sessionId}/canvas/all`);
+      expect(listRes.body).toHaveLength(3);
+    });
+
+    it('DELETE /bulk-delete-permanent expands IDs to include all versions', async () => {
+      const v1 = canvasItems.create(sessionId, { type: 'text', content: 'V1', filename: 'file.png' });
+      const v2 = canvasItems.create(sessionId, { type: 'text', content: 'V2', filename: 'file.png' });
+      const v3 = canvasItems.create(sessionId, { type: 'text', content: 'V3', filename: 'file.png' });
+
+      // Soft delete all first
+      canvasItems.softDeleteBatch([v1.id, v2.id, v3.id]);
+
+      const res = await request(app)
+        .delete(`/api/sessions/${sessionId}/canvas/bulk-delete-permanent`)
+        .send({ itemIds: [v2.id] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.deletedCount).toBe(3);
+      expect(res.body.deletedIds).toHaveLength(3);
+      expect(res.body.deletedIds).toContain(v1.id);
+      expect(res.body.deletedIds).toContain(v2.id);
+      expect(res.body.deletedIds).toContain(v3.id);
+
+      // Verify trash is empty
+      const trashRes = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`);
+      expect(trashRes.body).toHaveLength(0);
+    });
+
+    it('POST /bulk-recover validates session ownership', async () => {
+      // Create another session
+      const project2 = projects.create('Other Project', '/tmp/other');
+      const otherSessionId = databaseManager.generateId();
+      const now = Date.now();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(otherSessionId, project2.id, 'Other Session', 'running', 'standard', now, now);
+
+      // Create item in session A
+      const item = canvasItems.create(sessionId, { type: 'text', content: 'Session A item', filename: 'test.txt' });
+      canvasItems.softDelete(item.id);
+
+      // Try to recover from session B
+      const res = await request(app)
+        .post(`/api/sessions/${otherSessionId}/canvas/bulk-recover`)
+        .send({ itemIds: [item.id] });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('not found in session');
+    });
+  });
 });

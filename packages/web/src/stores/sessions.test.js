@@ -4706,5 +4706,186 @@ describe('Sessions Store', () => {
         expect(store.conversations[1].id).toBe('conv-A2'); // not removed
       });
     });
+
+    describe('getWorkflowAggregatedStatus', () => {
+      it('totalCount is 0 for a session with no children', () => {
+        const store = useSessionsStore();
+        store.sessions = [{ id: 'root', status: 'running', parentSessionId: null }];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        expect(result.totalCount).toBe(0);
+      });
+
+      it('totalCount is 1 for a session with one child', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'running', parentSessionId: null },
+          { id: 'child-1', status: 'running', parentSessionId: 'root' },
+        ];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        expect(result.totalCount).toBe(1);
+      });
+
+      it('totalCount is 3 for a session with three children', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'running', parentSessionId: null },
+          { id: 'child-1', status: 'running', parentSessionId: 'root' },
+          { id: 'child-2', status: 'running', parentSessionId: 'root' },
+          { id: 'child-3', status: 'running', parentSessionId: 'root' },
+        ];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        expect(result.totalCount).toBe(3);
+      });
+
+      it('totalCount counts nested descendants (grandchildren)', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'running', parentSessionId: null },
+          { id: 'child-1', status: 'running', parentSessionId: 'root' },
+          { id: 'grandchild-1', status: 'running', parentSessionId: 'child-1' },
+        ];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        // root has 2 descendants (child-1 and grandchild-1), but not counting root itself
+        expect(result.totalCount).toBe(2);
+      });
+
+      it('status counts still include the root session', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'running', parentSessionId: null },
+          { id: 'child-1', status: 'scheduled', parentSessionId: 'root' },
+        ];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        expect(result.runningCount).toBe(1); // the root
+        expect(result.scheduledCount).toBe(1); // the child
+        expect(result.totalCount).toBe(1); // only the child (descendants only)
+      });
+    });
+  });
+
+  describe('_updateSessionInAllLists helper', () => {
+    beforeEach(() => {
+      const store = useSessionsStore();
+      store.sessions = [
+        { id: 'sess-1', name: 'Session 1', status: 'idle' },
+        { id: 'sess-2', name: 'Session 2', status: 'idle' },
+        { id: 'sess-3', name: 'Session 3', status: 'idle' },
+      ];
+      store.archivedSessions = [
+        { id: 'sess-4', name: 'Archived 1', status: 'archived' },
+      ];
+      store.activeSessions = [
+        { id: 'sess-1', name: 'Session 1', status: 'idle' },
+        { id: 'sess-2', name: 'Session 2', status: 'idle' },
+      ];
+      store.currentSession = { id: 'sess-1', name: 'Session 1', status: 'idle' };
+    });
+
+    it('updates session in sessions array', () => {
+      const store = useSessionsStore();
+      store._updateSessionInAllLists('sess-1', { status: 'running', error: null });
+
+      expect(store.sessions[0].status).toBe('running');
+      expect(store.sessions[0].error).toBeNull();
+    });
+
+    it('updates session in archivedSessions array', () => {
+      const store = useSessionsStore();
+      store._updateSessionInAllLists('sess-4', { status: 'running' });
+
+      expect(store.archivedSessions[0].status).toBe('running');
+    });
+
+    it('updates session in activeSessions array', () => {
+      const store = useSessionsStore();
+      store._updateSessionInAllLists('sess-2', { status: 'running' });
+
+      expect(store.activeSessions[1].status).toBe('running');
+    });
+
+    it('updates currentSession when it matches', () => {
+      const store = useSessionsStore();
+      store._updateSessionInAllLists('sess-1', { status: 'running', model: 'claude-3-opus' });
+
+      expect(store.currentSession.status).toBe('running');
+      expect(store.currentSession.model).toBe('claude-3-opus');
+    });
+
+    it('does not update currentSession when it does not match', () => {
+      const store = useSessionsStore();
+      store._updateSessionInAllLists('sess-2', { status: 'running' });
+
+      expect(store.currentSession.status).toBe('idle');
+    });
+
+    it('handles updating session that exists in multiple arrays', () => {
+      const store = useSessionsStore();
+      store._updateSessionInAllLists('sess-1', { status: 'running' });
+
+      // sess-1 is in sessions, activeSessions, and currentSession
+      expect(store.sessions[0].status).toBe('running');
+      expect(store.activeSessions[0].status).toBe('running');
+      expect(store.currentSession.status).toBe('running');
+    });
+
+    it('merges updates with existing session data', () => {
+      const store = useSessionsStore();
+      store._updateSessionInAllLists('sess-1', { status: 'running', error: null });
+
+      expect(store.sessions[0].id).toBe('sess-1');
+      expect(store.sessions[0].name).toBe('Session 1');
+      expect(store.sessions[0].status).toBe('running');
+      expect(store.sessions[0].error).toBeNull();
+    });
+
+    it('handles updating non-existent session gracefully', () => {
+      const store = useSessionsStore();
+
+      expect(() => {
+        store._updateSessionInAllLists('sess-999', { status: 'running' });
+      }).not.toThrow();
+
+      // Should not modify any arrays
+      expect(store.sessions[2].status).toBe('idle');
+    });
+
+    it('handles multiple updates to same session', () => {
+      const store = useSessionsStore();
+      store._updateSessionInAllLists('sess-1', { status: 'running' });
+      store._updateSessionInAllLists('sess-1', { status: 'completed' });
+      store._updateSessionInAllLists('sess-1', { error: 'Test error' });
+
+      expect(store.sessions[0].status).toBe('completed');
+      expect(store.sessions[0].error).toBe('Test error');
+    });
+
+    it('updates all fields in updates object', () => {
+      const store = useSessionsStore();
+      const updates = {
+        status: 'running',
+        model: 'claude-3-opus',
+        error: null,
+        thinkingEnabled: true,
+        summary: 'Test summary',
+      };
+
+      store._updateSessionInAllLists('sess-1', updates);
+
+      expect(store.sessions[0].status).toBe('running');
+      expect(store.sessions[0].model).toBe('claude-3-opus');
+      expect(store.sessions[0].error).toBeNull();
+      expect(store.sessions[0].thinkingEnabled).toBe(true);
+      expect(store.sessions[0].summary).toBe('Test summary');
+    });
   });
 });
