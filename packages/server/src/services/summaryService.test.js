@@ -1666,6 +1666,9 @@ describe('summaryService', () => {
     it('generates conversation summary via generateConversationSummary (not onSessionComplete)', async () => {
       const { conversations: convRepo } = await import('../database.js');
 
+      // Explicitly enable conversation summaries (disabled by default)
+      settings.setSummarySettings({ disableConversationSummaries: false });
+
       // Create a conversation with enough messages to trigger summary (>= 4)
       const conversation = convRepo.getActiveBySessionId(sessionId);
       messages.create(sessionId, 'user', 'Hello world', null, conversation.id);
@@ -1748,7 +1751,7 @@ describe('summaryService', () => {
       const callTypes = agentCallLogger.startCall.mock.calls.map((c) => c[0].callType);
       expect(callTypes).not.toContain('generateConversationSummary');
 
-      settings.setSummarySettings({ disableConversationSummaries: false });
+      settings.resetSummarySettings();
     });
   });
 
@@ -2022,10 +2025,13 @@ describe('summaryService', () => {
       expect(result).toBeNull();
     });
 
-    it('generates conversation summary when disableConversationSummaries is false (the default)', async () => {
+    it('generates conversation summary when disableConversationSummaries is explicitly set to false', async () => {
       const { conversations } = await import('../database.js');
 
-      // Conversation summaries are enabled by default (disableConversationSummaries defaults to false)
+      // Conversation summaries are disabled by default (disableConversationSummaries defaults to true)
+      // Explicitly enable them for this test
+      settings.setSummarySettings({ disableConversationSummaries: false });
+
       // Create a conversation
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
 
@@ -2133,6 +2139,9 @@ describe('summaryService', () => {
 
     it('generateConversationSummary generates summary for single-conversation sessions (guard is at caller level)', async () => {
       const { conversations } = await import('../database.js');
+
+      // Explicitly enable conversation summaries (disabled by default)
+      settings.setSummarySettings({ disableConversationSummaries: false });
 
       // Only 1 conversation in the session — the multi-conversation guard is at the caller level,
       // not inside generateConversationSummary itself, so it should still work
@@ -2364,22 +2373,22 @@ describe('summaryService', () => {
   });
 
   describe('isConversationSummaryEnabled', () => {
-    it('returns true when conversation summaries are enabled by default', () => {
-      // The default for disableConversationSummaries is false, so without explicit setting
-      // isConversationSummaryEnabled returns true
+    it('returns false when conversation summaries are disabled by default', () => {
+      // The default for disableConversationSummaries is true, so without explicit setting
+      // isConversationSummaryEnabled returns false
       const result = isConversationSummaryEnabled(sessionId);
-      expect(result).toBe(true);
+      expect(result).toBe(false);
     });
 
     it('returns true when conversation summaries are explicitly enabled', () => {
-      // Explicitly enable conversation summaries (matches the default)
+      // Explicitly enable conversation summaries
       settings.setSummarySettings({ disableConversationSummaries: false });
 
       const result = isConversationSummaryEnabled(sessionId);
       expect(result).toBe(true);
 
-      // Reset to default (false = enabled)
-      settings.setSummarySettings({ disableConversationSummaries: false });
+      // Reset to default (true = disabled)
+      settings.resetSummarySettings();
     });
 
     it('returns false when conversation summaries are disabled for project', () => {
@@ -2389,8 +2398,8 @@ describe('summaryService', () => {
       const result = isConversationSummaryEnabled(sessionId);
       expect(result).toBe(false);
 
-      // Re-enable for other tests
-      settings.setSummarySettings({ disableConversationSummaries: false });
+      // Reset to default
+      settings.resetSummarySettings();
     });
 
     it('returns false when session does not exist', () => {
@@ -2930,7 +2939,9 @@ describe('summaryService', () => {
     it('logs conversation summary calls via agentCallLogger', async () => {
       const { conversations } = await import('../database.js');
 
-      // Conversation summaries are enabled by default
+      // Explicitly enable conversation summaries (disabled by default)
+      settings.setSummarySettings({ disableConversationSummaries: false });
+
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
       messages.create(sessionId, 'user', 'Hello', null, conversation.id);
       messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
@@ -2953,7 +2964,9 @@ describe('summaryService', () => {
     it('completes conversation summary calls with success', async () => {
       const { conversations } = await import('../database.js');
 
-      // Conversation summaries are enabled by default
+      // Explicitly enable conversation summaries (disabled by default)
+      settings.setSummarySettings({ disableConversationSummaries: false });
+
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
       messages.create(sessionId, 'user', 'Hello', null, conversation.id);
       messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
