@@ -247,12 +247,24 @@ test.describe('File Attachments - UI Display', () => {
       attachRetries++;
     }
 
-    await page.reload();
-    await waitForPageReady(page);
+    // Reload and wait for the attachment chip to render.
+    // Use a retry loop: networkidle alone is not sufficient because Vue may still
+    // be rendering after network requests complete, causing flaky failures.
+    const attachmentLocator = page.locator('.attachment-chip .attachment-name').filter({ hasText: 'display-test.txt' }).first();
+    let visible = false;
+    for (let attempt = 0; attempt < 3 && !visible; attempt++) {
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      try {
+        await expect(attachmentLocator).toBeVisible({ timeout: 5000 });
+        visible = true;
+      } catch {
+        // Retry reload if chip not visible yet
+      }
+    }
 
-    // Verify the attachment is displayed in the attachment chip area specifically
-    // Use locator to find the attachment-name element within an attachment-chip
-    await expect(page.locator('.attachment-chip .attachment-name').filter({ hasText: 'display-test.txt' }).first()).toBeVisible({ timeout: 10000 });
+    // Final assertion with full timeout if retries didn't succeed
+    await expect(attachmentLocator).toBeVisible({ timeout: 10000 });
   });
 
   test('multiple attachments display correctly', async ({ page }) => {

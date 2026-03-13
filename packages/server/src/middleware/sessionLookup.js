@@ -19,6 +19,26 @@ export function requireSession(req, res, next) {
  * Returns 404 if either is not found.
  * Also resolves req.workingDirectory (gitWorktree || project.workingDirectory).
  */
+/**
+ * Middleware factory: Validates that req.session_.status is one of the allowed statuses.
+ * Must be used AFTER requireSession or requireSessionAndProject middleware.
+ * @param {string[]} allowedStatuses - Array of allowed status strings
+ * @param {string} [errorMessage] - Optional custom error message
+ * @returns {Function} Express middleware
+ */
+export function requireSessionStatus(allowedStatuses, errorMessage) {
+  return (req, res, next) => {
+    if (!req.session_) {
+      return res.status(500).json({ error: 'requireSessionStatus must be used after requireSession' });
+    }
+    if (!allowedStatuses.includes(req.session_.status)) {
+      const message = errorMessage || `Session status must be one of: ${allowedStatuses.join(', ')}`;
+      return res.status(400).json({ error: message });
+    }
+    next();
+  };
+}
+
 export function requireSessionAndProject(req, res, next) {
   const session = sessions.getById(req.params.id);
   if (!session) {
