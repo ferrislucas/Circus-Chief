@@ -3245,7 +3245,6 @@ describe('SessionDetailView', () => {
             CommandsTab: true,
             PrIndicators: true,
             SchedulingInfo: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -3305,7 +3304,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
             SchedulingInfo: true,
           },
         },
