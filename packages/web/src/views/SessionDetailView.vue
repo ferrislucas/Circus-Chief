@@ -197,6 +197,8 @@
         </div>
       </div>
 
+      <!-- Scheduling Info Panel -->
+      <SchedulingInfo v-if="sessionsStore.currentSession && (activeTab === 'conversation' || activeTab === 'summary')" :session="sessionsStore.currentSession" />
       <div class="tab-content">
         <!-- CRITICAL: :key ensures components remount when navigating between sessions,
              preventing stale WebSocket handlers from capturing the wrong sessionId -->
