@@ -7,15 +7,9 @@ import { agentCallLogger } from './agentCallLogger.js';
 import { createVCRQueryFn } from '../agents/vcr/VCRSummaryWrapper.js';
 // Note: prStatusService is imported dynamically in onSessionComplete to avoid circular dependency
 
-// Debounce timers per session
-const debounceTimers = new Map();
-
 // Concurrency guard: tracks in-flight generation promises per session
 const activeGenerations = new Map(); // sessionId -> Promise
 const pendingRegenerations = new Set(); // sessionIds that need regeneration after current completes
-
-// Debounce delay in milliseconds (60 seconds - optimized for token efficiency and responsiveness)
-const DEBOUNCE_DELAY = 60000;
 
 // Minimum number of messages before generating a summary (skip trivial sessions)
 const MIN_MESSAGES_FOR_SUMMARY = 3;
@@ -603,8 +597,8 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
     activeGenerations.delete(sessionId);
     if (pendingRegenerations.has(sessionId)) {
       pendingRegenerations.delete(sessionId);
-      // Use debounced path for follow-up, not immediate generation
-      onSessionActivity(sessionId);
+      // Schedule follow-up generation directly (debounce removed)
+      generateSummary(sessionId);
     }
   }
 }
@@ -785,7 +779,7 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
       const updateData = {};
 
       // Re-fetch the session to check the manuallyNamed flag
-      // (The session object was fetched at line 584, potentially many seconds ago)
+      // (The session object was fetched earlier, potentially many seconds ago)
       const freshSession = sessions.getById(sessionId);
 
       // Only update name if session is not manually named
@@ -873,52 +867,17 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
 }
 
 /**
- * Called on every new message - debounces summary generation
- * @param {string} sessionId
- */
-export function onSessionActivity(sessionId) {
-  // Early exit if session summaries are disabled globally
-  const globalSettings = settings.getSummarySettings();
-  if (globalSettings?.disableSessionSummaries) return;
-
-  // Cancel existing timer
-  if (debounceTimers.has(sessionId)) {
-    clearTimeout(debounceTimers.get(sessionId));
-  }
-
-  // Get project-specific debounce delay
-  const session = sessions.getById(sessionId);
-  if (!session) return;
-
-  const project = projects.getById(session.projectId);
-  const debounceDelay = project?.summaryDebounceMs || DEBOUNCE_DELAY;
-
-  // Set new debounce timer with project-specific delay
-  const timer = setTimeout(() => {
-    generateSummary(sessionId);
-    debounceTimers.delete(sessionId);
-  }, debounceDelay);
-
-  debounceTimers.set(sessionId, timer);
-}
-
-/**
  * Generate summary immediately and wait for completion (synchronous)
  * Used by template trigger to ensure summary is ready before creating new session
  * @param {string} sessionId
  * @returns {Promise<Object|null>}
  */
 export async function generateSummaryNow(sessionId) {
-  // Cancel any pending debounced generation for this session
-  if (debounceTimers.has(sessionId)) {
-    clearTimeout(debounceTimers.get(sessionId));
-    debounceTimers.delete(sessionId);
-  }
-
-  // Early exit if session summaries are disabled globally
+  // Check if session summaries are disabled globally (early exit before concurrency bookkeeping)
   const globalSettings = settings.getSummarySettings();
-  if (globalSettings?.disableSessionSummaries) return null;
-
+  if (globalSettings?.disableSessionSummaries) {
+    return null;
+  }
   // Generate summary immediately and wait for completion
   return await generateSummary(sessionId);
 }
@@ -929,13 +888,27 @@ export async function generateSummaryNow(sessionId) {
  * Also schedules follow-up CI checks for sessions with PRs.
  * @param {string} sessionId
  */
-export function onSessionComplete(sessionId) {
-  // Cancel debounce timer if exists
-  if (debounceTimers.has(sessionId)) {
-    clearTimeout(debounceTimers.get(sessionId));
-    debounceTimers.delete(sessionId);
+/**
+ * Trigger summary generation on session activity (e.g., turn completion).
+ * This is called during an active session (when it goes to 'waiting' state),
+ * as opposed to onSessionComplete which is called when the session ends.
+ * @param {string} sessionId
+ */
+export function onSessionActivity(sessionId) {
+  // Early exit if session summaries are disabled globally
+  const globalSettings = settings.getSummarySettings();
+  if (globalSettings?.disableSessionSummaries) {
+    return;
   }
 
+  // Only generate if the summary is stale (no force=true)
+  // This avoids redundant generation while keeping summaries updated
+  generateSummary(sessionId).catch((err) => {
+    console.error(`[SummaryService] Failed to generate summary on activity for session ${sessionId}:`, err);
+  });
+}
+
+export function onSessionComplete(sessionId) {
   // Lightweight outcome update: if summary exists and is current,
   // just update the outcome field without calling the LLM
   const existingSummary = sessionSummaries.getBySessionId(sessionId);
@@ -970,26 +943,10 @@ export function onSessionComplete(sessionId) {
     // Early exit if session summaries are disabled globally
     const globalSettings = settings.getSummarySettings();
     if (!globalSettings?.disableSessionSummaries) {
-      // Check if we should use combined generation (more efficient - one API call instead of two)
-      const activeConversation = conversations.getActiveBySessionId(sessionId);
-      const shouldGenConvSummary = activeConversation && !activeConversation.summary && isConversationSummaryEnabled(sessionId);
-
-      if (shouldGenConvSummary) {
-        // Use combined generation - single API call for both summaries (no force=true)
-        generateSessionAndConversationSummary(sessionId, activeConversation.id).catch((err) => {
-          console.error(`[SummaryService] Failed to generate combined summary on session complete:`, err);
-          // Fallback to individual generations if combined fails (no force=true)
-          generateSummary(sessionId);
-          if (activeConversation) {
-            generateConversationSummary(sessionId, activeConversation.id).catch((err2) => {
-              console.error(`[SummaryService] Failed fallback conversation summary:`, err2);
-            });
-          }
-        });
-      } else {
-        // Only generate session summary (no force=true -- staleness check will determine if needed)
-        generateSummary(sessionId);
-      }
+      // Only generate session summary (no force=true -- staleness check will determine if needed)
+      // Conversation summaries are triggered by user actions (switching/creating conversations),
+      // not session lifecycle events
+      generateSummary(sessionId);
     }
   }
 
@@ -1071,14 +1028,11 @@ export function isSummaryStale(sessionId) {
 }
 
 /**
- * Clean up debounce timer for a session (call on session deletion)
+ * Clean up any in-flight state for a session (call on session deletion)
  * @param {string} sessionId
  */
 export function cleanupSession(sessionId) {
-  if (debounceTimers.has(sessionId)) {
-    clearTimeout(debounceTimers.get(sessionId));
-    debounceTimers.delete(sessionId);
-  }
+  pendingRegenerations.delete(sessionId);
 }
 
 /**
@@ -1136,7 +1090,8 @@ export async function generateSessionAndConversationSummary(sessionId, conversat
     activeGenerations.delete(sessionId);
     if (pendingRegenerations.has(sessionId)) {
       pendingRegenerations.delete(sessionId);
-      onSessionActivity(sessionId);
+      // Schedule follow-up generation directly (debounce removed)
+      generateSummary(sessionId);
     }
   }
 }
@@ -1159,6 +1114,14 @@ async function _doGenerateSessionAndConversationSummary(sessionId, conversationI
     if (!conversation || conversation.sessionId !== sessionId) {
       console.warn(`[SummaryService] Conversation ${conversationId} not found for session ${sessionId}`);
       return { sessionSummary: null, conversationSummary: null };
+    }
+
+    // Skip conversation summary if this is the only conversation — summaries only add value
+    // when the user is navigating between multiple conversations
+    const allSessionConversations = conversations.getBySessionId(sessionId);
+    if (allSessionConversations.length < 2) {
+      console.log(`[SummaryService] Session ${sessionId} has only 1 conversation, falling back to session-only summary`);
+      return { sessionSummary: await generateSummary(sessionId), conversationSummary: null };
     }
 
     // Check if session summaries are disabled globally
@@ -1399,13 +1362,9 @@ export async function generateConversationSummary(sessionId, conversationId) {
     }
 
     // Skip very short conversations
-    if (conversationMessages.length < 3) {
-      const summary = 'Brief conversation with minimal content.';
-      conversations.update(conversationId, {
-        summary,
-        summaryGeneratedAt: Date.now(),
-      });
-      return summary;
+    if (conversationMessages.length < 4) {
+      console.log(`[SummaryService] Conversation ${conversationId} has only ${conversationMessages.length} messages, skipping summary`);
+      return null;
     }
 
     // Take recent messages (limit to MAX_MESSAGES)
@@ -1459,9 +1418,9 @@ export async function propagateToParent(sessionId) {
   if (!session || !session.parentSessionId) return;
 
   // Trigger a summary regeneration for the parent session
-  // This is debounced so multiple child updates don't cause multiple parent regenerations
-  onSessionActivity(session.parentSessionId);
+  // The activeGenerations concurrency guard prevents concurrent duplicate generations
+  generateSummary(session.parentSessionId);
 }
 
 // Export for testing
-export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, CONVERSATION_SUMMARY_SYSTEM_PROMPT, COMBINED_SUMMARY_SYSTEM_PROMPT, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified, activeGenerations, pendingRegenerations, _stripMarkdownCodeBlock, _trackMessageMetadata, _enrichPrData };
+export { MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, CONVERSATION_SUMMARY_SYSTEM_PROMPT, COMBINED_SUMMARY_SYSTEM_PROMPT, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified, activeGenerations, pendingRegenerations, _stripMarkdownCodeBlock, _trackMessageMetadata, _enrichPrData };

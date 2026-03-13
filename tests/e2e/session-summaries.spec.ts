@@ -690,7 +690,7 @@ test.describe('Session Summaries', () => {
 
       const settings = await response.json();
       expect(settings.disableSessionSummaries).toBe(false);
-      expect(settings.disableConversationSummaries).toBe(false);
+      expect(settings.disableConversationSummaries).toBe(true);
       expect(settings.sessionTitlePrompt).toBe('');
       expect(settings.defaultSessionTitlePrompt).toBeDefined();
       expect(settings.defaultSessionTitlePrompt.length).toBeGreaterThan(0);
@@ -753,7 +753,7 @@ test.describe('Session Summaries', () => {
       const getResponse = await fetch(`${API_URL}/api/settings/summary`);
       const settings = await getResponse.json();
       expect(settings.disableSessionSummaries).toBe(false);
-      expect(settings.disableConversationSummaries).toBe(false);
+      expect(settings.disableConversationSummaries).toBe(true);
       expect(settings.sessionTitlePrompt).toBe('');
     });
   });

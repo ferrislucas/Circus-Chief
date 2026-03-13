@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { readFileSync, existsSync } from 'fs';
 import { extname, resolve, normalize } from 'path';
-import { sessions, messages, sessionNotes, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandButtons, commandRuns, modelProviders, sessionSummaries } from '../database.js';
-import { continueSession, stopSession, restartSession, cleanupActiveSession, continueSessionWithExistingMessage } from '../services/sessionManager.js';
+import { sessions, messages, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandRuns, modelProviders, sessionSummaries } from '../database.js';
+import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges, getChangesBranch } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
@@ -12,11 +12,22 @@ import { executeHookAsync } from '../services/hookService.js';
 import { upload as _upload, handleUploadError } from '../middleware/upload.js';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import { commandRunner } from '../services/commandRunner.js';
-import { databaseManager } from '../db/DatabaseManager.js';
 import { duplicateSession } from '../services/sessionDuplicator.js';
 import * as slashCommandService from '../services/slashCommandService.js';
+import { validateDraftSession, startDraft, DraftSessionError } from '../services/draftSessionService.js';
+import { configureSchedule, ScheduleError } from '../services/scheduleService.js';
+
+// Import sub-routers
+import notesRouter from './sessions-notes.js';
+import conversationsRouter from './sessions-conversations.js';
+import commandsRouter from './sessions-commands.js';
 
 const router = Router();
+
+// Mount sub-routers
+router.use('/', notesRouter);
+router.use('/', conversationsRouter);
+router.use('/', commandsRouter);
 
 // TTL cache for files-count endpoint (60 second TTL)
 const filesCountCache = new Map();
@@ -392,16 +403,9 @@ router.post('/:id/restart', requireSession, (req, res) => {
 
 // PUT /api/sessions/:id/initial-prompt - Update the initial prompt for a draft session
 router.put('/:id/initial-prompt', requireSession, (req, res) => {
-  // Validate session is in waiting status (draft state)
-  if (req.session_.status !== 'waiting') {
-    return res.status(400).json({ error: 'Session must be in waiting status to edit the prompt' });
-  }
-
-  // Check if session has any assistant messages (should not have any for a draft)
-  const allMessages = messages.getBySessionId(req.session_.id);
-  const hasAssistantMessages = allMessages.some(msg => msg.role === 'assistant');
-  if (hasAssistantMessages) {
-    return res.status(400).json({ error: 'Session is not a draft - it already has responses' });
+  const validation = validateDraftSession(req.session_);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error });
   }
 
   // Get the request body
@@ -413,6 +417,7 @@ router.put('/:id/initial-prompt', requireSession, (req, res) => {
   }
 
   try {
+    const allMessages = messages.getBySessionId(req.session_.id);
     // Find the first user message and update it
     const userMessages = allMessages.filter(msg => msg.role === 'user');
     if (userMessages.length === 0) {
@@ -437,370 +442,24 @@ router.put('/:id/initial-prompt', requireSession, (req, res) => {
 
 // POST /api/sessions/:id/start - Start a draft session (waiting status with no assistant messages)
 router.post('/:id/start', requireSession, async (req, res) => {
-  // Validate session is in waiting status (draft state)
-  if (req.session_.status !== 'waiting') {
-    return res.status(400).json({ error: 'Session must be in waiting status to start' });
-  }
-
-  // Check if session has any assistant messages (should not have any for a draft)
-  const allMessages = messages.getBySessionId(req.session_.id);
-  const hasAssistantMessages = allMessages.some(msg => msg.role === 'assistant');
-  if (hasAssistantMessages) {
-    return res.status(400).json({ error: 'Session is not a draft - it already has responses' });
+  const validation = validateDraftSession(req.session_);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error });
   }
 
   try {
-    // Get the project and initial prompt
-    const project = projects.getById(req.session_.projectId);
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
-    }
-
-    // Use gitWorktree if set, otherwise use project's working directory
-    const workingDirectory = req.session_.gitWorktree || project.workingDirectory;
-
-    // Model to use for this session (optional - SDK will use default if not provided)
-    // Fallback chain: explicit request body > pendingModel (set at draft creation) > session.model > null (SDK default)
-    const model = req.body.model || req.session_.pendingModel || req.session_.model || null;
-
-    // Get or create the initial user message (prompt)
-    let userMessages = allMessages.filter(msg => msg.role === 'user');
-    let initialMessage;
-
-    if (userMessages.length === 0) {
-      // For draft/scheduled sessions, there may not be an initial message yet
-      // Create it from pendingPrompt or request body
-      const promptToUse = req.body.prompt || req.session_.pendingPrompt;
-      if (!promptToUse || typeof promptToUse !== 'string' || promptToUse.trim() === '') {
-        return res.status(400).json({ error: 'No initial prompt found' });
-      }
-
-      // Get the active conversation
-      const activeConv = conversations.getActiveBySessionId(req.session_.id);
-      if (!activeConv) {
-        return res.status(500).json({ error: 'No active conversation found' });
-      }
-
-      // Create the initial message
-      initialMessage = messages.create(req.session_.id, 'user', promptToUse, null, activeConv.id);
-
-      // Clear pendingPrompt since we've created the message
-      sessions.update(req.session_.id, { pendingPrompt: null });
-
-      // Broadcast the new message
-      broadcastToSession(req.session_.id, WS_MESSAGE_TYPES.MESSAGE_CREATED, {
-        sessionId: req.session_.id,
-        message: initialMessage,
-      });
-    } else {
-      initialMessage = userMessages[0];
-
-      // If a new prompt is provided in the request body, update the message
-      if (req.body.prompt !== undefined) {
-        // Validate provided prompt
-        if (!req.body.prompt || typeof req.body.prompt !== 'string' || req.body.prompt.trim() === '') {
-          return res.status(400).json({ error: 'Prompt must be a non-empty string' });
-        }
-        // Update the message with the new prompt
-        const updatedMessage = messages.updateContent(initialMessage.id, req.body.prompt);
-        initialMessage = updatedMessage;
-
-        // Broadcast the update to session subscribers
-        broadcastToSession(req.session_.id, WS_MESSAGE_TYPES.MESSAGE_UPDATED, {
-          sessionId: req.session_.id,
-          message: updatedMessage,
-        });
-      }
-    }
-
-    const finalPrompt = initialMessage.content;
-
-    // Get session attachments for context
-    const sessionAttachments = attachments.getBySessionId(req.session_.id);
-
-    // Update session status to starting and clear pendingModel (mirrors pendingPrompt cleanup above)
-    sessions.update(req.session_.id, { status: 'starting', pendingModel: null });
-
-    // Resolve skill/command invocations so skill body goes into system prompt
-    const resolved = await slashCommandService.resolvePromptSkillOrCommand(
-      workingDirectory, finalPrompt, project.systemPrompt
-    );
-    const effectivePrompt = resolved ? resolved.userMessage : finalPrompt;
-    const effectiveSystemPrompt = resolved ? resolved.systemPrompt : project.systemPrompt;
-
-    // Start session manager (non-blocking)
-    const { runSession } = await import('../services/sessionManager.js');
-    runSession(req.session_.id, effectivePrompt, workingDirectory, effectiveSystemPrompt, sessionAttachments, model).catch((error) => {
-      console.error('Session error:', error);
-      sessions.update(req.session_.id, { status: 'error', error: error.message });
+    const updatedSession = await startDraft(req.session_, {
+      prompt: req.body.prompt,
+      model: req.body.model,
     });
 
-    // Broadcast status update
-    broadcastToSession(req.session_.id, WS_MESSAGE_TYPES.SESSION_STATUS, {
-      sessionId: req.session_.id,
-      status: 'starting',
-    });
-
-    // Broadcast to project subscribers
-    broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-      projectId: req.session_.projectId,
-      sessionId: req.session_.id,
-      session: sessions.getById(req.session_.id),
-    });
-
-    res.json({ success: true, session: sessions.getById(req.session_.id) });
+    res.json({ success: true, session: updatedSession });
   } catch (error) {
+    if (error instanceof DraftSessionError) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
     console.error('Start session error:', error);
     res.status(500).json({ error: error.message });
-  }
-});
-
-// GET /api/sessions/:id/notes - Get session notes
-router.get('/:id/notes', requireSession, (req, res) => {
-  const notes = sessionNotes.getBySessionId(req.params.id);
-  res.json(notes);
-});
-
-// POST /api/sessions/:id/notes - Create session note
-router.post('/:id/notes', requireSession, (req, res) => {
-  const { content } = req.body;
-  if (!content) {
-    return res.status(400).json({ error: 'Content is required' });
-  }
-
-  const note = sessionNotes.create(req.params.id, content);
-  res.status(201).json(note);
-});
-
-// PUT /api/sessions/:id/notes/:noteId - Update session note
-router.put('/:id/notes/:noteId', (req, res) => {
-  const note = sessionNotes.getById(req.params.noteId);
-  if (!note || note.sessionId !== req.params.id) {
-    return res.status(404).json({ error: 'Note not found' });
-  }
-
-  const { content } = req.body;
-  if (!content) {
-    return res.status(400).json({ error: 'Content is required' });
-  }
-
-  const updated = sessionNotes.update(req.params.noteId, content);
-  res.json(updated);
-});
-
-// DELETE /api/sessions/:id/notes/:noteId - Delete session note
-router.delete('/:id/notes/:noteId', (req, res) => {
-  const note = sessionNotes.getById(req.params.noteId);
-  if (!note || note.sessionId !== req.params.id) {
-    return res.status(404).json({ error: 'Note not found' });
-  }
-
-  sessionNotes.delete(req.params.noteId);
-  res.status(204).send();
-});
-
-// ==================== CONVERSATION ENDPOINTS ====================
-
-// GET /api/sessions/:id/conversations - List all conversations for a session
-router.get('/:id/conversations', requireSession, (req, res) => {
-  // Use getBySessionIdWithBranchInfo to include branching metadata
-  const sessionConversations = conversations.getBySessionIdWithBranchInfo(req.params.id);
-  res.json(sessionConversations);
-});
-
-// POST /api/sessions/:id/conversations - Create new conversation
-router.post('/:id/conversations', requireSession, async (req, res) => {
-  // Block creating new conversation while session is running
-  if (req.session_.status === 'running') {
-    return res.status(400).json({ error: 'Cannot create new conversation while session is running' });
-  }
-
-  const { name } = req.body;
-
-  // Auto-generate summary for the current active conversation before creating new one
-  const previousActive = conversations.getActiveBySessionId(req.params.id);
-  if (previousActive && !previousActive.summary && summaryService.isConversationSummaryEnabled(req.params.id)) {
-    // Generate summary in background (don't block the request)
-    summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
-      console.error('Failed to generate conversation summary:', err);
-    });
-  }
-
-  const conversation = conversations.create(req.params.id, name || null, true);
-
-  // Broadcast conversation created event
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CONVERSATION_CREATED, {
-    sessionId: req.params.id,
-    conversation,
-  });
-
-  res.status(201).json(conversation);
-});
-
-// GET /api/sessions/:id/conversations/:convId - Get specific conversation
-router.get('/:id/conversations/:convId', (req, res) => {
-  const conversation = conversations.getById(req.params.convId);
-  if (!conversation || conversation.sessionId !== req.params.id) {
-    return res.status(404).json({ error: 'Conversation not found' });
-  }
-
-  // Include message count
-  const messageCount = messages.getCountByConversationId(req.params.convId);
-  res.json({ ...conversation, messageCount });
-});
-
-// PATCH /api/sessions/:id/conversations/:convId - Update conversation
-router.patch('/:id/conversations/:convId', requireSession, async (req, res) => {
-  const conversation = conversations.getById(req.params.convId);
-  if (!conversation || conversation.sessionId !== req.params.id) {
-    return res.status(404).json({ error: 'Conversation not found' });
-  }
-
-  const { name, isActive } = req.body;
-
-  // Block switching conversation while session is running
-  if (isActive && req.session_.status === 'running') {
-    return res.status(400).json({ error: 'Cannot switch conversation while session is running' });
-  }
-
-  // If switching to this conversation, generate summary for the previous active one
-  if (isActive && !conversation.isActive) {
-    const previousActive = conversations.getActiveBySessionId(req.params.id);
-    if (previousActive && previousActive.id !== req.params.convId && !previousActive.summary &&
-        summaryService.isConversationSummaryEnabled(req.params.id)) {
-      // Generate summary in background
-      summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
-        console.error('Failed to generate conversation summary:', err);
-      });
-    }
-  }
-
-  const updateData = {};
-  if (name !== undefined) updateData.name = name;
-  if (isActive !== undefined) updateData.isActive = isActive;
-
-  const updated = conversations.update(req.params.convId, updateData);
-
-  // Broadcast conversation updated event
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CONVERSATION_UPDATED, {
-    sessionId: req.params.id,
-    conversation: updated,
-  });
-
-  res.json(updated);
-});
-
-// DELETE /api/sessions/:id/conversations/:convId - Delete conversation
-router.delete('/:id/conversations/:convId', requireSession, (req, res) => {
-  // Block deleting conversation while session is running
-  if (req.session_.status === 'running') {
-    return res.status(400).json({ error: 'Cannot delete conversation while session is running' });
-  }
-
-  const conversation = conversations.getById(req.params.convId);
-  if (!conversation || conversation.sessionId !== req.params.id) {
-    return res.status(404).json({ error: 'Conversation not found' });
-  }
-
-  // Delete and handle active conversation logic
-  const newActive = conversations.deleteAndHandleActive(req.params.convId);
-
-  // Broadcast conversation deleted event
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CONVERSATION_DELETED, {
-    sessionId: req.params.id,
-    conversationId: req.params.convId,
-    newActiveConversation: newActive,
-  });
-
-  res.status(204).send();
-});
-
-// POST /api/sessions/:id/conversations/:convId/summary - Generate summary for conversation
-router.post('/:id/conversations/:convId/summary', requireSession, async (req, res) => {
-  const conversation = conversations.getById(req.params.convId);
-  if (!conversation || conversation.sessionId !== req.params.id) {
-    return res.status(404).json({ error: 'Conversation not found' });
-  }
-
-  try {
-    const summary = await summaryService.generateConversationSummary(req.params.id, req.params.convId);
-    res.json({ summary });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// POST /api/sessions/:id/conversations/:convId/branch - Create a branch from a conversation
-router.post('/:id/conversations/:convId/branch', requireSession, async (req, res) => {
-  // Block branching while session is running
-  if (req.session_.status === 'running') {
-    return res.status(400).json({ error: 'Cannot branch conversation while session is running' });
-  }
-
-  const conversation = conversations.getById(req.params.convId);
-  if (!conversation || conversation.sessionId !== req.params.id) {
-    return res.status(404).json({ error: 'Conversation not found' });
-  }
-
-  const { messageId, prompt } = req.body;
-
-  if (!messageId) {
-    return res.status(400).json({ error: 'messageId is required' });
-  }
-
-  if (!prompt || !prompt.trim()) {
-    return res.status(400).json({ error: 'prompt is required' });
-  }
-
-  try {
-    // Create the branch
-    // Note: name is auto-generated from the prompt in ConversationRepository.branch()
-    const branchConversation = conversations.branch(
-      req.params.convId,
-      messageId,
-      null, // name is auto-generated from prompt
-      prompt
-    );
-
-    // Generate summary for the previous active conversation before branching
-    const previousActive = conversations.getActiveBySessionId(req.params.id);
-    if (previousActive && !previousActive.summary && summaryService.isConversationSummaryEnabled(req.params.id)) {
-      // Generate summary in background (don't block the request)
-      summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
-        console.error('Failed to generate conversation summary:', err);
-      });
-    }
-
-    // Broadcast the new conversation to session subscribers
-    broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CONVERSATION_CREATED, {
-      sessionId: req.params.id,
-      conversation: branchConversation,
-    });
-
-    // Auto-submit to Claude: Start the session with the new prompt
-    // The branch already has the user message, so we use continueSessionWithExistingMessage
-    // which triggers Claude's response WITHOUT creating a duplicate user message
-    try {
-      const project = projects.getById(req.session_.projectId);
-      const workingDirectory = req.session_.gitWorktree || project?.workingDirectory;
-      if (workingDirectory) {
-        await continueSessionWithExistingMessage(
-          req.params.id,
-          branchConversation.id,
-          workingDirectory,
-          project?.systemPrompt
-        );
-      }
-    } catch (err) {
-      console.error('Failed to auto-start branched conversation:', err);
-      // Don't fail the whole request if auto-start fails
-      // User can manually trigger from the UI
-    }
-
-    res.status(201).json(branchConversation);
-  } catch (error) {
-    console.error('Branch conversation error:', error);
-    res.status(400).json({ error: error.message });
   }
 });
 
@@ -1097,89 +756,13 @@ router.post('/:id/star', requireSession, (req, res) => {
 
 // POST /api/sessions/:id/schedule - Schedule a follow-up message for an existing session
 router.post('/:id/schedule', requireSessionAndProject, async (req, res) => {
-  // Only allow scheduling for waiting, stopped, or error sessions
-  if (!['waiting', 'stopped', 'error'].includes(req.session_.status)) {
-    return res.status(400).json({ error: 'Session must be in waiting, stopped, or error state to schedule' });
-  }
-
-  const {
-    scheduledAt,
-    pendingModel,
-    autoRescheduleEnabled,
-    rescheduleDelayMinutes,
-    rescheduleOnTokenLimit,
-    rescheduleOnServiceError,
-    maxRescheduleCount,
-    maxTotalTokens,
-    rescheduleAtTokenCount,
-  } = req.body;
-
-  // DEBUG: Log incoming scheduledAt value
-  console.log('[DEBUG] Schedule API - scheduledAt from request:', scheduledAt, 'type:', typeof scheduledAt);
-  console.log('[DEBUG] Schedule API - Date.now():', Date.now());
-
-  // Validate scheduledAt is provided and in the future
-  if (!scheduledAt || scheduledAt <= Date.now()) {
-    return res.status(400).json({ error: 'scheduledAt must be a future timestamp' });
-  }
-
-  // Validate that pendingPrompt exists and is not empty
-  if (!req.session_.pendingPrompt || req.session_.pendingPrompt.trim() === '') {
-    return res.status(400).json({ error: 'pendingPrompt must be set before scheduling' });
-  }
-
   try {
-    // No need to create a message here - the scheduler will use pendingPrompt
-
-    // Build update data
-    const updateData = {
-      status: 'scheduled',
-      scheduledAt,
-    };
-
-    // Apply scheduling options if provided
-    if (autoRescheduleEnabled !== undefined) {
-      updateData.autoRescheduleEnabled = Boolean(autoRescheduleEnabled);
-    }
-    if (rescheduleDelayMinutes !== undefined) {
-      updateData.rescheduleDelayMinutes = parseInt(rescheduleDelayMinutes, 10);
-    }
-    if (rescheduleOnTokenLimit !== undefined) {
-      updateData.rescheduleOnTokenLimit = Boolean(rescheduleOnTokenLimit);
-    }
-    if (rescheduleOnServiceError !== undefined) {
-      updateData.rescheduleOnServiceError = Boolean(rescheduleOnServiceError);
-    }
-    if (maxRescheduleCount !== undefined) {
-      updateData.maxRescheduleCount = maxRescheduleCount ? parseInt(maxRescheduleCount, 10) : null;
-    }
-    if (maxTotalTokens !== undefined) {
-      updateData.maxTotalTokens = maxTotalTokens ? parseInt(maxTotalTokens, 10) : null;
-    }
-    if (rescheduleAtTokenCount !== undefined) {
-      updateData.rescheduleAtTokenCount = rescheduleAtTokenCount ? parseInt(rescheduleAtTokenCount, 10) : null;
-    }
-    if (pendingModel !== undefined) {
-      updateData.pendingModel = pendingModel;
-    }
-
-    const updated = sessions.update(req.params.id, updateData);
-
-    // Broadcast status update
-    broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_STATUS, {
-      sessionId: req.params.id,
-      status: 'scheduled',
-    });
-
-    // Broadcast session update to project subscribers
-    broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-      projectId: req.session_.projectId,
-      sessionId: req.params.id,
-      session: updated,
-    });
-
+    const updated = configureSchedule(req.session_, req.body);
     res.json(updated);
   } catch (error) {
+    if (error instanceof ScheduleError) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
     console.error('Schedule session error:', error);
     res.status(500).json({ error: error.message });
   }
@@ -1253,189 +836,6 @@ router.delete('/:id', requireSessionAndProject, async (req, res) => {
   }
 
   res.status(204).send();
-});
-
-// POST /api/sessions/:id/command-buttons/:buttonId/run - Execute button command
-router.post('/:id/command-buttons/:buttonId/run', requireSessionAndProject, (req, res) => {
-  const sessionId = req.params.id;
-  const buttonId = req.params.buttonId;
-
-  console.log(`[RUN] Starting command for buttonId: ${buttonId}, sessionId: ${sessionId}`);
-
-  const button = commandButtons.getById(buttonId);
-  if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
-  }
-
-  // Generate run ID
-  const runId = databaseManager.generateId();
-
-  console.log(`[RUN] Generated runId: ${runId} for command: ${button.command}`);
-
-  // Return immediately with runId
-  res.json({ runId, buttonId, status: 'running', output: '' });
-
-  // Capture middleware values for use in async callbacks
-  const projectId = req.session_.projectId;
-  const workingDirectory = req.workingDirectory;
-
-  // Broadcast initial "running" status immediately so session list can show the running indicator
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
-    sessionId,
-    runId,
-    buttonId,
-    output: '',
-  });
-  broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
-    projectId,
-    sessionId,
-    runId,
-    buttonId,
-    output: '',
-  });
-
-  // Execute command asynchronously
-  (async () => {
-    try {
-      console.log(`[RUN] Starting async execution for runId: ${runId}`);
-      await commandRunner.run(
-        runId,
-        button.command,
-        workingDirectory,
-        (text) => {
-          // Broadcast output via WebSocket to session subscribers
-          console.log(`[RUN] Output received for runId: ${runId}`);
-          broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
-            sessionId,
-            runId,
-            buttonId,
-            output: text,
-          });
-          // Also broadcast to project subscribers for session list updates
-          broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
-            projectId,
-            sessionId,
-            runId,
-            buttonId,
-            output: text,
-          });
-        },
-        (exitCode, output) => {
-          // Broadcast completion via WebSocket to session subscribers
-          const status = exitCode === 0 ? 'success' : 'error';
-          console.log(`[RUN] Command completed for runId: ${runId}, exitCode: ${exitCode}, status: ${status}`);
-          broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, {
-            sessionId,
-            runId,
-            buttonId,
-            status,
-            exitCode,
-            output,
-          });
-          // Also broadcast to project subscribers for session list updates
-          console.log(`[RUN] Broadcasting COMMAND_RUN_COMPLETE to project ${projectId}`);
-          broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, {
-            projectId,
-            sessionId,
-            runId,
-            buttonId,
-            status,
-            exitCode,
-            output,
-          });
-        },
-        (message) => {
-          // Broadcast error via WebSocket to session subscribers
-          console.log(`[RUN] Error for runId: ${runId}: ${message}`);
-          broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
-            sessionId,
-            runId,
-            buttonId,
-            error: message,
-          });
-          // Also broadcast to project subscribers for session list updates
-          broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
-            projectId,
-            sessionId,
-            runId,
-            buttonId,
-            error: message,
-          });
-        },
-        { sessionId, buttonId }
-      );
-    } catch (error) {
-      console.error(`Error running command button ${buttonId}:`, error);
-      broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
-        sessionId,
-        runId,
-        buttonId,
-        error: error.message,
-      });
-      // Also broadcast to project subscribers for session list updates
-      broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
-        projectId,
-        sessionId,
-        runId,
-        buttonId,
-        error: error.message,
-      });
-    }
-  })();
-});
-
-// GET /api/sessions/:id/command-buttons/runs - Get active runs for session
-router.get('/:id/command-buttons/runs', requireSession, (req, res) => {
-  const sessionId = req.params.id;
-
-  const activeRuns = commandRunner.getRunsBySession(sessionId);
-  res.json(activeRuns);
-});
-
-// GET /api/sessions/:id/command-buttons/runs/:runId - Get single run by ID
-router.get('/:id/command-buttons/runs/:runId', requireSession, (req, res) => {
-  const { id: sessionId, runId } = req.params;
-
-  // Check if run is currently running (in memory)
-  if (commandRunner.isRunning(runId)) {
-    const activeRuns = commandRunner.getRunsBySession(sessionId);
-    const run = activeRuns.find((r) => r.runId === runId);
-    if (run) {
-      return res.json(run);
-    }
-  }
-
-  // Otherwise check database
-  const run = commandRuns.getById(runId);
-  if (!run || run.sessionId !== sessionId) {
-    return res.status(404).json({ error: 'Run not found' });
-  }
-
-  res.json({
-    runId: run.id,
-    buttonId: run.buttonId,
-    status: run.status,
-    output: run.output,
-    exitCode: run.exitCode,
-    startedAt: run.startedAt,
-    completedAt: run.completedAt,
-  });
-});
-
-// POST /api/sessions/:id/command-buttons/runs/:runId/kill - Kill running command
-router.post('/:id/command-buttons/runs/:runId/kill', requireSession, (req, res) => {
-  const sessionId = req.params.id;
-  const runId = req.params.runId;
-
-  console.log(`[KILL] Kill request for runId: ${runId}, sessionId: ${sessionId}`);
-
-  const killed = commandRunner.kill(runId);
-  console.log(`[KILL] Kill result: ${killed} for runId: ${runId}`);
-  if (!killed) {
-    return res.status(404).json({ error: 'Run not found or already completed' });
-  }
-
-  res.json({ success: true, runId });
 });
 
 export default router;

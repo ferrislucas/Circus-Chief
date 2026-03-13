@@ -20,6 +20,7 @@ vi.mock('../services/sessionManager.js', () => ({
 
 vi.mock('../services/summaryService.js', () => ({
   generateConversationSummary: vi.fn().mockResolvedValue('mock summary'),
+  onSessionActivity: vi.fn(),
 }));
 
 vi.mock('../services/hookService.js', () => ({
