@@ -13,6 +13,9 @@ vi.mock('../composables/useApi.js', () => ({
     recoverCanvasItem: vi.fn(),
     recoverCanvasFile: vi.fn(),
     permanentlyDeleteCanvasItem: vi.fn(),
+    bulkDeleteCanvasItems: vi.fn(),
+    bulkRecoverCanvasItems: vi.fn(),
+    bulkPermanentlyDeleteCanvasItems: vi.fn(),
   },
 }));
 
@@ -514,6 +517,159 @@ describe('Canvas Store', () => {
       api.getCanvasFileContent.mockRejectedValue(error);
 
       await expect(store.fetchItemContent('session-1', 'missing.txt')).rejects.toThrow();
+    });
+  });
+
+  describe('bulkDeleteItems action', () => {
+    it('uses server-returned deletedIds to remove all versions from items', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'a.png', createdAt: 1000 },
+        { id: '2', filename: 'a.png', createdAt: 2000 },
+        { id: '3', filename: 'a.png', createdAt: 3000 },
+        { id: '4', filename: 'b.png', createdAt: 4000 },
+        { id: '5', filename: 'b.png', createdAt: 5000 },
+      ];
+
+      api.bulkDeleteCanvasItems.mockResolvedValue({
+        deletedCount: 3,
+        deletedIds: ['1', '2', '3'],
+      });
+
+      await store.bulkDeleteItems('session-1', ['3']);
+
+      expect(store.items).toHaveLength(2);
+      expect(store.items[0].id).toBe('4');
+      expect(store.items[1].id).toBe('5');
+    });
+
+    it('moves all deleted items to trashedItems', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'a.png', createdAt: 1000 },
+        { id: '2', filename: 'a.png', createdAt: 2000 },
+        { id: '3', filename: 'a.png', createdAt: 3000 },
+        { id: '4', filename: 'b.png', createdAt: 4000 },
+      ];
+
+      api.bulkDeleteCanvasItems.mockResolvedValue({
+        deletedCount: 3,
+        deletedIds: ['1', '2', '3'],
+      });
+
+      await store.bulkDeleteItems('session-1', ['3']);
+
+      expect(store.trashedItems).toHaveLength(3);
+      expect(store.trashedItems.every(i => i.deletedAt !== undefined && i.deletedAt !== null)).toBe(true);
+      expect(store.trashedItems.map(i => i.id).sort()).toEqual(['1', '2', '3']);
+    });
+
+    it('clears selectedItemIds after operation', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'a.png', createdAt: 1000 },
+      ];
+      store.selectedItemIds.add('1');
+
+      api.bulkDeleteCanvasItems.mockResolvedValue({
+        deletedCount: 1,
+        deletedIds: ['1'],
+      });
+
+      await store.bulkDeleteItems('session-1', ['1']);
+
+      expect(store.selectedItemIds.size).toBe(0);
+    });
+  });
+
+  describe('bulkRecoverItems action', () => {
+    it('uses server-returned recoveredIds to move all versions from trash to items', async () => {
+      const store = useCanvasStore();
+      store.trashedItems = [
+        { id: '1', filename: 'a.png', deletedAt: 1000 },
+        { id: '2', filename: 'a.png', deletedAt: 1001 },
+        { id: '3', filename: 'a.png', deletedAt: 1002 },
+      ];
+
+      api.bulkRecoverCanvasItems.mockResolvedValue({
+        recoveredCount: 3,
+        recoveredIds: ['1', '2', '3'],
+      });
+
+      await store.bulkRecoverItems('session-1', ['1']);
+
+      expect(store.trashedItems).toHaveLength(0);
+      expect(store.items).toHaveLength(3);
+    });
+  });
+
+  describe('bulkPermanentlyDeleteItems action', () => {
+    it('uses server-returned deletedIds to remove all versions from trashedItems', async () => {
+      const store = useCanvasStore();
+      store.trashedItems = [
+        { id: '1', filename: 'a.png', deletedAt: 1000 },
+        { id: '2', filename: 'a.png', deletedAt: 1001 },
+        { id: '3', filename: 'a.png', deletedAt: 1002 },
+      ];
+
+      api.bulkPermanentlyDeleteCanvasItems.mockResolvedValue({
+        deletedCount: 3,
+        deletedIds: ['1', '2', '3'],
+      });
+
+      await store.bulkPermanentlyDeleteItems('session-1', ['1']);
+
+      expect(store.trashedItems).toHaveLength(0);
+    });
+  });
+
+  describe('selectAllItems action', () => {
+    it('selects one ID per unique filename', () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'a.png', createdAt: 1000 },
+        { id: '2', filename: 'a.png', createdAt: 2000 },
+        { id: '3', filename: 'a.png', createdAt: 3000 },
+        { id: '4', filename: 'b.png', createdAt: 4000 },
+        { id: '5', filename: 'b.png', createdAt: 5000 },
+      ];
+
+      store.selectAllItems();
+
+      expect(store.selectedItemIds.size).toBe(2);
+    });
+  });
+
+  describe('isAllItemsSelected getter', () => {
+    it('compares against unique file count', () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'a.png', createdAt: 1000 },
+        { id: '2', filename: 'a.png', createdAt: 2000 },
+        { id: '3', filename: 'b.png', createdAt: 3000 },
+        { id: '4', filename: 'b.png', createdAt: 4000 },
+      ];
+
+      // Select one per filename (2 unique filenames)
+      store.selectedItemIds.add('1');
+      store.selectedItemIds.add('3');
+
+      expect(store.isAllItemsSelected).toBe(true);
+    });
+  });
+
+  describe('isPartialSelection getter', () => {
+    it('is true when some but not all groups selected', () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'a.png', createdAt: 1000 },
+        { id: '2', filename: 'b.png', createdAt: 2000 },
+        { id: '3', filename: 'c.png', createdAt: 3000 },
+      ];
+
+      store.selectedItemIds.add('1');
+
+      expect(store.isPartialSelection).toBe(true);
     });
   });
 });
