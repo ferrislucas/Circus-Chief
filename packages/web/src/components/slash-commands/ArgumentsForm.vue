@@ -6,59 +6,81 @@
     </div>
 
     <form @submit.prevent="handleSubmit" class="form-fields">
-      <div
-        v-for="arg in command.arguments"
-        :key="arg.name"
-        class="form-field"
-      >
-        <label :for="`arg-${arg.name}`" class="field-label">
-          {{ arg.label }}
-          <span v-if="arg.required" class="required-indicator">*</span>
-        </label>
+      <!-- Skill arguments (simple text input) -->
+      <template v-if="command.isSkill">
+        <div class="form-field">
+          <label for="skill-args" class="field-label">
+            Arguments
+            <span v-if="command.argumentHint" class="hint">{{ command.argumentHint }}</span>
+          </label>
+          <input
+            id="skill-args"
+            type="text"
+            v-model="skillRawArgs"
+            :placeholder="command.argumentHint || 'Enter arguments...'"
+            class="field-input"
+            data-testid="skill-args-input"
+            @keydown.enter.prevent="handleSubmit"
+          />
+        </div>
+      </template>
 
-        <!-- Select type -->
-        <select
-          v-if="arg.type === 'select'"
-          :id="`arg-${arg.name}`"
-          v-model="formData[arg.name]"
-          :required="arg.required"
-          class="field-select"
-          :data-testid="`arg-${arg.name}`"
+      <!-- Structured command arguments -->
+      <template v-else>
+        <div
+          v-for="arg in command.arguments"
+          :key="arg.name"
+          class="form-field"
         >
-          <option value="" disabled>Select an option...</option>
-          <option
-            v-for="opt in arg.options || []"
-            :key="opt.value"
-            :value="opt.value"
+          <label :for="`arg-${arg.name}`" class="field-label">
+            {{ arg.label }}
+            <span v-if="arg.required" class="required-indicator">*</span>
+          </label>
+
+          <!-- Select type -->
+          <select
+            v-if="arg.type === 'select'"
+            :id="`arg-${arg.name}`"
+            v-model="formData[arg.name]"
+            :required="arg.required"
+            class="field-select"
+            :data-testid="`arg-${arg.name}`"
           >
-            {{ opt.label }}
-          </option>
-        </select>
+            <option value="" disabled>Select an option...</option>
+            <option
+              v-for="opt in arg.options || []"
+              :key="opt.value"
+              :value="opt.value"
+            >
+              {{ opt.label }}
+            </option>
+          </select>
 
-        <!-- Multiline type -->
-        <textarea
-          v-else-if="arg.type === 'multiline'"
-          :id="`arg-${arg.name}`"
-          v-model="formData[arg.name]"
-          :required="arg.required"
-          :placeholder="arg.placeholder || ''"
-          class="field-textarea"
-          rows="4"
-          :data-testid="`arg-${arg.name}`"
-        ></textarea>
+          <!-- Multiline type -->
+          <textarea
+            v-else-if="arg.type === 'multiline'"
+            :id="`arg-${arg.name}`"
+            v-model="formData[arg.name]"
+            :required="arg.required"
+            :placeholder="arg.placeholder || ''"
+            class="field-textarea"
+            rows="4"
+            :data-testid="`arg-${arg.name}`"
+          ></textarea>
 
-        <!-- Text type (default) -->
-        <input
-          v-else
-          type="text"
-          :id="`arg-${arg.name}`"
-          v-model="formData[arg.name]"
-          :required="arg.required"
-          :placeholder="arg.placeholder || ''"
-          class="field-input"
-          :data-testid="`arg-${arg.name}`"
-        />
-      </div>
+          <!-- Text type (default) -->
+          <input
+            v-else
+            type="text"
+            :id="`arg-${arg.name}`"
+            v-model="formData[arg.name]"
+            :required="arg.required"
+            :placeholder="arg.placeholder || ''"
+            class="field-input"
+            :data-testid="`arg-${arg.name}`"
+          />
+        </div>
+      </template>
 
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" @click="emit('back')">
@@ -92,6 +114,9 @@ const emit = defineEmits(['back', 'submit']);
 // Initialize form data with defaults
 const formData = ref({});
 
+// For skills: raw arguments string
+const skillRawArgs = ref('');
+
 // Initialize form data when command changes
 function initFormData() {
   const data = {};
@@ -111,6 +136,12 @@ watch(() => props.command, () => {
 
 // Validation
 const isValid = computed(() => {
+  // Skills are always valid (args are optional)
+  if (props.command.isSkill) {
+    return true;
+  }
+
+  // For commands, validate required fields
   for (const arg of props.command.arguments || []) {
     if (arg.required) {
       const value = formData.value[arg.name];
@@ -124,6 +155,14 @@ const isValid = computed(() => {
 
 function handleSubmit() {
   if (!isValid.value || props.executing) return;
+
+  // For skills, submit raw args
+  if (props.command.isSkill) {
+    emit('submit', { _raw: skillRawArgs.value });
+    return;
+  }
+
+  // For commands, submit structured args
   emit('submit', formData.value);
 }
 </script>
@@ -176,6 +215,14 @@ function handleSubmit() {
 .required-indicator {
   color: var(--color-danger, #ef4444);
   margin-left: 0.125rem;
+}
+
+.hint {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--color-text-soft);
+  font-family: ui-monospace, monospace;
 }
 
 .field-input,
