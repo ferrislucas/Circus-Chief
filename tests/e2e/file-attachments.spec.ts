@@ -293,7 +293,7 @@ test.describe('File Attachments - UI Display', () => {
     }
 
     await page.reload();
-    await page.waitForLoadState('networkidle');
+    await waitForPageReady(page);
 
     // Verify both attachments are displayed in the attachment chip area
     await expect(page.locator('.attachment-chip .attachment-name').filter({ hasText: 'file-a.txt' }).first()).toBeVisible({ timeout: 10000 });

@@ -99,7 +99,6 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { agentCallLogger } from './agentCallLogger.js';
 import * as ghService from './ghService.js';
 import {
-  DEBOUNCE_DELAY,
   MAX_MESSAGES,
   MIN_MESSAGES_FOR_SUMMARY,
   MAX_RETRIES,
@@ -148,10 +147,6 @@ describe('summaryService', () => {
   });
 
   describe('constants', () => {
-    it('has a 60 second debounce delay', () => {
-      expect(DEBOUNCE_DELAY).toBe(60000);
-    });
-
     it('has a minimum message threshold for summary generation', () => {
       expect(MIN_MESSAGES_FOR_SUMMARY).toBe(3);
     });
@@ -1579,68 +1574,6 @@ describe('summaryService', () => {
     });
   });
 
-  describe('onSessionActivity (debounce)', () => {
-    it('schedules summary generation', async () => {
-      vi.useFakeTimers();
-
-      summaryService.onSessionActivity(sessionId);
-
-      // Summary should not be generated immediately
-      expect(sessionSummaries.getBySessionId(sessionId)).toBeNull();
-
-      // Fast-forward time (5 seconds now instead of 15)
-      await vi.advanceTimersByTimeAsync(5000);
-      // Allow pending promises to resolve
-      await vi.runAllTimersAsync();
-
-      // Now summary should be generated
-      expect(sessionSummaries.getBySessionId(sessionId)).not.toBeNull();
-
-      vi.useRealTimers();
-    });
-
-    it('resets timer on subsequent calls', async () => {
-      vi.useFakeTimers();
-
-      summaryService.onSessionActivity(sessionId);
-
-      // Advance 3 seconds
-      await vi.advanceTimersByTimeAsync(3000);
-      expect(sessionSummaries.getBySessionId(sessionId)).toBeNull();
-
-      // Call again (resets timer)
-      summaryService.onSessionActivity(sessionId);
-
-      // Advance another 3 seconds (total 6 from first call, but only 3 from second)
-      await vi.advanceTimersByTimeAsync(3000);
-      expect(sessionSummaries.getBySessionId(sessionId)).toBeNull();
-
-      // Advance remaining 2 seconds plus some buffer for async
-      await vi.advanceTimersByTimeAsync(2000);
-      await vi.runAllTimersAsync();
-      expect(sessionSummaries.getBySessionId(sessionId)).not.toBeNull();
-
-      vi.useRealTimers();
-    });
-
-    it('uses the configured DEBOUNCE_DELAY', async () => {
-      vi.useFakeTimers();
-
-      summaryService.onSessionActivity(sessionId);
-
-      // Just before debounce delay
-      await vi.advanceTimersByTimeAsync(DEBOUNCE_DELAY - 100);
-      expect(sessionSummaries.getBySessionId(sessionId)).toBeNull();
-
-      // After debounce delay
-      await vi.advanceTimersByTimeAsync(200);
-      await vi.runAllTimersAsync();
-      expect(sessionSummaries.getBySessionId(sessionId)).not.toBeNull();
-
-      vi.useRealTimers();
-    });
-  });
-
   describe('generateSessionAndConversationSummary (Phase 5)', () => {
     let conversations;
 
@@ -1648,15 +1581,29 @@ describe('summaryService', () => {
       conversations = (await import('../database.js')).conversations;
     });
 
-    it('generates both summaries in one call', async () => {
-      const conversation = conversations.create(sessionId, 'Test Conversation', true);
+    it('generates both summaries in one call when session has 2+ conversations', async () => {
+      // Create two conversations so the multi-conversation guard allows summary generation
+      const _conv1 = conversations.create(sessionId, 'First Conversation', false);
+      const conv2 = conversations.create(sessionId, 'Second Conversation', true);
 
-      const result = await generateSessionAndConversationSummary(sessionId, conversation.id);
+      const result = await generateSessionAndConversationSummary(sessionId, conv2.id);
 
       expect(result.sessionSummary).not.toBeNull();
       expect(result.conversationSummary).not.toBeNull();
       expect(result.sessionSummary.sessionId).toBe(sessionId);
       expect(result.conversationSummary).toBeDefined();
+    });
+
+    it('falls back to session-only summary when session has only 1 conversation', async () => {
+      // Use the existing conversation from session setup — session has exactly 1 conversation
+      // (creating another would push the count to 2, defeating the test purpose)
+      const activeConversation = conversations.getActiveBySessionId(sessionId);
+
+      const result = await generateSessionAndConversationSummary(sessionId, activeConversation.id);
+
+      // Session summary generated, conversation summary skipped
+      expect(result.sessionSummary).not.toBeNull();
+      expect(result.conversationSummary).toBeNull();
     });
 
     it('returns null for invalid conversation', async () => {
@@ -1666,17 +1613,19 @@ describe('summaryService', () => {
       expect(result.conversationSummary).toBeNull();
     });
 
-    it('includes conversation_summary in response', async () => {
-      const conversation = conversations.create(sessionId, 'Test Conversation', true);
+    it('includes conversation_summary in response when session has 2+ conversations', async () => {
+      // Need 2+ conversations for the multi-conversation guard to allow conversation summary
+      conversations.create(sessionId, 'First Conversation', false);
+      const conv2 = conversations.create(sessionId, 'Second Conversation', true);
 
-      const result = await generateSessionAndConversationSummary(sessionId, conversation.id);
+      const result = await generateSessionAndConversationSummary(sessionId, conv2.id);
 
       // In mock mode, the conversation summary should be the mock value
       expect(result.conversationSummary).toContain('Mock');
     });
 
-    it('respects MIN_MESSAGES_FOR_SUMMARY threshold', async () => {
-      // Create a new session with fewer than 3 messages
+    it('falls back to session-only (minimal) summary for sessions with few messages and 1 conversation', async () => {
+      // Create a new session with fewer than MIN_MESSAGES_FOR_SUMMARY (3) messages
       const now = Date.now();
       const newSessionId = databaseManager.generateId();
       databaseManager
@@ -1693,9 +1642,13 @@ describe('summaryService', () => {
       const conversation = conversations.create(newSessionId, 'Test Conversation', true);
       const result = await generateSessionAndConversationSummary(newSessionId, conversation.id);
 
-      // Should return null due to insufficient messages
-      expect(result.sessionSummary).toBeNull();
+      // With 1 conversation, falls back to generateSummary which creates a minimal summary for < 3 messages
+      // (no LLM call is made — just a minimal summary record)
+      // conversationSummary is always null when there's only 1 conversation
       expect(result.conversationSummary).toBeNull();
+      // sessionSummary is a minimal summary (not null) generated by generateSummary
+      expect(result.sessionSummary).not.toBeNull();
+      expect(result.sessionSummary.fullSummary).toContain('1 message');
     });
   });
 
@@ -1710,49 +1663,34 @@ describe('summaryService', () => {
       expect(sessionSummaries.getBySessionId(sessionId)).not.toBeNull();
     });
 
-    it('cancels pending debounce timer', async () => {
-      vi.useFakeTimers();
-
-      // Start debounce timer
-      summaryService.onSessionActivity(sessionId);
-
-      // Call onSessionComplete (should cancel debounce and generate immediately)
-      summaryService.onSessionComplete(sessionId);
-
-      // Wait for async operation to complete
-      await vi.runAllTimersAsync();
-
-      const summary = sessionSummaries.getBySessionId(sessionId);
-      expect(summary).not.toBeNull();
-
-      vi.useRealTimers();
-    });
-
-    it('generates conversation summary for the active conversation', async () => {
+    it('generates conversation summary via generateConversationSummary (not onSessionComplete)', async () => {
       const { conversations: convRepo } = await import('../database.js');
 
-      // Create a conversation with messages
+      // Create a conversation with enough messages to trigger summary (>= 4)
       const conversation = convRepo.getActiveBySessionId(sessionId);
       messages.create(sessionId, 'user', 'Hello world', null, conversation.id);
       messages.create(sessionId, 'assistant', 'Hi there, how can I help?', null, conversation.id);
+      messages.create(sessionId, 'user', 'Can you help me with a bug?', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Sure, tell me about it!', null, conversation.id);
 
-      summaryService.onSessionComplete(sessionId);
-
-      // Wait for async operations
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // Conversation summaries are triggered by user actions, not onSessionComplete
+      const summary = await summaryService.generateConversationSummary(sessionId, conversation.id);
 
       // Conversation should now have a summary
+      expect(summary).not.toBeNull();
+      expect(summary.length).toBeGreaterThan(0);
       const updated = convRepo.getById(conversation.id);
       expect(updated.summary).not.toBeNull();
-      expect(updated.summary.length).toBeGreaterThan(0);
     });
 
-    it('logs conversation summary call via agentCallLogger', async () => {
+    it('onSessionComplete does not generate conversation summaries (user actions trigger those)', async () => {
       const { conversations: convRepo } = await import('../database.js');
 
       const conversation = convRepo.getActiveBySessionId(sessionId);
       messages.create(sessionId, 'user', 'Hello world', null, conversation.id);
       messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+      messages.create(sessionId, 'user', 'Can you help?', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Of course!', null, conversation.id);
 
       vi.clearAllMocks();
 
@@ -1761,9 +1699,10 @@ describe('summaryService', () => {
       // Wait for async operations
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Phase 5: Should have logged a combined summary call (more efficient - one API call)
+      // onSessionComplete should only generate session summary, not conversation summary
       const callTypes = agentCallLogger.startCall.mock.calls.map((c) => c[0].callType);
-      expect(callTypes).toContain('generateCombinedSummary');
+      expect(callTypes).not.toContain('generateConversationSummary');
+      expect(callTypes).not.toContain('generateCombinedSummary');
     });
 
     it('does not generate conversation summary if conversation already has one', async () => {
@@ -1814,21 +1753,6 @@ describe('summaryService', () => {
   });
 
   describe('cleanupSession', () => {
-    it('cancels pending debounce timer', async () => {
-      vi.useFakeTimers();
-
-      summaryService.onSessionActivity(sessionId);
-      summaryService.cleanupSession(sessionId);
-
-      // Fast-forward past debounce time
-      await vi.advanceTimersByTimeAsync(10000);
-
-      // Summary should NOT have been generated
-      expect(sessionSummaries.getBySessionId(sessionId)).toBeNull();
-
-      vi.useRealTimers();
-    });
-
     it('does not throw for non-existent session', () => {
       expect(() => summaryService.cleanupSession('non-existent')).not.toThrow();
     });
@@ -2098,18 +2022,18 @@ describe('summaryService', () => {
       expect(result).toBeNull();
     });
 
-    it('generates conversation summary when disableConversationSummaries is false', async () => {
+    it('generates conversation summary when disableConversationSummaries is false (the default)', async () => {
       const { conversations } = await import('../database.js');
 
-      // Ensure project has conversation summaries enabled
-      settings.setSummarySettings({ disableConversationSummaries: false });
-
+      // Conversation summaries are enabled by default (disableConversationSummaries defaults to false)
       // Create a conversation
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
 
-      // Add some messages
+      // Add enough messages to trigger summary generation (>= 4)
       messages.create(sessionId, 'user', 'Hello', null, conversation.id);
       messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+      messages.create(sessionId, 'user', 'Can you help me?', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Sure, what do you need?', null, conversation.id);
 
       const result = await summaryService.generateConversationSummary(sessionId, conversation.id);
 
@@ -2182,13 +2106,46 @@ describe('summaryService', () => {
       const sessionResult = await summaryService.generateSummary(sessionId);
       expect(sessionResult).toBeNull();
 
-      // Conversation summary should work
+      // Conversation summary should work (with >= 4 messages to meet threshold)
       const conversation = conversations.create(sessionId, 'Test', true);
       messages.create(sessionId, 'user', 'Hello', null, conversation.id);
       messages.create(sessionId, 'assistant', 'Hi', null, conversation.id);
+      messages.create(sessionId, 'user', 'What can you do?', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Many things!', null, conversation.id);
 
       const convResult = await summaryService.generateConversationSummary(sessionId, conversation.id);
       expect(convResult).not.toBeNull();
+    });
+
+    it('generateConversationSummary returns null for conversations with < 4 messages', async () => {
+      const { conversations } = await import('../database.js');
+
+      const conversation = conversations.create(sessionId, 'Short Conversation', true);
+      // Only 3 messages — below the 4-message threshold
+      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi', null, conversation.id);
+      messages.create(sessionId, 'user', 'Bye', null, conversation.id);
+
+      const result = await summaryService.generateConversationSummary(sessionId, conversation.id);
+
+      expect(result).toBeNull();
+    });
+
+    it('generateConversationSummary generates summary for single-conversation sessions (guard is at caller level)', async () => {
+      const { conversations } = await import('../database.js');
+
+      // Only 1 conversation in the session — the multi-conversation guard is at the caller level,
+      // not inside generateConversationSummary itself, so it should still work
+      const conversation = conversations.create(sessionId, 'Only Conversation', true);
+      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Hi there!', null, conversation.id);
+      messages.create(sessionId, 'user', 'What can you help with?', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Many things!', null, conversation.id);
+
+      const result = await summaryService.generateConversationSummary(sessionId, conversation.id);
+
+      // generateConversationSummary itself has no multi-conversation guard
+      expect(result).not.toBeNull();
     });
   });
 
@@ -2243,27 +2200,6 @@ describe('summaryService', () => {
       expect(sessionSummaries.getBySessionId(sessionId)).not.toBeNull();
     });
 
-    it('cancels pending debounced generation', async () => {
-      vi.useFakeTimers();
-
-      // Start a debounced generation
-      summaryService.onSessionActivity(sessionId);
-
-      // Call generateSummaryNow (should cancel the debounced one)
-      const generatePromise = summaryService.generateSummaryNow(sessionId);
-
-      // Run timers to let any pending debounce fire
-      await vi.runAllTimersAsync();
-
-      const result = await generatePromise;
-
-      // Should have exactly one summary (from generateSummaryNow, not from debounce)
-      expect(result).not.toBeNull();
-      expect(result.sessionId).toBe(sessionId);
-
-      vi.useRealTimers();
-    });
-
     it('returns null for non-existent session', async () => {
       const result = await summaryService.generateSummaryNow('non-existent-session');
 
@@ -2281,29 +2217,19 @@ describe('summaryService', () => {
       expect(result2.sessionId).toBe(sessionId);
     });
 
-    it('returns null when disabled but still cancels debounce timer', async () => {
-      vi.useFakeTimers();
-
-      // Start a debounced generation (with summaries enabled)
-      summaryService.onSessionActivity(sessionId);
-
-      // Now disable summaries
+    it('returns null when disabled', async () => {
+      // Disable summaries
       settings.setSummarySettings({ disableSessionSummaries: true });
 
-      // Call generateSummaryNow (should cancel the debounced timer and return null)
+      // Call generateSummaryNow (should return null immediately)
       const result = await summaryService.generateSummaryNow(sessionId);
 
       // Should return null since summaries are disabled
       expect(result).toBeNull();
 
-      // Run timers to confirm the debounced generation doesn't fire
-      await vi.runAllTimersAsync();
-
       // Summary should NOT have been generated
       const stored = sessionSummaries.getBySessionId(sessionId);
       expect(stored).toBeNull();
-
-      vi.useRealTimers();
     });
   });
 
@@ -2438,9 +2364,22 @@ describe('summaryService', () => {
   });
 
   describe('isConversationSummaryEnabled', () => {
-    it('returns true when conversation summaries are not disabled', () => {
+    it('returns true when conversation summaries are enabled by default', () => {
+      // The default for disableConversationSummaries is false, so without explicit setting
+      // isConversationSummaryEnabled returns true
       const result = isConversationSummaryEnabled(sessionId);
       expect(result).toBe(true);
+    });
+
+    it('returns true when conversation summaries are explicitly enabled', () => {
+      // Explicitly enable conversation summaries (matches the default)
+      settings.setSummarySettings({ disableConversationSummaries: false });
+
+      const result = isConversationSummaryEnabled(sessionId);
+      expect(result).toBe(true);
+
+      // Reset to default (false = enabled)
+      settings.setSummarySettings({ disableConversationSummaries: false });
     });
 
     it('returns false when conversation summaries are disabled for project', () => {
@@ -2545,51 +2484,6 @@ describe('summaryService', () => {
       expect(result.sessionId).toBe(sessionId);
     });
 
-    it('onSessionActivity respects disableSessionSummaries (does not generate)', async () => {
-      vi.useFakeTimers();
-      const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
-
-      // Disable session summaries
-      settings.setSummarySettings({ disableSessionSummaries: true });
-
-      // Trigger activity (should not schedule generation at all)
-      summaryService.onSessionActivity(sessionId);
-
-      // No debounce timer should have been set
-      expect(setTimeoutSpy).not.toHaveBeenCalled();
-
-      // Fast-forward past the debounce delay to confirm no timer fires
-      await vi.advanceTimersByTimeAsync(60000);
-      await vi.runAllTimersAsync();
-
-      // Summary should NOT have been generated
-      const stored = sessionSummaries.getBySessionId(sessionId);
-      expect(stored).toBeNull();
-
-      setTimeoutSpy.mockRestore();
-      vi.useRealTimers();
-    });
-
-    it('onSessionActivity generates when disableSessionSummaries is false', async () => {
-      vi.useFakeTimers();
-
-      // Ensure summaries are enabled
-      settings.setSummarySettings({ disableSessionSummaries: false });
-
-      // Trigger activity
-      summaryService.onSessionActivity(sessionId);
-
-      // Fast-forward past the debounce delay
-      await vi.advanceTimersByTimeAsync(60000);
-      await vi.runAllTimersAsync();
-
-      // Summary SHOULD have been generated
-      const stored = sessionSummaries.getBySessionId(sessionId);
-      expect(stored).not.toBeNull();
-
-      vi.useRealTimers();
-    });
-
     it('getSummary with generateIfMissing=true respects disableSessionSummaries', async () => {
       // Disable session summaries
       settings.setSummarySettings({ disableSessionSummaries: true });
@@ -2621,8 +2515,8 @@ describe('summaryService', () => {
       // onSessionComplete uses force=true but NOT userInitiated, so it should respect the disable setting
       summaryService.onSessionComplete(sessionId);
 
-      // Wait for async generation
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Wait a bit for any async operations
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Summary should NOT have been generated because summaries are disabled
       const stored = sessionSummaries.getBySessionId(sessionId);
@@ -2641,30 +2535,6 @@ describe('summaryService', () => {
       // Summary SHOULD have been generated
       const stored = sessionSummaries.getBySessionId(sessionId);
       expect(stored).not.toBeNull();
-    });
-
-    it('manual regeneration can override disabled setting while auto-generation cannot', async () => {
-      // Disable session summaries
-      settings.setSummarySettings({ disableSessionSummaries: true });
-
-      // Try automatic generation via onSessionActivity - should be skipped
-      summaryService.onSessionActivity(sessionId);
-
-      // Wait a bit to ensure debounce would have fired if not disabled
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Clean up the debounce timer to avoid interfering with next test
-      summaryService.cleanupSession(sessionId);
-
-      let stored = sessionSummaries.getBySessionId(sessionId);
-      expect(stored).toBeNull(); // Auto-generation skipped
-
-      // Now try manual regeneration via regenerateSummary - should work (user-initiated)
-      const result = await summaryService.regenerateSummary(sessionId);
-      expect(result).not.toBeNull();
-
-      stored = sessionSummaries.getBySessionId(sessionId);
-      expect(stored).not.toBeNull(); // Manual generation worked
     });
 
     it('onSessionComplete does not bypass disabled setting (unlike regenerateSummary)', async () => {
@@ -3060,10 +2930,12 @@ describe('summaryService', () => {
     it('logs conversation summary calls via agentCallLogger', async () => {
       const { conversations } = await import('../database.js');
 
+      // Conversation summaries are enabled by default
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
       messages.create(sessionId, 'user', 'Hello', null, conversation.id);
       messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
       messages.create(sessionId, 'user', 'How are you?', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Doing great!', null, conversation.id);
 
       await summaryService.generateConversationSummary(sessionId, conversation.id);
 
@@ -3081,10 +2953,12 @@ describe('summaryService', () => {
     it('completes conversation summary calls with success', async () => {
       const { conversations } = await import('../database.js');
 
+      // Conversation summaries are enabled by default
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
       messages.create(sessionId, 'user', 'Hello', null, conversation.id);
       messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
       messages.create(sessionId, 'user', 'How are you?', null, conversation.id);
+      messages.create(sessionId, 'assistant', 'Doing great!', null, conversation.id);
 
       await summaryService.generateConversationSummary(sessionId, conversation.id);
 
@@ -3323,32 +3197,6 @@ describe('summaryService', () => {
       expect(agentCallLogger.startCall).toHaveBeenCalledTimes(1);
     });
 
-    it('follow-up after concurrency guard uses debounce path, not immediate', async () => {
-      vi.useFakeTimers();
-
-      // Start first generation
-      const firstPromise = summaryService.generateSummary(sessionId);
-
-      // Queue a follow-up while first is in-flight
-      summaryService.generateSummary(sessionId);
-
-      // Run pending promises to complete the first generation
-      await vi.runAllTimersAsync();
-      await firstPromise;
-
-      vi.clearAllMocks();
-
-      // The follow-up should have been scheduled via debounce (onSessionActivity)
-      // Advance past debounce delay
-      await vi.advanceTimersByTimeAsync(DEBOUNCE_DELAY + 100);
-      await vi.runAllTimersAsync();
-
-      // Now the follow-up should have fired
-      // It may or may not make an LLM call depending on staleness check
-      // The key test is that it used the debounce path (no immediate call)
-
-      vi.useRealTimers();
-    });
   });
 
   describe('onSessionComplete staleness and outcome', () => {
@@ -3442,27 +3290,57 @@ describe('summaryService', () => {
     });
   });
 
-  describe('generateSummaryNow cancels debounce', () => {
-    it('generateSummaryNow cancels pending debounce timer and generates only once', async () => {
-      // Use real timers -- fake timers conflict with async generators in mock mode
+  describe('propagateToParent', () => {
+    it('calls generateSummary directly on the parent session ID', async () => {
+      // Create a parent session with enough messages for summary generation
+      const parentSession = sessions.create(projectId, 'Parent Session', 'Parent prompt', 'standard');
+      messages.create(parentSession.id, 'assistant', 'Parent response 1', null);
+      messages.create(parentSession.id, 'user', 'Parent follow-up', null);
 
-      // Start a debounced generation
-      summaryService.onSessionActivity(sessionId);
+      // Create a child session with parentSessionId set
+      const childSession = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
+      sessions.update(childSession.id, { parentSessionId: parentSession.id });
 
-      // Immediately call generateSummaryNow (should cancel the debounced one)
-      const result = await summaryService.generateSummaryNow(sessionId);
+      vi.clearAllMocks();
 
-      // Should have generated successfully
-      expect(result).not.toBeNull();
-      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(1);
+      // Call propagateToParent on the child session
+      await summaryService.propagateToParent(childSession.id);
 
-      // Wait past debounce delay to ensure the cancelled timer doesn't fire a second generation
+      // Wait for async generation to complete
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Still only one call -- the debounced timer was cancelled
-      // (Second call would be skipped by staleness check even if timer wasn't cancelled,
-      // but the important thing is the timer was cancelled by generateSummaryNow)
-      expect(agentCallLogger.startCall).toHaveBeenCalledTimes(1);
+      // generateSummary should have been called for the parent session (not onSessionActivity)
+      // Verify by checking that a summary was generated for the parent session
+      const parentSummary = sessionSummaries.getBySessionId(parentSession.id);
+      expect(parentSummary).not.toBeNull();
+      expect(parentSummary.sessionId).toBe(parentSession.id);
+
+      // Clean up
+      summaryService.cleanupSession(parentSession.id);
+      summaryService.cleanupSession(childSession.id);
+    });
+
+    it('does nothing when session has no parentSessionId', async () => {
+      vi.clearAllMocks();
+
+      // sessionId has no parentSessionId set (default)
+      await summaryService.propagateToParent(sessionId);
+
+      // Wait a bit to ensure no async work was triggered
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // No summary should have been generated for the session itself
+      expect(agentCallLogger.startCall).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when session does not exist', async () => {
+      vi.clearAllMocks();
+
+      await summaryService.propagateToParent('non-existent-session-id');
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(agentCallLogger.startCall).not.toHaveBeenCalled();
     });
   });
 });
