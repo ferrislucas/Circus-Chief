@@ -1583,7 +1583,7 @@ describe('summaryService', () => {
 
     it('generates both summaries in one call when session has 2+ conversations', async () => {
       // Create two conversations so the multi-conversation guard allows summary generation
-      const conv1 = conversations.create(sessionId, 'First Conversation', false);
+      const _conv1 = conversations.create(sessionId, 'First Conversation', false);
       const conv2 = conversations.create(sessionId, 'Second Conversation', true);
 
       const result = await generateSessionAndConversationSummary(sessionId, conv2.id);
