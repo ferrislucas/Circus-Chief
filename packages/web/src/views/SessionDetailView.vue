@@ -191,7 +191,7 @@
       </div>
 
       <!-- Scheduling Info Panel -->
-      <SchedulingInfo v-if="sessionsStore.currentSession" :session="sessionsStore.currentSession" />
+      <SchedulingInfo v-if="sessionsStore.currentSession && (activeTab === 'conversation' || activeTab === 'summary')" :session="sessionsStore.currentSession" />
 
       <div class="tab-content">
         <!-- CRITICAL: :key ensures components remount when navigating between sessions,
