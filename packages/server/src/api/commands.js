@@ -94,23 +94,55 @@ router.post('/:name/execute', async (req, res) => {
   // Determine working directory (may be a worktree)
   const workingDirectory = session.gitWorktree || project.workingDirectory;
 
-  try {
-    // Build the command string (handles argument substitution)
-    const commandString = await slashCommandService.buildCommandString(
-      workingDirectory,
-      name,
-      args
-    );
-
-    // Send the command as a message to the session
-    // This works for both built-in and custom commands
-    // The session must be in a state that accepts messages (waiting, stopped, error)
+  // The session must be in a state that accepts messages (waiting, stopped, error)
     const validStatuses = ['waiting', 'stopped', 'error'];
     if (!validStatuses.includes(session.status)) {
       return res.status(400).json({
         error: `Session is not ready for commands. Current status: ${session.status}`,
       });
     }
+
+  try {
+    // Check if this is a skill — skills need special handling:
+    // skill body → system prompt, user args → user message
+    const skillInvocation = await slashCommandService.buildSkillInvocation(
+      workingDirectory,
+      name,
+      args
+    );
+
+    if (skillInvocation) {
+      // Skill: inject body as system prompt context, args as user message
+      const skillSystemPrompt = slashCommandService.buildSkillSystemPrompt(
+        project.systemPrompt || null,
+        skillInvocation
+      );
+      const userMessage = slashCommandService.buildSkillUserMessage(skillInvocation);
+
+      continueSession(
+        sessionId,
+        userMessage,
+        workingDirectory,
+        skillSystemPrompt,
+        [] // No file attachments for slash commands
+      ).catch(err => {
+        console.error('Error executing skill:', err);
+      });
+
+      res.json({
+        success: true,
+        command: name,
+        message: userMessage,
+      });
+      return;
+    }
+
+    // Non-skill command: build command string and send as user message
+    const commandString = await slashCommandService.buildCommandString(
+      workingDirectory,
+      name,
+      args
+    );
 
     // Use continueSession to send the command
     // This handles the full message flow including broadcasting to WebSocket

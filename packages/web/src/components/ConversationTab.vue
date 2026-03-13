@@ -267,6 +267,9 @@
       mode="execute"
       @executed="handleSlashCommandExecuted"
     />
+
+    <!-- Scheduling Info Panel -->
+    <SchedulingInfo v-if="sessionsStore.currentSession" :session="sessionsStore.currentSession" />
   </div>
 </template>
 
@@ -280,6 +283,7 @@ import { useTemplatesStore } from '../stores/templates.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
+import { useMessageScroll } from '../composables/useMessageScroll.js';
 import { api } from '../composables/useApi.js';
 import TodoDrawer from './TodoDrawer.vue';
 import WorkLogPanel from './WorkLogPanel.vue';
@@ -300,6 +304,7 @@ import ResizableTextarea from './ResizableTextarea.vue';
 import SlashCommandButton from './SlashCommandButton.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
 import OrchestrationPanel from './OrchestrationPanel.vue';
+import SchedulingInfo from './SchedulingInfo.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useProjectsStore } from '../stores/projects.js';
 
@@ -316,6 +321,12 @@ const projectsStore = useProjectsStore();
 const { getModelDisplayName } = useModelInfo();
 const router = useRouter();
 const route = useRoute();
+
+const { messagesContainer, isNearBottom, hasNewMessages, scrollToBottom, scrollToClaudesTurn } = useMessageScroll({
+  messages: computed(() => sessionsStore.messages),
+  partialText: computed(() => sessionsStore.partialText),
+  activeConversationId: computed(() => sessionsStore.activeConversationId),
+});
 
 const input = ref('');
 const quickResponseSettingsOpen = ref(false);
@@ -339,7 +350,6 @@ const sending = ref(false);
 const stopping = ref(false);
 const restarting = ref(false);
 const togglingThinking = ref(false);
-const messagesContainer = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
 const branchingMessageId = ref(null); // Message ID currently being branched from
@@ -349,11 +359,6 @@ let draftSaveTimer = null;
 
 // partialText comes from the sessions store (set by SessionDetailView's WebSocket handlers)
 const partialText = computed(() => sessionsStore.partialText);
-const isNearBottom = ref(true);
-const hasNewMessages = ref(false);
-let debounceTimer = null;
-
-const SCROLL_THRESHOLD = 100; // pixels from bottom to consider "at bottom"
 
 const canSendMessage = computed(() => {
   const status = sessionsStore.currentSession?.status;
@@ -486,19 +491,6 @@ const workingDirectory = computed(() => {
 // WebSocket handlers are now consolidated in SessionDetailView.
 // ConversationTab reads from the Pinia store reactively.
 
-function handleScroll() {
-  const container = messagesContainer.value;
-  if (!container) return;
-  const { scrollTop, scrollHeight, clientHeight } = container;
-  const wasNearBottom = isNearBottom.value;
-  isNearBottom.value = scrollHeight - scrollTop - clientHeight < SCROLL_THRESHOLD;
-
-  // Clear new messages indicator when user scrolls to bottom
-  if (isNearBottom.value && !wasNearBottom) {
-    hasNewMessages.value = false;
-  }
-}
-
 onMounted(async () => {
   // Load pendingPrompt from session data (works for both draft and waiting sessions)
   const pending = sessionsStore.currentSession?.pendingPrompt;
@@ -522,11 +514,6 @@ onMounted(async () => {
         }
       });
     }
-  }
-
-  // Add scroll event listener to the messages container
-  if (messagesContainer.value) {
-    messagesContainer.value.addEventListener('scroll', handleScroll);
   }
 
   // Only fetch conversations if not already loaded for this session
@@ -571,12 +558,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   // NOTE: All WebSocket unsubs removed - handlers are now in SessionDetailView
-  if (debounceTimer) clearTimeout(debounceTimer);
   if (draftSaveTimer) clearTimeout(draftSaveTimer);
   if (inputSyncTimer) clearTimeout(inputSyncTimer);
-  if (messagesContainer.value) {
-    messagesContainer.value.removeEventListener('scroll', handleScroll);
-  }
   // Clear work logs when leaving the conversation tab
   // Note: Don't clear conversations here - they should persist when switching tabs
   // within the same session. They will be refreshed when switching sessions.
@@ -607,62 +590,6 @@ function handleInput(event) {
     }
   }, 500); // Debounce 500ms for server save
 }
-
-function scrollToBottom(force = false) {
-  nextTick(() => {
-    const container = messagesContainer.value;
-    if (!container) return;
-    if (force || isNearBottom.value) {
-      container.scrollTop = container.scrollHeight;
-      isNearBottom.value = true;
-      hasNewMessages.value = false;
-    } else {
-      // User has scrolled up, mark that there are new messages
-      hasNewMessages.value = true;
-    }
-  });
-}
-
-function scrollToClaudesTurn() {
-  nextTick(() => {
-    const container = messagesContainer.value;
-    if (!container) return;
-
-    // Find the last assistant message
-    const lastAssistantIndex = sessionsStore.messages.findLastIndex(msg => msg.role === 'assistant');
-    if (lastAssistantIndex < 0) return;
-
-    const lastAssistantMsg = sessionsStore.messages[lastAssistantIndex];
-    const msgElement = document.querySelector(`[data-message-id="${lastAssistantMsg.id}"]`);
-
-    if (msgElement) {
-      // Get element position relative to the container
-      const containerRect = container.getBoundingClientRect();
-      const elementRect = msgElement.getBoundingClientRect();
-      const offsetTop = elementRect.top - containerRect.top + container.scrollTop;
-
-      container.scrollTop = offsetTop - 16; // 16px padding from top
-    }
-  });
-}
-
-watch(
-  () => sessionsStore.messages.length,
-  (newLen, oldLen) => {
-    console.log(`[CONV] messages.length changed: ${oldLen} → ${newLen}, activeConversationId: ${sessionsStore.activeConversationId}`);
-    // Force scroll when messages first load, conditional scroll otherwise
-    if (oldLen === 0 && newLen > 0) {
-      scrollToBottom(true);
-    } else {
-      scrollToBottom();
-    }
-  }
-);
-
-// Watch partialText from store and scroll to bottom when streaming updates arrive
-watch(partialText, () => {
-  scrollToBottom();
-});
 
 // Re-fetch messages and work logs when session status changes from running to waiting/completed
 // This ensures the UI shows the correct messages after Claude's turn ends.
@@ -716,10 +643,6 @@ watch(
     if (newConvId && newConvId !== oldConvId) {
       // Clear streaming message state from previous conversation
       sessionsStore.clearPartialText();
-
-      // Reset scroll state when switching conversations
-      hasNewMessages.value = false;
-      isNearBottom.value = true;
 
       await nextTick();
 
