@@ -151,8 +151,11 @@ export const useSessionsStore = defineStore('sessions', {
       }
       return {
         effectiveStatus: runningCount > 0 ? 'running' : 'idle',
-        runningCount, scheduledCount, waitingCount, completedCount,
-        totalCount: allSessions.length,
+        runningCount,
+        scheduledCount,
+        waitingCount,
+        completedCount,
+        totalCount: allSessions.length - 1,
         hasScheduledDescendant: allSessions.slice(1).some((s) => s.status === 'scheduled'),
         rootIsScheduled: root.status === 'scheduled',
       };
