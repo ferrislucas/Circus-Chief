@@ -1,6 +1,7 @@
 import { sessions, messages, conversations, projects, attachments } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import * as slashCommandService from './slashCommandService.js';
 
 /**
  * Service for managing scheduled session execution
@@ -108,6 +109,13 @@ class SchedulerService {
     // Get attachments for context
     const sessionAttachments = attachments.getBySessionId(session.id);
 
+    // Resolve skill/command invocations so skill body goes into system prompt
+    const resolved = await slashCommandService.resolvePromptSkillOrCommand(
+      workingDirectory, prompt, project.systemPrompt
+    );
+    const effectivePrompt = resolved ? resolved.userMessage : prompt;
+    const effectiveSystemPrompt = resolved ? resolved.systemPrompt : project.systemPrompt;
+
     // Determine if this is an initial run or a continuation
     if (hasAssistantResponses) {
       // Session has conversation history - this is a scheduled continuation
@@ -122,9 +130,9 @@ class SchedulerService {
 
       await this.sessionManager.continueSession(
         session.id,
-        prompt,
+        effectivePrompt,
         workingDirectory,
-        project.systemPrompt,
+        effectiveSystemPrompt,
         sessionAttachments,
         session.pendingModel
       );
@@ -157,9 +165,9 @@ class SchedulerService {
 
       await this.sessionManager.runSession(
         session.id,
-        prompt,
+        effectivePrompt,
         workingDirectory,
-        project.systemPrompt,
+        effectiveSystemPrompt,
         sessionAttachments,
         session.pendingModel
       );

@@ -176,6 +176,44 @@ export class CanvasItemRepository extends BaseRepository {
   }
 
   /**
+   * Expand item IDs to include all versions sharing the same filename.
+   * For each given ID, finds the item's filename + session, then collects
+   * all items with that filename in that session.
+   * @param {string[]} itemIds - Array of item IDs
+   * @param {object} options
+   * @param {boolean} [options.deletedOnly] - Only include deleted items (for trash operations)
+   * @param {boolean} [options.activeOnly] - Only include active (non-deleted) items
+   * @returns {string[]} Expanded array of item IDs (deduplicated)
+   */
+  expandToAllVersions(itemIds, { deletedOnly = false, activeOnly = false } = {}) {
+    if (!itemIds || itemIds.length === 0) return [];
+
+    const allIds = new Set();
+
+    for (const itemId of itemIds) {
+      const item = this.getById(itemId);
+      if (!item || !item.filename) {
+        allIds.add(itemId);
+        continue;
+      }
+
+      let filter = 'session_id = ? AND filename = ?';
+      if (deletedOnly) filter += ' AND deleted_at IS NOT NULL';
+      if (activeOnly) filter += ' AND deleted_at IS NULL';
+
+      const siblings = this.db
+        .prepare(`SELECT id FROM canvas_items WHERE ${filter}`)
+        .all(item.sessionId, item.filename);
+
+      for (const sibling of siblings) {
+        allIds.add(sibling.id);
+      }
+    }
+
+    return [...allIds];
+  }
+
+  /**
    * Duplicates all canvas items from one session to another.
    * Only copies non-deleted items.
    * @param {string} sourceSessionId - Source session ID

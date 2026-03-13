@@ -525,11 +525,11 @@ test.describe('Complex Hierarchy Scenarios', () => {
     const rootCard = page.locator('.session-card').filter({ hasText: 'Count Root' });
     await expect(rootCard).toBeVisible();
 
-    // Verify the expand button text shows the total count
-    // The button text shows "Show N sessions" when collapsed
+    // Verify the expand button text shows the total descendant count
+    // The button text shows "Show N sessions" when collapsed (descendants only, not root)
     const expandButton = rootCard.locator('.expand-toggle-btn');
     await expect(expandButton).toBeVisible();
-    // Total count includes root + 3 children = 4 sessions
-    await expect(expandButton).toContainText('4 sessions');
+    // Total count is 3 children (descendants only, root is not counted)
+    await expect(expandButton).toContainText('3 sessions');
   });
 });

@@ -637,6 +637,98 @@ describe('CanvasItemRepository', () => {
       });
     });
 
+    describe('expandToAllVersions', () => {
+      it('returns all sibling version IDs for a given item ID', () => {
+        const v1 = repo.create(sessionId, { type: 'image', data: 'data1', filename: 'report.png' });
+        const v2 = repo.create(sessionId, { type: 'image', data: 'data2', filename: 'report.png' });
+        const v3 = repo.create(sessionId, { type: 'image', data: 'data3', filename: 'report.png' });
+
+        const result = repo.expandToAllVersions([v3.id]);
+
+        expect(result).toHaveLength(3);
+        expect(result).toContain(v1.id);
+        expect(result).toContain(v2.id);
+        expect(result).toContain(v3.id);
+      });
+
+      it('handles multiple files and deduplicates', () => {
+        const a1 = repo.create(sessionId, { type: 'image', data: 'data1', filename: 'a.png' });
+        const a2 = repo.create(sessionId, { type: 'image', data: 'data2', filename: 'a.png' });
+        const b1 = repo.create(sessionId, { type: 'image', data: 'data3', filename: 'b.png' });
+        const b2 = repo.create(sessionId, { type: 'image', data: 'data4', filename: 'b.png' });
+
+        const result = repo.expandToAllVersions([a2.id, b2.id]);
+
+        expect(result).toHaveLength(4);
+        expect(result).toContain(a1.id);
+        expect(result).toContain(a2.id);
+        expect(result).toContain(b1.id);
+        expect(result).toContain(b2.id);
+      });
+
+      it('with activeOnly: true, excludes deleted items', () => {
+        const v1 = repo.create(sessionId, { type: 'text', content: 'v1', filename: 'file.txt' });
+        const v2 = repo.create(sessionId, { type: 'text', content: 'v2', filename: 'file.txt' });
+        const v3 = repo.create(sessionId, { type: 'text', content: 'v3', filename: 'file.txt' });
+
+        repo.softDelete(v2.id);
+
+        const result = repo.expandToAllVersions([v1.id], { activeOnly: true });
+
+        expect(result).toHaveLength(2);
+        expect(result).toContain(v1.id);
+        expect(result).toContain(v3.id);
+        expect(result).not.toContain(v2.id);
+      });
+
+      it('with deletedOnly: true, excludes active items', () => {
+        const v1 = repo.create(sessionId, { type: 'text', content: 'v1', filename: 'file.txt' });
+        const v2 = repo.create(sessionId, { type: 'text', content: 'v2', filename: 'file.txt' });
+        const v3 = repo.create(sessionId, { type: 'text', content: 'v3', filename: 'file.txt' });
+
+        repo.softDelete(v1.id);
+        repo.softDelete(v2.id);
+
+        const result = repo.expandToAllVersions([v1.id], { deletedOnly: true });
+
+        expect(result).toHaveLength(2);
+        expect(result).toContain(v1.id);
+        expect(result).toContain(v2.id);
+        expect(result).not.toContain(v3.id);
+      });
+
+      it('handles items with no filename (falls back to just the given ID)', () => {
+        const item = repo.create(sessionId, { type: 'text', content: 'no filename' });
+
+        const result = repo.expandToAllVersions([item.id]);
+
+        expect(result).toEqual([item.id]);
+      });
+
+      it('deduplicates when multiple input IDs map to the same file', () => {
+        const v1 = repo.create(sessionId, { type: 'text', content: 'v1', filename: 'file.png' });
+        const v2 = repo.create(sessionId, { type: 'text', content: 'v2', filename: 'file.png' });
+        const v3 = repo.create(sessionId, { type: 'text', content: 'v3', filename: 'file.png' });
+
+        const result = repo.expandToAllVersions([v1.id, v2.id]);
+
+        expect(result).toHaveLength(3);
+        expect(result).toContain(v1.id);
+        expect(result).toContain(v2.id);
+        expect(result).toContain(v3.id);
+      });
+
+      it('returns empty array for empty input', () => {
+        const result = repo.expandToAllVersions([]);
+        expect(result).toEqual([]);
+      });
+
+      it('handles non-existent IDs gracefully', () => {
+        const result = repo.expandToAllVersions(['non-existent-id']);
+        expect(result).toEqual(['non-existent-id']);
+      });
+    });
+
     describe('duplicateForSession', () => {
       let targetSessionId;
       let targetProject;
