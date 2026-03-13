@@ -888,6 +888,26 @@ export async function generateSummaryNow(sessionId) {
  * Also schedules follow-up CI checks for sessions with PRs.
  * @param {string} sessionId
  */
+/**
+ * Trigger summary generation on session activity (e.g., turn completion).
+ * This is called during an active session (when it goes to 'waiting' state),
+ * as opposed to onSessionComplete which is called when the session ends.
+ * @param {string} sessionId
+ */
+export function onSessionActivity(sessionId) {
+  // Early exit if session summaries are disabled globally
+  const globalSettings = settings.getSummarySettings();
+  if (globalSettings?.disableSessionSummaries) {
+    return;
+  }
+
+  // Only generate if the summary is stale (no force=true)
+  // This avoids redundant generation while keeping summaries updated
+  generateSummary(sessionId).catch((err) => {
+    console.error(`[SummaryService] Failed to generate summary on activity for session ${sessionId}:`, err);
+  });
+}
+
 export function onSessionComplete(sessionId) {
   // Lightweight outcome update: if summary exists and is current,
   // just update the outcome field without calling the LLM

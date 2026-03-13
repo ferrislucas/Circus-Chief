@@ -14,6 +14,7 @@ vi.mock('../services/summaryService.js', () => ({
   generateSessionAndConversationSummary: vi.fn().mockResolvedValue({ sessionSummary: null, conversationSummary: null }),
   generateSummary: vi.fn().mockResolvedValue(null),
   onSessionComplete: vi.fn(),
+  onSessionActivity: vi.fn(),
   isConversationSummaryEnabled: vi.fn((_sessionId) => {
     // Default implementation: return true (enabled)
     // Tests can override this by mocking the implementation
