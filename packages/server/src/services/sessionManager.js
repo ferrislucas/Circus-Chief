@@ -1,4 +1,4 @@
-import { sessions, messages, attachments, conversations } from '../database.js';
+import { sessions, messages, attachments, conversations, projects } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as summaryService from './summaryService.js';
@@ -87,6 +87,48 @@ async function handleTemplateTriggerIfNeeded(sessionId) {
 }
 
 /**
+ * Auto-send queued prompt if enabled after a model turn completes.
+ * Exported for unit testing (same pattern as _checkProactiveReschedule).
+ * @param {string} sessionId
+ */
+export async function handleAutoSendIfNeeded(sessionId) {
+  const session = sessions.getById(sessionId);
+  if (!session || !session.autoSendPendingPrompt || !session.pendingPrompt) {
+    return;
+  }
+
+  // Clear the auto-send flag and pending prompt BEFORE sending
+  // to prevent double-sends on race conditions
+  const promptToSend = session.pendingPrompt;
+  const modelToUse = session.pendingModel || null;
+  const updatedSession = sessions.update(sessionId, {
+    autoSendPendingPrompt: false,
+    pendingPrompt: null,
+  });
+
+  // Broadcast the cleared state so the UI updates
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    sessionId,
+    session: updatedSession,
+  });
+
+  // Re-check status — template trigger may have changed it
+  const currentSession = sessions.getById(sessionId);
+  if (currentSession?.status !== 'waiting') {
+    return;
+  }
+
+  // Send the queued prompt (reuses existing continueSession logic)
+  try {
+    const project = projects.getById(session.projectId);
+    const systemPrompt = project?.systemPrompt || null;
+    await continueSession(sessionId, promptToSend, session.gitWorktree || project?.workingDirectory, systemPrompt, [], modelToUse);
+  } catch (error) {
+    console.error(`[AUTO-SEND] Failed to auto-send for session ${sessionId}:`, error);
+  }
+}
+
+/**
  * Build query parameters for executing a session via the Claude agent.
  * Shared by runSession, continueSession, and continueSessionWithExistingMessage.
  * @param {Object} options
@@ -161,7 +203,8 @@ async function _executeSession({
       sessionId,
       workingDirectory,
       handleTemplateTriggerIfNeeded,
-      _checkProactiveReschedule
+      _checkProactiveReschedule,
+      handleAutoSendIfNeeded
     );
     if (wasRescheduled) {
       return;

@@ -1028,7 +1028,7 @@ describe('ConversationTab - Error Handling Improvements', () => {
       expect(resizableTextarea.exists()).toBe(true);
     });
 
-    it('ResizableTextarea is not shown when session is running', async () => {
+    it('input form is shown when session is running (for queuing prompts)', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
         status: 'running',
@@ -1040,7 +1040,11 @@ describe('ConversationTab - Error Handling Improvements', () => {
       await flushAll(wrapper);
 
       const inputForm = wrapper.find('.input-form');
-      expect(inputForm.exists()).toBe(false);
+      expect(inputForm.exists()).toBe(true);
+
+      // But send button row should not be visible
+      const sendButtonRow = wrapper.find('.send-button-row');
+      expect(sendButtonRow.exists()).toBe(false);
     });
 
     it('ResizableTextarea has correct min-height prop', async () => {
