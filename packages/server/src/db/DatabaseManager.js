@@ -25,11 +25,6 @@ export class DatabaseManager {
     this.#db.pragma('journal_mode = WAL');
     this.#db.pragma('foreign_keys = ON');
 
-    // Clean up legacy model_providers table from development (before running schema)
-    // Also drop provider_models if it has a FK reference to model_providers
-    this.#db.exec('DROP TABLE IF EXISTS model_providers');
-    this.#db.exec('DROP TABLE IF EXISTS provider_models');
-
     // Run schema
     const schema = readFileSync(join(__dirname, '..', 'schema.sql'), 'utf-8');
     this.#db.exec(schema);
@@ -428,6 +423,17 @@ export class DatabaseManager {
         updated_at INTEGER NOT NULL
       )
     `);
+
+    // Clean up legacy model_providers table from early development.
+    // If it exists, provider_models may have a stale FK pointing to it,
+    // so drop provider_models too — it will be recreated below with the correct FK.
+    const hasLegacyTable = this.#db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='model_providers'")
+      .get();
+    if (hasLegacyTable) {
+      this.#db.exec('DROP TABLE IF EXISTS provider_models');
+      this.#db.exec('DROP TABLE IF EXISTS model_providers');
+    }
 
     // Create providers and provider_models tables for custom provider support.
     // New installs get the clean schema here; existing installs go through #migrateProvidersTable().
