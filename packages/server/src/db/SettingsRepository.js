@@ -116,7 +116,7 @@ export class SettingsRepository {
     if (!value) {
       return {
         disableSessionSummaries: false,
-        disableConversationSummaries: true,
+        disableConversationSummaries: false,
         sessionTitlePrompt: '',
       };
     }
@@ -124,13 +124,13 @@ export class SettingsRepository {
       const parsed = JSON.parse(value);
       return {
         disableSessionSummaries: parsed.disableSessionSummaries || false,
-        disableConversationSummaries: typeof parsed.disableConversationSummaries === 'boolean' ? parsed.disableConversationSummaries : true,
+        disableConversationSummaries: typeof parsed.disableConversationSummaries === 'boolean' ? parsed.disableConversationSummaries : false,
         sessionTitlePrompt: parsed.sessionTitlePrompt || '',
       };
     } catch {
       return {
         disableSessionSummaries: false,
-        disableConversationSummaries: true,
+        disableConversationSummaries: false,
         sessionTitlePrompt: '',
       };
     }
@@ -161,7 +161,7 @@ export class SettingsRepository {
     this.delete(SUMMARY_SETTINGS_KEY);
     return {
       disableSessionSummaries: false,
-      disableConversationSummaries: true,
+      disableConversationSummaries: false,
       sessionTitlePrompt: '',
     };
   }

@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import express from 'express';
+import request from 'supertest';
 import { projects, sessions, messages, conversations } from '../database.js';
 
 // Mock websocket and summary service
@@ -9,11 +11,59 @@ vi.mock('../websocket.js', () => ({
 
 vi.mock('../services/summaryService.js', () => ({
   generateConversationSummary: vi.fn().mockResolvedValue('mock summary'),
+  generateSessionAndConversationSummary: vi.fn().mockResolvedValue({ sessionSummary: null, conversationSummary: null }),
+  generateSummary: vi.fn().mockResolvedValue(null),
+  onSessionComplete: vi.fn(),
   isConversationSummaryEnabled: vi.fn((_sessionId) => {
     // Default implementation: return true (enabled)
     // Tests can override this by mocking the implementation
     return true;
   }),
+}));
+
+// Additional mocks needed for sessions router import
+vi.mock('../services/sessionManager.js', () => ({
+  continueSession: vi.fn(),
+  stopSession: vi.fn(),
+  restartSession: vi.fn(),
+  cleanupActiveSession: vi.fn(),
+  continueSessionWithExistingMessage: vi.fn(),
+}));
+
+vi.mock('../services/diffService.js', () => ({
+  getChanges: vi.fn().mockResolvedValue([]),
+  getChangesBranch: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('../services/gitService.js', () => ({
+  getStatus: vi.fn(),
+  getLog: vi.fn(),
+  getDiff: vi.fn(),
+}));
+
+vi.mock('../services/hookService.js', () => ({
+  executeHookAsync: vi.fn(),
+}));
+
+vi.mock('../middleware/upload.js', () => ({
+  upload: {
+    single: vi.fn(() => (req, res, next) => next()),
+    array: vi.fn(() => (req, res, next) => next()),
+    fields: vi.fn(() => (req, res, next) => next()),
+  },
+  handleUploadError: vi.fn((err, req, res, next) => next(err)),
+}));
+
+vi.mock('../services/commandRunner.js', () => ({
+  commandRunner: {
+    run: vi.fn(),
+    stop: vi.fn(),
+    getStatus: vi.fn(),
+  },
+}));
+
+vi.mock('../services/sessionDuplicator.js', () => ({
+  duplicateSession: vi.fn(),
 }));
 
 describe('Sessions API - Conversation Endpoints', () => {
@@ -339,6 +389,142 @@ describe('Sessions API - Conversation Endpoints', () => {
         const result = await summaryService.generateConversationSummary('test-session-id', 'test-conv-id');
         expect(result).toBe('mock summary');
       });
+    });
+  });
+});
+
+describe('Multi-conversation summary guard (route handler behavior)', () => {
+  let app;
+  let project;
+  let session;
+  let summaryService;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    // Import the mocked summaryService
+    summaryService = await import('../services/summaryService.js');
+
+    // Reset mock implementations to defaults (enabled state)
+    summaryService.isConversationSummaryEnabled.mockReturnValue(true);
+    summaryService.generateConversationSummary.mockResolvedValue('mock summary');
+
+    // Create test data
+    project = projects.create('Guard Test Project', '/tmp/guard-test');
+    session = sessions.create(project.id, 'Guard Test Session', 'Initial prompt', 'standard');
+    sessions.update(session.id, { status: 'waiting' });
+
+    // Set up Express app with sessions router
+    const sessionsRouter = (await import('./sessions.js')).default;
+    app = express();
+    app.use(express.json());
+    app.use('/api/sessions', sessionsRouter);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('POST /sessions/:id/conversations - multi-conversation guard', () => {
+    it('triggers generateConversationSummary when creating the 2nd conversation', async () => {
+      // Session already has initial conversation (count = 1)
+      // Creating conversation #2 should trigger summary for the initial one
+      await request(app)
+        .post(`/api/sessions/${session.id}/conversations`)
+        .send({ name: 'Second Conversation' })
+        .expect(201);
+
+      // Wait for async summary generation (it's fire-and-forget)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // The initial conversation should have been queued for summarization
+      expect(summaryService.generateConversationSummary).toHaveBeenCalledWith(
+        session.id,
+        expect.any(String)
+      );
+    });
+
+    it('does NOT trigger generateConversationSummary when previous conversation already has a summary', async () => {
+      // Set a summary on the initial conversation
+      const initialConv = conversations.getActiveBySessionId(session.id);
+      conversations.update(initialConv.id, { summary: 'Existing summary' });
+
+      // Creating conversation #2 should NOT trigger because previous already has summary
+      await request(app)
+        .post(`/api/sessions/${session.id}/conversations`)
+        .send({ name: 'Second Conversation' })
+        .expect(201);
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(summaryService.generateConversationSummary).not.toHaveBeenCalled();
+    });
+
+    it('does NOT trigger generateConversationSummary when summaries are disabled', async () => {
+      // Mock isConversationSummaryEnabled to return false
+      summaryService.isConversationSummaryEnabled.mockReturnValue(false);
+
+      await request(app)
+        .post(`/api/sessions/${session.id}/conversations`)
+        .send({ name: 'Second Conversation' })
+        .expect(201);
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(summaryService.generateConversationSummary).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('PATCH /sessions/:id/conversations/:convId - multi-conversation guard', () => {
+    it('triggers generateConversationSummary when switching between 2+ conversations', async () => {
+      // Create a second conversation (session now has 2)
+      const conv2 = conversations.create(session.id, 'Second Conversation', false);
+
+      // Switch to conv2 — should trigger summary for the initial (previously active) conversation
+      await request(app)
+        .patch(`/api/sessions/${session.id}/conversations/${conv2.id}`)
+        .send({ isActive: true })
+        .expect(200);
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(summaryService.generateConversationSummary).toHaveBeenCalledWith(
+        session.id,
+        expect.any(String)
+      );
+    });
+
+    it('does NOT trigger generateConversationSummary when only 1 conversation exists', async () => {
+      // Only the initial conversation exists (count = 1)
+      // Switching to the same conversation (already active) does nothing
+      const initialConv = conversations.getActiveBySessionId(session.id);
+
+      // PATCH with just a name update (not isActive switch) — no summary trigger
+      await request(app)
+        .patch(`/api/sessions/${session.id}/conversations/${initialConv.id}`)
+        .send({ name: 'Updated name' })
+        .expect(200);
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(summaryService.generateConversationSummary).not.toHaveBeenCalled();
+    });
+
+    it('does NOT trigger generateConversationSummary when switching with summaries disabled', async () => {
+      // Create a second conversation
+      const conv2 = conversations.create(session.id, 'Second Conversation', false);
+
+      // Disable summaries
+      summaryService.isConversationSummaryEnabled.mockReturnValue(false);
+
+      await request(app)
+        .patch(`/api/sessions/${session.id}/conversations/${conv2.id}`)
+        .send({ isActive: true })
+        .expect(200);
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(summaryService.generateConversationSummary).not.toHaveBeenCalled();
     });
   });
 });

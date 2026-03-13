@@ -253,7 +253,7 @@ describe('SettingsRepository', () => {
 
       expect(settings).toEqual({
         disableSessionSummaries: false,
-        disableConversationSummaries: true,
+        disableConversationSummaries: false,
         sessionTitlePrompt: '',
       });
     });
@@ -276,7 +276,7 @@ describe('SettingsRepository', () => {
 
       const settings = repo.getSummarySettings();
       expect(settings.disableSessionSummaries).toBe(true);
-      expect(settings.disableConversationSummaries).toBe(true);
+      expect(settings.disableConversationSummaries).toBe(false);
       expect(settings.sessionTitlePrompt).toBe('');
     });
 
@@ -285,7 +285,7 @@ describe('SettingsRepository', () => {
       const settings = repo.getSummarySettings();
       expect(settings).toEqual({
         disableSessionSummaries: false,
-        disableConversationSummaries: true,
+        disableConversationSummaries: false,
         sessionTitlePrompt: '',
       });
     });
@@ -307,9 +307,9 @@ describe('SettingsRepository', () => {
 
       const settings = repo.getSummarySettings();
       // getSummarySettings returns truthy/falsy values as-is (uses || operator)
-      // disableConversationSummaries: '' is falsy so it falls back to default (true)
+      // disableConversationSummaries: '' is not a boolean so it falls back to default (false)
       expect(settings.disableSessionSummaries).toBe(1);
-      expect(settings.disableConversationSummaries).toBe(true);
+      expect(settings.disableConversationSummaries).toBe(false);
       expect(settings.sessionTitlePrompt).toBe(123);
     });
   });
@@ -420,7 +420,7 @@ describe('SettingsRepository', () => {
 
       expect(defaults).toEqual({
         disableSessionSummaries: false,
-        disableConversationSummaries: true,
+        disableConversationSummaries: false,
         sessionTitlePrompt: '',
       });
       expect(repo.getSummarySettings()).toEqual(defaults);
@@ -430,7 +430,7 @@ describe('SettingsRepository', () => {
       const defaults = repo.resetSummarySettings();
       expect(defaults).toEqual({
         disableSessionSummaries: false,
-        disableConversationSummaries: true,
+        disableConversationSummaries: false,
         sessionTitlePrompt: '',
       });
     });
