@@ -24,6 +24,11 @@ export const UpdateSessionRequest = z.object({
   name: z.string().min(1).optional(),
   manuallyNamed: z.boolean().optional(),
   thinkingEnabled: z.boolean().optional(),
+  status: z.enum(['starting', 'running', 'waiting', 'error', 'stopped', 'scheduled']).optional(),
+  mode: z.enum(['plan', 'standard', 'yolo']).optional(),
+  model: z.string().nullable().optional(),
+  pendingModel: z.string().nullable().optional(),
+  providerId: z.string().uuid().nullable().optional(),
   nextTemplateId: z.string().uuid().nullable().optional(),
   // PR URL - GitHub PR URL (e.g., https://github.com/owner/repo/pull/123) or null to clear
   prUrl: z.string().url().regex(/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/).nullable().optional(),
