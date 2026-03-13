@@ -124,7 +124,7 @@ export class SettingsRepository {
       const parsed = JSON.parse(value);
       return {
         disableSessionSummaries: parsed.disableSessionSummaries || false,
-        disableConversationSummaries: parsed.disableConversationSummaries || false,
+        disableConversationSummaries: typeof parsed.disableConversationSummaries === 'boolean' ? parsed.disableConversationSummaries : false,
         sessionTitlePrompt: parsed.sessionTitlePrompt || '',
       };
     } catch {

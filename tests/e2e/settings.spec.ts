@@ -88,7 +88,7 @@ test.describe('Settings', () => {
 
       const checkboxes = page.locator('input[type="checkbox"]');
       await expect(checkboxes.nth(0)).not.toBeChecked();
-      await expect(checkboxes.nth(1)).not.toBeChecked();
+      await expect(checkboxes.nth(1)).toBeChecked();
 
       const textarea = page.locator('textarea#sessionTitlePrompt');
       const value = await textarea.inputValue();
@@ -262,9 +262,9 @@ test.describe('Settings', () => {
       await expect(page.locator('.toast-message')).toHaveText('Summary settings reset to defaults', { timeout: 10000 });
       await page.waitForSelector('form.form.card', { timeout: 10000 });
 
-      // Both checkboxes should be unchecked
+      // Checkboxes should match defaults
       await expect(page.locator('.checkbox-label:has-text("Disable session summaries") input')).not.toBeChecked();
-      await expect(page.locator('.checkbox-label:has-text("Disable conversation summaries") input')).not.toBeChecked();
+      await expect(page.locator('.checkbox-label:has-text("Disable conversation summaries") input')).toBeChecked();
 
       // Textarea should show default prompt
       const textarea = page.locator('textarea#sessionTitlePrompt');
@@ -274,7 +274,7 @@ test.describe('Settings', () => {
       // Verify via API
       const settings = await getSummarySettings();
       expect(settings.disableSessionSummaries).toBe(false);
-      expect(settings.disableConversationSummaries).toBe(false);
+      expect(settings.disableConversationSummaries).toBe(true);
       expect(settings.sessionTitlePrompt).toBe('');
     });
 
@@ -317,7 +317,7 @@ test.describe('Settings', () => {
       const settings = await getSummarySettings();
 
       expect(settings.disableSessionSummaries).toBe(false);
-      expect(settings.disableConversationSummaries).toBe(false);
+      expect(settings.disableConversationSummaries).toBe(true);
       expect(settings.sessionTitlePrompt).toBe('');
       expect(typeof settings.defaultSessionTitlePrompt).toBe('string');
       expect(settings.defaultSessionTitlePrompt.length).toBeGreaterThan(0);
@@ -380,13 +380,13 @@ test.describe('Settings', () => {
       // Reset
       const resetResult = await resetSummarySettings();
       expect(resetResult.disableSessionSummaries).toBe(false);
-      expect(resetResult.disableConversationSummaries).toBe(false);
+      expect(resetResult.disableConversationSummaries).toBe(true);
       expect(resetResult.sessionTitlePrompt).toBe('');
 
       // Verify via GET
       const settings = await getSummarySettings();
       expect(settings.disableSessionSummaries).toBe(false);
-      expect(settings.disableConversationSummaries).toBe(false);
+      expect(settings.disableConversationSummaries).toBe(true);
       expect(settings.sessionTitlePrompt).toBe('');
       expect(typeof settings.defaultSessionTitlePrompt).toBe('string');
     });
