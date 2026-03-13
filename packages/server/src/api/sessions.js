@@ -14,6 +14,7 @@ import { requireSession, requireSessionAndProject } from '../middleware/sessionL
 import { commandRunner } from '../services/commandRunner.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { duplicateSession } from '../services/sessionDuplicator.js';
+import * as slashCommandService from '../services/slashCommandService.js';
 
 const router = Router();
 
@@ -337,7 +338,19 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
     // [MODEL AUDIT] Log model being passed to continueSession
     console.log(`[MODEL AUDIT - API] Calling continueSession with model: "${model}"`);
 
-    // Start continuation (non-blocking) - pass attachments for context and model
+    // Check if the message is a slash command/skill invocation (starts with "/")
+    const resolved = await slashCommandService.resolvePromptSkillOrCommand(
+      req.workingDirectory, content, req.project.systemPrompt || null
+    );
+
+    if (resolved) {
+      continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, resolved.systemPrompt, messageAttachments, model).catch((error) => {
+        console.error(`Continue session error (${resolved.type}):`, error);
+      });
+      return res.json({ success: true });
+    }
+
+    // Standard plain text message
     continueSession(req.session_.id, content, req.workingDirectory, req.project.systemPrompt, messageAttachments, model).catch((error) => {
       console.error('Continue session error:', error);
     });
@@ -508,9 +521,16 @@ router.post('/:id/start', requireSession, async (req, res) => {
     // Update session status to starting and clear pendingModel (mirrors pendingPrompt cleanup above)
     sessions.update(req.session_.id, { status: 'starting', pendingModel: null });
 
+    // Resolve skill/command invocations so skill body goes into system prompt
+    const resolved = await slashCommandService.resolvePromptSkillOrCommand(
+      workingDirectory, finalPrompt, project.systemPrompt
+    );
+    const effectivePrompt = resolved ? resolved.userMessage : finalPrompt;
+    const effectiveSystemPrompt = resolved ? resolved.systemPrompt : project.systemPrompt;
+
     // Start session manager (non-blocking)
     const { runSession } = await import('../services/sessionManager.js');
-    runSession(req.session_.id, finalPrompt, workingDirectory, project.systemPrompt, sessionAttachments, model).catch((error) => {
+    runSession(req.session_.id, effectivePrompt, workingDirectory, effectiveSystemPrompt, sessionAttachments, model).catch((error) => {
       console.error('Session error:', error);
       sessions.update(req.session_.id, { status: 'error', error: error.message });
     });

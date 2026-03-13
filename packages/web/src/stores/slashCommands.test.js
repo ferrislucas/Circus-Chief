@@ -126,6 +126,133 @@ describe('useSlashCommandsStore', () => {
         expect(store.hasCustomCommands).toBe(false);
       });
     });
+
+    describe('pluginCommands', () => {
+      it('returns only plugin commands', () => {
+        const store = useSlashCommandsStore();
+        store.commands = [
+          { name: 'help', source: 'builtin' },
+          { name: 'deploy', source: 'project' },
+          { name: 'test', source: 'user' },
+          { name: 'plugin-cmd', source: 'plugin' },
+        ];
+
+        expect(store.pluginCommands).toHaveLength(1);
+        expect(store.pluginCommands[0].name).toBe('plugin-cmd');
+      });
+    });
+
+    describe('projectSkills', () => {
+      it('returns only project skills', () => {
+        const store = useSlashCommandsStore();
+        store.commands = [
+          { name: 'help', source: 'builtin' },
+          { name: 'skill1', source: 'project-skill', isSkill: true },
+          { name: 'skill2', source: 'user-skill', isSkill: true },
+        ];
+
+        expect(store.projectSkills).toHaveLength(1);
+        expect(store.projectSkills[0].name).toBe('skill1');
+      });
+    });
+
+    describe('userSkills', () => {
+      it('returns only user skills', () => {
+        const store = useSlashCommandsStore();
+        store.commands = [
+          { name: 'help', source: 'builtin' },
+          { name: 'skill1', source: 'project-skill', isSkill: true },
+          { name: 'skill2', source: 'user-skill', isSkill: true },
+        ];
+
+        expect(store.userSkills).toHaveLength(1);
+        expect(store.userSkills[0].name).toBe('skill2');
+      });
+    });
+
+    describe('pluginSkills', () => {
+      it('returns only plugin skills', () => {
+        const store = useSlashCommandsStore();
+        store.commands = [
+          { name: 'help', source: 'builtin' },
+          { name: 'skill1', source: 'project-skill', isSkill: true },
+          { name: 'skill2', source: 'plugin-skill', isSkill: true },
+        ];
+
+        expect(store.pluginSkills).toHaveLength(1);
+        expect(store.pluginSkills[0].name).toBe('skill2');
+      });
+    });
+
+    describe('allSkills', () => {
+      it('returns all skills regardless of source', () => {
+        const store = useSlashCommandsStore();
+        store.commands = [
+          { name: 'help', source: 'builtin' },
+          { name: 'deploy', source: 'project' },
+          { name: 'skill1', source: 'project-skill', isSkill: true },
+          { name: 'skill2', source: 'user-skill', isSkill: true },
+          { name: 'skill3', source: 'plugin-skill', isSkill: true },
+        ];
+
+        expect(store.allSkills).toHaveLength(3);
+        expect(store.allSkills.map((s) => s.name)).toEqual(['skill1', 'skill2', 'skill3']);
+      });
+    });
+
+    describe('hasSkills', () => {
+      it('returns true if any skills exist', () => {
+        const store = useSlashCommandsStore();
+        store.commands = [
+          { name: 'help', source: 'builtin' },
+          { name: 'skill1', source: 'project-skill', isSkill: true },
+        ];
+
+        expect(store.hasSkills).toBe(true);
+      });
+
+      it('returns false if no skills exist', () => {
+        const store = useSlashCommandsStore();
+        store.commands = [
+          { name: 'help', source: 'builtin' },
+          { name: 'deploy', source: 'project' },
+        ];
+
+        expect(store.hasSkills).toBe(false);
+      });
+    });
+
+    describe('allProjectItems', () => {
+      it('returns both project commands and project skills', () => {
+        const store = useSlashCommandsStore();
+        store.commands = [
+          { name: 'help', source: 'builtin' },
+          { name: 'deploy', source: 'project' },
+          { name: 'skill1', source: 'project-skill', isSkill: true },
+          { name: 'test', source: 'user' },
+          { name: 'skill2', source: 'user-skill', isSkill: true },
+        ];
+
+        expect(store.allProjectItems).toHaveLength(2);
+        expect(store.allProjectItems.map((i) => i.name)).toEqual(['deploy', 'skill1']);
+      });
+    });
+
+    describe('allUserItems', () => {
+      it('returns both user commands and user skills', () => {
+        const store = useSlashCommandsStore();
+        store.commands = [
+          { name: 'help', source: 'builtin' },
+          { name: 'deploy', source: 'project' },
+          { name: 'skill1', source: 'project-skill', isSkill: true },
+          { name: 'test', source: 'user' },
+          { name: 'skill2', source: 'user-skill', isSkill: true },
+        ];
+
+        expect(store.allUserItems).toHaveLength(2);
+        expect(store.allUserItems.map((i) => i.name)).toEqual(['test', 'skill2']);
+      });
+    });
   });
 
   describe('actions', () => {
