@@ -5,6 +5,7 @@ import { CreateProjectRequest, UpdateProjectRequest, ProjectSessionDefaultsReque
 import { ProjectDefaultsRepository } from '../db/ProjectDefaultsRepository.js';
 import { CreateSessionTemplateRequest } from '@claudetools/shared/contracts/templates';
 import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@claudetools/shared/contracts/commandButtons';
+import * as slashCommandService from '../services/slashCommandService.js';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { isGitRepo } from '../services/gitService.js';
 import { executeHookAsync } from '../services/hookService.js';
@@ -373,9 +374,16 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
     // Only start session manager if startImmediately is true AND not scheduled
     const isScheduled = scheduledAt && scheduledAt > Date.now();
     if (startImmediately && !isScheduled) {
+      // Resolve skill/command invocations so skill body goes into system prompt
+      const resolved = await slashCommandService.resolvePromptSkillOrCommand(
+        workingDirectory, prompt, project.systemPrompt
+      );
+      const finalPrompt = resolved ? resolved.userMessage : prompt;
+      const finalSystemPrompt = resolved ? resolved.systemPrompt : project.systemPrompt;
+
       // Start session manager (non-blocking) - pass attachments for context
       const { runSession } = await import('../services/sessionManager.js');
-      runSession(session.id, prompt, workingDirectory, project.systemPrompt, sessionAttachments, model).catch((error) => {
+      runSession(session.id, finalPrompt, workingDirectory, finalSystemPrompt, sessionAttachments, model).catch((error) => {
         console.error('Session error:', error);
         sessions.update(session.id, { status: 'error', error: error.message });
       });
