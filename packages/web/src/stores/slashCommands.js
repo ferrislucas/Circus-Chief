@@ -27,9 +27,51 @@ export const useSlashCommandsStore = defineStore('slashCommands', {
     userCommands: (state) => state.commands.filter((c) => c.source === 'user'),
 
     /**
+     * Get plugin commands only
+     */
+    pluginCommands: (state) => state.commands.filter((c) => c.source === 'plugin'),
+
+    /**
      * Get custom commands only (project + user)
      */
     customCommands: (state) => state.commands.filter((c) => c.source !== 'builtin'),
+
+    /**
+     * Get project skills only
+     */
+    projectSkills: (state) => state.commands.filter((c) => c.source === 'project-skill'),
+
+    /**
+     * Get user skills only
+     */
+    userSkills: (state) => state.commands.filter((c) => c.source === 'user-skill'),
+
+    /**
+     * Get plugin skills only
+     */
+    pluginSkills: (state) => state.commands.filter((c) => c.source === 'plugin-skill'),
+
+    /**
+     * Get all skills regardless of source
+     */
+    allSkills: (state) => state.commands.filter((c) => c.isSkill === true),
+
+    /**
+     * Check if any skills exist
+     */
+    hasSkills: (state) => state.commands.some((c) => c.isSkill === true),
+
+    /**
+     * Get all project items (commands + skills)
+     */
+    allProjectItems: (state) =>
+      state.commands.filter((c) => c.source === 'project' || c.source === 'project-skill'),
+
+    /**
+     * Get all user items (commands + skills)
+     */
+    allUserItems: (state) =>
+      state.commands.filter((c) => c.source === 'user' || c.source === 'user-skill'),
 
     /**
      * Check if any commands are available

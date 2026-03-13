@@ -29,6 +29,7 @@
           <template v-if="isEditingName">
             <div class="name-edit-form">
               <input
+                ref="nameEditInput"
                 v-model="editNameValue"
                 type="text"
                 class="name-edit-input"
@@ -45,6 +46,12 @@
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18"></line>
                   <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+              <button v-if="editNameValue" class="btn-icon pr-edit-btn pr-clear-btn" title="Clear name" @click="clearSessionName">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                 </svg>
               </button>
             </div>
@@ -190,9 +197,6 @@
         </div>
       </div>
 
-      <!-- Scheduling Info Panel -->
-      <SchedulingInfo v-if="sessionsStore.currentSession" :session="sessionsStore.currentSession" />
-
       <div class="tab-content">
         <!-- CRITICAL: :key ensures components remount when navigating between sessions,
              preventing stale WebSocket handlers from capturing the wrong sessionId -->
@@ -207,7 +211,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, onActivated, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, onActivated, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCanvasStore } from '../stores/canvas.js';
@@ -215,8 +219,8 @@ import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription, ensureSubscribed, useWebSocket } from '../composables/useWebSocket.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
+import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { api } from '../composables/useApi.js';
-import { parseDiff } from '../utils/diffParser.js';
 import ConversationTab from '../components/ConversationTab.vue';
 import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
@@ -225,7 +229,6 @@ import CommandsTab from '../components/CommandsTab.vue';
 import PrIndicators from '../components/PrIndicators.vue';
 import DuplicateSessionButton from '../components/DuplicateSessionButton.vue';
 import OverflowMenu from '../components/OverflowMenu.vue';
-import SchedulingInfo from '../components/SchedulingInfo.vue';
 import CommandButtonStatusBar from '../components/CommandButtonStatusBar.vue';
 import SessionHierarchyBreadcrumb from '../components/SessionHierarchyBreadcrumb.vue';
 import { useTemplatesStore } from '../stores/templates.js';
@@ -242,9 +245,25 @@ const templatesStore = useTemplatesStore();
 const { getModelDisplayName } = useModelInfo();
 
 // Reactive session ID that tracks route changes
+// Used by the polling composable to track the current session
+const currentSessionId = ref(route.params.id);
+
+// Use composable for polling and file changes
+const {
+  hasChanges,
+  changesFileCount,
+  checkForChanges,
+  startPolling,
+  stopPolling,
+  reset: resetPolling,
+} = useSessionPolling({
+  getSessionId: () => currentSessionId.value,
+  getSessionStatus: () => sessionsStore.currentSession?.status,
+  sessionsStore,
+});
+
 // When navigating between sessions (parent/child), the component is reused
 // and the route watcher handles cleanup and re-initialization
-const currentSessionId = ref(route.params.id);
 
 // Track current subscription instance - recreated on session change
 let currentSubscription = null;
@@ -257,7 +276,6 @@ const sessionPath = computed(() => {
   return sessionsStore.getSessionPath(route.params.id);
 });
 
-const changesFileCount = ref(0);
 const canvasItemCount = ref(0);
 
 // Command button status indicators for real-time updates (mirrors SessionCard behavior)
@@ -313,10 +331,8 @@ function navigateToTab(tabId) {
 // The currentSubscription variable tracks the active subscription instance
 
 let cleanups = [];
-const pollIntervalId = ref(null);
 const showDeleteConfirm = ref(false);
 const summary = ref(null);
-const hasChanges = ref(false);
 const isDeleting = ref(false);
 
 // PR URL editing state
@@ -326,61 +342,13 @@ const editPrUrlValue = ref('');
 // Name editing state
 const isEditingName = ref(false);
 const editNameValue = ref('');
-
-// Check for file system changes (staged, unstaged, untracked)
-async function checkForChanges() {
-  if (!currentSessionId.value) return;
-  try {
-    const changes = await api.getSessionChanges(currentSessionId.value);
-    hasChanges.value = !!(changes.staged || changes.unstaged || changes.untracked);
-    // Count files from the diff responses so the tab shows the count immediately
-    const stagedFiles = parseDiff(changes.staged || '');
-    const unstagedFiles = parseDiff(changes.unstaged || '');
-    const untrackedFiles = parseDiff(changes.untracked || '');
-    changesFileCount.value = stagedFiles.length + unstagedFiles.length + untrackedFiles.length;
-  } catch (error) {
-    // Silently fail - changes indicator is not critical
-    console.error('Failed to check for changes:', error);
-  }
-}
-
-// Poll for updates while session is actively processing (fallback for race conditions)
-function startPolling() {
-  if (pollIntervalId.value) return;
-  pollIntervalId.value = setInterval(async () => {
-    const status = sessionsStore.currentSession?.status;
-    const sessionId = currentSessionId.value;
-    // Only poll while actively processing, not while waiting for user input
-    // Use showLoading=false to avoid flickering
-    if (status === 'running' || status === 'starting') {
-      // Run fetches in parallel instead of sequentially to reduce total poll time.
-      // fetchConversations is removed — the onConversationUpdated WebSocket handler
-      // already handles conversation updates in real-time.
-      await Promise.all([
-        sessionsStore.fetchSession(sessionId, false),
-        sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId),
-        sessionsStore.fetchWorkLogs(sessionId),
-      ]);
-      // Check for file changes during active session so the Changes tab indicator updates
-      checkForChanges();
-    } else {
-      // Session no longer actively processing, stop polling
-      stopPolling();
-    }
-  }, 3000);
-}
-
-function stopPolling() {
-  if (pollIntervalId.value) {
-    clearInterval(pollIntervalId.value);
-    pollIntervalId.value = null;
-  }
-}
+const nameEditInput = ref(null);
 
 // Cleanup function - called on unmount AND on route change (session navigation)
 // This ensures WebSocket subscriptions don't leak between sessions
 function cleanup() {
-  stopPolling();
+  // Reset polling state via composable
+  resetPolling();
   if (currentSubscription) {
     currentSubscription.unsubscribe();
     currentSubscription = null;
@@ -397,8 +365,6 @@ function cleanup() {
   canvasStore.items = [];
   // Reset local state
   summary.value = null;
-  hasChanges.value = false;
-  changesFileCount.value = 0;
   canvasItemCount.value = 0;
   canvasStore.$reset();
 }
@@ -882,6 +848,13 @@ function startEditName() {
 function cancelEditName() {
   isEditingName.value = false;
   editNameValue.value = '';
+}
+
+function clearSessionName() {
+  editNameValue.value = '';
+  nextTick(() => {
+    nameEditInput.value?.focus();
+  });
 }
 
 async function saveSessionName() {

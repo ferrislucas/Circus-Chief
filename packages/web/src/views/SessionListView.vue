@@ -262,13 +262,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, reactive, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectSubscription } from '../composables/useWebSocket.js';
-import { api } from '../composables/useApi.js';
+import { useSummaries } from '../composables/useSummaries.js';
 import SessionCard from '../components/SessionCard.vue';
 import TemplatesPanel from '../components/TemplatesPanel.vue';
 import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
@@ -422,10 +422,16 @@ const filteredGroupedSessions = computed(() => {
 // Get projectId as computed to handle route changes
 const projectId = computed(() => route.params.id);
 
-// Store summaries keyed by session ID
-const summaries = reactive({});
-const loadingSummaries = reactive({});
-const summaryErrors = reactive({});
+// Use composable for summary management
+const {
+  summaries,
+  loadingSummaries,
+  summaryErrors,
+  fetchSummariesBatch,
+  retryFetchSummary,
+  updateSummary,
+  cleanupSummary,
+} = useSummaries();
 
 // Track if archived sessions have been loaded
 const archivedLoaded = ref(false);
@@ -471,7 +477,7 @@ watch(
     await commandButtonsStore.fetchButtons(newProjectId); // Still needed for button labels/config
     // Note: fetchLatestRunsForProject() is no longer needed - latestCommandRuns are now
     // included in the sessions API response (merged from DB + in-memory running commands)
-    fetchSummaries();
+    fetchSummariesBatch(sessionsStore.sessions);
 
     // Create new subscription for new project
     const {
@@ -508,18 +514,14 @@ watch(
       onSessionDeleted((sessionId) => {
         sessionsStore.removeSessionFromList(sessionId);
         // Clean up summary data for deleted session
-        delete summaries[sessionId];
-        delete loadingSummaries[sessionId];
-        delete summaryErrors[sessionId];
+        cleanupSummary(sessionId);
       })
     );
 
     // Handle session summary updated (real-time updates when summaries are generated)
     cleanups.push(
       onSessionSummaryUpdated((sessionId, summary) => {
-        summaries[sessionId] = summary;
-        loadingSummaries[sessionId] = false;
-        summaryErrors[sessionId] = false;
+        updateSummary(sessionId, summary);
       })
     );
 
@@ -628,7 +630,7 @@ watch(
   () => {
     clearTimeout(fetchSummariesTimer);
     fetchSummariesTimer = setTimeout(() => {
-      fetchSummaries();
+      fetchSummariesBatch(sessionsStore.sessions);
     }, 400);
   }
 );
@@ -660,114 +662,23 @@ watch(
       newFilter !== oldFilter
     ) {
       await sessionsStore.fetchArchivedSessions(projectId.value, { reset: true });
-      fetchArchivedSummaries(); // No await - parallel load
+      fetchSummariesBatch(sessionsStore.archivedSessions); // No await - parallel load
     }
   }
 );
-
-async function fetchSummaries() {
-  // Fetch summaries for all sessions (including children, which are displayed
-  // when workflow trees are expanded). Uses a single batch HTTP request
-  // instead of individual calls per session.
-  const sessions = sessionsStore.sessions;
-  const idsToFetch = sessions
-    .filter(s => !summaries[s.id] && !loadingSummaries[s.id])
-    .map(s => s.id);
-
-  if (idsToFetch.length === 0) return;
-
-  // Mark all as loading
-  for (const id of idsToFetch) {
-    loadingSummaries[id] = true;
-    summaryErrors[id] = false;
-  }
-
-  try {
-    const batchResult = await api.getSessionSummariesBatch(idsToFetch);
-    for (const id of idsToFetch) {
-      if (batchResult[id]) {
-        summaries[id] = batchResult[id];
-      }
-      loadingSummaries[id] = false;
-    }
-  } catch (error) {
-    console.warn('Failed to fetch summaries batch:', error.message);
-    for (const id of idsToFetch) {
-      summaryErrors[id] = true;
-      loadingSummaries[id] = false;
-    }
-  }
-}
-
-async function fetchSummary(sessionId) {
-  loadingSummaries[sessionId] = true;
-  summaryErrors[sessionId] = false;
-  try {
-    const summary = await api.getSessionSummary(sessionId);
-    if (summary) {
-      summaries[sessionId] = summary;
-    }
-    // No summary yet is not an error - it just means one hasn't been generated
-  } catch (error) {
-    // Log error for debugging but don't show as error if it's just a 404 (no summary yet)
-    if (error.response?.status !== 404) {
-      console.warn(`Failed to fetch summary for session ${sessionId}:`, error.message);
-      summaryErrors[sessionId] = true;
-    }
-  } finally {
-    loadingSummaries[sessionId] = false;
-  }
-}
-
-async function retryFetchSummary(sessionId) {
-  summaryErrors[sessionId] = false;
-  await fetchSummary(sessionId);
-}
 
 async function loadArchivedSessions() {
   if (!archivedLoaded.value) {
     // Always reset when loading - this ensures filter is applied on initial tab load
     await sessionsStore.fetchArchivedSessions(projectId.value, { reset: true });
     archivedLoaded.value = true;
-    fetchArchivedSummaries();
-  }
-}
-
-async function fetchArchivedSummaries() {
-  // Uses batch endpoint to fetch all archived summaries in a single HTTP request.
-  const archived = sessionsStore.archivedSessions;
-  const idsToFetch = archived
-    .filter(s => !summaries[s.id] && !loadingSummaries[s.id])
-    .map(s => s.id);
-
-  if (idsToFetch.length === 0) return;
-
-  // Mark all as loading
-  for (const id of idsToFetch) {
-    loadingSummaries[id] = true;
-    summaryErrors[id] = false;
-  }
-
-  try {
-    const batchResult = await api.getSessionSummariesBatch(idsToFetch);
-    for (const id of idsToFetch) {
-      if (batchResult[id]) {
-        summaries[id] = batchResult[id];
-      }
-      loadingSummaries[id] = false;
-    }
-  } catch (error) {
-    console.warn('Failed to fetch archived summaries batch:', error.message);
-    for (const id of idsToFetch) {
-      summaryErrors[id] = true;
-      loadingSummaries[id] = false;
-    }
+    fetchSummariesBatch(sessionsStore.archivedSessions);
   }
 }
 
 async function loadMoreArchived() {
   await sessionsStore.loadMoreArchivedSessions(projectId.value);
-  fetchArchivedSummaries(); // Fetch summaries for newly loaded sessions
+  fetchSummariesBatch(sessionsStore.archivedSessions); // Fetch summaries for newly loaded sessions
 }
 
 async function fetchScheduledSessions() {

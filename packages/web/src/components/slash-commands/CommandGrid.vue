@@ -113,6 +113,69 @@
           </button>
         </div>
       </div>
+
+      <!-- Project Skills -->
+      <div v-if="filteredProjectSkills.length > 0" class="command-section">
+        <h3 class="section-title">Project Skills</h3>
+        <div class="command-cards">
+          <button
+            v-for="skill in filteredProjectSkills"
+            :key="skill.name"
+            type="button"
+            class="command-card"
+            @click="selectCommand(skill)"
+            :data-testid="`skill-${skill.name}`"
+          >
+            <span class="command-name">/{{ skill.name }}</span>
+            <span class="command-description">{{ skill.description || 'No description' }}</span>
+            <span v-if="skill.argumentHint" class="command-args-badge">
+              {{ skill.argumentHint }}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <!-- User Skills -->
+      <div v-if="filteredUserSkills.length > 0" class="command-section">
+        <h3 class="section-title">User Skills</h3>
+        <div class="command-cards">
+          <button
+            v-for="skill in filteredUserSkills"
+            :key="skill.name"
+            type="button"
+            class="command-card"
+            @click="selectCommand(skill)"
+            :data-testid="`skill-${skill.name}`"
+          >
+            <span class="command-name">/{{ skill.name }}</span>
+            <span class="command-description">{{ skill.description || 'No description' }}</span>
+            <span v-if="skill.argumentHint" class="command-args-badge">
+              {{ skill.argumentHint }}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Plugin Skills -->
+      <div v-if="filteredPluginSkills.length > 0" class="command-section">
+        <h3 class="section-title">Plugin Skills</h3>
+        <div class="command-cards">
+          <button
+            v-for="skill in filteredPluginSkills"
+            :key="skill.name"
+            type="button"
+            class="command-card"
+            @click="selectCommand(skill)"
+            :data-testid="`skill-${skill.name}`"
+          >
+            <span class="command-name">/{{ skill.name }}</span>
+            <span class="command-description">{{ skill.description || 'No description' }}</span>
+            <span v-if="skill.argumentHint" class="command-args-badge">
+              {{ skill.argumentHint }}
+            </span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -145,6 +208,15 @@ const userCommands = computed(() =>
 const pluginCommands = computed(() =>
   props.commands.filter((c) => c.source === 'plugin')
 );
+const projectSkills = computed(() =>
+  props.commands.filter((c) => c.source === 'project-skill')
+);
+const userSkills = computed(() =>
+  props.commands.filter((c) => c.source === 'user-skill')
+);
+const pluginSkills = computed(() =>
+  props.commands.filter((c) => c.source === 'plugin-skill')
+);
 
 // Filtered by search
 function filterBySearch(commands) {
@@ -163,11 +235,17 @@ const filteredBuiltinCommands = computed(() => filterBySearch(builtinCommands.va
 const filteredProjectCommands = computed(() => filterBySearch(projectCommands.value));
 const filteredUserCommands = computed(() => filterBySearch(userCommands.value));
 const filteredPluginCommands = computed(() => filterBySearch(pluginCommands.value));
+const filteredProjectSkills = computed(() => filterBySearch(projectSkills.value));
+const filteredUserSkills = computed(() => filterBySearch(userSkills.value));
+const filteredPluginSkills = computed(() => filterBySearch(pluginSkills.value));
 const filteredCommands = computed(() => [
   ...filteredBuiltinCommands.value,
   ...filteredProjectCommands.value,
   ...filteredUserCommands.value,
   ...filteredPluginCommands.value,
+  ...filteredProjectSkills.value,
+  ...filteredUserSkills.value,
+  ...filteredPluginSkills.value,
 ]);
 
 function selectCommand(cmd) {
