@@ -17,6 +17,7 @@ const BUILTIN_COMMANDS = [];
 // 3. Plugins: ~/.claude/plugins/cache/.../{plugin}/.../commands/*.md
 // 4. Built-in: hardcoded list below
 const COMMANDS_DIR = '.claude/commands';
+const SKILLS_DIR = '.claude/skills';
 
 /**
  * Parse YAML frontmatter from a markdown command file
@@ -113,6 +114,65 @@ function normalizeArgument(arg) {
 }
 
 /**
+ * Parse a SKILL.md file with its extended frontmatter
+ * @param {string} content - File content
+ * @param {string} directoryName - The skill directory name (used as fallback name)
+ * @returns {Object} Parsed skill object with name, description, argumentHint, userInvocable, disableModelInvocation, body
+ */
+export function parseSkillFile(content, directoryName) {
+  // Check for frontmatter
+  if (!content.startsWith('---')) {
+    return {
+      name: directoryName,
+      description: '',
+      argumentHint: null,
+      userInvocable: true,
+      disableModelInvocation: false,
+      body: content.trim(),
+    };
+  }
+
+  // Find end of frontmatter
+  const endIndex = content.indexOf('---', 3);
+  if (endIndex === -1) {
+    return {
+      name: directoryName,
+      description: '',
+      argumentHint: null,
+      userInvocable: true,
+      disableModelInvocation: false,
+      body: content.trim(),
+    };
+  }
+
+  const frontmatterStr = content.slice(3, endIndex).trim();
+  const body = content.slice(endIndex + 3).trim();
+
+  try {
+    const frontmatter = YAML.parse(frontmatterStr);
+
+    return {
+      name: frontmatter.name || directoryName,
+      description: frontmatter.description || '',
+      argumentHint: frontmatter['argument-hint'] || null,
+      userInvocable: frontmatter['user-invocable'] !== false,
+      disableModelInvocation: frontmatter['disable-model-invocation'] === true,
+      body,
+    };
+  } catch (err) {
+    console.warn('Failed to parse skill frontmatter:', err.message);
+    return {
+      name: directoryName,
+      description: '',
+      argumentHint: null,
+      userInvocable: true,
+      disableModelInvocation: false,
+      body: content.trim(),
+    };
+  }
+}
+
+/**
  * Discover commands from a directory
  * @param {string} directory - Directory to scan
  * @param {string} source - Source type ('project', 'user', or 'plugin')
@@ -156,6 +216,52 @@ async function discoverCommandsFromDir(directory, source, namespace = null) {
   }
 
   return commands;
+}
+
+// Discover skills from a directory
+// Scans basePath/.claude/skills/*/SKILL.md
+async function discoverSkillsFromDir(basePath, source, namespace = null) {
+  const skillsDir = join(basePath, SKILLS_DIR);
+  const skills = [];
+
+  try {
+    await access(skillsDir, constants.R_OK);
+    const entries = await readdir(skillsDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
+      const skillMdPath = join(skillsDir, entry.name, 'SKILL.md');
+
+      try {
+        const content = await readFile(skillMdPath, 'utf-8');
+        const parsed = parseSkillFile(content, entry.name);
+
+        // Filter out skills that aren't user-invocable
+        if (!parsed.userInvocable) continue;
+
+        // For plugin skills, prefix with namespace (e.g., "plugin-name:skill-name")
+        const name = namespace ? `${namespace}:${parsed.name}` : parsed.name;
+
+        skills.push({
+          name,
+          description: parsed.description,
+          arguments: [], // Skills use argument-hint, not structured args
+          argumentHint: parsed.argumentHint,
+          source,
+          filePath: skillMdPath,
+          isSkill: true,
+          disableModelInvocation: parsed.disableModelInvocation,
+        });
+      } catch {
+        // SKILL.md doesn't exist or isn't readable in this directory
+      }
+    }
+  } catch {
+    // Skills directory doesn't exist - that's fine
+  }
+
+  return skills;
 }
 
 /**
@@ -235,6 +341,188 @@ async function discoverPluginCommands(workingDirectory) {
 }
 
 /**
+ * Discover skills from installed plugins
+ * Reads ~/.claude/plugins/installed_plugins.json and scans each plugin's skills/ directory
+ *
+ * @param {string} workingDirectory - Project directory to filter plugins for
+ * @returns {Promise<Array>} Array of plugin skill objects
+ */
+async function discoverPluginSkills(workingDirectory) {
+  const skills = [];
+  const installedPluginsPath = join(homedir(), '.claude', 'plugins', 'installed_plugins.json');
+
+  try {
+    const content = await readFile(installedPluginsPath, 'utf-8');
+    const installedPlugins = JSON.parse(content);
+
+    if (!installedPlugins.plugins) {
+      return skills;
+    }
+
+    for (const [pluginId, installations] of Object.entries(installedPlugins.plugins)) {
+      const relevantInstall = installations.find(
+        install => install.scope === 'global' || isMatchingProject(workingDirectory, install.projectPath)
+      );
+
+      if (!relevantInstall) continue;
+
+      const namespace = pluginId.split('@')[0];
+
+      // Scan skills directory inside plugin
+      const pluginSkillsDir = join(relevantInstall.installPath, 'skills');
+
+      try {
+        await access(pluginSkillsDir, constants.R_OK);
+        const entries = await readdir(pluginSkillsDir, { withFileTypes: true });
+
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+
+          const skillMdPath = join(pluginSkillsDir, entry.name, 'SKILL.md');
+
+          try {
+            const content = await readFile(skillMdPath, 'utf-8');
+            const parsed = parseSkillFile(content, entry.name);
+
+            if (!parsed.userInvocable) continue;
+
+            skills.push({
+              name: `${namespace}:${parsed.name}`,
+              description: parsed.description,
+              arguments: [],
+              argumentHint: parsed.argumentHint,
+              source: 'plugin-skill',
+              filePath: skillMdPath,
+              isSkill: true,
+              disableModelInvocation: parsed.disableModelInvocation,
+            });
+          } catch {
+            // SKILL.md doesn't exist in this directory
+          }
+        }
+      } catch {
+        // Plugin has no skills directory
+      }
+    }
+  } catch {
+    // No installed plugins or file doesn't exist
+  }
+
+  return skills;
+}
+
+/**
+ * Discover skills from marketplace plugins
+ * Reads ~/.claude/plugins/known_marketplaces.json and scans each marketplace's
+ * plugins/ and external_plugins/ directories for skills
+ *
+ * @returns {Promise<Array>} Array of marketplace skill objects
+ */
+async function discoverMarketplaceSkills() {
+  const skills = [];
+  const knownMarketplacesPath = join(homedir(), '.claude', 'plugins', 'known_marketplaces.json');
+
+  try {
+    const content = await readFile(knownMarketplacesPath, 'utf-8');
+    const marketplaces = JSON.parse(content);
+
+    for (const [_marketplaceId, marketplace] of Object.entries(marketplaces)) {
+      const basePath = marketplace.installLocation;
+      if (!basePath) continue;
+
+      // Scan both plugins/ and external_plugins/ directories
+      for (const subdir of ['plugins', 'external_plugins']) {
+        const pluginsDir = join(basePath, subdir);
+
+        try {
+          await access(pluginsDir, constants.R_OK);
+          const pluginDirs = await readdir(pluginsDir, { withFileTypes: true });
+
+          for (const pluginEntry of pluginDirs) {
+            if (!pluginEntry.isDirectory()) continue;
+
+            const pluginPath = join(pluginsDir, pluginEntry.name);
+            const namespace = pluginEntry.name;
+            const skillsDir = join(pluginPath, 'skills');
+
+            try {
+              await access(skillsDir, constants.R_OK);
+              const skillEntries = await readdir(skillsDir, { withFileTypes: true });
+
+              for (const entry of skillEntries) {
+                if (!entry.isDirectory()) continue;
+
+                const skillMdPath = join(skillsDir, entry.name, 'SKILL.md');
+                try {
+                  const skillContent = await readFile(skillMdPath, 'utf-8');
+                  const parsed = parseSkillFile(skillContent, entry.name);
+                  if (!parsed.userInvocable) continue;
+
+                  skills.push({
+                    name: `${namespace}:${parsed.name}`,
+                    description: parsed.description,
+                    arguments: [],
+                    argumentHint: parsed.argumentHint,
+                    source: 'plugin-skill',
+                    filePath: skillMdPath,
+                    isSkill: true,
+                    disableModelInvocation: parsed.disableModelInvocation,
+                  });
+                } catch { /* no SKILL.md */ }
+              }
+            } catch { /* no skills dir */ }
+          }
+        } catch { /* subdir doesn't exist */ }
+      }
+    }
+  } catch { /* no known_marketplaces.json */ }
+
+  return skills;
+}
+
+/**
+ * Discover commands from marketplace plugins
+ * Reads ~/.claude/plugins/known_marketplaces.json and scans each marketplace's
+ * plugins/ and external_plugins/ directories for commands
+ *
+ * @returns {Promise<Array>} Array of marketplace command objects
+ */
+async function discoverMarketplaceCommands() {
+  const commands = [];
+  const knownMarketplacesPath = join(homedir(), '.claude', 'plugins', 'known_marketplaces.json');
+
+  try {
+    const content = await readFile(knownMarketplacesPath, 'utf-8');
+    const marketplaces = JSON.parse(content);
+
+    for (const [_marketplaceId, marketplace] of Object.entries(marketplaces)) {
+      const basePath = marketplace.installLocation;
+      if (!basePath) continue;
+
+      for (const subdir of ['plugins', 'external_plugins']) {
+        const pluginsDir = join(basePath, subdir);
+
+        try {
+          await access(pluginsDir, constants.R_OK);
+          const pluginDirs = await readdir(pluginsDir, { withFileTypes: true });
+
+          for (const pluginEntry of pluginDirs) {
+            if (!pluginEntry.isDirectory()) continue;
+
+            const namespace = pluginEntry.name;
+            const pluginCommandsDir = join(pluginsDir, pluginEntry.name, 'commands');
+            const pluginCommands = await discoverCommandsFromDir(pluginCommandsDir, 'plugin', namespace);
+            commands.push(...pluginCommands);
+          }
+        } catch { /* subdir doesn't exist */ }
+      }
+    }
+  } catch { /* no known_marketplaces.json */ }
+
+  return commands;
+}
+
+/**
  * Get all available slash commands for a working directory
  * Commands are discovered from:
  * 1. Project .claude/commands/ (highest priority)
@@ -259,6 +547,15 @@ export async function getCommands(workingDirectory) {
 
   const pluginCommands = await discoverPluginCommands(workingDirectory);
 
+  // Discover marketplace plugins (global, not scoped to installed_plugins.json)
+  const marketplaceCommands = await discoverMarketplaceCommands();
+
+  // Discover skills from all sources
+  const projectSkills = await discoverSkillsFromDir(workingDirectory, 'project-skill');
+  const userSkills = await discoverSkillsFromDir(homedir(), 'user-skill');
+  const pluginSkills = await discoverPluginSkills(workingDirectory);
+  const marketplaceSkills = await discoverMarketplaceSkills();
+
   // Create built-in command objects
   const builtinCommands = BUILTIN_COMMANDS.map(cmd => ({
     ...cmd,
@@ -266,32 +563,23 @@ export async function getCommands(workingDirectory) {
     arguments: [],
   }));
 
-  // Deduplicate: project > user > plugin > builtin
+  // Skills take precedence over commands with the same name (per Anthropic docs)
+  // Priority: project > user > installed-plugin > marketplace; then commands fill remaining slots
   const seen = new Set();
   const commands = [];
 
-  for (const cmd of projectCommands) {
-    if (!seen.has(cmd.name)) {
-      seen.add(cmd.name);
-      commands.push(cmd);
+  // Add all skills first (they take precedence)
+  // installed_plugins.json entries come before marketplace to win dedup
+  for (const skill of [...projectSkills, ...userSkills, ...pluginSkills, ...marketplaceSkills]) {
+    if (!seen.has(skill.name)) {
+      seen.add(skill.name);
+      commands.push(skill);
     }
   }
 
-  for (const cmd of userCommands) {
-    if (!seen.has(cmd.name)) {
-      seen.add(cmd.name);
-      commands.push(cmd);
-    }
-  }
-
-  for (const cmd of pluginCommands) {
-    if (!seen.has(cmd.name)) {
-      seen.add(cmd.name);
-      commands.push(cmd);
-    }
-  }
-
-  for (const cmd of builtinCommands) {
+  // Then add commands (only if name not already taken by a skill)
+  // installed_plugins.json entries come before marketplace to win dedup
+  for (const cmd of [...projectCommands, ...userCommands, ...pluginCommands, ...marketplaceCommands, ...builtinCommands]) {
     if (!seen.has(cmd.name)) {
       seen.add(cmd.name);
       commands.push(cmd);
@@ -333,6 +621,10 @@ export async function getCommandBody(workingDirectory, name) {
   // Read and parse the file to get the body
   try {
     const content = await readFile(command.filePath, 'utf-8');
+    if (command.isSkill) {
+      const parsed = parseSkillFile(content, command.name);
+      return parsed.body;
+    }
     const parsed = parseCommandFile(content);
     return parsed.body;
   } catch (err) {
@@ -363,7 +655,32 @@ export async function buildCommandString(workingDirectory, name, args = {}) {
     return `/${name}`;
   }
 
-  // Build argument string
+  // For skills, use different argument substitution
+  if (command.isSkill) {
+    const body = await getCommandBody(workingDirectory, name);
+    if (!body) return `/${name}`;
+
+    // Skills use $ARGUMENTS for all args, $0, $1, etc. for positional
+    const rawArgs = args._raw || '';
+    let processedBody = body;
+
+    // Replace $ARGUMENTS with raw args string
+    processedBody = processedBody
+      .replace(/\$\{ARGUMENTS\}/g, rawArgs)
+      .replace(/\$ARGUMENTS\b/g, rawArgs);
+
+    // Replace positional args $0, $1, $2, etc.
+    const argParts = rawArgs.split(/\s+/).filter(Boolean);
+    for (let i = 0; i < argParts.length; i++) {
+      processedBody = processedBody
+        .replace(new RegExp(`\\$\\{${i}\\}`, 'g'), argParts[i])
+        .replace(new RegExp(`\\$${i}\\b`, 'g'), argParts[i]);
+    }
+
+    return processedBody;
+  }
+
+  // Build argument string for commands
   const argParts = [];
   for (const argDef of command.arguments) {
     const value = args[argDef.name];
@@ -412,10 +729,135 @@ export async function buildCommandString(workingDirectory, name, args = {}) {
   return commandString;
 }
 
+/**
+ * Build a structured skill invocation, separating skill content (for system prompt)
+ * from user arguments (for user message).
+ *
+ * Returns null if the command is not a skill or not found.
+ *
+ * @param {string} workingDirectory - The project working directory
+ * @param {string} name - Skill name (e.g., "frontend-design" or "frontend-design:frontend-design")
+ * @param {Object} args - Arguments object, with _raw for the raw argument string
+ * @returns {Promise<{skillContent: string, userMessage: string|null, skillName: string}|null>}
+ */
+export async function buildSkillInvocation(workingDirectory, name, args = {}) {
+  const command = await getCommand(workingDirectory, name);
+  if (!command || !command.isSkill) return null;
+
+  const body = await getCommandBody(workingDirectory, name);
+  if (!body) return null;
+
+  const rawArgs = args._raw || '';
+
+  // Process $ARGUMENTS and positional args in the body
+  let processedBody = body;
+  processedBody = processedBody
+    .replace(/\$\{ARGUMENTS\}/g, rawArgs)
+    .replace(/\$ARGUMENTS\b/g, rawArgs);
+
+  const argParts = rawArgs.split(/\s+/).filter(Boolean);
+  for (let i = 0; i < argParts.length; i++) {
+    processedBody = processedBody
+      .replace(new RegExp(`\\$\\{${i}\\}`, 'g'), argParts[i])
+      .replace(new RegExp(`\\$${i}\\b`, 'g'), argParts[i]);
+  }
+
+  return {
+    skillContent: processedBody,
+    userMessage: rawArgs.trim() || null,
+    skillName: name,
+  };
+}
+
+/**
+ * Build a system prompt that includes skill content as context.
+ * Merges the project system prompt with the skill body wrapped in a <skill> tag.
+ *
+ * @param {string|null} projectSystemPrompt - The project's custom system prompt
+ * @param {{skillContent: string, skillName: string}} skillInvocation - From buildSkillInvocation()
+ * @returns {string} Combined system prompt
+ */
+export function buildSkillSystemPrompt(projectSystemPrompt, skillInvocation) {
+  const parts = [];
+  if (projectSystemPrompt) {
+    parts.push(projectSystemPrompt);
+  }
+  parts.push(`<skill name="${skillInvocation.skillName}">\n${skillInvocation.skillContent}\n</skill>`);
+  return parts.join('\n\n');
+}
+
+/**
+ * Build the user message for a skill invocation.
+ * Returns the user's args if provided, otherwise a default prompt
+ * telling Claude the skill was invoked.
+ *
+ * @param {{userMessage: string|null, skillName: string}} skillInvocation - From buildSkillInvocation()
+ * @returns {string} User message to send
+ */
+export function buildSkillUserMessage(skillInvocation) {
+  return skillInvocation.userMessage
+    || `The user invoked the /${skillInvocation.skillName} skill. Follow the skill instructions above and ask the user what they would like you to build.`;
+}
+
+/**
+ * Detect and resolve a skill or command invocation from a prompt string.
+ * Returns null if the prompt is not a recognized skill/command (pass it through as plain text).
+ *
+ * @param {string} workingDirectory - Project working directory for command discovery
+ * @param {string} prompt - The user's prompt text
+ * @param {string|null} projectSystemPrompt - The project's system prompt
+ * @returns {Promise<{type: 'skill'|'command', userMessage: string, systemPrompt: string|null}|null>}
+ */
+export async function resolvePromptSkillOrCommand(workingDirectory, prompt, projectSystemPrompt) {
+  if (!prompt || typeof prompt !== 'string' || !prompt.startsWith('/')) return null;
+
+  const match = prompt.match(/^\/(\S+)(?:\s+([\s\S]*))?$/);
+  if (!match) return null;
+
+  const [, commandName, rawArgs] = match;
+
+  // Try skill first — skills take precedence over commands
+  try {
+    const skillInvocation = await buildSkillInvocation(
+      workingDirectory, commandName, { _raw: rawArgs || '' }
+    );
+    if (skillInvocation) {
+      return {
+        type: 'skill',
+        userMessage: buildSkillUserMessage(skillInvocation),
+        systemPrompt: buildSkillSystemPrompt(projectSystemPrompt, skillInvocation),
+      };
+    }
+  } catch (err) {
+    // Skill lookup failed — fall through
+  }
+
+  // Try regular (non-skill) command
+  try {
+    const commandString = await buildCommandString(workingDirectory, commandName, { _raw: rawArgs || '' });
+    if (commandString) {
+      return {
+        type: 'command',
+        userMessage: commandString,
+        systemPrompt: projectSystemPrompt || null,
+      };
+    }
+  } catch (err) {
+    // Command not found — fall through
+  }
+
+  return null;
+}
+
 export default {
   getCommands,
   getCommand,
   getCommandBody,
   buildCommandString,
+  buildSkillInvocation,
+  buildSkillSystemPrompt,
+  buildSkillUserMessage,
+  resolvePromptSkillOrCommand,
   parseCommandFile,
+  parseSkillFile,
 };

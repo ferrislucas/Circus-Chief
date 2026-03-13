@@ -619,6 +619,28 @@ export const useSessionsStore = defineStore('sessions', {
   },
 
   actions: {
+    /**
+     * Internal helper: Update a session across all session arrays and currentSession.
+     * Eliminates the 4-array update pattern that was duplicated in many actions.
+     * @param {string} sessionId - Session ID to update
+     * @param {Object} updates - Fields to merge into the session
+     */
+    _updateSessionInAllLists(sessionId, updates) {
+      const updateInArray = (arr, index) => {
+        if (index !== -1) {
+          arr[index] = { ...arr[index], ...updates };
+        }
+      };
+
+      updateInArray(this.sessions, this.sessions.findIndex(s => s.id === sessionId));
+      updateInArray(this.archivedSessions, this.archivedSessions.findIndex(s => s.id === sessionId));
+      updateInArray(this.activeSessions, this.activeSessions.findIndex(s => s.id === sessionId));
+
+      if (this.currentSession?.id === sessionId) {
+        this.currentSession = { ...this.currentSession, ...updates };
+      }
+    },
+
     async fetchActiveSessions(showLoading = true) {
       if (showLoading) this.loading = true;
       this.error = null;
@@ -811,15 +833,7 @@ export const useSessionsStore = defineStore('sessions', {
       this.error = null;
       try {
         await api.sendMessage(sessionId, content, files, model);
-        // Optimistically update status to 'running' immediately after send succeeds
-        // This ensures the UI shows "Claude is working..." without waiting for WebSocket
-        const session = this.sessions.find((s) => s.id === sessionId);
-        if (session) {
-          session.status = 'running';
-        }
-        if (this.currentSession?.id === sessionId) {
-          this.currentSession.status = 'running';
-        }
+        this._updateSessionInAllLists(sessionId, { status: 'running' });
       } catch (err) {
         this.error = err.message;
         throw err;
@@ -830,13 +844,7 @@ export const useSessionsStore = defineStore('sessions', {
       this.error = null;
       try {
         await api.stopSession(id);
-        if (this.currentSession?.id === id) {
-          this.currentSession.status = 'stopped';
-        }
-        const session = this.sessions.find((s) => s.id === id);
-        if (session) {
-          session.status = 'stopped';
-        }
+        this._updateSessionInAllLists(id, { status: 'stopped' });
       } catch (err) {
         this.error = err.message;
         throw err;
@@ -847,15 +855,7 @@ export const useSessionsStore = defineStore('sessions', {
       this.error = null;
       try {
         await api.restartSession(id);
-        if (this.currentSession?.id === id) {
-          this.currentSession.status = 'stopped';
-          this.currentSession.error = null;
-        }
-        const session = this.sessions.find((s) => s.id === id);
-        if (session) {
-          session.status = 'stopped';
-          session.error = null;
-        }
+        this._updateSessionInAllLists(id, { status: 'stopped', error: null });
       } catch (err) {
         this.error = err.message;
         throw err;
@@ -866,14 +866,7 @@ export const useSessionsStore = defineStore('sessions', {
       this.error = null;
       try {
         const result = await api.startSession(id, prompt, model);
-        // Update session status to starting
-        if (this.currentSession?.id === id) {
-          this.currentSession.status = 'starting';
-        }
-        const session = this.sessions.find((s) => s.id === id);
-        if (session) {
-          session.status = 'starting';
-        }
+        this._updateSessionInAllLists(id, { status: 'starting' });
         return result;
       } catch (err) {
         this.error = err.message;
@@ -952,21 +945,7 @@ export const useSessionsStore = defineStore('sessions', {
       this.error = null;
       try {
         const updated = await api.toggleSessionStar(sessionId);
-
-        // Update all session arrays
-        const updateInArray = (arr) => {
-          const session = arr.find(s => s.id === sessionId);
-          if (session) session.starred = updated.starred;
-        };
-
-        updateInArray(this.sessions);
-        updateInArray(this.archivedSessions);
-        updateInArray(this.activeSessions);
-
-        if (this.currentSession?.id === sessionId) {
-          this.currentSession.starred = updated.starred;
-        }
-
+        this._updateSessionInAllLists(sessionId, { starred: updated.starred });
         return updated;
       } catch (err) {
         this.error = err.message;
@@ -1214,60 +1193,24 @@ export const useSessionsStore = defineStore('sessions', {
     },
 
     updateSessionStatus(sessionId, status) {
-      const session = this.sessions.find((s) => s.id === sessionId);
-      if (session) {
-        // If transitioning from running to waiting/completed, the session just
-        // finished producing a response — mark hasResponses true so isDraftSession
-        // doesn't hide the messages via the template v-if guard.
-        if (session.status === 'running' && (status === 'waiting' || status === 'completed')) {
-          session.hasResponses = true;
-        }
-        session.status = status;
+      // If transitioning from running to waiting/completed, the session just
+      // finished producing a response — mark hasResponses true so isDraftSession
+      // doesn't hide the messages via the template v-if guard.
+      const session = this.sessions.find(s => s.id === sessionId) || this.currentSession;
+      const wasRunning = session?.status === 'running';
+      const updates = { status };
+      if (wasRunning && (status === 'waiting' || status === 'completed')) {
+        updates.hasResponses = true;
       }
-      if (this.currentSession?.id === sessionId) {
-        if (this.currentSession.status === 'running' && (status === 'waiting' || status === 'completed')) {
-          this.currentSession.hasResponses = true;
-        }
-        this.currentSession.status = status;
-      }
+      this._updateSessionInAllLists(sessionId, updates);
     },
 
     async updateSessionThinking(sessionId, thinkingEnabled) {
-      this.error = null;
-      try {
-        const updated = await api.updateSession(sessionId, { thinkingEnabled });
-        // Update local state
-        const session = this.sessions.find((s) => s.id === sessionId);
-        if (session) {
-          session.thinkingEnabled = thinkingEnabled;
-        }
-        if (this.currentSession?.id === sessionId) {
-          this.currentSession.thinkingEnabled = thinkingEnabled;
-        }
-        return updated;
-      } catch (err) {
-        this.error = err.message;
-        throw err;
-      }
+      return this.updateSessionFields(sessionId, { thinkingEnabled });
     },
 
     async updateSessionMode(sessionId, mode) {
-      this.error = null;
-      try {
-        const updated = await api.updateSession(sessionId, { mode });
-        // Update local state
-        const session = this.sessions.find((s) => s.id === sessionId);
-        if (session) {
-          session.mode = mode;
-        }
-        if (this.currentSession?.id === sessionId) {
-          this.currentSession = { ...this.currentSession, mode };
-        }
-        return updated;
-      } catch (err) {
-        this.error = err.message;
-        throw err;
-      }
+      return this.updateSessionFields(sessionId, { mode });
     },
 
     async updateSessionModel(sessionId, model, providerId = undefined) {
@@ -1278,21 +1221,7 @@ export const useSessionsStore = defineStore('sessions', {
           updateData.providerId = providerId;
         }
         const updated = await api.updateSession(sessionId, updateData);
-        // Update local state
-        const session = this.sessions.find((s) => s.id === sessionId);
-        if (session) {
-          session.model = model;
-          if (providerId !== undefined) {
-            session.providerId = providerId;
-          }
-        }
-        if (this.currentSession?.id === sessionId) {
-          this.currentSession = {
-            ...this.currentSession,
-            model,
-            ...(providerId !== undefined ? { providerId } : {}),
-          };
-        }
+        this._updateSessionInAllLists(sessionId, updateData);
         return updated;
       } catch (err) {
         this.error = err.message;
@@ -1307,22 +1236,7 @@ export const useSessionsStore = defineStore('sessions', {
      * @returns {Promise<Object>}
      */
     async updateNextTemplate(sessionId, nextTemplateId) {
-      this.error = null;
-      try {
-        const updated = await api.updateSession(sessionId, { nextTemplateId });
-        // Update local state
-        const session = this.sessions.find((s) => s.id === sessionId);
-        if (session) {
-          session.nextTemplateId = nextTemplateId;
-        }
-        if (this.currentSession?.id === sessionId) {
-          this.currentSession = { ...this.currentSession, nextTemplateId };
-        }
-        return updated;
-      } catch (err) {
-        this.error = err.message;
-        throw err;
-      }
+      return this.updateSessionFields(sessionId, { nextTemplateId });
     },
 
     /**
@@ -1335,14 +1249,7 @@ export const useSessionsStore = defineStore('sessions', {
       this.error = null;
       try {
         const updated = await api.updateSession(sessionId, updates);
-        // Update local state with all updated fields
-        const session = this.sessions.find((s) => s.id === sessionId);
-        if (session) {
-          Object.assign(session, updates);
-        }
-        if (this.currentSession?.id === sessionId) {
-          this.currentSession = { ...this.currentSession, ...updates };
-        }
+        this._updateSessionInAllLists(sessionId, updates);
         return updated;
       } catch (err) {
         this.error = err.message;
@@ -1956,13 +1863,10 @@ export const useSessionsStore = defineStore('sessions', {
      * @param {Object} runData - Run data (buttonId, status, runId, startedAt/completedAt, exitCode)
      */
     updateSessionCommandRun(sessionId, buttonId, runData) {
-      // Helper to create updated latestCommandRuns array
       const getUpdatedRuns = (session) => {
         if (!session) return null;
-
         const runs = [...(session.latestCommandRuns || [])];
         const existingIdx = runs.findIndex(r => r.buttonId === buttonId);
-
         if (existingIdx >= 0) {
           runs[existingIdx] = runData;
         } else {
@@ -1971,47 +1875,15 @@ export const useSessionsStore = defineStore('sessions', {
         return runs;
       };
 
-      // Update in sessions list - replace the entire object to trigger Vue reactivity
-      const sessionIndex = this.sessions.findIndex(s => s.id === sessionId);
-      if (sessionIndex !== -1) {
-        const updatedRuns = getUpdatedRuns(this.sessions[sessionIndex]);
-        this.sessions[sessionIndex] = {
-          ...this.sessions[sessionIndex],
-          latestCommandRuns: updatedRuns,
-        };
+      // Get runs from any available source
+      const source = this.sessions.find(s => s.id === sessionId)
+        || this.archivedSessions.find(s => s.id === sessionId)
+        || this.activeSessions.find(s => s.id === sessionId)
+        || this.currentSession;
+      const updatedRuns = getUpdatedRuns(source);
+      if (updatedRuns) {
+        this._updateSessionInAllLists(sessionId, { latestCommandRuns: updatedRuns });
       }
-
-      // Update in archived sessions list
-      const archivedIndex = this.archivedSessions.findIndex(s => s.id === sessionId);
-      if (archivedIndex !== -1) {
-        const updatedRuns = getUpdatedRuns(this.archivedSessions[archivedIndex]);
-        this.archivedSessions[archivedIndex] = {
-          ...this.archivedSessions[archivedIndex],
-          latestCommandRuns: updatedRuns,
-        };
-      }
-
-      // Update in active sessions list
-      const activeIndex = this.activeSessions.findIndex(s => s.id === sessionId);
-      if (activeIndex !== -1) {
-        const updatedRuns = getUpdatedRuns(this.activeSessions[activeIndex]);
-        this.activeSessions[activeIndex] = {
-          ...this.activeSessions[activeIndex],
-          latestCommandRuns: updatedRuns,
-        };
-      }
-
-      // Update current session if it matches
-      if (this.currentSession?.id === sessionId) {
-        const updatedRuns = getUpdatedRuns(this.currentSession);
-        this.currentSession = {
-          ...this.currentSession,
-          latestCommandRuns: updatedRuns,
-        };
-      }
-
-      // Increment version counter to force Vue reactivity in computed properties
-      // that depend on latestCommandRuns (e.g., buttonStatusesToDisplay in SessionCard)
       this.commandRunVersion++;
     },
   },
