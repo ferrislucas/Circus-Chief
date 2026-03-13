@@ -90,7 +90,7 @@ Generate TWO summaries:
  * @param {string} systemPrompt - Optional system prompt for prompt caching
  * @returns {Promise<string>} The text response
  */
-async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null, systemPrompt = null) {
+async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null, systemPrompt = null, jsonSchema = null) {
   // Build stable key for VCR cassette (session prompts are hardcoded strings in E2E tests)
   let keyHint = null;
   if (process.env.VCR_MODE && logMeta?.sessionId) {
@@ -102,8 +102,8 @@ async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null,
     ? createVCRQueryFn(query, 'tests/e2e/cassettes/summaries', keyHint)
     : query;
 
-  // JSON Schema for structured output
-  const summarySchema = {
+  // Default to session summary schema if none provided
+  const schema = jsonSchema || {
     type: 'object',
     properties: {
       short_summary: { type: 'string', description: '1-2 sentence preview for list view (max 150 characters)' },
@@ -127,7 +127,7 @@ async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null,
       ...(systemPrompt && { systemPrompt }),
       outputFormat: {
         type: 'json_schema',
-        schema: summarySchema,
+        schema,
       },
     },
   };
@@ -480,22 +480,73 @@ function validatePrUrl(prUrl, expectedRepoUrl) {
 }
 
 /**
+ * Strip markdown code block wrapping (```json ... ```) from response text
+ * @param {string} text - Raw response text
+ * @returns {string} Text with code block wrapper removed if present
+ */
+function _stripMarkdownCodeBlock(text) {
+  let cleaned = text.trim();
+  if (cleaned.startsWith('```')) {
+    const codeBlockMatch = cleaned.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
+    if (codeBlockMatch) {
+      cleaned = codeBlockMatch[1].trim();
+      console.log('[SummaryService] Stripped markdown code block from response');
+    }
+  }
+  return cleaned;
+}
+
+/**
+ * Add message count and last message ID to summary data for staleness tracking
+ * @param {Object} summaryData - Summary data to augment
+ * @param {Array} allMessages - All messages in session
+ */
+function _trackMessageMetadata(summaryData, allMessages) {
+  summaryData.messageCount = allMessages.length;
+  const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
+  summaryData.lastSummarizedMessageId = lastMessage ? lastMessage.id : null;
+}
+
+/**
+ * Validate and enrich PR URL data with GitHub PR status information
+ * @param {Object} summaryData - Summary data to enrich (modified in place)
+ * @param {string} prUrl - PR URL to validate and enrich
+ * @param {string} projectRepoUrl - Expected repository URL for validation
+ * @param {string} sessionId - Session ID for logging
+ */
+async function _enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId) {
+  const validation = validatePrUrl(prUrl, projectRepoUrl);
+
+  if (!validation.valid) {
+    console.warn(`[SummaryService] PR URL validation failed for session ${sessionId}:`, validation.error);
+    summaryData.prUrl = null;
+    return;
+  }
+
+  try {
+    const prInfo = await ghService.getPrInfo(prUrl);
+    if (prInfo) {
+      summaryData.prState = prInfo.state;
+      summaryData.prMerged = prInfo.merged;
+      summaryData.hasMergeConflicts = prInfo.hasMergeConflicts;
+      summaryData.ciStatus = prInfo.ciStatus;
+      if (prInfo.ciFailures !== undefined) {
+        summaryData.ciFailures = prInfo.ciFailures;
+      }
+    }
+  } catch (error) {
+    console.warn(`[SummaryService] Failed to get PR info for ${prUrl}:`, error.message);
+  }
+}
+
+/**
  * Parse the Claude API response into a summary object
  * Handles markdown code block wrapping (```json ... ```) that Claude sometimes returns
  * @param {string} responseText
  * @returns {Object}
  */
 function parseSummaryResponse(responseText) {
-  let textToParse = responseText.trim();
-
-  // Only strip markdown if detected (starts with ```)
-  if (textToParse.startsWith('```')) {
-    const codeBlockMatch = textToParse.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
-    if (codeBlockMatch) {
-      textToParse = codeBlockMatch[1].trim();
-      console.log('[SummaryService] Stripped markdown code block from response');
-    }
-  }
+  const textToParse = _stripMarkdownCodeBlock(responseText);
 
   try {
     const parsed = JSON.parse(textToParse);
@@ -688,9 +739,7 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     delete summaryData._parseFailed;
 
     // Add message count and last message ID for staleness tracking (Phase 6)
-    summaryData.messageCount = allMessages.length;
-    const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
-    summaryData.lastSummarizedMessageId = lastMessage ? lastMessage.id : null;
+    _trackMessageMetadata(summaryData, allMessages);
 
     // For root sessions (no parent), aggregate files from all child sessions
     if (!session.parentSessionId) {
@@ -700,30 +749,8 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     // Validate and enrich PR URL
     const prUrl = summaryData.prUrl || session.prUrl;
     if (prUrl) {
-      // Validate PR URL against project repository
       const project = projects.getById(session.projectId);
-      const projectRepoUrl = project?.repoUrl;
-      const validation = validatePrUrl(prUrl, projectRepoUrl);
-
-      if (!validation.valid) {
-        console.warn(`[SummaryService] PR URL validation failed for session ${sessionId}:`, validation.error);
-        // Don't save the invalid PR URL
-        summaryData.prUrl = null;
-      } else {
-        // Enrich with GitHub PR status if validation passed
-        try {
-          const prInfo = await ghService.getPrInfo(prUrl);
-          if (prInfo) {
-            summaryData.prState = prInfo.state;
-            summaryData.prMerged = prInfo.merged;
-            summaryData.hasMergeConflicts = prInfo.hasMergeConflicts;
-            summaryData.ciStatus = prInfo.ciStatus;
-            summaryData.ciFailures = prInfo.ciFailures;
-          }
-        } catch (error) {
-          console.warn(`[SummaryService] Failed to get PR info for ${prUrl}:`, error.message);
-        }
-      }
+      await _enrichPrData(summaryData, prUrl, project?.repoUrl, sessionId);
     }
 
     // Upsert summary
@@ -1073,15 +1100,7 @@ ${formattedMessages}`;
  * @returns {string} The summary text
  */
 function parseConversationSummaryResponse(responseText) {
-  let textToParse = responseText.trim();
-
-  // Strip markdown if detected
-  if (textToParse.startsWith('```')) {
-    const codeBlockMatch = textToParse.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
-    if (codeBlockMatch) {
-      textToParse = codeBlockMatch[1].trim();
-    }
-  }
+  const textToParse = _stripMarkdownCodeBlock(responseText);
 
   try {
     const parsed = JSON.parse(textToParse);
@@ -1228,7 +1247,7 @@ ${globalSettings?.sessionTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT}`;
     };
 
     // Call Claude with combined schema
-    const responseText = await callClaudeWithCustomSchema(
+    const responseText = await callClaude(
       combinedPrompt,
       recentMessages,
       session.status,
@@ -1273,9 +1292,7 @@ ${globalSettings?.sessionTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT}`;
     }
 
     // Add message count and last message ID for staleness tracking (Phase 6)
-    summaryData.messageCount = allMessages.length;
-    const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
-    summaryData.lastSummarizedMessageId = lastMessage ? lastMessage.id : null;
+    _trackMessageMetadata(summaryData, allMessages);
 
     // For root sessions, aggregate files from child sessions
     if (!session.parentSessionId) {
@@ -1286,23 +1303,7 @@ ${globalSettings?.sessionTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT}`;
     const prUrl = summaryData.prUrl || session.prUrl;
     if (prUrl) {
       const project = projects.getById(session.projectId);
-      const projectRepoUrl = project?.repoUrl;
-      const validation = validatePrUrl(prUrl, projectRepoUrl);
-
-      if (!validation.valid) {
-        console.warn(`[SummaryService] PR URL validation failed for session ${sessionId}:`, validation.error);
-        summaryData.prUrl = null;
-      } else {
-        try {
-          const prInfo = await ghService.getPrInfo(prUrl);
-          summaryData.prMerged = prInfo.merged;
-          summaryData.prState = prInfo.state;
-          summaryData.hasMergeConflicts = prInfo.hasMergeConflicts;
-          summaryData.ciStatus = prInfo.ciStatus;
-        } catch (error) {
-          console.warn(`[SummaryService] Failed to fetch PR info for ${prUrl}:`, error.message);
-        }
-      }
+      await _enrichPrData(summaryData, prUrl, project?.repoUrl, sessionId);
     } else {
       summaryData.prUrl = null;
     }
@@ -1346,124 +1347,6 @@ ${globalSettings?.sessionTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT}`;
 
     return { sessionSummary: null, conversationSummary: null };
   }
-}
-
-/**
- * Call Claude with a custom JSON schema (for combined summaries)
- * @param {string} prompt - The prompt to send
- * @param {Array} recentMessages - Messages for context
- * @param {string} sessionStatus - Session status
- * @param {Object} logMeta - Logging metadata
- * @param {string} systemPrompt - System prompt
- * @param {Object} jsonSchema - Custom JSON schema
- * @returns {Promise<string>} The text response
- */
-async function callClaudeWithCustomSchema(prompt, recentMessages, sessionStatus, logMeta, systemPrompt, jsonSchema) {
-  // Build stable key for VCR cassette (session prompts are hardcoded strings in E2E tests)
-  let keyHint = null;
-  if (process.env.VCR_MODE && logMeta?.sessionId) {
-    const session = sessions.getById(logMeta.sessionId);
-    keyHint = session ? `${logMeta.callType}:${session.prompt}` : null;
-  }
-  const queryFn = process.env.VCR_MODE
-    ? createVCRQueryFn(query, 'tests/e2e/cassettes/summaries', keyHint)
-    : query;
-
-  const queryParams = {
-    prompt,
-    options: {
-      cwd: process.cwd(),
-      permissionMode: 'bypassPermissions',
-      maxTurns: 1,
-      model: 'claude-haiku-4-5-20251001',
-      systemPrompt,
-      outputFormat: {
-        type: 'json_schema',
-        schema: jsonSchema,
-      },
-    },
-  };
-
-  // Start logging if metadata provided
-  let callId = null;
-  if (logMeta) {
-    callId = agentCallLogger.startCall({
-      sessionId: logMeta.sessionId,
-      conversationId: logMeta.conversationId || null,
-      agentType: 'summary',
-      model: 'claude-haiku-4-5-20251001',
-      callType: logMeta.callType,
-      promptLength: prompt.length,
-    });
-  }
-
-  let responseText = '';
-  let structuredOutput = null;
-
-  try {
-    for await (const event of queryFn(queryParams)) {
-      switch (event.type) {
-        case 'assistant': {
-          const content = event.message?.content || [];
-          for (const block of content) {
-            // Capture structured output from StructuredOutput tool use
-            if (block.type === 'tool_use' && block.name === 'StructuredOutput') {
-              structuredOutput = block.input;
-            } else if (block.type === 'text') {
-              responseText += block.text;
-            }
-          }
-          break;
-        }
-        case 'result': {
-          if (event.subtype === 'error') {
-            throw new Error(event.error || 'Claude SDK query failed');
-          }
-          // Capture usage for logging
-          if (callId) {
-            const modelUsageEntry = event.modelUsage
-              ? Object.values(event.modelUsage)[0]
-              : null;
-            if (modelUsageEntry || event.usage) {
-              agentCallLogger.updateUsage(callId, {
-                inputTokens:
-                  modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
-                outputTokens:
-                  modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
-                thinkingTokens: 0,
-                cacheReadInputTokens:
-                  modelUsageEntry?.cacheReadInputTokens ||
-                  event.usage?.cache_read_input_tokens ||
-                  0,
-                cacheCreationInputTokens:
-                  modelUsageEntry?.cacheCreationInputTokens ||
-                  event.usage?.cache_creation_input_tokens ||
-                  0,
-              });
-            }
-          }
-          break;
-        }
-      }
-    }
-
-    // Complete the logged call on success
-    if (callId) {
-      agentCallLogger.completeCall(callId, { success: true });
-    }
-  } catch (error) {
-    // Complete the logged call on error
-    if (callId) {
-      agentCallLogger.completeCall(callId, { success: false, error });
-    }
-    throw error;
-  }
-
-  // Prefer structured output (already parsed JSON) over text response
-  if (structuredOutput) {
-    return JSON.stringify(structuredOutput);
-  }
-  return responseText;
 }
 
 /**
@@ -1581,4 +1464,4 @@ export async function propagateToParent(sessionId) {
 }
 
 // Export for testing
-export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, CONVERSATION_SUMMARY_SYSTEM_PROMPT, COMBINED_SUMMARY_SYSTEM_PROMPT, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified, activeGenerations, pendingRegenerations };
+export { DEBOUNCE_DELAY, MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, CONVERSATION_SUMMARY_SYSTEM_PROMPT, COMBINED_SUMMARY_SYSTEM_PROMPT, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified, activeGenerations, pendingRegenerations, _stripMarkdownCodeBlock, _trackMessageMetadata, _enrichPrData };
