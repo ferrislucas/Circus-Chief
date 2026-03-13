@@ -130,7 +130,19 @@ function close() {
 function selectCommand(cmd) {
   selectedCommand.value = cmd;
 
-  // If command has no arguments, execute/insert immediately
+  // For skills: check if it has argumentHint to determine if we need args form
+  if (cmd.isSkill) {
+    if (cmd.argumentHint) {
+      // Show args form for skills with argument hint
+      step.value = 2;
+    } else {
+      // Execute immediately for skills without args
+      handleExecute({ _raw: '' });
+    }
+    return;
+  }
+
+  // For commands: check if it has arguments
   if (!cmd.arguments || cmd.arguments.length === 0) {
     handleExecute({});
   } else {
@@ -192,7 +204,16 @@ async function handleExecute(args) {
 function buildInsertString(command, args) {
   let result = `/${command.name}`;
 
-  // Add arguments
+  // For skills, use raw args
+  if (command.isSkill) {
+    const rawArgs = args._raw || '';
+    if (rawArgs) {
+      result += ` ${rawArgs}`;
+    }
+    return result;
+  }
+
+  // For commands, use structured arguments
   const argValues = [];
   for (const argDef of command.arguments || []) {
     const value = args[argDef.name];
