@@ -69,7 +69,7 @@ const settingsStore = useSettingsStore();
 const uiStore = useUiStore();
 
 const disableSessionSummaries = ref(false);
-const disableConversationSummaries = ref(false);
+const disableConversationSummaries = ref(true);
 const sessionTitlePrompt = ref('');
 const saving = ref(false);
 const error = ref(null);
