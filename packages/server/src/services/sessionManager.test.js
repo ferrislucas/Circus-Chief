@@ -1163,7 +1163,6 @@ describe('summary service integration', () => {
       // Spy on summary service methods
       const summaryService = await import('./summaryService.js');
       summaryServiceSpy = {
-        onSessionActivity: vi.spyOn(summaryService, 'onSessionActivity').mockImplementation(() => Promise.resolve()),
         onSessionComplete: vi.spyOn(summaryService, 'onSessionComplete').mockImplementation(() => Promise.resolve()),
         extractPrUrlIfNeeded: vi.spyOn(summaryService, 'extractPrUrlIfNeeded').mockImplementation(() => Promise.resolve()),
       };
@@ -1172,20 +1171,16 @@ describe('summary service integration', () => {
     afterEach(() => {
       // Restore spies
       if (summaryServiceSpy) {
-        summaryServiceSpy.onSessionActivity.mockRestore();
         summaryServiceSpy.onSessionComplete.mockRestore();
         summaryServiceSpy.extractPrUrlIfNeeded.mockRestore();
       }
     });
 
-    it('calls onSessionActivity (not onSessionComplete) when turn completes successfully', async () => {
+    it('does not call onSessionComplete when turn completes successfully', async () => {
       const { runSession } = await import('./sessionManager.js');
 
       // Run a session
       await runSession(session.id, 'Test message', tempDir);
-
-      // Verify onSessionActivity was called (debounced generation on turn completion)
-      expect(summaryServiceSpy.onSessionActivity).toHaveBeenCalledWith(session.id);
 
       // Verify onSessionComplete was NOT called (session is still waiting for more input)
       expect(summaryServiceSpy.onSessionComplete).not.toHaveBeenCalled();
@@ -1197,7 +1192,6 @@ describe('summary service integration', () => {
       // Spy on summary service methods
       const summaryService = await import('./summaryService.js');
       summaryServiceSpy = {
-        onSessionActivity: vi.spyOn(summaryService, 'onSessionActivity').mockImplementation(() => Promise.resolve()),
         onSessionComplete: vi.spyOn(summaryService, 'onSessionComplete').mockImplementation(() => Promise.resolve()),
         extractPrUrlIfNeeded: vi.spyOn(summaryService, 'extractPrUrlIfNeeded').mockImplementation(() => Promise.resolve()),
       };
@@ -1206,20 +1200,16 @@ describe('summary service integration', () => {
     afterEach(() => {
       // Restore spies
       if (summaryServiceSpy) {
-        summaryServiceSpy.onSessionActivity.mockRestore();
         summaryServiceSpy.onSessionComplete.mockRestore();
         summaryServiceSpy.extractPrUrlIfNeeded.mockRestore();
       }
     });
 
-    it('calls onSessionActivity (not onSessionComplete) when turn completes successfully', async () => {
+    it('does not call onSessionComplete when turn completes successfully', async () => {
       const { continueSession } = await import('./sessionManager.js');
 
       // Continue a session
       await continueSession(session.id, 'Follow-up message', tempDir);
-
-      // Verify onSessionActivity was called (debounced generation on turn completion)
-      expect(summaryServiceSpy.onSessionActivity).toHaveBeenCalledWith(session.id);
 
       // Verify onSessionComplete was NOT called (session is still waiting for more input)
       expect(summaryServiceSpy.onSessionComplete).not.toHaveBeenCalled();
@@ -1231,7 +1221,6 @@ describe('summary service integration', () => {
       // Spy on summary service methods
       const summaryService = await import('./summaryService.js');
       summaryServiceSpy = {
-        onSessionActivity: vi.spyOn(summaryService, 'onSessionActivity').mockImplementation(() => Promise.resolve()),
         onSessionComplete: vi.spyOn(summaryService, 'onSessionComplete').mockImplementation(() => Promise.resolve()),
         extractPrUrlIfNeeded: vi.spyOn(summaryService, 'extractPrUrlIfNeeded').mockImplementation(() => Promise.resolve()),
       };
@@ -1240,13 +1229,12 @@ describe('summary service integration', () => {
     afterEach(() => {
       // Restore spies
       if (summaryServiceSpy) {
-        summaryServiceSpy.onSessionActivity.mockRestore();
         summaryServiceSpy.onSessionComplete.mockRestore();
         summaryServiceSpy.extractPrUrlIfNeeded.mockRestore();
       }
     });
 
-    it('calls onSessionActivity (not onSessionComplete) when turn completes successfully', async () => {
+    it('does not call onSessionComplete when turn completes successfully', async () => {
       const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
       // Create a conversation and user message
@@ -1255,9 +1243,6 @@ describe('summary service integration', () => {
 
       // Continue with existing message
       await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);
-
-      // Verify onSessionActivity was called (debounced generation on turn completion)
-      expect(summaryServiceSpy.onSessionActivity).toHaveBeenCalledWith(session.id);
 
       // Verify onSessionComplete was NOT called (session is still waiting for more input)
       expect(summaryServiceSpy.onSessionComplete).not.toHaveBeenCalled();
@@ -1269,7 +1254,6 @@ describe('summary service integration', () => {
       // Spy on summary service methods
       const summaryService = await import('./summaryService.js');
       summaryServiceSpy = {
-        onSessionActivity: vi.spyOn(summaryService, 'onSessionActivity').mockImplementation(() => Promise.resolve()),
         onSessionComplete: vi.spyOn(summaryService, 'onSessionComplete').mockImplementation(() => Promise.resolve()),
         extractPrUrlIfNeeded: vi.spyOn(summaryService, 'extractPrUrlIfNeeded').mockImplementation(() => Promise.resolve()),
       };
@@ -1278,7 +1262,6 @@ describe('summary service integration', () => {
     afterEach(() => {
       // Restore spies
       if (summaryServiceSpy) {
-        summaryServiceSpy.onSessionActivity.mockRestore();
         summaryServiceSpy.onSessionComplete.mockRestore();
         summaryServiceSpy.extractPrUrlIfNeeded.mockRestore();
       }
@@ -1292,9 +1275,6 @@ describe('summary service integration', () => {
 
       // Verify onSessionComplete was called (session is truly complete now)
       expect(summaryServiceSpy.onSessionComplete).toHaveBeenCalledWith(session.id);
-
-      // Verify onSessionActivity was NOT called (stopped, not just pausing)
-      expect(summaryServiceSpy.onSessionActivity).not.toHaveBeenCalled();
     });
   });
 
@@ -1303,7 +1283,6 @@ describe('summary service integration', () => {
       // Spy on summary service methods
       const summaryService = await import('./summaryService.js');
       summaryServiceSpy = {
-        onSessionActivity: vi.spyOn(summaryService, 'onSessionActivity').mockImplementation(() => Promise.resolve()),
         onSessionComplete: vi.spyOn(summaryService, 'onSessionComplete').mockImplementation(() => Promise.resolve()),
         extractPrUrlIfNeeded: vi.spyOn(summaryService, 'extractPrUrlIfNeeded').mockImplementation(() => Promise.resolve()),
       };
@@ -1312,7 +1291,6 @@ describe('summary service integration', () => {
     afterEach(() => {
       // Restore spies
       if (summaryServiceSpy) {
-        summaryServiceSpy.onSessionActivity.mockRestore();
         summaryServiceSpy.onSessionComplete.mockRestore();
         summaryServiceSpy.extractPrUrlIfNeeded.mockRestore();
       }
