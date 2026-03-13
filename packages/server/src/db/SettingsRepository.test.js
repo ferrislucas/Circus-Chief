@@ -301,12 +301,13 @@ describe('SettingsRepository', () => {
     it('coerces values to correct types', () => {
       repo.set('summary_settings', JSON.stringify({
         disableSessionSummaries: 1, // truthy number
-        disableConversationSummaries: '', // falsy string
+        disableConversationSummaries: '', // falsy string - falls back to default
         sessionTitlePrompt: 123, // number
       }));
 
       const settings = repo.getSummarySettings();
       // getSummarySettings returns truthy/falsy values as-is (uses || operator)
+      // disableConversationSummaries: '' is not a boolean so it falls back to default (false)
       expect(settings.disableSessionSummaries).toBe(1);
       expect(settings.disableConversationSummaries).toBe(false);
       expect(settings.sessionTitlePrompt).toBe(123);
