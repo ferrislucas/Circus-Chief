@@ -3053,5 +3053,92 @@ describe('SessionDetailView', () => {
       // Should show error message
       expect(uiStore.error).toHaveBeenCalled();
     });
+
+    it('does not show clear button when not editing', async () => {
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, SummaryTab: true, ChangesTab: true,
+            CanvasTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+      await flushPromises();
+
+      expect(wrapper.find('.name-edit-form .pr-clear-btn').exists()).toBe(false);
+    });
+
+    it('shows clear button when editing and input has text', async () => {
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, SummaryTab: true, ChangesTab: true,
+            CanvasTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+      await flushPromises();
+
+      await wrapper.find('.name-edit-trigger').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      // Input has the current session name, so clear button should be visible
+      expect(wrapper.find('.name-edit-form .pr-clear-btn').exists()).toBe(true);
+      expect(wrapper.find('.name-edit-form .pr-clear-btn').attributes('title')).toBe('Clear name');
+    });
+
+    it('clears the input when clicking the clear button', async () => {
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, SummaryTab: true, ChangesTab: true,
+            CanvasTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+      await flushPromises();
+
+      await wrapper.find('.name-edit-trigger').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      // Click clear
+      await wrapper.find('.name-edit-form .pr-clear-btn').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      // Input should be empty
+      const input = wrapper.find('.name-edit-input');
+      expect(input.element.value).toBe('');
+
+      // Should still be in edit mode (not saved, not cancelled)
+      expect(wrapper.find('.name-edit-form').exists()).toBe(true);
+
+      // Clear button should now be hidden (no text)
+      expect(wrapper.find('.name-edit-form .pr-clear-btn').exists()).toBe(false);
+    });
+
+    it('does not save when clicking the clear button', async () => {
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, SummaryTab: true, ChangesTab: true,
+            CanvasTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+      await flushPromises();
+
+      await wrapper.find('.name-edit-trigger').trigger('click');
+      await wrapper.vm.$nextTick();
+
+      await wrapper.find('.name-edit-form .pr-clear-btn').trigger('click');
+      await flushPromises();
+
+      // API should NOT have been called
+      expect(api.updateSession).not.toHaveBeenCalled();
+    });
   });
 });
