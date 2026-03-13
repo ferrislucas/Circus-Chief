@@ -302,8 +302,11 @@ describe('Sessions Conversations API', () => {
     it('generates summary for conversation', async () => {
       settings.setSummarySettings({ disableConversationSummaries: false, disableSessionSummaries: false, sessionTitlePrompt: '' });
       const conv = conversations.create(session.id, 'Test Conv', true);
+      // Need >= 4 messages to meet the minimum threshold for summary generation
       messages.create(session.id, 'user', 'Help me with this', null, conv.id);
       messages.create(session.id, 'assistant', 'Sure, I can help', null, conv.id);
+      messages.create(session.id, 'user', 'Can you explain more?', null, conv.id);
+      messages.create(session.id, 'assistant', 'Of course!', null, conv.id);
 
       const result = await summaryService.generateConversationSummary(session.id, conv.id);
 
@@ -316,8 +319,11 @@ describe('Sessions Conversations API', () => {
     it('stores summary on conversation record', async () => {
       settings.setSummarySettings({ disableConversationSummaries: false, disableSessionSummaries: false, sessionTitlePrompt: '' });
       const conv = conversations.create(session.id, 'Test Conv', true);
+      // Need >= 4 messages to meet the minimum threshold for summary generation
       messages.create(session.id, 'user', 'Help me', null, conv.id);
       messages.create(session.id, 'assistant', 'Sure thing', null, conv.id);
+      messages.create(session.id, 'user', 'What else can you do?', null, conv.id);
+      messages.create(session.id, 'assistant', 'Many things!', null, conv.id);
 
       await summaryService.generateConversationSummary(session.id, conv.id);
 
@@ -327,15 +333,16 @@ describe('Sessions Conversations API', () => {
       expect(updated.summaryGeneratedAt).toBeDefined();
     });
 
-    it('returns brief message for single message conversation', async () => {
+    it('returns null for short conversations (< 4 messages)', async () => {
       settings.setSummarySettings({ disableConversationSummaries: false, disableSessionSummaries: false, sessionTitlePrompt: '' });
       const conv = conversations.create(session.id, 'Brief', true);
+      // Only 1 message — below the 4-message minimum threshold
       messages.create(session.id, 'user', 'Hello', null, conv.id);
 
       const result = await summaryService.generateConversationSummary(session.id, conv.id);
 
-      // Single message gets brief default summary
-      expect(result).toBe('Brief conversation with minimal content.');
+      // Short conversations (< 4 messages) are skipped — returns null instead of a canned string
+      expect(result).toBeNull();
     });
 
     it('returns null for conversation with no messages', async () => {

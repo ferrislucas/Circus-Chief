@@ -7,7 +7,7 @@ export const useSettingsStore = defineStore('settings', {
     tokenCostWeights: { ...DEFAULT_TOKEN_COST_WEIGHTS },
     summarySettings: {
       disableSessionSummaries: false,
-      disableConversationSummaries: true,
+      disableConversationSummaries: false,
       sessionTitlePrompt: '',
       defaultSessionTitlePrompt: '', // Default prompt from server
     },
@@ -95,7 +95,7 @@ export const useSettingsStore = defineStore('settings', {
         // Fall back to defaults on error
         this.summarySettings = {
           disableSessionSummaries: false,
-          disableConversationSummaries: true,
+          disableConversationSummaries: false,
           sessionTitlePrompt: '',
           defaultSessionTitlePrompt: '',
         };

@@ -619,7 +619,10 @@ router.post('/:id/conversations', requireSession, async (req, res) => {
 
   // Auto-generate summary for the current active conversation before creating new one
   const previousActive = conversations.getActiveBySessionId(req.params.id);
-  if (previousActive && !previousActive.summary && summaryService.isConversationSummaryEnabled(req.params.id)) {
+  const existingConversations = conversations.getBySessionId(req.params.id);
+  // Only generate if this will be the 2nd+ conversation (going from 1 → 2 makes first one worth summarizing)
+  if (previousActive && !previousActive.summary && existingConversations.length >= 1 &&
+      summaryService.isConversationSummaryEnabled(req.params.id)) {
     // Generate summary in background (don't block the request)
     summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
       console.error('Failed to generate conversation summary:', err);
@@ -666,7 +669,10 @@ router.patch('/:id/conversations/:convId', requireSession, async (req, res) => {
   // If switching to this conversation, generate summary for the previous active one
   if (isActive && !conversation.isActive) {
     const previousActive = conversations.getActiveBySessionId(req.params.id);
+    const allSessionConversations = conversations.getBySessionId(req.params.id);
+    // Only generate when there are 2+ conversations (switching between them makes summaries useful)
     if (previousActive && previousActive.id !== req.params.convId && !previousActive.summary &&
+        allSessionConversations.length >= 2 &&
         summaryService.isConversationSummaryEnabled(req.params.id)) {
       // Generate summary in background
       summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
@@ -764,7 +770,10 @@ router.post('/:id/conversations/:convId/branch', requireSession, async (req, res
 
     // Generate summary for the previous active conversation before branching
     const previousActive = conversations.getActiveBySessionId(req.params.id);
-    if (previousActive && !previousActive.summary && summaryService.isConversationSummaryEnabled(req.params.id)) {
+    const allBranchSessionConversations = conversations.getBySessionId(req.params.id);
+    // Branch always creates a 2nd+ conversation, making the original worth summarizing
+    if (previousActive && !previousActive.summary && allBranchSessionConversations.length >= 2 &&
+        summaryService.isConversationSummaryEnabled(req.params.id)) {
       // Generate summary in background (don't block the request)
       summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
         console.error('Failed to generate conversation summary:', err);
