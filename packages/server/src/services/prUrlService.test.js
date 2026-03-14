@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { projects, sessions, messages } from '../database.js';
 
-// Mock the websocket module
+// Mock the websocket module (needed by summaryBroadcast.js)
 vi.mock('../websocket.js', () => ({
   broadcastToSession: vi.fn(),
   broadcastToProject: vi.fn(),
+}));
+
+// Mock summaryBroadcast
+vi.mock('./summaryBroadcast.js', () => ({
+  broadcastSessionUpdate: vi.fn(),
 }));
 
 // Mock ghService
@@ -25,7 +30,7 @@ import {
   extractPrUrlIfNeeded,
   enrichPrData,
 } from './prUrlService.js';
-import { broadcastToSession, broadcastToProject } from '../websocket.js';
+import { broadcastSessionUpdate } from './summaryBroadcast.js';
 import * as ghService from './ghService.js';
 
 describe('prUrlService', () => {
@@ -189,22 +194,10 @@ describe('prUrlService', () => {
 
       await extractPrUrlIfNeeded(sessionId);
 
-      expect(broadcastToSession).toHaveBeenCalledWith(
+      expect(broadcastSessionUpdate).toHaveBeenCalledWith(
         sessionId,
-        'session:updated',
-        expect.objectContaining({ sessionId })
-      );
-    });
-
-    it('broadcasts to project subscribers when PR URL extracted', async () => {
-      messages.create(sessionId, 'assistant', 'PR: https://github.com/user/repo/pull/42');
-
-      await extractPrUrlIfNeeded(sessionId);
-
-      expect(broadcastToProject).toHaveBeenCalledWith(
         projectId,
-        'session:updated',
-        expect.objectContaining({ projectId, sessionId })
+        expect.objectContaining({ id: sessionId })
       );
     });
 
@@ -220,7 +213,7 @@ describe('prUrlService', () => {
 
     it('does nothing for non-existent session', async () => {
       await extractPrUrlIfNeeded('non-existent');
-      expect(broadcastToSession).not.toHaveBeenCalled();
+      expect(broadcastSessionUpdate).not.toHaveBeenCalled();
     });
 
     it('propagates extracted PR URL to root session', async () => {
@@ -306,7 +299,7 @@ describe('prUrlService', () => {
       await enrichPrData(summaryData, 'https://github.com/user/repo/pull/123', 'https://github.com/user/repo', 'sess-1');
 
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        '[SummaryService] Failed to get PR info for https://github.com/user/repo/pull/123:',
+        '[PrUrlService] Failed to get PR info for https://github.com/user/repo/pull/123:',
         'API error'
       );
       consoleWarnSpy.mockRestore();
