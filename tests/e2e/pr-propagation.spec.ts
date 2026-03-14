@@ -870,15 +870,13 @@ test.describe('PR URL Propagation', () => {
       const prUrl = 'https://github.com/owner/repo/pull/999';
       await updateSessionWithPR(grandchild.id, { prUrl });
 
-      // Verify PR propagates to child (one level only)
-      const childAfter = await getSession(child.id);
-      expect(childAfter.prUrl).toBe(prUrl);
-
-      // Verify parent does NOT get PR URL (only one level of propagation)
-      // The propagatePrUrlToParent function only propagates from grandchild to child,
-      // but child's new prUrl doesn't trigger another propagation to parent
+      // PR should skip intermediate child and land on root (parent)
       const parentAfter = await getSession(parent.id);
-      expect(parentAfter.prUrl).toBeNull(); // No propagation to grandparent
+      expect(parentAfter.prUrl).toBe(prUrl);
+
+      // Intermediate child should NOT have the PR URL
+      const childAfter = await getSession(child.id);
+      expect(childAfter.prUrl).toBeNull();
     });
   });
 });
