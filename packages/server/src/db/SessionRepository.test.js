@@ -1316,4 +1316,63 @@ describe('SessionRepository', () => {
       expect(sessions[0].lastActivityAt).toBeTypeOf('number');
     });
   });
+
+  describe('getRootSessionId', () => {
+    it('returns the session itself when it has no parent', () => {
+      const root = repo.create(projectId, 'Root Session', 'Prompt');
+      const rootId = repo.getRootSessionId(root.id);
+
+      expect(rootId).toBe(root.id);
+    });
+
+    it('returns the root for a 2-level hierarchy', () => {
+      const root = repo.create(projectId, 'Root', 'Prompt');
+      const child = repo.create(projectId, 'Child', 'Prompt', 'standard', false, null, root.id);
+
+      const childRootId = repo.getRootSessionId(child.id);
+
+      expect(childRootId).toBe(root.id);
+    });
+
+    it('returns the root for a 3-level hierarchy', () => {
+      const root = repo.create(projectId, 'Root', 'Prompt');
+      const child = repo.create(projectId, 'Child', 'Prompt', 'standard', false, null, root.id);
+      const grandchild = repo.create(projectId, 'Grandchild', 'Prompt', 'standard', false, null, child.id);
+
+      const grandchildRootId = repo.getRootSessionId(grandchild.id);
+
+      expect(grandchildRootId).toBe(root.id);
+    });
+
+    it('returns the root for a 4-level hierarchy', () => {
+      const root = repo.create(projectId, 'Root', 'Prompt');
+      const levelA = repo.create(projectId, 'A', 'Prompt', 'standard', false, null, root.id);
+      const levelB = repo.create(projectId, 'B', 'Prompt', 'standard', false, null, levelA.id);
+      const levelC = repo.create(projectId, 'C', 'Prompt', 'standard', false, null, levelB.id);
+
+      const levelCRootId = repo.getRootSessionId(levelC.id);
+
+      expect(levelCRootId).toBe(root.id);
+    });
+
+    it('handles cycle gracefully', () => {
+      const session1 = repo.create(projectId, 'Session 1', 'Prompt');
+      const session2 = repo.create(projectId, 'Session 2', 'Prompt');
+
+      // Manually create a cycle by updating both to point to each other
+      repo.update(session1.id, { parentSessionId: session2.id });
+      repo.update(session2.id, { parentSessionId: session1.id });
+
+      // Should not hang and should return one of the session IDs
+      const result = repo.getRootSessionId(session1.id);
+
+      // Just verify it returns something and doesn't hang
+      expect(result).toBeDefined();
+    });
+
+    it('returns null for non-existent session', () => {
+      const result = repo.getRootSessionId('non-existent-id');
+      expect(result).toBeNull();
+    });
+  });
 });
