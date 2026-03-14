@@ -14,6 +14,7 @@ vi.mock('../websocket.js', () => ({
 vi.mock('../services/summaryService.js', () => ({
   generateConversationSummary: vi.fn().mockResolvedValue('mock summary'),
   onSessionActivity: vi.fn(),
+  propagatePrUrlToParent: vi.fn(),
 }));
 
 describe('Sessions API - PR URL Endpoint', () => {

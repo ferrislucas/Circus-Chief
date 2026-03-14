@@ -47,7 +47,7 @@ test.describe('Child Session Indicators - Workflow View PR Indicators', () => {
     await cleanupAll();
   });
 
-  test('should show PR indicators in expanded workflow view', async ({ page }) => {
+  test('should show PR indicators on parent card only, not on child sessions', async ({ page }) => {
     // Set PR data for first child
     await updateSessionWithPR(childSessions[0].id, {
       prUrl: 'https://github.com/user/repo/pull/111',
@@ -66,9 +66,9 @@ test.describe('Child Session Indicators - Workflow View PR Indicators', () => {
     await expandButton.click();
     await page.waitForTimeout(500);
 
-    // Look for PR indicators in workflow items
+    // Verify that child sessions do NOT show PR indicators
+    // (PR indicators are only shown on parent cards, not individual children)
     const prLink = page.locator('.workflow-session-item .pr-link');
-    await expect(prLink).toBeVisible({ timeout: 5000 });
-    await expect(prLink).toContainText('PR 111');
+    await expect(prLink).not.toBeVisible({ timeout: 5000 });
   });
 });
