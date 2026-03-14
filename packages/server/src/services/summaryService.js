@@ -449,8 +449,9 @@ export async function propagateToParent(sessionId) {
 }
 
 /**
- * Propagate PR URL from a child session to its parent session.
- * Only sets the parent's prUrl if it doesn't already have one.
+ * Propagate PR URL from a child session to its root session.
+ * Walks up the parent chain to find the root and sets the PR URL there.
+ * Only sets the root's prUrl if it doesn't already have one.
  * @param {string} sessionId - The child session that received a PR URL
  * @param {string} prUrl - The PR URL to propagate
  */
@@ -458,17 +459,20 @@ export function propagatePrUrlToParent(sessionId, prUrl) {
   if (!prUrl) return;
 
   const session = sessions.getById(sessionId);
-  if (!session || !session.parentSessionId) return;
+  if (!session || !session.parentSessionId) return; // already root or orphan
 
-  const parent = sessions.getById(session.parentSessionId);
-  if (!parent || parent.prUrl) return; // Don't overwrite existing PR URL
+  const rootId = sessions.getRootSessionId(sessionId);
+  if (!rootId || rootId === sessionId) return;
 
-  sessions.update(parent.id, { prUrl });
+  const root = sessions.getById(rootId);
+  if (!root || root.prUrl) return; // Don't overwrite existing PR URL
+
+  sessions.update(root.id, { prUrl });
 
   // Broadcast updates
-  broadcastSessionUpdate(parent.id, parent.projectId, sessions.getById(parent.id));
+  broadcastSessionUpdate(root.id, root.projectId, sessions.getById(root.id));
 
-  console.log(`[SummaryService] Propagated PR URL from child ${sessionId} to parent ${parent.id}: ${prUrl}`);
+  console.log(`[SummaryService] Propagated PR URL from session ${sessionId} to root ${root.id}: ${prUrl}`);
 }
 
 // Re-export from extracted modules for backward compatibility
