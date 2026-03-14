@@ -222,6 +222,45 @@ describe('prUrlService', () => {
       await extractPrUrlIfNeeded('non-existent');
       expect(broadcastToSession).not.toHaveBeenCalled();
     });
+
+    it('propagates extracted PR URL to root session', async () => {
+      const root = sessions.create(projectId, 'Root Session', 'Root prompt');
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard', false, null, root.id);
+
+      // Add a message to child with a PR URL
+      messages.create(child.id, 'assistant', 'Created PR: https://github.com/user/repo/pull/999');
+
+      await extractPrUrlIfNeeded(child.id);
+
+      // Verify child has the PR URL
+      const childAfter = sessions.getById(child.id);
+      expect(childAfter.prUrl).toBe('https://github.com/user/repo/pull/999');
+
+      // Verify root also has the PR URL (propagated)
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBe('https://github.com/user/repo/pull/999');
+    });
+
+    it('does not propagate if root already has PR URL', async () => {
+      const originalPrUrl = 'https://github.com/user/repo/pull/111';
+      const root = sessions.create(projectId, 'Root Session', 'Root prompt');
+      sessions.update(root.id, { prUrl: originalPrUrl });
+
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard', false, null, root.id);
+
+      // Add a message to child with a different PR URL
+      messages.create(child.id, 'assistant', 'Created PR: https://github.com/user/repo/pull/888');
+
+      await extractPrUrlIfNeeded(child.id);
+
+      // Verify child has the new PR URL
+      const childAfter = sessions.getById(child.id);
+      expect(childAfter.prUrl).toBe('https://github.com/user/repo/pull/888');
+
+      // Verify root keeps the original PR URL (first wins)
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBe(originalPrUrl);
+    });
   });
 
   describe('enrichPrData', () => {
