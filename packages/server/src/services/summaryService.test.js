@@ -112,8 +112,6 @@ import {
   validatePrUrl,
   isConversationSummaryEnabled,
   generateSessionAndConversationSummary,
-  isGenerationActive,
-  isRegenerationPending,
   _stripMarkdownCodeBlock,
   _trackMessageMetadata,
   _enrichPrData,
