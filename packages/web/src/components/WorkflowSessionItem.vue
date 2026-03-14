@@ -102,8 +102,8 @@ const displayDate = computed(() => {
   if (props.session.status === 'scheduled' && props.session.scheduledAt) {
     return props.session.scheduledAt;
   }
-  // For all other sessions, show creation time
-  return props.session.createdAt;
+  // For all other sessions, show last activity time
+  return props.session.lastActivityAt || props.session.updatedAt || props.session.createdAt;
 });
 
 const nextTemplateName = computed(() => {

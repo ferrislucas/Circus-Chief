@@ -37,7 +37,7 @@
             <span v-if="getTemplateName(session.nextTemplateId)" class="child-session-next-template">
               → {{ getTemplateName(session.nextTemplateId) }}
             </span>
-            <span class="child-session-date">{{ formatDate(session.createdAt) }}</span>
+            <span class="child-session-date">{{ formatDate(session.lastActivityAt || session.updatedAt || session.createdAt) }}</span>
           </div>
         </div>
         <div class="child-session-arrow">
