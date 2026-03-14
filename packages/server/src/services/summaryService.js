@@ -375,6 +375,9 @@ export async function extractPrUrlIfNeeded(sessionId) {
     sessions.update(sessionId, { prUrl });
     console.log(`[SummaryService] Extracted PR URL for session ${sessionId}: ${prUrl}`);
 
+    // Propagate PR URL to parent session
+    propagatePrUrlToParent(sessionId, prUrl);
+
     // Broadcast session update so UI shows PR URL immediately
     broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
       sessionId,
@@ -793,6 +796,11 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
       }
 
       const updatedSession = sessions.update(sessionId, updateData);
+
+      // Propagate PR URL to parent session
+      if (summaryData.prUrl) {
+        propagatePrUrlToParent(sessionId, summaryData.prUrl);
+      }
 
       // Broadcast session update for real-time UI sync (session detail view)
       broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
@@ -1420,6 +1428,41 @@ export async function propagateToParent(sessionId) {
   // Trigger a summary regeneration for the parent session
   // The activeGenerations concurrency guard prevents concurrent duplicate generations
   generateSummary(session.parentSessionId);
+}
+
+/**
+ * Propagate PR URL from a child session to its parent session.
+ * Only sets the parent's prUrl if it doesn't already have one.
+ * @param {string} sessionId - The child session that received a PR URL
+ * @param {string} prUrl - The PR URL to propagate
+ */
+export function propagatePrUrlToParent(sessionId, prUrl) {
+  if (!prUrl) return;
+
+  const session = sessions.getById(sessionId);
+  if (!session || !session.parentSessionId) return;
+
+  const parent = sessions.getById(session.parentSessionId);
+  if (!parent || parent.prUrl) return; // Don't overwrite existing PR URL
+
+  sessions.update(parent.id, { prUrl });
+
+  // Broadcast to session detail view
+  broadcastToSession(parent.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    sessionId: parent.id,
+    session: sessions.getById(parent.id),
+  });
+
+  // Broadcast to project list view
+  if (parent.projectId) {
+    broadcastToProject(parent.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: parent.projectId,
+      sessionId: parent.id,
+      session: sessions.getById(parent.id),
+    });
+  }
+
+  console.log(`[SummaryService] Propagated PR URL from child ${sessionId} to parent ${parent.id}: ${prUrl}`);
 }
 
 // Export for testing
