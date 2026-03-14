@@ -617,6 +617,11 @@ router.patch('/:id', requireSession, (req, res) => {
 
   const updated = sessions.update(req.params.id, updateData);
 
+  // Propagate PR URL to parent session if set (not when clearing)
+  if (updateData.prUrl) {
+    summaryService.propagatePrUrlToParent(req.params.id, updateData.prUrl);
+  }
+
   // Broadcast status update if status changed
   if (updateData.status) {
     broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_STATUS, {
