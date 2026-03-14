@@ -3,7 +3,7 @@ import { handleAutoSendIfNeeded } from './sessionManager.js';
 import { mkdtempSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { sessions, projects, conversations } from '../database.js';
+import { sessions, conversations } from '../database.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 
 // Mock the schedulerService

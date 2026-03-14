@@ -19,7 +19,7 @@
     />
 
     <!-- Send button row -->
-    <div v-if="!isScheduledForFuture" class="send-button-row">
+    <div v-if="!isScheduledForFuture && !isRunning" class="send-button-row">
       <div v-if="isDraft" class="draft-actions">
         <button type="submit" class="btn btn-primary btn-send-full" :disabled="restarting || saveStatus === 'saving'">
           <span v-if="restarting" class="loading-spinner"></span>
@@ -39,7 +39,7 @@
       </template>
     </div>
 
-    <div v-if="!isScheduledForFuture" class="input-controls">
+    <div v-if="!isScheduledForFuture && !isRunning" class="input-controls">
       <div class="session-options">
         <div class="mode-switcher">
           <ModeSelector :sessionId="sessionId" />
@@ -143,6 +143,8 @@ const placeholderText = computed(() => {
   if (props.isDraft || props.isScheduledDraft) return 'Edit your prompt...';
   return 'Send a follow-up message...';
 });
+
+const isRunning = computed(() => props.sessionStatus === 'running');
 
 // Create keyboard shortcut handler
 const handleKeydown = useSubmitShortcut(() => {
