@@ -159,7 +159,7 @@
             <div class="workflow-session-name">{{ session.name }}</div>
             <div class="workflow-session-meta">
               <span class="workflow-session-summary">{{ summary?.shortSummary || 'No summary yet' }}</span>
-              <span class="workflow-session-date">{{ formatDate(session.createdAt) }}</span>
+              <span class="workflow-session-date">{{ formatDate(session.lastActivityAt || session.updatedAt || session.createdAt) }}</span>
             </div>
           </router-link>
         </div>
@@ -270,8 +270,7 @@ const canArchive = computed(() => {
 });
 
 const dateToShow = computed(() => {
-  // For project view (showProject=false), show createdAt; for active sessions view (showProject=true), show updatedAt
-  return props.showProject ? props.session.updatedAt : props.session.createdAt;
+  return props.session.lastActivityAt || props.session.updatedAt || props.session.createdAt;
 });
 
 const hasChildren = computed(() => props.children && props.children.length > 0);
