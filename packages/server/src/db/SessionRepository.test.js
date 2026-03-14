@@ -1206,4 +1206,114 @@ describe('SessionRepository', () => {
       expect(result).toHaveLength(0);
     });
   });
+
+  describe('lastActivityAt', () => {
+    it('populates lastActivityAt on session objects returned by getById', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const retrieved = repo.getById(session.id);
+
+      expect(retrieved.lastActivityAt).toBeDefined();
+      expect(retrieved.lastActivityAt).toBeTypeOf('number');
+    });
+
+    it('populates lastActivityAt on session objects returned by getByProjectId', () => {
+      repo.create(projectId, 'Session 1', 'Prompt 1');
+      repo.create(projectId, 'Session 2', 'Prompt 2');
+
+      const sessions = repo.getByProjectId(projectId);
+
+      expect(sessions).toHaveLength(2);
+      sessions.forEach((session) => {
+        expect(session.lastActivityAt).toBeDefined();
+        expect(session.lastActivityAt).toBeTypeOf('number');
+      });
+    });
+
+    it('reflects the latest message timestamp when messages are added', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+
+      // Get the initial message created by create()
+      const initialMessages = messageRepo.getBySessionId(session.id);
+      expect(initialMessages).toHaveLength(1);
+
+      const retrieved = repo.getById(session.id);
+      expect(retrieved.lastActivityAt).toBeGreaterThanOrEqual(initialMessages[0].timestamp);
+
+      // Add another message with a later timestamp
+      const conversations = conversationRepo.getBySessionId(session.id);
+      const newMessage = messageRepo.create(session.id, 'assistant', 'Response', null, conversations[0].id);
+
+      const retrievedAfter = repo.getById(session.id);
+      expect(retrievedAfter.lastActivityAt).toBeGreaterThanOrEqual(retrieved.lastActivityAt);
+      expect(retrievedAfter.lastActivityAt).toBeGreaterThanOrEqual(newMessage.timestamp);
+    });
+
+    it('falls back to updatedAt when there are no messages', () => {
+      // Create a waiting session (which doesn't create initial message)
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'waiting');
+
+      const retrieved = repo.getById(session.id);
+
+      expect(retrieved.lastActivityAt).toBeDefined();
+      expect(retrieved.lastActivityAt).toBeTypeOf('number');
+      // For a new session with no messages, lastActivityAt should equal updatedAt
+      expect(retrieved.lastActivityAt).toBe(retrieved.updatedAt);
+    });
+
+    it('falls back to createdAt when there are no messages and updatedAt equals createdAt', () => {
+      // Create a scheduled session (which doesn't create initial message)
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'scheduled');
+
+      const retrieved = repo.getById(session.id);
+
+      expect(retrieved.lastActivityAt).toBeDefined();
+      expect(retrieved.lastActivityAt).toBeTypeOf('number');
+      // For a new session with no messages and no updates, lastActivityAt should equal createdAt
+      expect(retrieved.lastActivityAt).toBe(retrieved.createdAt);
+    });
+
+    it('is included in getActiveAndWaiting results', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { status: 'running' });
+
+      const sessions = repo.getActiveAndWaiting();
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].lastActivityAt).toBeDefined();
+      expect(sessions[0].lastActivityAt).toBeTypeOf('number');
+    });
+
+    it('is included in getChildSessions results', () => {
+      const parent = repo.create(projectId, 'Parent', 'Prompt');
+      repo.create(projectId, 'Child', 'Prompt', 'standard', false, null, parent.id);
+
+      const children = repo.getChildSessions(parent.id);
+
+      expect(children).toHaveLength(1);
+      expect(children[0].lastActivityAt).toBeDefined();
+      expect(children[0].lastActivityAt).toBeTypeOf('number');
+    });
+
+    it('is included in getSessionsWithPrUrls results', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { prUrl: 'https://github.com/org/repo/pull/123' });
+
+      const sessions = repo.getSessionsWithPrUrls();
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].lastActivityAt).toBeDefined();
+      expect(sessions[0].lastActivityAt).toBeTypeOf('number');
+    });
+
+    it('is included in getScheduledSessions results', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'scheduled');
+      repo.update(session.id, { scheduledAt: Date.now() + 1000 });
+
+      const sessions = repo.getScheduledSessions();
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].lastActivityAt).toBeDefined();
+      expect(sessions[0].lastActivityAt).toBeTypeOf('number');
+    });
+  });
 });

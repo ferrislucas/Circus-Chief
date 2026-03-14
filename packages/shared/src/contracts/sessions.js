@@ -75,6 +75,7 @@ export const SessionResponse = z.object({
   rescheduleAtTokenCount: z.number().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  lastActivityAt: z.number(),
 });
 
 export const SessionListResponse = z.array(SessionResponse);
