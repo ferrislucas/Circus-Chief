@@ -6,7 +6,7 @@ vi.mock('../websocket.js', () => ({
   broadcastToProject: vi.fn(),
 }));
 
-import { broadcastSummaryUpdate, broadcastGeneratingStatus, broadcastSessionUpdate } from './summaryBroadcast.js';
+import { broadcastSummaryUpdate, broadcastGeneratingStatus, broadcastConversationSummaryUpdate, broadcastSessionUpdate } from './summaryBroadcast.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 
 describe('summaryBroadcast', () => {
@@ -61,6 +61,31 @@ describe('summaryBroadcast', () => {
         'sess-1',
         'session:summary_generating',
         { sessionId: 'sess-1', generating: false }
+      );
+    });
+  });
+
+  describe('broadcastConversationSummaryUpdate', () => {
+    it('broadcasts with correct message type and data', () => {
+      const data = { conversationId: 'conv-1', conversation: { id: 'conv-1', summary: 'Test' } };
+      broadcastConversationSummaryUpdate('sess-1', data);
+
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        'conversation:summary_updated',
+        { sessionId: 'sess-1', conversationId: 'conv-1', conversation: { id: 'conv-1', summary: 'Test' } }
+      );
+    });
+
+    it('calls broadcastToSession with expected arguments', () => {
+      const data = { conversationId: 'conv-2', summary: 'Another test' };
+      broadcastConversationSummaryUpdate('sess-2', data);
+
+      expect(broadcastToSession).toHaveBeenCalledTimes(1);
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-2',
+        'conversation:summary_updated',
+        expect.objectContaining({ sessionId: 'sess-2', conversationId: 'conv-2' })
       );
     });
   });

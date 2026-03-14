@@ -33,6 +33,7 @@ import { extractPrUrlIfNeeded, parsePrUrl, validatePrUrl, enrichPrData } from '.
 import { getChildSessions, buildChildSessionContext, aggregateFilesModified } from './childSessionContext.js';
 import { isConversationSummaryEnabled, generateConversationSummary, doGenerateSessionAndConversationSummary } from './conversationSummary.js';
 import { broadcastSummaryUpdate, broadcastGeneratingStatus, broadcastSessionUpdate } from './summaryBroadcast.js';
+import { isSummaryStale } from './summaryStaleCheck.js';
 
 // Note: prStatusService is imported dynamically in onSessionComplete to avoid circular dependency
 
@@ -384,34 +385,8 @@ export async function regenerateSummary(sessionId) {
   return generateSummary(sessionId, 0, true, true);
 }
 
-/**
- * Check if a summary is stale (message count or last message ID has changed)
- * @param {string} sessionId
- * @returns {boolean}
- */
-export function isSummaryStale(sessionId) {
-  const summary = sessionSummaries.getBySessionId(sessionId);
-  if (!summary) return true;
-
-  const allMessages = messages.getBySessionId(sessionId);
-
-  // Use message ID-based staleness detection if available
-  if (summary.lastSummarizedMessageId) {
-    const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
-    const lastMessageId = lastMessage ? lastMessage.id : null;
-
-    // Summary is stale if the last message ID doesn't match
-    if (lastMessageId !== summary.lastSummarizedMessageId) {
-      return true;
-    }
-
-    // Also validate count as a secondary check (defensive programming)
-    return allMessages.length !== summary.messageCount;
-  }
-
-  // Fallback to count-based staleness detection for old summaries
-  return allMessages.length !== summary.messageCount;
-}
+// Re-export isSummaryStale from summaryStaleCheck.js for backward compatibility
+export { isSummaryStale };
 
 /**
  * Clean up any in-flight state for a session (call on session deletion)
@@ -505,7 +480,6 @@ export { getChildSessions, buildChildSessionContext, aggregateFilesModified };
 // From conversationSummary.js
 export { isConversationSummaryEnabled, generateConversationSummary };
 
-// Expose concurrency guard state for tests
-const activeGenerations = guard.activeGenerations;
-const pendingRegenerations = guard.pendingRegenerations;
-export { activeGenerations, pendingRegenerations };
+// Read-only accessors for concurrency guard state
+export const isGenerationActive = (key) => guard.isActive(key);
+export const isRegenerationPending = (key) => guard.isPending(key);
