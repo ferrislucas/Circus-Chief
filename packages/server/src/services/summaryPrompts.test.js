@@ -270,7 +270,7 @@ describe('summaryPrompts', () => {
     it('logs when stripping markdown', () => {
       const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       stripMarkdownCodeBlock('```json\n{"key": "value"}\n```');
-      expect(consoleSpy).toHaveBeenCalledWith('[SummaryService] Stripped markdown code block from response');
+      expect(consoleSpy).toHaveBeenCalledWith('[SummaryPrompts] Stripped markdown code block from response');
       consoleSpy.mockRestore();
     });
   });
