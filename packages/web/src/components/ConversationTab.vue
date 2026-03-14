@@ -54,8 +54,19 @@
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
 
+    <RunningState
+      v-if="sessionsStore.currentSession?.status === 'running'"
+      :active-model-display-name="activeModelDisplayName"
+      :stopping="stopping"
+      :work-logs="unassociatedWorkLogs"
+      :partial-thinking="sessionsStore.partialThinking"
+      :next-template="nextTemplate"
+      :project-id="sessionsStore.currentSession?.projectId"
+      @stop="handleStop"
+    />
+
     <InputForm
-      v-if="canSendMessage || isScheduledForFuture"
+      v-if="canSendMessage || isRunning || isScheduledForFuture"
       ref="inputFormRef"
       :session-id="sessionId"
       :model-value="input"
@@ -89,17 +100,6 @@
       @openSchedule="showScheduleModal = true"
       @openAutoReschedule="showAutoRescheduleModal = true"
       @templateChange="handleTemplateChange"
-    />
-
-    <RunningState
-      v-else-if="sessionsStore.currentSession?.status === 'running'"
-      :active-model-display-name="activeModelDisplayName"
-      :stopping="stopping"
-      :work-logs="unassociatedWorkLogs"
-      :partial-thinking="sessionsStore.partialThinking"
-      :next-template="nextTemplate"
-      :project-id="sessionsStore.currentSession?.projectId"
-      @stop="handleStop"
     />
 
     <!-- Quick Response Settings Modal -->
