@@ -311,15 +311,36 @@ describe('ChildSessionsPanel', () => {
     });
   });
 
-  describe('date formatting', () => {
-    it('shows time for sessions created today', () => {
+  describe('date formatting with lastActivityAt', () => {
+    it('shows lastActivityAt when available', () => {
       const justNow = Date.now() - 1000; // 1 second ago
       const wrapper = mountComponent([
         {
           id: 'child-1',
           name: 'Child Session 1',
           status: 'completed',
-          createdAt: justNow,
+          createdAt: Date.now() - 3600000, // 1 hour ago
+          updatedAt: Date.now() - 2700000, // 45 minutes ago
+          lastActivityAt: justNow, // 1 second ago (most recent)
+          nextTemplateId: null,
+        },
+      ]);
+
+      const dateText = wrapper.find('.child-session-date').text();
+      // Should show "at HH:MM" format for recent activity
+      expect(dateText).toMatch(/at \d{1,2}:\d{2}/);
+    });
+
+    it('falls back to updatedAt when lastActivityAt is not available', () => {
+      const updatedTime = Date.now() - 1800000; // 30 minutes ago
+      const wrapper = mountComponent([
+        {
+          id: 'child-1',
+          name: 'Child Session 1',
+          status: 'completed',
+          createdAt: Date.now() - 3600000, // 1 hour ago
+          updatedAt: updatedTime,
+          lastActivityAt: null,
           nextTemplateId: null,
         },
       ]);
@@ -329,7 +350,26 @@ describe('ChildSessionsPanel', () => {
       expect(dateText).toMatch(/at \d{1,2}:\d{2}/);
     });
 
-    it('shows date for sessions created yesterday or earlier', () => {
+    it('falls back to createdAt when both lastActivityAt and updatedAt are not available', () => {
+      const createdTime = Date.now() - 3600000; // 1 hour ago
+      const wrapper = mountComponent([
+        {
+          id: 'child-1',
+          name: 'Child Session 1',
+          status: 'completed',
+          createdAt: createdTime,
+          updatedAt: createdTime,
+          lastActivityAt: null,
+          nextTemplateId: null,
+        },
+      ]);
+
+      const dateText = wrapper.find('.child-session-date').text();
+      // Should show "at HH:MM" format
+      expect(dateText).toMatch(/at \d{1,2}:\d{2}/);
+    });
+
+    it('shows date for sessions with activity yesterday or earlier', () => {
       const yesterday = Date.now() - 86400000 * 2; // 2 days ago
       const wrapper = mountComponent([
         {
@@ -337,6 +377,7 @@ describe('ChildSessionsPanel', () => {
           name: 'Child Session 1',
           status: 'completed',
           createdAt: yesterday,
+          lastActivityAt: yesterday,
           nextTemplateId: null,
         },
       ]);
@@ -346,13 +387,15 @@ describe('ChildSessionsPanel', () => {
       expect(dateText).toMatch(/[A-Z][a-z]{2} \d{1,2}/);
     });
 
-    it('returns empty string when timestamp is null', () => {
+    it('returns empty string when all timestamps are null', () => {
       const wrapper = mountComponent([
         {
           id: 'child-1',
           name: 'Child Session 1',
           status: 'completed',
           createdAt: null,
+          updatedAt: null,
+          lastActivityAt: null,
           nextTemplateId: null,
         },
       ]);
