@@ -1,577 +1,43 @@
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import { sessions, messages, sessionSummaries, conversations, projects, settings } from '../database.js';
-import { broadcastToSession, broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
-import * as ghService from './ghService.js';
-import { agentCallLogger } from './agentCallLogger.js';
-import { createVCRQueryFn } from '../agents/vcr/VCRSummaryWrapper.js';
+/**
+ * Session summary orchestration service.
+ *
+ * Coordinates summary generation, staleness detection, lifecycle hooks,
+ * and concurrency management. Delegates to extracted modules:
+ * - summaryClaudeClient.js — Claude SDK interaction
+ * - summaryPrompts.js — prompt templates, parsing, formatting
+ * - prUrlService.js — PR URL extraction, validation, enrichment
+ * - childSessionContext.js — child session hierarchy and file aggregation
+ * - conversationSummary.js — conversation-specific summary generation
+ * - withConcurrencyGuard.js — concurrency guard utility
+ * - summaryBroadcast.js — WebSocket broadcast helpers
+ */
+
+import { sessions, messages, sessionSummaries, projects, settings } from '../database.js';
+import { createConcurrencyGuard } from './withConcurrencyGuard.js';
+import { callClaude } from './summaryClaudeClient.js';
+import {
+  MAX_MESSAGES,
+  MIN_MESSAGES_FOR_SUMMARY,
+  MAX_RETRIES,
+  DEFAULT_SESSION_TITLE_PROMPT,
+  SUMMARY_SYSTEM_PROMPT,
+  CONVERSATION_SUMMARY_SYSTEM_PROMPT,
+  COMBINED_SUMMARY_SYSTEM_PROMPT,
+  formatMessages,
+  buildIncrementalPrompt,
+  parseSummaryResponse,
+  trackMessageMetadata,
+  stripMarkdownCodeBlock,
+} from './summaryPrompts.js';
+import { extractPrUrlIfNeeded, parsePrUrl, validatePrUrl, enrichPrData } from './prUrlService.js';
+import { getChildSessions, buildChildSessionContext, aggregateFilesModified } from './childSessionContext.js';
+import { isConversationSummaryEnabled, generateConversationSummary, doGenerateSessionAndConversationSummary } from './conversationSummary.js';
+import { broadcastSummaryUpdate, broadcastGeneratingStatus, broadcastSessionUpdate } from './summaryBroadcast.js';
+
 // Note: prStatusService is imported dynamically in onSessionComplete to avoid circular dependency
 
-// Concurrency guard: tracks in-flight generation promises per session
-const activeGenerations = new Map(); // sessionId -> Promise
-const pendingRegenerations = new Set(); // sessionIds that need regeneration after current completes
-
-// Minimum number of messages before generating a summary (skip trivial sessions)
-const MIN_MESSAGES_FOR_SUMMARY = 3;
-
-// Maximum number of recent messages to include in generation (optimized for token efficiency)
-const MAX_MESSAGES = 10;
-
-// Maximum retry attempts for failed parsing
-const MAX_RETRIES = 2;
-
-// Default prompt for strategic session titles
-const DEFAULT_SESSION_TITLE_PROMPT = `Guidelines for generating session titles:
-- The title should capture the SESSION'S STRATEGIC GOAL, not current tactical activity
-- Focus on WHAT the user ultimately wants to achieve (e.g., "Add dark mode support")
-- NOT the current step (e.g., "Fix TypeScript error", "Update tests")
-- If a PR was created, format as "PR #N: <strategic goal>"
-- PRESERVE the existing title if it still reflects the strategic goal
-- Only change the title if the session's fundamental purpose has changed
-- Keep titles concise (max 60 characters)`;
-
-// System prompt for summary generation (static instructions that benefit from prompt caching)
-const SUMMARY_SYSTEM_PROMPT = `You are updating a session summary for a Claude Code session.
-
-Generate an updated summary that:
-1. Preserves important context from the existing summary
-2. Incorporates new actions and progress from recent messages
-3. Updates the outcome status if changed
-4. Maintains a coherent narrative of the full session
-
-Outcome guidelines:
-- "completed": Task was fully accomplished
-- "partial": Some progress made but task incomplete
-- "failed": Task encountered errors and couldn't proceed
-- "ongoing": Session is still active/waiting for user input`;
-
-// System prompt for conversation summary generation
-const CONVERSATION_SUMMARY_SYSTEM_PROMPT = `You are generating a brief summary for a conversation thread within a Claude Code session.
-
-Generate a concise summary of this conversation. Focus on:
-1. The main topic or goal discussed
-2. Key actions taken or decisions made
-3. Current status (completed, in progress, blocked, etc.)`;
-
-// Combined system prompt for generating both session and conversation summaries in one call
-const COMBINED_SUMMARY_SYSTEM_PROMPT = `You are generating summaries for a Claude Code session.
-
-Generate TWO summaries:
-
-1. SESSION SUMMARY - An overview of the entire session:
-   - Preserves important context from the existing summary
-   - Incorporates new actions and progress from recent messages
-   - Updates the outcome status if changed
-   - Maintains a coherent narrative of the full session
-
-   Session outcome guidelines:
-   - "completed": Task was fully accomplished
-   - "partial": Some progress made but task incomplete
-   - "failed": Task encountered errors and couldn't proceed
-   - "ongoing": Session is still active/waiting for user input
-
-2. CONVERSATION SUMMARY - A brief summary of the active conversation thread:
-   - The main topic or goal discussed
-   - Key actions taken or decisions made
-   - Current status (completed, in progress, blocked, etc.)`;
-
-/**
- * Call Claude via SDK and extract text response
- * @param {string} prompt - The prompt to send
- * @param {Array} recentMessages - Messages (for mock mode context)
- * @param {string} sessionStatus - Session status (for mock mode context)
- * @param {Object} logMeta - Logging metadata
- * @param {string} systemPrompt - Optional system prompt for prompt caching
- * @returns {Promise<string>} The text response
- */
-async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null, systemPrompt = null, jsonSchema = null) {
-  // Build stable key for VCR cassette (session prompts are hardcoded strings in E2E tests)
-  let keyHint = null;
-  if (process.env.VCR_MODE && logMeta?.sessionId) {
-    const session = sessions.getById(logMeta.sessionId);
-    keyHint = session ? `${logMeta.callType}:${session.prompt}` : null;
-  }
-  // Use VCR wrapper if in VCR mode, otherwise use real SDK query
-  const queryFn = process.env.VCR_MODE
-    ? createVCRQueryFn(query, 'tests/e2e/cassettes/summaries', keyHint)
-    : query;
-
-  // Default to session summary schema if none provided
-  const schema = jsonSchema || {
-    type: 'object',
-    properties: {
-      short_summary: { type: 'string', description: '1-2 sentence preview for list view (max 150 characters)' },
-      full_summary: { type: 'string', description: 'Detailed summary with key accomplishments and current state (max 500 characters)' },
-      key_actions: { type: 'array', items: { type: 'string' }, description: 'List of key actions taken' },
-      files_modified: { type: 'array', items: { type: 'string' }, description: 'List of files that were modified' },
-      outcome: { type: 'string', enum: ['completed', 'partial', 'failed', 'ongoing'], description: 'Session outcome status' },
-      pr_url: { type: ['string', 'null'], description: 'GitHub PR URL if one was created' },
-      session_title: { type: ['string', 'null'], description: 'Concise title for this session (max 60 characters)' },
-    },
-    required: ['short_summary', 'full_summary', 'key_actions', 'files_modified', 'outcome'],
-  };
-
-  const queryParams = {
-    prompt,
-    options: {
-      cwd: process.cwd(),
-      permissionMode: 'bypassPermissions',
-      maxTurns: 1,
-      model: 'claude-haiku-4-5-20251001',
-      ...(systemPrompt && { systemPrompt }),
-      outputFormat: {
-        type: 'json_schema',
-        schema,
-      },
-    },
-  };
-
-  // Start logging if metadata provided
-  let callId = null;
-  if (logMeta) {
-    callId = agentCallLogger.startCall({
-      sessionId: logMeta.sessionId,
-      conversationId: logMeta.conversationId || null,
-      agentType: 'summary',
-      model: 'claude-haiku-4-5-20251001',
-      callType: logMeta.callType,
-      promptLength: prompt.length,
-    });
-  }
-
-  let responseText = '';
-  let structuredOutput = null;
-
-  try {
-    for await (const event of queryFn(queryParams)) {
-      switch (event.type) {
-        case 'assistant': {
-          const content = event.message?.content || [];
-          for (const block of content) {
-            // Capture structured output from StructuredOutput tool use
-            if (block.type === 'tool_use' && block.name === 'StructuredOutput') {
-              structuredOutput = block.input;
-            } else if (block.type === 'text') {
-              responseText += block.text;
-            }
-          }
-          break;
-        }
-        case 'result': {
-          if (event.subtype === 'error') {
-            throw new Error(event.error || 'Claude SDK query failed');
-          }
-          // Capture usage for logging
-          if (callId) {
-            const modelUsageEntry = event.modelUsage
-              ? Object.values(event.modelUsage)[0]
-              : null;
-            if (modelUsageEntry || event.usage) {
-              agentCallLogger.updateUsage(callId, {
-                inputTokens:
-                  modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
-                outputTokens:
-                  modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
-                thinkingTokens: 0,
-                cacheReadInputTokens:
-                  modelUsageEntry?.cacheReadInputTokens ||
-                  event.usage?.cache_read_input_tokens ||
-                  0,
-                cacheCreationInputTokens:
-                  modelUsageEntry?.cacheCreationInputTokens ||
-                  event.usage?.cache_creation_input_tokens ||
-                  0,
-              });
-            }
-          }
-          break;
-        }
-      }
-    }
-
-    // Complete the logged call on success
-    if (callId) {
-      agentCallLogger.completeCall(callId, { success: true });
-    }
-  } catch (error) {
-    // Complete the logged call on error
-    if (callId) {
-      agentCallLogger.completeCall(callId, { success: false, error });
-    }
-    throw error;
-  }
-
-  // Prefer structured output (already parsed JSON) over text response
-  if (structuredOutput) {
-    return JSON.stringify(structuredOutput);
-  }
-  return responseText;
-}
-
-/**
- * Format messages for the prompt
- * @param {Array} messageList - List of messages
- * @returns {string}
- */
-function formatMessages(messageList) {
-  return messageList
-    .map((msg) => {
-      const role = msg.role === 'user' ? 'User' : 'Assistant';
-      let content = msg.content;
-
-      // Truncate very long messages (optimized for token efficiency)
-      if (content.length > 500) {
-        content = content.substring(0, 500) + '... [truncated]';
-      }
-
-      // Add tool use info if present
-      if (msg.toolUse && msg.toolUse.length > 0) {
-        const tools = msg.toolUse.map((t) => t.name).join(', ');
-        content += `\n[Tools used: ${tools}]`;
-      }
-
-      return `${role}: ${content}`;
-    })
-    .join('\n\n');
-}
-
-/**
- * Get all child sessions of a parent session
- * @param {string} parentSessionId - The parent session ID
- * @returns {Array} Array of child sessions
- */
-function getChildSessions(parentSessionId) {
-  // Use the SessionRepository's getChildSessions method
-  return sessions.getChildSessions(parentSessionId);
-}
-
-/**
- * Build child session context for workflow-aware summaries
- * @param {string} sessionId - The session ID
- * @returns {string} Context string describing child sessions
- */
-function buildChildSessionContext(sessionId) {
-  const children = getChildSessions(sessionId);
-  if (children.length === 0) return '';
-
-  const childContexts = children.map(child => {
-    const childSummary = sessionSummaries.getBySessionId(child.id);
-    return `- ${child.name} (${child.status}): ${childSummary?.shortSummary || 'No summary yet'}`;
-  });
-
-  return `
-CHILD SESSIONS (${children.length}):
-${childContexts.join('\n')}`;
-}
-
-/**
- * Aggregate file counts from this session and all child sessions
- * @param {string} sessionId - The session ID
- * @param {Array} currentFiles - Files from the current session
- * @returns {Array} Deduplicated list of all files modified
- */
-function aggregateFilesModified(sessionId, currentFiles = []) {
-  const allFiles = new Set(currentFiles);
-
-  const children = getChildSessions(sessionId);
-  for (const child of children) {
-    const childSummary = sessionSummaries.getBySessionId(child.id);
-    if (childSummary?.filesModified) {
-      for (const file of childSummary.filesModified) {
-        allFiles.add(file);
-      }
-    }
-    // Recursively aggregate from grandchildren
-    const grandchildFiles = aggregateFilesModified(child.id, []);
-    for (const file of grandchildFiles) {
-      allFiles.add(file);
-    }
-  }
-
-  return Array.from(allFiles);
-}
-
-/**
- * Build the prompt for incremental summary generation
- * @param {Object|null} existingSummary - Existing summary if any
- * @param {Array} recentMessages - Recent messages to summarize
- * @param {string} sessionStatus - Current session status
- * @param {string|null} projectTitlePrompt - Custom prompt for session titles (uses default if null)
- * @param {string|null} childContext - Context about child sessions (for workflow-aware summaries)
- * @returns {string}
- */
-function buildIncrementalPrompt(existingSummary, recentMessages, sessionStatus, projectTitlePrompt = null, childContext = '') {
-  const existingContext = existingSummary
-    ? `EXISTING SUMMARY:
-${existingSummary.fullSummary}
-
-Key actions so far: ${JSON.stringify(existingSummary.keyActions || [])}
-Files modified: ${JSON.stringify(existingSummary.filesModified || [])}
-Previous outcome: ${existingSummary.outcome}
-Previous title: ${existingSummary.sessionTitle || 'Not set'}`
-    : 'EXISTING SUMMARY:\nNo previous summary - this is the first generation.';
-
-  const formattedMessages = formatMessages(recentMessages);
-
-  // Use custom prompt if provided, otherwise use default
-  const sessionTitlePrompt = projectTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT;
-
-  // Return only dynamic content - static instructions are in SUMMARY_SYSTEM_PROMPT
-  return `Current session status: ${sessionStatus}
-
-${existingContext}
-${childContext}
-RECENT CONVERSATION:
-${formattedMessages}
-
-Session title guidelines:
-${sessionTitlePrompt}`;
-}
-
-/**
- * Extract PR URL from session messages by scanning for GitHub PR links
- * @param {string} sessionId - The session ID
- * @returns {string|null} - The PR URL if found, null otherwise
- */
-function extractPrUrlFromMessages(sessionId) {
-  const allMessages = messages.getBySessionId(sessionId);
-  if (!allMessages || allMessages.length === 0) return null;
-
-  // Get recent messages (last 20) to scan for PR URLs
-  const recentMessages = allMessages.slice(-20);
-
-  // GitHub PR URL pattern: https://github.com/{owner}/{repo}/pull/{number}
-  const prUrlPattern = /https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/g;
-
-  // Scan messages in reverse order (most recent first) to find the latest PR URL
-  for (let i = recentMessages.length - 1; i >= 0; i--) {
-    const message = recentMessages[i];
-    const matches = message.content?.match(prUrlPattern);
-
-    if (matches && matches.length > 0) {
-      // Return the most recent PR URL found
-      return matches[matches.length - 1];
-    }
-  }
-
-  return null;
-}
-
-/**
- * Extract PR URL from recent messages immediately after a turn completes.
- * This is lightweight (no Claude API call) - just scans messages for URLs.
- * @param {string} sessionId - The session ID
- */
-export async function extractPrUrlIfNeeded(sessionId) {
-  const session = sessions.getById(sessionId);
-  if (!session) return;
-
-  // Skip if session already has a PR URL
-  if (session.prUrl) return;
-
-  // Extract PR URL from messages
-  const prUrl = extractPrUrlFromMessages(sessionId);
-  if (prUrl) {
-    sessions.update(sessionId, { prUrl });
-    console.log(`[SummaryService] Extracted PR URL for session ${sessionId}: ${prUrl}`);
-
-    // Propagate PR URL to parent session
-    propagatePrUrlToParent(sessionId, prUrl);
-
-    // Broadcast session update so UI shows PR URL immediately
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-      sessionId,
-      session: sessions.getById(sessionId),
-    });
-
-    // Also broadcast to project subscribers
-    if (session.projectId) {
-      broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-        projectId: session.projectId,
-        sessionId,
-        session: sessions.getById(sessionId),
-      });
-    }
-  }
-}
-
-/**
- * Parse a GitHub PR URL into components
- * @param {string} prUrl - GitHub PR URL
- * @returns {Object|null} - { owner, repo, number } or null if invalid format
- */
-function parsePrUrl(prUrl) {
-  if (!prUrl) return null;
-
-  try {
-    // Match GitHub PR URL pattern: https://github.com/{owner}/{repo}/pull/{number}
-    const match = prUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/);
-    if (!match) {
-      console.warn(`[SummaryService] Invalid PR URL format: ${prUrl}`);
-      return null;
-    }
-
-    return {
-      owner: match[1],
-      repo: match[2],
-      number: parseInt(match[3], 10),
-    };
-  } catch (error) {
-    console.warn(`[SummaryService] Failed to parse PR URL ${prUrl}:`, error.message);
-    return null;
-  }
-}
-
-/**
- * Validate that a PR URL belongs to the expected repository
- * @param {string} prUrl - GitHub PR URL
- * @param {string} expectedRepoUrl - Expected repository URL
- * @returns {Object} - { valid: boolean, prComponents: Object|null, mismatch: boolean, error: string|null }
- */
-function validatePrUrl(prUrl, expectedRepoUrl) {
-  if (!prUrl) {
-    return { valid: false, prComponents: null, mismatch: false, error: 'No PR URL provided' };
-  }
-
-  // Parse the PR URL
-  const prComponents = parsePrUrl(prUrl);
-  if (!prComponents) {
-    return { valid: false, prComponents: null, mismatch: false, error: 'Invalid PR URL format' };
-  }
-
-  // If no expected repo URL, we can't validate the match - accept it but log a warning
-  if (!expectedRepoUrl) {
-    console.warn(`[SummaryService] No expected repo URL to validate against PR: ${prUrl}`);
-    return { valid: true, prComponents, mismatch: false, error: null };
-  }
-
-  // Extract owner/repo from expected repo URL
-  const expectedMatch = expectedRepoUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/?$/);
-  if (!expectedMatch) {
-    console.warn(`[SummaryService] Invalid expected repo URL format: ${expectedRepoUrl}`);
-    return { valid: true, prComponents, mismatch: false, error: null };
-  }
-
-  const expectedOwner = expectedMatch[1];
-  const expectedRepo = expectedMatch[2];
-
-  // Validate that the PR belongs to the expected repository
-  const ownerMatch = prComponents.owner === expectedOwner;
-  const repoMatch = prComponents.repo === expectedRepo;
-
-  if (!ownerMatch || !repoMatch) {
-    console.warn(
-      `[SummaryService] PR repository mismatch: ` +
-      `PR is from ${prComponents.owner}/${prComponents.repo}, ` +
-      `but expected ${expectedOwner}/${expectedRepo}`
-    );
-    return {
-      valid: false,
-      prComponents,
-      mismatch: true,
-      error: `PR from ${prComponents.owner}/${prComponents.repo} does not match expected ${expectedOwner}/${expectedRepo}`
-    };
-  }
-
-  return { valid: true, prComponents, mismatch: false, error: null };
-}
-
-/**
- * Strip markdown code block wrapping (```json ... ```) from response text
- * @param {string} text - Raw response text
- * @returns {string} Text with code block wrapper removed if present
- */
-function _stripMarkdownCodeBlock(text) {
-  let cleaned = text.trim();
-  if (cleaned.startsWith('```')) {
-    const codeBlockMatch = cleaned.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
-    if (codeBlockMatch) {
-      cleaned = codeBlockMatch[1].trim();
-      console.log('[SummaryService] Stripped markdown code block from response');
-    }
-  }
-  return cleaned;
-}
-
-/**
- * Add message count and last message ID to summary data for staleness tracking
- * @param {Object} summaryData - Summary data to augment
- * @param {Array} allMessages - All messages in session
- */
-function _trackMessageMetadata(summaryData, allMessages) {
-  summaryData.messageCount = allMessages.length;
-  const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
-  summaryData.lastSummarizedMessageId = lastMessage ? lastMessage.id : null;
-}
-
-/**
- * Validate and enrich PR URL data with GitHub PR status information
- * @param {Object} summaryData - Summary data to enrich (modified in place)
- * @param {string} prUrl - PR URL to validate and enrich
- * @param {string} projectRepoUrl - Expected repository URL for validation
- * @param {string} sessionId - Session ID for logging
- */
-async function _enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId) {
-  const validation = validatePrUrl(prUrl, projectRepoUrl);
-
-  if (!validation.valid) {
-    console.warn(`[SummaryService] PR URL validation failed for session ${sessionId}:`, validation.error);
-    summaryData.prUrl = null;
-    return;
-  }
-
-  try {
-    const prInfo = await ghService.getPrInfo(prUrl);
-    if (prInfo) {
-      summaryData.prState = prInfo.state;
-      summaryData.prMerged = prInfo.merged;
-      summaryData.hasMergeConflicts = prInfo.hasMergeConflicts;
-      summaryData.ciStatus = prInfo.ciStatus;
-      if (prInfo.ciFailures !== undefined) {
-        summaryData.ciFailures = prInfo.ciFailures;
-      }
-    }
-  } catch (error) {
-    console.warn(`[SummaryService] Failed to get PR info for ${prUrl}:`, error.message);
-  }
-}
-
-/**
- * Parse the Claude API response into a summary object
- * Handles markdown code block wrapping (```json ... ```) that Claude sometimes returns
- * @param {string} responseText
- * @returns {Object}
- */
-function parseSummaryResponse(responseText) {
-  const textToParse = _stripMarkdownCodeBlock(responseText);
-
-  try {
-    const parsed = JSON.parse(textToParse);
-    return {
-      shortSummary: parsed.short_summary || 'Summary generation failed',
-      fullSummary: parsed.full_summary || 'Unable to generate summary',
-      keyActions: parsed.key_actions || [],
-      filesModified: parsed.files_modified || [],
-      outcome: parsed.outcome || 'ongoing',
-      prUrl: parsed.pr_url || null,
-      sessionTitle: parsed.session_title || null,
-      _parseFailed: false,
-    };
-  } catch {
-    // If JSON parsing fails, return fallback with flag for retry logic
-    console.warn('[SummaryService] Failed to parse summary response as JSON, using fallback');
-    return {
-      shortSummary: responseText.substring(0, 150),
-      fullSummary: responseText.substring(0, 500),
-      keyActions: [],
-      filesModified: [],
-      outcome: 'ongoing',
-      prUrl: null,
-      sessionTitle: null,
-      _parseFailed: true,
-    };
-  }
-}
+// Create the concurrency guard instance for summary generation
+const guard = createConcurrencyGuard();
 
 /**
  * Generate summary for a session using Claude Code SDK (with concurrency guard)
@@ -579,31 +45,19 @@ function parseSummaryResponse(responseText) {
  * running, the call is coalesced and a single follow-up generation is scheduled after completion.
  * @param {string} sessionId
  * @param {number} retryCount - Internal retry counter (do not set manually)
- * @param {boolean} force - Force generation even if summary is current (skips debounce/staleness check, default: false)
- * @param {boolean} userInitiated - Whether this was triggered by an explicit user action (e.g. clicking "regenerate" in the UI). When true, bypasses the global disable setting and concurrency guard. (default: false)
+ * @param {boolean} force - Force generation even if summary is current (default: false)
+ * @param {boolean} userInitiated - Whether triggered by explicit user action (default: false)
  * @returns {Promise<Object|null>}
  */
 export async function generateSummary(sessionId, retryCount = 0, force = false, userInitiated = false) {
-  // Concurrency guard: if a generation is already in-flight for this session,
-  // queue a single follow-up instead of running concurrently
-  if (activeGenerations.has(sessionId) && !userInitiated) {
-    pendingRegenerations.add(sessionId);
-    return activeGenerations.get(sessionId);
-  }
-
-  const promise = _doGenerateSummary(sessionId, retryCount, force, userInitiated);
-  activeGenerations.set(sessionId, promise);
-
-  try {
-    return await promise;
-  } finally {
-    activeGenerations.delete(sessionId);
-    if (pendingRegenerations.has(sessionId)) {
-      pendingRegenerations.delete(sessionId);
-      // Schedule follow-up generation directly (debounce removed)
-      generateSummary(sessionId);
+  return guard.run(
+    sessionId,
+    () => _doGenerateSummary(sessionId, retryCount, force, userInitiated),
+    {
+      bypass: userInitiated,
+      onFollowUp: (key) => generateSummary(key),
     }
-  }
+  );
 }
 
 /**
@@ -624,8 +78,7 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     }
 
     // Check if session summaries are disabled globally
-    // Only user-initiated regeneration (explicit UI action) bypasses this check.
-    // force=true (used by onSessionComplete) still respects the disable setting.
+    // Only user-initiated regeneration bypasses this check.
     const globalSettings = settings.getSummarySettings();
     if (!userInitiated && globalSettings?.disableSessionSummaries) {
       console.log(`[SummaryService] Session summaries disabled globally, skipping generation`);
@@ -652,10 +105,7 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     const recentMessages = allMessages.slice(-MAX_MESSAGES);
 
     // Broadcast that we're generating (do this early so UI always gets the event)
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
-      sessionId,
-      generating: true,
-    });
+    broadcastGeneratingStatus(sessionId, true);
 
     // Handle sessions with too few messages - create a minimal summary instead of skipping
     if (allMessages.length < MIN_MESSAGES_FOR_SUMMARY) {
@@ -677,32 +127,15 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
       const summary = sessionSummaries.upsert(sessionId, minimalSummary);
 
       // Broadcast the minimal summary
-      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
-        sessionId,
-        summary,
-      });
+      broadcastSummaryUpdate(sessionId, session.projectId, summary);
 
-      // Also broadcast to project subscribers
+      // Also broadcast session:updated to project subscribers so session lists update
       if (session.projectId) {
-        broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
-          projectId: session.projectId,
-          sessionId,
-          summary,
-        });
-
-        // Also broadcast session:updated to project subscribers so session lists update
-        broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-          projectId: session.projectId,
-          sessionId,
-          session: sessions.getById(sessionId),
-        });
+        broadcastSessionUpdate(sessionId, session.projectId, sessions.getById(sessionId));
       }
 
       // Clear the generating flag
-      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
-        sessionId,
-        generating: false,
-      });
+      broadcastGeneratingStatus(sessionId, false);
 
       return summary;
     }
@@ -713,7 +146,7 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     // Build prompt with global title prompt and child context
     const prompt = buildIncrementalPrompt(existingSummary, recentMessages, session.status, globalSettings?.sessionTitlePrompt, childContext);
 
-    // Call Claude via SDK (or mock in test mode)
+    // Call Claude via SDK
     const responseText = await callClaude(prompt, recentMessages, session.status, {
       sessionId,
       callType: 'generateSessionSummary',
@@ -735,8 +168,8 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     // Clean up internal flag before saving
     delete summaryData._parseFailed;
 
-    // Add message count and last message ID for staleness tracking (Phase 6)
-    _trackMessageMetadata(summaryData, allMessages);
+    // Add message count and last message ID for staleness tracking
+    trackMessageMetadata(summaryData, allMessages);
 
     // For root sessions (no parent), aggregate files from all child sessions
     if (!session.parentSessionId) {
@@ -747,7 +180,7 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     const prUrl = summaryData.prUrl || session.prUrl;
     if (prUrl) {
       const project = projects.getById(session.projectId);
-      await _enrichPrData(summaryData, prUrl, project?.repoUrl, sessionId);
+      await enrichPrData(summaryData, prUrl, project?.repoUrl, sessionId);
     }
 
     // Upsert summary
@@ -782,7 +215,6 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
       const updateData = {};
 
       // Re-fetch the session to check the manuallyNamed flag
-      // (The session object was fetched earlier, potentially many seconds ago)
       const freshSession = sessions.getById(sessionId);
 
       // Only update name if session is not manually named
@@ -802,51 +234,20 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
         propagatePrUrlToParent(sessionId, summaryData.prUrl);
       }
 
-      // Broadcast session update for real-time UI sync (session detail view)
-      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-        sessionId,
-        session: updatedSession,
-      });
-
-      // Also broadcast to project subscribers for session list updates
-      if (session.projectId) {
-        broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-          projectId: session.projectId,
-          sessionId,
-          session: updatedSession,
-        });
-      }
+      // Broadcast session update for real-time UI sync
+      broadcastSessionUpdate(sessionId, session.projectId, updatedSession);
     } else {
-      // Even if name/PR URL didn't change, broadcast SESSION_UPDATED so project subscribers know summary was generated
+      // Even if name/PR URL didn't change, broadcast so project subscribers know summary was generated
       if (session.projectId) {
-        broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-          projectId: session.projectId,
-          sessionId,
-          session: sessions.getById(sessionId),
-        });
+        broadcastSessionUpdate(sessionId, session.projectId, sessions.getById(sessionId));
       }
     }
 
-    // Broadcast updated summary to session subscribers
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
-      sessionId,
-      summary,
-    });
-
-    // Also broadcast to project subscribers so session lists update in real-time
-    if (session.projectId) {
-      broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
-        projectId: session.projectId,
-        sessionId,
-        summary,
-      });
-    }
+    // Broadcast updated summary to session and project subscribers
+    broadcastSummaryUpdate(sessionId, session.projectId, summary);
 
     // Clear the generating flag so the UI knows generation is complete
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
-      sessionId,
-      generating: false,
-    });
+    broadcastGeneratingStatus(sessionId, false);
 
     console.log(`[SummaryService] Successfully generated summary for session ${sessionId}`);
 
@@ -865,10 +266,7 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     });
 
     // Broadcast that generation stopped
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
-      sessionId,
-      generating: false,
-    });
+    broadcastGeneratingStatus(sessionId, false);
 
     return null;
   }
@@ -891,15 +289,7 @@ export async function generateSummaryNow(sessionId) {
 }
 
 /**
- * Called when session completes - generate immediately if summary is stale,
- * otherwise do a lightweight outcome-only DB update (no LLM call).
- * Also schedules follow-up CI checks for sessions with PRs.
- * @param {string} sessionId
- */
-/**
  * Trigger summary generation on session activity (e.g., turn completion).
- * This is called during an active session (when it goes to 'waiting' state),
- * as opposed to onSessionComplete which is called when the session ends.
  * @param {string} sessionId
  */
 export function onSessionActivity(sessionId) {
@@ -909,13 +299,17 @@ export function onSessionActivity(sessionId) {
     return;
   }
 
-  // Only generate if the summary is stale (no force=true)
-  // This avoids redundant generation while keeping summaries updated
   generateSummary(sessionId).catch((err) => {
     console.error(`[SummaryService] Failed to generate summary on activity for session ${sessionId}:`, err);
   });
 }
 
+/**
+ * Called when session completes - generate immediately if summary is stale,
+ * otherwise do a lightweight outcome-only DB update (no LLM call).
+ * Also schedules follow-up CI checks for sessions with PRs.
+ * @param {string} sessionId
+ */
 export function onSessionComplete(sessionId) {
   // Lightweight outcome update: if summary exists and is current,
   // just update the outcome field without calling the LLM
@@ -931,29 +325,15 @@ export function onSessionComplete(sessionId) {
 
       // Broadcast the updated summary
       const updatedSummary = sessionSummaries.getBySessionId(sessionId);
-      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
-        sessionId,
-        summary: updatedSummary,
-      });
-      if (session.projectId) {
-        broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
-          projectId: session.projectId,
-          sessionId,
-          summary: updatedSummary,
-        });
-      }
+      broadcastSummaryUpdate(sessionId, session.projectId, updatedSummary);
     } else {
       console.log(`[SummaryService] Summary for session ${sessionId} is current and outcome unchanged, skipping generation`);
     }
     // Still schedule CI checks below
   } else {
     // Summary is stale or doesn't exist -- generate via LLM
-    // Early exit if session summaries are disabled globally
     const globalSettings = settings.getSummarySettings();
     if (!globalSettings?.disableSessionSummaries) {
-      // Only generate session summary (no force=true -- staleness check will determine if needed)
-      // Conversation summaries are triggered by user actions (switching/creating conversations),
-      // not session lifecycle events
       generateSummary(sessionId);
     }
   }
@@ -1006,7 +386,6 @@ export async function regenerateSummary(sessionId) {
 
 /**
  * Check if a summary is stale (message count or last message ID has changed)
- * Phase 6: Enhanced staleness detection using both message count and message ID
  * @param {string} sessionId
  * @returns {boolean}
  */
@@ -1016,9 +395,8 @@ export function isSummaryStale(sessionId) {
 
   const allMessages = messages.getBySessionId(sessionId);
 
-  // Phase 6: Use message ID-based staleness detection if available
+  // Use message ID-based staleness detection if available
   if (summary.lastSummarizedMessageId) {
-    // Get the last message ID from the session
     const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
     const lastMessageId = lastMessage ? lastMessage.id : null;
 
@@ -1040,393 +418,33 @@ export function isSummaryStale(sessionId) {
  * @param {string} sessionId
  */
 export function cleanupSession(sessionId) {
-  pendingRegenerations.delete(sessionId);
-}
-
-/**
- * Build prompt for conversation summary generation
- * @param {Array} conversationMessages - Messages in the conversation
- * @returns {string}
- */
-function buildConversationSummaryPrompt(conversationMessages) {
-  const formattedMessages = formatMessages(conversationMessages);
-
-  // Return only dynamic content - static instructions are in system prompt
-  return `CONVERSATION:
-${formattedMessages}`;
-}
-
-/**
- * Parse conversation summary response
- * @param {string} responseText
- * @returns {string} The summary text
- */
-function parseConversationSummaryResponse(responseText) {
-  const textToParse = _stripMarkdownCodeBlock(responseText);
-
-  try {
-    const parsed = JSON.parse(textToParse);
-    return parsed.summary || 'Summary generation failed';
-  } catch {
-    // If parsing fails, return the raw text truncated
-    return textToParse.substring(0, 200);
-  }
+  guard.cleanup(sessionId);
 }
 
 /**
  * Generate both session and conversation summaries in a single API call (with concurrency guard)
- * This is more efficient than calling them separately.
- * Shares the same concurrency guard as generateSummary to prevent overlapping generation.
  * @param {string} sessionId - The session ID
  * @param {string} conversationId - The conversation ID
  * @returns {Promise<Object>} Object with sessionSummary and conversationSummary
  */
 export async function generateSessionAndConversationSummary(sessionId, conversationId) {
-  // Concurrency guard: if a generation is already in-flight for this session,
-  // queue a single follow-up instead of running concurrently
-  if (activeGenerations.has(sessionId)) {
-    pendingRegenerations.add(sessionId);
-    return activeGenerations.get(sessionId);
-  }
-
-  const promise = _doGenerateSessionAndConversationSummary(sessionId, conversationId);
-  activeGenerations.set(sessionId, promise);
-
-  try {
-    return await promise;
-  } finally {
-    activeGenerations.delete(sessionId);
-    if (pendingRegenerations.has(sessionId)) {
-      pendingRegenerations.delete(sessionId);
-      // Schedule follow-up generation directly (debounce removed)
-      generateSummary(sessionId);
+  return guard.run(
+    sessionId,
+    () => doGenerateSessionAndConversationSummary(sessionId, conversationId, generateSummary),
+    {
+      onFollowUp: (key) => generateSummary(key),
     }
-  }
-}
-
-/**
- * Internal implementation of generateSessionAndConversationSummary (called by concurrency guard wrapper)
- * @param {string} sessionId
- * @param {string} conversationId
- * @returns {Promise<Object>}
- */
-async function _doGenerateSessionAndConversationSummary(sessionId, conversationId) {
-  try {
-    const session = sessions.getById(sessionId);
-    if (!session) {
-      console.warn(`[SummaryService] Session ${sessionId} not found for combined summary generation`);
-      return { sessionSummary: null, conversationSummary: null };
-    }
-
-    const conversation = conversations.getById(conversationId);
-    if (!conversation || conversation.sessionId !== sessionId) {
-      console.warn(`[SummaryService] Conversation ${conversationId} not found for session ${sessionId}`);
-      return { sessionSummary: null, conversationSummary: null };
-    }
-
-    // Skip conversation summary if this is the only conversation — summaries only add value
-    // when the user is navigating between multiple conversations
-    const allSessionConversations = conversations.getBySessionId(sessionId);
-    if (allSessionConversations.length < 2) {
-      console.log(`[SummaryService] Session ${sessionId} has only 1 conversation, falling back to session-only summary`);
-      return { sessionSummary: await generateSummary(sessionId), conversationSummary: null };
-    }
-
-    // Check if session summaries are disabled globally
-    const globalSettings = settings.getSummarySettings();
-    if (globalSettings?.disableSessionSummaries) {
-      console.log(`[SummaryService] Session summaries disabled globally, skipping combined generation`);
-      return { sessionSummary: null, conversationSummary: null };
-    }
-
-    // Get existing session summary and recent messages
-    const existingSummary = sessionSummaries.getBySessionId(sessionId);
-
-    // Staleness check: skip combined generation if summary is current
-    if (!isSummaryStale(sessionId)) {
-      console.log(`[SummaryService] Summary for ${sessionId} is current, skipping combined generation`);
-      return { sessionSummary: existingSummary, conversationSummary: null };
-    }
-
-    const allMessages = messages.getBySessionId(sessionId);
-    const conversationMessages = messages.getByConversationId(conversationId);
-
-    // Check minimum message threshold
-    if (allMessages.length < MIN_MESSAGES_FOR_SUMMARY) {
-      console.log(
-        `[SummaryService] Session ${sessionId} has only ${allMessages.length} messages (minimum ${MIN_MESSAGES_FOR_SUMMARY}), skipping combined summary generation`
-      );
-      return { sessionSummary: null, conversationSummary: null };
-    }
-
-    // Get recent messages for session summary
-    const recentMessages = allMessages.slice(-MAX_MESSAGES);
-
-    // Broadcast that we're generating
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
-      sessionId,
-      generating: true,
-    });
-
-    // Build child session context
-    const childContext = buildChildSessionContext(sessionId);
-
-    // Build existing summary context
-    const existingContext = existingSummary
-      ? `EXISTING SESSION SUMMARY:
-${existingSummary.fullSummary}
-
-Key actions so far: ${JSON.stringify(existingSummary.keyActions || [])}
-Files modified: ${JSON.stringify(existingSummary.filesModified || [])}
-Previous outcome: ${existingSummary.outcome}
-Previous title: ${existingSummary.sessionTitle || 'Not set'}`
-      : 'EXISTING SESSION SUMMARY:\nNo previous summary - this is the first generation.';
-
-    // Build combined prompt with both session and conversation context
-    const formattedSessionMessages = formatMessages(recentMessages);
-    const formattedConversationMessages = formatMessages(conversationMessages);
-
-    const combinedPrompt = `Current session status: ${session.status}
-
-${existingContext}
-${childContext}
-RECENT SESSION CONVERSATION:
-${formattedSessionMessages}
-
-ACTIVE CONVERSATION THREAD:
-${formattedConversationMessages}
-
-Session title guidelines:
-${globalSettings?.sessionTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT}`;
-
-    // Combined JSON schema with both session and conversation summary fields
-    const combinedSchema = {
-      type: 'object',
-      properties: {
-        // Session summary fields
-        short_summary: { type: 'string', description: '1-2 sentence preview for list view (max 150 characters)' },
-        full_summary: { type: 'string', description: 'Detailed summary with key accomplishments (max 500 characters)' },
-        key_actions: { type: 'array', items: { type: 'string' }, description: 'List of key actions taken' },
-        files_modified: { type: 'array', items: { type: 'string' }, description: 'List of files modified' },
-        outcome: { type: 'string', enum: ['completed', 'partial', 'failed', 'ongoing'], description: 'Session outcome' },
-        pr_url: { type: ['string', 'null'], description: 'GitHub PR URL if created' },
-        session_title: { type: ['string', 'null'], description: 'Concise session title (max 60 chars)' },
-        // Conversation summary field
-        conversation_summary: { type: 'string', description: '2-3 sentence summary of conversation (max 200 chars)' },
-      },
-      required: ['short_summary', 'full_summary', 'key_actions', 'files_modified', 'outcome', 'conversation_summary'],
-    };
-
-    // Call Claude with combined schema
-    const responseText = await callClaude(
-      combinedPrompt,
-      recentMessages,
-      session.status,
-      {
-        sessionId,
-        conversationId,
-        callType: 'generateCombinedSummary',
-      },
-      COMBINED_SUMMARY_SYSTEM_PROMPT,
-      combinedSchema
-    );
-
-    // Parse response and convert from snake_case to camelCase
-    let summaryData;
-    let conversationSummaryText;
-    try {
-      const parsed = JSON.parse(responseText);
-
-      // Convert snake_case to camelCase to match repository expectations
-      summaryData = {
-        shortSummary: parsed.short_summary,
-        fullSummary: parsed.full_summary,
-        keyActions: parsed.key_actions || [],
-        filesModified: parsed.files_modified || [],
-        outcome: parsed.outcome || 'ongoing',
-        prUrl: parsed.pr_url || null,
-        sessionTitle: parsed.session_title || null,
-      };
-
-      // Extract conversation summary
-      conversationSummaryText = parsed.conversation_summary || 'Conversation summary generation failed';
-    } catch (parseError) {
-      console.error(`[SummaryService] Failed to parse combined summary response:`, parseError.message);
-      console.error(`[SummaryService] Response text:`, responseText);
-      return { sessionSummary: null, conversationSummary: null };
-    }
-
-    // Verify required fields exist
-    if (!summaryData.shortSummary || !summaryData.fullSummary) {
-      console.error(`[SummaryService] Combined summary missing required fields:`, Object.keys(summaryData));
-      return { sessionSummary: null, conversationSummary: null };
-    }
-
-    // Add message count and last message ID for staleness tracking (Phase 6)
-    _trackMessageMetadata(summaryData, allMessages);
-
-    // For root sessions, aggregate files from child sessions
-    if (!session.parentSessionId) {
-      summaryData.filesModified = aggregateFilesModified(sessionId, summaryData.filesModified);
-    }
-
-    // Validate and enrich PR URL
-    const prUrl = summaryData.prUrl || session.prUrl;
-    if (prUrl) {
-      const project = projects.getById(session.projectId);
-      await _enrichPrData(summaryData, prUrl, project?.repoUrl, sessionId);
-    } else {
-      summaryData.prUrl = null;
-    }
-
-    // Save session summary
-    const savedSessionSummary = sessionSummaries.upsert(sessionId, summaryData);
-
-    // Save conversation summary
-    conversations.update(conversationId, { summary: conversationSummaryText });
-
-    // Broadcast updates
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
-      sessionId,
-      summary: savedSessionSummary,
-    });
-
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.CONVERSATION_SUMMARY_UPDATED, {
-      sessionId,
-      conversationId,
-      summary: conversationSummaryText,
-    });
-
-    // Clear the generating flag so the UI knows generation is complete
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
-      sessionId,
-      generating: false,
-    });
-
-    return {
-      sessionSummary: savedSessionSummary,
-      conversationSummary: conversationSummaryText,
-    };
-  } catch (error) {
-    console.error(`[SummaryService] Error generating combined summary for session ${sessionId}:`, error);
-
-    // Clear the generating flag on error
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
-      sessionId,
-      generating: false,
-    });
-
-    return { sessionSummary: null, conversationSummary: null };
-  }
-}
-
-/**
- * Check if conversation summaries are enabled for a session
- * @param {string} sessionId - The session ID
- * @returns {boolean} True if conversation summaries are enabled
- */
-export function isConversationSummaryEnabled(sessionId) {
-  const session = sessions.getById(sessionId);
-  if (!session) return false;
-
-  const globalSettings = settings.getSummarySettings();
-  return !globalSettings?.disableConversationSummaries;
-}
-
-/**
- * Generate summary for a specific conversation
- * @param {string} sessionId - The session ID
- * @param {string} conversationId - The conversation ID
- * @returns {Promise<string|null>} The generated summary text
- */
-export async function generateConversationSummary(sessionId, conversationId) {
-  try {
-    // Get session to check project settings
-    const session = sessions.getById(sessionId);
-    if (!session) {
-      console.warn(`[SummaryService] Session ${sessionId} not found for conversation summary generation`);
-      return null;
-    }
-
-    // Check if conversation summaries are disabled globally
-    const globalSettings = settings.getSummarySettings();
-    if (globalSettings?.disableConversationSummaries) {
-      console.log(`[SummaryService] Conversation summaries disabled globally, skipping generation`);
-      return null;
-    }
-
-    const conversation = conversations.getById(conversationId);
-    if (!conversation || conversation.sessionId !== sessionId) {
-      console.warn(`[SummaryService] Conversation ${conversationId} not found for session ${sessionId}`);
-      return null;
-    }
-
-    // Get messages for this conversation
-    const conversationMessages = messages.getByConversationId(conversationId);
-
-    if (conversationMessages.length === 0) {
-      console.warn(`[SummaryService] No messages found for conversation ${conversationId}`);
-      return null;
-    }
-
-    // Skip very short conversations
-    if (conversationMessages.length < 4) {
-      console.log(`[SummaryService] Conversation ${conversationId} has only ${conversationMessages.length} messages, skipping summary`);
-      return null;
-    }
-
-    // Take recent messages (limit to MAX_MESSAGES)
-    const recentMessages = conversationMessages.slice(-MAX_MESSAGES);
-
-    // Build prompt
-    const prompt = buildConversationSummaryPrompt(recentMessages);
-
-    // Call Claude
-    const responseText = await callClaude(prompt, recentMessages, 'waiting', {
-      sessionId,
-      conversationId,
-      callType: 'generateConversationSummary',
-    }, CONVERSATION_SUMMARY_SYSTEM_PROMPT);
-
-    // Parse response
-    const summary = parseConversationSummaryResponse(responseText);
-
-    // Update conversation with summary
-    const updatedConversation = conversations.update(conversationId, {
-      summary,
-      summaryGeneratedAt: Date.now(),
-    });
-
-    // Broadcast conversation summary updated
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.CONVERSATION_SUMMARY_UPDATED, {
-      sessionId,
-      conversationId,
-      conversation: updatedConversation,
-    });
-
-    console.log(`[SummaryService] Successfully generated summary for conversation ${conversationId}`);
-    return summary;
-  } catch (error) {
-    console.error(`[SummaryService] Failed to generate conversation summary:`, {
-      error: error.message,
-      sessionId,
-      conversationId,
-    });
-    return null;
-  }
+  );
 }
 
 /**
  * Propagate summary update to parent sessions
- * When a child session's summary is updated, the parent's summary may need regeneration
  * @param {string} sessionId - The child session ID that was updated
  */
 export async function propagateToParent(sessionId) {
   const session = sessions.getById(sessionId);
   if (!session || !session.parentSessionId) return;
 
-  // Trigger a summary regeneration for the parent session
-  // The activeGenerations concurrency guard prevents concurrent duplicate generations
   generateSummary(session.parentSessionId);
 }
 
@@ -1447,23 +465,43 @@ export function propagatePrUrlToParent(sessionId, prUrl) {
 
   sessions.update(parent.id, { prUrl });
 
-  // Broadcast to session detail view
-  broadcastToSession(parent.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-    sessionId: parent.id,
-    session: sessions.getById(parent.id),
-  });
-
-  // Broadcast to project list view
-  if (parent.projectId) {
-    broadcastToProject(parent.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-      projectId: parent.projectId,
-      sessionId: parent.id,
-      session: sessions.getById(parent.id),
-    });
-  }
+  // Broadcast updates
+  broadcastSessionUpdate(parent.id, parent.projectId, sessions.getById(parent.id));
 
   console.log(`[SummaryService] Propagated PR URL from child ${sessionId} to parent ${parent.id}: ${prUrl}`);
 }
 
-// Export for testing
-export { MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT, SUMMARY_SYSTEM_PROMPT, CONVERSATION_SUMMARY_SYSTEM_PROMPT, COMBINED_SUMMARY_SYSTEM_PROMPT, callClaude, formatMessages, buildIncrementalPrompt, parseSummaryResponse, parsePrUrl, validatePrUrl, getChildSessions, buildChildSessionContext, aggregateFilesModified, activeGenerations, pendingRegenerations, _stripMarkdownCodeBlock, _trackMessageMetadata, _enrichPrData };
+// Re-export from extracted modules for backward compatibility
+// These are used by external consumers and tests
+export {
+  // From summaryPrompts.js
+  MAX_MESSAGES,
+  MIN_MESSAGES_FOR_SUMMARY,
+  MAX_RETRIES,
+  DEFAULT_SESSION_TITLE_PROMPT,
+  SUMMARY_SYSTEM_PROMPT,
+  CONVERSATION_SUMMARY_SYSTEM_PROMPT,
+  COMBINED_SUMMARY_SYSTEM_PROMPT,
+  formatMessages,
+  buildIncrementalPrompt,
+  parseSummaryResponse,
+  stripMarkdownCodeBlock as _stripMarkdownCodeBlock,
+  trackMessageMetadata as _trackMessageMetadata,
+};
+
+// From summaryClaudeClient.js
+export { callClaude };
+
+// From prUrlService.js
+export { parsePrUrl, validatePrUrl, extractPrUrlIfNeeded, enrichPrData as _enrichPrData };
+
+// From childSessionContext.js
+export { getChildSessions, buildChildSessionContext, aggregateFilesModified };
+
+// From conversationSummary.js
+export { isConversationSummaryEnabled, generateConversationSummary };
+
+// Expose concurrency guard state for tests
+const activeGenerations = guard.activeGenerations;
+const pendingRegenerations = guard.pendingRegenerations;
+export { activeGenerations, pendingRegenerations };
