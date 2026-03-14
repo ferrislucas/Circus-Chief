@@ -192,9 +192,136 @@ describe('withConcurrencyGuard', () => {
       expect(guard.pendingRegenerations.has('key-1')).toBe(false);
     });
 
+    it('clears both active and pending state for the key', async () => {
+      const guard = createConcurrencyGuard();
+      let resolvePromise;
+
+      // Start a run to create active state
+      const runPromise = guard.run('key-1', () => {
+        return new Promise((resolve) => { resolvePromise = resolve; });
+      });
+
+      // Add pending state
+      await new Promise((r) => setTimeout(r, 0));
+      guard.pendingRegenerations.add('key-1');
+
+      // Verify both states exist
+      expect(guard.isActive('key-1')).toBe(true);
+      expect(guard.isPending('key-1')).toBe(true);
+
+      // Cleanup should clear both
+      guard.cleanup('key-1');
+
+      expect(guard.isActive('key-1')).toBe(false);
+      expect(guard.isPending('key-1')).toBe(false);
+
+      // Resolve to prevent unhandled rejection
+      resolvePromise('done');
+      await runPromise;
+    });
+
     it('does nothing for non-existent key', () => {
       const guard = createConcurrencyGuard();
       expect(() => guard.cleanup('non-existent')).not.toThrow();
+    });
+  });
+
+  describe('isActive', () => {
+    it('returns false when no generation running', () => {
+      const guard = createConcurrencyGuard();
+      expect(guard.isActive('key-1')).toBe(false);
+    });
+
+    it('returns true during active generation', async () => {
+      const guard = createConcurrencyGuard();
+      let resolvePromise;
+
+      const runPromise = guard.run('key-1', () => {
+        return new Promise((resolve) => { resolvePromise = resolve; });
+      });
+
+      await new Promise((r) => setTimeout(r, 0));
+      expect(guard.isActive('key-1')).toBe(true);
+
+      resolvePromise('done');
+      await runPromise;
+
+      expect(guard.isActive('key-1')).toBe(false);
+    });
+  });
+
+  describe('isPending', () => {
+    it('returns false when no regeneration pending', () => {
+      const guard = createConcurrencyGuard();
+      expect(guard.isPending('key-1')).toBe(false);
+    });
+
+    it('returns true when regeneration is pending', async () => {
+      const guard = createConcurrencyGuard();
+      let resolveFirst;
+
+      // Start first run
+      const firstPromise = guard.run('key-1', () => {
+        return new Promise((resolve) => { resolveFirst = resolve; });
+      });
+
+      // Second call while first is in-flight triggers pending
+      guard.run('key-1', () => Promise.resolve('second'));
+
+      expect(guard.isPending('key-1')).toBe(true);
+
+      resolveFirst('first');
+      await firstPromise;
+    });
+  });
+
+  describe('activeKeys', () => {
+    it('returns snapshot of active keys', async () => {
+      const guard = createConcurrencyGuard();
+      let resolveKey1, resolveKey2;
+
+      guard.run('key-1', () => new Promise((resolve) => { resolveKey1 = resolve; }));
+      guard.run('key-2', () => new Promise((resolve) => { resolveKey2 = resolve; }));
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      const keys = guard.activeKeys();
+      expect(keys).toContain('key-1');
+      expect(keys).toContain('key-2');
+      expect(keys.length).toBe(2);
+
+      // Mutating the returned array should not affect internal state
+      keys.push('key-3');
+      expect(guard.activeKeys().length).toBe(2);
+
+      resolveKey1('done');
+      resolveKey2('done');
+    });
+  });
+
+  describe('pendingKeys', () => {
+    it('returns snapshot of pending keys', async () => {
+      const guard = createConcurrencyGuard();
+      let resolveKey1, resolveKey2;
+
+      guard.run('key-1', () => new Promise((resolve) => { resolveKey1 = resolve; }));
+      guard.run('key-2', () => new Promise((resolve) => { resolveKey2 = resolve; }));
+
+      // Queue pending for both
+      guard.run('key-1', () => Promise.resolve('pending-1'));
+      guard.run('key-2', () => Promise.resolve('pending-2'));
+
+      const keys = guard.pendingKeys();
+      expect(keys).toContain('key-1');
+      expect(keys).toContain('key-2');
+      expect(keys.length).toBe(2);
+
+      // Mutating the returned array should not affect internal state
+      keys.push('key-3');
+      expect(guard.pendingKeys().length).toBe(2);
+
+      resolveKey1('done');
+      resolveKey2('done');
     });
   });
 });
