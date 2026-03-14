@@ -161,16 +161,23 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
         // Restore runs to state (both running and recently completed)
         for (const run of runs) {
           const { output, truncated } = this._truncateOutput(run.output || '');
+          const existing = this.runs[run.runId];
+
+          // Preserve existing output if the API returned empty output
+          // (lightweight DB queries exclude the output column for performance)
+          const resolvedOutput = (!output && existing?.output) ? existing.output : output;
+          const resolvedTruncated = (!output && existing?.output) ? existing.outputTruncated : truncated;
+
           this.runs[run.runId] = {
             runId: run.runId,
             buttonId: run.buttonId,
             sessionId: sessionId,
             status: run.status || 'running',
-            output,
+            output: resolvedOutput,
             exitCode: run.exitCode !== undefined ? run.exitCode : null,
             startedAt: run.startedAt,
             completedAt: run.completedAt,
-            outputTruncated: truncated,
+            outputTruncated: resolvedTruncated,
           };
         }
         return runs;
@@ -198,16 +205,23 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
 
           // Add or update the run
           const { output, truncated } = this._truncateOutput(run.output || '');
+          const existing = this.runs[runId];
+
+          // Preserve existing output if the API returned empty output
+          // (lightweight DB queries exclude the output column for performance)
+          const resolvedOutput = (!output && existing?.output) ? existing.output : output;
+          const resolvedTruncated = (!output && existing?.output) ? existing.outputTruncated : truncated;
+
           this.runs[runId] = {
             runId,
             buttonId: run.buttonId,
             sessionId: run.sessionId,
             status: run.status || 'running',
-            output,
+            output: resolvedOutput,
             exitCode: run.exitCode !== undefined ? run.exitCode : null,
             startedAt: run.startedAt,
             completedAt: run.completedAt,
-            outputTruncated: truncated,
+            outputTruncated: resolvedTruncated,
           };
         }
         return runs;

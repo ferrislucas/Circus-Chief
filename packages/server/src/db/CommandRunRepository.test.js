@@ -457,6 +457,38 @@ describe('CommandRunRepository', () => {
     });
   });
 
+  describe('output exclusion in lightweight queries', () => {
+    it('getLatestRunsForSession returns empty output (excludes output column)', () => {
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-1', 0, 'full output content');
+
+      const latestRuns = repository.getLatestRunsForSession(testSessionId);
+      expect(latestRuns.length).toBe(1);
+      expect(latestRuns[0].id).toBe('run-1');
+      expect(latestRuns[0].output).toBe('');
+    });
+
+    it('getLatestRunsForProject returns empty output (excludes output column)', () => {
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-1', 0, 'full output content');
+
+      const sessionRepository = new SessionRepository();
+      const testSession = sessionRepository.getById(testSessionId);
+      const latestRuns = repository.getLatestRunsForProject(testSession.projectId);
+      expect(latestRuns.length).toBe(1);
+      expect(latestRuns[0].id).toBe('run-1');
+      expect(latestRuns[0].output).toBe('');
+    });
+
+    it('getById still returns full output', () => {
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-1', 0, 'full output content');
+
+      const run = repository.getById('run-1');
+      expect(run.output).toBe('full output content');
+    });
+  });
+
   describe('data mapping', () => {
     it('maps database snake_case to camelCase', () => {
       repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
