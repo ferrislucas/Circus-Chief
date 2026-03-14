@@ -57,7 +57,25 @@ export class SessionRepository extends BaseRepository {
       rescheduleAtTokenCount: row.reschedule_at_token_count,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      lastActivityAt: row.last_activity_at || row.updated_at || row.created_at,
     };
+  }
+
+  /**
+   * Override getById to include computed last_activity_at field
+   * This is critical because getById is called after every create(), update(), and updateUsage() call
+   * @param {string} id - Session ID
+   * @returns {Object|null} Session with lastActivityAt
+   */
+  getById(id) {
+    const row = this.db
+      .prepare(
+        `SELECT s.*,
+          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at
+         FROM sessions s WHERE s.id = ?`
+      )
+      .get(id);
+    return this.map(row);
   }
 
   create(projectId, name, prompt, mode = 'standard', thinkingEnabled = false, gitBranch = null, parentSessionId = null, status = 'starting', model = null) {
@@ -83,7 +101,9 @@ export class SessionRepository extends BaseRepository {
   }
 
   getByProjectId(projectId, { archived = null, starred = null, limit = null, offset = 0 } = {}) {
-    let sql = `SELECT * FROM sessions WHERE project_id = ?`;
+    let sql = `SELECT s.*,
+      (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at
+      FROM sessions s WHERE project_id = ?`;
     const params = [projectId];
 
     if (archived !== null) {
@@ -140,7 +160,8 @@ export class SessionRepository extends BaseRepository {
   getActiveAndWaiting() {
     const rows = this.db
       .prepare(
-        `SELECT s.*, p.name as project_name, p.working_directory as project_working_directory
+        `SELECT s.*, p.name as project_name, p.working_directory as project_working_directory,
+          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at
          FROM sessions s
          JOIN projects p ON s.project_id = p.id
          WHERE s.status IN ('starting', 'running', 'waiting')
@@ -163,7 +184,9 @@ export class SessionRepository extends BaseRepository {
   getChildSessions(parentSessionId) {
     const rows = this.db
       .prepare(
-        `SELECT * FROM sessions
+        `SELECT s.*,
+          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at
+         FROM sessions s
          WHERE parent_session_id = ?
          ORDER BY updated_at DESC, created_at DESC, rowid DESC`
       )
@@ -357,7 +380,12 @@ export class SessionRepository extends BaseRepository {
    */
   getSessionsWithPrUrls() {
     const rows = this.db
-      .prepare('SELECT * FROM sessions WHERE pr_url IS NOT NULL ORDER BY updated_at DESC, created_at DESC, rowid DESC')
+      .prepare(
+        `SELECT s.*,
+          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at
+         FROM sessions s
+         WHERE pr_url IS NOT NULL ORDER BY updated_at DESC, created_at DESC, rowid DESC`
+      )
       .all();
     return this.mapAll(rows);
   }
@@ -409,7 +437,9 @@ export class SessionRepository extends BaseRepository {
   getScheduledSessionsDue(now) {
     const rows = this.db
       .prepare(
-        `SELECT * FROM sessions
+        `SELECT s.*,
+          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at
+         FROM sessions s
          WHERE status = 'scheduled'
            AND scheduled_at IS NOT NULL
            AND scheduled_at <= ?
@@ -427,7 +457,8 @@ export class SessionRepository extends BaseRepository {
    */
   getScheduledSessions(projectId = null) {
     let sql = `
-      SELECT s.*, p.name as project_name
+      SELECT s.*, p.name as project_name,
+        (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at
       FROM sessions s
       JOIN projects p ON s.project_id = p.id
       WHERE s.status = 'scheduled'
