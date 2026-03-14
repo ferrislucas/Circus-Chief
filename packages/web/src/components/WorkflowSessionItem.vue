@@ -13,8 +13,7 @@
       <div class="workflow-session-meta">
         <span class="workflow-session-summary">{{ summaryText }}</span>
         <div class="workflow-session-meta-right">
-          <!-- PR Indicators -->
-          <PrIndicators v-if="prUrl" :pr-url="prUrl" :summary="prSummary" />
+          <!-- PR indicators are shown on the parent card, not individual children -->
 
           <!-- Command button status indicators -->
           <span

@@ -98,6 +98,7 @@ import * as summaryService from './summaryService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { agentCallLogger } from './agentCallLogger.js';
 import * as ghService from './ghService.js';
+import * as summaryBroadcast from './summaryBroadcast.js';
 import {
   MAX_MESSAGES,
   MIN_MESSAGES_FOR_SUMMARY,
@@ -3354,6 +3355,119 @@ describe('summaryService', () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       expect(agentCallLogger.startCall).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('propagatePrUrlToParent', () => {
+    let broadcastSessionUpdateSpy;
+
+    beforeEach(() => {
+      // Spy on broadcastSessionUpdate
+      broadcastSessionUpdateSpy = vi.spyOn(summaryBroadcast, 'broadcastSessionUpdate');
+    });
+
+    afterEach(() => {
+      broadcastSessionUpdateSpy.mockRestore();
+    });
+
+    it('propagates PR URL from child to root (2-level)', () => {
+      const root = sessions.create(projectId, 'Root', 'Root prompt');
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard', false, null, root.id);
+      const prUrl = 'https://github.com/owner/repo/pull/123';
+
+      summaryService.propagatePrUrlToParent(child.id, prUrl);
+
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBe(prUrl);
+
+      const childAfter = sessions.getById(child.id);
+      expect(childAfter.prUrl).toBeNull();
+    });
+
+    it('propagates PR URL from grandchild to root (3-level)', () => {
+      const root = sessions.create(projectId, 'Root', 'Root prompt');
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard', false, null, root.id);
+      const grandchild = sessions.create(projectId, 'Grandchild', 'Grandchild prompt', 'standard', false, null, child.id);
+      const prUrl = 'https://github.com/owner/repo/pull/456';
+
+      summaryService.propagatePrUrlToParent(grandchild.id, prUrl);
+
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBe(prUrl);
+
+      const childAfter = sessions.getById(child.id);
+      expect(childAfter.prUrl).toBeNull();
+
+      const grandchildAfter = sessions.getById(grandchild.id);
+      expect(grandchildAfter.prUrl).toBeNull();
+    });
+
+    it('does not overwrite existing root PR URL (first wins)', () => {
+      const originalPrUrl = 'https://github.com/owner/repo/pull/111';
+      const root = sessions.create(projectId, 'Root', 'Root prompt');
+      sessions.update(root.id, { prUrl: originalPrUrl });
+
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard', false, null, root.id);
+      const newPrUrl = 'https://github.com/owner/repo/pull/999';
+
+      summaryService.propagatePrUrlToParent(child.id, newPrUrl);
+
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBe(originalPrUrl);
+    });
+
+    it('does nothing when session has no parent', () => {
+      const orphan = sessions.create(projectId, 'Orphan', 'Orphan prompt');
+      const prUrl = 'https://github.com/owner/repo/pull/789';
+
+      // Should not throw
+      expect(() => {
+        summaryService.propagatePrUrlToParent(orphan.id, prUrl);
+      }).not.toThrow();
+
+      const orphanAfter = sessions.getById(orphan.id);
+      expect(orphanAfter.prUrl).toBeNull();
+    });
+
+    it('does nothing when prUrl is falsy (null)', () => {
+      const root = sessions.create(projectId, 'Root', 'Root prompt');
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard', false, null, root.id);
+
+      // Should not throw
+      expect(() => {
+        summaryService.propagatePrUrlToParent(child.id, null);
+      }).not.toThrow();
+
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBeNull();
+    });
+
+    it('does nothing when prUrl is falsy (empty string)', () => {
+      const root = sessions.create(projectId, 'Root', 'Root prompt');
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard', false, null, root.id);
+
+      // Should not throw
+      expect(() => {
+        summaryService.propagatePrUrlToParent(child.id, '');
+      }).not.toThrow();
+
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBeNull();
+    });
+
+    it('broadcasts SESSION_UPDATED for the root session', () => {
+      const root = sessions.create(projectId, 'Root', 'Root prompt');
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard', false, null, root.id);
+      const prUrl = 'https://github.com/owner/repo/pull/123';
+
+      summaryService.propagatePrUrlToParent(child.id, prUrl);
+
+      expect(broadcastSessionUpdateSpy).toHaveBeenCalledTimes(1);
+      expect(broadcastSessionUpdateSpy).toHaveBeenCalledWith(
+        root.id,
+        root.projectId,
+        sessions.getById(root.id)
+      );
     });
   });
 });

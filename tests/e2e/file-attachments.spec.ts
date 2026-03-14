@@ -283,17 +283,20 @@ test.describe('File Attachments - UI Display', () => {
     // Poll for attachment linkage before asserting (attachments are linked asynchronously
     // by runSession after the session is created, so we need to wait for that to complete)
     let attachRetries = 0;
-    while (attachRetries < 30) {
+    while (attachRetries < 60) {
       const msgRes = await fetch(`${API_URL}/api/sessions/${session.id}/messages`);
       const msgs = await msgRes.json();
       const firstMsg = msgs.find((m: any) => m.role === 'user');
-      if (firstMsg?.attachments?.length > 0) break;
+      if (firstMsg?.attachments?.length === 2) break; // Wait for both attachments
       await new Promise((r) => setTimeout(r, 500));
       attachRetries++;
     }
 
     await page.reload();
     await waitForPageReady(page);
+
+    // Wait for attachment chips to appear in DOM
+    await page.waitForSelector('.attachment-chip', { timeout: 10000 });
 
     // Verify both attachments are displayed in the attachment chip area
     await expect(page.locator('.attachment-chip .attachment-name').filter({ hasText: 'file-a.txt' }).first()).toBeVisible({ timeout: 10000 });
