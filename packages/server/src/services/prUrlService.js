@@ -150,6 +150,32 @@ export async function extractPrUrlIfNeeded(sessionId) {
         session: sessions.getById(sessionId),
       });
     }
+
+    // Propagate PR URL to root session
+    if (session.parentSessionId) {
+      const rootId = sessions.getRootSessionId(sessionId);
+      if (rootId && rootId !== sessionId) {
+        const root = sessions.getById(rootId);
+        if (root && !root.prUrl) {
+          sessions.update(root.id, { prUrl });
+          console.log(`[SummaryService] Propagated PR URL from session ${sessionId} to root ${root.id}: ${prUrl}`);
+
+          // Broadcast root session update
+          broadcastToSession(root.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+            sessionId: root.id,
+            session: sessions.getById(root.id),
+          });
+
+          if (root.projectId) {
+            broadcastToProject(root.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+              projectId: root.projectId,
+              sessionId: root.id,
+              session: sessions.getById(root.id),
+            });
+          }
+        }
+      }
+    }
   }
 }
 
