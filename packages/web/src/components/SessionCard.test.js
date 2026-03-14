@@ -242,7 +242,21 @@ describe('SessionCard', () => {
   });
 
   describe('date display logic', () => {
-    it('shows createdAt when showProject is false (project view)', () => {
+    it('shows lastActivityAt when available', () => {
+      const wrapper = mountComponent({
+        session: {
+          ...baseSession,
+          createdAt: '2024-01-10T09:00:00Z',
+          updatedAt: '2024-01-15T14:00:00Z',
+          lastActivityAt: '2024-01-20T16:30:00Z',
+        },
+        showProject: false,
+      });
+      const dateText = wrapper.find('.session-date').text();
+      expect(dateText).toMatch(/Jan.*20.*2024/);
+    });
+
+    it('falls back to updatedAt when lastActivityAt is not available', () => {
       const wrapper = mountComponent({
         session: {
           ...baseSession,
@@ -252,15 +266,16 @@ describe('SessionCard', () => {
         showProject: false,
       });
       const dateText = wrapper.find('.session-date').text();
-      expect(dateText).toMatch(/Jan.*10.*2024/);
+      expect(dateText).toMatch(/Jan.*15.*2024/);
     });
 
-    it('shows updatedAt when showProject is true (active sessions view)', () => {
+    it('falls back to createdAt when both lastActivityAt and updatedAt are not available', () => {
       const wrapper = mountComponent({
         session: {
           ...baseSession,
           createdAt: '2024-01-10T09:00:00Z',
           updatedAt: '2024-01-15T14:00:00Z',
+          lastActivityAt: null,
         },
         showProject: true,
       });
