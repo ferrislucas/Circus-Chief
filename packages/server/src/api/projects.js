@@ -71,15 +71,6 @@ router.put('/:id', (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  // Validate summaryDebounceMs if provided
-  if (result.data.summaryDebounceMs !== undefined) {
-    if (!Number.isInteger(result.data.summaryDebounceMs) || result.data.summaryDebounceMs < 100) {
-      return res.status(400).json({
-        error: 'summaryDebounceMs must be an integer >= 100 (milliseconds)'
-      });
-    }
-  }
-
   const updated = projects.update(req.params.id, result.data);
   res.json(updated);
 });
