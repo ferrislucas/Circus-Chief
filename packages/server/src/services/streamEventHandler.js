@@ -581,12 +581,16 @@ export async function handleTurnCompletion(sessionId, workingDirectory, handleTe
       await broadcastChangesUpdate(sessionId, currentSession.projectId, workingDirectory);
     }
 
-    // Check if template should be triggered after turn completion
-    await handleTemplateTriggerIfNeeded(sessionId);
-
-    // Auto-send queued prompt if enabled (MUST be inside the abort guard block)
+    // Auto-send queued prompt if enabled (runs BEFORE template trigger)
+    let autoSendFired = false;
     if (handleAutoSendIfNeeded) {
-      await handleAutoSendIfNeeded(sessionId);
+      autoSendFired = await handleAutoSendIfNeeded(sessionId);
+    }
+
+    // Only trigger next template if auto-send did NOT fire
+    // (if auto-send fired, template will trigger after that turn completes)
+    if (!autoSendFired) {
+      await handleTemplateTriggerIfNeeded(sessionId);
     }
   }
   return false;
