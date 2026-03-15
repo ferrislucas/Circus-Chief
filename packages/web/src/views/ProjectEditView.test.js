@@ -7,7 +7,7 @@ import ProjectEditView from './ProjectEditView.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
-import { DEFAULT_SYSTEM_PROMPT, DEFAULT_SESSION_TITLE_PROMPT } from '@claudetools/shared/constants';
+import { DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared/constants';
 
 // Mock the API and components
 vi.mock('../composables/useApi.js');
@@ -777,47 +777,12 @@ describe('ProjectEditView with Session Defaults', () => {
       expect(text).toContain('Reset to Default');
     });
 
-    // Skipped: sessionTitlePrompt field is not yet implemented in the component
-    it.skip('shows reset button when sessionTitlePrompt differs from default', async () => {
-      const customPrompt = 'Custom title rules';
-      projectsStore.currentProject = {
-        id: 'proj-1',
-        name: 'Test',
-        workingDirectory: '/tmp',
-        sessionTitlePrompt: customPrompt
-      };
-
-      await router.push('/projects/proj-1/edit');
-      await router.isReady();
-
-      const wrapper = mount(ProjectEditView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: { PathChooser: true }
-        }
-      });
-
-      await wrapper.vm.$nextTick();
-      await flushAll(wrapper);
-
-      // Expand Summary Settings
-      const details = wrapper.findAll('details');
-      for (const detail of details) {
-        detail.element.open = true;
-      }
-      await flushAll(wrapper);
-
-      const text = wrapper.text();
-      expect(text).toContain('Reset to Default');
-    });
-
     it('does not show reset button when prompts are at default values', async () => {
       projectsStore.currentProject = {
         id: 'proj-1',
         name: 'Test',
         workingDirectory: '/tmp',
-        systemPrompt: null,
-        sessionTitlePrompt: null
+        systemPrompt: null
       };
 
       await router.push('/projects/proj-1/edit');
