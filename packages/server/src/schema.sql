@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   git_worktree TEXT,
   pr_url TEXT,
   error TEXT,
+  effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto')),
   cost_usd REAL DEFAULT 0,
   claude_session_id TEXT,
   next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
