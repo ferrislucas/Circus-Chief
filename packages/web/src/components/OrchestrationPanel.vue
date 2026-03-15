@@ -41,7 +41,6 @@
           :session-id="sessionId"
           :project-id="projectId"
           :current-template-id="currentTemplateId"
-          :disabled="sessionStatus === 'running'"
           @update:templateId="handleTemplateChange"
         />
       </div>

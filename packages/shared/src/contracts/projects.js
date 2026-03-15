@@ -8,7 +8,6 @@ export const CreateProjectRequest = z.object({
   onSessionDeleted: z.string().nullable().optional(),
   prPollInterval: z.number().int().min(10000).optional(), // Min 10 seconds
   repoUrl: z.string().url().nullable().optional(),
-  sessionTitlePrompt: z.string().nullable().optional(),
 });
 
 export const UpdateProjectRequest = z.object({
@@ -19,7 +18,6 @@ export const UpdateProjectRequest = z.object({
   onSessionDeleted: z.string().nullable().optional(),
   prPollInterval: z.number().int().min(10000).optional(), // Min 10 seconds
   repoUrl: z.string().url().nullable().optional(),
-  sessionTitlePrompt: z.string().nullable().optional(),
 });
 
 export const ProjectResponse = z.object({
@@ -31,7 +29,6 @@ export const ProjectResponse = z.object({
   onSessionDeleted: z.string().nullable(),
   prPollInterval: z.number().int(),
   repoUrl: z.string().url().nullable().optional(),
-  sessionTitlePrompt: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

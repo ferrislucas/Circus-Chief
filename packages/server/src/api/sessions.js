@@ -498,6 +498,7 @@ router.patch('/:id', requireSession, (req, res) => {
     providerId,
     prUrl,
     pendingModel,
+    autoSendPendingPrompt,
     // Scheduling fields
     scheduledAt,
     autoRescheduleEnabled,
@@ -555,6 +556,9 @@ router.patch('/:id', requireSession, (req, res) => {
   }
   if (pendingModel !== undefined) {
     updateData.pendingModel = pendingModel;
+  }
+  if (autoSendPendingPrompt !== undefined) {
+    updateData.autoSendPendingPrompt = autoSendPendingPrompt;
   }
   // Provider ID - allow setting, updating, or clearing (null clears it to use Anthropic)
   if (providerId !== undefined) {
