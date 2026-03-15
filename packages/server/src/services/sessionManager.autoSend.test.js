@@ -80,10 +80,11 @@ describe('sessionManager - handleAutoSendIfNeeded', () => {
       pendingPrompt: 'Some prompt',
     });
 
-    await handleAutoSendIfNeeded(session.id);
+    const result = await handleAutoSendIfNeeded(session.id);
 
     // Should not broadcast any update
     expect(broadcastToSession).not.toHaveBeenCalled();
+    expect(result).toBe(false);
   });
 
   it('does nothing when there is no pending prompt', async () => {
@@ -92,15 +93,17 @@ describe('sessionManager - handleAutoSendIfNeeded', () => {
       pendingPrompt: null,
     });
 
-    await handleAutoSendIfNeeded(session.id);
+    const result = await handleAutoSendIfNeeded(session.id);
 
     expect(broadcastToSession).not.toHaveBeenCalled();
+    expect(result).toBe(false);
   });
 
   it('does nothing when session does not exist', async () => {
-    await handleAutoSendIfNeeded('non-existent-id');
+    const result = await handleAutoSendIfNeeded('non-existent-id');
 
     expect(broadcastToSession).not.toHaveBeenCalled();
+    expect(result).toBe(false);
   });
 
   it('clears autoSendPendingPrompt and pendingPrompt when sending', async () => {
@@ -111,11 +114,12 @@ describe('sessionManager - handleAutoSendIfNeeded', () => {
 
     // handleAutoSendIfNeeded will try to call continueSession, which will fail
     // because we haven't set up a full mock agent. But the flag-clearing should happen first.
-    await handleAutoSendIfNeeded(session.id);
+    const result = await handleAutoSendIfNeeded(session.id);
 
     const updatedSession = sessions.getById(session.id);
     expect(updatedSession.autoSendPendingPrompt).toBe(false);
     expect(updatedSession.pendingPrompt).toBeNull();
+    expect(result).toBe(true);
   });
 
   it('broadcasts session update after clearing flags', async () => {
@@ -147,12 +151,14 @@ describe('sessionManager - handleAutoSendIfNeeded', () => {
       status: 'running', // Not waiting
     });
 
-    await handleAutoSendIfNeeded(session.id);
+    const result = await handleAutoSendIfNeeded(session.id);
 
     // Flags should still be cleared
     const updatedSession = sessions.getById(session.id);
     expect(updatedSession.autoSendPendingPrompt).toBe(false);
     expect(updatedSession.pendingPrompt).toBeNull();
+    // Prompt was consumed (flags cleared) even though send was skipped
+    expect(result).toBe(true);
   });
 
   it('does nothing when pendingPrompt is empty string', async () => {
@@ -161,10 +167,11 @@ describe('sessionManager - handleAutoSendIfNeeded', () => {
       pendingPrompt: '',
     });
 
-    await handleAutoSendIfNeeded(session.id);
+    const result = await handleAutoSendIfNeeded(session.id);
 
     // Empty string is falsy, so early return — should not broadcast
     expect(broadcastToSession).not.toHaveBeenCalled();
+    expect(result).toBe(false);
   });
 
   it('clears flags before calling continueSession', async () => {

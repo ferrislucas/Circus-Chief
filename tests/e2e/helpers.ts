@@ -335,7 +335,7 @@ export async function seedProject(
 
 export async function seedSession(
   projectId: string,
-  data: { prompt: string; name?: string; mode?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string }
+  data: { prompt: string; name?: string; mode?: string; model?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string }
 ) {
   // Default gitMode/gitBranch so tests pass for git-repo-backed projects
   const payload = {

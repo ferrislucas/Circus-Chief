@@ -4,9 +4,12 @@ import {
   seedSession,
   seedProjectTemplate,
   getSession,
+  getSessionMessages,
+  sendSessionMessage,
   cleanupAll,
   cleanupTemplates,
   navigateAndWait,
+  waitForStatus,
   updateSessionStatus,
   updateSessionFields,
   updatePendingPrompt,
@@ -332,5 +335,73 @@ test.describe('Queue Prompt - Auto-Send Reset on Transitions', () => {
 
     // Prompt should still be in the textarea
     await expect(page.locator('textarea')).toHaveValue('My important prompt');
+  });
+});
+
+// ============================================================
+// Category 6: Auto-Send End-to-End via VCR (1 test)
+// ============================================================
+
+test.describe('Queue Prompt - Auto-Send End-to-End', () => {
+  // Real agent turns via VCR cassettes need generous timeouts
+  test.describe.configure({ timeout: 120000 });
+
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    project = await seedProject('QueuePrompt AutoSend E2E', process.cwd());
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+  });
+
+  test('auto-send fires and sends the queued prompt when agent turn completes', async ({ page }) => {
+    // 1. Create a session WITHOUT starting it so we can set up auto-send flags
+    //    before the agent turn begins (VCR replay is too fast for UI interaction).
+    const session = await seedSession(project.id, {
+      prompt: 'Reply with exactly: "Hello from turn one." Nothing else.',
+      model: 'claude-haiku-4-5-20251001',
+      startImmediately: false,
+    });
+
+    // 2. Set auto-send flags via API BEFORE starting the agent turn.
+    //    This ensures handleAutoSendIfNeeded will find the flags when the turn completes.
+    const autoSendPrompt = 'Reply with exactly: "Auto-send received." Nothing else.';
+    await updatePendingPrompt(session.id, autoSendPrompt);
+    await updateSessionFields(session.id, { autoSendPendingPrompt: true });
+
+    // 3. Navigate to the session page
+    await navigateAndWait(page, `/sessions/${session.id}`);
+
+    // 4. Now start the first turn by sending the initial prompt via the message API.
+    //    This calls continueSession on the server, triggering a real agent turn (VCR replayed).
+    await sendSessionMessage(session.id, 'Reply with exactly: "Hello from turn one." Nothing else.');
+
+    // 5. Wait for the session to settle back to 'waiting'.
+    //    With VCR replay, both the first turn AND the auto-sent second turn complete
+    //    almost instantly (~5ms per event). The session goes:
+    //    waiting → running (turn 1) → waiting → running (auto-send turn 2) → waiting
+    //    All within milliseconds, so we just wait for the final 'waiting' state.
+    await waitForStatus(session.id, 'waiting', 60000);
+
+    // 6. Give a small buffer for the auto-send turn to fully complete
+    //    (VCR replay is fast but the status transitions may still be in flight)
+    await page.waitForTimeout(2000);
+
+    // 7. THE KEY ASSERTION: Verify the auto-sent prompt appears as a user message.
+    //    If the bug is present, continueSession throws "Session is already processing",
+    //    the prompt is lost, and only 1 user message exists.
+    //    If the fix works, continueSession succeeds and 2 user messages exist.
+    const messages = await getSessionMessages(session.id);
+    const userMessages = messages.filter((m: any) => m.role === 'user');
+    expect(userMessages.length).toBe(2);
+    expect(userMessages[1].content).toContain('Auto-send received');
+
+    // 8. Verify the auto-send flags were cleared
+    const updatedSession = await getSession(session.id);
+    expect(updatedSession.autoSendPendingPrompt).toBe(false);
+    expect(updatedSession.pendingPrompt).toBeNull();
   });
 });

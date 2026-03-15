@@ -94,7 +94,7 @@ async function handleTemplateTriggerIfNeeded(sessionId) {
 export async function handleAutoSendIfNeeded(sessionId) {
   const session = sessions.getById(sessionId);
   if (!session || !session.autoSendPendingPrompt || !session.pendingPrompt) {
-    return;
+    return false;
   }
 
   // Clear the auto-send flag and pending prompt BEFORE sending
@@ -115,8 +115,17 @@ export async function handleAutoSendIfNeeded(sessionId) {
   // Re-check status — template trigger may have changed it
   const currentSession = sessions.getById(sessionId);
   if (currentSession?.status !== 'waiting') {
-    return;
+    return true;
   }
+
+  // Clean up the current session's active state before calling continueSession.
+  // handleAutoSendIfNeeded runs inside _executeSession's try block, so the session
+  // is still in activeSessions. continueSession guards against this with
+  // "Session is already processing". Cleaning up here is safe because:
+  // 1. The agent stream has already ended
+  // 2. cleanupSessionState just deletes Map entries (all idempotent)
+  // 3. The finally block's redundant call is a harmless no-op
+  cleanupSessionState(sessionId);
 
   // Send the queued prompt (reuses existing continueSession logic)
   try {
@@ -126,6 +135,7 @@ export async function handleAutoSendIfNeeded(sessionId) {
   } catch (error) {
     console.error(`[AUTO-SEND] Failed to auto-send for session ${sessionId}:`, error);
   }
+  return true;
 }
 
 /**
