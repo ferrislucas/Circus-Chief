@@ -824,62 +824,11 @@ export class DatabaseManager {
       'session_title_prompt',
     ];
 
-    // If none of the columns exist, migration already done
-    const hasAny = columnsToRemove.some((col) => columns.includes(col));
-    if (!hasAny) {
-      return;
-    }
-
-    // Build list of columns to keep (everything except the ones we're removing)
-    const columnsToKeep = columns.filter((col) => !columnsToRemove.includes(col));
-    const columnList = columnsToKeep.join(', ');
-
-    // Get original CREATE TABLE statement to reconstruct column definitions
-    const tableSchema = this.#db
-      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='projects'")
-      .get();
-
-    // Parse column definitions from the original CREATE TABLE
-    // Extract content between first ( and last )
-    const createSql = tableSchema.sql;
-    const innerStart = createSql.indexOf('(') + 1;
-    const innerEnd = createSql.lastIndexOf(')');
-    const innerContent = createSql.substring(innerStart, innerEnd);
-
-    // Split into individual column definitions (respecting nested parens for DEFAULT expressions)
-    const columnDefs = [];
-    let depth = 0;
-    let current = '';
-    for (const char of innerContent) {
-      if (char === '(') depth++;
-      else if (char === ')') depth--;
-      else if (char === ',' && depth === 0) {
-        columnDefs.push(current.trim());
-        current = '';
-        continue;
+    for (const col of columnsToRemove) {
+      if (columns.includes(col)) {
+        this.#db.exec(`ALTER TABLE projects DROP COLUMN ${col}`);
       }
-      current += char;
     }
-    if (current.trim()) columnDefs.push(current.trim());
-
-    // Filter out column definitions for the columns we want to remove
-    const keptDefs = columnDefs.filter((def) => {
-      const colName = def.trim().split(/\s+/)[0].toLowerCase();
-      return !columnsToRemove.includes(colName);
-    });
-
-    this.#db.exec(`
-      CREATE TABLE projects_new (
-        ${keptDefs.join(',\n        ')}
-      );
-
-      INSERT INTO projects_new (${columnList})
-      SELECT ${columnList} FROM projects;
-
-      DROP TABLE projects;
-
-      ALTER TABLE projects_new RENAME TO projects;
-    `);
   }
 
   /**
