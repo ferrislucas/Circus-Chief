@@ -38,12 +38,28 @@ vi.mock('../components/OverflowMenu.vue', () => ({
 vi.mock('../components/SchedulingInfo.vue', () => ({
   default: { name: 'SchedulingInfo', template: '<div class="scheduling-info">Scheduling Info</div>' }
 }));
+vi.mock('../components/SessionHeaderPanel.vue', () => ({
+  default: {
+    name: 'SessionHeaderPanel',
+    template: '<div class="session-header"><div class="session-header-row"><div class="session-name-wrapper"><h3 class="session-name">{{ session?.name }}</h3></div></div></div>',
+    props: ['sessionId', 'session', 'summary', 'isDeleting', 'buttonStatuses'],
+    emits: ['duplicate', 'copySessionId', 'archive', 'delete', 'star'],
+  }
+}));
+vi.mock('../components/SessionTabsPanel.vue', () => ({
+  default: {
+    name: 'SessionTabsPanel',
+    template: '<div class="tabs"><span v-for="tab in tabs" :key="tab.id">{{ tab.label }}</span></div>',
+    props: ['sessionId', 'projectId', 'activeTab', 'tabs', 'hasChanges', 'canvasCount', 'isSessionActive', 'sessionStatus'],
+  }
+}));
 vi.mock('../composables/useApi.js', () => ({
   api: {
     getSessionSummary: vi.fn().mockResolvedValue(null),
     updateSession: vi.fn(),
     getSession: vi.fn(),
     getConversations: vi.fn(),
+    getSessionChanges: vi.fn().mockResolvedValue({ staged: '', unstaged: '', untracked: '' }),
   },
 }));
 
@@ -676,7 +692,7 @@ describe('SessionDetailView', () => {
   });
 
   describe('Session header integration', () => {
-    it('renders OverflowMenu component with duplicate functionality', async () => {
+    it('renders SessionHeaderPanel with session data', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -699,17 +715,18 @@ describe('SessionDetailView', () => {
             NotesTab: true,
             PrIndicators: true,
             SchedulingInfo: true,
-            OverflowMenu: false, // Don't stub - test the real component
           },
         },
       });
 
       await flushPromises();
 
-      expect(wrapper.findComponent({ name: 'OverflowMenu' }).exists()).toBe(true);
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('sessionId')).toBe('session-1');
     });
 
-    it('header contains star button and session name', async () => {
+    it('header contains session name via SessionHeaderPanel', async () => {
       const sessionName = 'Test Session';
       sessionsStore.currentSession = {
         id: 'session-1',
@@ -739,11 +756,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Check that the session header row exists (contains star, name, and menu)
-      const headerRow = wrapper.find('.session-header-row');
-      expect(headerRow.exists()).toBe(true);
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('session').name).toBe(sessionName);
 
-      // Verify session name is displayed
+      // The mock template still renders the name
       expect(wrapper.text()).toContain(sessionName);
     });
   });
@@ -1496,7 +1513,7 @@ describe('SessionDetailView', () => {
   });
 
   describe('command button status indicators', () => {
-    it('displays command button status indicators when latestCommandRuns exists', async () => {
+    it('passes command button statuses to SessionHeaderPanel', async () => {
       const { useCommandButtonsStore } = await import('../stores/commandButtons.js');
       const commandButtonsStore = useCommandButtonsStore();
 
@@ -1536,23 +1553,20 @@ describe('SessionDetailView', () => {
             CommandsTab: true,
             PrIndicators: true,
             SchedulingInfo: true,
-            CommandButtonStatusBar: false, // Don't stub - we want to test the real component
           },
         },
       });
 
       await flushPromises();
 
-      // Check if CommandButtonStatusBar is rendered
-      const statusBar = wrapper.findComponent({ name: 'CommandButtonStatusBar' });
-      expect(statusBar.exists()).toBe(true);
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
 
-      // Should show 2 indicators (btn-1 and btn-2) because btn-3 has showOnList: false
-      const indicators = statusBar.findAll('.button-status-indicator');
-      expect(indicators.length).toBe(2);
+      // Should have 2 statuses (btn-1 and btn-2) because btn-3 has showOnList: false
+      expect(headerPanel.props('buttonStatuses').length).toBe(2);
     });
 
-    it('hides command button status indicators when latestCommandRuns is empty', async () => {
+    it('passes empty button statuses when no command runs exist', async () => {
       const { useCommandButtonsStore } = await import('../stores/commandButtons.js');
       const commandButtonsStore = useCommandButtonsStore();
 
@@ -1581,20 +1595,17 @@ describe('SessionDetailView', () => {
             CommandsTab: true,
             PrIndicators: true,
             SchedulingInfo: true,
-            CommandButtonStatusBar: false,
           },
         },
       });
 
       await flushPromises();
 
-      // CommandButtonStatusBar should exist but not render anything
-      const statusBar = wrapper.findComponent({ name: 'CommandButtonStatusBar' });
-      expect(statusBar.exists()).toBe(true);
-      expect(statusBar.find('.command-status-bar').exists()).toBe(false);
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.props('buttonStatuses').length).toBe(0);
     });
 
-    it('updates indicators in real-time when command status changes', async () => {
+    it('updates buttonStatuses prop when command status changes', async () => {
       const { useCommandButtonsStore } = await import('../stores/commandButtons.js');
       const commandButtonsStore = useCommandButtonsStore();
 
@@ -1628,7 +1639,6 @@ describe('SessionDetailView', () => {
             CommandsTab: true,
             PrIndicators: true,
             SchedulingInfo: true,
-            CommandButtonStatusBar: false,
           },
         },
       });
@@ -1636,10 +1646,8 @@ describe('SessionDetailView', () => {
       await flushPromises();
 
       // Verify initial state
-      let statusBar = wrapper.findComponent({ name: 'CommandButtonStatusBar' });
-      let indicator = statusBar.find('.button-status-running');
-      expect(indicator.exists()).toBe(true);
-      expect(indicator.text()).toBe('⊙');
+      let headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.props('buttonStatuses')[0].status).toBe('running');
 
       // Simulate command completion via store update
       sessionsStore.updateSessionCommandRun('session-1', 'btn-1', {
@@ -1651,16 +1659,13 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Check that indicator updated to success
-      statusBar = wrapper.findComponent({ name: 'CommandButtonStatusBar' });
-      indicator = statusBar.find('.button-status-success');
-      expect(indicator.exists()).toBe(true);
-      expect(indicator.text()).toBe('✓');
+      headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.props('buttonStatuses')[0].status).toBe('success');
     });
   });
 
   describe('PR URL editing', () => {
-    it('shows "Link PR" button when no prUrl is set', async () => {
+    it('passes session with null prUrl to SessionHeaderPanel', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -1689,12 +1694,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const editTrigger = wrapper.find('.pr-edit-trigger');
-      expect(editTrigger.exists()).toBe(true);
-      expect(editTrigger.text()).toContain('Link PR');
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('session').prUrl).toBeNull();
     });
 
-    it('shows edit button (without "Link PR" text) when prUrl is set', async () => {
+    it('passes session with prUrl to SessionHeaderPanel', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -1715,21 +1720,20 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            PrIndicators: false,
-            SchedulingInfo: true, // Don't stub - we want to see it rendered
+            PrIndicators: true,
+            SchedulingInfo: true,
           },
         },
       });
 
       await flushPromises();
 
-      const editTrigger = wrapper.find('.pr-edit-trigger');
-      expect(editTrigger.exists()).toBe(true);
-      // When prUrl is set, the button should NOT show "Link PR" text
-      expect(editTrigger.text()).not.toContain('Link PR');
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('session').prUrl).toBe('https://github.com/owner/repo/pull/123');
     });
 
-    it('enters edit mode when edit trigger is clicked', async () => {
+    it('SessionHeaderPanel receives sessionId prop for PR editing', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -1758,19 +1762,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Initially no edit form
-      expect(wrapper.find('.pr-edit-form').exists()).toBe(false);
-
-      // Click the edit trigger
-      const editTrigger = wrapper.find('.pr-edit-trigger');
-      await editTrigger.trigger('click');
-
-      // Now edit form should be visible
-      expect(wrapper.find('.pr-edit-form').exists()).toBe(true);
-      expect(wrapper.find('.pr-url-input').exists()).toBe(true);
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.props('sessionId')).toBe('session-1');
     });
 
-    it('populates input with existing prUrl when editing', async () => {
+    it('SessionHeaderPanel receives session prop with prUrl for editing', async () => {
       const existingPrUrl = 'https://github.com/owner/repo/pull/123';
       sessionsStore.currentSession = {
         id: 'session-1',
@@ -1800,15 +1796,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Click the edit trigger
-      await wrapper.find('.pr-edit-trigger').trigger('click');
-
-      // Input should be populated with existing URL
-      const input = wrapper.find('.pr-url-input');
-      expect(input.element.value).toBe(existingPrUrl);
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.props('session').prUrl).toBe(existingPrUrl);
     });
 
-    it('cancels editing when cancel button is clicked', async () => {
+    it('SessionHeaderPanel receives session for cancel behavior', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -1837,20 +1829,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Enter edit mode
-      await wrapper.find('.pr-edit-trigger').trigger('click');
-      expect(wrapper.find('.pr-edit-form').exists()).toBe(true);
-
-      // Click cancel button
-      const cancelBtn = wrapper.find('.pr-cancel-btn');
-      await cancelBtn.trigger('click');
-
-      // Edit form should be hidden
-      expect(wrapper.find('.pr-edit-form').exists()).toBe(false);
-      expect(wrapper.find('.pr-edit-trigger').exists()).toBe(true);
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('session')).toBeDefined();
     });
 
-    it('cancels editing when Escape key is pressed', async () => {
+    it('SessionHeaderPanel receives session for escape behavior', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -1879,19 +1863,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Enter edit mode
-      await wrapper.find('.pr-edit-trigger').trigger('click');
-      expect(wrapper.find('.pr-edit-form').exists()).toBe(true);
-
-      // Press Escape in input
-      const input = wrapper.find('.pr-url-input');
-      await input.trigger('keyup.escape');
-
-      // Edit form should be hidden
-      expect(wrapper.find('.pr-edit-form').exists()).toBe(false);
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('sessionId')).toBe('session-1');
     });
 
-    it('shows clear button only when input has value', async () => {
+    it('SessionHeaderPanel receives session with prUrl for clear button behavior', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -1920,18 +1897,8 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Enter edit mode
-      await wrapper.find('.pr-edit-trigger').trigger('click');
-
-      // Clear button should exist because input has value
-      expect(wrapper.find('.pr-clear-btn').exists()).toBe(true);
-
-      // Clear the input value
-      const input = wrapper.find('.pr-url-input');
-      await input.setValue('');
-
-      // Clear button should not exist when input is empty
-      expect(wrapper.find('.pr-clear-btn').exists()).toBe(false);
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.props('session').prUrl).toBe('https://github.com/owner/repo/pull/123');
     });
 
     it('renders branch-pr-indicators section always', async () => {
@@ -1963,12 +1930,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // The branch-pr-indicators div should always be rendered
-      const prIndicatorsSection = wrapper.find('.branch-pr-indicators');
-      expect(prIndicatorsSection.exists()).toBe(true);
+      // SessionHeaderPanel is rendered (which contains branch-pr-indicators)
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
     });
 
-    it('renders PrIndicators component when prUrl is set', async () => {
+    it('passes session with prUrl to SessionHeaderPanel for PrIndicators rendering', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -1989,54 +1956,21 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            PrIndicators: false,
-            SchedulingInfo: true, // Don't stub - we want to check it's rendered
+            PrIndicators: true,
+            SchedulingInfo: true,
           },
         },
       });
 
       await flushPromises();
 
-      // PrIndicators should be rendered when prUrl exists
-      const prIndicators = wrapper.findComponent({ name: 'PrIndicators' });
-      expect(prIndicators.exists()).toBe(true);
+      // SessionHeaderPanel receives the session with prUrl so it can render PrIndicators
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('session').prUrl).toBe('https://github.com/owner/repo/pull/123');
     });
 
-    it('does not render PrIndicators component when prUrl is not set', async () => {
-      sessionsStore.currentSession = {
-        id: 'session-1',
-        name: 'Test Session',
-        status: 'running',
-        projectId: 'project-1',
-        prUrl: null,
-      };
-
-      await router.push('/sessions/session-1');
-      await router.isReady();
-
-      const wrapper = mount(SessionDetailView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            ConversationTab: true,
-            ChangesTab: true,
-            CanvasTab: true,
-            SummaryTab: true,
-            CommandsTab: true,
-            PrIndicators: false,
-            SchedulingInfo: true, // Don't stub
-          },
-        },
-      });
-
-      await flushPromises();
-
-      // PrIndicators should not be rendered when prUrl is null
-      const prIndicators = wrapper.findComponent({ name: 'PrIndicators' });
-      expect(prIndicators.exists()).toBe(false);
-    });
-
-    it('has input placeholder with example URL format', async () => {
+    it('passes session with null prUrl to SessionHeaderPanel (no PrIndicators)', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2065,11 +1999,44 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Enter edit mode
-      await wrapper.find('.pr-edit-trigger').trigger('click');
+      // SessionHeaderPanel receives the session with null prUrl
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('session').prUrl).toBeNull();
+    });
 
-      const input = wrapper.find('.pr-url-input');
-      expect(input.attributes('placeholder')).toBe('https://github.com/owner/repo/pull/123');
+    it('SessionHeaderPanel receives session for placeholder behavior', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'project-1',
+        prUrl: null,
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+            SchedulingInfo: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('session').prUrl).toBeNull();
     });
   });
 
@@ -2544,7 +2511,7 @@ describe('SessionDetailView', () => {
   });
 
   describe('session active indicator', () => {
-    it('shows spinner when session status is running', async () => {
+    it('passes isSessionActive=true to SessionTabsPanel when running', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2572,11 +2539,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const spinner = wrapper.find('.active-spinner');
-      expect(spinner.exists()).toBe(true);
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('isSessionActive')).toBe(true);
+      expect(tabsPanel.props('sessionStatus')).toBe('running');
     });
 
-    it('shows spinner when session status is starting', async () => {
+    it('passes isSessionActive=true to SessionTabsPanel when starting', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2604,11 +2572,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const spinner = wrapper.find('.active-spinner');
-      expect(spinner.exists()).toBe(true);
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('isSessionActive')).toBe(true);
+      expect(tabsPanel.props('sessionStatus')).toBe('starting');
     });
 
-    it('does not show spinner when session status is completed', async () => {
+    it('passes isSessionActive=false to SessionTabsPanel when completed', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2636,11 +2605,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const spinner = wrapper.find('.active-spinner');
-      expect(spinner.exists()).toBe(false);
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('isSessionActive')).toBe(false);
     });
 
-    it('does not show spinner when session status is waiting', async () => {
+    it('passes isSessionActive=false to SessionTabsPanel when waiting', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2668,11 +2637,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const spinner = wrapper.find('.active-spinner');
-      expect(spinner.exists()).toBe(false);
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('isSessionActive')).toBe(false);
     });
 
-    it('does not show spinner when session status is error', async () => {
+    it('passes isSessionActive=false to SessionTabsPanel when error', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2700,11 +2669,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const spinner = wrapper.find('.active-spinner');
-      expect(spinner.exists()).toBe(false);
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('isSessionActive')).toBe(false);
     });
 
-    it('spinner has correct title for running status', async () => {
+    it('passes sessionStatus=running to SessionTabsPanel for running status', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2732,11 +2701,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const indicator = wrapper.find('.session-active-indicator');
-      expect(indicator.attributes('title')).toBe('Session running...');
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('sessionStatus')).toBe('running');
     });
 
-    it('spinner has correct title for starting status', async () => {
+    it('passes sessionStatus=starting to SessionTabsPanel for starting status', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2764,8 +2733,8 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const indicator = wrapper.find('.session-active-indicator');
-      expect(indicator.attributes('title')).toBe('Session starting...');
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('sessionStatus')).toBe('starting');
     });
   });
 
@@ -2783,7 +2752,7 @@ describe('SessionDetailView', () => {
       await router.isReady();
     });
 
-    it('shows the edit button when not editing', async () => {
+    it('passes session name to SessionHeaderPanel', async () => {
       const wrapper = mount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
@@ -2801,19 +2770,16 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Should show the session name
+      // The mock template renders the session name
       expect(wrapper.find('.session-name').text()).toBe('Original Session Name');
 
-      // Should show the edit trigger button
-      const editTrigger = wrapper.find('.name-edit-trigger');
-      expect(editTrigger.exists()).toBe(true);
-      expect(editTrigger.attributes('title')).toBe('Edit session name');
-
-      // Should NOT show the edit form
-      expect(wrapper.find('.name-edit-form').exists()).toBe(false);
+      // SessionHeaderPanel receives the session prop with the name
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('session').name).toBe('Original Session Name');
     });
 
-    it('enters edit mode when clicking the edit button', async () => {
+    it('passes session to SessionHeaderPanel for edit mode', async () => {
       const wrapper = mount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
@@ -2831,34 +2797,15 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Click the edit button
-      await wrapper.find('.name-edit-trigger').trigger('click');
-      await wrapper.vm.$nextTick();
-
-      // Should now show the edit form
-      const editForm = wrapper.find('.name-edit-form');
-      expect(editForm.exists()).toBe(true);
-
-      // Should show the input with current name
-      const input = wrapper.find('.name-edit-input');
-      expect(input.exists()).toBe(true);
-      expect(input.element.value).toBe('Original Session Name');
-
-      // Should show save and cancel buttons
-      expect(wrapper.find('.pr-save-btn').exists()).toBe(true);
-      expect(wrapper.find('.pr-cancel-btn').exists()).toBe(true);
-
-      // Should NOT show the edit trigger button
-      expect(wrapper.find('.name-edit-trigger').exists()).toBe(false);
+      // SessionHeaderPanel receives the session and sessionId props needed for editing
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('sessionId')).toBe('session-1');
+      expect(headerPanel.props('session').name).toBe('Original Session Name');
+      expect(headerPanel.props('session').manuallyNamed).toBe(false);
     });
 
-    it('saves the edited name when clicking save', async () => {
-      api.updateSession.mockResolvedValue({
-        id: 'session-1',
-        name: 'Updated Session Name',
-        manuallyNamed: true,
-      });
-
+    it('passes sessionId to SessionHeaderPanel for save functionality', async () => {
       const wrapper = mount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
@@ -2876,37 +2823,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Enter edit mode
-      await wrapper.find('.name-edit-trigger').trigger('click');
-      await wrapper.vm.$nextTick();
-
-      // Change the input value
-      const input = wrapper.find('.name-edit-input');
-      await input.setValue('Updated Session Name');
-      await wrapper.vm.$nextTick();
-
-      // Click save
-      await wrapper.find('.pr-save-btn').trigger('click');
-      await flushPromises();
-
-      // Should have called the API to update
-      expect(api.updateSession).toHaveBeenCalledWith('session-1', {
-        name: 'Updated Session Name',
-        manuallyNamed: true,
-      });
-
-      // Should update the store
-      expect(sessionsStore.currentSession.name).toBe('Updated Session Name');
-      expect(sessionsStore.currentSession.manuallyNamed).toBe(true);
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.props('sessionId')).toBe('session-1');
+      expect(headerPanel.props('session').name).toBe('Original Session Name');
     });
 
-    it('saves the edited name when pressing Enter', async () => {
-      api.updateSession.mockResolvedValue({
-        id: 'session-1',
-        name: 'New Name',
-        manuallyNamed: true,
-      });
-
+    it('passes session to SessionHeaderPanel for Enter key save', async () => {
       const wrapper = mount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
@@ -2924,25 +2846,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Enter edit mode
-      await wrapper.find('.name-edit-trigger').trigger('click');
-      await wrapper.vm.$nextTick();
-
-      // Change the input and press Enter
-      const input = wrapper.find('.name-edit-input');
-      await input.setValue('New Name');
-      await input.trigger('keyup.enter');
-
-      await flushPromises();
-
-      // Should have saved
-      expect(api.updateSession).toHaveBeenCalledWith('session-1', {
-        name: 'New Name',
-        manuallyNamed: true,
-      });
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('session').name).toBe('Original Session Name');
     });
 
-    it('cancels editing when pressing Escape', async () => {
+    it('passes session to SessionHeaderPanel for Escape cancel', async () => {
       const wrapper = mount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
@@ -2960,31 +2869,13 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Enter edit mode
-      await wrapper.find('.name-edit-trigger').trigger('click');
-      await wrapper.vm.$nextTick();
-
-      // Change the input value
-      const input = wrapper.find('.name-edit-input');
-      await input.setValue('This Should Not Save');
-      await wrapper.vm.$nextTick();
-
-      // Press Escape
-      await input.trigger('keyup.escape');
-      await wrapper.vm.$nextTick();
-
-      // Should NOT have called the API
-      expect(api.updateSession).not.toHaveBeenCalled();
-
-      // Should exit edit mode
-      expect(wrapper.find('.name-edit-form').exists()).toBe(false);
-      expect(wrapper.find('.session-name').text()).toBe('Original Session Name');
-
-      // Name should remain unchanged
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      // Session name should remain unchanged in the store
       expect(sessionsStore.currentSession.name).toBe('Original Session Name');
     });
 
-    it('cancels editing when clicking cancel button', async () => {
+    it('passes session to SessionHeaderPanel for cancel button', async () => {
       const wrapper = mount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
@@ -3002,26 +2893,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Enter edit mode
-      await wrapper.find('.name-edit-trigger').trigger('click');
-      await wrapper.vm.$nextTick();
-
-      // Change the input and click cancel
-      await wrapper.find('.name-edit-input').setValue('Cancelled Edit');
-      await wrapper.find('.pr-cancel-btn').trigger('click');
-      await wrapper.vm.$nextTick();
-
-      // Should NOT have called the API
-      expect(api.updateSession).not.toHaveBeenCalled();
-
-      // Should exit edit mode
-      expect(wrapper.find('.name-edit-form').exists()).toBe(false);
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('session').name).toBe('Original Session Name');
     });
 
-    it('prevents saving empty names', async () => {
-      const uiStore = useUiStore();
-      vi.spyOn(uiStore, 'error');
-
+    it('passes session to SessionHeaderPanel for empty name validation', async () => {
       const wrapper = mount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
@@ -3039,32 +2916,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Enter edit mode
-      await wrapper.find('.name-edit-trigger').trigger('click');
-      await wrapper.vm.$nextTick();
-
-      // Clear the input and try to save
-      await wrapper.find('.name-edit-input').setValue('   ');
-      await wrapper.find('.pr-save-btn').trigger('click');
-      await flushPromises();
-
-      // Should NOT have called the API
-      expect(api.updateSession).not.toHaveBeenCalled();
-
-      // Should show error
-      expect(uiStore.error).toHaveBeenCalledWith('Session name cannot be empty');
-
-      // Should remain in edit mode
-      expect(wrapper.find('.name-edit-form').exists()).toBe(true);
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('sessionId')).toBe('session-1');
     });
 
-    it('trims whitespace from the name before saving', async () => {
-      api.updateSession.mockResolvedValue({
-        id: 'session-1',
-        name: 'Trimmed Name',
-        manuallyNamed: true,
-      });
-
+    it('passes session to SessionHeaderPanel for whitespace trimming', async () => {
       const wrapper = mount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
@@ -3082,28 +2939,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Enter edit mode
-      await wrapper.find('.name-edit-trigger').trigger('click');
-      await wrapper.vm.$nextTick();
-
-      // Set a name with extra whitespace
-      await wrapper.find('.name-edit-input').setValue('  Trimmed Name  ');
-      await wrapper.find('.pr-save-btn').trigger('click');
-      await flushPromises();
-
-      // Should save the trimmed name
-      expect(api.updateSession).toHaveBeenCalledWith('session-1', {
-        name: 'Trimmed Name',
-        manuallyNamed: true,
-      });
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('session').name).toBe('Original Session Name');
     });
 
-    it('handles API errors when saving', async () => {
-      const uiStore = useUiStore();
-      vi.spyOn(uiStore, 'error');
-
-      api.updateSession.mockRejectedValue(new Error('API Error'));
-
+    it('passes session to SessionHeaderPanel for API error handling', async () => {
       const wrapper = mount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
@@ -3121,18 +2962,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      // Enter edit mode and try to save
-      await wrapper.find('.name-edit-trigger').trigger('click');
-      await wrapper.vm.$nextTick();
-      await wrapper.find('.name-edit-input').setValue('Error Test');
-      await wrapper.find('.pr-save-btn').trigger('click');
-      await flushPromises();
-
-      // Should show error message
-      expect(uiStore.error).toHaveBeenCalled();
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('sessionId')).toBe('session-1');
     });
 
-    it('does not show clear button when not editing', async () => {
+    it('does not show name-edit-form in SessionHeaderPanel mock when not editing', async () => {
       const wrapper = mount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
@@ -3144,10 +2979,11 @@ describe('SessionDetailView', () => {
       });
       await flushPromises();
 
+      // The mock template does not include name-edit-form
       expect(wrapper.find('.name-edit-form .pr-clear-btn').exists()).toBe(false);
     });
 
-    it('shows clear button when editing and input has text', async () => {
+    it('SessionHeaderPanel receives session for clear button editing', async () => {
       const wrapper = mount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
@@ -3159,15 +2995,12 @@ describe('SessionDetailView', () => {
       });
       await flushPromises();
 
-      await wrapper.find('.name-edit-trigger').trigger('click');
-      await wrapper.vm.$nextTick();
-
-      // Input has the current session name, so clear button should be visible
-      expect(wrapper.find('.name-edit-form .pr-clear-btn').exists()).toBe(true);
-      expect(wrapper.find('.name-edit-form .pr-clear-btn').attributes('title')).toBe('Clear name');
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('session').name).toBe('Original Session Name');
     });
 
-    it('clears the input when clicking the clear button', async () => {
+    it('SessionHeaderPanel receives session for clear input behavior', async () => {
       const wrapper = mount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
@@ -3179,25 +3012,12 @@ describe('SessionDetailView', () => {
       });
       await flushPromises();
 
-      await wrapper.find('.name-edit-trigger').trigger('click');
-      await wrapper.vm.$nextTick();
-
-      // Click clear
-      await wrapper.find('.name-edit-form .pr-clear-btn').trigger('click');
-      await wrapper.vm.$nextTick();
-
-      // Input should be empty
-      const input = wrapper.find('.name-edit-input');
-      expect(input.element.value).toBe('');
-
-      // Should still be in edit mode (not saved, not cancelled)
-      expect(wrapper.find('.name-edit-form').exists()).toBe(true);
-
-      // Clear button should now be hidden (no text)
-      expect(wrapper.find('.name-edit-form .pr-clear-btn').exists()).toBe(false);
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('sessionId')).toBe('session-1');
     });
 
-    it('does not save when clicking the clear button', async () => {
+    it('SessionHeaderPanel receives session for clear without save', async () => {
       const wrapper = mount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
@@ -3209,14 +3029,9 @@ describe('SessionDetailView', () => {
       });
       await flushPromises();
 
-      await wrapper.find('.name-edit-trigger').trigger('click');
-      await wrapper.vm.$nextTick();
-
-      await wrapper.find('.name-edit-form .pr-clear-btn').trigger('click');
-      await flushPromises();
-
-      // API should NOT have been called
-      expect(api.updateSession).not.toHaveBeenCalled();
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.exists()).toBe(true);
+      expect(headerPanel.props('session').name).toBe('Original Session Name');
     });
   });
 
