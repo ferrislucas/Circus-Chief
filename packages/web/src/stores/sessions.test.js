@@ -4888,4 +4888,43 @@ describe('Sessions Store', () => {
       expect(store.sessions[0].summary).toBe('Test summary');
     });
   });
+
+  describe('updateAutoSendPendingPrompt', () => {
+    it('calls api.updateSession with autoSendPendingPrompt', async () => {
+      const store = useSessionsStore();
+      store.currentSession = { id: 'sess-1', status: 'running' };
+      store.sessions = [{ id: 'sess-1', status: 'running' }];
+
+      api.updateSession.mockResolvedValue({ id: 'sess-1', autoSendPendingPrompt: true });
+
+      await store.updateAutoSendPendingPrompt('sess-1', true);
+
+      expect(api.updateSession).toHaveBeenCalledWith('sess-1', { autoSendPendingPrompt: true });
+    });
+
+    it('updates currentSession with autoSendPendingPrompt value', async () => {
+      const store = useSessionsStore();
+      store.currentSession = { id: 'sess-1', status: 'running', autoSendPendingPrompt: false };
+      store.sessions = [{ id: 'sess-1', status: 'running', autoSendPendingPrompt: false }];
+
+      api.updateSession.mockResolvedValue({ id: 'sess-1', autoSendPendingPrompt: true });
+
+      await store.updateAutoSendPendingPrompt('sess-1', true);
+
+      expect(store.currentSession.autoSendPendingPrompt).toBe(true);
+    });
+
+    it('can disable autoSendPendingPrompt', async () => {
+      const store = useSessionsStore();
+      store.currentSession = { id: 'sess-1', status: 'running', autoSendPendingPrompt: true };
+      store.sessions = [{ id: 'sess-1', status: 'running', autoSendPendingPrompt: true }];
+
+      api.updateSession.mockResolvedValue({ id: 'sess-1', autoSendPendingPrompt: false });
+
+      await store.updateAutoSendPendingPrompt('sess-1', false);
+
+      expect(api.updateSession).toHaveBeenCalledWith('sess-1', { autoSendPendingPrompt: false });
+      expect(store.currentSession.autoSendPendingPrompt).toBe(false);
+    });
+  });
 });
