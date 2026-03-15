@@ -33,6 +33,7 @@ import { extractPrUrlIfNeeded, parsePrUrl, validatePrUrl, enrichPrData } from '.
 import { getChildSessions, buildChildSessionContext, aggregateFilesModified } from './childSessionContext.js';
 import { isConversationSummaryEnabled, generateConversationSummary, doGenerateSessionAndConversationSummary } from './conversationSummary.js';
 import { broadcastSummaryUpdate, broadcastGeneratingStatus, broadcastSessionUpdate } from './summaryBroadcast.js';
+import { isSummaryStale } from './summaryStaleCheck.js';
 
 // Note: prStatusService is imported dynamically in onSessionComplete to avoid circular dependency
 
@@ -229,6 +230,11 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
 
       const updatedSession = sessions.update(sessionId, updateData);
 
+      // Propagate PR URL to parent session
+      if (summaryData.prUrl) {
+        propagatePrUrlToParent(sessionId, summaryData.prUrl);
+      }
+
       // Broadcast session update for real-time UI sync
       broadcastSessionUpdate(sessionId, session.projectId, updatedSession);
     } else {
@@ -379,34 +385,8 @@ export async function regenerateSummary(sessionId) {
   return generateSummary(sessionId, 0, true, true);
 }
 
-/**
- * Check if a summary is stale (message count or last message ID has changed)
- * @param {string} sessionId
- * @returns {boolean}
- */
-export function isSummaryStale(sessionId) {
-  const summary = sessionSummaries.getBySessionId(sessionId);
-  if (!summary) return true;
-
-  const allMessages = messages.getBySessionId(sessionId);
-
-  // Use message ID-based staleness detection if available
-  if (summary.lastSummarizedMessageId) {
-    const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
-    const lastMessageId = lastMessage ? lastMessage.id : null;
-
-    // Summary is stale if the last message ID doesn't match
-    if (lastMessageId !== summary.lastSummarizedMessageId) {
-      return true;
-    }
-
-    // Also validate count as a secondary check (defensive programming)
-    return allMessages.length !== summary.messageCount;
-  }
-
-  // Fallback to count-based staleness detection for old summaries
-  return allMessages.length !== summary.messageCount;
-}
+// Re-export isSummaryStale from summaryStaleCheck.js for backward compatibility
+export { isSummaryStale };
 
 /**
  * Clean up any in-flight state for a session (call on session deletion)
@@ -443,6 +423,33 @@ export async function propagateToParent(sessionId) {
   generateSummary(session.parentSessionId);
 }
 
+/**
+ * Propagate PR URL from a child session to its root session.
+ * Walks up the parent chain to find the root and sets the PR URL there.
+ * Only sets the root's prUrl if it doesn't already have one.
+ * @param {string} sessionId - The child session that received a PR URL
+ * @param {string} prUrl - The PR URL to propagate
+ */
+export function propagatePrUrlToParent(sessionId, prUrl) {
+  if (!prUrl) return;
+
+  const session = sessions.getById(sessionId);
+  if (!session || !session.parentSessionId) return; // already root or orphan
+
+  const rootId = sessions.getRootSessionId(sessionId);
+  if (!rootId || rootId === sessionId) return;
+
+  const root = sessions.getById(rootId);
+  if (!root || root.prUrl) return; // Don't overwrite existing PR URL
+
+  sessions.update(root.id, { prUrl });
+
+  // Broadcast updates
+  broadcastSessionUpdate(root.id, root.projectId, sessions.getById(root.id));
+
+  console.log(`[SummaryService] Propagated PR URL from session ${sessionId} to root ${root.id}: ${prUrl}`);
+}
+
 // Re-export from extracted modules for backward compatibility
 // These are used by external consumers and tests
 export {
@@ -473,7 +480,6 @@ export { getChildSessions, buildChildSessionContext, aggregateFilesModified };
 // From conversationSummary.js
 export { isConversationSummaryEnabled, generateConversationSummary };
 
-// Expose concurrency guard state for tests
-const activeGenerations = guard.activeGenerations;
-const pendingRegenerations = guard.pendingRegenerations;
-export { activeGenerations, pendingRegenerations };
+// Read-only accessors for concurrency guard state
+export const isGenerationActive = (key) => guard.isActive(key);
+export const isRegenerationPending = (key) => guard.isPending(key);

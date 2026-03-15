@@ -193,6 +193,24 @@ export class SessionRepository extends BaseRepository {
     return this.mapAll(rows);
   }
 
+  /**
+   * Walk the parentSessionId chain upward to find the root session.
+   * @param {string} sessionId - Starting session ID
+   * @returns {string|null} - Root session ID, or null if session not found
+   */
+  getRootSessionId(sessionId) {
+    let current = this.getById(sessionId);
+    const visited = new Set();
+
+    while (current?.parentSessionId) {
+      if (visited.has(current.id)) break; // cycle guard
+      visited.add(current.id);
+      current = this.getById(current.parentSessionId);
+    }
+
+    return current?.id ?? null;
+  }
+
   update(id, data) {
     const updates = [];
     const values = [];

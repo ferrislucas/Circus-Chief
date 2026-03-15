@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { projects, sessions, messages } from '../database.js';
 
-// Mock the websocket module
+// Mock the websocket module (needed by summaryBroadcast.js)
 vi.mock('../websocket.js', () => ({
   broadcastToSession: vi.fn(),
   broadcastToProject: vi.fn(),
+}));
+
+// Mock summaryBroadcast
+vi.mock('./summaryBroadcast.js', () => ({
+  broadcastSessionUpdate: vi.fn(),
 }));
 
 // Mock ghService
@@ -25,7 +30,7 @@ import {
   extractPrUrlIfNeeded,
   enrichPrData,
 } from './prUrlService.js';
-import { broadcastToSession, broadcastToProject } from '../websocket.js';
+import { broadcastSessionUpdate } from './summaryBroadcast.js';
 import * as ghService from './ghService.js';
 
 describe('prUrlService', () => {
@@ -189,22 +194,10 @@ describe('prUrlService', () => {
 
       await extractPrUrlIfNeeded(sessionId);
 
-      expect(broadcastToSession).toHaveBeenCalledWith(
+      expect(broadcastSessionUpdate).toHaveBeenCalledWith(
         sessionId,
-        'session:updated',
-        expect.objectContaining({ sessionId })
-      );
-    });
-
-    it('broadcasts to project subscribers when PR URL extracted', async () => {
-      messages.create(sessionId, 'assistant', 'PR: https://github.com/user/repo/pull/42');
-
-      await extractPrUrlIfNeeded(sessionId);
-
-      expect(broadcastToProject).toHaveBeenCalledWith(
         projectId,
-        'session:updated',
-        expect.objectContaining({ projectId, sessionId })
+        expect.objectContaining({ id: sessionId })
       );
     });
 
@@ -220,7 +213,46 @@ describe('prUrlService', () => {
 
     it('does nothing for non-existent session', async () => {
       await extractPrUrlIfNeeded('non-existent');
-      expect(broadcastToSession).not.toHaveBeenCalled();
+      expect(broadcastSessionUpdate).not.toHaveBeenCalled();
+    });
+
+    it('propagates extracted PR URL to root session', async () => {
+      const root = sessions.create(projectId, 'Root Session', 'Root prompt');
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard', false, null, root.id);
+
+      // Add a message to child with a PR URL
+      messages.create(child.id, 'assistant', 'Created PR: https://github.com/user/repo/pull/999');
+
+      await extractPrUrlIfNeeded(child.id);
+
+      // Verify child has the PR URL
+      const childAfter = sessions.getById(child.id);
+      expect(childAfter.prUrl).toBe('https://github.com/user/repo/pull/999');
+
+      // Verify root also has the PR URL (propagated)
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBe('https://github.com/user/repo/pull/999');
+    });
+
+    it('does not propagate if root already has PR URL', async () => {
+      const originalPrUrl = 'https://github.com/user/repo/pull/111';
+      const root = sessions.create(projectId, 'Root Session', 'Root prompt');
+      sessions.update(root.id, { prUrl: originalPrUrl });
+
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard', false, null, root.id);
+
+      // Add a message to child with a different PR URL
+      messages.create(child.id, 'assistant', 'Created PR: https://github.com/user/repo/pull/888');
+
+      await extractPrUrlIfNeeded(child.id);
+
+      // Verify child has the new PR URL
+      const childAfter = sessions.getById(child.id);
+      expect(childAfter.prUrl).toBe('https://github.com/user/repo/pull/888');
+
+      // Verify root keeps the original PR URL (first wins)
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBe(originalPrUrl);
     });
   });
 
@@ -267,7 +299,7 @@ describe('prUrlService', () => {
       await enrichPrData(summaryData, 'https://github.com/user/repo/pull/123', 'https://github.com/user/repo', 'sess-1');
 
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        '[SummaryService] Failed to get PR info for https://github.com/user/repo/pull/123:',
+        '[PrUrlService] Failed to get PR info for https://github.com/user/repo/pull/123:',
         'API error'
       );
       consoleWarnSpy.mockRestore();

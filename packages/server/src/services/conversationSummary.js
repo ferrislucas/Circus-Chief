@@ -5,9 +5,8 @@
  */
 
 import { sessions, messages, sessionSummaries, conversations, projects, settings } from '../database.js';
-import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { callClaude } from './summaryClaudeClient.js';
+import { broadcastSummaryUpdate, broadcastGeneratingStatus, broadcastConversationSummaryUpdate } from './summaryBroadcast.js';
 import {
   MAX_MESSAGES,
   MIN_MESSAGES_FOR_SUMMARY,
@@ -21,7 +20,7 @@ import {
 } from './summaryPrompts.js';
 import { enrichPrData } from './prUrlService.js';
 import { aggregateFilesModified, buildChildSessionContext } from './childSessionContext.js';
-import { isSummaryStale } from './summaryService.js';
+import { isSummaryStale } from './summaryStaleCheck.js';
 
 /**
  * Check if conversation summaries are enabled for a session
@@ -47,20 +46,20 @@ export async function generateConversationSummary(sessionId, conversationId) {
     // Get session to check project settings
     const session = sessions.getById(sessionId);
     if (!session) {
-      console.warn(`[SummaryService] Session ${sessionId} not found for conversation summary generation`);
+      console.warn(`[ConversationSummary] Session ${sessionId} not found for conversation summary generation`);
       return null;
     }
 
     // Check if conversation summaries are disabled globally
     const globalSettings = settings.getSummarySettings();
     if (globalSettings?.disableConversationSummaries) {
-      console.log(`[SummaryService] Conversation summaries disabled globally, skipping generation`);
+      console.log(`[ConversationSummary] Conversation summaries disabled globally, skipping generation`);
       return null;
     }
 
     const conversation = conversations.getById(conversationId);
     if (!conversation || conversation.sessionId !== sessionId) {
-      console.warn(`[SummaryService] Conversation ${conversationId} not found for session ${sessionId}`);
+      console.warn(`[ConversationSummary] Conversation ${conversationId} not found for session ${sessionId}`);
       return null;
     }
 
@@ -68,13 +67,13 @@ export async function generateConversationSummary(sessionId, conversationId) {
     const conversationMessages = messages.getByConversationId(conversationId);
 
     if (conversationMessages.length === 0) {
-      console.warn(`[SummaryService] No messages found for conversation ${conversationId}`);
+      console.warn(`[ConversationSummary] No messages found for conversation ${conversationId}`);
       return null;
     }
 
     // Skip very short conversations
     if (conversationMessages.length < 4) {
-      console.log(`[SummaryService] Conversation ${conversationId} has only ${conversationMessages.length} messages, skipping summary`);
+      console.log(`[ConversationSummary] Conversation ${conversationId} has only ${conversationMessages.length} messages, skipping summary`);
       return null;
     }
 
@@ -101,16 +100,15 @@ export async function generateConversationSummary(sessionId, conversationId) {
     });
 
     // Broadcast conversation summary updated
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.CONVERSATION_SUMMARY_UPDATED, {
-      sessionId,
+    broadcastConversationSummaryUpdate(sessionId, {
       conversationId,
       conversation: updatedConversation,
     });
 
-    console.log(`[SummaryService] Successfully generated summary for conversation ${conversationId}`);
+    console.log(`[ConversationSummary] Successfully generated summary for conversation ${conversationId}`);
     return summary;
   } catch (error) {
-    console.error(`[SummaryService] Failed to generate conversation summary:`, {
+    console.error(`[ConversationSummary] Failed to generate conversation summary:`, {
       error: error.message,
       sessionId,
       conversationId,
@@ -131,13 +129,13 @@ export async function doGenerateSessionAndConversationSummary(sessionId, convers
   try {
     const session = sessions.getById(sessionId);
     if (!session) {
-      console.warn(`[SummaryService] Session ${sessionId} not found for combined summary generation`);
+      console.warn(`[ConversationSummary] Session ${sessionId} not found for combined summary generation`);
       return { sessionSummary: null, conversationSummary: null };
     }
 
     const conversation = conversations.getById(conversationId);
     if (!conversation || conversation.sessionId !== sessionId) {
-      console.warn(`[SummaryService] Conversation ${conversationId} not found for session ${sessionId}`);
+      console.warn(`[ConversationSummary] Conversation ${conversationId} not found for session ${sessionId}`);
       return { sessionSummary: null, conversationSummary: null };
     }
 
@@ -145,14 +143,14 @@ export async function doGenerateSessionAndConversationSummary(sessionId, convers
     // when the user is navigating between multiple conversations
     const allSessionConversations = conversations.getBySessionId(sessionId);
     if (allSessionConversations.length < 2) {
-      console.log(`[SummaryService] Session ${sessionId} has only 1 conversation, falling back to session-only summary`);
+      console.log(`[ConversationSummary] Session ${sessionId} has only 1 conversation, falling back to session-only summary`);
       return { sessionSummary: await generateSummaryFn(sessionId), conversationSummary: null };
     }
 
     // Check if session summaries are disabled globally
     const globalSettings = settings.getSummarySettings();
     if (globalSettings?.disableSessionSummaries) {
-      console.log(`[SummaryService] Session summaries disabled globally, skipping combined generation`);
+      console.log(`[ConversationSummary] Session summaries disabled globally, skipping combined generation`);
       return { sessionSummary: null, conversationSummary: null };
     }
 
@@ -161,7 +159,7 @@ export async function doGenerateSessionAndConversationSummary(sessionId, convers
 
     // Staleness check: skip combined generation if summary is current
     if (!isSummaryStale(sessionId)) {
-      console.log(`[SummaryService] Summary for ${sessionId} is current, skipping combined generation`);
+      console.log(`[ConversationSummary] Summary for ${sessionId} is current, skipping combined generation`);
       return { sessionSummary: existingSummary, conversationSummary: null };
     }
 
@@ -171,7 +169,7 @@ export async function doGenerateSessionAndConversationSummary(sessionId, convers
     // Check minimum message threshold
     if (allMessages.length < MIN_MESSAGES_FOR_SUMMARY) {
       console.log(
-        `[SummaryService] Session ${sessionId} has only ${allMessages.length} messages (minimum ${MIN_MESSAGES_FOR_SUMMARY}), skipping combined summary generation`
+        `[ConversationSummary] Session ${sessionId} has only ${allMessages.length} messages (minimum ${MIN_MESSAGES_FOR_SUMMARY}), skipping combined summary generation`
       );
       return { sessionSummary: null, conversationSummary: null };
     }
@@ -180,10 +178,7 @@ export async function doGenerateSessionAndConversationSummary(sessionId, convers
     const recentMessages = allMessages.slice(-MAX_MESSAGES);
 
     // Broadcast that we're generating
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
-      sessionId,
-      generating: true,
-    });
+    broadcastGeneratingStatus(sessionId, true);
 
     // Build child session context
     const childContext = buildChildSessionContext(sessionId);
@@ -268,14 +263,14 @@ ${globalSettings?.sessionTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT}`;
       // Extract conversation summary
       conversationSummaryText = parsed.conversation_summary || 'Conversation summary generation failed';
     } catch (parseError) {
-      console.error(`[SummaryService] Failed to parse combined summary response:`, parseError.message);
-      console.error(`[SummaryService] Response text:`, responseText);
+      console.error(`[ConversationSummary] Failed to parse combined summary response:`, parseError.message);
+      console.error(`[ConversationSummary] Response text:`, responseText);
       return { sessionSummary: null, conversationSummary: null };
     }
 
     // Verify required fields exist
     if (!summaryData.shortSummary || !summaryData.fullSummary) {
-      console.error(`[SummaryService] Combined summary missing required fields:`, Object.keys(summaryData));
+      console.error(`[ConversationSummary] Combined summary missing required fields:`, Object.keys(summaryData));
       return { sessionSummary: null, conversationSummary: null };
     }
 
@@ -303,35 +298,25 @@ ${globalSettings?.sessionTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT}`;
     conversations.update(conversationId, { summary: conversationSummaryText });
 
     // Broadcast updates
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
-      sessionId,
-      summary: savedSessionSummary,
-    });
+    broadcastSummaryUpdate(sessionId, session.projectId, savedSessionSummary);
 
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.CONVERSATION_SUMMARY_UPDATED, {
-      sessionId,
+    broadcastConversationSummaryUpdate(sessionId, {
       conversationId,
       summary: conversationSummaryText,
     });
 
     // Clear the generating flag so the UI knows generation is complete
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
-      sessionId,
-      generating: false,
-    });
+    broadcastGeneratingStatus(sessionId, false);
 
     return {
       sessionSummary: savedSessionSummary,
       conversationSummary: conversationSummaryText,
     };
   } catch (error) {
-    console.error(`[SummaryService] Error generating combined summary for session ${sessionId}:`, error);
+    console.error(`[ConversationSummary] Error generating combined summary for session ${sessionId}:`, error);
 
     // Clear the generating flag on error
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, {
-      sessionId,
-      generating: false,
-    });
+    broadcastGeneratingStatus(sessionId, false);
 
     return { sessionSummary: null, conversationSummary: null };
   }

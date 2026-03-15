@@ -145,7 +145,7 @@ export class CommandRunRepository extends BaseRepository {
       .prepare(
         `SELECT *
          FROM (
-           SELECT cr.*,
+           SELECT cr.id, cr.session_id, cr.button_id, cr.status, cr.exit_code, cr.started_at, cr.completed_at,
              ROW_NUMBER() OVER (PARTITION BY cr.session_id, cr.button_id ORDER BY COALESCE(cr.completed_at, cr.started_at) DESC, cr.id DESC) as rn
            FROM command_runs cr
            INNER JOIN sessions s ON cr.session_id = s.id
@@ -168,7 +168,7 @@ export class CommandRunRepository extends BaseRepository {
       .prepare(
         `SELECT *
          FROM (
-           SELECT cr.*,
+           SELECT cr.id, cr.session_id, cr.button_id, cr.status, cr.exit_code, cr.started_at, cr.completed_at,
              ROW_NUMBER() OVER (PARTITION BY cr.button_id ORDER BY COALESCE(cr.completed_at, cr.started_at) DESC, cr.id DESC) as rn
            FROM command_runs cr
            WHERE cr.session_id = ?
