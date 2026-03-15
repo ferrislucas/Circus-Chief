@@ -11,6 +11,8 @@ vi.mock('../composables/useApi.js', () => ({
     runCommandButton: vi.fn(),
     getActiveRuns: vi.fn(),
     killCommandRun: vi.fn(),
+    getCommandRun: vi.fn(),
+    getLatestRunsForProject: vi.fn(),
   },
 }));
 
@@ -1075,6 +1077,145 @@ describe('CommandButtons Store', () => {
       await store.fetchActiveRuns('sess-123');
 
       expect(store.runs['run-1'].completedAt).toBeUndefined();
+    });
+  });
+
+  describe('fetchRunOutput', () => {
+    it('fetches output and merges into store', async () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'r1': {
+          runId: 'r1',
+          buttonId: 'b1',
+          sessionId: 'sess-1',
+          status: 'success',
+          output: '',
+          exitCode: 0,
+          outputTruncated: false,
+        },
+      };
+
+      api.getCommandRun.mockResolvedValue({
+        runId: 'r1',
+        buttonId: 'b1',
+        status: 'success',
+        output: 'fetched output',
+        exitCode: 0,
+        startedAt: Date.now(),
+        completedAt: Date.now(),
+      });
+
+      await store.fetchRunOutput('sess-1', 'r1');
+
+      expect(store.runs['r1'].output).toBe('fetched output');
+      expect(store.runs['r1'].outputTruncated).toBe(false);
+    });
+
+    it('skips fetch when run is currently running', async () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'r1': {
+          runId: 'r1',
+          buttonId: 'b1',
+          sessionId: 'sess-1',
+          status: 'running',
+          output: '',
+          exitCode: null,
+          outputTruncated: false,
+        },
+      };
+
+      await store.fetchRunOutput('sess-1', 'r1');
+
+      expect(api.getCommandRun).not.toHaveBeenCalled();
+    });
+
+    it('skips fetch when output is already loaded', async () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'r1': {
+          runId: 'r1',
+          buttonId: 'b1',
+          sessionId: 'sess-1',
+          status: 'success',
+          output: 'already loaded',
+          exitCode: 0,
+          outputTruncated: false,
+        },
+      };
+
+      await store.fetchRunOutput('sess-1', 'r1');
+
+      expect(api.getCommandRun).not.toHaveBeenCalled();
+    });
+
+    it('handles API error gracefully', async () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'r1': {
+          runId: 'r1',
+          buttonId: 'b1',
+          sessionId: 'sess-1',
+          status: 'success',
+          output: '',
+          exitCode: 0,
+          outputTruncated: false,
+        },
+      };
+
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      api.getCommandRun.mockRejectedValue(new Error('Network error'));
+
+      await store.fetchRunOutput('sess-1', 'r1');
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('r1'),
+        expect.any(String)
+      );
+      // Existing run data should be preserved
+      expect(store.runs['r1'].output).toBe('');
+      expect(store.runs['r1'].status).toBe('success');
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('truncates long output', async () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'r1': {
+          runId: 'r1',
+          buttonId: 'b1',
+          sessionId: 'sess-1',
+          status: 'success',
+          output: '',
+          exitCode: 0,
+          outputTruncated: false,
+        },
+      };
+
+      // Create output with more than 2000 lines
+      const longOutput = Array.from({ length: 2500 }, (_, i) => `Line ${i + 1}`).join('\n');
+      api.getCommandRun.mockResolvedValue({
+        runId: 'r1',
+        buttonId: 'b1',
+        status: 'success',
+        output: longOutput,
+        exitCode: 0,
+      });
+
+      await store.fetchRunOutput('sess-1', 'r1');
+
+      const outputLines = store.runs['r1'].output.split('\n');
+      expect(outputLines.length).toBeLessThanOrEqual(2000);
+      expect(store.runs['r1'].outputTruncated).toBe(true);
+    });
+
+    it('no-op when run does not exist in store', async () => {
+      const store = useCommandButtonsStore();
+
+      await store.fetchRunOutput('sess-1', 'nonexistent-run-id');
+
+      expect(api.getCommandRun).not.toHaveBeenCalled();
     });
   });
 

@@ -15,7 +15,7 @@
 
         <!-- Action Menu (copy/canvas/copy-command) -->
         <ActionMenu
-          v-if="run?.output && run.status !== 'running'"
+          v-if="run && run.status !== 'running'"
           :items="menuItems"
           aria-label="Command output actions"
           @action-click="handleMenuAction"
@@ -270,6 +270,15 @@ const updateFormattedOutput = debounceLeading((output) => {
 watch(
   () => [props.run?.output, showOutput.value],
   ([newOutput, isVisible]) => {
+    // Fetch output from server if pane is expanded but output isn't loaded yet.
+    // Note: empty string is falsy, so this triggers for runs loaded from list
+    // queries (which exclude output). Runs that genuinely produced no output
+    // will re-fetch each time, which is an acceptable single lightweight GET.
+    if (isVisible && !newOutput && props.run?.runId && props.run?.status !== 'running') {
+      commandButtonsStore.fetchRunOutput(props.sessionId, props.run.runId);
+      return; // Output will arrive reactively once fetch completes, triggering this watcher again
+    }
+
     if (!newOutput) {
       formattedOutput.value = '';
       outputIsTruncatedForDisplay.value = false;
@@ -415,11 +424,16 @@ const handleMenuAction = async (action) => {
  * Shows toast notification on success
  */
 const handleCopyOutput = async () => {
-  if (!props.run?.output) {
-    return;
+  // Fetch output if not loaded yet
+  if (!props.run?.output && props.run?.runId) {
+    await commandButtonsStore.fetchRunOutput(props.sessionId, props.run.runId);
   }
+  // Read from store directly to avoid reactivity timing issues with props
+  const runData = commandButtonsStore.runs[props.run?.runId];
+  const output = runData?.output;
+  if (!output) return;
 
-  const textToCopy = stripAnsi(props.run.output);
+  const textToCopy = stripAnsi(output);
   let copySucceeded = false;
 
   // Try modern Clipboard API first
@@ -459,8 +473,16 @@ const handleCopyOutput = async () => {
  * Send command output to canvas
  * Toast is shown in parent component (CommandsTab.vue)
  */
-const handleSendToCanvas = () => {
-  emit('send-to-canvas', props.button.label, props.run.output);
+const handleSendToCanvas = async () => {
+  // Fetch output if not loaded yet
+  if (!props.run?.output && props.run?.runId) {
+    await commandButtonsStore.fetchRunOutput(props.sessionId, props.run.runId);
+  }
+  const runData = commandButtonsStore.runs[props.run?.runId];
+  const output = runData?.output;
+  if (!output) return;
+
+  emit('send-to-canvas', props.button.label, output);
 };
 
 /**
