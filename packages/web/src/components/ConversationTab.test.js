@@ -810,6 +810,92 @@ describe.skip('ConversationTab', () => {
       expect(mockSessionsStore.clearPartialThinking).toBeDefined();
     });
   });
+
+  describe('Auto-send during running state', () => {
+    it('handleFormSubmit is no-op when running', async () => {
+      mockSessionsStore.currentSession = { id: 'sess-123', status: 'running', thinkingEnabled: false, mode: 'standard' };
+      mockSessionsStore.sendMessage = vi.fn();
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Trigger form submit
+      wrapper.findComponent({ name: 'InputForm' })?.vm?.$emit('submit');
+      await nextTick();
+
+      // sendMessage should NOT have been called
+      expect(mockSessionsStore.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('status watcher resets auto-send on stopped', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123', status: 'running', thinkingEnabled: false, mode: 'standard',
+        autoSendPendingPrompt: true,
+      };
+      mockSessionsStore.updateAutoSendPendingPrompt = vi.fn().mockResolvedValue();
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Simulate status change to stopped
+      mockSessionsStore.currentSession.status = 'stopped';
+      await nextTick();
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.updateAutoSendPendingPrompt).toHaveBeenCalledWith('sess-123', false);
+    });
+
+    it('status watcher resets auto-send on error', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123', status: 'running', thinkingEnabled: false, mode: 'standard',
+        autoSendPendingPrompt: true,
+      };
+      mockSessionsStore.updateAutoSendPendingPrompt = vi.fn().mockResolvedValue();
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      mockSessionsStore.currentSession.status = 'error';
+      await nextTick();
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.updateAutoSendPendingPrompt).toHaveBeenCalledWith('sess-123', false);
+    });
+
+    it('status watcher resets auto-send on completed', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123', status: 'running', thinkingEnabled: false, mode: 'standard',
+        autoSendPendingPrompt: true,
+      };
+      mockSessionsStore.updateAutoSendPendingPrompt = vi.fn().mockResolvedValue();
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      mockSessionsStore.currentSession.status = 'completed';
+      await nextTick();
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.updateAutoSendPendingPrompt).toHaveBeenCalledWith('sess-123', false);
+    });
+
+    it('status watcher does not reset auto-send if already false', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123', status: 'running', thinkingEnabled: false, mode: 'standard',
+        autoSendPendingPrompt: false,
+      };
+      mockSessionsStore.updateAutoSendPendingPrompt = vi.fn().mockResolvedValue();
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      mockSessionsStore.currentSession.status = 'stopped';
+      await nextTick();
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.updateAutoSendPendingPrompt).not.toHaveBeenCalled();
+    });
+  });
 });
 
 /**
@@ -1028,7 +1114,7 @@ describe('ConversationTab - Error Handling Improvements', () => {
       expect(resizableTextarea.exists()).toBe(true);
     });
 
-    it('ResizableTextarea is not shown when session is running', async () => {
+    it('input form is shown when session is running (for queuing prompts)', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
         status: 'running',
@@ -1040,7 +1126,11 @@ describe('ConversationTab - Error Handling Improvements', () => {
       await flushAll(wrapper);
 
       const inputForm = wrapper.find('.input-form');
-      expect(inputForm.exists()).toBe(false);
+      expect(inputForm.exists()).toBe(true);
+
+      // But send button row should not be visible
+      const sendButtonRow = wrapper.find('.send-button-row');
+      expect(sendButtonRow.exists()).toBe(false);
     });
 
     it('ResizableTextarea has correct min-height prop', async () => {

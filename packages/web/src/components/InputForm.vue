@@ -18,8 +18,21 @@
       @openSettings="$emit('openQuickResponseSettings')"
     />
 
+    <!-- Auto-send checkbox - only during running with content -->
+    <div v-if="isRunning && inputHasContent" class="auto-send-row">
+      <label class="auto-send-label">
+        <input
+          type="checkbox"
+          :checked="autoSendPendingPrompt"
+          @change="$emit('autoSendToggle', $event.target.checked)"
+          class="auto-send-checkbox"
+        />
+        <span class="auto-send-text">Send automatically when Claude finishes</span>
+      </label>
+    </div>
+
     <!-- Send button row -->
-    <div v-if="!isScheduledForFuture" class="send-button-row">
+    <div v-if="!isScheduledForFuture && !isRunning" class="send-button-row">
       <div v-if="isDraft" class="draft-actions">
         <button type="submit" class="btn btn-primary btn-send-full" :disabled="restarting || saveStatus === 'saving'">
           <span v-if="restarting" class="loading-spinner"></span>
@@ -39,7 +52,7 @@
       </template>
     </div>
 
-    <div v-if="!isScheduledForFuture" class="input-controls">
+    <div v-if="!isScheduledForFuture && !isRunning" class="input-controls">
       <div class="session-options">
         <div class="mode-switcher">
           <ModeSelector :sessionId="sessionId" />
@@ -69,7 +82,7 @@
 
     <!-- Orchestration Panel - shows after input controls -->
     <OrchestrationPanel
-      v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
+      v-if="(canSendMessage || isDraft || isRunning) && !isScheduledForFuture"
       :session-id="sessionId"
       :project-id="projectId"
       :current-template-id="currentTemplateId"
@@ -118,6 +131,7 @@ const props = defineProps({
   scheduledAt: { type: String, default: null },
   sendButtonDisabledReason: { type: String, default: null },
   isSendDisabled: { type: Boolean, default: false },
+  autoSendPendingPrompt: { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
@@ -133,6 +147,7 @@ const emit = defineEmits([
   'templateChange',
   'update:modelValue',
   'update:selectedModel',
+  'autoSendToggle',
 ]);
 
 const textareaRef = ref(null);
@@ -143,6 +158,8 @@ const placeholderText = computed(() => {
   if (props.isDraft || props.isScheduledDraft) return 'Edit your prompt...';
   return 'Send a follow-up message...';
 });
+
+const isRunning = computed(() => props.sessionStatus === 'running');
 
 // Create keyboard shortcut handler
 const handleKeydown = useSubmitShortcut(() => {
@@ -259,6 +276,30 @@ defineExpose({
 .toggle-switch input:disabled + .toggle-slider {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.auto-send-row {
+  padding: 0.5rem 0;
+}
+
+.auto-send-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--color-text-soft, #9ca3af);
+}
+
+.auto-send-checkbox {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+  accent-color: var(--color-primary, #06b6d4);
+}
+
+.auto-send-text {
+  user-select: none;
 }
 
 .send-button-row {

@@ -397,6 +397,11 @@ export class DatabaseManager {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN pending_model TEXT');
     }
 
+    // Add autoSendPendingPrompt column to sessions table for auto-sending queued prompts when model turn completes
+    if (!pendingPromptColumns.includes('auto_send_pending_prompt')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN auto_send_pending_prompt INTEGER DEFAULT 0');
+    }
+
     // Add model column to session_templates table for specifying model in template-triggered sessions
     const templatesTableInfo = this.#db.prepare('PRAGMA table_info(session_templates)').all();
     const templatesColumns = templatesTableInfo.map((col) => col.name);

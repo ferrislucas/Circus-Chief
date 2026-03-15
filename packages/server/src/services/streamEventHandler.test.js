@@ -428,6 +428,103 @@ describe('streamEventHandler', () => {
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
     });
+
+    it('skips template trigger when auto-send fires', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+      const mockAutoSend = vi.fn().mockResolvedValue(true);
+
+      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, mockAutoSend);
+
+      expect(mockAutoSend).toHaveBeenCalledWith('sess-1');
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
+    it('runs template trigger when auto-send does not fire', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+      const mockAutoSend = vi.fn().mockResolvedValue(false);
+
+      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, mockAutoSend);
+
+      expect(mockAutoSend).toHaveBeenCalledWith('sess-1');
+      expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
+    });
+
+    it('runs template trigger when handleAutoSendIfNeeded is undefined', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+
+      // Pass undefined for handleAutoSendIfNeeded — should not throw, template should still run
+      await expect(
+        handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, undefined)
+      ).resolves.not.toThrow();
+
+      expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
+    });
+
+    it('calls auto-send before template trigger (order check)', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+      const mockAutoSend = vi.fn().mockResolvedValue(false);
+
+      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, mockAutoSend);
+
+      expect(mockAutoSend).toHaveBeenCalled();
+      expect(mockHandleTemplate).toHaveBeenCalled();
+      // Auto-send should be called before template trigger
+      expect(mockAutoSend.mock.invocationCallOrder[0]).toBeLessThan(
+        mockHandleTemplate.mock.invocationCallOrder[0]
+      );
+    });
+
+    it('does not call auto-send or template trigger when session was aborted', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: true } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, mockAutoSend);
+
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
+    it('does not call auto-send or template trigger when rescheduled', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(true);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, mockAutoSend);
+
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
   });
 
   // ── handleSessionError ────────────────────────────────────────────────
