@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { nextTick, defineComponent, reactive } from 'vue';
+import { nextTick, defineComponent, reactive, ref, computed, watch, onUnmounted } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 
 // Create mutable route params
@@ -43,6 +43,11 @@ let onCommandRunOutputCallback = null;
 let onCommandRunCompleteCallback = null;
 let onCommandRunErrorCallback = null;
 
+// Store summaryCallbacks passed to useProjectSessionSubscription
+let capturedSummaryCallbacks = null;
+// Store a reference to the archivedLoaded ref created by the mock
+let mockArchivedLoaded = null;
+
 // Mock WebSocket composable
 vi.mock('../composables/useWebSocket.js', () => ({
   useProjectSubscription: vi.fn(() => ({
@@ -77,6 +82,204 @@ vi.mock('../composables/useWebSocket.js', () => ({
       return vi.fn();
     }),
   })),
+}));
+
+// Mock useProjectSessionSubscription - replicates the composable behavior
+// using the same mocked stores and WebSocket subscription
+vi.mock('../composables/useProjectSessionSubscription.js', () => {
+  return {
+    useProjectSessionSubscription: vi.fn((projectIdRef, summaryCallbacks) => {
+      capturedSummaryCallbacks = summaryCallbacks;
+      const archivedLoaded = ref(false);
+      mockArchivedLoaded = archivedLoaded;
+
+      // Watch projectId and set up WebSocket handlers (replicating composable behavior)
+      watch(
+        projectIdRef,
+        async (newProjectId) => {
+          if (!newProjectId) return;
+          archivedLoaded.value = false;
+
+          // Call the stores directly using the mocked store functions
+          // These are looked up at call time, so they use whatever mock is active
+          const projectsStore = useProjectsStore();
+          const sessionsStore = useSessionsStore();
+          const commandButtonsStore = useCommandButtonsStore();
+
+          projectsStore.fetchProject(newProjectId);
+          await sessionsStore.fetchSessions(newProjectId);
+          await commandButtonsStore.fetchButtons(newProjectId);
+          summaryCallbacks.fetchSummariesBatch(sessionsStore.sessions);
+
+          const sub = useProjectSubscription(newProjectId);
+          sub.subscribe();
+
+          sub.onSessionCreated((session) => {
+            sessionsStore.addSessionToList(session);
+          });
+          sub.onSessionUpdated((session) => {
+            sessionsStore.updateSession(session);
+          });
+          sub.onSessionDeleted((sessionId) => {
+            sessionsStore.removeSessionFromList(sessionId);
+            summaryCallbacks.cleanupSummary(sessionId);
+          });
+          sub.onSessionSummaryUpdated((sessionId, summary) => {
+            summaryCallbacks.updateSummary(sessionId, summary);
+          });
+          sub.onCommandRunOutput((runId, sessionId, buttonId, output) => {
+            const existingRun = commandButtonsStore.runs[runId];
+            const sessions = sessionsStore.sessions;
+            const storeSession = sessions.find(s => s.id === sessionId);
+            const existingSessionRun = storeSession?.latestCommandRuns?.find(r => r.runId === runId);
+            const startedAt = existingRun?.startedAt || existingSessionRun?.startedAt || Date.now();
+            if (!commandButtonsStore.runs[runId]) {
+              commandButtonsStore.runs[runId] = {
+                runId, buttonId, sessionId, status: 'running', output: '', exitCode: null, startedAt, outputTruncated: false,
+              };
+            }
+            if (commandButtonsStore.appendOutput) commandButtonsStore.appendOutput(runId, output);
+            if (sessionsStore.updateSessionCommandRun) {
+              sessionsStore.updateSessionCommandRun(sessionId, buttonId, { buttonId, status: 'running', runId, startedAt });
+            }
+          });
+          sub.onCommandRunComplete((runId, sessionId, buttonId, exitCode, output) => {
+            if (!commandButtonsStore.runs[runId]) {
+              commandButtonsStore.runs[runId] = {
+                runId, buttonId, sessionId, status: 'running', output: '', exitCode: null, startedAt: Date.now(), outputTruncated: false,
+              };
+            }
+            if (commandButtonsStore.completeRun) commandButtonsStore.completeRun(runId, exitCode, output);
+            const status = exitCode === 0 ? 'success' : 'error';
+            if (sessionsStore.updateSessionCommandRun) {
+              sessionsStore.updateSessionCommandRun(sessionId, buttonId, { buttonId, status, exitCode, runId, completedAt: Date.now() });
+            }
+          });
+          sub.onCommandRunError((runId, sessionId, buttonId, error) => {
+            if (!commandButtonsStore.runs[runId]) {
+              commandButtonsStore.runs[runId] = {
+                runId, buttonId, sessionId, status: 'running', output: '', exitCode: null, startedAt: Date.now(), outputTruncated: false,
+              };
+            }
+            if (commandButtonsStore.errorRun) commandButtonsStore.errorRun(runId, error);
+            if (sessionsStore.updateSessionCommandRun) {
+              sessionsStore.updateSessionCommandRun(sessionId, buttonId, { buttonId, status: 'error', runId, completedAt: Date.now() });
+            }
+          });
+        },
+        { immediate: true }
+      );
+
+      onUnmounted(() => {});
+
+      return { archivedLoaded };
+    }),
+  };
+});
+
+// Mock useSessionFiltering composable - replicates filter logic using the sessions store
+vi.mock('../composables/useSessionFiltering.js', () => ({
+  useSessionFiltering: vi.fn(() => {
+    const sessionsStore = useSessionsStore();
+
+    const toggleFilter = (status) => {
+      if (sessionsStore.statusFilter === status) {
+        sessionsStore.setStatusFilter(null);
+      } else {
+        sessionsStore.setStatusFilter(status);
+      }
+    };
+
+    const toggleStarredFilter = (filter) => {
+      if (sessionsStore.starredFilter === filter) {
+        sessionsStore.setStarredFilter(null);
+      } else {
+        sessionsStore.setStarredFilter(filter);
+      }
+    };
+
+    const toggleStarFilterIcon = () => {
+      if (sessionsStore.starredFilter === null) {
+        sessionsStore.setStarredFilter('starred');
+      } else if (sessionsStore.starredFilter === 'starred') {
+        sessionsStore.setStarredFilter('unstarred');
+      } else {
+        sessionsStore.setStarredFilter(null);
+      }
+    };
+
+    const starFilterTooltip = computed(() => {
+      if (sessionsStore.starredFilter === 'starred') {
+        return 'Showing starred sessions only. Click to filter unstarred.';
+      } else if (sessionsStore.starredFilter === 'unstarred') {
+        return 'Showing unstarred sessions only. Click to show all.';
+      } else {
+        return 'Showing all sessions. Click to filter by starred.';
+      }
+    });
+
+    const toggleScheduledFilterIcon = () => {
+      if (sessionsStore.scheduledFilter === null) {
+        sessionsStore.setScheduledFilter('scheduled');
+      } else if (sessionsStore.scheduledFilter === 'scheduled') {
+        sessionsStore.setScheduledFilter('not-scheduled');
+      } else {
+        sessionsStore.setScheduledFilter(null);
+      }
+    };
+
+    const scheduledFilterTooltip = computed(() => {
+      if (sessionsStore.scheduledFilter === 'scheduled') {
+        return 'Showing workflows with scheduled sessions. Click to filter non-scheduled.';
+      } else if (sessionsStore.scheduledFilter === 'not-scheduled') {
+        return 'Showing workflows without scheduled sessions. Click to show all.';
+      } else {
+        return 'Showing all workflows. Click to filter by scheduled.';
+      }
+    });
+
+    const filteredGroupedSessions = computed(() => {
+      let groups = sessionsStore.groupedSessions;
+
+      if (sessionsStore.statusFilter) {
+        groups = groups.filter(group => {
+          const workflowStatus = sessionsStore.getWorkflowAggregatedStatus(group.parent.id);
+          const effectiveStatus = workflowStatus.effectiveStatus;
+          if (sessionsStore.statusFilter === 'running' && effectiveStatus === 'running') return true;
+          if (sessionsStore.statusFilter === 'idle' && effectiveStatus === 'idle') return true;
+          return false;
+        });
+      }
+
+      if (sessionsStore.starredFilter === 'starred') {
+        groups = groups.filter(group => group.parent.starred);
+      } else if (sessionsStore.starredFilter === 'unstarred') {
+        groups = groups.filter(group => !group.parent.starred);
+      }
+
+      if (sessionsStore.scheduledFilter) {
+        groups = groups.filter(group => {
+          const workflowStatus = sessionsStore.getWorkflowAggregatedStatus(group.parent.id);
+          const hasScheduled = workflowStatus.scheduledCount > 0;
+          if (sessionsStore.scheduledFilter === 'scheduled' && hasScheduled) return true;
+          if (sessionsStore.scheduledFilter === 'not-scheduled' && !hasScheduled) return true;
+          return false;
+        });
+      }
+
+      return groups;
+    });
+
+    return {
+      toggleFilter,
+      toggleStarredFilter,
+      toggleStarFilterIcon,
+      starFilterTooltip,
+      toggleScheduledFilterIcon,
+      scheduledFilterTooltip,
+      filteredGroupedSessions,
+    };
+  }),
 }));
 
 // Mock stores
@@ -128,11 +331,129 @@ vi.mock('../components/CommandButtonsPanel.vue', () => ({
   }),
 }));
 
+// Mock the SessionFiltersPanel component - render the filter buttons inline
+// so existing tests that find .filter-btn, .star-btn, etc. still work
+vi.mock('../components/SessionFiltersPanel.vue', () => ({
+  default: defineComponent({
+    name: 'SessionFiltersPanel',
+    props: ['showStatusFilters', 'showScheduledFilter'],
+    setup(props) {
+      const sessionsStore = useSessionsStore();
+      const {
+        toggleFilter,
+        toggleStarFilterIcon,
+        starFilterTooltip,
+        toggleScheduledFilterIcon,
+        scheduledFilterTooltip,
+      } = useSessionFiltering();
+      return { sessionsStore, toggleFilter, toggleStarFilterIcon, starFilterTooltip, toggleScheduledFilterIcon, scheduledFilterTooltip };
+    },
+    template: `
+      <div class="filters-container">
+        <div class="status-filters">
+          <template v-if="showStatusFilters">
+            <button
+              v-for="status in ['running', 'idle']"
+              :key="status"
+              :class="['filter-btn', { active: sessionsStore.statusFilter === status }]"
+              @click="toggleFilter(status)"
+            >{{ status }}</button>
+          </template>
+          <button
+            :class="['filter-btn star-btn', { 'star-filter-active': sessionsStore.starredFilter === 'starred', 'star-filter-unstarred': sessionsStore.starredFilter === 'unstarred', 'star-filter-all': sessionsStore.starredFilter === null }]"
+            :title="starFilterTooltip"
+            @click="toggleStarFilterIcon"
+          >
+            <span class="star-icon" v-if="sessionsStore.starredFilter === 'starred'">⭐</span>
+            <span class="star-icon star-crossed" v-else-if="sessionsStore.starredFilter === 'unstarred'">⭐</span>
+            <span class="star-icon" v-else>☆</span>
+          </button>
+          <button
+            v-if="showScheduledFilter"
+            :class="['filter-btn schedule-btn', { 'schedule-filter-active': sessionsStore.scheduledFilter === 'scheduled', 'schedule-filter-not-scheduled': sessionsStore.scheduledFilter === 'not-scheduled', 'schedule-filter-all': sessionsStore.scheduledFilter === null }]"
+            :title="scheduledFilterTooltip"
+            @click="toggleScheduledFilterIcon"
+          >
+            <span class="schedule-icon" v-if="sessionsStore.scheduledFilter === 'scheduled'">⏰</span>
+            <span class="schedule-icon schedule-crossed" v-else-if="sessionsStore.scheduledFilter === 'not-scheduled'">⏰</span>
+            <span class="schedule-icon" v-else>⏰</span>
+          </button>
+        </div>
+      </div>
+    `,
+  }),
+}));
+
+// Mock the ArchivedTabContent component
+vi.mock('../components/ArchivedTabContent.vue', () => ({
+  default: defineComponent({
+    name: 'ArchivedTabContent',
+    props: ['summaries', 'loadingSummaries', 'summaryErrors'],
+    emits: ['retrySummary', 'unarchive', 'loadMore'],
+    setup() {
+      const sessionsStore = useSessionsStore();
+      const archivedRemaining = computed(() => {
+        const { total, offset } = sessionsStore.archivedPagination;
+        return Math.max(0, total - offset);
+      });
+      return { sessionsStore, archivedRemaining };
+    },
+    template: `
+      <div>
+        <div v-if="sessionsStore.archivedPagination.loading && sessionsStore.archivedSessions.length === 0" class="skeleton-list">
+          <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
+        </div>
+        <div v-else-if="sessionsStore.error" class="error-message">{{ sessionsStore.error }}</div>
+        <div v-else-if="sessionsStore.archivedSessions.length === 0" class="empty-state">
+          <p>No archived sessions. Archive completed sessions to keep your session list tidy.</p>
+        </div>
+        <div v-else class="session-list">
+          <div v-for="session in sessionsStore.archivedSessions" :key="session.id"
+            class="session-card" :data-session-id="session.id"
+            :data-summary="JSON.stringify(summaries[session.id])"
+            :data-pr-url="session.prUrl"
+            :data-pr-summary="JSON.stringify(summaries[session.id])">
+          </div>
+          <div v-if="sessionsStore.archivedPagination.hasMore" class="load-more-container">
+            <button class="btn btn-secondary" :disabled="sessionsStore.archivedPagination.loading" @click="$emit('loadMore')">
+              <span v-if="sessionsStore.archivedPagination.loading">Loading...</span>
+              <span v-else>Load More ({{ archivedRemaining }} remaining)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    `,
+  }),
+}));
+
+// Mock the ScheduledTabContent component
+vi.mock('../components/ScheduledTabContent.vue', () => ({
+  default: defineComponent({
+    name: 'ScheduledTabContent',
+    props: ['sessions', 'loading'],
+    template: `
+      <div>
+        <div v-if="loading" class="skeleton-list">
+          <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
+        </div>
+        <div v-else-if="sessions.length === 0" class="empty-state">
+          <p>No scheduled sessions.</p>
+        </div>
+        <div v-else class="session-list">
+          <div v-for="session in sessions" :key="session.id" class="scheduled-session-card" :data-session-id="session.id"></div>
+        </div>
+      </div>
+    `,
+  }),
+}));
+
 import SessionListView from './SessionListView.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectSubscription } from '../composables/useWebSocket.js';
+import { useSessionFiltering } from '../composables/useSessionFiltering.js';
+import { useProjectSessionSubscription } from '../composables/useProjectSessionSubscription.js';
 
 // Helper to create a sessions store mock with proper groupedSessions getter
 function createSessionsStoreMock(sessions = [], overrides = {}) {
@@ -149,6 +470,9 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
     },
     statusFilter: null,
     starredFilter: null,
+    scheduledFilter: null,
+    scheduledSessions: [],
+    loadingScheduled: false,
     get groupedSessions() {
       // Derive groupedSessions from sessions like the real store does
       const grouped = [];
@@ -168,12 +492,14 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
     },
     fetchSessions: vi.fn().mockResolvedValue(),
     fetchArchivedSessions: vi.fn().mockResolvedValue(),
+    fetchScheduledSessions: vi.fn().mockResolvedValue(),
     loadMoreArchivedSessions: vi.fn().mockResolvedValue(),
     archiveSession: vi.fn().mockResolvedValue(),
     unarchiveSession: vi.fn().mockResolvedValue(),
     addSessionToList: vi.fn(),
     updateSession: vi.fn(),
     removeSessionFromList: vi.fn(),
+    updateSessionCommandRun: vi.fn(),
     restoreExpandedState: vi.fn(),
     saveExpandedState: vi.fn(),
     restoreStatusFilter: vi.fn(),
@@ -186,7 +512,6 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
       this.starredFilter = filter;
     }),
     saveStarredFilter: vi.fn(),
-    scheduledFilter: null,
     restoreScheduledFilter: vi.fn(),
     setScheduledFilter: vi.fn(function(filter) {
       this.scheduledFilter = filter;
@@ -246,6 +571,8 @@ describe('SessionListView', () => {
     onSessionUpdatedCallback = null;
     onSessionDeletedCallback = null;
     onSessionSummaryUpdatedCallback = null;
+    capturedSummaryCallbacks = null;
+    mockArchivedLoaded = null;
 
     // Reset API mocks
     mockGetSessionSummary.mockReset();
@@ -516,9 +843,13 @@ describe('Status filtering', () => {
     onSessionUpdatedCallback = null;
     onSessionDeletedCallback = null;
     onSessionSummaryUpdatedCallback = null;
+    capturedSummaryCallbacks = null;
+    mockArchivedLoaded = null;
 
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);
+    mockGetSessionSummariesBatch.mockReset();
+    mockGetSessionSummariesBatch.mockResolvedValue({});
 
     mockProjectsStore = {
       currentProject: { id: 'test-project-id', name: 'Test Project', workingDirectory: '/test/path' },
@@ -1106,6 +1437,8 @@ describe('SessionListView integration', () => {
 
     // Reset callbacks
     onSessionSummaryUpdatedCallback = null;
+    capturedSummaryCallbacks = null;
+    mockArchivedLoaded = null;
 
     useProjectsStore.mockReturnValue({
       currentProject: { id: 'test-project-id', name: 'Test Project' },
@@ -1128,6 +1461,7 @@ describe('SessionListView integration', () => {
     });
 
     mockGetSessionSummary.mockResolvedValue(null);
+    mockGetSessionSummariesBatch.mockResolvedValue({});
   });
 
   it('receives real-time summary updates while viewing session list', async () => {
@@ -1168,6 +1502,8 @@ describe('SessionListView Archived Tab', () => {
 
     // Reset callbacks
     onSessionSummaryUpdatedCallback = null;
+    capturedSummaryCallbacks = null;
+    mockArchivedLoaded = null;
 
     mockProjectsStore = {
       currentProject: { id: 'test-project-id', name: 'Test Project' },
@@ -1195,6 +1531,7 @@ describe('SessionListView Archived Tab', () => {
     useCommandButtonsStore.mockReturnValue(mockCommandButtonsStore);
 
     mockGetSessionSummary.mockResolvedValue(null);
+    mockGetSessionSummariesBatch.mockResolvedValue({});
   });
 
   // Helper to flush all async updates and force DOM re-render
@@ -2017,6 +2354,8 @@ describe('SessionListView batch summary fetching', () => {
     onSessionUpdatedCallback = null;
     onSessionDeletedCallback = null;
     onSessionSummaryUpdatedCallback = null;
+    capturedSummaryCallbacks = null;
+    mockArchivedLoaded = null;
 
     mockGetSessionSummary.mockReset();
     mockGetSessionSummary.mockResolvedValue(null);
