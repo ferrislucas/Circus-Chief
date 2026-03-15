@@ -70,6 +70,9 @@ export function SessionsApi(ApiClient) {
         if (jsonData.thinkingEnabled !== undefined) {
           formData.append('thinkingEnabled', String(jsonData.thinkingEnabled));
         }
+        if (jsonData.effortLevel !== undefined && jsonData.effortLevel !== null) {
+          formData.append('effortLevel', jsonData.effortLevel);
+        }
         if (jsonData.startImmediately !== undefined) {
           formData.append('startImmediately', String(jsonData.startImmediately));
         }

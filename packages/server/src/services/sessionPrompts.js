@@ -208,7 +208,7 @@ curl -X POST ${apiUrl}/api/projects/${projectId}/sessions \\
   -H "Content-Type: application/json" \\
   -d '{"prompt": "Your task description here", "name": "Optional session name"}'
 \`\`\`
-Optional fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`gitBranch\`, \`gitMode\`, \`parentSessionId\` (to create a child session)
+Optional fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`effortLevel\` (low/medium/high/max/auto), \`gitBranch\`, \`gitMode\`, \`parentSessionId\` (to create a child session)
 
 ### Send a Follow-up Message to a Session
 \`\`\`bash
@@ -246,7 +246,7 @@ curl -X POST ${apiUrl}/api/sessions/<session_id>/restart
 \`\`\`bash
 curl -X PATCH ${apiUrl}/api/sessions/<session_id> \\
   -H "Content-Type: application/json" \\
-  -d '{"thinkingEnabled": true}'
+  -d '{"thinkingEnabled": true, "effortLevel": "high"}'
 \`\`\`
 
 ### Delete a Session
