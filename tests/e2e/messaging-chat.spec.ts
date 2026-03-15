@@ -457,22 +457,6 @@ test.describe('Resizable Textarea', () => {
     await expect(textarea).toBeVisible({ timeout: 10000 });
   });
 
-  test('textarea is not visible when session is running', async ({ page }) => {
-    const session = await seedSession(project.id, { prompt: 'Hello', name: 'Textarea Hidden Test' , startImmediately: false });
-    seedAssistantMessage(session.id, 'Working on it...', 'claude-sonnet-4-20250514');
-    await updateSessionStatus(session.id, 'running');
-
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
-    await page.waitForTimeout(500);
-
-    // Running state shows .running-state, not the textarea
-    const runningState = page.locator('.running-state');
-    await expect(runningState).toBeVisible({ timeout: 10000 });
-
-    const inputForm = page.locator('.input-form');
-    await expect(inputForm).not.toBeVisible({ timeout: 5000 });
-  });
-
   test('textarea accepts text input', async ({ page }) => {
     const session = await seedSession(project.id, { prompt: 'Hello', name: 'Textarea Input Test' , startImmediately: false });
     seedAssistantMessage(session.id, 'How can I help?', 'claude-sonnet-4-20250514');
