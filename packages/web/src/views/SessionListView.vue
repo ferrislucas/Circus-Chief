@@ -75,72 +75,18 @@
     </div>
 
     <!-- Status Filters -->
-    <div v-if="activeTab === 'sessions'" class="filters-container">
-      <div class="status-filters">
-        <button
-          v-for="status in ['running', 'idle']"
-          :key="status"
-          :class="['filter-btn', { active: sessionsStore.statusFilter === status }]"
-          @click="toggleFilter(status)"
-        >
-          {{ status }}
-        </button>
-        <button
-          :class="[
-            'filter-btn star-btn',
-            {
-              'star-filter-active': sessionsStore.starredFilter === 'starred',
-              'star-filter-unstarred': sessionsStore.starredFilter === 'unstarred',
-              'star-filter-all': sessionsStore.starredFilter === null
-            }
-          ]"
-          :title="starFilterTooltip"
-          @click="toggleStarFilterIcon"
-        >
-          <span class="star-icon" v-if="sessionsStore.starredFilter === 'starred'">⭐</span>
-          <span class="star-icon star-crossed" v-else-if="sessionsStore.starredFilter === 'unstarred'">⭐</span>
-          <span class="star-icon" v-else>☆</span>
-        </button>
-        <button
-          :class="[
-            'filter-btn schedule-btn',
-            {
-              'schedule-filter-active': sessionsStore.scheduledFilter === 'scheduled',
-              'schedule-filter-not-scheduled': sessionsStore.scheduledFilter === 'not-scheduled',
-              'schedule-filter-all': sessionsStore.scheduledFilter === null
-            }
-          ]"
-          :title="scheduledFilterTooltip"
-          @click="toggleScheduledFilterIcon"
-        >
-          <span class="schedule-icon" v-if="sessionsStore.scheduledFilter === 'scheduled'">⏰</span>
-          <span class="schedule-icon schedule-crossed" v-else-if="sessionsStore.scheduledFilter === 'not-scheduled'">⏰</span>
-          <span class="schedule-icon" v-else>⏰</span>
-        </button>
-      </div>
-    </div>
+    <SessionFiltersPanel
+      v-if="activeTab === 'sessions'"
+      :show-status-filters="true"
+      :show-scheduled-filter="true"
+    />
 
     <!-- Status/Starred Filters for Archived Tab -->
-    <div v-else-if="activeTab === 'archived'" class="filters-container">
-      <div class="status-filters">
-        <button
-          :class="[
-            'filter-btn star-btn',
-            {
-              'star-filter-active': sessionsStore.starredFilter === 'starred',
-              'star-filter-unstarred': sessionsStore.starredFilter === 'unstarred',
-              'star-filter-all': sessionsStore.starredFilter === null
-            }
-          ]"
-          :title="starFilterTooltip"
-          @click="toggleStarFilterIcon"
-        >
-          <span class="star-icon" v-if="sessionsStore.starredFilter === 'starred'">⭐</span>
-          <span class="star-icon star-crossed" v-else-if="sessionsStore.starredFilter === 'unstarred'">⭐</span>
-          <span class="star-icon" v-else>☆</span>
-        </button>
-      </div>
-    </div>
+    <SessionFiltersPanel
+      v-else-if="activeTab === 'archived'"
+      :show-status-filters="false"
+      :show-scheduled-filter="false"
+    />
 
     <!-- Spacer for other tabs to match structure -->
     <div v-else class="tab-spacer"></div>
@@ -187,48 +133,15 @@
     </div>
 
     <!-- Archived Tab -->
-    <div v-if="activeTab === 'archived'">
-      <div v-if="sessionsStore.archivedPagination.loading && sessionsStore.archivedSessions.length === 0" class="skeleton-list">
-        <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
-      </div>
-
-      <div v-else-if="sessionsStore.error" class="error-message">
-        {{ sessionsStore.error }}
-      </div>
-
-      <div v-else-if="sessionsStore.archivedSessions.length === 0" class="empty-state">
-        <p>No archived sessions. Archive completed sessions to keep your session list tidy.</p>
-      </div>
-
-      <div v-else class="session-list">
-        <SessionCard
-          v-for="session in sessionsStore.archivedSessions"
-          :key="session.id"
-          :session="session"
-          :show-summary="true"
-          :summary="summaries[session.id]"
-          :summary-loading="loadingSummaries[session.id]"
-          :summary-error="summaryErrors[session.id]"
-          :show-unarchive="true"
-          :pr-url="session.prUrl"
-          :pr-summary="summaries[session.id]"
-          @retry-summary="retryFetchSummary"
-          @unarchive="handleUnarchive"
-        />
-
-        <!-- Load More Button -->
-        <div v-if="sessionsStore.archivedPagination.hasMore" class="load-more-container">
-          <button
-            class="btn btn-secondary"
-            :disabled="sessionsStore.archivedPagination.loading"
-            @click="loadMoreArchived"
-          >
-            <span v-if="sessionsStore.archivedPagination.loading">Loading...</span>
-            <span v-else>Load More ({{ archivedRemaining }} remaining)</span>
-          </button>
-        </div>
-      </div>
-    </div>
+    <ArchivedTabContent
+      v-if="activeTab === 'archived'"
+      :summaries="summaries"
+      :loading-summaries="loadingSummaries"
+      :summary-errors="summaryErrors"
+      @retry-summary="retryFetchSummary"
+      @unarchive="handleUnarchive"
+      @load-more="loadMoreArchived"
+    />
 
     <!-- Templates Tab -->
     <div v-if="activeTab === 'templates'">
@@ -241,44 +154,33 @@
     </div>
 
     <!-- Scheduled Tab -->
-    <div v-if="activeTab === 'scheduled'">
-      <div v-if="loadingScheduled" class="skeleton-list">
-        <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
-      </div>
-
-      <div v-else-if="scheduledSessions.length === 0" class="empty-state">
-        <p>No scheduled sessions. Use scheduling options when creating a new session to schedule it for later.</p>
-      </div>
-
-      <div v-else class="session-list">
-        <ScheduledSessionCard
-          v-for="session in scheduledSessions"
-          :key="session.id"
-          :session="session"
-        />
-      </div>
-    </div>
+    <ScheduledTabContent
+      v-if="activeTab === 'scheduled'"
+      :sessions="scheduledSessions"
+      :loading="loadingScheduled"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
+import { onMounted, onUnmounted, watch, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
-import { useCommandButtonsStore } from '../stores/commandButtons.js';
-import { useProjectSubscription } from '../composables/useWebSocket.js';
 import { useSummaries } from '../composables/useSummaries.js';
+import { useSessionFiltering } from '../composables/useSessionFiltering.js';
+import { useProjectSessionSubscription } from '../composables/useProjectSessionSubscription.js';
 import SessionCard from '../components/SessionCard.vue';
+import SessionFiltersPanel from '../components/SessionFiltersPanel.vue';
+import ArchivedTabContent from '../components/ArchivedTabContent.vue';
+import ScheduledTabContent from '../components/ScheduledTabContent.vue';
 import TemplatesPanel from '../components/TemplatesPanel.vue';
 import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
-import ScheduledSessionCard from '../components/ScheduledSessionCard.vue';
 
 const route = useRoute();
 const router = useRouter();
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
-const commandButtonsStore = useCommandButtonsStore();
 
 // Compute activeTab from route name
 const activeTab = computed(() => {
@@ -289,68 +191,6 @@ const activeTab = computed(() => {
     case 'ProjectCommands': return 'commands';
     case 'ScheduledSessions': return 'scheduled';
     default: return 'sessions';
-  }
-});
-
-const toggleFilter = (status) => {
-  // If the clicked filter is already active, clear all filters (show all)
-  if (sessionsStore.statusFilter === status) {
-    sessionsStore.setStatusFilter(null);
-  } else {
-    // Otherwise, set this filter as the only active one (exclusive)
-    sessionsStore.setStatusFilter(status);
-  }
-};
-
-const toggleStarredFilter = (filter) => {
-  // If the clicked filter is already active, clear the filter (show all)
-  if (sessionsStore.starredFilter === filter) {
-    sessionsStore.setStarredFilter(null);
-  } else {
-    // Otherwise, set this filter as the only active one
-    sessionsStore.setStarredFilter(filter);
-  }
-};
-
-const toggleStarFilterIcon = () => {
-  // Cycle through three states: null -> starred -> unstarred -> null
-  if (sessionsStore.starredFilter === null) {
-    sessionsStore.setStarredFilter('starred');
-  } else if (sessionsStore.starredFilter === 'starred') {
-    sessionsStore.setStarredFilter('unstarred');
-  } else {
-    sessionsStore.setStarredFilter(null);
-  }
-};
-
-const starFilterTooltip = computed(() => {
-  if (sessionsStore.starredFilter === 'starred') {
-    return 'Showing starred sessions only. Click to filter unstarred.';
-  } else if (sessionsStore.starredFilter === 'unstarred') {
-    return 'Showing unstarred sessions only. Click to show all.';
-  } else {
-    return 'Showing all sessions. Click to filter by starred.';
-  }
-});
-
-const toggleScheduledFilterIcon = () => {
-  // Cycle through three states: null -> scheduled -> not-scheduled -> null
-  if (sessionsStore.scheduledFilter === null) {
-    sessionsStore.setScheduledFilter('scheduled');
-  } else if (sessionsStore.scheduledFilter === 'scheduled') {
-    sessionsStore.setScheduledFilter('not-scheduled');
-  } else {
-    sessionsStore.setScheduledFilter(null);
-  }
-};
-
-const scheduledFilterTooltip = computed(() => {
-  if (sessionsStore.scheduledFilter === 'scheduled') {
-    return 'Showing workflows with scheduled sessions. Click to filter non-scheduled.';
-  } else if (sessionsStore.scheduledFilter === 'not-scheduled') {
-    return 'Showing workflows without scheduled sessions. Click to show all.';
-  } else {
-    return 'Showing all workflows. Click to filter by scheduled.';
   }
 });
 
@@ -367,58 +207,6 @@ function handleTabChange(tab) {
   router.push(routes[tab]);
 }
 
-const filteredGroupedSessions = computed(() => {
-  let groups = sessionsStore.groupedSessions;
-
-  // Apply workflow-aware status filter if set
-  // This filters based on the aggregated status of the entire workflow tree
-  if (sessionsStore.statusFilter) {
-    groups = groups.filter(group => {
-      // Get the workflow's effective status (aggregated across all descendants)
-      const workflowStatus = sessionsStore.getWorkflowAggregatedStatus(group.parent.id);
-      const effectiveStatus = workflowStatus.effectiveStatus;
-
-      // "running" filter shows workflows where any session is running
-      if (sessionsStore.statusFilter === 'running' && effectiveStatus === 'running') {
-        return true;
-      }
-      // "idle" filter shows workflows where no session is running
-      if (sessionsStore.statusFilter === 'idle' && effectiveStatus === 'idle') {
-        return true;
-      }
-      return false;
-    });
-  }
-
-  // Apply starred filter if set (only considers root session's starred status)
-  if (sessionsStore.starredFilter === 'starred') {
-    groups = groups.filter(group => group.parent.starred);
-  } else if (sessionsStore.starredFilter === 'unstarred') {
-    groups = groups.filter(group => !group.parent.starred);
-  }
-
-  // Apply workflow-aware scheduled filter if set
-  // This filters based on whether any session in the workflow is scheduled
-  if (sessionsStore.scheduledFilter) {
-    groups = groups.filter(group => {
-      const workflowStatus = sessionsStore.getWorkflowAggregatedStatus(group.parent.id);
-      const hasScheduled = workflowStatus.scheduledCount > 0;
-
-      // "scheduled" filter shows workflows with at least one scheduled session
-      if (sessionsStore.scheduledFilter === 'scheduled' && hasScheduled) {
-        return true;
-      }
-      // "not-scheduled" filter shows workflows with no scheduled sessions
-      if (sessionsStore.scheduledFilter === 'not-scheduled' && !hasScheduled) {
-        return true;
-      }
-      return false;
-    });
-  }
-
-  return groups;
-});
-
 // Get projectId as computed to handle route changes
 const projectId = computed(() => route.params.id);
 
@@ -433,194 +221,19 @@ const {
   cleanupSummary,
 } = useSummaries();
 
-// Track if archived sessions have been loaded
-const archivedLoaded = ref(false);
+// Use composable for filtering (provides filteredGroupedSessions + filter toggles)
+const { filteredGroupedSessions } = useSessionFiltering();
 
-// Computed property for remaining archived sessions
-const archivedRemaining = computed(() => {
-  const { total, offset } = sessionsStore.archivedPagination;
-  return Math.max(0, total - offset);
+// Use composable for WebSocket subscription management
+const { archivedLoaded } = useProjectSessionSubscription(projectId, {
+  fetchSummariesBatch,
+  updateSummary,
+  cleanupSummary,
 });
 
 // Scheduled sessions state - use store instead of local refs
 const scheduledSessions = computed(() => sessionsStore.scheduledSessions || []);
 const loadingScheduled = computed(() => sessionsStore.loadingScheduled || false);
-
-// Store cleanup functions for WebSocket listeners
-const cleanups = [];
-
-// Track current unsubscribe function for cleanup when projectId changes
-let currentUnsubscribe = null;
-
-// Watch for projectId changes to properly subscribe/unsubscribe
-watch(
-  projectId,
-  async (newProjectId) => {
-    if (!newProjectId) return;
-
-    // Reset archived sessions loaded flag when changing projects
-    archivedLoaded.value = false;
-
-    // Clean up previous subscription handlers
-    cleanups.forEach((cleanup) => cleanup());
-    cleanups.length = 0;
-
-    // Unsubscribe from old project
-    if (currentUnsubscribe) {
-      currentUnsubscribe();
-      currentUnsubscribe = null;
-    }
-
-    // Fetch new project data
-    projectsStore.fetchProject(newProjectId);
-    await sessionsStore.fetchSessions(newProjectId);
-    await commandButtonsStore.fetchButtons(newProjectId); // Still needed for button labels/config
-    // Note: fetchLatestRunsForProject() is no longer needed - latestCommandRuns are now
-    // included in the sessions API response (merged from DB + in-memory running commands)
-    fetchSummariesBatch(sessionsStore.sessions);
-
-    // Create new subscription for new project
-    const {
-      subscribe,
-      unsubscribe,
-      onSessionCreated,
-      onSessionUpdated,
-      onSessionDeleted,
-      onSessionSummaryUpdated,
-      onCommandRunOutput,
-      onCommandRunComplete,
-      onCommandRunError,
-    } = useProjectSubscription(newProjectId);
-
-    currentUnsubscribe = unsubscribe;
-    subscribe();
-
-    // Handle new session created
-    cleanups.push(
-      onSessionCreated((session) => {
-        sessionsStore.addSessionToList(session);
-      })
-    );
-
-    // Handle session updated
-    cleanups.push(
-      onSessionUpdated((session) => {
-        sessionsStore.updateSession(session);
-      })
-    );
-
-    // Handle session deleted
-    cleanups.push(
-      onSessionDeleted((sessionId) => {
-        sessionsStore.removeSessionFromList(sessionId);
-        // Clean up summary data for deleted session
-        cleanupSummary(sessionId);
-      })
-    );
-
-    // Handle session summary updated (real-time updates when summaries are generated)
-    cleanups.push(
-      onSessionSummaryUpdated((sessionId, summary) => {
-        updateSummary(sessionId, summary);
-      })
-    );
-
-    // Handle command run output (for real-time status icon updates)
-    cleanups.push(
-      onCommandRunOutput((runId, sessionId, buttonId, output) => {
-        // Get the actual startedAt from the commandButtons store or existing session run
-        // to avoid resetting the timer on every output event
-        const existingRun = commandButtonsStore.runs[runId];
-        const sessions = sessionsStore.sessions;
-        const storeSession = sessions.find(s => s.id === sessionId);
-        const existingSessionRun = storeSession?.latestCommandRuns?.find(r => r.runId === runId);
-        const startedAt = existingRun?.startedAt || existingSessionRun?.startedAt || Date.now();
-
-        // Ensure run exists in commandButtonsStore (still needed for SessionDetailView output display)
-        if (!commandButtonsStore.runs[runId]) {
-          commandButtonsStore.runs[runId] = {
-            runId,
-            buttonId,
-            sessionId,
-            status: 'running',
-            output: '',
-            exitCode: null,
-            startedAt,
-            outputTruncated: false,
-          };
-        }
-        commandButtonsStore.appendOutput(runId, output);
-
-        // Update session's latestCommandRuns for session list display
-        sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-          buttonId,
-          status: 'running',
-          runId,
-          startedAt,
-        });
-      })
-    );
-
-    // Handle command run complete
-    cleanups.push(
-      onCommandRunComplete((runId, sessionId, buttonId, exitCode, output) => {
-        // Create run if it doesn't exist (handles edge case of no output before completion)
-        if (!commandButtonsStore.runs[runId]) {
-          commandButtonsStore.runs[runId] = {
-            runId,
-            buttonId,
-            sessionId,
-            status: 'running',
-            output: '',
-            exitCode: null,
-            startedAt: Date.now(),
-            outputTruncated: false,
-          };
-        }
-        commandButtonsStore.completeRun(runId, exitCode, output);
-
-        // Update session's latestCommandRuns for session list display
-        const status = exitCode === 0 ? 'success' : 'error';
-        sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-          buttonId,
-          status,
-          exitCode,
-          runId,
-          completedAt: Date.now(),
-        });
-      })
-    );
-
-    // Handle command run error
-    cleanups.push(
-      onCommandRunError((runId, sessionId, buttonId, error) => {
-        // Create run if it doesn't exist (handles edge case of no output before error)
-        if (!commandButtonsStore.runs[runId]) {
-          commandButtonsStore.runs[runId] = {
-            runId,
-            buttonId,
-            sessionId,
-            status: 'running',
-            output: '',
-            exitCode: null,
-            startedAt: Date.now(),
-            outputTruncated: false,
-          };
-        }
-        commandButtonsStore.errorRun(runId, error);
-
-        // Update session's latestCommandRuns for session list display
-        sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-          buttonId,
-          status: 'error',
-          runId,
-          completedAt: Date.now(),
-        });
-      })
-    );
-  },
-  { immediate: true }
-);
 
 // Watch for sessions changes and fetch summaries (debounced to avoid burst of API calls
 // when multiple WebSocket updates arrive in quick succession)
@@ -652,24 +265,19 @@ watch(
 watch(
   () => sessionsStore.starredFilter,
   async (newFilter, oldFilter) => {
-    // Only re-fetch if:
-    // 1. We're on the archived tab
-    // 2. Archived sessions have been loaded at least once
-    // 3. The filter actually changed (not initial setup)
     if (
       activeTab.value === 'archived' &&
       archivedLoaded.value &&
       newFilter !== oldFilter
     ) {
       await sessionsStore.fetchArchivedSessions(projectId.value, { reset: true });
-      fetchSummariesBatch(sessionsStore.archivedSessions); // No await - parallel load
+      fetchSummariesBatch(sessionsStore.archivedSessions);
     }
   }
 );
 
 async function loadArchivedSessions() {
   if (!archivedLoaded.value) {
-    // Always reset when loading - this ensures filter is applied on initial tab load
     await sessionsStore.fetchArchivedSessions(projectId.value, { reset: true });
     archivedLoaded.value = true;
     fetchSummariesBatch(sessionsStore.archivedSessions);
@@ -678,7 +286,7 @@ async function loadArchivedSessions() {
 
 async function loadMoreArchived() {
   await sessionsStore.loadMoreArchivedSessions(projectId.value);
-  fetchSummariesBatch(sessionsStore.archivedSessions); // Fetch summaries for newly loaded sessions
+  fetchSummariesBatch(sessionsStore.archivedSessions);
 }
 
 async function fetchScheduledSessions() {
@@ -688,8 +296,6 @@ async function fetchScheduledSessions() {
 async function handleArchive(sessionId) {
   try {
     await sessionsStore.archiveSession(sessionId);
-    // If archived tab has been loaded, the session will already be in archivedSessions
-    // via the store action
   } catch (error) {
     console.error('Failed to archive session:', error);
   }
@@ -711,14 +317,9 @@ onMounted(() => {
   sessionsStore.restoreScheduledFilter();
 });
 
-// Save expanded state and cleanup WebSocket listeners on unmount
+// Save expanded state and cleanup on unmount
 onUnmounted(() => {
   sessionsStore.saveExpandedState();
-  cleanups.forEach((cleanup) => cleanup());
-  if (currentUnsubscribe) {
-    currentUnsubscribe();
-  }
-  // Clear debounce timer
   clearTimeout(fetchSummariesTimer);
 });
 </script>
@@ -865,134 +466,8 @@ onUnmounted(() => {
   gap: 1rem;
 }
 
-.load-more-container {
-  display: flex;
-  justify-content: center;
-  padding: 1.5rem;
-}
-
-.status-filters {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
 .tab-spacer {
   height: 1rem;
-}
-
-.filter-label {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-}
-
-.filter-btn {
-  background: none;
-  border: 1px solid var(--color-border);
-  padding: 0.375rem 0.75rem;
-  font-size: 0.8rem;
-  color: var(--color-text-soft);
-  cursor: pointer;
-  border-radius: var(--border-radius);
-  transition: all 0.15s;
-  text-transform: capitalize;
-}
-
-.filter-btn:hover {
-  border-color: var(--color-primary);
-  color: var(--color-text);
-}
-
-/* Star icon wrapper - enables positioning for the slash */
-.star-icon {
-  position: relative;
-  display: inline-block;
-}
-
-/* Default state - no filter (show all) */
-.filter-btn.star-filter-all {
-  background: transparent;
-  border-color: var(--color-border);
-  color: var(--color-text-soft);
-}
-
-.filter-btn.star-filter-all:hover {
-  border-color: var(--color-primary);
-  color: var(--color-text);
-}
-
-/* Active state - filter by starred */
-.filter-btn.star-filter-active,
-.filter-btn.active {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
-}
-
-/* Unstarred state - filter by not starred (EXCLUDE starred) */
-.filter-btn.star-filter-unstarred {
-  background: transparent;
-  border-color: #f97316; /* Orange for "exclude/negative" action */
-  color: #f97316; /* Orange star */
-}
-
-/* Add diagonal line through the star */
-.star-crossed::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: -10%;
-  right: -10%;
-  height: 2px;
-  background: currentColor; /* Inherits orange color */
-  transform: translateY(-50%) rotate(-45deg);
-  pointer-events: none;
-}
-
-/* Schedule filter styles */
-.schedule-icon {
-  position: relative;
-  display: inline-block;
-}
-
-/* Default state - no filter (show all) */
-.filter-btn.schedule-filter-all {
-  background: transparent;
-  border-color: var(--color-border);
-  color: var(--color-text-soft);
-}
-
-.filter-btn.schedule-filter-all:hover {
-  border-color: var(--color-primary);
-  color: var(--color-text);
-}
-
-/* Active state - filter by scheduled */
-.filter-btn.schedule-filter-active {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
-}
-
-/* Not-scheduled state - filter by not scheduled (EXCLUDE scheduled) */
-.filter-btn.schedule-filter-not-scheduled {
-  background: transparent;
-  border-color: #f97316; /* Orange for "exclude/negative" action */
-  color: #f97316;
-}
-
-/* Add diagonal line through the schedule icon */
-.schedule-crossed::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: -10%;
-  right: -10%;
-  height: 2px;
-  background: currentColor;
-  transform: translateY(-50%) rotate(-45deg);
-  pointer-events: none;
 }
 
 @media (max-width: 480px) {
