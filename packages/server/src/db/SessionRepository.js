@@ -36,6 +36,7 @@ export class SessionRepository extends BaseRepository {
       parentSessionId: row.parent_session_id,
       pendingPrompt: row.pending_prompt || null,
       pendingModel: row.pending_model || null,
+      autoSendPendingPrompt: Boolean(row.auto_send_pending_prompt),
       slashCommands: row.slash_commands || null,
       // Token usage fields
       inputTokens: row.input_tokens || 0,
@@ -323,6 +324,10 @@ export class SessionRepository extends BaseRepository {
     if (data.pendingModel !== undefined) {
       updates.push('pending_model = ?');
       values.push(data.pendingModel);
+    }
+    if (data.autoSendPendingPrompt !== undefined) {
+      updates.push('auto_send_pending_prompt = ?');
+      values.push(data.autoSendPendingPrompt ? 1 : 0);
     }
 
     if (updates.length === 0) return this.getById(id);

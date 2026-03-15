@@ -335,7 +335,7 @@ export async function seedProject(
 
 export async function seedSession(
   projectId: string,
-  data: { prompt: string; name?: string; mode?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string }
+  data: { prompt: string; name?: string; mode?: string; model?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string }
 ) {
   // Default gitMode/gitBranch so tests pass for git-repo-backed projects
   const payload = {
@@ -555,6 +555,19 @@ export async function updateSessionMode(sessionId: string, mode: string) {
     body: JSON.stringify({ mode }),
   });
   if (!response.ok) throw new Error('Failed to update session mode');
+  return response.json();
+}
+
+export async function updateSessionFields(sessionId: string, fields: Record<string, any>) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Failed to update session fields: ${response.status} ${err}`);
+  }
   return response.json();
 }
 

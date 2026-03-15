@@ -367,6 +367,26 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       }
     },
 
+    async fetchRunOutput(sessionId, runId) {
+      const existing = this.runs[runId];
+      if (!existing || existing.status === 'running') return; // Don't fetch for running commands (streaming via WS)
+      if (existing.output && existing.output.length > 0) return; // Already have output, skip
+
+      try {
+        const run = await api.getCommandRun(sessionId, runId);
+        if (run.output && this.runs[runId]) {
+          const { output, truncated } = this._truncateOutput(run.output);
+          this.runs[runId] = {
+            ...this.runs[runId],
+            output,
+            outputTruncated: truncated,
+          };
+        }
+      } catch (err) {
+        console.warn(`[commandButtons] Failed to fetch output for run ${runId}:`, err.message);
+      }
+    },
+
     setOutputCollapsed(runId, isCollapsed) {
       this.collapsedStates[runId] = isCollapsed;
     },

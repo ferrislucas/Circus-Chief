@@ -54,8 +54,19 @@
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
 
+    <RunningState
+      v-if="sessionsStore.currentSession?.status === 'running'"
+      :active-model-display-name="activeModelDisplayName"
+      :stopping="stopping"
+      :work-logs="unassociatedWorkLogs"
+      :partial-thinking="sessionsStore.partialThinking"
+      :next-template="nextTemplate"
+      :project-id="sessionsStore.currentSession?.projectId"
+      @stop="handleStop"
+    />
+
     <InputForm
-      v-if="canSendMessage || isScheduledForFuture"
+      v-if="canSendMessage || isRunning || isScheduledForFuture"
       ref="inputFormRef"
       :session-id="sessionId"
       :model-value="input"
@@ -79,7 +90,9 @@
       :scheduled-at="sessionsStore.currentSession?.scheduledAt"
       :send-button-disabled-reason="sendButtonDisabledReason"
       :is-send-disabled="isSendDisabled"
+      :auto-send-pending-prompt="sessionsStore.currentSession?.autoSendPendingPrompt ?? false"
       @submit="handleFormSubmit"
+      @autoSendToggle="handleAutoSendToggle"
       @input="handleInput"
       @quickResponseInsert="handleQuickResponseInsert"
       @openQuickResponseSettings="quickResponseSettingsOpen = true"
@@ -89,17 +102,6 @@
       @openSchedule="showScheduleModal = true"
       @openAutoReschedule="showAutoRescheduleModal = true"
       @templateChange="handleTemplateChange"
-    />
-
-    <RunningState
-      v-else-if="sessionsStore.currentSession?.status === 'running'"
-      :active-model-display-name="activeModelDisplayName"
-      :stopping="stopping"
-      :work-logs="unassociatedWorkLogs"
-      :partial-thinking="sessionsStore.partialThinking"
-      :next-template="nextTemplate"
-      :project-id="sessionsStore.currentSession?.projectId"
-      @stop="handleStop"
     />
 
     <!-- Quick Response Settings Modal -->
@@ -210,6 +212,7 @@ const selectedModel = ref(null);
 const { saveStatus, saveError, handleInput, savePendingPrompt } = useDraftSaving({
   input,
   canSendMessage: computed(() => canSendMessage.value),
+  isRunning: computed(() => isRunning.value),
   getSessionId: () => props.sessionId,
 });
 
@@ -219,6 +222,10 @@ const partialText = computed(() => sessionsStore.partialText);
 const canSendMessage = computed(() => {
   const status = sessionsStore.currentSession?.status;
   return status === 'waiting' || status === 'scheduled' || status === 'stopped' || status === 'error';
+});
+
+const isRunning = computed(() => {
+  return sessionsStore.currentSession?.status === 'running';
 });
 
 const canBranch = computed(() => {
@@ -383,6 +390,26 @@ watch(
       await sessionsStore.fetchMessages(props.sessionId, false, sessionsStore.activeConversationId);
       await sessionsStore.fetchWorkLogs(props.sessionId);
     }
+
+    // Reset auto-send flag on stop/error/completed transitions
+    if (newStatus === 'stopped' || newStatus === 'error' || newStatus === 'completed') {
+      if (sessionsStore.currentSession?.autoSendPendingPrompt) {
+        sessionsStore.updateAutoSendPendingPrompt(props.sessionId, false);
+      }
+    }
+
+    // If server consumed the pending prompt (auto-send), clear local input.
+    // The server broadcasts SESSION_UPDATED with cleared pendingPrompt/autoSendPendingPrompt
+    // BEFORE calling continueSession, so by the time the status watcher fires for
+    // running→waiting, the store should already reflect the cleared state.
+    if (oldStatus === 'running' && newStatus !== 'running') {
+      await nextTick();
+      const session = sessionsStore.currentSession;
+      if (session && !session.pendingPrompt && !session.autoSendPendingPrompt && input.value) {
+        // Server cleared the prompt — it was auto-sent
+        input.value = '';
+      }
+    }
   }
 );
 
@@ -466,6 +493,9 @@ watch(selectedModel, async (newModel, oldModel) => {
 
 // Form submission handler
 async function handleFormSubmit() {
+  // Block submission during running — user must use auto-send instead
+  if (isRunning.value) return;
+
   if (isDraft.value || isScheduledDraft.value) {
     // Start draft session
     const textareaRef = inputFormRef.value?.textareaRef;
@@ -509,6 +539,19 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
         }
       }
     });
+  }
+}
+
+async function handleAutoSendToggle(enabled) {
+  const sessionId = props.sessionId;
+  try {
+    if (enabled && input.value.trim()) {
+      // Save current text immediately so the server has it for auto-send
+      await savePendingPrompt(input.value);
+    }
+    await sessionsStore.updateAutoSendPendingPrompt(sessionId, enabled);
+  } catch (err) {
+    uiStore.error(`Failed to ${enabled ? 'enable' : 'disable'} auto-send: ${err.message}`);
   }
 }
 

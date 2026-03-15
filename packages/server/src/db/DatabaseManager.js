@@ -70,27 +70,12 @@ export class DatabaseManager {
     if (!projectsColumns.includes('on_session_deleted')) {
       this.#db.exec('ALTER TABLE projects ADD COLUMN on_session_deleted TEXT');
     }
-    if (!projectsColumns.includes('disable_session_summaries')) {
-      this.#db.exec(
-        'ALTER TABLE projects ADD COLUMN disable_session_summaries INTEGER NOT NULL DEFAULT 0'
-      );
-    }
-    if (!projectsColumns.includes('disable_conversation_summaries')) {
-      this.#db.exec(
-        'ALTER TABLE projects ADD COLUMN disable_conversation_summaries INTEGER NOT NULL DEFAULT 0'
-      );
-    }
     if (!projectsColumns.includes('repo_url')) {
       this.#db.exec('ALTER TABLE projects ADD COLUMN repo_url TEXT');
     }
-    if (!projectsColumns.includes('summary_debounce_ms')) {
-      this.#db.exec(
-        'ALTER TABLE projects ADD COLUMN summary_debounce_ms INTEGER NOT NULL DEFAULT 60000'
-      );
-    }
-    if (!projectsColumns.includes('session_title_prompt')) {
-      this.#db.exec('ALTER TABLE projects ADD COLUMN session_title_prompt TEXT');
-    }
+
+    // Drop legacy project-level summary columns (consolidated to global settings)
+    this.#migrateProjectsDropSummaryColumns();
 
     // Add scheduling columns to sessions table
     const schedSessionsTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
@@ -395,6 +380,11 @@ export class DatabaseManager {
     // Add pendingModel column to sessions table for storing model selected when creating scheduled/waiting sessions
     if (!pendingPromptColumns.includes('pending_model')) {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN pending_model TEXT');
+    }
+
+    // Add autoSendPendingPrompt column to sessions table for auto-sending queued prompts when model turn completes
+    if (!pendingPromptColumns.includes('auto_send_pending_prompt')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN auto_send_pending_prompt INTEGER DEFAULT 0');
     }
 
     // Add model column to session_templates table for specifying model in template-triggered sessions
@@ -816,6 +806,29 @@ export class DatabaseManager {
       -- Recreate index
       CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
     `);
+  }
+
+  /**
+   * Drop legacy project-level summary columns from the projects table.
+   * These settings have been consolidated under global settings (SettingsRepository).
+   * @private
+   */
+  #migrateProjectsDropSummaryColumns() {
+    const tableInfo = this.#db.prepare('PRAGMA table_info(projects)').all();
+    const columns = tableInfo.map((col) => col.name);
+
+    const columnsToRemove = [
+      'disable_session_summaries',
+      'disable_conversation_summaries',
+      'summary_debounce_ms',
+      'session_title_prompt',
+    ];
+
+    for (const col of columnsToRemove) {
+      if (columns.includes(col)) {
+        this.#db.exec(`ALTER TABLE projects DROP COLUMN ${col}`);
+      }
+    }
   }
 
   /**

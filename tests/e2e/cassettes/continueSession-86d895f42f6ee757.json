@@ -1,0 +1,451 @@
+{
+  "prompt": "Reply with exactly: \"Auto-send received.\" Nothing else.",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/Users/ferrislucas/claudetools.io/.worktrees/43871fa7-0ed7-49a9-a619-3a044c6d7247",
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "default",
+      "slash_commands": [
+        "frontend-design",
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan",
+        "playwright-e2e-runner"
+      ],
+      "skills": [
+        "frontend-design"
+      ],
+      "plugins": [],
+      "uuid": "9205e657-00ff-408e-894e-96a34d469f11"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_start",
+        "message": {
+          "model": "claude-haiku-4-5-20251001",
+          "id": "msg_016bgWjKwogzR1Gz32yFbn5m",
+          "type": "message",
+          "role": "assistant",
+          "content": [
+            {
+              "type": "thinking",
+              "thinking": "",
+              "signature": ""
+            }
+          ],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "usage": {
+            "input_tokens": 10,
+            "cache_creation_input_tokens": 24,
+            "cache_read_input_tokens": 21950,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 24,
+              "ephemeral_1h_input_tokens": 0
+            },
+            "output_tokens": 8,
+            "service_tier": "standard",
+            "inference_geo": "not_available"
+          }
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "b225d958-4c10-468f-bf0e-d53953bb1946"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "thinking",
+          "thinking": "",
+          "signature": ""
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "0d785719-85e0-4a2c-a93f-ef266169d0bc"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "The user is asking me to reply with"
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "03191e1f-7e4b-4801-bc72-ce64e8d733df"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " exactly"
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "d4584841-994b-4028-a710-cf5265f13345"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " \"Auto-send received.\" and"
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "d1dfb79d-0050-410c-ac18-549353fde682"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " nothing else. I"
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "5e65aef2-de5b-4884-bc20-69bdda002dab"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " should"
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "7715f7a1-1153-4d6d-87fd-043e6e5d9e93"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " follow"
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "e7fad1cf-c5e5-422b-ba0d-80b500fab710"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " this"
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "d3fc32e0-50fb-4d38-8564-a59f07210107"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " instruction"
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "690e9a4e-db72-4c18-84e7-673e88dab6dc"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " precisely."
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "a919a298-7e41-4282-ba5a-878e3d5eb258"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": ""
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "50de0d03-e85d-4c77-bf3e-3dfbbdaa8546"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "signature_delta",
+          "signature": "EqgCCkYICxgCKkBO0ixjFu4WWV0lQha6U7CgDdDRoh0uKK0i5nJGjpwCCtWETnkN9rvksPn9KAAdO63OrnPKRKkXPoGXhXgXndBMEgzboSwZ18HFxIj21bQaDOHzlu5ZLXXHUKhmuiIw7y/sglDC6sT7W/cxb6cxGjKU9J3Xm/KqLm/Jo28ZZPurHK9co8Hqew/dryeovsDfKo8BQK7D9wy7it96kNScFkkx3vaTaBtNd5pR+PopXY09lV8tcGfSHa5Vu/fBuWxKK3UrXNnv+EiVsO4N4OjWpI3px5jT9vADfDYP0vd682ekha1s8v+Y7JuzJsalsmVkZZpYf78iWR+5YgxM3qiPnhaBTp/xow3VGQ/KGn1zNymDblAjrBjUAnrWNzUR0X6XOzkYAQ=="
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "6dc27198-a7ba-4763-aa4a-18386318a729"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_016bgWjKwogzR1Gz32yFbn5m",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user is asking me to reply with exactly \"Auto-send received.\" and nothing else. I should follow this instruction precisely.",
+            "signature": "EqgCCkYICxgCKkBO0ixjFu4WWV0lQha6U7CgDdDRoh0uKK0i5nJGjpwCCtWETnkN9rvksPn9KAAdO63OrnPKRKkXPoGXhXgXndBMEgzboSwZ18HFxIj21bQaDOHzlu5ZLXXHUKhmuiIw7y/sglDC6sT7W/cxb6cxGjKU9J3Xm/KqLm/Jo28ZZPurHK9co8Hqew/dryeovsDfKo8BQK7D9wy7it96kNScFkkx3vaTaBtNd5pR+PopXY09lV8tcGfSHa5Vu/fBuWxKK3UrXNnv+EiVsO4N4OjWpI3px5jT9vADfDYP0vd682ekha1s8v+Y7JuzJsalsmVkZZpYf78iWR+5YgxM3qiPnhaBTp/xow3VGQ/KGn1zNymDblAjrBjUAnrWNzUR0X6XOzkYAQ=="
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 24,
+          "cache_read_input_tokens": 21950,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 24,
+            "ephemeral_1h_input_tokens": 0
+          },
+          "output_tokens": 8,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "uuid": "c1a08c49-56d8-4741-8376-7c469ad212a9"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "7e5f15d6-f6da-47a6-b357-58904445e7dd"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 1,
+        "content_block": {
+          "type": "text",
+          "text": ""
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "81004a98-a82a-4f77-99ea-b22fea15e6a6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "Auto-send received."
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "882a2e23-95eb-4714-9025-8e78cfcd2043"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_016bgWjKwogzR1Gz32yFbn5m",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Auto-send received."
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 24,
+          "cache_read_input_tokens": 21950,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 24,
+            "ephemeral_1h_input_tokens": 0
+          },
+          "output_tokens": 42,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "uuid": "29d6ae04-f0e1-45ae-be46-986be239fe74"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 1
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "24c1f34f-26a3-4855-b7fc-c0c894248bc1"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "end_turn",
+          "stop_sequence": null
+        },
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 24,
+          "cache_read_input_tokens": 21950,
+          "output_tokens": 42
+        }
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "0eb6c80b-9d96-420d-9f93-0816b21554e4"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_stop"
+      },
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "parent_tool_use_id": null,
+      "uuid": "42fbaf79-11d4-42e5-8beb-0c2a9bb54c98"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "duration_ms": 937,
+      "duration_api_ms": 917,
+      "num_turns": 1,
+      "result": "Auto-send received.",
+      "session_id": "c2953d23-5a14-4663-bd8a-5612533b7350",
+      "total_cost_usd": 0.0024450000000000006,
+      "usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 24,
+        "cache_read_input_tokens": 21950,
+        "output_tokens": 42,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 24
+        }
+      },
+      "modelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 10,
+          "outputTokens": 42,
+          "cacheReadInputTokens": 21950,
+          "cacheCreationInputTokens": 24,
+          "webSearchRequests": 0,
+          "costUSD": 0.0024450000000000006,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "20e4bbd2-f332-4d92-8fa5-1e394a85cd5c"
+    }
+  ],
+  "key": "continueSession-86d895f42f6ee757",
+  "recordedAt": "2026-03-15T03:34:59.234Z"
+}

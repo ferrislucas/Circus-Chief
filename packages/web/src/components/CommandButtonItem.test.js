@@ -4,6 +4,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { ref, nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import CommandButtonItem from './CommandButtonItem.vue';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 
 describe('CommandButtonItem', () => {
   // Set up a fresh Pinia instance before each test
@@ -479,7 +480,7 @@ describe('CommandButtonItem', () => {
       expect(actionMenu.exists()).toBe(false);
     });
 
-    it('does not display ActionMenu when no output is available', async () => {
+    it('displays ActionMenu for completed run even without output', async () => {
       const runWithoutOutput = { ...mockRun, output: null };
 
       const wrapper = mount(CommandButtonItem, {
@@ -490,9 +491,9 @@ describe('CommandButtonItem', () => {
         }
       });
 
-      // Should not have ActionMenu
+      // ActionMenu should be visible for any completed run (relaxed v-if)
       const actionMenu = wrapper.findComponent({ name: 'ActionMenu' });
-      expect(actionMenu.exists()).toBe(false);
+      expect(actionMenu.exists()).toBe(true);
     });
 
     it('passes correct menu items to ActionMenu', async () => {
@@ -531,6 +532,10 @@ describe('CommandButtonItem', () => {
           run: mockRun
         }
       });
+
+      // Populate the store's runs so handleCopyOutput can read from it
+      const store = useCommandButtonsStore();
+      store.runs[mockRun.runId] = { ...mockRun };
 
       await wrapper.vm.handleCopyOutput();
       await nextTick();
@@ -577,6 +582,10 @@ describe('CommandButtonItem', () => {
           run: mockRun
         }
       });
+
+      // Populate the store's runs so handleCopyOutput can read from it
+      const store = useCommandButtonsStore();
+      store.runs[mockRun.runId] = { ...mockRun };
 
       // Test that handleMenuAction with 'copy-output' calls clipboard API
       await wrapper.vm.handleMenuAction('copy-output');
@@ -626,11 +635,195 @@ describe('CommandButtonItem', () => {
         }
       });
 
+      // Populate the store's runs so handleCopyOutput can read from it
+      const store = useCommandButtonsStore();
+      store.runs[runWithColor.runId] = { ...runWithColor };
+
       await wrapper.vm.handleCopyOutput();
       await nextTick();
 
       // Should strip ANSI codes before copying
       expect(global.navigator.clipboard.writeText).toHaveBeenCalledWith('Error message');
+    });
+  });
+
+  describe('ActionMenu visibility (relaxed v-if)', () => {
+    it('displays ActionMenu for completed run without output', () => {
+      const runWithoutOutput = {
+        runId: 'run-1',
+        buttonId: 'btn-1',
+        status: 'success',
+        output: '',
+        exitCode: 0,
+        outputTruncated: false,
+      };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: runWithoutOutput
+        }
+      });
+
+      const actionMenu = wrapper.findComponent({ name: 'ActionMenu' });
+      expect(actionMenu.exists()).toBe(true);
+    });
+
+    it('hides ActionMenu while running', () => {
+      const runningRun = {
+        runId: 'run-1',
+        buttonId: 'btn-1',
+        status: 'running',
+        output: 'partial',
+        exitCode: null,
+        outputTruncated: false,
+      };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: runningRun
+        }
+      });
+
+      const actionMenu = wrapper.findComponent({ name: 'ActionMenu' });
+      expect(actionMenu.exists()).toBe(false);
+    });
+  });
+
+  describe('on-demand output fetching', () => {
+    beforeEach(() => {
+      global.navigator.clipboard = {
+        writeText: vi.fn().mockResolvedValue(undefined)
+      };
+    });
+
+    it('expand triggers fetchRunOutput when output is empty', async () => {
+      const runWithoutOutput = {
+        runId: 'run-1',
+        buttonId: 'btn-1',
+        status: 'success',
+        output: '',
+        exitCode: 0,
+        outputTruncated: false,
+      };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: runWithoutOutput
+        }
+      });
+
+      const store = useCommandButtonsStore();
+      const fetchSpy = vi.spyOn(store, 'fetchRunOutput').mockResolvedValue(undefined);
+
+      // Click to expand output
+      const outputHeader = wrapper.find('.output-header');
+      await outputHeader.trigger('click');
+      await nextTick();
+
+      expect(fetchSpy).toHaveBeenCalledWith('session-1', 'run-1');
+
+      fetchSpy.mockRestore();
+    });
+
+    it('handleCopyOutput fetches output if not loaded', async () => {
+      const runWithoutOutput = {
+        runId: 'run-1',
+        buttonId: 'btn-1',
+        status: 'success',
+        output: '',
+        exitCode: 0,
+        outputTruncated: false,
+      };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: runWithoutOutput
+        }
+      });
+
+      const store = useCommandButtonsStore();
+      // Set up the run in store so fetchRunOutput can populate it
+      store.runs['run-1'] = { ...runWithoutOutput };
+      const fetchSpy = vi.spyOn(store, 'fetchRunOutput').mockImplementation(async () => {
+        store.runs['run-1'] = { ...store.runs['run-1'], output: 'fetched output' };
+      });
+
+      await wrapper.vm.handleCopyOutput();
+      await nextTick();
+
+      expect(fetchSpy).toHaveBeenCalledWith('session-1', 'run-1');
+      expect(global.navigator.clipboard.writeText).toHaveBeenCalledWith('fetched output');
+
+      fetchSpy.mockRestore();
+    });
+
+    it('handleSendToCanvas calls fetchRunOutput when output is empty', async () => {
+      const runWithoutOutput = {
+        runId: 'run-1',
+        buttonId: 'btn-1',
+        status: 'success',
+        output: '',
+        exitCode: 0,
+        outputTruncated: false,
+      };
+
+      const store = useCommandButtonsStore();
+      store.runs['run-1'] = { ...runWithoutOutput };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: runWithoutOutput
+        }
+      });
+
+      const fetchSpy = vi.spyOn(store, 'fetchRunOutput').mockResolvedValue(undefined);
+
+      await wrapper.vm.handleSendToCanvas();
+      await nextTick();
+
+      expect(fetchSpy).toHaveBeenCalledWith('session-1', 'run-1');
+
+      fetchSpy.mockRestore();
+    });
+
+    it('handleSendToCanvas reads output from store', async () => {
+      const store = useCommandButtonsStore();
+      store.runs['run-1'] = {
+        runId: 'run-1',
+        buttonId: 'btn-1',
+        status: 'success',
+        output: 'stored output',
+        exitCode: 0,
+        outputTruncated: false,
+      };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: {
+            runId: 'run-1',
+            buttonId: 'btn-1',
+            status: 'success',
+            output: 'stored output',
+            exitCode: 0,
+            outputTruncated: false,
+          }
+        }
+      });
+
+      // handleSendToCanvas should not throw when output is available in store
+      await expect(wrapper.vm.handleSendToCanvas()).resolves.not.toThrow();
     });
   });
 });
