@@ -19,8 +19,6 @@ export class ProjectRepository extends BaseRepository {
       onSessionDeleted: row.on_session_deleted,
       prPollInterval: row.pr_poll_interval,
       repoUrl: row.repo_url,
-      summaryDebounceMs: row.summary_debounce_ms || 60000,
-      sessionTitlePrompt: row.session_title_prompt || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -34,13 +32,11 @@ export class ProjectRepository extends BaseRepository {
       onSessionDeleted = null,
       prPollInterval = 60000,
       repoUrl = null,
-      summaryDebounceMs = 60000,  // 60 seconds for token efficiency
-      sessionTitlePrompt = null,
     } = options;
     this.db
       .prepare(
-        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, pr_poll_interval, repo_url, summary_debounce_ms, session_title_prompt, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, pr_poll_interval, repo_url, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -51,8 +47,6 @@ export class ProjectRepository extends BaseRepository {
         onSessionDeleted,
         prPollInterval,
         repoUrl,
-        summaryDebounceMs,
-        sessionTitlePrompt,
         now,
         now
       );
@@ -96,15 +90,6 @@ export class ProjectRepository extends BaseRepository {
       updates.push('repo_url = ?');
       values.push(data.repoUrl);
     }
-    if (data.summaryDebounceMs !== undefined) {
-      updates.push('summary_debounce_ms = ?');
-      values.push(data.summaryDebounceMs);
-    }
-    if (data.sessionTitlePrompt !== undefined) {
-      updates.push('session_title_prompt = ?');
-      values.push(data.sessionTitlePrompt);
-    }
-
     if (updates.length === 0) return this.getById(id);
 
     updates.push('updated_at = ?');

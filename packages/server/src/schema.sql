@@ -7,11 +7,7 @@ CREATE TABLE IF NOT EXISTS projects (
   on_session_created TEXT,
   on_session_deleted TEXT,
   pr_poll_interval INTEGER NOT NULL DEFAULT 60000,  -- PR status poll interval in ms (default 1 minute)
-  disable_session_summaries INTEGER NOT NULL DEFAULT 0,  -- Disable automatic session summary generation
-  disable_conversation_summaries INTEGER NOT NULL DEFAULT 0,  -- Disable automatic conversation summary generation
   repo_url TEXT,  -- GitHub repository URL for PR validation
-  summary_debounce_ms INTEGER NOT NULL DEFAULT 60000,  -- Summary generation debounce delay in ms (default 60 seconds)
-  session_title_prompt TEXT,  -- Custom prompt for generating session titles
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
