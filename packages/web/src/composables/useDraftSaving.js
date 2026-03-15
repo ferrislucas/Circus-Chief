@@ -12,10 +12,11 @@ import { api } from './useApi.js';
  * @param {Object} options
  * @param {import('vue').Ref<string>} options.input - Reactive input value
  * @param {import('vue').Ref<boolean>} options.canSendMessage - Whether the session can accept messages
+ * @param {import('vue').Ref<boolean>} [options.isRunning] - Whether the session is currently running
  * @param {() => string} options.getSessionId - Function that returns the current session ID
  * @returns {Object} Draft saving utilities
  */
-export function useDraftSaving({ input, canSendMessage, getSessionId }) {
+export function useDraftSaving({ input, canSendMessage, isRunning, getSessionId }) {
   const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
   const saveError = ref('');
   let inputSyncTimer = null;
@@ -42,8 +43,8 @@ export function useDraftSaving({ input, canSendMessage, getSessionId }) {
     if (draftSaveTimer) clearTimeout(draftSaveTimer);
 
     inputSyncTimer = setTimeout(() => {
-      // Auto-save to server (for all waiting/stopped/error sessions)
-      if (canSendMessage.value) {
+      // Auto-save to server (for all waiting/stopped/error sessions, or running state)
+      if (canSendMessage.value || isRunning?.value) {
         savePendingPrompt(value);
       }
     }, 500); // Debounce 500ms for server save
