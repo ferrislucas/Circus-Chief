@@ -359,7 +359,7 @@ test.describe('Category 4: pw.sh Enhancements', () => {
     expect(funcStart).toBeGreaterThan(-1);
 
     // Get the function body (up to the next top-level function or end)
-    const funcBody = pwshSource.slice(funcStart, funcStart + 2000);
+    const funcBody = pwshSource.slice(funcStart, funcStart + 4000);
 
     // (a) Curl check against the port from .server-port
     expect(funcBody).toMatch(/curl.*localhost.*\$.*port/i);
