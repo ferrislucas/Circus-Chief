@@ -13,6 +13,12 @@ import metricsRouter from './metrics.js';
 
 const router = Router();
 
+// Lightweight identity endpoint — lets tools (e.g. pw.sh) verify which
+// worktree / working directory this server instance belongs to.
+router.get('/server-info', (_req, res) => {
+  res.json({ cwd: process.cwd() });
+});
+
 router.use('/projects', projectsRouter);
 router.use('/sessions', sessionsRouter);
 router.use('/templates', templatesRouter);

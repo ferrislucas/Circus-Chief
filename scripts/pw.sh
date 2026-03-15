@@ -76,31 +76,45 @@ detect_or_start_server() {
 
         # Check if server is actually running on that port
         if curl -s "http://localhost:$detected_port/api/projects" > /dev/null 2>&1; then
-            # Check if VCR_MODE matches what we need
-            local vcr_mode_file="$PROJECT_ROOT/.vcr-mode"
-            local server_vcr_mode=""
-            if [ -f "$vcr_mode_file" ]; then
-                server_vcr_mode=$(cat "$vcr_mode_file")
-            fi
+            # Verify the server belongs to THIS worktree by checking its cwd.
+            # Without this, a stale .server-port can cause us to reuse a server
+            # from a different worktree that happens to be on the same port.
+            local server_cwd
+            server_cwd=$(curl -s "http://localhost:$detected_port/api/server-info" 2>/dev/null | grep -o '"cwd":"[^"]*"' | sed 's/"cwd":"//;s/"$//')
 
-            if [ "${VCR_MODE:-}" != "$server_vcr_mode" ]; then
-                print_warning "Server VCR_MODE mismatch: server='$server_vcr_mode', needed='${VCR_MODE:-}'. Restarting..."
-                local server_pid
-                server_pid=$(lsof -t -i:"$detected_port" 2>/dev/null)
-                if [ -n "$server_pid" ]; then
-                    kill "$server_pid" 2>/dev/null
-                    # Wait for port to be released (up to 5 seconds)
-                    local wait_count=0
-                    while lsof -i:"$detected_port" >/dev/null 2>&1 && [ $wait_count -lt 5 ]; do
-                        sleep 1
-                        ((wait_count++))
-                    done
-                fi
-                rm -f "$port_file" "$vcr_mode_file"
+            if [ -n "$server_cwd" ] && [ "$server_cwd" != "$PROJECT_ROOT" ]; then
+                print_warning "Server on port $detected_port belongs to a different worktree:"
+                print_warning "  server cwd:  $server_cwd"
+                print_warning "  our root:    $PROJECT_ROOT"
+                print_info "Removing stale .server-port and starting a new server..."
+                rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode"
             else
-                print_success "Server is already running on port $detected_port (VCR_MODE=$server_vcr_mode)"
-                echo "$detected_port"
-                return 0
+                # Server belongs to us — check VCR_MODE
+                local vcr_mode_file="$PROJECT_ROOT/.vcr-mode"
+                local server_vcr_mode=""
+                if [ -f "$vcr_mode_file" ]; then
+                    server_vcr_mode=$(cat "$vcr_mode_file")
+                fi
+
+                if [ "${VCR_MODE:-}" != "$server_vcr_mode" ]; then
+                    print_warning "Server VCR_MODE mismatch: server='$server_vcr_mode', needed='${VCR_MODE:-}'. Restarting..."
+                    local server_pid
+                    server_pid=$(lsof -t -i:"$detected_port" 2>/dev/null)
+                    if [ -n "$server_pid" ]; then
+                        kill "$server_pid" 2>/dev/null
+                        # Wait for port to be released (up to 5 seconds)
+                        local wait_count=0
+                        while lsof -i:"$detected_port" >/dev/null 2>&1 && [ $wait_count -lt 5 ]; do
+                            sleep 1
+                            ((wait_count++))
+                        done
+                    fi
+                    rm -f "$port_file" "$vcr_mode_file"
+                else
+                    print_success "Server is already running on port $detected_port (VCR_MODE=$server_vcr_mode)"
+                    echo "$detected_port"
+                    return 0
+                fi
             fi
         else
             print_warning "Server not running on port $detected_port (stale .server-port file)"

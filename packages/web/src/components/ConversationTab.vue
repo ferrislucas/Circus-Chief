@@ -135,8 +135,6 @@
       @executed="handleSlashCommandExecuted"
     />
 
-    <!-- Scheduling Info Panel -->
-    <SchedulingInfo v-if="sessionsStore.currentSession" :session="sessionsStore.currentSession" />
   </div>
 </template>
 
@@ -164,7 +162,6 @@ import QuickResponseSettings from './QuickResponseSettings.vue';
 import ScheduleSessionModal from './ScheduleSessionModal.vue';
 import AutoRescheduleModal from './AutoRescheduleModal.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
-import SchedulingInfo from './SchedulingInfo.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useProjectsStore } from '../stores/projects.js';
 
