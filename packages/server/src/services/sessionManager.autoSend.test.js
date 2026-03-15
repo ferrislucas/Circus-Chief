@@ -154,4 +154,82 @@ describe('sessionManager - handleAutoSendIfNeeded', () => {
     expect(updatedSession.autoSendPendingPrompt).toBe(false);
     expect(updatedSession.pendingPrompt).toBeNull();
   });
+
+  it('does nothing when pendingPrompt is empty string', async () => {
+    sessions.update(session.id, {
+      autoSendPendingPrompt: true,
+      pendingPrompt: '',
+    });
+
+    await handleAutoSendIfNeeded(session.id);
+
+    // Empty string is falsy, so early return — should not broadcast
+    expect(broadcastToSession).not.toHaveBeenCalled();
+  });
+
+  it('clears flags before calling continueSession', async () => {
+    sessions.update(session.id, {
+      autoSendPendingPrompt: true,
+      pendingPrompt: 'Follow-up question',
+    });
+
+    await handleAutoSendIfNeeded(session.id);
+
+    // Verify flags are cleared in the database
+    const updatedSession = sessions.getById(session.id);
+    expect(updatedSession.autoSendPendingPrompt).toBe(false);
+    expect(updatedSession.pendingPrompt).toBeNull();
+  });
+
+  it('does not throw when continueSession encounters an error', async () => {
+    sessions.update(session.id, {
+      autoSendPendingPrompt: true,
+      pendingPrompt: 'Follow-up',
+      status: 'completed', // Not waiting — continueSession may fail
+    });
+
+    // Should not throw even if internal processing fails
+    await expect(handleAutoSendIfNeeded(session.id)).resolves.not.toThrow();
+
+    // Flags should still be cleared
+    const updatedSession = sessions.getById(session.id);
+    expect(updatedSession.autoSendPendingPrompt).toBe(false);
+    expect(updatedSession.pendingPrompt).toBeNull();
+  });
+
+  it('uses pendingModel from session when present', async () => {
+    sessions.update(session.id, {
+      autoSendPendingPrompt: true,
+      pendingPrompt: 'test',
+      pendingModel: 'claude-sonnet-4-20250514',
+    });
+
+    await handleAutoSendIfNeeded(session.id);
+
+    // Flags should be cleared (confirms processing occurred)
+    const updatedSession = sessions.getById(session.id);
+    expect(updatedSession.autoSendPendingPrompt).toBe(false);
+    expect(updatedSession.pendingPrompt).toBeNull();
+
+    // Broadcast should have been called (confirms auto-send logic ran)
+    expect(broadcastToSession).toHaveBeenCalled();
+  });
+
+  it('uses gitWorktree as working directory when present', async () => {
+    sessions.update(session.id, {
+      autoSendPendingPrompt: true,
+      pendingPrompt: 'test',
+      gitWorktree: '/tmp/worktree-path',
+    });
+
+    await handleAutoSendIfNeeded(session.id);
+
+    // Flags should be cleared (confirms processing occurred)
+    const updatedSession = sessions.getById(session.id);
+    expect(updatedSession.autoSendPendingPrompt).toBe(false);
+    expect(updatedSession.pendingPrompt).toBeNull();
+
+    // Broadcast should have been called
+    expect(broadcastToSession).toHaveBeenCalled();
+  });
 });

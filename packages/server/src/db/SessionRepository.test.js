@@ -1375,4 +1375,27 @@ describe('SessionRepository', () => {
       expect(result).toBeNull();
     });
   });
+
+  describe('autoSendPendingPrompt', () => {
+    it('defaults autoSendPendingPrompt to false on creation', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const retrieved = repo.getById(session.id);
+      expect(retrieved.autoSendPendingPrompt).toBe(false);
+    });
+
+    it('can set autoSendPendingPrompt to true', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { autoSendPendingPrompt: true });
+      const retrieved = repo.getById(session.id);
+      expect(retrieved.autoSendPendingPrompt).toBe(true);
+    });
+
+    it('can set autoSendPendingPrompt back to false', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { autoSendPendingPrompt: true });
+      repo.update(session.id, { autoSendPendingPrompt: false });
+      const retrieved = repo.getById(session.id);
+      expect(retrieved.autoSendPendingPrompt).toBe(false);
+    });
+  });
 });

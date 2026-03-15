@@ -558,6 +558,19 @@ export async function updateSessionMode(sessionId: string, mode: string) {
   return response.json();
 }
 
+export async function updateSessionFields(sessionId: string, fields: Record<string, any>) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Failed to update session fields: ${response.status} ${err}`);
+  }
+  return response.json();
+}
+
 // ============================================================
 // Template Helpers
 // ============================================================
