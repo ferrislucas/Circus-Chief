@@ -4,8 +4,7 @@
  */
 
 import { sessions, messages } from '../database.js';
-import { broadcastToSession, broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { broadcastSessionUpdate } from './summaryBroadcast.js';
 import * as ghService from './ghService.js';
 
 /**
@@ -20,7 +19,7 @@ export function parsePrUrl(prUrl) {
     // Match GitHub PR URL pattern: https://github.com/{owner}/{repo}/pull/{number}
     const match = prUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/);
     if (!match) {
-      console.warn(`[SummaryService] Invalid PR URL format: ${prUrl}`);
+      console.warn(`[PrUrlService] Invalid PR URL format: ${prUrl}`);
       return null;
     }
 
@@ -30,7 +29,7 @@ export function parsePrUrl(prUrl) {
       number: parseInt(match[3], 10),
     };
   } catch (error) {
-    console.warn(`[SummaryService] Failed to parse PR URL ${prUrl}:`, error.message);
+    console.warn(`[PrUrlService] Failed to parse PR URL ${prUrl}:`, error.message);
     return null;
   }
 }
@@ -54,14 +53,14 @@ export function validatePrUrl(prUrl, expectedRepoUrl) {
 
   // If no expected repo URL, we can't validate the match - accept it but log a warning
   if (!expectedRepoUrl) {
-    console.warn(`[SummaryService] No expected repo URL to validate against PR: ${prUrl}`);
+    console.warn(`[PrUrlService] No expected repo URL to validate against PR: ${prUrl}`);
     return { valid: true, prComponents, mismatch: false, error: null };
   }
 
   // Extract owner/repo from expected repo URL
   const expectedMatch = expectedRepoUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/?$/);
   if (!expectedMatch) {
-    console.warn(`[SummaryService] Invalid expected repo URL format: ${expectedRepoUrl}`);
+    console.warn(`[PrUrlService] Invalid expected repo URL format: ${expectedRepoUrl}`);
     return { valid: true, prComponents, mismatch: false, error: null };
   }
 
@@ -74,7 +73,7 @@ export function validatePrUrl(prUrl, expectedRepoUrl) {
 
   if (!ownerMatch || !repoMatch) {
     console.warn(
-      `[SummaryService] PR repository mismatch: ` +
+      `[PrUrlService] PR repository mismatch: ` +
       `PR is from ${prComponents.owner}/${prComponents.repo}, ` +
       `but expected ${expectedOwner}/${expectedRepo}`
     );
@@ -134,21 +133,24 @@ export async function extractPrUrlIfNeeded(sessionId) {
   const prUrl = extractPrUrlFromMessages(sessionId);
   if (prUrl) {
     sessions.update(sessionId, { prUrl });
-    console.log(`[SummaryService] Extracted PR URL for session ${sessionId}: ${prUrl}`);
+    console.log(`[PrUrlService] Extracted PR URL for session ${sessionId}: ${prUrl}`);
 
     // Broadcast session update so UI shows PR URL immediately
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-      sessionId,
-      session: sessions.getById(sessionId),
-    });
+    broadcastSessionUpdate(sessionId, session.projectId, sessions.getById(sessionId));
 
-    // Also broadcast to project subscribers
-    if (session.projectId) {
-      broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-        projectId: session.projectId,
-        sessionId,
-        session: sessions.getById(sessionId),
-      });
+    // Propagate PR URL to root session
+    if (session.parentSessionId) {
+      const rootId = sessions.getRootSessionId(sessionId);
+      if (rootId && rootId !== sessionId) {
+        const root = sessions.getById(rootId);
+        if (root && !root.prUrl) {
+          sessions.update(root.id, { prUrl });
+          console.log(`[PrUrlService] Propagated PR URL from session ${sessionId} to root ${root.id}: ${prUrl}`);
+
+          // Broadcast root session update
+          broadcastSessionUpdate(root.id, root.projectId, sessions.getById(root.id));
+        }
+      }
     }
   }
 }
@@ -164,7 +166,7 @@ export async function enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId
   const validation = validatePrUrl(prUrl, projectRepoUrl);
 
   if (!validation.valid) {
-    console.warn(`[SummaryService] PR URL validation failed for session ${sessionId}:`, validation.error);
+    console.warn(`[PrUrlService] PR URL validation failed for session ${sessionId}:`, validation.error);
     summaryData.prUrl = null;
     return;
   }
@@ -181,7 +183,7 @@ export async function enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId
       }
     }
   } catch (error) {
-    console.warn(`[SummaryService] Failed to get PR info for ${prUrl}:`, error.message);
+    console.warn(`[PrUrlService] Failed to get PR info for ${prUrl}:`, error.message);
   }
 }
 

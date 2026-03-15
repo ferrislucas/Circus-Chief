@@ -98,6 +98,7 @@ import * as summaryService from './summaryService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { agentCallLogger } from './agentCallLogger.js';
 import * as ghService from './ghService.js';
+import * as summaryBroadcast from './summaryBroadcast.js';
 import {
   MAX_MESSAGES,
   MIN_MESSAGES_FOR_SUMMARY,
@@ -111,8 +112,6 @@ import {
   validatePrUrl,
   isConversationSummaryEnabled,
   generateSessionAndConversationSummary,
-  activeGenerations,
-  pendingRegenerations,
   _stripMarkdownCodeBlock,
   _trackMessageMetadata,
   _enrichPrData,
@@ -548,7 +547,7 @@ describe('summaryService', () => {
         parseSummaryResponse(responseText);
 
         expect(consoleSpy).toHaveBeenCalledWith(
-          '[SummaryService] Stripped markdown code block from response'
+          '[SummaryPrompts] Stripped markdown code block from response'
         );
 
         consoleSpy.mockRestore();
@@ -696,7 +695,7 @@ describe('summaryService', () => {
 
       expect(summaryData.prUrl).toBeNull();
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        '[SummaryService] PR URL validation failed for session sess-1:',
+        '[PrUrlService] PR URL validation failed for session sess-1:',
         expect.any(String)
       );
 
@@ -718,7 +717,7 @@ describe('summaryService', () => {
       await _enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId);
 
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        '[SummaryService] Failed to get PR info for https://github.com/user/repo/pull/123:',
+        '[PrUrlService] Failed to get PR info for https://github.com/user/repo/pull/123:',
         'API error'
       );
 
@@ -1485,30 +1484,9 @@ describe('summaryService', () => {
     });
   });
 
-  describe('isSummaryStale', () => {
-    it('returns true when no summary exists', () => {
-      const result = summaryService.isSummaryStale(sessionId);
-      expect(result).toBe(true);
-    });
-
-    it('returns false when message count matches', async () => {
-      await summaryService.generateSummary(sessionId);
-
-      const result = summaryService.isSummaryStale(sessionId);
-      expect(result).toBe(false);
-    });
-
-    it('returns true when new messages added', async () => {
-      await summaryService.generateSummary(sessionId);
-
-      // Add new message
-      messages.create(sessionId, 'assistant', 'New message');
-
-      const result = summaryService.isSummaryStale(sessionId);
-      expect(result).toBe(true);
-    });
-
-    // Phase 6: Enhanced staleness detection tests
+  // Note: isSummaryStale tests have been moved to summaryStaleCheck.test.js
+  // The "saves lastSummarizedMessageId" test remains here as it tests generateSummary behavior
+  describe('generateSummary - message metadata tracking', () => {
     it('saves lastSummarizedMessageId when generating summary', async () => {
       const summary = await summaryService.generateSummary(sessionId);
 
@@ -1518,59 +1496,6 @@ describe('summaryService', () => {
 
       // Summary should have the last message ID saved
       expect(summary.lastSummarizedMessageId).toBe(lastMessage.id);
-    });
-
-    it('uses message ID for staleness detection when available', async () => {
-      // Generate initial summary
-      await summaryService.generateSummary(sessionId);
-
-      // Summary should not be stale immediately
-      expect(summaryService.isSummaryStale(sessionId)).toBe(false);
-
-      // Add a new message (this changes the last message ID)
-      messages.create(sessionId, 'assistant', 'New response');
-
-      // Summary should now be stale (detected via message ID mismatch)
-      expect(summaryService.isSummaryStale(sessionId)).toBe(true);
-    });
-
-    it('falls back to count-based staleness detection for old summaries', async () => {
-      // Generate a summary
-      await summaryService.generateSummary(sessionId);
-
-      // Manually update the summary to remove lastSummarizedMessageId (simulating old summary)
-      const summary = sessionSummaries.getBySessionId(sessionId);
-      sessionSummaries.update(summary.id, { lastSummarizedMessageId: null });
-
-      // Summary should not be stale
-      expect(summaryService.isSummaryStale(sessionId)).toBe(false);
-
-      // Add a new message
-      messages.create(sessionId, 'assistant', 'New message');
-
-      // Summary should be stale (detected via count mismatch, the fallback)
-      expect(summaryService.isSummaryStale(sessionId)).toBe(true);
-    });
-
-    it('correctly handles empty sessions (no messages)', async () => {
-      // Create a new project and session with no messages
-      const testProject = projects.create('Empty Test Project', '/tmp/empty-test');
-      const newSession = sessions.create(testProject.id, 'Empty Session', '', 'standard');
-
-      // Should create a minimal summary instead of returning null
-      const result = await summaryService.generateSummary(newSession.id);
-      expect(result).not.toBeNull();
-      expect(result.shortSummary).toBe('Session in progress');
-      // sessions.create() adds the initial prompt as a message, so we have 1 message
-      expect(result.fullSummary).toBe('Session with 1 message');
-      expect(result.messageCount).toBe(1);
-
-      // isSummaryStale should return false (summary now exists)
-      expect(summaryService.isSummaryStale(newSession.id)).toBe(false);
-
-      // Cleanup
-      sessions.delete(newSession.id);
-      projects.delete(testProject.id);
     });
   });
 
@@ -2073,7 +1998,7 @@ describe('summaryService', () => {
       await summaryService.generateConversationSummary(sessionId, conversation.id);
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[SummaryService] Conversation summaries disabled')
+        expect.stringContaining('[ConversationSummary] Conversation summaries disabled')
       );
 
       consoleSpy.mockRestore();
@@ -2818,7 +2743,7 @@ describe('summaryService', () => {
       await summaryService.extractPrUrlIfNeeded(sessionId);
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[SummaryService] Extracted PR URL for session')
+        expect.stringContaining('[PrUrlService] Extracted PR URL for session')
       );
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('https://github.com/user/repo/pull/789')
@@ -3107,8 +3032,7 @@ describe('summaryService', () => {
   describe('concurrency guard', () => {
     afterEach(() => {
       // Clean up concurrency state
-      activeGenerations.delete(sessionId);
-      pendingRegenerations.delete(sessionId);
+      summaryService.cleanupSession(sessionId);
     });
 
     it('does not start a second generation while one is in-flight for the same session', async () => {
@@ -3169,8 +3093,6 @@ describe('summaryService', () => {
 
       // Clean up
       summaryService.cleanupSession(session2.id);
-      activeGenerations.delete(session2.id);
-      pendingRegenerations.delete(session2.id);
     });
 
     it('userInitiated=true bypasses the concurrency guard', async () => {
@@ -3354,6 +3276,119 @@ describe('summaryService', () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       expect(agentCallLogger.startCall).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('propagatePrUrlToParent', () => {
+    let broadcastSessionUpdateSpy;
+
+    beforeEach(() => {
+      // Spy on broadcastSessionUpdate
+      broadcastSessionUpdateSpy = vi.spyOn(summaryBroadcast, 'broadcastSessionUpdate');
+    });
+
+    afterEach(() => {
+      broadcastSessionUpdateSpy.mockRestore();
+    });
+
+    it('propagates PR URL from child to root (2-level)', () => {
+      const root = sessions.create(projectId, 'Root', 'Root prompt');
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard', false, null, root.id);
+      const prUrl = 'https://github.com/owner/repo/pull/123';
+
+      summaryService.propagatePrUrlToParent(child.id, prUrl);
+
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBe(prUrl);
+
+      const childAfter = sessions.getById(child.id);
+      expect(childAfter.prUrl).toBeNull();
+    });
+
+    it('propagates PR URL from grandchild to root (3-level)', () => {
+      const root = sessions.create(projectId, 'Root', 'Root prompt');
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard', false, null, root.id);
+      const grandchild = sessions.create(projectId, 'Grandchild', 'Grandchild prompt', 'standard', false, null, child.id);
+      const prUrl = 'https://github.com/owner/repo/pull/456';
+
+      summaryService.propagatePrUrlToParent(grandchild.id, prUrl);
+
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBe(prUrl);
+
+      const childAfter = sessions.getById(child.id);
+      expect(childAfter.prUrl).toBeNull();
+
+      const grandchildAfter = sessions.getById(grandchild.id);
+      expect(grandchildAfter.prUrl).toBeNull();
+    });
+
+    it('does not overwrite existing root PR URL (first wins)', () => {
+      const originalPrUrl = 'https://github.com/owner/repo/pull/111';
+      const root = sessions.create(projectId, 'Root', 'Root prompt');
+      sessions.update(root.id, { prUrl: originalPrUrl });
+
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard', false, null, root.id);
+      const newPrUrl = 'https://github.com/owner/repo/pull/999';
+
+      summaryService.propagatePrUrlToParent(child.id, newPrUrl);
+
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBe(originalPrUrl);
+    });
+
+    it('does nothing when session has no parent', () => {
+      const orphan = sessions.create(projectId, 'Orphan', 'Orphan prompt');
+      const prUrl = 'https://github.com/owner/repo/pull/789';
+
+      // Should not throw
+      expect(() => {
+        summaryService.propagatePrUrlToParent(orphan.id, prUrl);
+      }).not.toThrow();
+
+      const orphanAfter = sessions.getById(orphan.id);
+      expect(orphanAfter.prUrl).toBeNull();
+    });
+
+    it('does nothing when prUrl is falsy (null)', () => {
+      const root = sessions.create(projectId, 'Root', 'Root prompt');
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard', false, null, root.id);
+
+      // Should not throw
+      expect(() => {
+        summaryService.propagatePrUrlToParent(child.id, null);
+      }).not.toThrow();
+
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBeNull();
+    });
+
+    it('does nothing when prUrl is falsy (empty string)', () => {
+      const root = sessions.create(projectId, 'Root', 'Root prompt');
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard', false, null, root.id);
+
+      // Should not throw
+      expect(() => {
+        summaryService.propagatePrUrlToParent(child.id, '');
+      }).not.toThrow();
+
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBeNull();
+    });
+
+    it('broadcasts SESSION_UPDATED for the root session', () => {
+      const root = sessions.create(projectId, 'Root', 'Root prompt');
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard', false, null, root.id);
+      const prUrl = 'https://github.com/owner/repo/pull/123';
+
+      summaryService.propagatePrUrlToParent(child.id, prUrl);
+
+      expect(broadcastSessionUpdateSpy).toHaveBeenCalledTimes(1);
+      expect(broadcastSessionUpdateSpy).toHaveBeenCalledWith(
+        root.id,
+        root.projectId,
+        sessions.getById(root.id)
+      );
     });
   });
 });

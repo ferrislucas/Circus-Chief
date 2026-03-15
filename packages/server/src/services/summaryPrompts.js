@@ -155,7 +155,7 @@ export function stripMarkdownCodeBlock(text) {
     const codeBlockMatch = cleaned.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
     if (codeBlockMatch) {
       cleaned = codeBlockMatch[1].trim();
-      console.log('[SummaryService] Stripped markdown code block from response');
+      console.log('[SummaryPrompts] Stripped markdown code block from response');
     }
   }
   return cleaned;
@@ -195,7 +195,7 @@ export function parseSummaryResponse(responseText) {
     };
   } catch {
     // If JSON parsing fails, return fallback with flag for retry logic
-    console.warn('[SummaryService] Failed to parse summary response as JSON, using fallback');
+    console.warn('[SummaryPrompts] Failed to parse summary response as JSON, using fallback');
     return {
       shortSummary: responseText.substring(0, 150),
       fullSummary: responseText.substring(0, 500),
