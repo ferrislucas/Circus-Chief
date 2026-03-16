@@ -246,8 +246,11 @@ describe('SessionResponse', () => {
     maxTotalTokens: 200000,
     rescheduleCount: 0,
     rescheduleAtTokenCount: 150000,
+    targetLaneId: null,
+    laneTriggerDepth: 0,
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    lastActivityAt: Date.now(),
   };
 
   it('validates complete session response', () => {
@@ -333,8 +336,11 @@ describe('SessionListResponse', () => {
         maxTotalTokens: 200000,
         rescheduleCount: 0,
         rescheduleAtTokenCount: 150000,
+        targetLaneId: null,
+        laneTriggerDepth: 0,
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        lastActivityAt: Date.now(),
       },
     ]);
     expect(result.success).toBe(true);
