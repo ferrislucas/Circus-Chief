@@ -24,7 +24,7 @@ export class AgentCallLogger {
     if (meta.effortLevel !== undefined && meta.effortLevel !== null) {
       metadata.effortLevel = meta.effortLevel;
     }
-    if (meta.thinkingEnabled !== undefined) {
+    if (meta.thinkingEnabled !== undefined && meta.thinkingEnabled !== null) {
       metadata.thinkingEnabled = meta.thinkingEnabled;
     }
 
