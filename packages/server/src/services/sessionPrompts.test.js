@@ -316,5 +316,79 @@ describe('sessionPrompts', () => {
       const canvasIdx = result.indexOf('canvas');
       expect(planIdx).toBeLessThan(canvasIdx);
     });
+
+    it('includes kanban API instructions when kanban is enabled', () => {
+      projects.getById.mockReturnValue({ kanbanEnabled: true });
+      kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
+      kanbanLanes.getByBoardId.mockReturnValue([
+        { id: 'lane-1', name: 'To Do' },
+        { id: 'lane-2', name: 'In Progress' },
+      ]);
+
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).toContain('Kanban Board API');
+      expect(result).toContain('/api/projects/');
+      expect(result).toContain('/kanban');
+    });
+
+    it('excludes kanban API instructions when kanban is disabled', () => {
+      projects.getById.mockReturnValue({ kanbanEnabled: false });
+
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).not.toContain('Kanban Board API');
+    });
+
+    it('excludes kanban API instructions when project is not found', () => {
+      projects.getById.mockReturnValue(null);
+
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).not.toContain('Kanban Board API');
+    });
+
+    it('includes lane names in kanban instructions when board exists', () => {
+      projects.getById.mockReturnValue({ kanbanEnabled: true });
+      kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
+      kanbanLanes.getByBoardId.mockReturnValue([
+        { id: 'lane-1', name: 'To Do' },
+        { id: 'lane-2', name: 'Done' },
+      ]);
+
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).toContain('Available Lanes');
+      expect(result).toContain('"To Do"');
+      expect(result).toContain('"Done"');
+      expect(result).toContain('lane-1');
+      expect(result).toContain('lane-2');
+    });
+
+    it('includes kanban instructions without lane context when no board exists yet', () => {
+      projects.getById.mockReturnValue({ kanbanEnabled: true });
+      kanbanBoards.getByProjectId.mockReturnValue(null);
+
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).toContain('Kanban Board API');
+      expect(result).not.toContain('Available Lanes');
+    });
+
+    it('includes kanban API endpoints in instructions', () => {
+      projects.getById.mockReturnValue({ kanbanEnabled: true });
+      kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
+      kanbanLanes.getByBoardId.mockReturnValue([]);
+
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).toContain('Get Board with All Lanes and Cards');
+      expect(result).toContain('Add This Session to the Board');
+      expect(result).toContain('Move a Card to a Different Lane');
+      expect(result).toContain('Remove a Card from the Board');
+      expect(result).toContain('Create a New Lane');
+      expect(result).toContain('Update a Lane');
+      expect(result).toContain('Delete a Lane');
+    });
   });
 });
