@@ -507,9 +507,9 @@ export const useSessionsStore = defineStore('sessions', {
           try {
             const projectSessions = await api.getProjectSessions(this.currentSession.projectId);
             const childSessions = projectSessions.filter(s => s.parentSessionId === id);
-            for (const child of childSessions) {
-              if (!this.sessions.find(s => s.id === child.id)) this.sessions.push(child);
-            }
+            // Merge child sessions that aren't already in our list
+            const newChildren = childSessions.filter(child => !this.sessions.find(s => s.id === child.id));
+            this.sessions.push(...newChildren);
           } catch (error) { console.error('Failed to fetch child sessions:', error); }
         }
       } catch (err) { this.error = err.message; }
