@@ -28,7 +28,6 @@ import {
   projects,
   sessions,
   sessionTemplates,
-  sessionSummaries,
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
