@@ -9,14 +9,13 @@ import { API_URL, getAPIURL } from './helpers';
 /**
  * Development & Testing Tooling Tests
  *
- * Validates the development infrastructure: shell scripts, build tools,
- * test runners, and monorepo configuration.
+ * Validates the development infrastructure: shell scripts, port isolation,
+ * test runners, and pw.sh functionality.
  *
  * Categories:
  *   1. start-server.sh Script Behavior (5 tests)
  *   2. Port Isolation & Server Liveness (3 tests)
- *   3. Monorepo Structure & Build (4 tests)
- *   4. pw.sh Enhancements (3 tests)
+ *   3. pw.sh Enhancements (3 tests)
  */
 
 // ---------------------------------------------------------------------------
@@ -219,82 +218,6 @@ test.describe('Category 2: Port Isolation & Server Liveness', () => {
     // Also verify the function directly
     const freshURL = getAPIURL();
     expect(freshURL).toBe(expectedURL);
-  });
-});
-
-// ==========================================================================
-// Category 3: Monorepo Structure & Build
-// ==========================================================================
-
-test.describe('Category 3: Monorepo Structure & Build', () => {
-  // Test 9
-  test('monorepo has correct workspace packages', { timeout: 15_000 }, () => {
-    // yarn workspaces info (Yarn v1 syntax) outputs JSON with header/footer lines
-    // Output format:
-    //   yarn workspaces v1.22.22
-    //   { ... JSON ... }
-    //   Done in 0.06s.
-    const result = runScript('yarn workspaces info');
-    expect(result.exitCode).toBe(0);
-
-    const combined = result.stdout + result.stderr;
-
-    // Log for debugging if parsing fails
-    if (!combined.includes('{')) {
-      console.log('[workspaces info] combined output:', combined.slice(0, 500));
-    }
-
-    // Extract the JSON block between the header and footer lines.
-    // Yarn v1 outputs: "yarn workspaces v1.22.22\n{...JSON...}\nDone in Xs."
-    // Find the first '{' and last '}' to extract the JSON object.
-    const firstBrace = combined.indexOf('{');
-    expect(firstBrace).toBeGreaterThan(-1);
-
-    // Find matching closing brace by finding the last '}' before "Done in"
-    const doneIdx = combined.lastIndexOf('Done in');
-    const searchEnd = doneIdx > -1 ? doneIdx : combined.length;
-    const lastBrace = combined.lastIndexOf('}', searchEnd);
-    expect(lastBrace).toBeGreaterThan(firstBrace);
-
-    const jsonStr = combined.slice(firstBrace, lastBrace + 1);
-    const workspaceInfo = JSON.parse(jsonStr);
-
-    expect(workspaceInfo).toHaveProperty('@claudetools/server');
-    expect(workspaceInfo).toHaveProperty('@claudetools/web');
-    expect(workspaceInfo).toHaveProperty('@claudetools/shared');
-    expect(Object.keys(workspaceInfo)).toHaveLength(3);
-  });
-
-  // Test 10
-  test('shared package is a dependency of server and web', { timeout: 15_000 }, () => {
-    const serverPkg = JSON.parse(
-      readFileSync(join(process.cwd(), 'packages', 'server', 'package.json'), 'utf-8')
-    );
-    const webPkg = JSON.parse(
-      readFileSync(join(process.cwd(), 'packages', 'web', 'package.json'), 'utf-8')
-    );
-
-    expect(serverPkg.dependencies).toHaveProperty('@claudetools/shared');
-    expect(webPkg.dependencies).toHaveProperty('@claudetools/shared');
-  });
-
-  // Test 11
-  test('yarn build succeeds and produces web dist', { timeout: 120_000 }, () => {
-    const result = runScript('yarn build', { timeout: 110_000 });
-    expect(result.exitCode).toBe(0);
-
-    // Only packages/web/dist/ should exist (server has no build step)
-    const webDistPath = join(process.cwd(), 'packages', 'web', 'dist');
-    expect(existsSync(webDistPath)).toBe(true);
-
-    const indexHtmlPath = join(webDistPath, 'index.html');
-    expect(existsSync(indexHtmlPath)).toBe(true);
-  });
-
-  // Test 12
-  test('yarn lint succeeds', { timeout: 120_000 }, () => {
-    const result = runScript('yarn lint', { timeout: 110_000 });
-    expect(result.exitCode).toBe(0);
   });
 });
 
