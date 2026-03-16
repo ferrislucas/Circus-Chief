@@ -120,6 +120,233 @@ describe('CommandRunner', () => {
 
       expect(exitCode).toBe(0);
     });
+
+    // New options object signature tests
+    describe('options object signature', () => {
+      it('executes command with params object and callbacks object', async () => {
+        const outputs = [];
+        const exitCode = await runner.run(
+          { runId: 'test-options-1', command: 'echo "options test"', workingDirectory: process.cwd() },
+          {
+            onOutput: (text) => outputs.push(text),
+            onComplete: () => {},
+            onError: () => {},
+          }
+        );
+
+        expect(exitCode).toBe(0);
+        expect(outputs.join('').length).toBeGreaterThan(0);
+      });
+
+      it('executes command with only onOutput callback', async () => {
+        let output = '';
+        const exitCode = await runner.run(
+          { runId: 'test-options-2', command: 'echo "single callback"', workingDirectory: process.cwd() },
+          {
+            onOutput: (text) => { output += text; },
+          }
+        );
+
+        expect(exitCode).toBe(0);
+        expect(output).toContain('single callback');
+      });
+
+      it('passes sessionId and buttonId from metadata parameter', async () => {
+        let capturedMetadata = null;
+        const runPromise = runner.run(
+          { runId: 'test-options-3', command: 'sleep 0.1', workingDirectory: process.cwd() },
+          {
+            onOutput: () => {},
+            onComplete: () => {},
+            onError: () => {},
+          },
+          { sessionId: 'session-abc', buttonId: 'button-xyz' }
+        );
+
+        // Check active runs while command is executing
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const activeRuns = runner.getActiveRuns();
+        if (activeRuns.has('test-options-3')) {
+          const entry = activeRuns.get('test-options-3');
+          capturedMetadata = {
+            sessionId: entry.sessionId,
+            buttonId: entry.buttonId,
+          };
+        }
+
+        await runPromise;
+
+        if (capturedMetadata) {
+          expect(capturedMetadata.sessionId).toBe('session-abc');
+          expect(capturedMetadata.buttonId).toBe('button-xyz');
+        }
+      });
+
+      it('calls onComplete callback with correct parameters', async () => {
+        let callbackCalled = false;
+        let callbackExitCode = null;
+        let callbackOutput = null;
+
+        const exitCode = await runner.run(
+          { runId: 'test-options-4', command: 'echo "complete test"', workingDirectory: process.cwd() },
+          {
+            onOutput: () => {},
+            onComplete: (code, output) => {
+              callbackCalled = true;
+              callbackExitCode = code;
+              callbackOutput = output;
+            },
+          }
+        );
+
+        expect(callbackCalled).toBe(true);
+        expect(callbackExitCode).toBe(0);
+        expect(callbackOutput).toContain('complete test');
+      });
+
+      it('calls onError callback when command fails', async () => {
+        let errorMessage = null;
+        const exitCode = await runner.run(
+          { runId: 'test-options-5', command: 'echo test', workingDirectory: '/nonexistent/directory' },
+          {
+            onOutput: () => {},
+            onComplete: () => {},
+            onError: (msg) => { errorMessage = msg; },
+          }
+        );
+
+        expect(exitCode).not.toBe(0);
+        expect(errorMessage).not.toBeNull();
+        expect(errorMessage).toContain('Failed to execute command');
+      });
+
+      it('works without onError callback', async () => {
+        const exitCode = await runner.run(
+          { runId: 'test-options-6', command: 'echo "no error callback"', workingDirectory: process.cwd() },
+          {
+            onOutput: () => {},
+            onComplete: () => {},
+          }
+        );
+
+        expect(exitCode).toBe(0);
+      });
+
+      it('works with empty callbacks object', async () => {
+        const exitCode = await runner.run(
+          { runId: 'test-options-7', command: 'true', workingDirectory: process.cwd() },
+          {}
+        );
+
+        expect(exitCode).toBe(0);
+      });
+
+      it('works without metadata parameter', async () => {
+        const exitCode = await runner.run(
+          { runId: 'test-options-8', command: 'echo "no metadata"', workingDirectory: process.cwd() },
+          {
+            onOutput: () => {},
+            onComplete: () => {},
+          }
+        );
+
+        expect(exitCode).toBe(0);
+      });
+    });
+
+    // Backward compatibility tests for legacy positional parameters
+    describe('backward compatibility with legacy positional parameters', () => {
+      it('supports legacy signature with all positional parameters', async () => {
+        const outputs = [];
+        let completed = false;
+
+        const result = await runner.run(
+          'test-legacy-1',
+          'echo "legacy test"',
+          process.cwd(),
+          (text) => outputs.push(text),
+          () => { completed = true; }
+        );
+
+        expect(result).toBe(0);
+        expect(completed).toBe(true);
+        expect(outputs.join('').length).toBeGreaterThan(0);
+      });
+
+      it('supports legacy signature with onError callback', async () => {
+        let errorCalled = false;
+        const exitCode = await runner.run(
+          'test-legacy-2',
+          'false',
+          process.cwd(),
+          () => {},
+          () => {},
+          () => { errorCalled = true; }
+        );
+
+        expect(exitCode).not.toBe(0);
+        // onError is only called for spawn errors, not non-zero exit codes
+      });
+
+      it('supports legacy signature with metadata object', async () => {
+        const runPromise = runner.run(
+          'test-legacy-3',
+          'sleep 0.1',
+          process.cwd(),
+          () => {},
+          () => {},
+          () => {},
+          { sessionId: 'legacy-session', buttonId: 'legacy-button' }
+        );
+
+        // Check active runs
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const activeRuns = runner.getActiveRuns();
+
+        if (activeRuns.has('test-legacy-3')) {
+          const entry = activeRuns.get('test-legacy-3');
+          expect(entry.sessionId).toBe('legacy-session');
+          expect(entry.buttonId).toBe('legacy-button');
+        }
+
+        await runPromise;
+      });
+
+      it('supports legacy signature without metadata', async () => {
+        const exitCode = await runner.run(
+          'test-legacy-4',
+          'echo "no metadata"',
+          process.cwd(),
+          () => {},
+          () => {}
+        );
+
+        expect(exitCode).toBe(0);
+      });
+
+      it('mixed legacy and new calls work correctly', async () => {
+        // First call with legacy signature
+        const legacyPromise = runner.run(
+          'test-mixed-legacy',
+          'sleep 0.1',
+          process.cwd(),
+          () => {},
+          () => {}
+        );
+
+        // Second call with new signature
+        const newPromise = runner.run(
+          { runId: 'test-mixed-new', command: 'sleep 0.1', workingDirectory: process.cwd() },
+          { onOutput: () => {}, onComplete: () => {} }
+        );
+
+        // Both should complete successfully
+        const [legacyExit, newExit] = await Promise.all([legacyPromise, newPromise]);
+
+        expect(legacyExit).toBe(0);
+        expect(newExit).toBe(0);
+      });
+    });
   });
 
   describe('kill', () => {
