@@ -315,3 +315,46 @@ CREATE TABLE IF NOT EXISTS agent_call_logs (
 
 CREATE INDEX IF NOT EXISTS idx_agent_call_logs_session ON agent_call_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_agent_call_logs_started ON agent_call_logs(started_at);
+
+-- Kanban boards (one per project)
+CREATE TABLE IF NOT EXISTS kanban_boards (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
+-- Kanban lanes (columns on the board)
+CREATE TABLE IF NOT EXISTS kanban_lanes (
+  id TEXT PRIMARY KEY,
+  board_id TEXT NOT NULL REFERENCES kanban_boards(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  on_enter_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
+-- Kanban cards (entries on the board, separate from sessions for future flexibility)
+CREATE TABLE IF NOT EXISTS kanban_cards (
+  id TEXT PRIMARY KEY,
+  lane_id TEXT NOT NULL REFERENCES kanban_lanes(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
+-- Kanban card sessions (links cards to sessions, currently 1:1 but allows future N:1)
+CREATE TABLE IF NOT EXISTS kanban_card_sessions (
+  id TEXT PRIMARY KEY,
+  card_id TEXT NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
+
+-- Kanban indexes
+CREATE INDEX IF NOT EXISTS idx_kanban_boards_project ON kanban_boards(project_id);
+CREATE INDEX IF NOT EXISTS idx_kanban_lanes_board ON kanban_lanes(board_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_kanban_cards_lane ON kanban_cards(lane_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_kanban_card_sessions_session ON kanban_card_sessions(session_id);
+CREATE INDEX IF NOT EXISTS idx_kanban_card_sessions_card ON kanban_card_sessions(card_id);

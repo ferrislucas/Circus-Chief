@@ -7,9 +7,18 @@ vi.mock('../database.js', () => ({
   attachments: {
     getBySessionId: vi.fn(),
   },
+  projects: {
+    getById: vi.fn(),
+  },
+  kanbanBoards: {
+    getByProjectId: vi.fn(),
+  },
+  kanbanLanes: {
+    getByBoardId: vi.fn(),
+  },
 }));
 
-import { sessions, attachments } from '../database.js';
+import { sessions, attachments, projects, kanbanBoards, kanbanLanes } from '../database.js';
 import {
   getApiBaseUrl,
   buildPromptWithAttachments,
@@ -27,6 +36,10 @@ describe('sessionPrompts', () => {
     sessions.getById.mockReturnValue(null);
     // Default mock: no attachments
     attachments.getBySessionId.mockReturnValue([]);
+    // Default mock: project without kanban enabled
+    projects.getById.mockReturnValue(null);
+    kanbanBoards.getByProjectId.mockReturnValue(null);
+    kanbanLanes.getByBoardId.mockReturnValue([]);
   });
 
   afterEach(() => {

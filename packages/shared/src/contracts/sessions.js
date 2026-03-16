@@ -42,6 +42,8 @@ export const UpdateSessionRequest = z.object({
   maxTotalTokens: z.number().min(1000).nullable().optional(),
   rescheduleCount: z.number().optional(), // For resetting
   rescheduleAtTokenCount: z.number().min(10000).nullable().optional(),
+  // Kanban fields
+  targetLaneId: z.string().uuid().nullable().optional(), // Lane to move to when turn ends
 });
 
 export const SendMessageRequest = z.object({
@@ -73,6 +75,9 @@ export const SessionResponse = z.object({
   maxTotalTokens: z.number().nullable(),
   rescheduleCount: z.number(),
   rescheduleAtTokenCount: z.number().nullable(),
+  // Kanban fields
+  targetLaneId: z.string().uuid().nullable(),
+  laneTriggerDepth: z.number(),
   createdAt: z.number(),
   updatedAt: z.number(),
   lastActivityAt: z.number(),

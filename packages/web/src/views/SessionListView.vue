@@ -56,6 +56,14 @@
           >
             Scheduled
           </button>
+          <button
+            v-if="projectsStore.currentProject?.kanbanEnabled"
+            class="tab"
+            :class="{ active: activeTab === 'kanban' }"
+            @click="router.push(`/projects/${route.params.id}/kanban`)"
+          >
+            Kanban
+          </button>
         </div>
         <router-link v-if="activeTab === 'sessions'" :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary desktop-only">
           New Session
@@ -70,6 +78,7 @@
           <option value="templates">Templates</option>
           <option value="commands">Commands</option>
           <option value="scheduled">Scheduled</option>
+          <option v-if="projectsStore.currentProject?.kanbanEnabled" value="kanban">Kanban</option>
         </select>
       </div>
     </div>
@@ -159,6 +168,12 @@
       :sessions="scheduledSessions"
       :loading="loadingScheduled"
     />
+
+    <!-- Kanban Tab -->
+    <KanbanBoard
+      v-if="activeTab === 'kanban'"
+      :project-id="route.params.id"
+    />
   </div>
 </template>
 
@@ -176,6 +191,7 @@ import ArchivedTabContent from '../components/ArchivedTabContent.vue';
 import ScheduledTabContent from '../components/ScheduledTabContent.vue';
 import TemplatesPanel from '../components/TemplatesPanel.vue';
 import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
+import KanbanBoard from '../components/KanbanBoard.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -190,6 +206,7 @@ const activeTab = computed(() => {
     case 'ProjectTemplates': return 'templates';
     case 'ProjectCommands': return 'commands';
     case 'ScheduledSessions': return 'scheduled';
+    case 'ProjectKanban': return 'kanban';
     default: return 'sessions';
   }
 });
@@ -203,6 +220,7 @@ function handleTabChange(tab) {
     templates: `/projects/${projectId}/templates`,
     commands: `/projects/${projectId}/commands`,
     scheduled: `/projects/${projectId}/scheduled`,
+    kanban: `/projects/${projectId}/kanban`,
   };
   router.push(routes[tab]);
 }
