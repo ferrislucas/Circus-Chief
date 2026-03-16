@@ -66,6 +66,10 @@
             <ModelSelector v-model="model" @update:providerId="providerId = $event" />
           </div>
 
+          <div class="effort-selector-wrapper">
+            <EffortLevelSelector v-model="effortLevel" />
+          </div>
+
           <div class="thinking-toggle">
             <div class="field-with-badge">
               <label class="toggle-switch">
@@ -225,6 +229,7 @@ import { generateWorktreeBranch } from '@claudetools/shared';
 import FileAttachment from '../components/FileAttachment.vue';
 import ModelSelector from '../components/ModelSelector.vue';
 import ModeSelector from '../components/ModeSelector.vue';
+import EffortLevelSelector from '../components/EffortLevelSelector.vue';
 import QuickResponsesPanel from '../components/QuickResponsesPanel.vue';
 import QuickResponseSettings from '../components/QuickResponseSettings.vue';
 import SchedulingOptions from '../components/SchedulingOptions.vue';
@@ -312,6 +317,7 @@ const availableSessions = computed(() => {
 const loadingGit = ref(false);
 const error = ref(null);
 const thinkingEnabled = ref(true);
+const effortLevel = ref(null);
 
 // Quick git feature
 const quickGitMode = ref('worktree'); // '', 'branch', or 'worktree'
@@ -454,6 +460,9 @@ onMounted(async () => {
       if (defaults.thinkingEnabled !== null && defaults.thinkingEnabled !== undefined) {
         thinkingEnabled.value = defaults.thinkingEnabled;
         usingDefaults.value.thinkingEnabled = true;
+      }
+      if (defaults.effortLevel) {
+        effortLevel.value = defaults.effortLevel;
       }
       if (defaults.startImmediately !== null && defaults.startImmediately !== undefined) {
         startImmediately.value = defaults.startImmediately;
@@ -610,6 +619,7 @@ async function handleSubmit() {
       model: model.value,
       providerId: providerId.value,
       thinkingEnabled: thinkingEnabled.value,
+      effortLevel: effortLevel.value,
       startImmediately: startImmediately.value,
       gitMode: submitGitMode,
       gitBranch: submitGitBranch,
@@ -808,6 +818,12 @@ h1 {
 }
 
 .model-selector-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.effort-selector-wrapper {
   display: flex;
   align-items: center;
   gap: 0.5rem;
