@@ -4,6 +4,7 @@ import {
   cleanupAll,
   getSession,
   seedSession,
+  seedSessionWithFiles,
   getProjectSessionDefaults,
   setProjectSessionDefaults,
   resetProjectSessionDefaults,
@@ -605,6 +606,51 @@ test.describe('Effort Level Feature - E2E Tests', () => {
       // Verify persistence
       const fetched = await getSession(session.id);
       expect(fetched.effortLevel).toBe('high');
+    });
+
+    test('effort level is preserved when creating session with file attachments', async () => {
+      const project = await seedProject('File Attachment Effort Test', '/tmp/file-effort');
+
+      // Create session with files AND explicit effortLevel
+      const session = await seedSessionWithFiles(
+        project.id,
+        { prompt: 'Test prompt with file', effortLevel: 'high' },
+        [{ name: 'test.txt', content: 'Hello world', type: 'text/plain' }]
+      );
+
+      expect(session.effortLevel).toBe('high');
+
+      // Verify persistence via GET
+      const fetched = await getSession(session.id);
+      expect(fetched.effortLevel).toBe('high');
+    });
+
+    test('effort level defaults to null (auto) when creating session with file attachments and no explicit level', async () => {
+      const project = await seedProject('File Attachment Auto Effort Test', '/tmp/file-auto-effort');
+
+      // Create session with files but NO effortLevel
+      const session = await seedSessionWithFiles(
+        project.id,
+        { prompt: 'Test prompt with file, no effort' },
+        [{ name: 'readme.md', content: '# Hello', type: 'text/markdown' }]
+      );
+
+      // Should default to null (auto)
+      expect(session.effortLevel).toBeNull();
+    });
+
+    test('project default effort level is applied when creating session with file attachments', async () => {
+      const project = await seedProject('File Attachment Project Default Test', '/tmp/file-project-default');
+      await setProjectSessionDefaults(project.id, { effortLevel: 'medium' });
+
+      // Create session with files but no explicit effortLevel — should pick up project default
+      const session = await seedSessionWithFiles(
+        project.id,
+        { prompt: 'Test with file and project default' },
+        [{ name: 'data.csv', content: 'a,b,c', type: 'text/csv' }]
+      );
+
+      expect(session.effortLevel).toBe('medium');
     });
 
     test('effort level metadata is recorded in agent call logs', async () => {

@@ -302,7 +302,7 @@ watch(() => defaultsStore.getDefaultsForProject(route.params.id), (defaults) => 
   if (defaults) {
     defaultMode.value = defaults.mode || '';
     defaultThinkingEnabled.value = defaults.thinkingEnabled || false;
-    defaultEffortLevel.value = defaults.effortLevel || '';
+    defaultEffortLevel.value = defaults.effortLevel ?? '';
     defaultStartImmediately.value = defaults.startImmediately !== false;
     defaultGitMode.value = defaults.gitMode || '';
     defaultGitBranch.value = defaults.gitBranch || '';

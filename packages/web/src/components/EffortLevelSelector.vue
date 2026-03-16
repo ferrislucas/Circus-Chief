@@ -16,6 +16,7 @@
 
 <script setup>
 import { ref, computed, watch, toRef } from 'vue';
+import { EFFORT_LEVELS } from '@claudetools/shared';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 
@@ -40,13 +41,12 @@ const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 const toggling = ref(false);
 
-const levels = [
-  { value: 'auto', label: 'Auto Effort' },
-  { value: 'low', label: 'Low Effort' },
-  { value: 'medium', label: 'Medium Effort' },
-  { value: 'high', label: 'High Effort' },
-  { value: 'max', label: 'Max Effort' },
-];
+// Reorder so "auto" comes first in the dropdown
+const sortedLevels = ['auto', ...EFFORT_LEVELS.filter(l => l !== 'auto')];
+const levels = sortedLevels.map(level => ({
+  value: level,
+  label: level.charAt(0).toUpperCase() + level.slice(1) + ' Effort',
+}));
 
 // Use store state when sessionId provided, otherwise use modelValue prop
 const currentLevel = computed(() => {

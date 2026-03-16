@@ -686,13 +686,16 @@ export async function resetProjectSessionDefaults(projectId: string) {
  */
 export async function seedSessionWithFiles(
   projectId: string,
-  data: { prompt: string; name?: string; mode?: string },
+  data: { prompt: string; name?: string; mode?: string; effortLevel?: string | null },
   files: Array<{ name: string; content: string; type: string }>
 ) {
   const formData = new FormData();
   formData.append('prompt', data.prompt);
   if (data.name) formData.append('name', data.name);
   if (data.mode) formData.append('mode', data.mode);
+  if (data.effortLevel !== undefined) {
+    formData.append('effortLevel', data.effortLevel ?? '');
+  }
 
   // Add files to FormData
   for (const file of files) {
