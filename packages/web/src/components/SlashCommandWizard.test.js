@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import SlashCommandWizard from './SlashCommandWizard.vue';
 import CommandGrid from './slash-commands/CommandGrid.vue';
@@ -227,11 +227,17 @@ describe('SlashCommandWizard.vue', () => {
 
       commandsStore.commands = [skill];
 
+      // Use an onInsert listener via attrs since wrapper.emitted() doesn't work
+      // reliably with Teleport stubs
+      const insertSpy = vi.fn();
       const wrapper = mount(SlashCommandWizard, {
         props: {
           isOpen: true,
           workingDirectory: '/test',
           mode: 'insert',
+        },
+        attrs: {
+          onInsert: insertSpy,
         },
         global: { stubs: { Teleport: true } },
       });
@@ -241,14 +247,25 @@ describe('SlashCommandWizard.vue', () => {
       grid.vm.$emit('select', skill);
       await wrapper.vm.$nextTick();
 
-      // Submit from args form
+      // Verify step 2 is showing
       const argsForm = wrapper.findComponent(ArgumentsForm);
-      argsForm.vm.$emit('submit', { _raw: 'build a login page' });
-      await wrapper.vm.$nextTick();
+      expect(argsForm.exists()).toBe(true);
+
+      // Type into the skill args input
+      const input = argsForm.find('[data-testid="skill-args-input"]');
+      await input.setValue('build a login page');
+
+      // Submit via the form
+      await argsForm.find('form').trigger('submit');
+      await flushPromises();
 
       // Should emit insert with command string built by buildInsertString()
-      expect(wrapper.emitted('insert')).toBeTruthy();
-      expect(wrapper.emitted('insert')[0][0].text).toBe('/frontend-design build a login page');
+      expect(insertSpy).toHaveBeenCalledTimes(1);
+      expect(insertSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: '/frontend-design build a login page',
+        })
+      );
     });
   });
 });
