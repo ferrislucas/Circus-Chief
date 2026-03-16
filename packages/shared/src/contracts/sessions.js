@@ -5,6 +5,7 @@ export const CreateSessionRequest = z.object({
   name: z.string().optional(),
   mode: z.enum(['plan', 'standard', 'yolo']).optional(),
   thinkingEnabled: z.boolean().optional(),
+  effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).optional(),
   gitBranch: z.string().optional(),
   gitMode: z.enum(['branch', 'worktree']).optional(),
   templateId: z.string().uuid().optional(), // Template to apply on session creation
@@ -24,6 +25,7 @@ export const UpdateSessionRequest = z.object({
   name: z.string().min(1).optional(),
   manuallyNamed: z.boolean().optional(),
   thinkingEnabled: z.boolean().optional(),
+  effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable().optional(),
   status: z.enum(['starting', 'running', 'waiting', 'error', 'stopped', 'scheduled']).optional(),
   mode: z.enum(['plan', 'standard', 'yolo']).optional(),
   model: z.string().nullable().optional(),
@@ -56,6 +58,7 @@ export const SessionResponse = z.object({
   mode: z.enum(['plan', 'standard', 'yolo']),
   model: z.string().nullable(),
   thinkingEnabled: z.boolean(),
+  effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable(),
   gitBranch: z.string().nullable(),
   gitWorktree: z.string().nullable(),
   prUrl: z.string().nullable(),
