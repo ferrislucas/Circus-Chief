@@ -1,5 +1,5 @@
 <template>
-  <form @submit.prevent="handleSubmit" class="input-form">
+  <form @submit.prevent="handleSubmit" class="input-form" data-testid="input-form">
     <ResizableTextarea
       ref="textareaRef"
       :modelValue="modelValue"

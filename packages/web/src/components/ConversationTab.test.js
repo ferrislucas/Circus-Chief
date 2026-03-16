@@ -3286,9 +3286,10 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      const modelLabel = wrapper.find('.running-model-label');
-      expect(modelLabel.exists()).toBe(true);
-      expect(modelLabel.text()).toBe('Opus 4.6');
+      // Model badge is now in WorkLogsPane, check for .running-model-badge
+      const modelBadge = wrapper.find('.running-model-badge');
+      expect(modelBadge.exists()).toBe(true);
+      expect(modelBadge.text()).toBe('Opus 4.6');
     });
 
     it('does not show model label when session has no model set', async () => {
@@ -3298,8 +3299,8 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      const modelLabel = wrapper.find('.running-model-label');
-      expect(modelLabel.exists()).toBe(false);
+      const modelBadge = wrapper.find('.running-model-badge');
+      expect(modelBadge.exists()).toBe(false);
     });
 
     it('shows correct name for sonnet model', async () => {
@@ -3309,9 +3310,9 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      const modelLabel = wrapper.find('.running-model-label');
-      expect(modelLabel.exists()).toBe(true);
-      expect(modelLabel.text()).toBe('Sonnet 4.6');
+      const modelBadge = wrapper.find('.running-model-badge');
+      expect(modelBadge.exists()).toBe(true);
+      expect(modelBadge.text()).toBe('Sonnet 4.6');
     });
 
     it('shows correct name for haiku model', async () => {
@@ -3321,9 +3322,9 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      const modelLabel = wrapper.find('.running-model-label');
-      expect(modelLabel.exists()).toBe(true);
-      expect(modelLabel.text()).toBe('Haiku 4.5');
+      const modelBadge = wrapper.find('.running-model-badge');
+      expect(modelBadge.exists()).toBe(true);
+      expect(modelBadge.text()).toBe('Haiku 4.5');
     });
 
     it('shows formatted name for third-party model', async () => {
@@ -3333,9 +3334,9 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      const modelLabel = wrapper.find('.running-model-label');
-      expect(modelLabel.exists()).toBe(true);
-      expect(modelLabel.text()).toBe('Deepseek Chat');
+      const modelBadge = wrapper.find('.running-model-badge');
+      expect(modelBadge.exists()).toBe(true);
+      expect(modelBadge.text()).toBe('Deepseek Chat');
     });
   });
 });

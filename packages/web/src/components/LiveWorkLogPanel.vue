@@ -1,11 +1,11 @@
 <template>
-  <div class="live-work-log-panel">
+  <div class="live-work-log-panel" data-testid="live-work-log-panel">
     <div v-if="showHeader" class="live-header">
       <span class="loading-spinner"></span>
       <span class="live-title">Claude is working...</span>
       <span v-if="totalCount" class="live-count">({{ totalCount }} {{ totalCount === 1 ? 'item' : 'items' }})</span>
     </div>
-    <div v-if="hasContent" class="live-logs" @scroll="handleScroll">
+    <div v-if="hasContent" ref="logsContainer" class="live-logs" :class="{ 'fill-available': fillAvailable }" data-testid="live-logs" @scroll="handleScroll">
       <div v-for="log in workLogs" :key="log.id" class="live-log-item">
         <ThinkingBlock v-if="log.type === 'thinking'" :content="log.content" :timestamp="log.timestamp" />
         <CommandBlock v-else :log="log" />
@@ -27,7 +27,11 @@ const props = defineProps({
   workLogs: { type: Array, default: () => [] },
   partialThinking: { type: String, default: null },
   showHeader: { type: Boolean, default: true }, // Hide header when shown in parent
+  fillAvailable: { type: Boolean, default: false }, // Fill available space in split view
 });
+
+// Template ref for scroll container (fixes querySelector bug in split view)
+const logsContainer = ref(null);
 
 // Scroll state tracking - auto-scroll unless user manually scrolls up
 const SCROLL_THRESHOLD = 50; // pixels from bottom to consider "near bottom"
@@ -52,15 +56,8 @@ function handleScroll(event) {
 // Auto-scroll to bottom when new logs arrive (only if user is near bottom)
 function scrollToBottom() {
   nextTick(() => {
-    if (isNearBottom.value) {
-      try {
-        const container = document.querySelector('.live-logs');
-        if (container) {
-          container.scrollTop = container.scrollHeight;
-        }
-      } catch (e) {
-        // May fail in certain environments, silently ignore
-      }
+    if (isNearBottom.value && logsContainer.value) {
+      logsContainer.value.scrollTop = logsContainer.value.scrollHeight;
     }
   });
 }
@@ -80,6 +77,7 @@ watch(() => props.partialThinking, () => {
 defineExpose({
   isNearBottom,
   scrollToBottom,
+  logsContainer,
 });
 </script>
 
@@ -122,6 +120,19 @@ defineExpose({
   padding-right: 0.25rem;
   border-left: 2px solid var(--color-primary);
   padding-left: 0.75rem;
+}
+
+/* Fill available mode for split view */
+.live-logs.fill-available {
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+}
+
+/* In fill-available mode, add subtle separators between log entries */
+.live-logs.fill-available .live-log-item + .live-log-item {
+  border-top: 1px solid rgba(48, 54, 61, 0.5);
+  padding-top: 0.5rem;
 }
 
 .live-log-item {

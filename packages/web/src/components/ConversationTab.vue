@@ -1,70 +1,90 @@
 <template>
-  <div class="conversation-tab">
-    <!-- Unified Conversation Panel - selector + BTE cost display -->
-    <ConversationPanel v-if="!isScheduledForFuture" :session-id="sessionId" />
+  <div class="conversation-tab"
+       :class="{ 'split-active': isRunning }"
+       data-testid="conversation-tab">
 
-    <div class="messages" ref="messagesContainer">
-      <!-- Hide messages for draft and scheduled sessions (only show in input field) -->
-      <template v-if="!isDraft && !isScheduledDraft">
-      <MessageItem
-        v-for="message in sessionsStore.messages"
-        :key="message.id"
-        :message="message"
-        :can-branch="canBranch"
-        :is-branching="branchingMessageId === message.id"
-        :work-logs="sessionsStore.getWorkLogsForMessage(message.id)"
-        @openBranch="openBranchEditor"
-        @branchCreate="handleBranchCreate"
-        @closeBranch="closeBranchEditor"
-      />
-      </template>
+    <!-- TOP PANE: Conversation -->
+    <div class="conversation-pane"
+         :class="splitPaneClass"
+         data-testid="conversation-pane">
 
-      <!-- Streaming partial message -->
-      <StreamingMessage v-if="!isDraft && partialText" :content="partialText" />
+      <!-- Unified Conversation Panel - selector + BTE cost display -->
+      <ConversationPanel v-if="!isScheduledForFuture" :session-id="sessionId" />
 
-      <!-- Jump to latest button (Slack-style) -->
-      <button
-        v-if="!isNearBottom && hasNewMessages && sessionsStore.messages.length > 0"
-        class="jump-to-latest"
-        @click="scrollToBottom(true)"
-      >
-        <svg class="jump-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <span>New messages</span>
-      </button>
+      <div class="messages" ref="messagesContainer" data-testid="messages-container">
+        <!-- Hide messages for draft and scheduled sessions (only show in input field) -->
+        <template v-if="!isDraft && !isScheduledDraft">
+        <MessageItem
+          v-for="message in sessionsStore.messages"
+          :key="message.id"
+          :message="message"
+          :can-branch="canBranch"
+          :is-branching="branchingMessageId === message.id"
+          :work-logs="sessionsStore.getWorkLogsForMessage(message.id)"
+          @openBranch="openBranchEditor"
+          @branchCreate="handleBranchCreate"
+          @closeBranch="closeBranchEditor"
+        />
+        </template>
+
+        <!-- Streaming partial message -->
+        <StreamingMessage v-if="!isDraft && partialText" :content="partialText" />
+
+        <!-- Jump to latest button (Slack-style) -->
+        <button
+          v-if="!isNearBottom && hasNewMessages && sessionsStore.messages.length > 0"
+          class="jump-to-latest"
+          @click="scrollToBottom(true)"
+        >
+          <svg class="jump-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>New messages</span>
+        </button>
+      </div>
+
+      <!-- Token cost panel - aligned with scroll-to-claude-btn -->
+      <div class="conversation-controls-row" data-testid="conversation-controls">
+        <TokenCostPanel :session-id="sessionId" />
+
+        <!-- Jump to Claude's turn button - shows when at bottom and it's user's turn -->
+        <button
+          v-if="hasAssistantMessages && isNearBottom && isUsersTurn"
+          class="scroll-to-claude-btn"
+          @click="scrollToClaudesTurn"
+          title="Jump to Claude's response"
+          aria-label="Scroll to Claude's latest response"
+        >
+          ↑
+        </button>
+      </div>
+
+      <!-- Todo drawer - hidden in workLogs mode to save space -->
+      <TodoDrawer v-if="splitMode !== 'workLogs' || !isRunning" />
     </div>
 
-    <!-- Token cost panel - aligned with scroll-to-claude-btn -->
-    <div class="conversation-controls-row">
-      <TokenCostPanel :session-id="sessionId" />
+    <!-- DIVIDER BAR: Always shown when running (controls pane visibility) -->
+    <SplitViewDivider
+      v-if="isRunning"
+      :mode="splitMode"
+      :class="{ 'animate-entrance': justEnteredSplit }"
+      @update:mode="handleSplitModeChange"
+    />
 
-      <!-- Jump to Claude's turn button - shows when at bottom and it's user's turn -->
-      <button
-        v-if="hasAssistantMessages && isNearBottom && isUsersTurn"
-        class="scroll-to-claude-btn"
-        @click="scrollToClaudesTurn"
-        title="Jump to Claude's response"
-        aria-label="Scroll to Claude's latest response"
-      >
-        ↑
-      </button>
-    </div>
-
-    <!-- Todo drawer - only shows when todos exist -->
-    <TodoDrawer />
-
-    <RunningState
-      v-if="sessionsStore.currentSession?.status === 'running'"
-      :active-model-display-name="activeModelDisplayName"
-      :stopping="stopping"
+    <!-- BOTTOM PANE: Work Logs (always in DOM when running) -->
+    <WorkLogsPane
+      v-if="isRunning"
+      :class="workLogsPaneClass"
       :work-logs="unassociatedWorkLogs"
       :partial-thinking="sessionsStore.partialThinking"
+      :active-model-display-name="activeModelDisplayName"
+      :stopping="stopping"
       :next-template="nextTemplate"
       :project-id="sessionsStore.currentSession?.projectId"
       @stop="handleStop"
     />
 
+    <!-- INPUT FORM: Always at bottom, OUTSIDE the split -->
     <InputForm
       v-if="canSendMessage || isRunning || isScheduledForFuture"
       ref="inputFormRef"
@@ -158,6 +178,8 @@ import MessageItem from './MessageItem.vue';
 import StreamingMessage from './StreamingMessage.vue';
 import InputForm from './InputForm.vue';
 import RunningState from './RunningState.vue';
+import SplitViewDivider from './SplitViewDivider.vue';
+import WorkLogsPane from './WorkLogsPane.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
 import ScheduleSessionModal from './ScheduleSessionModal.vue';
 import AutoRescheduleModal from './AutoRescheduleModal.vue';
@@ -204,6 +226,19 @@ const inputFormRef = ref(null);
 const branchingMessageId = ref(null);
 const attachedFiles = ref([]);
 const selectedModel = ref(null);
+
+// Split view state
+const splitMode = ref('split');       // 'split' | 'workLogs'
+const userOverrodeMode = ref(false);
+const justEnteredSplit = ref(false);  // For conditional entrance animation
+
+// Detect if we're on a small screen using matchMedia (more efficient than window.innerWidth polling).
+// Uses 640px to match Tailwind's sm breakpoint.
+// Check for window.matchMedia existence for SSR and test environments.
+const mobileQuery = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+  ? window.matchMedia('(max-width: 639px)')
+  : null;
+const isMobile = ref(mobileQuery?.matches ?? false);
 
 // Draft saving composable
 const { saveStatus, saveError, handleInput, savePendingPrompt } = useDraftSaving({
@@ -301,6 +336,21 @@ const nextTemplate = computed(() => {
   return templatesStore.getTemplateById(templateId);
 });
 
+// Computed classes for split view panes
+const splitPaneClass = computed(() => {
+  if (!isRunning.value) return '';
+  return `pane-${splitMode.value}`;
+});
+
+const workLogsPaneClass = computed(() => {
+  return `pane-${splitMode.value}`;
+});
+
+function handleSplitModeChange(newMode) {
+  splitMode.value = newMode;
+  userOverrodeMode.value = true;
+}
+
 const workingDirectory = computed(() => {
   const session = sessionsStore.currentSession;
   if (!session) {
@@ -371,10 +421,28 @@ onMounted(async () => {
   }
 
   scrollToBottom(true);
+
+  // Mobile media query listener
+  if (mobileQuery) {
+    mobileQueryHandler = (e) => { isMobile.value = e.matches; };
+    mobileQuery.addEventListener('change', mobileQueryHandler);
+  }
+
+  // If already running, set initial split mode based on screen size
+  if (isRunning.value) {
+    splitMode.value = isMobile.value ? 'workLogs' : 'split';
+  }
 });
+
+// Mobile media query listener cleanup handler
+let mobileQueryHandler = null;
 
 onUnmounted(() => {
   sessionsStore.clearWorkLogs();
+  // Clean up mobile media query listener
+  if (mobileQuery && mobileQueryHandler) {
+    mobileQuery.removeEventListener('change', mobileQueryHandler);
+  }
 });
 
 // Re-fetch messages and work logs when session status changes from running to waiting/completed
@@ -409,6 +477,37 @@ watch(
     }
   }
 );
+
+// Auto-mode switching for split view
+watch(isRunning, (nowRunning, wasRunning) => {
+  if (nowRunning && !wasRunning) {
+    userOverrodeMode.value = false;
+    // Mobile defaults to logs-only (more usable on small screens)
+    // Desktop defaults to split view
+    splitMode.value = isMobile.value ? 'workLogs' : 'split';
+
+    // Trigger entrance animation only on status transition, not on page load
+    justEnteredSplit.value = true;
+    setTimeout(() => { justEnteredSplit.value = false; }, 300);
+  } else if (!nowRunning && wasRunning) {
+    splitMode.value = 'split'; // Reset to default for next run
+    userOverrodeMode.value = false;
+  }
+});
+
+// Scroll state recalculation on mode change
+watch(splitMode, async () => {
+  // After the DOM updates from mode change, recalculate scroll position
+  await nextTick();
+  // Re-check if we're near bottom (container size changed)
+  if (messagesContainer.value) {
+    const el = messagesContainer.value;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < 100) {
+      scrollToBottom(true);
+    }
+  }
+});
 
 // Watch for messages loading on draft sessions and populate textarea
 watch(
@@ -622,6 +721,70 @@ async function handleBranchCreate({ messageId, prompt }) {
   flex-direction: column;
 }
 
+/* Split view active state */
+.conversation-tab.split-active {
+  /* Simplified: --above-tab-top is the getBoundingClientRect().top of .tab-content,
+     which already accounts for header, tabs, scheduling info, and scroll position.
+     No need to subtract --header-height-computed separately. */
+  height: calc(100dvh - var(--above-tab-top, 171px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Conversation pane */
+.conversation-pane {
+  display: flex;
+  flex-direction: column;
+}
+
+.split-active .conversation-pane {
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Split mode: 50/50 - simpler and more honest than an arbitrary ratio */
+.split-active .conversation-pane.pane-split {
+  flex: 1 1 50%;
+  min-height: 0;
+}
+
+/* Logs mode: conversation collapses to zero */
+.split-active .conversation-pane.pane-workLogs {
+  flex: 0 0 0;
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Work logs pane modes - NO flex transition, instant cut */
+:deep(.work-logs-pane.pane-split) {
+  flex: 1 1 50%;
+  min-height: 0;
+  opacity: 1;
+}
+
+:deep(.work-logs-pane.pane-workLogs) {
+  flex: 1 1 auto;
+  min-height: 0;
+  opacity: 1;
+}
+
+/* Messages in split mode: fill available space instead of fixed max-height */
+.split-active .conversation-pane .messages {
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Inline work log accordions: cap max-height in split mode to prevent
+   blowing out the conversation pane's height budget */
+.split-active .conversation-pane :deep(.work-log-panel-expanded) {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
 .messages {
   padding: 0.25rem 0;
   position: relative;
@@ -766,6 +929,15 @@ async function handleBranchCreate({ messageId, prompt }) {
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
     margin-right: 0.25rem;
+  }
+}
+
+/* Mobile: enforce a minimum height for the conversation pane in split mode
+   so the latest message always peeks through (matches Tailwind sm breakpoint) */
+@media (max-width: 639px) {
+  .split-active .conversation-pane.pane-split {
+    min-height: 120px;
+    max-height: 35%;
   }
 }
 </style>

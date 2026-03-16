@@ -1,5 +1,5 @@
 <template>
-  <div class="running-state">
+  <div class="running-state" data-testid="running-state">
     <!-- Header row with status, token display, and stop button -->
     <div class="running-header">
       <div class="running-status">

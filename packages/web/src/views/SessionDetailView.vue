@@ -48,7 +48,7 @@
 
       <!-- Scheduling Info Panel -->
       <SchedulingInfo v-if="sessionsStore.currentSession && (activeTab === 'conversation' || activeTab === 'summary')" :session="sessionsStore.currentSession" />
-      <div class="tab-content">
+      <div class="tab-content" ref="tabContentRef">
         <!-- CRITICAL: :key ensures components remount when navigating between sessions,
              preventing stale WebSocket handlers from capturing the wrong sessionId -->
         <SummaryTab v-if="activeTab === 'summary'" :key="route.params.id" :session-id="route.params.id" />
@@ -109,6 +109,8 @@ const {
 
 const summary = ref(null);
 const isDeleting = ref(false);
+const tabContentRef = ref(null);
+let tabContentObserver = null;
 
 // Use composable for session initialization and WebSocket management
 const { cleanup, initializeSession } = useSessionInitializer({
@@ -179,9 +181,29 @@ watch(
   }
 );
 
+// Update --above-tab-top CSS variable for split view height calculation
+function updateAboveTabTop() {
+  if (tabContentRef.value) {
+    const rect = tabContentRef.value.getBoundingClientRect();
+    document.documentElement.style.setProperty('--above-tab-top', `${rect.top}px`);
+  }
+}
+
 onMounted(async () => {
   // Initialize the session with WebSocket subscription and data fetching
   await initializeSession(currentSessionId.value);
+
+  // Set up ResizeObserver for split view height calculation
+  if (tabContentRef.value) {
+    tabContentObserver = new ResizeObserver(() => {
+      updateAboveTabTop();
+    });
+    tabContentObserver.observe(tabContentRef.value);
+    // Initial measurement
+    updateAboveTabTop();
+  }
+  // Also update on scroll (sticky header may change effective top)
+  window.addEventListener('scroll', updateAboveTabTop, { passive: true });
 });
 
 // Watch for session changes within the same component (e.g., navigating between sessions)
@@ -217,6 +239,12 @@ onActivated(() => {
 
 onUnmounted(() => {
   cleanup();
+  // Clean up ResizeObserver and scroll listener
+  if (tabContentObserver) {
+    tabContentObserver.disconnect();
+    tabContentObserver = null;
+  }
+  window.removeEventListener('scroll', updateAboveTabTop);
 });
 
 async function handleDuplicate() {
