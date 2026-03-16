@@ -78,7 +78,48 @@ export class SessionRepository extends BaseRepository {
     return this.map(row);
   }
 
-  create(projectId, name, prompt, mode = 'standard', thinkingEnabled = false, gitBranch = null, parentSessionId = null, status = 'starting', model = null) {
+  /**
+   * Create a new session
+   * @param {string} projectId - Project ID
+   * @param {string} name - Session name
+   * @param {string} prompt - Initial prompt
+   * @param {Object} options - Optional session configuration
+   * @param {string} [options.mode='standard'] - Session mode
+   * @param {boolean} [options.thinkingEnabled=false] - Enable thinking mode
+   * @param {string|null} [options.gitBranch=null] - Git branch
+   * @param {string|null} [options.parentSessionId=null] - Parent session ID
+   * @param {string} [options.status='starting'] - Initial status
+   * @param {string|null} [options.model=null] - Model to use
+   * @returns {Object} Created session
+   */
+  create(projectId, name, prompt, options = {}) {
+    // Support legacy positional arguments for backward compatibility
+    // If options is a string, it's the old 'mode' parameter
+    let config;
+    if (typeof options === 'string') {
+      // Legacy call: create(projectId, name, prompt, mode, thinkingEnabled, gitBranch, parentSessionId, status, model)
+      const [mode, thinkingEnabled, gitBranch, parentSessionId, status, model] = [
+        options, arguments[4], arguments[5], arguments[6], arguments[7], arguments[8]
+      ];
+      config = {
+        mode: mode || 'standard',
+        thinkingEnabled: thinkingEnabled || false,
+        gitBranch: gitBranch || null,
+        parentSessionId: parentSessionId || null,
+        status: status || 'starting',
+        model: model || null,
+      };
+    } else {
+      config = {
+        mode: options.mode || 'standard',
+        thinkingEnabled: options.thinkingEnabled || false,
+        gitBranch: options.gitBranch || null,
+        parentSessionId: options.parentSessionId || null,
+        status: options.status || 'starting',
+        model: options.model || null,
+      };
+    }
+
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db
@@ -86,14 +127,14 @@ export class SessionRepository extends BaseRepository {
         `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, projectId, name, status, mode, thinkingEnabled ? 1 : 0, gitBranch, parentSessionId, model, now, now);
+      .run(id, projectId, name, config.status, config.mode, config.thinkingEnabled ? 1 : 0, config.gitBranch, config.parentSessionId, config.model, now, now);
 
     // Create initial conversation
     const conversation = conversations.create(id, 'Initial', true);
 
     // Only create initial user message for sessions that start immediately
     // For waiting/scheduled sessions, the message will be created when they start
-    if (status !== 'waiting' && status !== 'scheduled') {
+    if (config.status !== 'waiting' && config.status !== 'scheduled') {
       messages.create(id, 'user', prompt, null, conversation.id);
     }
 

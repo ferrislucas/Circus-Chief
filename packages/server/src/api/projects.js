@@ -317,7 +317,14 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
     }
   }
 
-  const session = sessions.create(req.params.id, sessionName, prompt, mode, thinkingEnabled, gitBranch, parentSessionId, initialStatus, model);
+  const session = sessions.create(req.params.id, sessionName, prompt, {
+    mode,
+    thinkingEnabled,
+    gitBranch,
+    parentSessionId,
+    status: initialStatus,
+    model,
+  });
 
   // Set nextTemplateId if template was selected
   if (nextTemplateId) {
