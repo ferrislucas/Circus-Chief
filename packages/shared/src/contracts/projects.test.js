@@ -203,10 +203,30 @@ describe('Projects Contracts', () => {
       expect(valid.data.model).toBeNull();
     });
 
+    it('validates effortLevel enum values', () => {
+      for (const effortLevel of ['low', 'medium', 'high', 'max', 'auto']) {
+        const valid = ProjectSessionDefaultsRequest.safeParse({ effortLevel });
+        expect(valid.success).toBe(true);
+        expect(valid.data.effortLevel).toBe(effortLevel);
+      }
+    });
+
+    it('allows effortLevel as null', () => {
+      const valid = ProjectSessionDefaultsRequest.safeParse({ effortLevel: null });
+      expect(valid.success).toBe(true);
+      expect(valid.data.effortLevel).toBeNull();
+    });
+
+    it('rejects invalid effortLevel', () => {
+      const invalid = ProjectSessionDefaultsRequest.safeParse({ effortLevel: 'turbo' });
+      expect(invalid.success).toBe(false);
+    });
+
     it('allows multiple fields together', () => {
       const valid = ProjectSessionDefaultsRequest.safeParse({
         mode: 'plan',
         thinkingEnabled: true,
+        effortLevel: 'high',
         gitMode: 'worktree',
         gitBranch: 'feature/ai',
         model: 'claude-opus-4',
@@ -216,6 +236,7 @@ describe('Projects Contracts', () => {
       expect(valid.success).toBe(true);
       expect(valid.data.mode).toBe('plan');
       expect(valid.data.thinkingEnabled).toBe(true);
+      expect(valid.data.effortLevel).toBe('high');
     });
   });
 
@@ -226,6 +247,7 @@ describe('Projects Contracts', () => {
         projectId: '550e8400-e29b-41d4-a716-446655440001',
         mode: 'plan',
         thinkingEnabled: true,
+        effortLevel: 'high',
         startImmediately: false,
         gitMode: 'worktree',
         gitBranch: 'feature/test',
@@ -237,6 +259,7 @@ describe('Projects Contracts', () => {
       const valid = ProjectSessionDefaultsResponse.safeParse(response);
 
       expect(valid.success).toBe(true);
+      expect(valid.data.effortLevel).toBe('high');
     });
 
     it('allows null values', () => {
@@ -245,6 +268,7 @@ describe('Projects Contracts', () => {
         projectId: '550e8400-e29b-41d4-a716-446655440001',
         mode: null,
         thinkingEnabled: null,
+        effortLevel: null,
         startImmediately: null,
         gitMode: null,
         gitBranch: null,
@@ -257,6 +281,40 @@ describe('Projects Contracts', () => {
 
       expect(valid.success).toBe(true);
       expect(valid.data.mode).toBeNull();
+      expect(valid.data.effortLevel).toBeNull();
+    });
+
+    it('validates effortLevel enum values in response', () => {
+      const baseResponse = {
+        id: '550e8400-e29b-41d4-a716-446655440000',
+        projectId: '550e8400-e29b-41d4-a716-446655440001',
+        mode: null,
+        thinkingEnabled: null,
+        startImmediately: null,
+        gitMode: null,
+        gitBranch: null,
+        model: null,
+        createdAt: 1234567890,
+        updatedAt: 1234567890,
+      };
+
+      for (const effortLevel of ['low', 'medium', 'high', 'max', 'auto']) {
+        const valid = ProjectSessionDefaultsResponse.safeParse({ ...baseResponse, effortLevel });
+        expect(valid.success).toBe(true);
+      }
+    });
+
+    it('rejects invalid effortLevel in response', () => {
+      const response = {
+        id: '550e8400-e29b-41d4-a716-446655440000',
+        projectId: '550e8400-e29b-41d4-a716-446655440001',
+        effortLevel: 'turbo',
+        createdAt: 1234567890,
+        updatedAt: 1234567890,
+      };
+
+      const invalid = ProjectSessionDefaultsResponse.safeParse(response);
+      expect(invalid.success).toBe(false);
     });
 
     it('requires id', () => {

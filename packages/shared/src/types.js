@@ -11,6 +11,10 @@
  */
 
 /**
+ * @typedef {'low' | 'medium' | 'high' | 'max' | 'auto'} EffortLevel
+ */
+
+/**
  * @typedef {'user' | 'assistant' | 'system'} MessageRole
  */
 
@@ -39,6 +43,7 @@
  * @property {SessionStatus} status
  * @property {SessionMode} mode
  * @property {ClaudeModel|null} model
+ * @property {EffortLevel|null} effortLevel
  * @property {string|null} gitBranch
  * @property {string|null} gitWorktree
  * @property {string|null} prUrl
@@ -104,6 +109,7 @@
 
 export const SESSION_STATUSES = ['starting', 'running', 'waiting', 'stopped', 'error'];
 export const SESSION_MODES = ['plan', 'standard', 'yolo'];
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'max', 'auto'];
 export const MESSAGE_ROLES = ['user', 'assistant', 'system'];
 export const CANVAS_ITEM_TYPES = ['image', 'markdown', 'text', 'json'];
 export const TOOL_TEMPLATE_PAYLOAD_TYPES = ['command', 'prompt'];

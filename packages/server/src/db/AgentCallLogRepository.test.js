@@ -55,6 +55,71 @@ describe('AgentCallLogRepository', () => {
       expect(entry.createdAt).toBeTypeOf('number');
       expect(entry.inputTokens).toBe(0);
       expect(entry.outputTokens).toBe(0);
+      expect(entry.metadata).toBeNull();
+    });
+  });
+
+  describe('create with metadata', () => {
+    it('stores metadata as JSON when provided and parses it back', () => {
+      const callId = databaseManager.generateId();
+      const metadata = { effortLevel: 'high', thinkingEnabled: true };
+
+      const entry = repo.create({
+        id: callId,
+        sessionId,
+        agentType: 'claude-code',
+        callType: 'runSession',
+        promptLength: 100,
+        metadata,
+      });
+
+      expect(entry.metadata).toEqual({ effortLevel: 'high', thinkingEnabled: true });
+    });
+
+    it('stores null metadata when not provided (defaults to {} then stores as null)', () => {
+      const callId = databaseManager.generateId();
+
+      const entry = repo.create({
+        id: callId,
+        sessionId,
+        agentType: 'claude-code',
+        callType: 'runSession',
+        promptLength: 100,
+      });
+
+      expect(entry.metadata).toBeNull();
+    });
+
+    it('stores null when empty metadata object {} is provided', () => {
+      const callId = databaseManager.generateId();
+
+      const entry = repo.create({
+        id: callId,
+        sessionId,
+        agentType: 'claude-code',
+        callType: 'runSession',
+        promptLength: 100,
+        metadata: {},
+      });
+
+      expect(entry.metadata).toBeNull();
+    });
+
+    it('stores metadata as-is even with null/undefined values (caller filters)', () => {
+      const callId = databaseManager.generateId();
+      const metadata = { effortLevel: 'high', otherField: null };
+
+      const entry = repo.create({
+        id: callId,
+        sessionId,
+        agentType: 'claude-code',
+        callType: 'runSession',
+        promptLength: 100,
+        metadata,
+      });
+
+      // Repository stores exactly what it's given - filtering happens at caller (agentCallLogger)
+      expect(entry.metadata).toEqual({ effortLevel: 'high', otherField: null });
     });
   });
 

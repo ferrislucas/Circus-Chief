@@ -195,6 +195,7 @@ describe('useProjectDefaultsStore', () => {
       expect(store.defaultsByProjectId[projectId]).toEqual({
         mode: null,
         thinkingEnabled: null,
+        effortLevel: null,
         startImmediately: null,
         gitMode: null,
         gitBranch: null,

@@ -41,6 +41,7 @@ export const ProjectListResponse = z.array(ProjectResponse);
 export const ProjectSessionDefaultsRequest = z.object({
   mode: z.enum(['plan', 'standard', 'yolo']).nullable().optional(),
   thinkingEnabled: z.boolean().nullable().optional(),
+  effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable().optional(),
   startImmediately: z.boolean().nullable().optional(),
   gitMode: z.enum(['branch', 'worktree']).nullable().optional(),
   gitBranch: z.string().nullable().optional(),
@@ -52,6 +53,7 @@ export const ProjectSessionDefaultsResponse = z.object({
   projectId: z.string().uuid(),
   mode: z.enum(['plan', 'standard', 'yolo']).nullable(),
   thinkingEnabled: z.boolean().nullable(),
+  effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable(),
   startImmediately: z.boolean().nullable(),
   gitMode: z.enum(['branch', 'worktree']).nullable(),
   gitBranch: z.string().nullable(),

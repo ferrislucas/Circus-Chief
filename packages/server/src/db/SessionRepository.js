@@ -36,6 +36,7 @@ export class SessionRepository extends BaseRepository {
       parentSessionId: row.parent_session_id,
       pendingPrompt: row.pending_prompt || null,
       pendingModel: row.pending_model || null,
+      effortLevel: row.effort_level || null,
       autoSendPendingPrompt: Boolean(row.auto_send_pending_prompt),
       slashCommands: row.slash_commands || null,
       // Token usage fields
@@ -81,15 +82,15 @@ export class SessionRepository extends BaseRepository {
     return this.map(row);
   }
 
-  create(projectId, name, prompt, mode = 'standard', thinkingEnabled = false, gitBranch = null, parentSessionId = null, status = 'starting', model = null) {
+  create(projectId, name, prompt, mode = 'standard', thinkingEnabled = false, gitBranch = null, parentSessionId = null, status = 'starting', model = null, { effortLevel = null } = {}) {
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, effort_level, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, projectId, name, status, mode, thinkingEnabled ? 1 : 0, gitBranch, parentSessionId, model, now, now);
+      .run(id, projectId, name, status, mode, thinkingEnabled ? 1 : 0, gitBranch, parentSessionId, model, effortLevel, now, now);
 
     // Create initial conversation
     const conversation = conversations.create(id, 'Initial', true);
@@ -341,6 +342,10 @@ export class SessionRepository extends BaseRepository {
       updates.push('lane_trigger_depth = ?');
       values.push(data.laneTriggerDepth);
     }
+    if (data.effortLevel !== undefined) {
+      updates.push('effort_level = ?');
+      values.push(data.effortLevel);
+    }
 
     if (updates.length === 0) return this.getById(id);
 
@@ -376,10 +381,10 @@ export class SessionRepository extends BaseRepository {
     // Insert new session with same settings but new ID and status
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, context_window,
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, model, effort_level, context_window,
                                input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
                                web_search_requests, cost_usd, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -389,6 +394,8 @@ export class SessionRepository extends BaseRepository {
         source.mode,
         source.thinkingEnabled ? 1 : 0,
         source.gitBranch,  // Copy branch name (NOT worktree path)
+        source.model,
+        source.effortLevel,
         source.contextWindow,
         source.inputTokens,
         source.outputTokens,
