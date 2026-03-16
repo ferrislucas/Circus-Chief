@@ -187,5 +187,68 @@ describe('SlashCommandWizard.vue', () => {
         _raw: 'codebase',
       });
     });
+
+    it('shows ArgumentsForm for skills WITHOUT argumentHint (does not auto-execute)', async () => {
+      const skill = {
+        name: 'my-skill',
+        source: 'project-skill',
+        isSkill: true,
+        description: 'A test skill',
+        // No argumentHint
+      };
+
+      commandsStore.commands = [skill];
+
+      const wrapper = mount(SlashCommandWizard, {
+        props: {
+          isOpen: true,
+          workingDirectory: '/test',
+          mode: 'insert',
+        },
+        global: { stubs: { Teleport: true } },
+      });
+
+      const grid = wrapper.findComponent(CommandGrid);
+      grid.vm.$emit('select', skill);
+      await wrapper.vm.$nextTick();
+
+      // Should show ArgumentsForm, not auto-execute
+      const argsForm = wrapper.findComponent(ArgumentsForm);
+      expect(argsForm.exists()).toBe(true);
+    });
+
+    it('emits insert event with correct text when skill args form is submitted', async () => {
+      const skill = {
+        name: 'frontend-design',
+        source: 'project-skill',
+        isSkill: true,
+        description: 'Create interfaces',
+      };
+
+      commandsStore.commands = [skill];
+
+      const wrapper = mount(SlashCommandWizard, {
+        props: {
+          isOpen: true,
+          workingDirectory: '/test',
+          mode: 'insert',
+        },
+        global: { stubs: { Teleport: true } },
+      });
+
+      // Select skill -> goes to step 2
+      const grid = wrapper.findComponent(CommandGrid);
+      grid.vm.$emit('select', skill);
+      await wrapper.vm.$nextTick();
+
+      // Submit from args form
+      const argsForm = wrapper.findComponent(ArgumentsForm);
+      argsForm.vm.$emit('submit', { _raw: 'build a login page' });
+      await wrapper.vm.$nextTick();
+
+      // Should emit insert with command string built by buildInsertString()
+      expect(wrapper.emitted('insert')).toBeTruthy();
+      expect(wrapper.emitted('insert')[0][0].text).toBe('/frontend-design build a login page');
+    });
   });
 });

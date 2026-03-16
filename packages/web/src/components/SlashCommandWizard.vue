@@ -130,15 +130,9 @@ function close() {
 function selectCommand(cmd) {
   selectedCommand.value = cmd;
 
-  // For skills: check if it has argumentHint to determine if we need args form
+  // For skills: always show the args form so the user can provide context
   if (cmd.isSkill) {
-    if (cmd.argumentHint) {
-      // Show args form for skills with argument hint
-      step.value = 2;
-    } else {
-      // Execute immediately for skills without args
-      handleExecute({ _raw: '' });
-    }
+    step.value = 2;
     return;
   }
 
