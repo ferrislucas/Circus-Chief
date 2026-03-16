@@ -5,6 +5,7 @@ import { updateTodos } from './todoStore.js';
 import * as summaryService from './summaryService.js';
 import * as diffService from './diffService.js';
 import { updateTurnUsage, currentTurnUsage, estimatedOutputTokens, estimateTokens } from './usageTracker.js';
+import * as kanbanService from './kanbanService.js';
 
 // ── Shared module-level state ──────────────────────────────────────────────
 
@@ -580,6 +581,9 @@ export async function handleTurnCompletion(sessionId, workingDirectory, handleTe
     if (currentSession) {
       await broadcastChangesUpdate(sessionId, currentSession.projectId, workingDirectory);
     }
+
+    // Handle kanban lane movements based on targetLaneId
+    await kanbanService.handleTurnCompletion(sessionId);
 
     // Auto-send queued prompt if enabled (runs BEFORE template trigger)
     let autoSendFired = false;

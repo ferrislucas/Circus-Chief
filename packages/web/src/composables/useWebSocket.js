@@ -641,6 +641,47 @@ export function useProjectSubscription(projectId) {
     return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);
   };
 
+  // Kanban event handlers
+  const onKanbanBoardUpdated = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) {
+        callback(msg.board);
+      }
+    };
+    on(WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, handler);
+    return () => off(WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, handler);
+  };
+
+  const onKanbanCardMoved = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) {
+        callback(msg.cardId, msg.fromLaneId, msg.toLaneId, msg.card);
+      }
+    };
+    on(WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, handler);
+    return () => off(WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, handler);
+  };
+
+  const onKanbanCardAdded = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) {
+        callback(msg.card, msg.laneId);
+      }
+    };
+    on(WS_MESSAGE_TYPES.KANBAN_CARD_ADDED, handler);
+    return () => off(WS_MESSAGE_TYPES.KANBAN_CARD_ADDED, handler);
+  };
+
+  const onKanbanCardRemoved = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) {
+        callback(msg.cardId, msg.laneId);
+      }
+    };
+    on(WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, handler);
+    return () => off(WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -656,6 +697,10 @@ export function useProjectSubscription(projectId) {
     onCommandRunOutput,
     onCommandRunComplete,
     onCommandRunError,
+    onKanbanBoardUpdated,
+    onKanbanCardMoved,
+    onKanbanCardAdded,
+    onKanbanCardRemoved,
   };
 }
 

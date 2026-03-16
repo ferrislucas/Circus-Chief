@@ -21,6 +21,7 @@ export class SessionTemplateRepository extends BaseRepository {
       gitMode: row.git_mode,
       model: row.model || null,
       mode: row.mode || null,
+      targetLaneId: row.target_lane_id || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -45,8 +46,8 @@ export class SessionTemplateRepository extends BaseRepository {
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO session_templates (id, project_id, name, prompt, next_template_id, thinking_enabled, git_branch, git_mode, model, mode, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO session_templates (id, project_id, name, prompt, next_template_id, thinking_enabled, git_branch, git_mode, model, mode, target_lane_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -59,6 +60,7 @@ export class SessionTemplateRepository extends BaseRepository {
         data.gitMode || null,
         data.model || null,
         data.mode !== undefined && data.mode !== null ? data.mode : 'yolo',
+        data.targetLaneId || null,
         now,
         now
       );
@@ -106,6 +108,10 @@ export class SessionTemplateRepository extends BaseRepository {
     if (data.mode !== undefined) {
       updates.push('mode = ?');
       values.push(data.mode);
+    }
+    if (data.targetLaneId !== undefined) {
+      updates.push('target_lane_id = ?');
+      values.push(data.targetLaneId);
     }
 
     if (updates.length === 0) return this.getById(id);

@@ -201,6 +201,22 @@
         </button>
       </details>
 
+      <details class="advanced-settings">
+        <summary>Kanban Board</summary>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              v-model="kanbanEnabled"
+            />
+            Enable Kanban board
+          </label>
+          <p class="form-help">
+            Enable a Kanban board to visually organize sessions into lanes. Sessions can be dragged between lanes, and lanes can trigger automated workflows.
+          </p>
+        </div>
+      </details>
+
       <div v-if="error" class="error-message">{{ error }}</div>
 
       <div class="form-actions">
@@ -252,6 +268,7 @@ const repoUrl = ref('');
 const systemPrompt = ref('');
 const onSessionCreated = ref('');
 const onSessionDeleted = ref('');
+const kanbanEnabled = ref(false);
 
 // Session defaults refs
 const defaultMode = ref('');
@@ -280,6 +297,7 @@ watch(() => projectsStore.currentProject, (project) => {
     systemPrompt.value = project.systemPrompt || defaultSystemPrompt;
     onSessionCreated.value = project.onSessionCreated || '';
     onSessionDeleted.value = project.onSessionDeleted || '';
+    kanbanEnabled.value = project.kanbanEnabled || false;
   }
 }, { immediate: true });
 
@@ -308,6 +326,7 @@ async function handleSubmit() {
       systemPrompt: systemPrompt.value === defaultSystemPrompt ? null : systemPrompt.value,
       onSessionCreated: onSessionCreated.value || null,
       onSessionDeleted: onSessionDeleted.value || null,
+      kanbanEnabled: kanbanEnabled.value,
     });
 
     // Update defaults

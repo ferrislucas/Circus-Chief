@@ -55,6 +55,9 @@ export class SessionRepository extends BaseRepository {
       maxTotalTokens: row.max_total_tokens,
       rescheduleCount: row.reschedule_count || 0,
       rescheduleAtTokenCount: row.reschedule_at_token_count,
+      // Kanban fields
+      targetLaneId: row.target_lane_id || null,
+      laneTriggerDepth: row.lane_trigger_depth || 0,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       lastActivityAt: row.last_activity_at || row.updated_at || row.created_at,
@@ -328,6 +331,15 @@ export class SessionRepository extends BaseRepository {
     if (data.autoSendPendingPrompt !== undefined) {
       updates.push('auto_send_pending_prompt = ?');
       values.push(data.autoSendPendingPrompt ? 1 : 0);
+    }
+    // Kanban fields
+    if (data.targetLaneId !== undefined) {
+      updates.push('target_lane_id = ?');
+      values.push(data.targetLaneId);
+    }
+    if (data.laneTriggerDepth !== undefined) {
+      updates.push('lane_trigger_depth = ?');
+      values.push(data.laneTriggerDepth);
     }
 
     if (updates.length === 0) return this.getById(id);

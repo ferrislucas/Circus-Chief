@@ -520,6 +520,85 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_agent_call_logs_status ON agent_call_logs(status);
       CREATE INDEX IF NOT EXISTS idx_agent_call_logs_model ON agent_call_logs(model);
     `);
+
+    // Kanban feature migrations
+    this.#migrateKanbanFeature();
+  }
+
+  /**
+   * Migrate database to support Kanban board feature
+   * Adds kanban_enabled to projects, target_lane_id and lane_trigger_depth to sessions,
+   * and target_lane_id to session_templates
+   * @private
+   */
+  #migrateKanbanFeature() {
+    // Add kanban_enabled column to projects table
+    const projectsTableInfo = this.#db.prepare('PRAGMA table_info(projects)').all();
+    const projectsColumns = projectsTableInfo.map((col) => col.name);
+
+    if (!projectsColumns.includes('kanban_enabled')) {
+      this.#db.exec('ALTER TABLE projects ADD COLUMN kanban_enabled INTEGER NOT NULL DEFAULT 1');
+    }
+
+    // Add target_lane_id and lane_trigger_depth columns to sessions table
+    const sessionsTableInfo = this.#db.prepare('PRAGMA table_info(sessions)').all();
+    const sessionsColumns = sessionsTableInfo.map((col) => col.name);
+
+    if (!sessionsColumns.includes('target_lane_id')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL');
+    }
+    if (!sessionsColumns.includes('lane_trigger_depth')) {
+      this.#db.exec('ALTER TABLE sessions ADD COLUMN lane_trigger_depth INTEGER NOT NULL DEFAULT 0');
+    }
+
+    // Add target_lane_id column to session_templates table
+    const templatesTableInfo = this.#db.prepare('PRAGMA table_info(session_templates)').all();
+    const templatesColumns = templatesTableInfo.map((col) => col.name);
+
+    if (!templatesColumns.includes('target_lane_id')) {
+      this.#db.exec('ALTER TABLE session_templates ADD COLUMN target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL');
+    }
+
+    // Create kanban tables if they don't exist (for existing databases)
+    this.#db.exec(`
+      CREATE TABLE IF NOT EXISTS kanban_boards (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+
+      CREATE TABLE IF NOT EXISTS kanban_lanes (
+        id TEXT PRIMARY KEY,
+        board_id TEXT NOT NULL REFERENCES kanban_boards(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        on_enter_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+
+      CREATE TABLE IF NOT EXISTS kanban_cards (
+        id TEXT PRIMARY KEY,
+        lane_id TEXT NOT NULL REFERENCES kanban_lanes(id) ON DELETE CASCADE,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+
+      CREATE TABLE IF NOT EXISTS kanban_card_sessions (
+        id TEXT PRIMARY KEY,
+        card_id TEXT NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_kanban_boards_project ON kanban_boards(project_id);
+      CREATE INDEX IF NOT EXISTS idx_kanban_lanes_board ON kanban_lanes(board_id, sort_order);
+      CREATE INDEX IF NOT EXISTS idx_kanban_cards_lane ON kanban_cards(lane_id, sort_order);
+      CREATE INDEX IF NOT EXISTS idx_kanban_card_sessions_session ON kanban_card_sessions(session_id);
+      CREATE INDEX IF NOT EXISTS idx_kanban_card_sessions_card ON kanban_card_sessions(card_id);
+    `);
   }
 
   /**
