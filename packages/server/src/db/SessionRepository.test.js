@@ -1135,6 +1135,30 @@ describe('SessionRepository', () => {
       expect(duplicate.nextTemplateId).toBeNull();
       expect(duplicate.parentSessionId).toBeNull();
     });
+
+    it('should preserve effortLevel', () => {
+      const original = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'starting', null, { effortLevel: 'high' });
+
+      const duplicate = repo.duplicate(original.id);
+
+      expect(duplicate.effortLevel).toBe('high');
+    });
+
+    it('should preserve null effortLevel', () => {
+      const original = repo.create(projectId, 'Test', 'Prompt');
+
+      const duplicate = repo.duplicate(original.id);
+
+      expect(duplicate.effortLevel).toBeNull();
+    });
+
+    it('should preserve model', () => {
+      const original = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'starting', 'claude-sonnet-4-20250514');
+
+      const duplicate = repo.duplicate(original.id);
+
+      expect(duplicate.model).toBe('claude-sonnet-4-20250514');
+    });
   });
 
   describe('getScheduledSessions', () => {
