@@ -67,6 +67,23 @@ describe('SessionRepository', () => {
       expect(session.thinkingEnabled).toBe(false);
     });
 
+    it('creates session with effortLevel option', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'starting', null, { effortLevel: 'high' });
+      expect(session.effortLevel).toBe('high');
+    });
+
+    it('creates session with effortLevel null by default', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      expect(session.effortLevel).toBeNull();
+    });
+
+    it('accepts all valid effortLevel values', () => {
+      for (const effortLevel of ['low', 'medium', 'high', 'max', 'auto']) {
+        const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'starting', null, { effortLevel });
+        expect(session.effortLevel).toBe(effortLevel);
+      }
+    });
+
     it('creates initial user message on session creation', () => {
       const session = repo.create(projectId, 'Test', 'Hello Claude');
 
@@ -500,6 +517,33 @@ describe('SessionRepository', () => {
       const updated = repo.update(session.id, { thinkingEnabled: false });
 
       expect(updated.thinkingEnabled).toBe(false);
+    });
+
+    it('updates effortLevel', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      expect(session.effortLevel).toBeNull();
+
+      const updated = repo.update(session.id, { effortLevel: 'high' });
+
+      expect(updated.effortLevel).toBe('high');
+    });
+
+    it('updates effortLevel from one value to another', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'starting', null, { effortLevel: 'low' });
+      expect(session.effortLevel).toBe('low');
+
+      const updated = repo.update(session.id, { effortLevel: 'max' });
+
+      expect(updated.effortLevel).toBe('max');
+    });
+
+    it('updates effortLevel to null', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'starting', null, { effortLevel: 'high' });
+      expect(session.effortLevel).toBe('high');
+
+      const updated = repo.update(session.id, { effortLevel: null });
+
+      expect(updated.effortLevel).toBeNull();
     });
 
     it('updates multiple fields at once', () => {

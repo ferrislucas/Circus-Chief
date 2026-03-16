@@ -35,6 +35,7 @@ describe('ProjectDefaultsRepository', () => {
       expect(defaults).toHaveProperty('gitMode');
       expect(defaults).toHaveProperty('gitBranch');
       expect(defaults).toHaveProperty('model');
+      expect(defaults).toHaveProperty('effortLevel');
       expect(defaults).toHaveProperty('createdAt');
       expect(defaults).toHaveProperty('updatedAt');
     });
@@ -106,6 +107,23 @@ describe('ProjectDefaultsRepository', () => {
       expect(defaults.gitBranch).toBe('feature/test');
     });
 
+    it('stores effortLevel string', () => {
+      const defaults = defaultsRepo.upsert(projectId, { effortLevel: 'high' });
+      expect(defaults.effortLevel).toBe('high');
+    });
+
+    it('accepts all valid effortLevel enum values', () => {
+      for (const effortLevel of ['low', 'medium', 'high', 'max', 'auto']) {
+        const defaults = defaultsRepo.upsert(projectId, { effortLevel });
+        expect(defaults.effortLevel).toBe(effortLevel);
+      }
+    });
+
+    it('accepts effortLevel as null', () => {
+      const defaults = defaultsRepo.upsert(projectId, { effortLevel: null });
+      expect(defaults.effortLevel).toBeNull();
+    });
+
     it('updates updatedAt timestamp on update', () => {
       const first = defaultsRepo.upsert(projectId, { mode: 'plan' });
 
@@ -127,6 +145,7 @@ describe('ProjectDefaultsRepository', () => {
         gitMode: 'worktree',
         gitBranch: 'feature/test',
         model: 'claude-opus',
+        effortLevel: 'max',
       });
 
       expect(defaults.mode).toBe('plan');
@@ -135,6 +154,7 @@ describe('ProjectDefaultsRepository', () => {
       expect(defaults.gitMode).toBe('worktree');
       expect(defaults.gitBranch).toBe('feature/test');
       expect(defaults.model).toBe('claude-opus');
+      expect(defaults.effortLevel).toBe('max');
     });
 
     it('creates defaults with empty object (all fields null)', () => {
@@ -146,6 +166,7 @@ describe('ProjectDefaultsRepository', () => {
       expect(defaults.gitMode).toBeNull();
       expect(defaults.gitBranch).toBeNull();
       expect(defaults.model).toBeNull();
+      expect(defaults.effortLevel).toBeNull();
     });
   });
 
@@ -156,6 +177,7 @@ describe('ProjectDefaultsRepository', () => {
         thinkingEnabled: true,
         gitMode: 'worktree',
         model: 'claude-opus',
+        effortLevel: 'high',
       });
 
       const reset = defaultsRepo.resetToDefaults(projectId);
@@ -166,6 +188,7 @@ describe('ProjectDefaultsRepository', () => {
       expect(reset.gitMode).toBeNull();
       expect(reset.gitBranch).toBeNull();
       expect(reset.model).toBeNull();
+      expect(reset.effortLevel).toBeNull();
     });
 
     it('updates updatedAt timestamp', () => {
@@ -213,6 +236,7 @@ describe('ProjectDefaultsRepository', () => {
       expect(defaults.gitMode).toBeNull();
       expect(defaults.gitBranch).toBeNull();
       expect(defaults.model).toBeNull();
+      expect(defaults.effortLevel).toBeNull();
     });
 
     it('returns consistent system defaults', () => {

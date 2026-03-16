@@ -397,6 +397,117 @@ describe('Metrics API', () => {
     });
   });
 
+  describe('POST /api/agent-calls', () => {
+    it('creates an agent call log with provided metadata', async () => {
+      const res = await request(app).post('/api/agent-calls').send({
+        sessionId,
+        agentType: 'claude-code',
+        model: 'claude-sonnet-4-20250514',
+        callType: 'runSession',
+        promptLength: 500,
+        status: 'completed',
+        inputTokens: 1000,
+        outputTokens: 500,
+        metadata: { effortLevel: 'high', thinkingEnabled: true },
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.id).toBeDefined();
+      expect(res.body.metadata).toEqual({ effortLevel: 'high', thinkingEnabled: true });
+
+      // Verify persistence
+      const log = agentCallLogs.getById(res.body.id);
+      expect(log.metadata).toEqual({ effortLevel: 'high', thinkingEnabled: true });
+    });
+
+    it('creates an agent call log without metadata (stores as null)', async () => {
+      const res = await request(app).post('/api/agent-calls').send({
+        sessionId,
+        agentType: 'claude-code',
+        callType: 'runSession',
+        promptLength: 100,
+        status: 'completed',
+        inputTokens: 100,
+        outputTokens: 50,
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.metadata).toBeNull();
+
+      // Verify persistence
+      const log = agentCallLogs.getById(res.body.id);
+      expect(log.metadata).toBeNull();
+    });
+
+    it('derives effortLevel from session when metadata not provided', async () => {
+      // Create a session with effortLevel
+      const sessionWithEffort = sessions.create(projectId, 'Effort Session', 'test', 'standard', false, null, null, 'starting', null, { effortLevel: 'max' });
+
+      const res = await request(app).post('/api/agent-calls').send({
+        sessionId: sessionWithEffort.id,
+        agentType: 'claude-code',
+        callType: 'runSession',
+        promptLength: 100,
+        status: 'completed',
+        inputTokens: 100,
+        outputTokens: 50,
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.metadata).toEqual({ effortLevel: 'max' });
+
+      // Verify persistence
+      const log = agentCallLogs.getById(res.body.id);
+      expect(log.metadata).toEqual({ effortLevel: 'max' });
+    });
+
+    it('provided metadata overrides session effortLevel', async () => {
+      // Create a session with effortLevel
+      const sessionWithEffort = sessions.create(projectId, 'Effort Session', 'test', 'standard', false, null, null, 'starting', null, { effortLevel: 'low' });
+
+      const res = await request(app).post('/api/agent-calls').send({
+        sessionId: sessionWithEffort.id,
+        agentType: 'claude-code',
+        callType: 'runSession',
+        promptLength: 100,
+        status: 'completed',
+        inputTokens: 100,
+        outputTokens: 50,
+        metadata: { effortLevel: 'high' }, // Override session's low with high
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.metadata).toEqual({ effortLevel: 'high' });
+    });
+
+    it('stores empty metadata object as null', async () => {
+      const res = await request(app).post('/api/agent-calls').send({
+        sessionId,
+        agentType: 'claude-code',
+        callType: 'runSession',
+        promptLength: 100,
+        status: 'completed',
+        inputTokens: 100,
+        outputTokens: 50,
+        metadata: {}, // Empty object
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.metadata).toBeNull();
+    });
+
+    it('returns 400 when sessionId is missing', async () => {
+      const res = await request(app).post('/api/agent-calls').send({
+        agentType: 'claude-code',
+        callType: 'runSession',
+        promptLength: 100,
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('sessionId is required');
+    });
+  });
+
   describe('DELETE /api/agent-calls', () => {
     it('returns { success: true, deleted: N } and removes all logs', async () => {
       // Create 3 log entries
