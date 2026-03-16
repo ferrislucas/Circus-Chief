@@ -248,6 +248,78 @@ describe('Projects API', () => {
       });
     });
 
+    describe('effortLevel cascade', () => {
+      it('uses project default effortLevel when not explicitly provided', async () => {
+        // Set project default
+        await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+          effortLevel: 'high',
+        });
+
+        // Create session without explicit effortLevel (also provide git settings for validation)
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.effortLevel).toBe('high');
+
+        // Clean up
+        await request(app).delete(`/api/projects/${projectId}/session-defaults`);
+      });
+
+      it('explicit effortLevel overrides project default', async () => {
+        // Set project default
+        await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+          effortLevel: 'low',
+        });
+
+        // Create session with explicit effortLevel (also provide git settings for validation)
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          effortLevel: 'max',
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.effortLevel).toBe('max');
+
+        // Clean up
+        await request(app).delete(`/api/projects/${projectId}/session-defaults`);
+      });
+
+      it('uses system default (null) when neither project default nor explicit value provided', async () => {
+        // Ensure no project defaults are set
+        await request(app).delete(`/api/projects/${projectId}/session-defaults`);
+
+        // Create session without effortLevel (also provide git settings for validation)
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.effortLevel).toBeNull();
+      });
+
+      it('accepts all valid effortLevel values', async () => {
+        for (const effortLevel of ['low', 'medium', 'high', 'max', 'auto']) {
+          const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+            prompt: 'Test prompt',
+            effortLevel,
+            gitMode: 'worktree',
+            gitBranch: 'test-branch',
+          });
+
+          expect(res.status).toBe(201);
+          expect(res.body.effortLevel).toBe(effortLevel);
+        }
+      });
+    });
+
     describe('with templateId', () => {
       let templateId;
 

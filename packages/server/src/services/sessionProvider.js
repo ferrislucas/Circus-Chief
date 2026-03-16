@@ -75,7 +75,7 @@ export function buildProviderEnv(provider) {
  * @param {boolean} thinkingEnabled - Whether thinking mode is enabled
  * @returns {Object}
  */
-export function buildSessionEnv(provider, thinkingEnabled = false) {
+export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel = null) {
   const baseEnv = createRobustEnv(process.env);
   const providerEnv = buildProviderEnv(provider);
 
@@ -96,6 +96,11 @@ export function buildSessionEnv(provider, thinkingEnabled = false) {
   // Add thinking tokens if enabled (but suppress in VCR mode to minimize cost)
   if (thinkingEnabled && !process.env.VCR_MODE) {
     sessionEnv.MAX_THINKING_TOKENS = '10240';
+  }
+
+  // Set effort level if provided
+  if (effortLevel) {
+    sessionEnv.CLAUDE_CODE_EFFORT_LEVEL = effortLevel;
   }
 
   return sessionEnv;

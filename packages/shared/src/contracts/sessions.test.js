@@ -43,6 +43,22 @@ describe('CreateSessionRequest', () => {
     expect(CreateSessionRequest.safeParse({ prompt: 'test', mode: 'invalid' }).success).toBe(false);
   });
 
+  it('validates effortLevel enum values', () => {
+    for (const effortLevel of ['low', 'medium', 'high', 'max', 'auto']) {
+      expect(CreateSessionRequest.safeParse({ prompt: 'test', effortLevel }).success).toBe(true);
+    }
+  });
+
+  it('rejects invalid effortLevel', () => {
+    expect(CreateSessionRequest.safeParse({ prompt: 'test', effortLevel: 'turbo' }).success).toBe(false);
+  });
+
+  it('allows omitting effortLevel', () => {
+    const result = CreateSessionRequest.safeParse({ prompt: 'test' });
+    expect(result.success).toBe(true);
+    expect(result.data.effortLevel).toBeUndefined();
+  });
+
   it('allows null nextTemplateId', () => {
     const result = CreateSessionRequest.safeParse({
       prompt: 'test',
@@ -92,6 +108,32 @@ describe('UpdateSessionRequest', () => {
       nextTemplateId: 'invalid',
     });
     expect(result.success).toBe(false);
+  });
+
+  describe('effortLevel validation', () => {
+    it('accepts valid effortLevel values', () => {
+      for (const effortLevel of ['low', 'medium', 'high', 'max', 'auto']) {
+        const result = UpdateSessionRequest.safeParse({ effortLevel });
+        expect(result.success).toBe(true);
+      }
+    });
+
+    it('accepts null effortLevel to clear it', () => {
+      const result = UpdateSessionRequest.safeParse({ effortLevel: null });
+      expect(result.success).toBe(true);
+      expect(result.data.effortLevel).toBeNull();
+    });
+
+    it('rejects invalid effortLevel', () => {
+      const result = UpdateSessionRequest.safeParse({ effortLevel: 'turbo' });
+      expect(result.success).toBe(false);
+    });
+
+    it('allows omitting effortLevel', () => {
+      const result = UpdateSessionRequest.safeParse({});
+      expect(result.success).toBe(true);
+      expect(result.data.effortLevel).toBeUndefined();
+    });
   });
 
   describe('prUrl validation', () => {
@@ -230,6 +272,7 @@ describe('SessionResponse', () => {
     mode: 'standard',
     model: null,
     thinkingEnabled: false,
+    effortLevel: null,
     gitBranch: null,
     gitWorktree: null,
     prUrl: null,
@@ -302,6 +345,32 @@ describe('SessionResponse', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('validates session with effortLevel set', () => {
+    for (const effortLevel of ['low', 'medium', 'high', 'max', 'auto']) {
+      const result = SessionResponse.safeParse({
+        ...validSession,
+        effortLevel,
+      });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('validates session with effortLevel null', () => {
+    const result = SessionResponse.safeParse({
+      ...validSession,
+      effortLevel: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects session with invalid effortLevel', () => {
+    const result = SessionResponse.safeParse({
+      ...validSession,
+      effortLevel: 'turbo',
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('SessionListResponse', () => {
@@ -320,6 +389,7 @@ describe('SessionListResponse', () => {
         mode: 'standard',
         model: null,
         thinkingEnabled: false,
+        effortLevel: null,
         gitBranch: null,
         gitWorktree: null,
         prUrl: null,
