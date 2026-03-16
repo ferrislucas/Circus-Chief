@@ -312,6 +312,22 @@ export function onSessionActivity(sessionId) {
  * @param {string} sessionId
  */
 export function onSessionComplete(sessionId) {
+  // Early exit if session summaries are disabled globally
+  const globalSettings = settings.getSummarySettings();
+  if (globalSettings?.disableSessionSummaries) {
+    // Still schedule CI checks below, but skip all summary work
+    const session = sessions.getById(sessionId);
+    if (session?.prUrl) {
+      const scheduleCiCheck = async () => {
+        const prStatusService = await import('./prStatusService.js');
+        prStatusService.checkSessionCiStatusNow(sessionId);
+      };
+      setTimeout(scheduleCiCheck, 2 * 60 * 1000);
+      setTimeout(scheduleCiCheck, 5 * 60 * 1000);
+    }
+    return;
+  }
+
   // Lightweight outcome update: if summary exists and is current,
   // just update the outcome field without calling the LLM
   const existingSummary = sessionSummaries.getBySessionId(sessionId);
