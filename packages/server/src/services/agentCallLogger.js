@@ -18,6 +18,16 @@ export class AgentCallLogger {
    */
   startCall(meta) {
     const callId = nanoid();
+
+    // Build metadata object - only include keys with defined values
+    const metadata = {};
+    if (meta.effortLevel !== undefined && meta.effortLevel !== null) {
+      metadata.effortLevel = meta.effortLevel;
+    }
+    if (meta.thinkingEnabled !== undefined) {
+      metadata.thinkingEnabled = meta.thinkingEnabled;
+    }
+
     agentCallLogs.create({
       id: callId,
       sessionId: meta.sessionId,
@@ -26,6 +36,7 @@ export class AgentCallLogger {
       model: meta.model || null,
       callType: meta.callType,
       promptLength: meta.promptLength || 0,
+      metadata, // Pass the metadata object (may be empty {})
     });
     this.activeCalls.set(callId, { id: callId, ...meta });
     return callId;

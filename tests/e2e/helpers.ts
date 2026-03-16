@@ -335,7 +335,7 @@ export async function seedProject(
 
 export async function seedSession(
   projectId: string,
-  data: { prompt: string; name?: string; mode?: string; model?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string }
+  data: { prompt: string; name?: string; mode?: string; model?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string; effortLevel?: string }
 ) {
   // Default gitMode/gitBranch so tests pass for git-repo-backed projects
   const payload = {
@@ -656,6 +656,7 @@ export async function setProjectSessionDefaults(
     gitMode?: string | null;
     gitBranch?: string | null;
     model?: string | null;
+    effortLevel?: string | null;
   }
 ) {
   const response = await fetch(`${API_URL}/api/projects/${projectId}/session-defaults`, {
@@ -2315,7 +2316,9 @@ export async function getAgentCallLogs(params?: Record<string, string>) {
   const qs = params ? '?' + new URLSearchParams(params).toString() : '';
   const response = await fetch(`${API_URL}/api/agent-calls${qs}`);
   if (!response.ok) throw new Error('Failed to fetch agent call logs');
-  return response.json();
+  const result = await response.json();
+  // API returns { logs: [...], pagination: {...} }, extract just the logs array
+  return result.logs || [];
 }
 
 /**
