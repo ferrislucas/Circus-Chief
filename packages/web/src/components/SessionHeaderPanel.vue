@@ -225,7 +225,15 @@ async function saveSessionName() {
   }
 }
 
-defineExpose({ isEditingName, editNameValue, startEditName, cancelEditName, clearSessionName, saveSessionName });
+defineExpose({
+  isEditingName,
+  editNameValue,
+  startEditName,
+  cancelEditName,
+  clearSessionName,
+  saveSessionName,
+  showMoveCardModal,
+});
 </script>
 
 <style scoped>
