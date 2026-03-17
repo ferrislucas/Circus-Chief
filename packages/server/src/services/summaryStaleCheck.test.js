@@ -85,8 +85,8 @@ describe('summaryStaleCheck', () => {
 
     // Add enough messages to pass MIN_MESSAGES_FOR_SUMMARY threshold (3 messages)
     // Session creation adds 1 message, so we need 2 more
-    messages.create(sessionId, 'assistant', 'Response 1', null);
-    messages.create(sessionId, 'user', 'Follow-up message', null);
+    messages.create(sessionId, 'assistant', 'Response 1');
+    messages.create(sessionId, 'user', 'Follow-up message');
   });
 
   describe('isSummaryStale', () => {

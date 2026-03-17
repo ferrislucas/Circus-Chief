@@ -75,7 +75,7 @@ export const conversationActions = {
   },
 
   async branchConversation(sessionId, conversationId, options = {}) {
-    const { messageId = null, name = null, prompt = null } = options || {};
+    const { messageId = null, prompt = null } = options || {};
     this.error = null;
     try {
       const branchConversation = await api.branchConversation(sessionId, conversationId, { messageId, prompt });

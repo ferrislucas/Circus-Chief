@@ -65,8 +65,6 @@ const props = defineProps({
   sessionStatus: { type: String, default: null },
 });
 
-const emit = defineEmits(['scrollToBottom']);
-
 const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 const router = useRouter();

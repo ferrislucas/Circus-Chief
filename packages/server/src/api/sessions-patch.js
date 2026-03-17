@@ -110,7 +110,7 @@ const FIELD_DEFINITIONS = [
   { field: 'nextTemplateId', validate: validateNextTemplateId },
   { field: 'model' },
   { field: 'pendingModel' },
-  { field: 'autoSendPendingPrompt' },
+  { field: 'autoSendPendingPrompt', transform: Boolean },
   { field: 'providerId', validate: validateProviderId },
   { field: 'prUrl', validate: validatePrUrl },
   // Scheduling fields
