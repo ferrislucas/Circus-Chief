@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { h, defineComponent } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import WorkflowSessionItem from './WorkflowSessionItem.vue';
 
@@ -10,6 +11,17 @@ const mockTemplatesStore = {
 
 vi.mock('../stores/templates.js', () => ({
   useTemplatesStore: () => mockTemplatesStore,
+}));
+
+// Mock SessionLogStream component
+vi.mock('./SessionLogStream.vue', () => ({
+  default: defineComponent({
+    name: 'SessionLogStream',
+    props: ['sessionId'],
+    setup(props) {
+      return () => h('div', { class: 'session-log-stream-mock', 'data-session-id': props.sessionId });
+    },
+  }),
 }));
 
 // Mock router-link
@@ -371,6 +383,29 @@ describe('WorkflowSessionItem', () => {
 
       const wrapper2 = mountComponent({}, { summaries: {} });
       expect(wrapper2.find('.workflow-session-summary').text()).toBe('No summary yet');
+    });
+  });
+
+  describe('SessionLogStream integration', () => {
+    it('renders SessionLogStream when child session status is "running"', () => {
+      const wrapper = mountComponent({ status: 'running' });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+    });
+
+    it('renders SessionLogStream when child session status is "starting"', () => {
+      const wrapper = mountComponent({ status: 'starting' });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+    });
+
+    it('does NOT render SessionLogStream when child session status is "completed"', () => {
+      const wrapper = mountComponent({ status: 'completed' });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(false);
+    });
+
+    it('passes correct session.id as sessionId prop', () => {
+      const wrapper = mountComponent({ id: 'child-session-42', status: 'running' });
+      const logStream = wrapper.find('.session-log-stream-mock');
+      expect(logStream.attributes('data-session-id')).toBe('child-session-42');
     });
   });
 });

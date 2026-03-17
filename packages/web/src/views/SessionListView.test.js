@@ -48,6 +48,18 @@ let capturedSummaryCallbacks = null;
 // Store a reference to the archivedLoaded ref created by the mock
 let mockArchivedLoaded = null;
 
+// Mock useRunningSessionSubscriptions composable (no-op in tests)
+vi.mock('../composables/useRunningSessionSubscriptions.js', () => ({
+  useRunningSessionSubscriptions: vi.fn(() => ({ activeSubscriptions: ref({}) })),
+}));
+
+// Mock sessionStreaming store
+vi.mock('../stores/sessionStreaming.js', () => ({
+  useSessionStreamingStore: vi.fn(() => ({
+    restoreCollapsedLogState: vi.fn(),
+  })),
+}));
+
 // Mock WebSocket composable
 vi.mock('../composables/useWebSocket.js', () => ({
   useProjectSubscription: vi.fn(() => ({
