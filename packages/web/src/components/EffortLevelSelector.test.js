@@ -26,7 +26,7 @@ describe('EffortLevelSelector', () => {
 
     mockSessionsStore = {
       currentSession: null,
-      updateSession: vi.fn().mockResolvedValue({}),
+      updateSessionFields: vi.fn().mockResolvedValue({}),
     };
     useSessionsStore.mockReturnValue(mockSessionsStore);
 
@@ -163,7 +163,7 @@ describe('EffortLevelSelector', () => {
       expect(select.element.value).toBe('auto');
     });
 
-    it('calls updateSession on store when selection changes', async () => {
+    it('calls updateSessionFields on store when selection changes', async () => {
       mockSessionsStore.currentSession = {
         id: 'session-123',
         effortLevel: 'low',
@@ -181,12 +181,12 @@ describe('EffortLevelSelector', () => {
       await select.setValue('high');
       await flushPromises();
 
-      expect(mockSessionsStore.updateSession).toHaveBeenCalledWith('session-123', {
+      expect(mockSessionsStore.updateSessionFields).toHaveBeenCalledWith('session-123', {
         effortLevel: 'high',
       });
     });
 
-    it('converts auto to null when calling updateSession', async () => {
+    it('converts auto to null when calling updateSessionFields', async () => {
       mockSessionsStore.currentSession = {
         id: 'session-123',
         effortLevel: 'high',
@@ -204,7 +204,7 @@ describe('EffortLevelSelector', () => {
       await select.setValue('auto');
       await flushPromises();
 
-      expect(mockSessionsStore.updateSession).toHaveBeenCalledWith('session-123', {
+      expect(mockSessionsStore.updateSessionFields).toHaveBeenCalledWith('session-123', {
         effortLevel: null,
       });
     });

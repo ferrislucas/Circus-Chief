@@ -227,6 +227,8 @@ import { useKanbanStore } from '../stores/kanban.js';
 import { useSummaries } from '../composables/useSummaries.js';
 import { useSessionFiltering } from '../composables/useSessionFiltering.js';
 import { useProjectSessionSubscription } from '../composables/useProjectSessionSubscription.js';
+import { useRunningSessionSubscriptions } from '../composables/useRunningSessionSubscriptions.js';
+import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import SessionCard from '../components/SessionCard.vue';
 import SessionFiltersPanel from '../components/SessionFiltersPanel.vue';
 import ArchivedTabContent from '../components/ArchivedTabContent.vue';
@@ -241,6 +243,11 @@ const router = useRouter();
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
 const kanbanStore = useKanbanStore();
+const streamingStore = useSessionStreamingStore();
+
+// Auto-subscribe to all running sessions' WebSocket streams for live output
+useRunningSessionSubscriptions();
+streamingStore.restoreCollapsedLogState();
 
 // Compute activeTab from route name
 const activeTab = computed(() => {
