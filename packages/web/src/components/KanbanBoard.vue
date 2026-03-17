@@ -77,6 +77,19 @@
               </div>
             </router-link>
             <button
+              class="card-move-btn"
+              title="Move to lane"
+              @click.prevent="openMoveCardModal(card, lane.id)"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="15 4 19 4 19 8"></polyline>
+                <line x1="14" y1="10" x2="19" y2="4"></line>
+                <polyline points="9 20 5 20 5 16"></polyline>
+                <line x1="10" y1="14" x2="5" y2="20"></line>
+              </svg>
+            </button>
+            <button
               class="card-remove-btn"
               title="Remove from board"
               @click.prevent="handleRemoveCard(card.id)"
@@ -151,6 +164,18 @@
       @updated="onLaneUpdated"
       @deleted="onLaneDeleted"
     />
+
+    <!-- Move Card Modal -->
+    <MoveCardModal
+      :is-open="showMoveCardModal"
+      :project-id="projectId"
+      :card-id="selectedCardForMove?.id"
+      :current-lane-id="selectedCardCurrentLaneId"
+      :session-name="selectedCardForMove?.sessions?.[0]?.name"
+      @update:is-open="showMoveCardModal = $event"
+      @close="closeMoveCardModal"
+      @moved="onCardMoved"
+    />
   </div>
 </template>
 
@@ -159,6 +184,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useKanbanStore } from '../stores/kanban.js';
 import AddSessionToLaneModal from './AddSessionToLaneModal.vue';
 import LaneSettingsModal from './LaneSettingsModal.vue';
+import MoveCardModal from './MoveCardModal.vue';
 
 const props = defineProps({
   projectId: {
@@ -179,6 +205,9 @@ const showAddSessionModal = ref(false);
 const selectedLaneForAddSession = ref(null);
 const showLaneSettingsModal = ref(false);
 const selectedLaneForSettings = ref(null);
+const showMoveCardModal = ref(false);
+const selectedCardForMove = ref(null);
+const selectedCardCurrentLaneId = ref(null);
 
 // Computed
 const board = computed(() => kanbanStore.board);
@@ -302,6 +331,22 @@ const onLaneUpdated = () => {
 const onLaneDeleted = () => {
   closeLaneSettingsModal();
   // Lane was deleted, board will refresh via store
+};
+
+const openMoveCardModal = (card, currentLaneId) => {
+  selectedCardForMove.value = card;
+  selectedCardCurrentLaneId.value = currentLaneId;
+  showMoveCardModal.value = true;
+};
+
+const closeMoveCardModal = () => {
+  showMoveCardModal.value = false;
+  selectedCardForMove.value = null;
+  selectedCardCurrentLaneId.value = null;
+};
+
+const onCardMoved = () => {
+  closeMoveCardModal();
 };
 
 // Watch for project changes
@@ -569,6 +614,30 @@ onMounted(() => {
 
 .card-mode {
   text-transform: capitalize;
+}
+
+.card-move-btn {
+  position: absolute;
+  top: 0.25rem;
+  right: 2rem;
+  background: none;
+  border: none;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  opacity: 0;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.2s, color 0.2s;
+}
+
+.kanban-card:hover .card-move-btn {
+  opacity: 1;
+}
+
+.card-move-btn:hover {
+  color: var(--color-primary);
 }
 
 .card-remove-btn {
