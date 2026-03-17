@@ -24,15 +24,31 @@ export class MessageRepository extends BaseRepository {
 
   /**
    * Create a new message
+   * Supports both legacy and new signatures:
+   * - Legacy: create(sessionId, role, content, toolUse, conversationId, model)
+   * - New: create(sessionId, role, content, { toolUse, conversationId, model })
    * @param {string} sessionId - The session ID
    * @param {string} role - The message role (user, assistant, system)
    * @param {string} content - The message content
-   * @param {Object|null} toolUse - Optional tool use data
-   * @param {string|null} conversationId - Optional conversation ID
-   * @param {string|null} model - Optional model that generated this message (for assistant messages)
+   * @param {Object|null} optionsOrToolUse - Optional parameters object OR legacy toolUse parameter
+   * @param {string|null} legacyConversationId - Legacy conversation ID parameter
+   * @param {string|null} legacyModel - Legacy model parameter
    * @returns {Object} The created message
    */
-  create(sessionId, role, content, toolUse = null, conversationId = null, model = null) {
+  create(sessionId, role, content, optionsOrToolUse = null, legacyConversationId = null, legacyModel = null) {
+    // Detect which signature is being used
+    let toolUse, conversationId, model;
+
+    if (optionsOrToolUse && typeof optionsOrToolUse === 'object' && !Array.isArray(optionsOrToolUse)) {
+      // New signature: options object
+      ({ toolUse = null, conversationId = null, model = null } = optionsOrToolUse);
+    } else {
+      // Legacy signature: individual parameters
+      toolUse = optionsOrToolUse;
+      conversationId = legacyConversationId;
+      model = legacyModel;
+    }
+
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db
@@ -127,9 +143,7 @@ export class MessageRepository extends BaseRepository {
           targetSessionId,
           msg.role,
           msg.content,
-          msg.toolUse,
-          targetConvId,
-          msg.model
+          { toolUse: msg.toolUse, conversationId: targetConvId, model: msg.model }
         );
       }
     }
