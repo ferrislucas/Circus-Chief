@@ -535,7 +535,8 @@ router.patch('/:id', requireSession, (req, res) => {
         return res.status(400).json({ error: 'Invalid effort level. Must be one of: low, medium, high, max, auto' });
       }
     }
-    updateData.effortLevel = effortLevel;
+    // Normalize 'auto' to null (auto means "let the SDK/API decide")
+    updateData.effortLevel = effortLevel === 'auto' ? null : effortLevel;
   }
   if (status !== undefined) {
     const validStatuses = ['starting', 'running', 'waiting', 'error', 'stopped', 'scheduled'];
