@@ -6,6 +6,7 @@
       @change="handleChange($event.target.value)"
       :disabled="disabled || toggling"
       class="effort-select"
+      aria-label="Effort level"
     >
       <option v-for="l in levels" :key="l.value" :value="l.value">
         {{ l.label }}
@@ -75,7 +76,7 @@ async function handleChange(value) {
     // Session context: update store asynchronously
     toggling.value = true;
     try {
-      await sessionsStore.updateSession(props.sessionId, {
+      await sessionsStore.updateSessionFields(props.sessionId, {
         effortLevel: value === 'auto' ? null : value,
       });
     } catch (err) {

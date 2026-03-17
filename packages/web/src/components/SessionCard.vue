@@ -149,6 +149,13 @@
         </div>
       </div>
 
+      <!-- Streaming log output for running sessions -->
+      <SessionLogStream
+        v-if="isRunning"
+        :session-id="session.id"
+        data-testid="session-log-stream"
+      />
+
       <!-- Expand/collapse toggle for sessions with children -->
       <div v-if="hasChildren && !isChild" class="expand-toggle-row">
         <button
@@ -213,6 +220,7 @@ import { formatDate } from '../utils/formatters.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import PrIndicators from './PrIndicators.vue';
 import WorkflowSessionItem from './WorkflowSessionItem.vue';
+import SessionLogStream from './SessionLogStream.vue';
 import { api } from '../composables/useApi.js';
 
 const router = useRouter();
@@ -292,6 +300,8 @@ const canArchive = computed(() => {
 const onAddToBoardClick = () => {
   emit('addToBoard', props.session);
 };
+
+const isRunning = computed(() => ['running', 'starting'].includes(props.session.status));
 
 const dateToShow = computed(() => {
   return props.session.lastActivityAt || props.session.updatedAt || props.session.createdAt;
