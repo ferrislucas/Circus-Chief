@@ -131,7 +131,7 @@ export async function handleAutoSendIfNeeded(sessionId) {
   try {
     const project = projects.getById(session.projectId);
     const systemPrompt = project?.systemPrompt || null;
-    await continueSession(sessionId, promptToSend, session.gitWorktree || project?.workingDirectory, systemPrompt, [], modelToUse);
+    await continueSession(sessionId, promptToSend, session.gitWorktree || project?.workingDirectory, { systemPrompt, model: modelToUse });
   } catch (error) {
     console.error(`[AUTO-SEND] Failed to auto-send for session ${sessionId}:`, error);
   }
@@ -212,15 +212,16 @@ async function _executeSession({
     const wasRescheduled = await handleTurnCompletion(
       sessionId,
       workingDirectory,
-      handleTemplateTriggerIfNeeded,
-      _checkProactiveReschedule,
-      handleAutoSendIfNeeded
+      { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded }
     );
     if (wasRescheduled) {
       return;
     }
   } catch (error) {
-    const rescheduled = await handleSessionError(sessionId, error, controller, shouldRescheduleOnError, schedulerService, {
+    const rescheduled = await handleSessionError(sessionId, error, {
+      controller,
+      shouldRescheduleOnError,
+      schedulerService,
       broadcastConversationState: broadcastConversationStateOnError,
       errorLabel,
     });
@@ -238,11 +239,10 @@ async function _executeSession({
  * @param {string} sessionId
  * @param {string} prompt
  * @param {string} workingDirectory
- * @param {string|null} systemPrompt - Custom system prompt from project settings
- * @param {Array} fileAttachments - File attachments for context
- * @param {string|null} model - Claude model to use
+ * @param {{ systemPrompt?: string|null, fileAttachments?: Array, model?: string|null }} options - Optional parameters
  */
-export async function runSession(sessionId, prompt, workingDirectory, systemPrompt = null, fileAttachments = [], model = null) {
+export async function runSession(sessionId, prompt, workingDirectory, options = {}) {
+  const { systemPrompt = null, fileAttachments = [], model = null } = options;
   const controller = new AbortController();
   activeSessions.set(sessionId, { controller });
 
@@ -324,11 +324,10 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
  * @param {string} sessionId
  * @param {string} content
  * @param {string} workingDirectory
- * @param {string|null} systemPrompt - Custom system prompt from project settings
- * @param {Array} fileAttachments - File attachments for context
- * @param {string|null} model - Model to use for this message
+ * @param {{ systemPrompt?: string|null, fileAttachments?: Array, model?: string|null }} options - Optional parameters
  */
-export async function continueSession(sessionId, content, workingDirectory, systemPrompt = null, fileAttachments = [], model = null) {
+export async function continueSession(sessionId, content, workingDirectory, options = {}) {
+  const { systemPrompt = null, fileAttachments = [], model = null } = options;
   // [MODEL AUDIT] Log model received in continueSession
   console.log(`[MODEL AUDIT - SessionManager] continueSession called with model: "${model}"`);
 
@@ -470,10 +469,10 @@ export async function continueSession(sessionId, content, workingDirectory, syst
  * @param {string} sessionId
  * @param {string} conversationId - The conversation to continue (must have an existing user message)
  * @param {string} workingDirectory
- * @param {string|null} systemPrompt - Custom system prompt from project settings
- * @param {string|null} model - Model to use for this message
+ * @param {{ systemPrompt?: string|null, model?: string|null }} options - Optional parameters
  */
-export async function continueSessionWithExistingMessage(sessionId, conversationId, workingDirectory, systemPrompt = null, model = null) {
+export async function continueSessionWithExistingMessage(sessionId, conversationId, workingDirectory, options = {}) {
+  const { systemPrompt = null, model = null } = options;
   // Check if session is already running
   if (activeSessions.has(sessionId)) {
     throw new Error('Session is already processing');

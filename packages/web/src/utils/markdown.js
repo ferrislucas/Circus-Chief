@@ -29,10 +29,12 @@ const md = new MarkdownIt({
 // Configure link rendering to open external links in new tab
 const defaultRender =
   md.renderer.rules.link_open ||
+  // eslint-disable-next-line max-params -- markdown-it library API callback signature
   function (tokens, idx, options, env, self) {
     return self.renderToken(tokens, idx, options);
   };
 
+// eslint-disable-next-line max-params -- markdown-it library API callback signature
 md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
   const token = tokens[idx];
   const hrefIndex = token.attrIndex('href');

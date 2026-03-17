@@ -144,6 +144,96 @@ function getMimeTypeForType(type) {
   }
 }
 
+/**
+ * Process a file buffer and build canvas item data.
+ * Handles type detection, binary vs text classification, and data encoding.
+ * @param {Buffer} fileBuffer - The file contents as a buffer
+ * @param {string} itemFilename - The filename for the canvas item
+ * @returns {{ error: string } | { itemData: object }} Result with either error or itemData
+ */
+function processFileBuffer(fileBuffer, itemFilename) {
+  const ext = extname(itemFilename).toLowerCase();
+  let detectedType = getTypeFromExtension(ext);
+  let detectedMimeType = MIME_TYPES[ext] || TEXT_EXTENSIONS[ext];
+
+  // For unknown extensions, detect if binary or text
+  if (!detectedType) {
+    if (isBinaryContent(fileBuffer)) {
+      return {
+        error: `Unsupported binary file format: ${ext}. Supported binary formats: ${Object.keys(MIME_TYPES).join(', ')}`
+      };
+    }
+    // It's a text file with unknown extension, treat as code
+    detectedType = 'code';
+    detectedMimeType = 'text/plain';
+  }
+
+  // Handle binary types (image, pdf)
+  if (detectedType === 'image' || detectedType === 'pdf') {
+    const base64 = fileBuffer.toString('base64');
+    return {
+      itemData: {
+        type: detectedType,
+        data: base64,
+        mimeType: detectedMimeType,
+        filename: itemFilename,
+      }
+    };
+  }
+
+  // Handle text-based types (code, markdown, json)
+  const textContent = fileBuffer.toString('utf-8');
+  return {
+    itemData: {
+      type: detectedType,
+      content: detectedType === 'json' ? null : textContent,
+      data: detectedType === 'json' ? textContent : null,
+      mimeType: detectedMimeType,
+      filename: itemFilename,
+    }
+  };
+}
+
+const VALID_INLINE_TYPES = ['text', 'markdown', 'code', 'json'];
+
+/**
+ * Validate that the given type is valid for inline canvas content.
+ * @param {string} type - The canvas type to validate
+ * @returns {string|null} Error message if invalid, null if valid
+ */
+function validateInlineType(type) {
+  if (!VALID_INLINE_TYPES.includes(type)) {
+    return `Invalid type for inline content: ${type}. Valid types: ${VALID_INLINE_TYPES.join(', ')}`;
+  }
+  return null;
+}
+
+/**
+ * Build canvas item data from inline content.
+ * @param {string} type - The canvas type
+ * @param {string} content - The content string
+ * @param {string} itemFilename - The filename
+ * @returns {object} The canvas item data
+ */
+function buildInlineItemData(type, content, itemFilename) {
+  return {
+    type,
+    content: type === 'json' ? null : content,
+    data: type === 'json' ? content : null,
+    mimeType: getMimeTypeForType(type),
+    filename: itemFilename,
+  };
+}
+
+/**
+ * Broadcast a canvas update to all session subscribers.
+ * @param {string} sessionId - The session ID
+ * @param {object} item - The canvas item to broadcast
+ */
+function broadcastCanvasUpdate(sessionId, item) {
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.CANVAS_ADD, { item });
+}
+
 // POST /api/sessions/:id/canvas - Add canvas item
 // Supports three modes:
 // 1. Multipart mode: FormData with 'file' field - from browser file uploads
@@ -160,44 +250,11 @@ router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) 
 
   // Mode 1: Multipart file upload from FormData
   if (req.file) {
-    const fileBuffer = req.file.buffer;
-    const filename = req.file.originalname;
-    const ext = extname(filename).toLowerCase();
-    let detectedType = getTypeFromExtension(ext);
-    let detectedMimeType = MIME_TYPES[ext] || TEXT_EXTENSIONS[ext];
-
-    // For unknown extensions, detect if binary or text
-    if (!detectedType) {
-      if (isBinaryContent(fileBuffer)) {
-        return res.status(400).json({
-          error: `Unsupported binary file format: ${ext}. Supported binary formats: ${Object.keys(MIME_TYPES).join(', ')}`
-        });
-      }
-      // It's a text file with unknown extension, treat as code
-      detectedType = 'code';
-      detectedMimeType = 'text/plain';
+    const result = processFileBuffer(req.file.buffer, req.file.originalname);
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
     }
-
-    // Handle binary types (image, pdf)
-    if (detectedType === 'image' || detectedType === 'pdf') {
-      const base64 = fileBuffer.toString('base64');
-      itemData = {
-        type: detectedType,
-        data: base64,
-        mimeType: detectedMimeType,
-        filename: filename,
-      };
-    } else {
-      // Handle text-based types (code, markdown, json)
-      const textContent = fileBuffer.toString('utf-8');
-      itemData = {
-        type: detectedType,
-        content: detectedType === 'json' ? null : textContent,
-        data: detectedType === 'json' ? textContent : null,
-        mimeType: detectedMimeType,
-        filename: filename,
-      };
-    }
+    itemData = result.itemData;
   }
   // Mode 2: File path provided - read from disk
   else if (filePath) {
@@ -207,64 +264,22 @@ router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) 
 
     try {
       const fileBuffer = readFileSync(filePath);
-      const ext = extname(filePath).toLowerCase();
-      let detectedType = getTypeFromExtension(ext);
-      let detectedMimeType = MIME_TYPES[ext] || TEXT_EXTENSIONS[ext];
-
-      // For unknown extensions, detect if binary or text
-      if (!detectedType) {
-        if (isBinaryContent(fileBuffer)) {
-          return res.status(400).json({
-            error: `Unsupported binary file format: ${ext}. Supported binary formats: ${Object.keys(MIME_TYPES).join(', ')}`
-          });
-        }
-        // It's a text file with unknown extension, treat as code
-        detectedType = 'code';
-        detectedMimeType = 'text/plain';
+      const result = processFileBuffer(fileBuffer, basename(filePath));
+      if (result.error) {
+        return res.status(400).json({ error: result.error });
       }
-
-      // Handle binary types (image, pdf)
-      if (detectedType === 'image' || detectedType === 'pdf') {
-        const base64 = fileBuffer.toString('base64');
-        itemData = {
-          type: detectedType,
-          data: base64,
-          mimeType: detectedMimeType,
-          filename: basename(filePath),
-        };
-      } else {
-        // Handle text-based types (code, markdown, json)
-        const textContent = fileBuffer.toString('utf-8');
-        itemData = {
-          type: detectedType,
-          content: detectedType === 'json' ? null : textContent,
-          data: detectedType === 'json' ? textContent : null,
-          mimeType: detectedMimeType,
-          filename: basename(filePath),
-        };
-      }
+      itemData = result.itemData;
     } catch (err) {
       return res.status(400).json({ error: `Failed to read file: ${err.message}` });
     }
   }
   // Mode 3: Inline content provided - use directly
   else if (content !== undefined && type && filename) {
-    // Validate type is text-based (not image/pdf which require binary)
-    const validInlineTypes = ['text', 'markdown', 'code', 'json'];
-    if (!validInlineTypes.includes(type)) {
-      return res.status(400).json({
-        error: `Invalid type for inline content: ${type}. Valid types: ${validInlineTypes.join(', ')}`
-      });
+    const validationError = validateInlineType(type);
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
     }
-
-    // Create canvas item from inline content
-    itemData = {
-      type,
-      content: type === 'json' ? null : content,
-      data: type === 'json' ? content : null,
-      mimeType: getMimeTypeForType(type),
-      filename,
-    };
+    itemData = buildInlineItemData(type, content, filename);
   }
   // No valid mode provided
   else {
@@ -276,7 +291,7 @@ router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) 
   const item = canvasItems.create(req.params.id, itemData);
 
   // Broadcast to session subscribers
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_ADD, { item });
+  broadcastCanvasUpdate(req.params.id, item);
 
   res.status(201).json(item);
 });

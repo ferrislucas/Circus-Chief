@@ -67,7 +67,7 @@ describe('Sessions API - hasResponses', () => {
       const conv = conversations.getActiveBySessionId(session.id);
 
       // Add an assistant message
-      messages.create(session.id, 'assistant', 'Hello! How can I help?', null, conv.id);
+      messages.create(session.id, 'assistant', 'Hello! How can I help?', { conversationId: conv.id });
 
       const res = await request(app).get(`/api/sessions/${session.id}`);
 
@@ -79,7 +79,7 @@ describe('Sessions API - hasResponses', () => {
     it('returns hasResponses=true when assistant message is in a different conversation', async () => {
       // Get the initial conversation and add assistant response
       const conv1 = conversations.getActiveBySessionId(session.id);
-      messages.create(session.id, 'assistant', 'Response to first conv', null, conv1.id);
+      messages.create(session.id, 'assistant', 'Response to first conv', { conversationId: conv1.id });
 
       // Create a new conversation (empty)
       conversations.create(session.id, 'New Conversation', true);
@@ -115,7 +115,7 @@ describe('Sessions API - hasResponses', () => {
     it('non-draft session in waiting status has hasResponses=true', async () => {
       // Add an assistant response to make it a non-draft
       const conv = conversations.getActiveBySessionId(session.id);
-      messages.create(session.id, 'assistant', 'I responded', null, conv.id);
+      messages.create(session.id, 'assistant', 'I responded', { conversationId: conv.id });
 
       // Session is in waiting status but has responses
       const res = await request(app).get(`/api/sessions/${session.id}`);

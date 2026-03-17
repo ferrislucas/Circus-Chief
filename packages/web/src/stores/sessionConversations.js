@@ -167,12 +167,15 @@ export const useSessionConversationsStore = defineStore('sessionConversations', 
      * @param {string} sessionId - Session ID
      * @param {string} conversationId - Source conversation ID
      * @param {string} messageId - Message ID to branch from
-     * @param {string|null} name - Optional name for the branch
-     * @param {string|null} prompt - Optional initial prompt
-     * @param {Object} callbacks - Callbacks for streaming state cleanup
+     * @param {Object} options - Branch options
+     * @param {string|null} options.messageId - Message to branch from
+     * @param {string|null} options.name - Optional name for the branch
+     * @param {string|null} options.prompt - Optional initial prompt
+     * @param {Function|null} options.clearStreamingState - Callback for streaming state cleanup
      * @returns {Promise<Object>} The created branch conversation
      */
-    async branchConversation(sessionId, conversationId, messageId, name = null, prompt = null, { clearStreamingState } = {}) {
+    async branchConversation(sessionId, conversationId, options = {}) {
+      const { messageId = null, name = null, prompt = null, clearStreamingState = null } = options || {};
       const branchConversation = await api.branchConversation(sessionId, conversationId, {
         messageId,
         prompt,

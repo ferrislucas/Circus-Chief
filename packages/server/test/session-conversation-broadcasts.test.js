@@ -64,8 +64,7 @@ describe('Session Conversation Broadcasts', () => {
         session.id,
         'user',
         'Test user message',
-        null,
-        activeConversation.id
+        { conversationId: activeConversation.id }
       );
 
       expect(message.conversationId).toBe(activeConversation.id);
@@ -78,8 +77,7 @@ describe('Session Conversation Broadcasts', () => {
         session.id,
         'assistant',
         'Test assistant message',
-        null,
-        activeConversation.id
+        { conversationId: activeConversation.id }
       );
 
       expect(message.conversationId).toBe(activeConversation.id);
@@ -91,9 +89,7 @@ describe('Session Conversation Broadcasts', () => {
       const message = messages.create(
         session.id,
         'user',
-        'Legacy message without conversation',
-        null,
-        null
+        'Legacy message without conversation'
       );
 
       expect(message.conversationId).toBeNull();
@@ -107,8 +103,7 @@ describe('Session Conversation Broadcasts', () => {
         session.id,
         'user',
         'User message',
-        null,
-        activeConversation.id
+        { conversationId: activeConversation.id }
       );
 
       // Simulate the broadcast that would happen in continueSession
@@ -135,8 +130,7 @@ describe('Session Conversation Broadcasts', () => {
         session.id,
         'assistant',
         'Assistant message',
-        null,
-        activeConversation.id
+        { conversationId: activeConversation.id }
       );
 
       // Simulate the broadcast that would happen in handleStreamEvent
@@ -162,9 +156,7 @@ describe('Session Conversation Broadcasts', () => {
       const message = messages.create(
         session.id,
         'user',
-        'Legacy message',
-        null,
-        null
+        'Legacy message'
       );
 
       // Legacy broadcasts might not have conversationId
@@ -193,8 +185,8 @@ describe('Session Conversation Broadcasts', () => {
       const conv2 = conversations.create(session.id, 'Second Conversation', false);
 
       // Create messages in different conversations
-      const msg1 = messages.create(session.id, 'user', 'Message in conv 1', null, activeConversation.id);
-      const msg2 = messages.create(session.id, 'user', 'Message in conv 2', null, conv2.id);
+      const msg1 = messages.create(session.id, 'user', 'Message in conv 1', { conversationId: activeConversation.id });
+      const msg2 = messages.create(session.id, 'user', 'Message in conv 2', { conversationId: conv2.id });
 
       // Verify messages are in correct conversations
       expect(msg1.conversationId).toBe(activeConversation.id);
@@ -212,7 +204,7 @@ describe('Session Conversation Broadcasts', () => {
       const conv2 = conversations.create(session.id, 'Second Conversation', false);
 
       // Create message in first conversation
-      const msg1 = messages.create(session.id, 'user', 'In conv 1', null, activeConversation.id);
+      const msg1 = messages.create(session.id, 'user', 'In conv 1', { conversationId: activeConversation.id });
 
       // Switch active conversation
       conversations.setActive(conv2.id, session.id);
@@ -220,7 +212,7 @@ describe('Session Conversation Broadcasts', () => {
       expect(newActive.id).toBe(conv2.id);
 
       // Create message in second conversation
-      const msg2 = messages.create(session.id, 'user', 'In conv 2', null, conv2.id);
+      const msg2 = messages.create(session.id, 'user', 'In conv 2', { conversationId: conv2.id });
 
       // Verify messages stayed in their original conversations
       expect(msg1.conversationId).toBe(activeConversation.id);
@@ -241,8 +233,7 @@ describe('Session Conversation Broadcasts', () => {
         session.id,
         'user',
         'Message content',
-        null,
-        conv.id
+        { conversationId: conv.id }
       );
 
       expect(message.conversationId).toBe(conv.id);
@@ -250,7 +241,7 @@ describe('Session Conversation Broadcasts', () => {
 
     it('broadcast includes conversationId immediately upon message creation', () => {
       const conv = conversations.ensureActiveConversation(session.id);
-      const message = messages.create(session.id, 'user', 'Content', null, conv.id);
+      const message = messages.create(session.id, 'user', 'Content', { conversationId: conv.id });
 
       // Simulate immediate broadcast (as in continueSession)
       broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_MESSAGE, {
@@ -275,9 +266,9 @@ describe('Session Conversation Broadcasts', () => {
     it('getByConversationId returns only messages for that conversation', () => {
       const conv2 = conversations.create(session.id, 'Conv 2', false);
 
-      messages.create(session.id, 'user', 'Msg 1 in conv 1', null, activeConversation.id);
-      messages.create(session.id, 'user', 'Msg 2 in conv 1', null, activeConversation.id);
-      messages.create(session.id, 'user', 'Msg in conv 2', null, conv2.id);
+      messages.create(session.id, 'user', 'Msg 1 in conv 1', { conversationId: activeConversation.id });
+      messages.create(session.id, 'user', 'Msg 2 in conv 1', { conversationId: activeConversation.id });
+      messages.create(session.id, 'user', 'Msg in conv 2', { conversationId: conv2.id });
 
       const conv1Messages = messages.getByConversationId(activeConversation.id);
       const conv2Messages = messages.getByConversationId(conv2.id);
@@ -291,8 +282,8 @@ describe('Session Conversation Broadcasts', () => {
     });
 
     it('fetching messages for active conversation returns correct messages', () => {
-      messages.create(session.id, 'user', 'User msg', null, activeConversation.id);
-      messages.create(session.id, 'assistant', 'Assistant msg', null, activeConversation.id);
+      messages.create(session.id, 'user', 'User msg', { conversationId: activeConversation.id });
+      messages.create(session.id, 'assistant', 'Assistant msg', { conversationId: activeConversation.id });
 
       const activeConv = conversations.getActiveBySessionId(session.id);
       const activeMessages = messages.getByConversationId(activeConv.id);

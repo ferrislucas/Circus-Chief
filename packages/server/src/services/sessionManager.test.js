@@ -1239,7 +1239,7 @@ describe('summary service integration', () => {
 
       // Create a conversation and user message
       const conversation = conversationRepo.create(session.id, 'Test Conversation');
-      messageRepo.create(session.id, 'user', 'Existing message', null, conversation.id);
+      messageRepo.create(session.id, 'user', 'Existing message', { conversationId: conversation.id });
 
       // Continue with existing message
       await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);

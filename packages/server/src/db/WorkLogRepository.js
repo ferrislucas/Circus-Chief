@@ -23,28 +23,14 @@ export class WorkLogRepository extends BaseRepository {
 
   /**
    * Create a new work log entry
-   * Supports both legacy and new signatures:
-   * - Legacy: create(sessionId, type, content, messageId, toolName)
-   * - New: create(sessionId, type, content, { messageId, toolName })
    * @param {string} sessionId - Session ID
    * @param {string} type - Log type ('thinking', 'tool_input', 'tool_output')
    * @param {string} content - Log content
-   * @param {Object|string|null} optionsOrMessageId - Optional parameters object OR legacy messageId parameter
-   * @param {string|null} legacyToolName - Legacy toolName parameter
+   * @param {{ messageId?: string|null, toolName?: string|null }} options - Optional parameters
    * @returns {Object} Created work log
    */
-  create(sessionId, type, content, optionsOrMessageId = null, legacyToolName = null) {
-    // Detect which signature is being used
-    let messageId, toolName;
-
-    if (optionsOrMessageId && typeof optionsOrMessageId === 'object' && !Array.isArray(optionsOrMessageId)) {
-      // New signature: options object
-      ({ messageId = null, toolName = null } = optionsOrMessageId);
-    } else {
-      // Legacy signature: individual parameters
-      messageId = optionsOrMessageId;
-      toolName = legacyToolName;
-    }
+  create(sessionId, type, content, options = {}) {
+    const { messageId = null, toolName = null } = options || {};
 
     const id = databaseManager.generateId();
     const now = Date.now();

@@ -115,7 +115,7 @@ export async function startDraft(session, options = {}) {
 
   // Start session manager (non-blocking)
   const { runSession } = await import('./sessionManager.js');
-  runSession(session.id, effectivePrompt, workingDirectory, effectiveSystemPrompt, sessionAttachments, model).catch((error) => {
+  runSession(session.id, effectivePrompt, workingDirectory, { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model }).catch((error) => {
     console.error('Session error:', error);
     sessions.update(session.id, { status: 'error', error: error.message });
   });
