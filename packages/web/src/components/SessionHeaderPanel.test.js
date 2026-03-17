@@ -28,6 +28,22 @@ vi.mock('./CommandButtonStatusBar.vue', () => ({
   }
 }));
 
+vi.mock('./MoveCardModal.vue', () => ({
+  default: {
+    name: 'MoveCardModal',
+    template: '<div class="move-card-modal-stub"></div>',
+    props: ['isOpen', 'projectId', 'cardId', 'currentLaneId', 'sessionName'],
+    emits: ['update:isOpen', 'close', 'moved'],
+  },
+}));
+
+vi.mock('../stores/kanban.js', () => ({
+  useKanbanStore: vi.fn(() => ({
+    getCardBySessionId: vi.fn(() => null),
+    getLaneById: vi.fn(() => null),
+  })),
+}));
+
 vi.mock('../composables/useApi.js', () => ({
   api: {
     updateSession: vi.fn().mockResolvedValue({}),
@@ -35,6 +51,7 @@ vi.mock('../composables/useApi.js', () => ({
 }));
 
 import { api } from '../composables/useApi.js';
+import { useKanbanStore } from '../stores/kanban.js';
 
 describe('SessionHeaderPanel', () => {
   let pinia;
@@ -361,6 +378,176 @@ describe('SessionHeaderPanel', () => {
       const wrapper = mountPanel({ buttonStatuses: statuses });
       const statusBar = wrapper.findComponent({ name: 'CommandButtonStatusBar' });
       expect(statusBar.props('buttonStatuses')).toEqual(statuses);
+    });
+  });
+
+  describe('move card modal', () => {
+    let mockKanbanStore;
+
+    beforeEach(() => {
+      mockKanbanStore = useKanbanStore();
+      // Setup mocks for all tests in this describe block
+      mockKanbanStore.getCardBySessionId.mockReturnValue({
+        id: 'card-1',
+        laneId: 'lane-1',
+      });
+      mockKanbanStore.getLaneById.mockReturnValue({
+        id: 'lane-1',
+        name: 'In Progress',
+      });
+    });
+
+    describe('lane chip renders as button when session is on board', () => {
+      it('lane chip renders as a button when session is on the board', () => {
+        const wrapper = mountPanel();
+        const laneChip = wrapper.find('.lane-chip');
+        expect(laneChip.element.tagName.toLowerCase()).toBe('button');
+      });
+
+      it('button has type="button" attribute', () => {
+        const wrapper = mountPanel();
+        const laneChip = wrapper.find('.lane-chip');
+        expect(laneChip.attributes('type')).toBe('button');
+      });
+
+      it('button has lane-chip and lane-chip-clickable classes', () => {
+        const wrapper = mountPanel();
+        const laneChip = wrapper.find('.lane-chip');
+        expect(laneChip.classes()).toContain('lane-chip');
+        expect(laneChip.classes()).toContain('lane-chip-clickable');
+      });
+
+      it('button has correct title attribute', () => {
+        const wrapper = mountPanel();
+        const laneChip = wrapper.find('.lane-chip');
+        expect(laneChip.attributes('title')).toBe('Move from In Progress to another lane');
+      });
+
+      it('button is keyboard focusable and accessible', () => {
+        const wrapper = mountPanel();
+        const laneChip = wrapper.find('.lane-chip');
+        expect(laneChip.attributes('tabindex')).not.toBe('-1');
+      });
+    });
+
+    describe('lane chip click opens modal', () => {
+      it('sets showMoveCardModal to true when lane chip is clicked', async () => {
+        const wrapper = mountPanel();
+        const laneChip = wrapper.find('.lane-chip');
+        await laneChip.trigger('click');
+        await wrapper.vm.$nextTick();
+
+        const moveCardModal = wrapper.findComponent({ name: 'MoveCardModal' });
+        expect(moveCardModal.props('isOpen')).toBe(true);
+      });
+    });
+
+    describe('modal receives correct props', () => {
+      it('MoveCardModal receives projectId from session.projectId', async () => {
+        const wrapper = mountPanel();
+        const laneChip = wrapper.find('.lane-chip');
+        await laneChip.trigger('click');
+        await wrapper.vm.$nextTick();
+
+        const moveCardModal = wrapper.findComponent({ name: 'MoveCardModal' });
+        expect(moveCardModal.props('projectId')).toBe('proj-1');
+      });
+
+      it('MoveCardModal receives cardId from sessionCard', async () => {
+        const wrapper = mountPanel();
+        const laneChip = wrapper.find('.lane-chip');
+        await laneChip.trigger('click');
+        await wrapper.vm.$nextTick();
+
+        const moveCardModal = wrapper.findComponent({ name: 'MoveCardModal' });
+        expect(moveCardModal.props('cardId')).toBe('card-1');
+      });
+
+      it('MoveCardModal receives currentLaneId from sessionLane', async () => {
+        const wrapper = mountPanel();
+        const laneChip = wrapper.find('.lane-chip');
+        await laneChip.trigger('click');
+        await wrapper.vm.$nextTick();
+
+        const moveCardModal = wrapper.findComponent({ name: 'MoveCardModal' });
+        expect(moveCardModal.props('currentLaneId')).toBe('lane-1');
+      });
+
+      it('MoveCardModal receives sessionName from session', async () => {
+        const wrapper = mountPanel();
+        const laneChip = wrapper.find('.lane-chip');
+        await laneChip.trigger('click');
+        await wrapper.vm.$nextTick();
+
+        const moveCardModal = wrapper.findComponent({ name: 'MoveCardModal' });
+        expect(moveCardModal.props('sessionName')).toBe('Test Session');
+      });
+    });
+
+    describe('no lane chip when session not on board', () => {
+      beforeEach(() => {
+        mockKanbanStore.getCardBySessionId.mockReturnValue(null);
+        mockKanbanStore.getLaneById.mockReturnValue(null);
+      });
+
+      it('does not render lane chip when session is not on board', () => {
+        const wrapper = mountPanel();
+        const laneChip = wrapper.find('.lane-chip');
+        expect(laneChip.exists()).toBe(false);
+      });
+
+      it('modal state remains false (closed)', () => {
+        const wrapper = mountPanel();
+        expect(wrapper.vm.showMoveCardModal).toBe(false);
+      });
+    });
+
+    describe('modal close behavior', () => {
+
+      it('resets showMoveCardModal to false when close event is emitted', async () => {
+        const wrapper = mountPanel();
+        const laneChip = wrapper.find('.lane-chip');
+        await laneChip.trigger('click');
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.vm.showMoveCardModal).toBe(true);
+
+        const moveCardModal = wrapper.findComponent({ name: 'MoveCardModal' });
+        await moveCardModal.vm.$emit('close');
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.vm.showMoveCardModal).toBe(false);
+      });
+
+      it('resets showMoveCardModal to false when moved event is emitted', async () => {
+        const wrapper = mountPanel();
+        const laneChip = wrapper.find('.lane-chip');
+        await laneChip.trigger('click');
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.vm.showMoveCardModal).toBe(true);
+
+        const moveCardModal = wrapper.findComponent({ name: 'MoveCardModal' });
+        await moveCardModal.vm.$emit('moved');
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.vm.showMoveCardModal).toBe(false);
+      });
+
+      it('handles modal close without errors', async () => {
+        const wrapper = mountPanel();
+        const laneChip = wrapper.find('.lane-chip');
+        await laneChip.trigger('click');
+        await wrapper.vm.$nextTick();
+
+        const moveCardModal = wrapper.findComponent({ name: 'MoveCardModal' });
+
+        // Should not throw
+        await moveCardModal.vm.$emit('update:isOpen', false);
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.vm.showMoveCardModal).toBe(false);
+      });
     });
   });
 });

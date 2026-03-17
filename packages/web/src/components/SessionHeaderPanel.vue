@@ -76,14 +76,20 @@
           </svg>
         </button>
         <!-- Kanban lane indicator -->
-        <span v-if="sessionLane" class="lane-chip" :title="`In kanban lane: ${sessionLane.name}`">
+        <button
+          v-if="sessionLane"
+          type="button"
+          class="lane-chip lane-chip-clickable"
+          :title="`Move from ${sessionLane.name} to another lane`"
+          @click="openMoveModal"
+        >
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
             <line x1="9" y1="3" x2="9" y2="21"></line>
             <line x1="15" y1="3" x2="15" y2="21"></line>
           </svg>
           {{ sessionLane.name }}
-        </span>
+        </button>
         <PrUrlEditor
           :session-id="sessionId"
           :pr-url="session.prUrl"
@@ -94,6 +100,18 @@
       <!-- Command button status indicators for real-time status updates -->
       <CommandButtonStatusBar :button-statuses="buttonStatuses" />
     </div>
+
+    <!-- Move Card Modal -->
+    <MoveCardModal
+      :is-open="showMoveCardModal"
+      :project-id="session.projectId"
+      :card-id="sessionCard?.id"
+      :current-lane-id="sessionLane?.id"
+      :session-name="session.name"
+      @update:is-open="showMoveCardModal = $event"
+      @close="showMoveCardModal = false"
+      @moved="showMoveCardModal = false"
+    />
   </div>
 </template>
 
@@ -102,6 +120,7 @@ import { ref, nextTick, computed } from 'vue';
 import OverflowMenu from './OverflowMenu.vue';
 import PrUrlEditor from './PrUrlEditor.vue';
 import CommandButtonStatusBar from './CommandButtonStatusBar.vue';
+import MoveCardModal from './MoveCardModal.vue';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useKanbanStore } from '../stores/kanban.js';
@@ -148,6 +167,18 @@ const sessionLane = computed(() => {
   const lane = kanbanStore.getLaneById(card.laneId);
   return lane;
 });
+
+// Get the card for this session
+const sessionCard = computed(() => {
+  return kanbanStore.getCardBySessionId(props.sessionId);
+});
+
+// Move card modal state
+const showMoveCardModal = ref(false);
+
+function openMoveModal() {
+  showMoveCardModal.value = true;
+}
 
 // Name editing state
 const isEditingName = ref(false);
@@ -269,6 +300,15 @@ defineExpose({ isEditingName, editNameValue, startEditName, cancelEditName, clea
   border-radius: 4px;
   font-size: 0.75rem;
   color: var(--color-text-soft);
+}
+
+.lane-chip-clickable {
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.lane-chip-clickable:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .lane-chip svg {
