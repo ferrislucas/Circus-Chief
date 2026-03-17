@@ -37,16 +37,23 @@ vi.mock('./MoveCardModal.vue', () => ({
   },
 }));
 
+// Create a shared mock store instance
+const mockKanbanStoreInstance = {
+  getCardBySessionId: vi.fn(() => null),
+  getLaneById: vi.fn(() => null),
+};
+
 vi.mock('../stores/kanban.js', () => ({
-  useKanbanStore: vi.fn(() => ({
-    getCardBySessionId: vi.fn(() => null),
-    getLaneById: vi.fn(() => null),
-  })),
+  useKanbanStore: vi.fn(() => mockKanbanStoreInstance),
 }));
 
 vi.mock('../composables/useApi.js', () => ({
   api: {
     updateSession: vi.fn().mockResolvedValue({}),
+    getKanbanBoard: vi.fn().mockResolvedValue(null),
+    createKanbanCard: vi.fn().mockResolvedValue({}),
+    moveKanbanCard: vi.fn().mockResolvedValue({}),
+    deleteKanbanCard: vi.fn().mockResolvedValue({}),
   },
 }));
 
@@ -382,16 +389,13 @@ describe('SessionHeaderPanel', () => {
   });
 
   describe('move card modal', () => {
-    let mockKanbanStore;
-
     beforeEach(() => {
-      mockKanbanStore = useKanbanStore();
       // Setup mocks for all tests in this describe block
-      mockKanbanStore.getCardBySessionId.mockReturnValue({
+      mockKanbanStoreInstance.getCardBySessionId.mockReturnValue({
         id: 'card-1',
         laneId: 'lane-1',
       });
-      mockKanbanStore.getLaneById.mockReturnValue({
+      mockKanbanStoreInstance.getLaneById.mockReturnValue({
         id: 'lane-1',
         name: 'In Progress',
       });
@@ -486,8 +490,8 @@ describe('SessionHeaderPanel', () => {
 
     describe('no lane chip when session not on board', () => {
       beforeEach(() => {
-        mockKanbanStore.getCardBySessionId.mockReturnValue(null);
-        mockKanbanStore.getLaneById.mockReturnValue(null);
+        mockKanbanStoreInstance.getCardBySessionId.mockReturnValue(null);
+        mockKanbanStoreInstance.getLaneById.mockReturnValue(null);
       });
 
       it('does not render lane chip when session is not on board', () => {
@@ -503,6 +507,17 @@ describe('SessionHeaderPanel', () => {
     });
 
     describe('modal close behavior', () => {
+      beforeEach(() => {
+        // Reset mocks to return lane data (undo changes from previous describe block)
+        mockKanbanStoreInstance.getCardBySessionId.mockReturnValue({
+          id: 'card-1',
+          laneId: 'lane-1',
+        });
+        mockKanbanStoreInstance.getLaneById.mockReturnValue({
+          id: 'lane-1',
+          name: 'In Progress',
+        });
+      });
 
       it('resets showMoveCardModal to false when close event is emitted', async () => {
         const wrapper = mountPanel();
