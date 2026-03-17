@@ -106,9 +106,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        null, // systemPrompt
-        [], // attachments
-        'claude-opus-4-6' // model
+        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-6' }
       );
     });
 
@@ -125,9 +123,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        null, // systemPrompt
-        [], // attachments
-        null // model should be null when not provided
+        { systemPrompt: null, fileAttachments: [], model: null }
       );
     });
 
@@ -149,9 +145,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        null,
-        expect.any(Array), // attachments
-        'claude-sonnet-4-6'
+        { systemPrompt: null, fileAttachments: expect.any(Array), model: 'claude-sonnet-4-6' }
       );
     });
 
@@ -167,9 +161,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        null,
-        [],
-        'opus'
+        { systemPrompt: null, fileAttachments: [], model: 'opus' }
       );
     });
 
@@ -185,9 +177,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        null,
-        [],
-        'custom-provider-model-v2'
+        { systemPrompt: null, fileAttachments: [], model: 'custom-provider-model-v2' }
       );
     });
 
@@ -202,9 +192,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'First message',
         testTempDir,
-        null,
-        [],
-        'claude-opus-4-6'
+        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-6' }
       );
 
       // Second message with sonnet
@@ -217,9 +205,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Second message',
         testTempDir,
-        null,
-        [],
-        'claude-sonnet-4-6'
+        { systemPrompt: null, fileAttachments: [], model: 'claude-sonnet-4-6' }
       );
     });
   });
@@ -248,9 +234,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         expect.any(String), // prompt
         testTempDir,
-        null, // systemPrompt
-        expect.any(Array), // attachments
-        'claude-opus-4-6' // model
+        { systemPrompt: null, fileAttachments: expect.any(Array), model: 'claude-opus-4-6' }
       );
     });
 
@@ -268,9 +252,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         expect.any(String),
         testTempDir,
-        null,
-        expect.any(Array),
-        null // model should be null
+        { systemPrompt: null, fileAttachments: expect.any(Array), model: null }
       );
     });
 
@@ -287,9 +269,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         expect.any(String),
         testTempDir,
-        null,
-        expect.any(Array),
-        'custom-provider-sonnet'
+        { systemPrompt: null, fileAttachments: expect.any(Array), model: 'custom-provider-sonnet' }
       );
     });
   });

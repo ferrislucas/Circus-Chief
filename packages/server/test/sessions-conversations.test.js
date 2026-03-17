@@ -206,8 +206,8 @@ describe('Sessions Conversations API', () => {
 
     it('cascade deletes messages when conversation deleted', () => {
       const conv = conversations.create(session.id, 'With Messages', true);
-      messages.create(session.id, 'user', 'Message 1', null, conv.id);
-      messages.create(session.id, 'assistant', 'Message 2', null, conv.id);
+      messages.create(session.id, 'user', 'Message 1', { conversationId: conv.id });
+      messages.create(session.id, 'assistant', 'Message 2', { conversationId: conv.id });
 
       expect(messages.getByConversationId(conv.id)).toHaveLength(2);
 
@@ -224,10 +224,10 @@ describe('Sessions Conversations API', () => {
       const conv1 = conversations.create(session.id, 'Conv 1', true);
       const conv2 = conversations.create(session.id, 'Conv 2', false);
 
-      messages.create(session.id, 'user', 'Msg 1', null, conv1.id);
-      messages.create(session.id, 'assistant', 'Msg 2', null, conv1.id);
-      messages.create(session.id, 'user', 'Msg 3', null, conv1.id);
-      messages.create(session.id, 'user', 'Msg 4', null, conv2.id);
+      messages.create(session.id, 'user', 'Msg 1', { conversationId: conv1.id });
+      messages.create(session.id, 'assistant', 'Msg 2', { conversationId: conv1.id });
+      messages.create(session.id, 'user', 'Msg 3', { conversationId: conv1.id });
+      messages.create(session.id, 'user', 'Msg 4', { conversationId: conv2.id });
 
       const convs = conversations.getBySessionIdWithMessageCount(session.id);
 
@@ -303,10 +303,10 @@ describe('Sessions Conversations API', () => {
       settings.setSummarySettings({ disableConversationSummaries: false, disableSessionSummaries: false, sessionTitlePrompt: '' });
       const conv = conversations.create(session.id, 'Test Conv', true);
       // Need >= 4 messages to meet the minimum threshold for summary generation
-      messages.create(session.id, 'user', 'Help me with this', null, conv.id);
-      messages.create(session.id, 'assistant', 'Sure, I can help', null, conv.id);
-      messages.create(session.id, 'user', 'Can you explain more?', null, conv.id);
-      messages.create(session.id, 'assistant', 'Of course!', null, conv.id);
+      messages.create(session.id, 'user', 'Help me with this', { conversationId: conv.id });
+      messages.create(session.id, 'assistant', 'Sure, I can help', { conversationId: conv.id });
+      messages.create(session.id, 'user', 'Can you explain more?', { conversationId: conv.id });
+      messages.create(session.id, 'assistant', 'Of course!', { conversationId: conv.id });
 
       const result = await summaryService.generateConversationSummary(session.id, conv.id);
 
@@ -320,10 +320,10 @@ describe('Sessions Conversations API', () => {
       settings.setSummarySettings({ disableConversationSummaries: false, disableSessionSummaries: false, sessionTitlePrompt: '' });
       const conv = conversations.create(session.id, 'Test Conv', true);
       // Need >= 4 messages to meet the minimum threshold for summary generation
-      messages.create(session.id, 'user', 'Help me', null, conv.id);
-      messages.create(session.id, 'assistant', 'Sure thing', null, conv.id);
-      messages.create(session.id, 'user', 'What else can you do?', null, conv.id);
-      messages.create(session.id, 'assistant', 'Many things!', null, conv.id);
+      messages.create(session.id, 'user', 'Help me', { conversationId: conv.id });
+      messages.create(session.id, 'assistant', 'Sure thing', { conversationId: conv.id });
+      messages.create(session.id, 'user', 'What else can you do?', { conversationId: conv.id });
+      messages.create(session.id, 'assistant', 'Many things!', { conversationId: conv.id });
 
       await summaryService.generateConversationSummary(session.id, conv.id);
 
@@ -337,7 +337,7 @@ describe('Sessions Conversations API', () => {
       settings.setSummarySettings({ disableConversationSummaries: false, disableSessionSummaries: false, sessionTitlePrompt: '' });
       const conv = conversations.create(session.id, 'Brief', true);
       // Only 1 message — below the 4-message minimum threshold
-      messages.create(session.id, 'user', 'Hello', null, conv.id);
+      messages.create(session.id, 'user', 'Hello', { conversationId: conv.id });
 
       const result = await summaryService.generateConversationSummary(session.id, conv.id);
 
@@ -362,7 +362,7 @@ describe('Sessions Conversations API', () => {
     it('returns null for conversation from different session', async () => {
       const otherSession = sessions.create(project.id, 'Other Session', 'Prompt', 'standard');
       const conv = conversations.create(otherSession.id, 'Other Conv', true);
-      messages.create(otherSession.id, 'user', 'Hello', null, conv.id);
+      messages.create(otherSession.id, 'user', 'Hello', { conversationId: conv.id });
 
       // Try to get summary with wrong session ID
       const result = await summaryService.generateConversationSummary(session.id, conv.id);
@@ -386,7 +386,7 @@ describe('Sessions Conversations API', () => {
 
     it('messages in conversations deleted when session deleted', () => {
       const conv = conversations.create(session.id, 'Test', true);
-      messages.create(session.id, 'user', 'Test message', null, conv.id);
+      messages.create(session.id, 'user', 'Test message', { conversationId: conv.id });
 
       sessions.delete(session.id);
 

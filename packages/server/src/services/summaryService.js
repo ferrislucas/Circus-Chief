@@ -62,6 +62,199 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
 }
 
 /**
+ * Perform early-exit checks to decide whether summary generation should proceed.
+ * Returns an object with the decision and any data needed downstream.
+ * @param {string} sessionId
+ * @param {boolean} force
+ * @param {boolean} userInitiated
+ * @returns {{ skip: true, result: Object|null } | { skip: false, session: Object, globalSettings: Object, existingSummary: Object|null, allMessages: Array }}
+ */
+function shouldGenerateSummary(sessionId, force, userInitiated) {
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    console.warn(`[SummaryService] Session ${sessionId} not found for summary generation`);
+    return { skip: true, result: null };
+  }
+
+  const globalSettings = settings.getSummarySettings();
+  if (!userInitiated && globalSettings?.disableSessionSummaries) {
+    console.log(`[SummaryService] Session summaries disabled globally, skipping generation`);
+    return { skip: true, result: null };
+  }
+
+  const existingSummary = sessionSummaries.getBySessionId(sessionId);
+
+  if (existingSummary?.prMerged) {
+    console.log(`[SummaryService] Session ${sessionId} has merged PR, skipping regeneration`);
+    return { skip: true, result: existingSummary };
+  }
+
+  const allMessages = messages.getBySessionId(sessionId);
+
+  if (!force && !isSummaryStale(sessionId)) {
+    console.log(`[SummaryService] Summary for ${sessionId} is current, skipping regeneration`);
+    return { skip: true, result: existingSummary };
+  }
+
+  return { skip: false, session, globalSettings, existingSummary, allMessages };
+}
+
+/**
+ * Fetch conversation context: build child session context and the prompt for Claude.
+ * @param {string} sessionId
+ * @param {Object} context
+ * @param {Object|null} context.existingSummary
+ * @param {Array} context.recentMessages
+ * @param {Object} context.session
+ * @param {Object} context.globalSettings
+ * @returns {{ prompt: string, childContext: Object }}
+ */
+function fetchConversationContext(sessionId, { existingSummary, recentMessages, session, globalSettings }) {
+  const childContext = buildChildSessionContext(sessionId);
+  const prompt = buildIncrementalPrompt(existingSummary, recentMessages, session.status, {
+    projectTitlePrompt: globalSettings?.sessionTitlePrompt,
+    childContext,
+  });
+  return { prompt, childContext };
+}
+
+/**
+ * Persist the generated summary and broadcast all related updates.
+ * Handles: metadata tracking, file aggregation, PR enrichment, upsert,
+ * project repo auto-population, session name/prUrl update, and broadcasts.
+ * @param {string} sessionId
+ * @param {Object} summaryData - parsed summary data (mutated in place)
+ * @param {Object} session
+ * @param {Array} allMessages
+ * @returns {Promise<Object>} the persisted summary record
+ */
+async function saveSummaryResult(sessionId, summaryData, session, allMessages) {
+  // Clean up internal flag before saving
+  delete summaryData._parseFailed;
+
+  // Add message count and last message ID for staleness tracking
+  trackMessageMetadata(summaryData, allMessages);
+
+  // For root sessions (no parent), aggregate files from all child sessions
+  if (!session.parentSessionId) {
+    summaryData.filesModified = aggregateFilesModified(sessionId, summaryData.filesModified);
+  }
+
+  // Validate and enrich PR URL
+  const prUrl = summaryData.prUrl || session.prUrl;
+  if (prUrl) {
+    const project = projects.getById(session.projectId);
+    await enrichPrData(summaryData, prUrl, project?.repoUrl, sessionId);
+  }
+
+  // Upsert summary
+  const summary = sessionSummaries.upsert(sessionId, summaryData);
+
+  // Auto-populate project repo URL if not already set
+  autoPopulateProjectRepoUrl(session, summaryData);
+
+  // Update session name and prUrl, then broadcast
+  updateSessionFromSummary(sessionId, session, summaryData);
+
+  // Broadcast updated summary to session and project subscribers
+  broadcastSummaryUpdate(sessionId, session.projectId, summary);
+
+  return summary;
+}
+
+/**
+ * Auto-populate the project's repoUrl from summary data if not already set.
+ * @param {Object} session
+ * @param {Object} summaryData
+ */
+function autoPopulateProjectRepoUrl(session, summaryData) {
+  const project = projects.getById(session.projectId);
+  if (project.repoUrl || (!summaryData.prUrl && !summaryData.repositoryUrl)) return;
+
+  let extractedRepoUrl = summaryData.repositoryUrl;
+
+  if (!extractedRepoUrl && summaryData.prUrl) {
+    const prMatch = summaryData.prUrl.match(/^(https:\/\/github\.com\/[^/]+\/[^/]+)(?:\/|$)/);
+    if (prMatch) {
+      extractedRepoUrl = prMatch[1];
+    }
+  }
+
+  if (extractedRepoUrl) {
+    try {
+      projects.update(session.projectId, { repoUrl: extractedRepoUrl });
+      console.log(`[SummaryService] Auto-populated repo URL for project ${session.projectId}: ${extractedRepoUrl}`);
+    } catch (error) {
+      console.warn(`[SummaryService] Failed to auto-populate repo URL for project ${session.projectId}:`, error.message);
+    }
+  }
+}
+
+/**
+ * Update session name and prUrl from summary data and broadcast changes.
+ * @param {string} sessionId
+ * @param {Object} session
+ * @param {Object} summaryData
+ */
+function updateSessionFromSummary(sessionId, session, summaryData) {
+  if (summaryData.sessionTitle || summaryData.prUrl) {
+    const updateData = {};
+    const freshSession = sessions.getById(sessionId);
+
+    if (summaryData.sessionTitle && !freshSession.manuallyNamed) {
+      updateData.name = summaryData.sessionTitle;
+    }
+
+    if (summaryData.prUrl) {
+      updateData.prUrl = summaryData.prUrl;
+    }
+
+    const updatedSession = sessions.update(sessionId, updateData);
+
+    if (summaryData.prUrl) {
+      propagatePrUrlToParent(sessionId, summaryData.prUrl);
+    }
+
+    broadcastSessionUpdate(sessionId, session.projectId, updatedSession);
+  } else if (session.projectId) {
+    broadcastSessionUpdate(sessionId, session.projectId, sessions.getById(sessionId));
+  }
+}
+
+/**
+ * Handle sessions with too few messages by creating a minimal summary.
+ * @param {string} sessionId
+ * @param {Object} session
+ * @param {Array} allMessages
+ * @returns {Object} the minimal summary
+ */
+function createMinimalSummary(sessionId, session, allMessages) {
+  console.log(`[SummaryService] Session ${sessionId} has only ${allMessages.length} messages (minimum ${MIN_MESSAGES_FOR_SUMMARY}), creating minimal summary`);
+
+  const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
+
+  const minimalSummary = {
+    shortSummary: 'Session in progress',
+    fullSummary: `Session with ${allMessages.length} message${allMessages.length !== 1 ? 's' : ''}`,
+    keyActions: [],
+    filesModified: [],
+    outcome: session.status === 'stopped' ? 'partial' : session.status === 'error' ? 'failed' : 'ongoing',
+    messageCount: allMessages.length,
+    lastSummarizedMessageId: lastMessage ? lastMessage.id : null,
+  };
+
+  const summary = sessionSummaries.upsert(sessionId, minimalSummary);
+
+  broadcastSummaryUpdate(sessionId, session.projectId, summary);
+
+  if (session.projectId) {
+    broadcastSessionUpdate(sessionId, session.projectId, sessions.getById(sessionId));
+  }
+
+  return summary;
+}
+
+/**
  * Internal implementation of generateSummary (called by concurrency guard wrapper)
  * @param {string} sessionId
  * @param {number} retryCount
@@ -71,87 +264,31 @@ export async function generateSummary(sessionId, retryCount = 0, force = false, 
  */
 async function _doGenerateSummary(sessionId, retryCount = 0, force = false, userInitiated = false) {
   try {
-    // Get session info
-    const session = sessions.getById(sessionId);
-    if (!session) {
-      console.warn(`[SummaryService] Session ${sessionId} not found for summary generation`);
-      return null;
-    }
+    // Early-exit checks
+    const check = shouldGenerateSummary(sessionId, force, userInitiated);
+    if (check.skip) return check.result;
 
-    // Check if session summaries are disabled globally
-    // Only user-initiated regeneration bypasses this check.
-    const globalSettings = settings.getSummarySettings();
-    if (!userInitiated && globalSettings?.disableSessionSummaries) {
-      console.log(`[SummaryService] Session summaries disabled globally, skipping generation`);
-      return null;
-    }
-
-    // Get existing summary for incremental generation
-    const existingSummary = sessionSummaries.getBySessionId(sessionId);
-
-    // Skip regeneration for merged PRs (work is complete)
-    if (existingSummary?.prMerged) {
-      console.log(`[SummaryService] Session ${sessionId} has merged PR, skipping regeneration`);
-      return existingSummary;
-    }
-
-    // Get recent messages
-    const allMessages = messages.getBySessionId(sessionId);
-
-    // Skip if summary is current and not forced to regenerate
-    if (!force && !isSummaryStale(sessionId)) {
-      console.log(`[SummaryService] Summary for ${sessionId} is current, skipping regeneration`);
-      return existingSummary;
-    }
+    const { session, globalSettings, existingSummary, allMessages } = check;
     const recentMessages = allMessages.slice(-MAX_MESSAGES);
 
     // Broadcast that we're generating (do this early so UI always gets the event)
     broadcastGeneratingStatus(sessionId, true);
 
-    // Handle sessions with too few messages - create a minimal summary instead of skipping
+    // Handle sessions with too few messages
     if (allMessages.length < MIN_MESSAGES_FOR_SUMMARY) {
-      console.log(`[SummaryService] Session ${sessionId} has only ${allMessages.length} messages (minimum ${MIN_MESSAGES_FOR_SUMMARY}), creating minimal summary`);
-
-      const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
-
-      // Create a minimal summary based on available messages
-      const minimalSummary = {
-        shortSummary: 'Session in progress',
-        fullSummary: `Session with ${allMessages.length} message${allMessages.length !== 1 ? 's' : ''}`,
-        keyActions: [],
-        filesModified: [],
-        outcome: session.status === 'stopped' ? 'partial' : session.status === 'error' ? 'failed' : 'ongoing',
-        messageCount: allMessages.length,
-        lastSummarizedMessageId: lastMessage ? lastMessage.id : null,
-      };
-
-      const summary = sessionSummaries.upsert(sessionId, minimalSummary);
-
-      // Broadcast the minimal summary
-      broadcastSummaryUpdate(sessionId, session.projectId, summary);
-
-      // Also broadcast session:updated to project subscribers so session lists update
-      if (session.projectId) {
-        broadcastSessionUpdate(sessionId, session.projectId, sessions.getById(sessionId));
-      }
-
-      // Clear the generating flag
+      const summary = createMinimalSummary(sessionId, session, allMessages);
       broadcastGeneratingStatus(sessionId, false);
-
       return summary;
     }
 
-    // Build child session context for workflow-aware summaries
-    const childContext = buildChildSessionContext(sessionId);
-
-    // Build prompt with global title prompt and child context
-    const prompt = buildIncrementalPrompt(existingSummary, recentMessages, session.status, globalSettings?.sessionTitlePrompt, childContext);
+    // Build conversation context and prompt
+    const { prompt } = fetchConversationContext(sessionId, { existingSummary, recentMessages, session, globalSettings });
 
     // Call Claude via SDK
     const responseText = await callClaude(prompt, recentMessages, session.status, {
-      sessionId,
-      callType: 'generateSessionSummary',
-    }, SUMMARY_SYSTEM_PROMPT);
+      logMeta: { sessionId, callType: 'generateSessionSummary' },
+      systemPrompt: SUMMARY_SYSTEM_PROMPT,
+    });
 
     // Parse response
     const summaryData = parseSummaryResponse(responseText);
@@ -161,91 +298,13 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
       console.log(
         `[SummaryService] Parse failed for session ${sessionId}, retrying (attempt ${retryCount + 2}/${MAX_RETRIES + 1})`
       );
-      const backoffMs = 1000 * (retryCount + 1); // 1s, 2s
+      const backoffMs = 1000 * (retryCount + 1);
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
       return _doGenerateSummary(sessionId, retryCount + 1, force, userInitiated);
     }
 
-    // Clean up internal flag before saving
-    delete summaryData._parseFailed;
-
-    // Add message count and last message ID for staleness tracking
-    trackMessageMetadata(summaryData, allMessages);
-
-    // For root sessions (no parent), aggregate files from all child sessions
-    if (!session.parentSessionId) {
-      summaryData.filesModified = aggregateFilesModified(sessionId, summaryData.filesModified);
-    }
-
-    // Validate and enrich PR URL
-    const prUrl = summaryData.prUrl || session.prUrl;
-    if (prUrl) {
-      const project = projects.getById(session.projectId);
-      await enrichPrData(summaryData, prUrl, project?.repoUrl, sessionId);
-    }
-
-    // Upsert summary
-    const summary = sessionSummaries.upsert(sessionId, summaryData);
-
-    // Auto-populate project repo URL if not already set
-    const project = projects.getById(session.projectId);
-    if (!project.repoUrl && (summaryData.prUrl || summaryData.repositoryUrl)) {
-      let extractedRepoUrl = summaryData.repositoryUrl;
-
-      // If we have a PR URL, extract the repository base URL
-      if (!extractedRepoUrl && summaryData.prUrl) {
-        const prMatch = summaryData.prUrl.match(/^(https:\/\/github\.com\/[^/]+\/[^/]+)(?:\/|$)/);
-        if (prMatch) {
-          extractedRepoUrl = prMatch[1];
-        }
-      }
-
-      // Update project with the extracted repo URL if valid
-      if (extractedRepoUrl) {
-        try {
-          projects.update(session.projectId, { repoUrl: extractedRepoUrl });
-          console.log(`[SummaryService] Auto-populated repo URL for project ${session.projectId}: ${extractedRepoUrl}`);
-        } catch (error) {
-          console.warn(`[SummaryService] Failed to auto-populate repo URL for project ${session.projectId}:`, error.message);
-        }
-      }
-    }
-
-    // Update session name and prUrl if we have new data
-    if (summaryData.sessionTitle || summaryData.prUrl) {
-      const updateData = {};
-
-      // Re-fetch the session to check the manuallyNamed flag
-      const freshSession = sessions.getById(sessionId);
-
-      // Only update name if session is not manually named
-      if (summaryData.sessionTitle && !freshSession.manuallyNamed) {
-        updateData.name = summaryData.sessionTitle;
-      }
-
-      // PR URL updates are always allowed (regardless of manuallyNamed)
-      if (summaryData.prUrl) {
-        updateData.prUrl = summaryData.prUrl;
-      }
-
-      const updatedSession = sessions.update(sessionId, updateData);
-
-      // Propagate PR URL to parent session
-      if (summaryData.prUrl) {
-        propagatePrUrlToParent(sessionId, summaryData.prUrl);
-      }
-
-      // Broadcast session update for real-time UI sync
-      broadcastSessionUpdate(sessionId, session.projectId, updatedSession);
-    } else {
-      // Even if name/PR URL didn't change, broadcast so project subscribers know summary was generated
-      if (session.projectId) {
-        broadcastSessionUpdate(sessionId, session.projectId, sessions.getById(sessionId));
-      }
-    }
-
-    // Broadcast updated summary to session and project subscribers
-    broadcastSummaryUpdate(sessionId, session.projectId, summary);
+    // Persist summary and broadcast updates
+    const summary = await saveSummaryResult(sessionId, summaryData, session, allMessages);
 
     // Clear the generating flag so the UI knows generation is complete
     broadcastGeneratingStatus(sessionId, false);
@@ -254,7 +313,6 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
 
     // Propagate summary updates to parent sessions (workflow-aware)
     if (session.parentSessionId) {
-      // Don't await - let this run asynchronously
       propagateToParent(sessionId);
     }
 

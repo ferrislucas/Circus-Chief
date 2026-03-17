@@ -28,7 +28,7 @@ describe('Work Logs API', () => {
     });
 
     it('creates a work log with tool name', () => {
-      const log = workLogs.create(session.id, 'tool_input', '{"command": "ls"}', null, 'Bash');
+      const log = workLogs.create(session.id, 'tool_input', '{"command": "ls"}', { toolName: 'Bash' });
 
       expect(log.toolName).toBe('Bash');
       expect(log.type).toBe('tool_input');
@@ -36,7 +36,7 @@ describe('Work Logs API', () => {
 
     it('creates a work log associated with a message', () => {
       const message = messages.create(session.id, 'assistant', 'Test response');
-      const log = workLogs.create(session.id, 'thinking', 'Test content', message.id);
+      const log = workLogs.create(session.id, 'thinking', 'Test content', { messageId: message.id });
 
       expect(log.messageId).toBe(message.id);
     });
@@ -61,8 +61,8 @@ describe('Work Logs API', () => {
       workLogs.create(session.id, 'thinking', 'Unassociated thought');
 
       // Create associated logs
-      workLogs.create(session.id, 'tool_input', 'Associated input', message.id);
-      workLogs.create(session.id, 'tool_output', 'Associated output', message.id);
+      workLogs.create(session.id, 'tool_input', 'Associated input', { messageId: message.id });
+      workLogs.create(session.id, 'tool_output', 'Associated output', { messageId: message.id });
 
       const grouped = workLogs.getBySessionIdGrouped(session.id);
 
@@ -112,8 +112,8 @@ describe('Work Logs API', () => {
     it('gets work logs by message ID', () => {
       const message = messages.create(session.id, 'assistant', 'Test response');
 
-      workLogs.create(session.id, 'thinking', 'Test content', message.id);
-      workLogs.create(session.id, 'tool_input', 'More content', message.id);
+      workLogs.create(session.id, 'thinking', 'Test content', { messageId: message.id });
+      workLogs.create(session.id, 'tool_input', 'More content', { messageId: message.id });
 
       const logs = workLogs.getByMessageId(message.id);
 
@@ -142,9 +142,9 @@ describe('Work Logs API', () => {
 
     it('work logs created with null messageId are unassociated', () => {
       // During a turn, work logs are created without a messageId
-      workLogs.create(session.id, 'thinking', 'First thought', null);
-      workLogs.create(session.id, 'tool_input', '{"command": "ls"}', null, 'Bash');
-      workLogs.create(session.id, 'tool_output', 'file1.txt\nfile2.txt', null, 'Bash');
+      workLogs.create(session.id, 'thinking', 'First thought');
+      workLogs.create(session.id, 'tool_input', '{"command": "ls"}', { toolName: 'Bash' });
+      workLogs.create(session.id, 'tool_output', 'file1.txt\nfile2.txt', { toolName: 'Bash' });
 
       const grouped = workLogs.getBySessionIdGrouped(session.id);
 
@@ -183,11 +183,11 @@ describe('Work Logs API', () => {
     it('multiple logs can be associated in a single call', () => {
       // Simulate a full turn with multiple work log entries
       workLogs.create(session.id, 'thinking', 'Let me analyze this');
-      workLogs.create(session.id, 'tool_input', '{"pattern": "*.js"}', null, 'Glob');
-      workLogs.create(session.id, 'tool_output', 'src/index.js\nsrc/app.js', null, 'Glob');
+      workLogs.create(session.id, 'tool_input', '{"pattern": "*.js"}', { toolName: 'Glob' });
+      workLogs.create(session.id, 'tool_output', 'src/index.js\nsrc/app.js', { toolName: 'Glob' });
       workLogs.create(session.id, 'thinking', 'Found the files, now reading');
-      workLogs.create(session.id, 'tool_input', '{"path": "src/index.js"}', null, 'Read');
-      workLogs.create(session.id, 'tool_output', 'console.log("Hello");', null, 'Read');
+      workLogs.create(session.id, 'tool_input', '{"path": "src/index.js"}', { toolName: 'Read' });
+      workLogs.create(session.id, 'tool_output', 'console.log("Hello");', { toolName: 'Read' });
 
       const message = messages.create(session.id, 'assistant', 'I found 2 JS files.');
 
@@ -246,8 +246,8 @@ describe('Work Logs API', () => {
 
       // Second batch of work (before message 2)
       workLogs.create(session.id, 'thinking', 'Now I need to run a command');
-      workLogs.create(session.id, 'tool_input', '{"command": "ls"}', null, 'Bash');
-      workLogs.create(session.id, 'tool_output', 'file1.txt', null, 'Bash');
+      workLogs.create(session.id, 'tool_input', '{"command": "ls"}', { toolName: 'Bash' });
+      workLogs.create(session.id, 'tool_output', 'file1.txt', { toolName: 'Bash' });
 
       // Message 2 is created - associate pending logs
       const message2 = messages.create(session.id, 'assistant', 'Here are the files I found.');
@@ -278,15 +278,15 @@ describe('Work Logs API', () => {
       workLogs.associatePendingLogs(session.id, msg1.id);
 
       // Work before message 2
-      workLogs.create(session.id, 'tool_input', 'tool1 input', null, 'Read');
-      workLogs.create(session.id, 'tool_output', 'tool1 output', null, 'Read');
+      workLogs.create(session.id, 'tool_input', 'tool1 input', { toolName: 'Read' });
+      workLogs.create(session.id, 'tool_output', 'tool1 output', { toolName: 'Read' });
       const msg2 = messages.create(session.id, 'assistant', 'I found...');
       workLogs.associatePendingLogs(session.id, msg2.id);
 
       // Work before message 3
       workLogs.create(session.id, 'thinking', 'Final analysis');
-      workLogs.create(session.id, 'tool_input', 'tool2 input', null, 'Write');
-      workLogs.create(session.id, 'tool_output', 'tool2 output', null, 'Write');
+      workLogs.create(session.id, 'tool_input', 'tool2 input', { toolName: 'Write' });
+      workLogs.create(session.id, 'tool_output', 'tool2 output', { toolName: 'Write' });
       const msg3 = messages.create(session.id, 'assistant', 'Done! Here is the result.');
       workLogs.associatePendingLogs(session.id, msg3.id);
 
@@ -324,8 +324,8 @@ describe('Work Logs API', () => {
 
       // Trailing work logs (created after the last text message)
       // This can happen when tool execution happens after the text
-      workLogs.create(session.id, 'tool_input', 'trailing tool', null, 'Bash');
-      workLogs.create(session.id, 'tool_output', 'trailing output', null, 'Bash');
+      workLogs.create(session.id, 'tool_input', 'trailing tool', { toolName: 'Bash' });
+      workLogs.create(session.id, 'tool_output', 'trailing output', { toolName: 'Bash' });
 
       // End of turn - associate trailing logs with last message
       const trailingCount = workLogs.associatePendingLogs(session.id, msg1.id);
@@ -340,8 +340,8 @@ describe('Work Logs API', () => {
     it('preserves work log order within each message', () => {
       // Create logs in specific order
       workLogs.create(session.id, 'thinking', 'Think A');
-      workLogs.create(session.id, 'tool_input', 'Input B', null, 'Bash');
-      workLogs.create(session.id, 'tool_output', 'Output C', null, 'Bash');
+      workLogs.create(session.id, 'tool_input', 'Input B', { toolName: 'Bash' });
+      workLogs.create(session.id, 'tool_output', 'Output C', { toolName: 'Bash' });
 
       const msg = messages.create(session.id, 'assistant', 'Response');
       workLogs.associatePendingLogs(session.id, msg.id);
@@ -362,8 +362,8 @@ describe('Work Logs API', () => {
       // Interleaved work logs from both sessions
       workLogs.create(session.id, 'thinking', 'Session 1 thought');
       workLogs.create(session2.id, 'thinking', 'Session 2 thought');
-      workLogs.create(session.id, 'tool_input', 'Session 1 tool', null, 'Bash');
-      workLogs.create(session2.id, 'tool_input', 'Session 2 tool', null, 'Bash');
+      workLogs.create(session.id, 'tool_input', 'Session 1 tool', { toolName: 'Bash' });
+      workLogs.create(session2.id, 'tool_input', 'Session 2 tool', { toolName: 'Bash' });
 
       // Each session creates a message and associates
       const msg1 = messages.create(session.id, 'assistant', 'Session 1 response');
@@ -424,7 +424,7 @@ describe('Work Logs API', () => {
       const toolInput = { pattern: '*.js' };
 
       // First partial assistant event arrives with this tool_use
-      const log1 = workLogs.create(session.id, 'tool_input', JSON.stringify(toolInput), null, 'Grep');
+      const log1 = workLogs.create(session.id, 'tool_input', JSON.stringify(toolInput), { toolName: 'Grep' });
       // Simulate the loggedToolUseIds tracking by manually tagging
       // In real code, this happens via the loggedToolUseIds Map in sessionManager
 
@@ -438,7 +438,7 @@ describe('Work Logs API', () => {
       //    if not prevented by the sessionManager logic
 
       // Create another tool_input log (different tool_use ID in real scenario)
-      const log2 = workLogs.create(session.id, 'tool_input', '{"command": "ls"}', null, 'Bash');
+      const log2 = workLogs.create(session.id, 'tool_input', '{"command": "ls"}', { toolName: 'Bash' });
 
       const allLogs = workLogs.getBySessionId(session.id);
 
@@ -457,7 +457,7 @@ describe('Work Logs API', () => {
       // when a session completes, preventing memory leaks and cross-session contamination
 
       // Create a tool_input log
-      workLogs.create(session.id, 'tool_input', '{"test": "data"}', null, 'TestTool');
+      workLogs.create(session.id, 'tool_input', '{"test": "data"}', { toolName: 'TestTool' });
 
       // In the actual sessionManager code, loggedToolUseIds.delete(sessionId)
       // is called when sessions complete or error out
@@ -481,8 +481,8 @@ describe('Work Logs API', () => {
       // In a real scenario, the assistant event would have multiple tool_use blocks
       // and each should be logged once
 
-      const log1 = workLogs.create(session.id, 'tool_input', JSON.stringify(tool1Input), null, 'Read');
-      const log2 = workLogs.create(session.id, 'tool_input', JSON.stringify(tool2Input), null, 'Glob');
+      const log1 = workLogs.create(session.id, 'tool_input', JSON.stringify(tool1Input), { toolName: 'Read' });
+      const log2 = workLogs.create(session.id, 'tool_input', JSON.stringify(tool2Input), { toolName: 'Glob' });
 
       const allLogs = workLogs.getBySessionId(session.id);
       const toolInputLogs = allLogs.filter((l) => l.type === 'tool_input');

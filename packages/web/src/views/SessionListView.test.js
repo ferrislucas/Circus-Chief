@@ -143,7 +143,7 @@ vi.mock('../composables/useProjectSessionSubscription.js', () => {
               sessionsStore.updateSessionCommandRun(sessionId, buttonId, { buttonId, status: 'running', runId, startedAt });
             }
           });
-          sub.onCommandRunComplete((runId, sessionId, buttonId, exitCode, output) => {
+          sub.onCommandRunComplete(({ runId, sessionId, buttonId, exitCode, output }) => {
             if (!commandButtonsStore.runs[runId]) {
               commandButtonsStore.runs[runId] = {
                 runId, buttonId, sessionId, status: 'running', output: '', exitCode: null, startedAt: Date.now(), outputTruncated: false,
