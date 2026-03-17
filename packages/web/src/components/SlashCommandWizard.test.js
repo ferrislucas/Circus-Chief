@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import SlashCommandWizard from './SlashCommandWizard.vue';
 import CommandGrid from './slash-commands/CommandGrid.vue';
@@ -186,6 +186,86 @@ describe('SlashCommandWizard.vue', () => {
       expect(api.executeSlashCommand).toHaveBeenCalledWith('test-session', 'analyze', {
         _raw: 'codebase',
       });
+    });
+
+    it('shows ArgumentsForm for skills WITHOUT argumentHint (does not auto-execute)', async () => {
+      const skill = {
+        name: 'my-skill',
+        source: 'project-skill',
+        isSkill: true,
+        description: 'A test skill',
+        // No argumentHint
+      };
+
+      commandsStore.commands = [skill];
+
+      const wrapper = mount(SlashCommandWizard, {
+        props: {
+          isOpen: true,
+          workingDirectory: '/test',
+          mode: 'insert',
+        },
+        global: { stubs: { Teleport: true } },
+      });
+
+      const grid = wrapper.findComponent(CommandGrid);
+      grid.vm.$emit('select', skill);
+      await wrapper.vm.$nextTick();
+
+      // Should show ArgumentsForm, not auto-execute
+      const argsForm = wrapper.findComponent(ArgumentsForm);
+      expect(argsForm.exists()).toBe(true);
+    });
+
+    it('emits insert event with correct text when skill args form is submitted', async () => {
+      const skill = {
+        name: 'frontend-design',
+        source: 'project-skill',
+        isSkill: true,
+        description: 'Create interfaces',
+      };
+
+      commandsStore.commands = [skill];
+
+      // Use an onInsert listener via attrs since wrapper.emitted() doesn't work
+      // reliably with Teleport stubs
+      const insertSpy = vi.fn();
+      const wrapper = mount(SlashCommandWizard, {
+        props: {
+          isOpen: true,
+          workingDirectory: '/test',
+          mode: 'insert',
+        },
+        attrs: {
+          onInsert: insertSpy,
+        },
+        global: { stubs: { Teleport: true } },
+      });
+
+      // Select skill -> goes to step 2
+      const grid = wrapper.findComponent(CommandGrid);
+      grid.vm.$emit('select', skill);
+      await wrapper.vm.$nextTick();
+
+      // Verify step 2 is showing
+      const argsForm = wrapper.findComponent(ArgumentsForm);
+      expect(argsForm.exists()).toBe(true);
+
+      // Type into the skill args input
+      const input = argsForm.find('[data-testid="skill-args-input"]');
+      await input.setValue('build a login page');
+
+      // Submit via the form
+      await argsForm.find('form').trigger('submit');
+      await flushPromises();
+
+      // Should emit insert with command string built by buildInsertString()
+      expect(insertSpy).toHaveBeenCalledTimes(1);
+      expect(insertSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: '/frontend-design build a login page',
+        })
+      );
     });
   });
 });
