@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="container session-detail">
     <div v-if="sessionsStore.loading" class="loading-state">
       <span class="loading-spinner"></span>
       Loading session...
