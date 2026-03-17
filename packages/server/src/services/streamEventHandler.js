@@ -739,9 +739,11 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
     broadcastSessionStatus(sessionId, 'waiting');
 
     // Check if session should be proactively rescheduled based on token threshold
-    const wasRescheduled = await _checkProactiveReschedule(sessionId);
-    if (wasRescheduled) {
-      return true; // Session was rescheduled, don't continue with normal completion
+    if (_checkProactiveReschedule) {
+      const wasRescheduled = await _checkProactiveReschedule(sessionId);
+      if (wasRescheduled) {
+        return true; // Session was rescheduled, don't continue with normal completion
+      }
     }
 
     // Extract PR URL immediately (lightweight, no API call)
@@ -763,7 +765,7 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
 
     // Only trigger next template if auto-send did NOT fire
     // (if auto-send fired, template will trigger after that turn completes)
-    if (!autoSendFired) {
+    if (!autoSendFired && handleTemplateTriggerIfNeeded) {
       await handleTemplateTriggerIfNeeded(sessionId);
     }
   }

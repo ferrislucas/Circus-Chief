@@ -39,7 +39,18 @@ const m = toLookup(miscMigrations);
  *
  * @type {Array<{name: string, up: (db: import('better-sqlite3').Database) => void}>}
  */
-export const allMigrations = [
+// Validate that all migrations are properly defined
+function validateMigrations(migrationsArray) {
+  for (const migration of migrationsArray) {
+    if (!migration || typeof migration.up !== 'function') {
+      const name = migration?.name || 'unknown';
+      throw new Error(`Migration "${name}" is undefined or missing an up() function`);
+    }
+  }
+  return migrationsArray;
+}
+
+export const allMigrations = validateMigrations([
   // --- Sessions initial columns ---
   s.get('sessions-add-cost_usd'),
   s.get('sessions-add-claude_session_id'),
@@ -170,4 +181,4 @@ export const allMigrations = [
 
   // --- Agent call logs table ---
   m.get('agent_call_logs-create-table'),
-];
+]);

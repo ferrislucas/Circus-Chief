@@ -135,8 +135,8 @@ describe('summaryService', () => {
 
     // Add enough messages to pass MIN_MESSAGES_FOR_SUMMARY threshold (3 messages)
     // Session creation adds 1 message, so we need 2 more
-    messages.create(sessionId, 'assistant', 'Response 1', null);
-    messages.create(sessionId, 'user', 'Follow-up message', null);
+    messages.create(sessionId, 'assistant', 'Response 1');
+    messages.create(sessionId, 'user', 'Follow-up message');
   });
 
   afterEach(() => {
@@ -892,8 +892,8 @@ describe('summaryService', () => {
     it('generates summary when session meets minimum message threshold', async () => {
       // The main test session already has 1 message from creation
       // Add 2 more to reach the threshold of 3
-      messages.create(sessionId, 'assistant', 'Response 1', null);
-      messages.create(sessionId, 'user', 'Message 2', null);
+      messages.create(sessionId, 'assistant', 'Response 1');
+      messages.create(sessionId, 'user', 'Message 2');
 
       const result = await summaryService.generateSummary(sessionId);
       expect(result).not.toBeNull();
@@ -1689,9 +1689,9 @@ describe('summaryService', () => {
   describe('message formatting edge cases', () => {
     it('handles messages with tool use', async () => {
       // Add a message with tool use (toolUse is 4th param, conversationId is 5th)
-      messages.create(sessionId, 'assistant', 'I will read the file', [
-        { name: 'Read', input: { path: '/tmp/test.js' } },
-      ]);
+      messages.create(sessionId, 'assistant', 'I will read the file', {
+        toolUse: [{ name: 'Read', input: { path: '/tmp/test.js' } }],
+      });
 
       const result = await summaryService.generateSummary(sessionId);
 
@@ -3138,8 +3138,8 @@ describe('summaryService', () => {
     it('allows concurrent generation for DIFFERENT sessions', async () => {
       // Create a second session
       const session2 = sessions.create(projectId, 'Test Session 2', 'Second prompt', 'standard');
-      messages.create(session2.id, 'assistant', 'Response 1', null);
-      messages.create(session2.id, 'user', 'Follow-up', null);
+      messages.create(session2.id, 'assistant', 'Response 1');
+      messages.create(session2.id, 'user', 'Follow-up');
 
       // Start generation for both sessions concurrently
       const [result1, result2] = await Promise.all([
@@ -3293,8 +3293,8 @@ describe('summaryService', () => {
     it('calls generateSummary directly on the parent session ID', async () => {
       // Create a parent session with enough messages for summary generation
       const parentSession = sessions.create(projectId, 'Parent Session', 'Parent prompt', 'standard');
-      messages.create(parentSession.id, 'assistant', 'Parent response 1', null);
-      messages.create(parentSession.id, 'user', 'Parent follow-up', null);
+      messages.create(parentSession.id, 'assistant', 'Parent response 1');
+      messages.create(parentSession.id, 'user', 'Parent follow-up');
 
       // Create a child session with parentSessionId set
       const childSession = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
