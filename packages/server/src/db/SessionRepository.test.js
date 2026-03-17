@@ -215,6 +215,49 @@ describe('SessionRepository', () => {
         expect(messages).toHaveLength(1);
         expect(messages[0].content).toBe('Hello');
       });
+
+      it('creates session with effortLevel in options object', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { effortLevel: 'high' });
+        expect(session.effortLevel).toBe('high');
+      });
+
+      it('creates session with null effortLevel in options object', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { effortLevel: null });
+        expect(session.effortLevel).toBeNull();
+      });
+
+      it('creates session with all options including effortLevel', () => {
+        const parent = repo.create(projectId, 'Parent', 'Parent prompt');
+        const session = repo.create(projectId, 'Test', 'Prompt', {
+          mode: 'plan',
+          thinkingEnabled: true,
+          gitBranch: 'feature-branch',
+          parentSessionId: parent.id,
+          status: 'waiting',
+          model: 'claude-sonnet-4-5',
+          effortLevel: 'max',
+        });
+
+        expect(session.mode).toBe('plan');
+        expect(session.thinkingEnabled).toBe(true);
+        expect(session.gitBranch).toBe('feature-branch');
+        expect(session.parentSessionId).toBe(parent.id);
+        expect(session.status).toBe('waiting');
+        expect(session.model).toBe('claude-sonnet-4-5');
+        expect(session.effortLevel).toBe('max');
+      });
+
+      it('accepts all valid effortLevel values via options object', () => {
+        for (const effortLevel of ['low', 'medium', 'high', 'max', 'auto']) {
+          const session = repo.create(projectId, 'Test', 'Prompt', { effortLevel });
+          expect(session.effortLevel).toBe(effortLevel);
+        }
+      });
+
+      it('defaults effortLevel to null when not specified in options object', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { mode: 'plan' });
+        expect(session.effortLevel).toBeNull();
+      });
     });
 
     // Backward compatibility tests for legacy positional parameters
