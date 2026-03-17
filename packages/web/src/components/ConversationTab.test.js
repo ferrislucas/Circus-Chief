@@ -55,7 +55,10 @@ vi.mock('../stores/quickResponses.js', () => ({
 vi.mock('../stores/templates.js', () => ({
   useTemplatesStore: vi.fn(() => ({
     templates: [],
+    projectTemplates: [],
+    globalTemplates: [],
     fetchTemplates: vi.fn().mockResolvedValue(undefined),
+    fetchProjectTemplates: vi.fn().mockResolvedValue(undefined),
     getTemplateById: vi.fn(() => null),
   })),
 }));
