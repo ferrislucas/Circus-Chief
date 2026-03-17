@@ -141,7 +141,7 @@ describe('draftSessionService', () => {
       await startDraft(sessionWithPending);
 
       expect(messages.create).toHaveBeenCalledWith(
-        's1', 'user', 'My pending prompt', null, 'c1'
+        's1', 'user', 'My pending prompt', { toolUse: null, conversationId: 'c1' }
       );
       expect(sessions.update).toHaveBeenCalledWith('s1', { pendingPrompt: null });
     });
@@ -154,7 +154,7 @@ describe('draftSessionService', () => {
       await startDraft(sessionWithPending, { prompt: 'explicit prompt' });
 
       expect(messages.create).toHaveBeenCalledWith(
-        's1', 'user', 'explicit prompt', null, 'c1'
+        's1', 'user', 'explicit prompt', { toolUse: null, conversationId: 'c1' }
       );
     });
 
