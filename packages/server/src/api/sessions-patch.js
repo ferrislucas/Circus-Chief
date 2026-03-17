@@ -18,7 +18,8 @@ function validateEffortLevel(value) {
   if (!valid.includes(value)) {
     return { error: 'Invalid effort level. Must be one of: low, medium, high, max, auto' };
   }
-  return { value };
+  // Normalize 'auto' to null
+  return { value: value === 'auto' ? null : value };
 }
 
 /**

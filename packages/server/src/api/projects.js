@@ -69,6 +69,10 @@ function prepareSessionConfig(body, projectDefs, systemDefaults) {
   config.mode = resolveDefault(body.mode, projectDefs?.mode, systemDefaults.mode);
   config.model = resolveDefault(body.model, projectDefs?.model, systemDefaults.model || null);
   config.effortLevel = resolveDefault(body.effortLevel || null, projectDefs?.effortLevel, systemDefaults.effortLevel);
+  // Normalize 'auto' to null
+  if (config.effortLevel === 'auto') {
+    config.effortLevel = null;
+  }
   config.gitBranch = resolveDefault(body.gitBranch, projectDefs?.gitBranch, null);
   config.gitMode = resolveDefault(body.gitMode, projectDefs?.gitMode, null);
   config.templateId = body.templateId;
