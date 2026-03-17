@@ -31,6 +31,12 @@
         </div>
       </div>
     </router-link>
+
+    <!-- Streaming log output for running child sessions -->
+    <SessionLogStream
+      v-if="isRunning"
+      :session-id="session.id"
+    />
   </div>
 
   <!-- Button Status Modal -->
@@ -48,6 +54,7 @@ import { computed, ref } from 'vue';
 import { useTemplatesStore } from '../stores/templates.js';
 import PrIndicators from './PrIndicators.vue';
 import ButtonStatusModal from './ButtonStatusModal.vue';
+import SessionLogStream from './SessionLogStream.vue';
 
 const templatesStore = useTemplatesStore();
 const selectedButtonForModal = ref(null);
@@ -82,6 +89,8 @@ const props = defineProps({
     default: () => [],
   },
 });
+
+const isRunning = computed(() => ['running', 'starting'].includes(props.session.status));
 
 const summaryText = computed(() => {
   const summary = props.summaries[props.session.id];
