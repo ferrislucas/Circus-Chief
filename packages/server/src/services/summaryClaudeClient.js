@@ -6,6 +6,45 @@ import { createVCRQueryFn } from '../agents/vcr/VCRSummaryWrapper.js';
 /**
  * Default JSON schema for session summary structured output
  */
+/**
+ * Process a content block from Claude's response
+ * @param {Object} block - Content block
+ * @param {Object} state - Mutable state object { responseText, structuredOutput }
+ */
+function processContentBlock(block, state) {
+  if (block.type === 'tool_use' && block.name === 'StructuredOutput') {
+    state.structuredOutput = block.input;
+  } else if (block.type === 'text') {
+    state.responseText += block.text;
+  }
+}
+
+/**
+ * Log usage metrics from a result event
+ * @param {string} callId - The call ID for logging
+ * @param {Object} event - The result event
+ */
+function logResultUsage(callId, event) {
+  const modelUsageEntry = event.modelUsage
+    ? Object.values(event.modelUsage)[0]
+    : null;
+  if (!modelUsageEntry && !event.usage) return;
+
+  agentCallLogger.updateUsage(callId, {
+    inputTokens: modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
+    outputTokens: modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
+    thinkingTokens: 0,
+    cacheReadInputTokens:
+      modelUsageEntry?.cacheReadInputTokens ||
+      event.usage?.cache_read_input_tokens ||
+      0,
+    cacheCreationInputTokens:
+      modelUsageEntry?.cacheCreationInputTokens ||
+      event.usage?.cache_creation_input_tokens ||
+      0,
+  });
+}
+
 export const SESSION_SUMMARY_SCHEMA = {
   type: 'object',
   properties: {
@@ -76,8 +115,7 @@ export async function callClaude(prompt, recentMessages, sessionStatus, logMeta 
     });
   }
 
-  let responseText = '';
-  let structuredOutput = null;
+  const state = { responseText: '', structuredOutput: null };
 
   try {
     for await (const event of queryFn(queryParams)) {
@@ -85,12 +123,7 @@ export async function callClaude(prompt, recentMessages, sessionStatus, logMeta 
         case 'assistant': {
           const content = event.message?.content || [];
           for (const block of content) {
-            // Capture structured output from StructuredOutput tool use
-            if (block.type === 'tool_use' && block.name === 'StructuredOutput') {
-              structuredOutput = block.input;
-            } else if (block.type === 'text') {
-              responseText += block.text;
-            }
+            processContentBlock(block, state);
           }
           break;
         }
@@ -100,26 +133,7 @@ export async function callClaude(prompt, recentMessages, sessionStatus, logMeta 
           }
           // Capture usage for logging
           if (callId) {
-            const modelUsageEntry = event.modelUsage
-              ? Object.values(event.modelUsage)[0]
-              : null;
-            if (modelUsageEntry || event.usage) {
-              agentCallLogger.updateUsage(callId, {
-                inputTokens:
-                  modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
-                outputTokens:
-                  modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
-                thinkingTokens: 0,
-                cacheReadInputTokens:
-                  modelUsageEntry?.cacheReadInputTokens ||
-                  event.usage?.cache_read_input_tokens ||
-                  0,
-                cacheCreationInputTokens:
-                  modelUsageEntry?.cacheCreationInputTokens ||
-                  event.usage?.cache_creation_input_tokens ||
-                  0,
-              });
-            }
+            logResultUsage(callId, event);
           }
           break;
         }
@@ -139,8 +153,8 @@ export async function callClaude(prompt, recentMessages, sessionStatus, logMeta 
   }
 
   // Prefer structured output (already parsed JSON) over text response
-  if (structuredOutput) {
-    return JSON.stringify(structuredOutput);
+  if (state.structuredOutput) {
+    return JSON.stringify(state.structuredOutput);
   }
-  return responseText;
+  return state.responseText;
 }

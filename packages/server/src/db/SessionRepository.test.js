@@ -137,6 +137,176 @@ describe('SessionRepository', () => {
       const session = repo.create(projectId, 'Test', 'Prompt');
       expect(session.starred).toBe(false);
     });
+
+    // New options object signature tests
+    describe('options object signature', () => {
+      it('creates session with options object containing mode', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { mode: 'plan' });
+        expect(session.mode).toBe('plan');
+      });
+
+      it('creates session with options object containing thinkingEnabled', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { thinkingEnabled: true });
+        expect(session.thinkingEnabled).toBe(true);
+      });
+
+      it('creates session with options object containing gitBranch', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { gitBranch: 'feature-branch' });
+        expect(session.gitBranch).toBe('feature-branch');
+      });
+
+      it('creates session with options object containing parentSessionId', () => {
+        const parent = repo.create(projectId, 'Parent', 'Parent prompt');
+        const child = repo.create(projectId, 'Child', 'Child prompt', { parentSessionId: parent.id });
+        expect(child.parentSessionId).toBe(parent.id);
+      });
+
+      it('creates session with options object containing status', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { status: 'waiting' });
+        expect(session.status).toBe('waiting');
+      });
+
+      it('creates session with options object containing model', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { model: 'claude-sonnet-4-5' });
+        expect(session.model).toBe('claude-sonnet-4-5');
+      });
+
+      it('creates session with multiple options', () => {
+        const parent = repo.create(projectId, 'Parent', 'Parent prompt');
+        const session = repo.create(projectId, 'Test', 'Prompt', {
+          mode: 'plan',
+          thinkingEnabled: true,
+          gitBranch: 'feature-branch',
+          parentSessionId: parent.id,
+          status: 'waiting',
+          model: 'claude-sonnet-4-5',
+        });
+
+        expect(session.mode).toBe('plan');
+        expect(session.thinkingEnabled).toBe(true);
+        expect(session.gitBranch).toBe('feature-branch');
+        expect(session.parentSessionId).toBe(parent.id);
+        expect(session.status).toBe('waiting');
+        expect(session.model).toBe('claude-sonnet-4-5');
+      });
+
+      it('creates session with empty options object', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', {});
+        expect(session.mode).toBe('standard');
+        expect(session.thinkingEnabled).toBe(false);
+        expect(session.status).toBe('starting');
+      });
+
+      it('does not create initial message for waiting status sessions', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { status: 'waiting' });
+        const messages = messageRepo.getBySessionId(session.id);
+        expect(messages).toHaveLength(0);
+      });
+
+      it('does not create initial message for scheduled status sessions', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { status: 'scheduled' });
+        const messages = messageRepo.getBySessionId(session.id);
+        expect(messages).toHaveLength(0);
+      });
+
+      it('creates initial message for starting status sessions with options object', () => {
+        const session = repo.create(projectId, 'Test', 'Hello', { status: 'starting' });
+        const messages = messageRepo.getBySessionId(session.id);
+        expect(messages).toHaveLength(1);
+        expect(messages[0].content).toBe('Hello');
+      });
+
+      it('creates session with effortLevel in options object', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { effortLevel: 'high' });
+        expect(session.effortLevel).toBe('high');
+      });
+
+      it('creates session with null effortLevel in options object', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { effortLevel: null });
+        expect(session.effortLevel).toBeNull();
+      });
+
+      it('creates session with all options including effortLevel', () => {
+        const parent = repo.create(projectId, 'Parent', 'Parent prompt');
+        const session = repo.create(projectId, 'Test', 'Prompt', {
+          mode: 'plan',
+          thinkingEnabled: true,
+          gitBranch: 'feature-branch',
+          parentSessionId: parent.id,
+          status: 'waiting',
+          model: 'claude-sonnet-4-5',
+          effortLevel: 'max',
+        });
+
+        expect(session.mode).toBe('plan');
+        expect(session.thinkingEnabled).toBe(true);
+        expect(session.gitBranch).toBe('feature-branch');
+        expect(session.parentSessionId).toBe(parent.id);
+        expect(session.status).toBe('waiting');
+        expect(session.model).toBe('claude-sonnet-4-5');
+        expect(session.effortLevel).toBe('max');
+      });
+
+      it('accepts all valid effortLevel values via options object', () => {
+        for (const effortLevel of ['low', 'medium', 'high', 'max', 'auto']) {
+          const session = repo.create(projectId, 'Test', 'Prompt', { effortLevel });
+          expect(session.effortLevel).toBe(effortLevel);
+        }
+      });
+
+      it('defaults effortLevel to null when not specified in options object', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { mode: 'plan' });
+        expect(session.effortLevel).toBeNull();
+      });
+    });
+
+    // Backward compatibility tests for legacy positional parameters
+    describe('backward compatibility with legacy positional parameters', () => {
+      it('supports legacy call with mode as 4th parameter', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', 'plan');
+        expect(session.mode).toBe('plan');
+        expect(session.thinkingEnabled).toBe(false);
+        expect(session.gitBranch).toBeNull();
+      });
+
+      it('supports legacy call with mode and thinkingEnabled', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', 'plan', true);
+        expect(session.mode).toBe('plan');
+        expect(session.thinkingEnabled).toBe(true);
+      });
+
+      it('supports legacy call with mode, thinkingEnabled, and gitBranch', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, 'feature-branch');
+        expect(session.mode).toBe('standard');
+        expect(session.thinkingEnabled).toBe(false);
+        expect(session.gitBranch).toBe('feature-branch');
+      });
+
+      it('supports legacy call with all positional parameters', () => {
+        const parent = repo.create(projectId, 'Parent', 'Parent prompt');
+        const session = repo.create(projectId, 'Test', 'Prompt', 'plan', true, 'feature-branch', parent.id, 'waiting', 'claude-sonnet-4-5');
+
+        expect(session.mode).toBe('plan');
+        expect(session.thinkingEnabled).toBe(true);
+        expect(session.gitBranch).toBe('feature-branch');
+        expect(session.parentSessionId).toBe(parent.id);
+        expect(session.status).toBe('waiting');
+        expect(session.model).toBe('claude-sonnet-4-5');
+      });
+
+      it('creates initial message with legacy positional parameters for non-waiting status', () => {
+        const session = repo.create(projectId, 'Test', 'Hello Claude', 'standard', false, null, null, 'starting');
+        const messages = messageRepo.getBySessionId(session.id);
+        expect(messages).toHaveLength(1);
+        expect(messages[0].content).toBe('Hello Claude');
+      });
+
+      it('does not create initial message with legacy positional parameters for waiting status', () => {
+        const session = repo.create(projectId, 'Test', 'Hello Claude', 'standard', false, null, null, 'waiting');
+        const messages = messageRepo.getBySessionId(session.id);
+        expect(messages).toHaveLength(0);
+      });
+    });
   });
 
   describe('getById', () => {

@@ -43,7 +43,7 @@ export const loggedToolUseIds = new Map();
  */
 export function createWorkLog(sessionId, type, content, toolName = null) {
   // Always create as unassociated - will be associated at end of turn
-  const log = workLogs.create(sessionId, type, content, null, toolName);
+  const log = workLogs.create(sessionId, type, content, { messageId: null, toolName });
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_WORK_LOG, {
     sessionId,
     log
@@ -192,7 +192,7 @@ export async function handleStreamEvent(sessionId, event) {
         const currentModel = currentModels.get(sessionId) || null;
         // [MODEL AUDIT] Log model being saved with message
         console.log(`[MODEL AUDIT - Message Save] Creating assistant message with model: "${currentModel}"`);
-        const message = messages.create(sessionId, 'assistant', textContent, toolUse, conversationId, currentModel);
+        const message = messages.create(sessionId, 'assistant', textContent, { toolUse, conversationId, model: currentModel });
         console.log(`[MODEL AUDIT - Message Save] Created message ${message.id} in conversation ${conversationId} with model: "${currentModel}"`);
         console.log(`[SESSION] assistant event: created assistant message ${message.id} in conversation ${conversationId} with model ${currentModel}`);
 
