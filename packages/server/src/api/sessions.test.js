@@ -113,8 +113,23 @@ describe('Sessions API - PATCH effortLevel', () => {
         .send({ effortLevel });
 
       expect(res.status).toBe(200);
-      expect(res.body.effortLevel).toBe(effortLevel);
+      // 'auto' is normalized to null
+      const expectedValue = effortLevel === 'auto' ? null : effortLevel;
+      expect(res.body.effortLevel).toBe(expectedValue);
     }
+  });
+
+  it('normalizes effortLevel "auto" to null', async () => {
+    const res = await request(app)
+      .patch(`/api/sessions/${sessionId}`)
+      .send({ effortLevel: 'auto' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.effortLevel).toBeNull();
+
+    // Verify persistence
+    const updated = sessions.getById(sessionId);
+    expect(updated.effortLevel).toBeNull();
   });
 
   it('allows setting effortLevel to null', async () => {
