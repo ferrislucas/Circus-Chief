@@ -3929,7 +3929,7 @@ describe('Sessions Store', () => {
       store.fetchWorkLogs = vi.fn().mockResolvedValue(undefined);
 
       // Call branchConversation
-      const resultPromise = store.branchConversation('session-1', 'conv-main', 'msg-1', null, 'Tell me a joke');
+      const resultPromise = store.branchConversation('session-1', 'conv-main', { messageId: 'msg-1', prompt: 'Tell me a joke' });
 
       // Immediately check that the method returns quickly (not blocking)
       const result = await resultPromise;
@@ -3986,7 +3986,7 @@ describe('Sessions Store', () => {
 
       // Call branchConversation and expect it to throw
       await expect(
-        store.branchConversation('session-1', 'conv-main', 'msg-1', null, 'Test prompt')
+        store.branchConversation('session-1', 'conv-main', { messageId: 'msg-1', prompt: 'Test prompt' })
       ).rejects.toThrow('Network error');
 
       // Verify store.error was set
@@ -4027,7 +4027,7 @@ describe('Sessions Store', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       // Call branchConversation - should succeed despite message fetch failure
-      const result = await store.branchConversation('session-1', 'conv-main', 'msg-1', null, 'Test');
+      const result = await store.branchConversation('session-1', 'conv-main', { messageId: 'msg-1', prompt: 'Test' });
 
       // Branch creation should succeed
       expect(result).toEqual(branchConversation);
@@ -4079,7 +4079,7 @@ describe('Sessions Store', () => {
       store.fetchWorkLogs = vi.fn().mockResolvedValue(undefined);
 
       // Start branch creation
-      const resultPromise = store.branchConversation('session-1', 'conv-main', 'msg-1', null, 'Test');
+      const resultPromise = store.branchConversation('session-1', 'conv-main', { messageId: 'msg-1', prompt: 'Test' });
 
       // Wait for the promise to resolve (optimistic update completes)
       await resultPromise;

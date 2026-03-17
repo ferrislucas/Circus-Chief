@@ -99,11 +99,11 @@ export function formatMessages(messageList) {
  * @param {Object|null} existingSummary - Existing summary if any
  * @param {Array} recentMessages - Recent messages to summarize
  * @param {string} sessionStatus - Current session status
- * @param {string|null} projectTitlePrompt - Custom prompt for session titles (uses default if null)
- * @param {string|null} childContext - Context about child sessions (for workflow-aware summaries)
+ * @param {{ projectTitlePrompt?: string|null, childContext?: string }} options - Optional parameters
  * @returns {string}
  */
-export function buildIncrementalPrompt(existingSummary, recentMessages, sessionStatus, projectTitlePrompt = null, childContext = '') {
+export function buildIncrementalPrompt(existingSummary, recentMessages, sessionStatus, options = {}) {
+  const { projectTitlePrompt = null, childContext = '' } = options || {};
   const existingContext = existingSummary
     ? `EXISTING SUMMARY:
 ${existingSummary.fullSummary}

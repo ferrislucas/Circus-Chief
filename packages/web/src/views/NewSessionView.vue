@@ -54,49 +54,19 @@
         @openSettings="quickResponseSettingsOpen = true"
       />
 
-      <div class="form-group">
-        <label class="form-label">Options</label>
-
-        <div class="options-row">
-          <div class="mode-selector-wrapper">
-            <ModeSelector v-model="mode" />
-          </div>
-
-          <div class="model-selector-wrapper">
-            <ModelSelector v-model="model" @update:providerId="providerId = $event" />
-          </div>
-
-          <div class="effort-selector-wrapper">
-            <EffortLevelSelector v-model="effortLevel" />
-          </div>
-
-          <div class="thinking-toggle">
-            <div class="field-with-badge">
-              <label class="toggle-switch">
-                <input
-                  type="checkbox"
-                  v-model="thinkingEnabled"
-                />
-                <span class="toggle-slider"></span>
-              </label>
-              <span class="toggle-label">Enable Thinking</span>
-            </div>
-          </div>
-
-          <div class="thinking-toggle">
-            <div class="field-with-badge">
-              <label class="toggle-switch">
-                <input
-                  type="checkbox"
-                  v-model="startImmediately"
-                />
-                <span class="toggle-slider"></span>
-              </label>
-              <span class="toggle-label">Start Immediately</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <SessionFormOptions
+        :mode="mode"
+        :model="model"
+        :effortLevel="effortLevel"
+        :thinkingEnabled="thinkingEnabled"
+        :startImmediately="startImmediately"
+        @update:mode="mode = $event"
+        @update:model="model = $event"
+        @update:providerId="providerId = $event"
+        @update:effortLevel="effortLevel = $event"
+        @update:thinkingEnabled="thinkingEnabled = $event"
+        @update:startImmediately="startImmediately = $event"
+      />
 
       <div v-if="error" class="error-message">{{ error }}</div>
 
@@ -111,55 +81,18 @@
       </div>
 
       <!-- Git Options -->
-      <div v-if="gitStatus?.isGitRepo" class="form-group">
-        <label class="form-label">Git Options</label>
-        <div class="quick-git-options">
-          <label class="radio-option">
-            <input type="radio" v-model="quickGitMode" value="worktree" />
-            <span class="radio-label">Create isolated worktree</span>
-            <span class="radio-help">Separate working directory for this session</span>
-          </label>
-          <label class="radio-option">
-            <input type="radio" v-model="quickGitMode" value="branch" />
-            <span class="radio-label">Create new branch</span>
-            <span class="radio-help">Work in the project directory</span>
-          </label>
-          <label class="radio-option">
-            <input type="radio" v-model="quickGitMode" value="" />
-            <span class="radio-label">Use current branch</span>
-            <span class="radio-help">{{ gitStatus.currentBranch }}</span>
-          </label>
-        </div>
-
-        <!-- Branch name input (shown for branch or worktree) -->
-        <div v-if="quickGitMode" class="quick-branch-section">
-          <label class="form-label form-label-small">Branch Name</label>
-          <div class="quick-branch-input">
-            <input
-              v-model="quickWorktreeBranch"
-              type="text"
-              class="form-input"
-              :placeholder="autoBranchName"
-              @focus="handleBranchEdit"
-            />
-            <button
-              v-if="editingBranch"
-              type="button"
-              class="btn btn-small"
-              @click="resetBranchName"
-            >
-              Reset
-            </button>
-          </div>
-          <p class="form-help">Auto-generated from session name/prompt</p>
-        </div>
-
-      </div>
-
-      <div v-if="loadingGit" class="git-loading">
-        <span class="loading-spinner"></span>
-        Loading git info...
-      </div>
+      <GitOptionsPanel
+        :gitStatus="gitStatus"
+        :modelValue="quickGitMode"
+        :branchName="quickWorktreeBranch"
+        :autoBranchName="autoBranchName"
+        :editingBranch="editingBranch"
+        :loadingGit="loadingGit"
+        @update:modelValue="quickGitMode = $event"
+        @update:branchName="quickWorktreeBranch = $event"
+        @branchEdit="handleBranchEdit"
+        @resetBranch="resetBranchName"
+      />
 
       <!-- Next Template (optional) -->
       <div v-if="allTemplates.length > 0" class="form-group">
@@ -227,9 +160,8 @@ import { api } from '../composables/useApi.js';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import { generateWorktreeBranch } from '@claudetools/shared';
 import FileAttachment from '../components/FileAttachment.vue';
-import ModelSelector from '../components/ModelSelector.vue';
-import ModeSelector from '../components/ModeSelector.vue';
-import EffortLevelSelector from '../components/EffortLevelSelector.vue';
+import SessionFormOptions from '../components/SessionFormOptions.vue';
+import GitOptionsPanel from '../components/GitOptionsPanel.vue';
 import QuickResponsesPanel from '../components/QuickResponsesPanel.vue';
 import QuickResponseSettings from '../components/QuickResponseSettings.vue';
 import SchedulingOptions from '../components/SchedulingOptions.vue';
@@ -687,15 +619,6 @@ h1 {
   align-items: center;
 }
 
-.git-loading {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--color-text-soft);
-  font-size: 0.875rem;
-  margin-bottom: 1rem;
-}
-
 .form-actions {
   margin-bottom: 1.5rem;
 }
@@ -712,197 +635,10 @@ h1 {
   margin-bottom: 1rem;
 }
 
-/* Quick git options */
-.quick-git-options {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.radio-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.375rem;
-  cursor: pointer;
-  transition: border-color 0.15s, background-color 0.15s;
-}
-
-.radio-option:hover {
-  border-color: var(--color-border-hover);
-  background-color: var(--color-bg-hover);
-}
-
-.radio-option:has(input:checked) {
-  border-color: var(--color-accent);
-  background-color: var(--color-accent-bg);
-}
-
-.radio-option input[type="radio"] {
-  margin-top: 0.125rem;
-}
-
-.radio-label {
-  font-weight: 500;
-  color: var(--color-text);
-}
-
-.radio-help {
-  margin-left: auto;
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
-}
-
-.quick-branch-section {
-  margin-top: 1rem;
-  padding: 1rem;
-  background-color: var(--color-bg-soft);
-  border-radius: 0.375rem;
-}
-
-.form-label-small {
-  font-size: 0.75rem;
-  margin-bottom: 0.25rem;
-}
-
-.quick-branch-input {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.quick-branch-input input {
-  flex: 1;
-}
-
-.btn-small {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
-}
-
-/* Field with badge */
-.field-with-badge {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-/* Options row */
-.options-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.5rem;
-  align-items: flex-start;
-}
-
-/* Thinking toggle */
-.thinking-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.toggle-label {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-}
-
-/* Mode and model selector wrappers */
-.mode-selector-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.model-selector-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.effort-selector-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.toggle-switch {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 22px;
-}
-
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: var(--color-background-mute);
-  border: 1px solid var(--color-border);
-  border-radius: 22px;
-  transition: 0.2s;
-}
-
-.toggle-slider:before {
-  position: absolute;
-  content: "";
-  height: 16px;
-  width: 16px;
-  left: 2px;
-  bottom: 2px;
-  background-color: var(--color-text-soft);
-  border-radius: 50%;
-  transition: 0.2s;
-}
-
-.toggle-switch input:checked + .toggle-slider {
-  background-color: var(--color-primary);
-  border-color: var(--color-primary);
-}
-
-.toggle-switch input:checked + .toggle-slider:before {
-  transform: translateX(18px);
-  background-color: #fff;
-}
-
-/* Mobile responsive styles */
 @media (max-width: 480px) {
   h1 {
     margin-bottom: 0.5rem;
     font-size: 1.5rem;
-  }
-
-  .options-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1rem;
-  }
-
-  .radio-option {
-    flex-wrap: wrap;
-    padding: 0.5rem;
-  }
-
-  .radio-help {
-    width: 100%;
-    margin-left: 1.5rem;
-    margin-top: 0.25rem;
-  }
-
-  .quick-branch-section {
-    padding: 0.75rem;
   }
 }
 </style>

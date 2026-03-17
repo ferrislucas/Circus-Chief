@@ -73,7 +73,7 @@ describe('sessionManager message model tracking', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-6'));
 
-      await runSession(session.id, 'test prompt', '/tmp/test', null, []);
+      await runSession(session.id, 'test prompt', '/tmp/test');
 
       // Get the assistant message created
       const sessionMessages = messages.getBySessionId(session.id);
@@ -89,7 +89,7 @@ describe('sessionManager message model tracking', () => {
 
       // Response with opus
       mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-6'));
-      await runSession(session.id, 'first prompt', '/tmp/test', null, []);
+      await runSession(session.id, 'first prompt', '/tmp/test');
 
       // Get assistant messages after first turn
       const sessionMessages = messages.getBySessionId(session.id);
@@ -105,7 +105,7 @@ describe('sessionManager message model tracking', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-sonnet-4-6'));
 
-      await runSession(session.id, 'test prompt', '/tmp/test', null, []);
+      await runSession(session.id, 'test prompt', '/tmp/test');
 
       // Verify message was created with model
       const sessionMessages = messages.getBySessionId(session.id);
@@ -122,10 +122,10 @@ describe('sessionManager message model tracking', () => {
 
       // Manually create a user message (this would normally be created by other means)
       const userId = project.id; // Using project id as a stand-in
-      messages.create(session.id, 'user', 'User question', null, null, null);
+      messages.create(session.id, 'user', 'User question');
 
       mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-6'));
-      await runSession(session.id, 'continuation', '/tmp/test', null, []);
+      await runSession(session.id, 'continuation', '/tmp/test');
 
       // Verify user message doesn't have model, assistant does
       const sessionMessages = messages.getBySessionId(session.id);
@@ -148,7 +148,7 @@ describe('sessionManager message model tracking', () => {
       sessions.update(session.id, { claudeSessionId: 'claude-session-123' });
 
       mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-6'));
-      await continueSession(session.id, 'follow-up message', '/tmp/test', null, []);
+      await continueSession(session.id, 'follow-up message', '/tmp/test');
 
       // Get the assistant message created
       const sessionMessages = messages.getBySessionId(session.id);
@@ -166,7 +166,7 @@ describe('sessionManager message model tracking', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-opus-4-6'));
 
-      await runSession(session.id, 'test prompt', '/tmp/test', null, []);
+      await runSession(session.id, 'test prompt', '/tmp/test');
 
       // Get the message and verify all fields including model
       const sessionMessages = messages.getBySessionId(session.id);
@@ -185,7 +185,7 @@ describe('sessionManager message model tracking', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
 
       // Create user message without model
-      const userMsg = messages.create(session.id, 'user', 'User question', null, null, null);
+      const userMsg = messages.create(session.id, 'user', 'User question');
 
       expect(userMsg.model).toBeNull();
       expect(userMsg).toHaveProperty('model');

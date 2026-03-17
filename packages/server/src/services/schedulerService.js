@@ -132,9 +132,7 @@ class SchedulerService {
         session.id,
         effectivePrompt,
         workingDirectory,
-        effectiveSystemPrompt,
-        sessionAttachments,
-        session.pendingModel
+        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel }
       );
     } else {
       // Fresh session - initial run
@@ -167,9 +165,7 @@ class SchedulerService {
         session.id,
         effectivePrompt,
         workingDirectory,
-        effectiveSystemPrompt,
-        sessionAttachments,
-        session.pendingModel
+        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel }
       );
     }
   }
