@@ -135,7 +135,7 @@ export class SessionRepository extends BaseRepository {
     // Only create initial user message for sessions that start immediately
     // For waiting/scheduled sessions, the message will be created when they start
     if (config.status !== 'waiting' && config.status !== 'scheduled') {
-      messages.create(id, 'user', prompt, null, conversation.id);
+      messages.create(id, 'user', prompt, { toolUse: null, conversationId: conversation.id });
     }
 
     return this.getById(id);

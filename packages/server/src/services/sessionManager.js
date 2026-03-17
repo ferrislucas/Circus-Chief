@@ -354,7 +354,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
   // If null, Claude will start a fresh session (no resume)
 
   // Store the user message with conversation ID
-  const message = messages.create(sessionId, 'user', content, null, activeConversation.id);
+  const message = messages.create(sessionId, 'user', content, { toolUse: null, conversationId: activeConversation.id });
   console.log(`[SESSION] continueSession: created user message ${message.id} in conversation ${activeConversation.id}`);
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, {
     message,

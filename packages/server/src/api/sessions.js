@@ -313,7 +313,7 @@ router.post('/:id/work-logs', requireSession, (req, res) => {
     return res.status(400).json({ error: 'Type and content are required' });
   }
 
-  const log = workLogs.create(req.params.id, type, content, messageId || null, toolName || null);
+  const log = workLogs.create(req.params.id, type, content, { messageId: messageId || null, toolName: toolName || null });
 
   // Broadcast to session subscribers
   broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_WORK_LOG, {
