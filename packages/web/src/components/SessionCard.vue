@@ -90,6 +90,13 @@
         @retry-summary="$emit('retrySummary', session.id)"
       />
 
+      <!-- Streaming log output for running sessions -->
+      <SessionLogStream
+        v-if="isRunning"
+        :session-id="session.id"
+        data-testid="session-log-stream"
+      />
+
       <!-- Expand/collapse toggle for sessions with children -->
       <div v-if="hasChildren && !isChild" class="expand-toggle-row">
         <button
@@ -130,6 +137,7 @@ import PrIndicators from './PrIndicators.vue';
 import SessionCardSummary from './SessionCardSummary.vue';
 import SessionCardWorkflowPanel from './SessionCardWorkflowPanel.vue';
 import SessionCardHeaderActions from './SessionCardHeaderActions.vue';
+import SessionLogStream from './SessionLogStream.vue';
 
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
@@ -191,6 +199,8 @@ const props = defineProps({
 });
 
 defineEmits(['retrySummary', 'archive', 'unarchive']);
+
+const isRunning = computed(() => ['running', 'starting'].includes(props.session.status));
 
 const dateToShow = computed(() => {
   return props.session.lastActivityAt || props.session.updatedAt || props.session.createdAt;
