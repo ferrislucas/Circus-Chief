@@ -46,8 +46,6 @@
         :session-status="sessionsStore.currentSession?.status"
       />
 
-      <!-- Scheduling Info Panel -->
-      <SchedulingInfo v-if="sessionsStore.currentSession && (activeTab === 'conversation' || activeTab === 'summary')" :session="sessionsStore.currentSession" />
       <div class="tab-content">
         <!-- CRITICAL: :key ensures components remount when navigating between sessions,
              preventing stale WebSocket handlers from capturing the wrong sessionId -->
@@ -78,7 +76,6 @@ import CommandsTab from '../components/CommandsTab.vue';
 import SessionHeaderPanel from '../components/SessionHeaderPanel.vue';
 import SessionTabsPanel from '../components/SessionTabsPanel.vue';
 import SessionHierarchyBreadcrumb from '../components/SessionHierarchyBreadcrumb.vue';
-import SchedulingInfo from '../components/SchedulingInfo.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 
 const route = useRoute();

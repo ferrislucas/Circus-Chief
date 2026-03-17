@@ -35,9 +35,6 @@ vi.mock('../components/OverflowMenu.vue', () => ({
     emits: ['duplicate', 'archive', 'delete']
   }
 }));
-vi.mock('../components/SchedulingInfo.vue', () => ({
-  default: { name: 'SchedulingInfo', template: '<div class="scheduling-info">Scheduling Info</div>' }
-}));
 vi.mock('../components/SessionHeaderPanel.vue', () => ({
   default: {
     name: 'SessionHeaderPanel',
@@ -714,7 +711,6 @@ describe('SessionDetailView', () => {
             CommandsTab: true,
             NotesTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -749,7 +745,6 @@ describe('SessionDetailView', () => {
             CommandsTab: true,
             NotesTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -1552,7 +1547,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -1594,7 +1588,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -1638,7 +1631,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -1687,7 +1679,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -1721,7 +1712,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -1755,7 +1745,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -1789,7 +1778,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -1822,7 +1810,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -1856,7 +1843,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -1890,7 +1876,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -1923,7 +1908,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -1957,7 +1941,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -1992,7 +1975,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2027,7 +2009,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2072,7 +2053,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2108,7 +2088,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2150,7 +2129,6 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2188,7 +2166,6 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2224,7 +2201,6 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2267,7 +2243,6 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2302,7 +2277,6 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2357,7 +2331,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2398,7 +2371,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2433,7 +2405,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2493,7 +2464,6 @@ describe('SessionDetailView', () => {
             SummaryTab: RealSummaryTab, // Use real SummaryTab component
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
             ChildSessionsPanel: false, // Don't stub to verify prop passing
           },
         },
@@ -2532,7 +2502,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2565,7 +2534,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2598,7 +2566,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2630,7 +2597,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2662,7 +2628,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2694,7 +2659,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2726,7 +2690,6 @@ describe('SessionDetailView', () => {
             SummaryTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2763,7 +2726,6 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2790,7 +2752,6 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2816,7 +2777,6 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2839,7 +2799,6 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2862,7 +2821,6 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2886,7 +2844,6 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2909,7 +2866,6 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2932,7 +2888,6 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -2955,7 +2910,6 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             CommandsTab: true,
             PrIndicators: true,
-            SchedulingInfo: true,
           },
         },
       });
@@ -3032,101 +2986,6 @@ describe('SessionDetailView', () => {
       const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
       expect(headerPanel.exists()).toBe(true);
       expect(headerPanel.props('session').name).toBe('Original Session Name');
-    });
-  });
-
-  describe('SchedulingInfo visibility', () => {
-    beforeEach(async () => {
-      sessionsStore.currentSession = {
-        id: 'session-1',
-        name: 'Test Session',
-        status: 'waiting',
-        projectId: 'proj-1',
-      };
-    });
-
-    const createWrapper = async (tabPath) => {
-      await router.push(`/sessions/session-1/${tabPath}`);
-      await router.isReady();
-
-      return mount(SessionDetailView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            ConversationTab: true,
-            ChangesTab: true,
-            CanvasTab: true,
-            SummaryTab: true,
-            CommandsTab: true,
-            PrIndicators: true,
-            SchedulingInfo: true,
-          },
-        },
-      });
-    };
-
-    it('shows SchedulingInfo on the conversation tab', async () => {
-      const wrapper = await createWrapper('conversation');
-      await flushPromises();
-
-      const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
-      expect(schedulingInfo.exists()).toBe(true);
-    });
-
-    it('shows SchedulingInfo on the summary tab', async () => {
-      const wrapper = await createWrapper('summary');
-      await flushPromises();
-
-      const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
-      expect(schedulingInfo.exists()).toBe(true);
-    });
-
-    it('hides SchedulingInfo on the changes tab', async () => {
-      const wrapper = await createWrapper('changes');
-      await flushPromises();
-
-      const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
-      expect(schedulingInfo.exists()).toBe(false);
-    });
-
-    it('hides SchedulingInfo on the canvas tab', async () => {
-      const wrapper = await createWrapper('canvas');
-      await flushPromises();
-
-      const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
-      expect(schedulingInfo.exists()).toBe(false);
-    });
-
-    it('hides SchedulingInfo on the commands tab', async () => {
-      const wrapper = await createWrapper('commands');
-      await flushPromises();
-
-      const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
-      expect(schedulingInfo.exists()).toBe(false);
-    });
-
-    it('shows SchedulingInfo by default when no tab is specified in the route', async () => {
-      await router.push('/sessions/session-1');
-      await router.isReady();
-
-      const wrapper = mount(SessionDetailView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            ConversationTab: true,
-            ChangesTab: true,
-            CanvasTab: true,
-            SummaryTab: true,
-            CommandsTab: true,
-            PrIndicators: true,
-            SchedulingInfo: true,
-          },
-        },
-      });
-      await flushPromises();
-
-      const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
-      expect(schedulingInfo.exists()).toBe(true);
     });
   });
 });
