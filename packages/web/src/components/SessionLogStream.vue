@@ -72,12 +72,12 @@ const hasContent = computed(() => recentLogs.value.length > 0 || partialText.val
 
 const thinkingPreview = computed(() => {
   if (!thinking.value) return '';
-  return thinking.value.length > 200 ? thinking.value.slice(-200) : thinking.value;
+  return thinking.value.length > 500 ? thinking.value.slice(-500) : thinking.value;
 });
 
 const partialTextPreview = computed(() => {
   if (!partialText.value) return '';
-  return partialText.value.length > 200 ? partialText.value.slice(-200) : partialText.value;
+  return partialText.value.length > 500 ? partialText.value.slice(-500) : partialText.value;
 });
 
 function toggleCollapse() {
@@ -137,6 +137,7 @@ function toggleCollapse() {
   line-height: 1.5;
   overflow: hidden;
   max-height: 15em;
+  min-height: 3em;
 }
 
 .log-content-inner {
@@ -163,16 +164,20 @@ function toggleCollapse() {
   opacity: 0.5;
   font-style: italic;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
 }
 
 .log-partial {
   color: var(--color-text-soft, #d1d5db);
   opacity: 0.7;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
 }
 
 .log-collapsed {
