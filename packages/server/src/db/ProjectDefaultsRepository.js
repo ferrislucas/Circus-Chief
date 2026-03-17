@@ -4,6 +4,34 @@ import { databaseManager } from './DatabaseManager.js';
 /**
  * Project session defaults repository class
  */
+// Maps camelCase data keys to DB column names, with optional boolean conversion
+const UPSERT_FIELD_MAP = [
+  { key: 'mode', column: 'mode' },
+  { key: 'thinkingEnabled', column: 'thinking_enabled', boolean: true },
+  { key: 'startImmediately', column: 'start_immediately', boolean: true },
+  { key: 'gitMode', column: 'git_mode' },
+  { key: 'gitBranch', column: 'git_branch' },
+  { key: 'model', column: 'model' },
+  { key: 'effortLevel', column: 'effort_level' },
+];
+
+/**
+ * Build the update clauses and values for defined fields in data.
+ * @param {Object} data - Input data with optional fields
+ * @returns {{ updates: string[], values: any[] }}
+ */
+function buildUpdateFields(data) {
+  const updates = [];
+  const values = [];
+  for (const { key, column, boolean: isBool } of UPSERT_FIELD_MAP) {
+    if (data[key] !== undefined) {
+      updates.push(`${column} = ?`);
+      values.push(isBool ? (data[key] ? 1 : 0) : data[key]);
+    }
+  }
+  return { updates, values };
+}
+
 export class ProjectDefaultsRepository extends BaseRepository {
   constructor() {
     super('project_session_defaults', ProjectDefaultsRepository.#mapDefaults);
@@ -74,37 +102,7 @@ export class ProjectDefaultsRepository extends BaseRepository {
         );
     } else {
       // Update existing defaults
-      const updates = [];
-      const values = [];
-
-      if (data.mode !== undefined) {
-        updates.push('mode = ?');
-        values.push(data.mode);
-      }
-      if (data.thinkingEnabled !== undefined) {
-        updates.push('thinking_enabled = ?');
-        values.push(data.thinkingEnabled ? 1 : 0);
-      }
-      if (data.startImmediately !== undefined) {
-        updates.push('start_immediately = ?');
-        values.push(data.startImmediately ? 1 : 0);
-      }
-      if (data.gitMode !== undefined) {
-        updates.push('git_mode = ?');
-        values.push(data.gitMode);
-      }
-      if (data.gitBranch !== undefined) {
-        updates.push('git_branch = ?');
-        values.push(data.gitBranch);
-      }
-      if (data.model !== undefined) {
-        updates.push('model = ?');
-        values.push(data.model);
-      }
-      if (data.effortLevel !== undefined) {
-        updates.push('effort_level = ?');
-        values.push(data.effortLevel);
-      }
+      const { updates, values } = buildUpdateFields(data);
 
       if (updates.length > 0) {
         updates.push('updated_at = ?');

@@ -45,6 +45,68 @@ function logResultUsage(callId, event) {
   });
 }
 
+/**
+ * Build the query parameters for the Claude SDK call.
+ * @param {string} prompt - The prompt to send
+ * @param {{ systemPrompt?: string, jsonSchema?: Object }} options
+ * @returns {Object} queryParams ready for the SDK query function
+ */
+function buildClaudeRequest(prompt, options) {
+  const { systemPrompt = null, jsonSchema = null } = options || {};
+  const schema = jsonSchema || SESSION_SUMMARY_SCHEMA;
+
+  return {
+    prompt,
+    options: {
+      cwd: process.cwd(),
+      permissionMode: 'bypassPermissions',
+      maxTurns: 1,
+      model: 'claude-haiku-4-5-20251001',
+      ...(systemPrompt && { systemPrompt }),
+      outputFormat: {
+        type: 'json_schema',
+        schema,
+      },
+    },
+  };
+}
+
+/**
+ * Process the Claude SDK event stream and extract the response.
+ * @param {AsyncIterable} eventStream - The async iterable from the SDK query
+ * @param {string|null} callId - The agent call logger ID (null if not logging)
+ * @returns {Promise<string>} The text response (JSON string)
+ */
+async function handleClaudeResponse(eventStream, callId) {
+  const state = { responseText: '', structuredOutput: null };
+
+  for await (const event of eventStream) {
+    switch (event.type) {
+      case 'assistant': {
+        const content = event.message?.content || [];
+        for (const block of content) {
+          processContentBlock(block, state);
+        }
+        break;
+      }
+      case 'result': {
+        if (event.subtype === 'error') {
+          throw new Error(event.error || 'Claude SDK query failed');
+        }
+        if (callId) {
+          logResultUsage(callId, event);
+        }
+        break;
+      }
+    }
+  }
+
+  if (state.structuredOutput) {
+    return JSON.stringify(state.structuredOutput);
+  }
+  return state.responseText;
+}
+
 export const SESSION_SUMMARY_SCHEMA = {
   type: 'object',
   properties: {
@@ -67,12 +129,11 @@ export const SESSION_SUMMARY_SCHEMA = {
  * @param {string} prompt - The prompt to send
  * @param {Array} recentMessages - Messages (for mock mode context)
  * @param {string} sessionStatus - Session status (for mock mode context)
- * @param {Object} logMeta - Logging metadata { sessionId, conversationId?, callType }
- * @param {string} systemPrompt - Optional system prompt for prompt caching
- * @param {Object} jsonSchema - Optional JSON schema (defaults to SESSION_SUMMARY_SCHEMA)
+ * @param {{ logMeta?: Object, systemPrompt?: string, jsonSchema?: Object }} options - Optional parameters
  * @returns {Promise<string>} The text response (JSON string)
  */
-export async function callClaude(prompt, recentMessages, sessionStatus, logMeta = null, systemPrompt = null, jsonSchema = null) {
+export async function callClaude(prompt, recentMessages, sessionStatus, options = {}) {
+  const { logMeta = null } = options || {};
   // Build stable key for VCR cassette (session prompts are hardcoded strings in E2E tests)
   let keyHint = null;
   if (process.env.VCR_MODE && logMeta?.sessionId) {
@@ -84,23 +145,7 @@ export async function callClaude(prompt, recentMessages, sessionStatus, logMeta 
     ? createVCRQueryFn(query, 'tests/e2e/cassettes/summaries', keyHint)
     : query;
 
-  // Default to session summary schema if none provided
-  const schema = jsonSchema || SESSION_SUMMARY_SCHEMA;
-
-  const queryParams = {
-    prompt,
-    options: {
-      cwd: process.cwd(),
-      permissionMode: 'bypassPermissions',
-      maxTurns: 1,
-      model: 'claude-haiku-4-5-20251001',
-      ...(systemPrompt && { systemPrompt }),
-      outputFormat: {
-        type: 'json_schema',
-        schema,
-      },
-    },
-  };
+  const queryParams = buildClaudeRequest(prompt, options);
 
   // Start logging if metadata provided
   let callId = null;
@@ -115,35 +160,15 @@ export async function callClaude(prompt, recentMessages, sessionStatus, logMeta 
     });
   }
 
-  const state = { responseText: '', structuredOutput: null };
-
   try {
-    for await (const event of queryFn(queryParams)) {
-      switch (event.type) {
-        case 'assistant': {
-          const content = event.message?.content || [];
-          for (const block of content) {
-            processContentBlock(block, state);
-          }
-          break;
-        }
-        case 'result': {
-          if (event.subtype === 'error') {
-            throw new Error(event.error || 'Claude SDK query failed');
-          }
-          // Capture usage for logging
-          if (callId) {
-            logResultUsage(callId, event);
-          }
-          break;
-        }
-      }
-    }
+    const result = await handleClaudeResponse(queryFn(queryParams), callId);
 
     // Complete the logged call on success
     if (callId) {
       agentCallLogger.completeCall(callId, { success: true });
     }
+
+    return result;
   } catch (error) {
     // Complete the logged call on error
     if (callId) {
@@ -151,10 +176,4 @@ export async function callClaude(prompt, recentMessages, sessionStatus, logMeta 
     }
     throw error;
   }
-
-  // Prefer structured output (already parsed JSON) over text response
-  if (state.structuredOutput) {
-    return JSON.stringify(state.structuredOutput);
-  }
-  return state.responseText;
 }

@@ -826,7 +826,7 @@ describe('sessionManager broadcasts', () => {
       });
 
       // Pass user-requested model (short format) to runSession
-      await runSession(sessionId, 'Test prompt', tempDir, null, [], 'claude-sonnet-4-6');
+      await runSession(sessionId, 'Test prompt', tempDir, { model: 'claude-sonnet-4-6' });
 
       // session.model should be the user-requested short format
       const session = sessions.getById(sessionId);
@@ -1497,7 +1497,7 @@ describe('sessionManager broadcasts', () => {
       const conversation = sessionConversations[0]; // Get the initial conversation
 
       // Create a user message associated with the existing conversation
-      messages.create(sessionId, 'user', 'User message', null, conversation.id);
+      messages.create(sessionId, 'user', 'User message', { conversationId: conversation.id });
 
       // Update claude session ID for continue
       sessions.update(sessionId, { claudeSessionId: 'claude-session-789' });

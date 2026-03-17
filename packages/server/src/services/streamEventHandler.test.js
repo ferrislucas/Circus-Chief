@@ -328,7 +328,7 @@ describe('streamEventHandler', () => {
       const mockCheckReschedule = vi.fn().mockResolvedValue(false);
       const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
 
-      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule);
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(workLogs.associatePendingLogs).toHaveBeenCalledWith('sess-1', 'msg-last');
       expect(lastMessageIds.has('sess-1')).toBe(false);
@@ -343,7 +343,7 @@ describe('streamEventHandler', () => {
       const mockCheckReschedule = vi.fn().mockResolvedValue(false);
       const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
 
-      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule);
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting' });
     });
@@ -357,7 +357,7 @@ describe('streamEventHandler', () => {
       const mockCheckReschedule = vi.fn().mockResolvedValue(false);
       const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
 
-      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule);
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(mockCheckReschedule).toHaveBeenCalledWith('sess-1');
     });
@@ -369,7 +369,7 @@ describe('streamEventHandler', () => {
       const mockCheckReschedule = vi.fn().mockResolvedValue(true);
       const mockHandleTemplate = vi.fn();
 
-      const result = await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule);
+      const result = await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(result).toBe(true);
       // Should not call handleTemplateTriggerIfNeeded when rescheduled
@@ -385,7 +385,7 @@ describe('streamEventHandler', () => {
       const mockCheckReschedule = vi.fn().mockResolvedValue(false);
       const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
 
-      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule);
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
     });
@@ -397,7 +397,7 @@ describe('streamEventHandler', () => {
       const mockCheckReschedule = vi.fn().mockResolvedValue(false);
       const mockHandleTemplate = vi.fn();
 
-      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule);
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(sessions.update).not.toHaveBeenCalled();
     });
@@ -409,7 +409,7 @@ describe('streamEventHandler', () => {
       const mockCheckReschedule = vi.fn().mockResolvedValue(false);
       const mockHandleTemplate = vi.fn();
 
-      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule);
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(sessions.update).not.toHaveBeenCalled();
     });
@@ -423,7 +423,7 @@ describe('streamEventHandler', () => {
       const mockCheckReschedule = vi.fn().mockResolvedValue(false);
       const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
 
-      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule);
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
@@ -439,7 +439,7 @@ describe('streamEventHandler', () => {
       const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
       const mockAutoSend = vi.fn().mockResolvedValue(true);
 
-      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, mockAutoSend);
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule, handleAutoSendIfNeeded: mockAutoSend });
 
       expect(mockAutoSend).toHaveBeenCalledWith('sess-1');
       expect(mockHandleTemplate).not.toHaveBeenCalled();
@@ -455,7 +455,7 @@ describe('streamEventHandler', () => {
       const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
       const mockAutoSend = vi.fn().mockResolvedValue(false);
 
-      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, mockAutoSend);
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule, handleAutoSendIfNeeded: mockAutoSend });
 
       expect(mockAutoSend).toHaveBeenCalledWith('sess-1');
       expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
@@ -472,7 +472,7 @@ describe('streamEventHandler', () => {
 
       // Pass undefined for handleAutoSendIfNeeded — should not throw, template should still run
       await expect(
-        handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, undefined)
+        handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule, handleAutoSendIfNeeded: undefined })
       ).resolves.not.toThrow();
 
       expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
@@ -488,7 +488,7 @@ describe('streamEventHandler', () => {
       const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
       const mockAutoSend = vi.fn().mockResolvedValue(false);
 
-      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, mockAutoSend);
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule, handleAutoSendIfNeeded: mockAutoSend });
 
       expect(mockAutoSend).toHaveBeenCalled();
       expect(mockHandleTemplate).toHaveBeenCalled();
@@ -506,7 +506,7 @@ describe('streamEventHandler', () => {
       const mockHandleTemplate = vi.fn();
       const mockAutoSend = vi.fn();
 
-      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, mockAutoSend);
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule, handleAutoSendIfNeeded: mockAutoSend });
 
       expect(mockAutoSend).not.toHaveBeenCalled();
       expect(mockHandleTemplate).not.toHaveBeenCalled();
@@ -520,7 +520,7 @@ describe('streamEventHandler', () => {
       const mockHandleTemplate = vi.fn();
       const mockAutoSend = vi.fn();
 
-      await handleTurnCompletion('sess-1', '/workspace', mockHandleTemplate, mockCheckReschedule, mockAutoSend);
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule, handleAutoSendIfNeeded: mockAutoSend });
 
       expect(mockAutoSend).not.toHaveBeenCalled();
       expect(mockHandleTemplate).not.toHaveBeenCalled();
@@ -539,7 +539,7 @@ describe('streamEventHandler', () => {
       const mockShouldReschedule = vi.fn().mockReturnValue(true);
       const mockScheduler = { rescheduleSession: vi.fn().mockResolvedValue(true) };
 
-      const result = await handleSessionError('sess-1', error, controller, mockShouldReschedule, mockScheduler);
+      const result = await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
 
       expect(result).toBe(true);
       expect(mockShouldReschedule).toHaveBeenCalledWith(mockSession, error, 'sess-1');
@@ -555,7 +555,7 @@ describe('streamEventHandler', () => {
       const mockShouldReschedule = vi.fn().mockReturnValue(true);
       const mockScheduler = { rescheduleSession: vi.fn().mockResolvedValue(false) };
 
-      const result = await handleSessionError('sess-1', error, controller, mockShouldReschedule, mockScheduler);
+      const result = await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
 
       expect(result).toBe(false);
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: error.message });
@@ -574,7 +574,7 @@ describe('streamEventHandler', () => {
       const mockShouldReschedule = vi.fn().mockReturnValue(false);
       const mockScheduler = { rescheduleSession: vi.fn() };
 
-      await handleSessionError('sess-1', error, controller, mockShouldReschedule, mockScheduler);
+      await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
 
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'Unexpected error' });
       expect(broadcastToSession).toHaveBeenCalledWith(
@@ -590,7 +590,7 @@ describe('streamEventHandler', () => {
       const mockShouldReschedule = vi.fn();
       const mockScheduler = { rescheduleSession: vi.fn() };
 
-      const result = await handleSessionError('sess-1', error, controller, mockShouldReschedule, mockScheduler);
+      const result = await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
 
       expect(result).toBe(false);
       expect(sessions.update).not.toHaveBeenCalled();
@@ -607,7 +607,10 @@ describe('streamEventHandler', () => {
       const mockShouldReschedule = vi.fn().mockReturnValue(false);
       const mockScheduler = { rescheduleSession: vi.fn() };
 
-      await handleSessionError('sess-1', error, controller, mockShouldReschedule, mockScheduler, {
+      await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
         broadcastConversationState: true,
       });
 
@@ -633,7 +636,7 @@ describe('streamEventHandler', () => {
       const mockShouldReschedule = vi.fn().mockReturnValue(false);
       const mockScheduler = { rescheduleSession: vi.fn() };
 
-      await handleSessionError('sess-1', error, controller, mockShouldReschedule, mockScheduler);
+      await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
 
       // Should NOT broadcast conversation update
       const conversationUpdateCalls = broadcastToSession.mock.calls.filter(
@@ -650,7 +653,7 @@ describe('streamEventHandler', () => {
       const mockShouldReschedule = vi.fn().mockReturnValue(false);
       const mockScheduler = { rescheduleSession: vi.fn() };
 
-      await handleSessionError('sess-1', error, controller, mockShouldReschedule, mockScheduler);
+      await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
 
       expect(summaryService.onSessionComplete).toHaveBeenCalledWith('sess-1');
     });
@@ -664,7 +667,10 @@ describe('streamEventHandler', () => {
       const mockScheduler = { rescheduleSession: vi.fn() };
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      await handleSessionError('sess-1', error, controller, mockShouldReschedule, mockScheduler, {
+      await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
         errorLabel: 'Continue session error',
       });
 

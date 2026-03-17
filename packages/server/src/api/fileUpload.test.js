@@ -56,7 +56,7 @@ describe('File Upload Endpoints', () => {
 
     // Create initial conversation for the session
     const conv = conversations.create(sessionId, 'Initial', true);
-    messages.create(sessionId, 'user', 'Initial prompt', null, conv.id);
+    messages.create(sessionId, 'user', 'Initial prompt', { conversationId: conv.id });
   });
 
   afterEach(() => {

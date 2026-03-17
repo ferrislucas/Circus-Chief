@@ -307,9 +307,9 @@ describe('Sessions API - pendingModel Field', () => {
         .expect(200);
 
       expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
-      // model is the 6th argument (index 5) to runSession
-      const modelArg = vi.mocked(runSession).mock.calls[0][5];
-      expect(modelArg).toBe('claude-opus-4-6-20250616');
+      // model is now inside the options object (4th argument)
+      const optionsArg = vi.mocked(runSession).mock.calls[0][3];
+      expect(optionsArg.model).toBe('claude-opus-4-6-20250616');
     });
 
     it('uses req.body.model over session.pendingModel when both exist', async () => {
@@ -321,8 +321,8 @@ describe('Sessions API - pendingModel Field', () => {
         .expect(200);
 
       expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
-      const modelArg = vi.mocked(runSession).mock.calls[0][5];
-      expect(modelArg).toBe('claude-sonnet-4-5-20251219');
+      const optionsArg = vi.mocked(runSession).mock.calls[0][3];
+      expect(optionsArg.model).toBe('claude-sonnet-4-5-20251219');
     });
 
     it('falls back to session.model when pendingModel is null', async () => {
@@ -334,8 +334,8 @@ describe('Sessions API - pendingModel Field', () => {
         .expect(200);
 
       expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
-      const modelArg = vi.mocked(runSession).mock.calls[0][5];
-      expect(modelArg).toBe('claude-opus-4-6-20250616');
+      const optionsArg = vi.mocked(runSession).mock.calls[0][3];
+      expect(optionsArg.model).toBe('claude-opus-4-6-20250616');
     });
 
     it('passes null model to runSession when no model is set anywhere', async () => {
@@ -346,8 +346,8 @@ describe('Sessions API - pendingModel Field', () => {
         .expect(200);
 
       expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
-      const modelArg = vi.mocked(runSession).mock.calls[0][5];
-      expect(modelArg).toBeNull();
+      const optionsArg = vi.mocked(runSession).mock.calls[0][3];
+      expect(optionsArg.model).toBeNull();
     });
 
     it('clears pendingModel after session is started', async () => {

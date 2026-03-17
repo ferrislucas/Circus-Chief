@@ -135,8 +135,8 @@ describe('summaryService', () => {
 
     // Add enough messages to pass MIN_MESSAGES_FOR_SUMMARY threshold (3 messages)
     // Session creation adds 1 message, so we need 2 more
-    messages.create(sessionId, 'assistant', 'Response 1', null);
-    messages.create(sessionId, 'user', 'Follow-up message', null);
+    messages.create(sessionId, 'assistant', 'Response 1');
+    messages.create(sessionId, 'user', 'Follow-up message');
   });
 
   afterEach(() => {
@@ -288,7 +288,7 @@ describe('summaryService', () => {
     it('uses custom session title prompt when provided', () => {
       const customPrompt = 'Custom title guidelines: Always use emojis in titles!';
       const recentMessages = [{ role: 'user', content: 'Test' }];
-      const result = buildIncrementalPrompt(null, recentMessages, 'running', customPrompt);
+      const result = buildIncrementalPrompt(null, recentMessages, 'running', { projectTitlePrompt: customPrompt });
       expect(result).toContain(customPrompt);
       expect(result).not.toContain('STRATEGIC GOAL'); // Should not have default when custom provided
     });
@@ -892,8 +892,8 @@ describe('summaryService', () => {
     it('generates summary when session meets minimum message threshold', async () => {
       // The main test session already has 1 message from creation
       // Add 2 more to reach the threshold of 3
-      messages.create(sessionId, 'assistant', 'Response 1', null);
-      messages.create(sessionId, 'user', 'Message 2', null);
+      messages.create(sessionId, 'assistant', 'Response 1');
+      messages.create(sessionId, 'user', 'Message 2');
 
       const result = await summaryService.generateSummary(sessionId);
       expect(result).not.toBeNull();
@@ -1596,10 +1596,10 @@ describe('summaryService', () => {
 
       // Create a conversation with enough messages to trigger summary (>= 4)
       const conversation = convRepo.getActiveBySessionId(sessionId);
-      messages.create(sessionId, 'user', 'Hello world', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Hi there, how can I help?', null, conversation.id);
-      messages.create(sessionId, 'user', 'Can you help me with a bug?', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Sure, tell me about it!', null, conversation.id);
+      messages.create(sessionId, 'user', 'Hello world', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Hi there, how can I help?', { conversationId: conversation.id });
+      messages.create(sessionId, 'user', 'Can you help me with a bug?', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Sure, tell me about it!', { conversationId: conversation.id });
 
       // Conversation summaries are triggered by user actions, not onSessionComplete
       const summary = await summaryService.generateConversationSummary(sessionId, conversation.id);
@@ -1615,10 +1615,10 @@ describe('summaryService', () => {
       const { conversations: convRepo } = await import('../database.js');
 
       const conversation = convRepo.getActiveBySessionId(sessionId);
-      messages.create(sessionId, 'user', 'Hello world', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
-      messages.create(sessionId, 'user', 'Can you help?', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Of course!', null, conversation.id);
+      messages.create(sessionId, 'user', 'Hello world', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Hi there', { conversationId: conversation.id });
+      messages.create(sessionId, 'user', 'Can you help?', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Of course!', { conversationId: conversation.id });
 
       vi.clearAllMocks();
 
@@ -1637,8 +1637,8 @@ describe('summaryService', () => {
       const { conversations: convRepo } = await import('../database.js');
 
       const conversation = convRepo.getActiveBySessionId(sessionId);
-      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Hi', null, conversation.id);
+      messages.create(sessionId, 'user', 'Hello', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Hi', { conversationId: conversation.id });
 
       // Set an existing summary
       convRepo.update(conversation.id, { summary: 'Existing summary' });
@@ -1662,8 +1662,8 @@ describe('summaryService', () => {
       settings.setSummarySettings({ disableConversationSummaries: true });
 
       const conversation = convRepo.getActiveBySessionId(sessionId);
-      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Hi', null, conversation.id);
+      messages.create(sessionId, 'user', 'Hello', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Hi', { conversationId: conversation.id });
 
       vi.clearAllMocks();
 
@@ -1689,9 +1689,9 @@ describe('summaryService', () => {
   describe('message formatting edge cases', () => {
     it('handles messages with tool use', async () => {
       // Add a message with tool use (toolUse is 4th param, conversationId is 5th)
-      messages.create(sessionId, 'assistant', 'I will read the file', [
-        { name: 'Read', input: { path: '/tmp/test.js' } },
-      ]);
+      messages.create(sessionId, 'assistant', 'I will read the file', {
+        toolUse: [{ name: 'Read', input: { path: '/tmp/test.js' } }],
+      });
 
       const result = await summaryService.generateSummary(sessionId);
 
@@ -1942,8 +1942,8 @@ describe('summaryService', () => {
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
 
       // Add some messages
-      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+      messages.create(sessionId, 'user', 'Hello', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Hi there', { conversationId: conversation.id });
 
       const result = await summaryService.generateConversationSummary(sessionId, conversation.id);
 
@@ -1961,10 +1961,10 @@ describe('summaryService', () => {
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
 
       // Add enough messages to trigger summary generation (>= 4)
-      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
-      messages.create(sessionId, 'user', 'Can you help me?', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Sure, what do you need?', null, conversation.id);
+      messages.create(sessionId, 'user', 'Hello', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Hi there', { conversationId: conversation.id });
+      messages.create(sessionId, 'user', 'Can you help me?', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Sure, what do you need?', { conversationId: conversation.id });
 
       const result = await summaryService.generateConversationSummary(sessionId, conversation.id);
 
@@ -1992,8 +1992,8 @@ describe('summaryService', () => {
       settings.setSummarySettings({ disableConversationSummaries: true });
 
       const conversation = conversations.create(sessionId, 'Test', true);
-      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Hi', null, conversation.id);
+      messages.create(sessionId, 'user', 'Hello', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Hi', { conversationId: conversation.id });
 
       await summaryService.generateConversationSummary(sessionId, conversation.id);
 
@@ -2018,8 +2018,8 @@ describe('summaryService', () => {
 
       // Conversation summary should be skipped
       const conversation = conversations.create(sessionId, 'Test', true);
-      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Hi', null, conversation.id);
+      messages.create(sessionId, 'user', 'Hello', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Hi', { conversationId: conversation.id });
 
       const convResult = await summaryService.generateConversationSummary(sessionId, conversation.id);
       expect(convResult).toBeNull();
@@ -2039,10 +2039,10 @@ describe('summaryService', () => {
 
       // Conversation summary should work (with >= 4 messages to meet threshold)
       const conversation = conversations.create(sessionId, 'Test', true);
-      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Hi', null, conversation.id);
-      messages.create(sessionId, 'user', 'What can you do?', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Many things!', null, conversation.id);
+      messages.create(sessionId, 'user', 'Hello', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Hi', { conversationId: conversation.id });
+      messages.create(sessionId, 'user', 'What can you do?', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Many things!', { conversationId: conversation.id });
 
       const convResult = await summaryService.generateConversationSummary(sessionId, conversation.id);
       expect(convResult).not.toBeNull();
@@ -2053,9 +2053,9 @@ describe('summaryService', () => {
 
       const conversation = conversations.create(sessionId, 'Short Conversation', true);
       // Only 3 messages — below the 4-message threshold
-      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Hi', null, conversation.id);
-      messages.create(sessionId, 'user', 'Bye', null, conversation.id);
+      messages.create(sessionId, 'user', 'Hello', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Hi', { conversationId: conversation.id });
+      messages.create(sessionId, 'user', 'Bye', { conversationId: conversation.id });
 
       const result = await summaryService.generateConversationSummary(sessionId, conversation.id);
 
@@ -2071,10 +2071,10 @@ describe('summaryService', () => {
       // Only 1 conversation in the session — the multi-conversation guard is at the caller level,
       // not inside generateConversationSummary itself, so it should still work
       const conversation = conversations.create(sessionId, 'Only Conversation', true);
-      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Hi there!', null, conversation.id);
-      messages.create(sessionId, 'user', 'What can you help with?', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Many things!', null, conversation.id);
+      messages.create(sessionId, 'user', 'Hello', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Hi there!', { conversationId: conversation.id });
+      messages.create(sessionId, 'user', 'What can you help with?', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Many things!', { conversationId: conversation.id });
 
       const result = await summaryService.generateConversationSummary(sessionId, conversation.id);
 
@@ -2894,7 +2894,7 @@ describe('summaryService', () => {
       // Create a message with empty content
       const { conversations } = await import('../database.js');
       const conversation = conversations.create(sessionId, 'Test', true);
-      messages.create(sessionId, 'user', '', null, conversation.id);
+      messages.create(sessionId, 'user', '', { conversationId: conversation.id });
 
       await summaryService.extractPrUrlIfNeeded(sessionId);
 
@@ -2932,10 +2932,10 @@ describe('summaryService', () => {
       settings.setSummarySettings({ disableConversationSummaries: false });
 
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
-      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
-      messages.create(sessionId, 'user', 'How are you?', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Doing great!', null, conversation.id);
+      messages.create(sessionId, 'user', 'Hello', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Hi there', { conversationId: conversation.id });
+      messages.create(sessionId, 'user', 'How are you?', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Doing great!', { conversationId: conversation.id });
 
       await summaryService.generateConversationSummary(sessionId, conversation.id);
 
@@ -2957,10 +2957,10 @@ describe('summaryService', () => {
       settings.setSummarySettings({ disableConversationSummaries: false });
 
       const conversation = conversations.create(sessionId, 'Test Conversation', true);
-      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
-      messages.create(sessionId, 'user', 'How are you?', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Doing great!', null, conversation.id);
+      messages.create(sessionId, 'user', 'Hello', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Hi there', { conversationId: conversation.id });
+      messages.create(sessionId, 'user', 'How are you?', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Doing great!', { conversationId: conversation.id });
 
       await summaryService.generateConversationSummary(sessionId, conversation.id);
 
@@ -3138,8 +3138,8 @@ describe('summaryService', () => {
     it('allows concurrent generation for DIFFERENT sessions', async () => {
       // Create a second session
       const session2 = sessions.create(projectId, 'Test Session 2', 'Second prompt', 'standard');
-      messages.create(session2.id, 'assistant', 'Response 1', null);
-      messages.create(session2.id, 'user', 'Follow-up', null);
+      messages.create(session2.id, 'assistant', 'Response 1');
+      messages.create(session2.id, 'user', 'Follow-up');
 
       // Start generation for both sessions concurrently
       const [result1, result2] = await Promise.all([
@@ -3274,8 +3274,8 @@ describe('summaryService', () => {
       const conversation = convRepo.getActiveBySessionId(sessionId);
 
       // Add messages to conversation
-      messages.create(sessionId, 'user', 'Hello', null, conversation.id);
-      messages.create(sessionId, 'assistant', 'Hi there', null, conversation.id);
+      messages.create(sessionId, 'user', 'Hello', { conversationId: conversation.id });
+      messages.create(sessionId, 'assistant', 'Hi there', { conversationId: conversation.id });
       messages.create(sessionId, 'assistant', 'New response to make stale');
 
       vi.clearAllMocks();
@@ -3293,8 +3293,8 @@ describe('summaryService', () => {
     it('calls generateSummary directly on the parent session ID', async () => {
       // Create a parent session with enough messages for summary generation
       const parentSession = sessions.create(projectId, 'Parent Session', 'Parent prompt', 'standard');
-      messages.create(parentSession.id, 'assistant', 'Parent response 1', null);
-      messages.create(parentSession.id, 'user', 'Parent follow-up', null);
+      messages.create(parentSession.id, 'assistant', 'Parent response 1');
+      messages.create(parentSession.id, 'user', 'Parent follow-up');
 
       // Create a child session with parentSessionId set
       const childSession = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');

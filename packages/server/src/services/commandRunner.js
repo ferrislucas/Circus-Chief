@@ -166,37 +166,15 @@ export class CommandRunner {
   /**
    * Run a command and stream output via callback
    *
-   * New signature (preferred):
-   *   run({ runId, command, workingDirectory }, { onOutput, onComplete, onError }, metadata)
-   *
-   * Legacy signature (supported for backward compatibility):
-   *   run(runId, command, workingDirectory, onOutput, onComplete, onError, metadata)
-   *
+   * @param {{ runId: string, command: string, workingDirectory: string }} params - Command parameters
+   * @param {{ onOutput?: function, onComplete?: function, onError?: function }} callbacks - Callback functions
+   * @param {{ sessionId?: string, buttonId?: string }} metadata - Optional metadata
    * @returns {Promise<number>} Exit code
    */
-  async run(paramsOrRunId, callbacksOrCommand, metadataOrWorkingDirectory, legacyOnOutput, legacyOnComplete, legacyOnError, legacyMetadata) {
-    // Support legacy positional arguments for backward compatibility
-    let runId, command, workingDirectory, onOutput, onComplete, onError, sessionId, buttonId;
-
-    if (typeof paramsOrRunId === 'string') {
-      // Legacy call: run(runId, command, workingDirectory, onOutput, onComplete, onError?, metadata?)
-      runId = paramsOrRunId;
-      command = callbacksOrCommand;
-      workingDirectory = metadataOrWorkingDirectory;
-      onOutput = legacyOnOutput;
-      onComplete = legacyOnComplete;
-      onError = legacyOnError;
-      const metadata = legacyMetadata || {};
-      sessionId = metadata.sessionId;
-      buttonId = metadata.buttonId;
-    } else {
-      // New signature: run({ runId, command, workingDirectory }, { onOutput, onComplete, onError }, metadata)
-      ({ runId, command, workingDirectory } = paramsOrRunId);
-      const callbacks = callbacksOrCommand || {};
-      ({ onOutput, onComplete, onError } = callbacks);
-      const metadata = metadataOrWorkingDirectory || {};
-      ({ sessionId, buttonId } = metadata);
-    }
+  async run(params, callbacks = {}, metadata = {}) {
+    const { runId, command, workingDirectory } = params;
+    const { onOutput, onComplete, onError } = callbacks;
+    const { sessionId, buttonId } = metadata;
 
     return new Promise((resolve) => {
       try {

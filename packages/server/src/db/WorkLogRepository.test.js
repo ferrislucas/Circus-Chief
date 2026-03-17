@@ -41,9 +41,9 @@ describe('WorkLogRepository', () => {
     });
   });
 
-  describe('create with legacy positional parameters', () => {
-    it('creates a work log with all positional parameters', () => {
-      const log = repo.create(sessionId, 'thinking', 'Some thoughts', messageId, 'bash');
+  describe('create', () => {
+    it('creates a work log with all options', () => {
+      const log = repo.create(sessionId, 'thinking', 'Some thoughts', { messageId, toolName: 'bash' });
 
       expect(log.id).toBeDefined();
       expect(log.sessionId).toBe(sessionId);
@@ -54,8 +54,8 @@ describe('WorkLogRepository', () => {
       expect(log.timestamp).toBeTypeOf('number');
     });
 
-    it('creates a work log with null messageId and toolName', () => {
-      const log = repo.create(sessionId, 'tool_input', 'ls -la', null, null);
+    it('creates a work log with explicit null messageId and toolName', () => {
+      const log = repo.create(sessionId, 'tool_input', 'ls -la', { messageId: null, toolName: null });
 
       expect(log.messageId).toBeNull();
       expect(log.toolName).toBeNull();
@@ -72,7 +72,7 @@ describe('WorkLogRepository', () => {
     });
 
     it('creates a work log with messageId but no toolName', () => {
-      const log = repo.create(sessionId, 'thinking', 'Some thoughts', messageId);
+      const log = repo.create(sessionId, 'thinking', 'Some thoughts', { messageId });
 
       expect(log.messageId).toBe(messageId);
       expect(log.toolName).toBeNull();
@@ -119,26 +119,12 @@ describe('WorkLogRepository', () => {
     });
   });
 
-  describe('create signature detection', () => {
-    it('treats string fourth argument as legacy messageId', () => {
-      const log = repo.create(sessionId, 'thinking', 'Content', messageId);
-
-      // A string is not an object, so it should be treated as legacy messageId
-      expect(log.messageId).toBe(messageId);
-    });
-
-    it('treats null fourth argument as legacy (no options, no messageId)', () => {
-      const log = repo.create(sessionId, 'thinking', 'Content', null, 'bash');
+  describe('create with null options', () => {
+    it('handles null options gracefully (uses defaults)', () => {
+      const log = repo.create(sessionId, 'thinking', 'Content', null);
 
       expect(log.messageId).toBeNull();
-      expect(log.toolName).toBe('bash');
-    });
-
-    it('treats object fourth argument as options object', () => {
-      const log = repo.create(sessionId, 'thinking', 'Content', { messageId, toolName: 'write' });
-
-      expect(log.messageId).toBe(messageId);
-      expect(log.toolName).toBe('write');
+      expect(log.toolName).toBeNull();
     });
   });
 

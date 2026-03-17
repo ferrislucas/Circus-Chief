@@ -302,7 +302,7 @@ describe('useProjectSessionSubscription', () => {
       const handler = mockOnCommandRunComplete.mock.calls[0][0];
 
       // Simulate command run complete event
-      handler('run-1', 'session-1', 'button-1', 0, 'all output');
+      handler({ runId: 'run-1', sessionId: 'session-1', buttonId: 'button-1', exitCode: 0, output: 'all output' });
 
       expect(mockSessionsStore.updateSessionCommandRun).toHaveBeenCalledWith(
         'session-1',

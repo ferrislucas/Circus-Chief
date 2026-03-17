@@ -93,7 +93,7 @@ describe('summaryClaudeClient', () => {
     });
 
     it('passes system prompt to query when provided', async () => {
-      await callClaude('Test prompt', [], 'running', null, 'System instructions');
+      await callClaude('Test prompt', [], 'running', { systemPrompt: 'System instructions' });
 
       expect(query).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -125,7 +125,7 @@ describe('summaryClaudeClient', () => {
         required: ['summary'],
       };
 
-      await callClaude('Test prompt', [], 'running', null, null, customSchema);
+      await callClaude('Test prompt', [], 'running', { jsonSchema: customSchema });
 
       const callArgs = query.mock.calls[0][0];
       expect(callArgs.options.outputFormat.schema).toEqual(customSchema);
@@ -133,8 +133,10 @@ describe('summaryClaudeClient', () => {
 
     it('starts agent call logging when logMeta provided', async () => {
       await callClaude('Test prompt', [], 'running', {
-        sessionId: 'sess-1',
-        callType: 'generateSessionSummary',
+        logMeta: {
+          sessionId: 'sess-1',
+          callType: 'generateSessionSummary',
+        },
       });
 
       expect(agentCallLogger.startCall).toHaveBeenCalledWith(
@@ -149,8 +151,10 @@ describe('summaryClaudeClient', () => {
 
     it('completes agent call on success', async () => {
       await callClaude('Test prompt', [], 'running', {
-        sessionId: 'sess-1',
-        callType: 'test',
+        logMeta: {
+          sessionId: 'sess-1',
+          callType: 'test',
+        },
       });
 
       expect(agentCallLogger.completeCall).toHaveBeenCalledWith('mock-call-id', { success: true });
@@ -163,8 +167,10 @@ describe('summaryClaudeClient', () => {
 
       await expect(
         callClaude('Test prompt', [], 'running', {
-          sessionId: 'sess-1',
-          callType: 'test',
+          logMeta: {
+            sessionId: 'sess-1',
+            callType: 'test',
+          },
         })
       ).rejects.toThrow('Test error');
 
@@ -182,9 +188,11 @@ describe('summaryClaudeClient', () => {
 
     it('includes conversationId in logging when provided', async () => {
       await callClaude('Test prompt', [], 'running', {
-        sessionId: 'sess-1',
-        conversationId: 'conv-1',
-        callType: 'test',
+        logMeta: {
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          callType: 'test',
+        },
       });
 
       expect(agentCallLogger.startCall).toHaveBeenCalledWith(
@@ -253,8 +261,10 @@ describe('summaryClaudeClient', () => {
       });
 
       await callClaude('Test prompt', [], 'running', {
-        sessionId: 'sess-1',
-        callType: 'test',
+        logMeta: {
+          sessionId: 'sess-1',
+          callType: 'test',
+        },
       });
 
       expect(agentCallLogger.updateUsage).toHaveBeenCalledWith('mock-call-id', {
@@ -285,8 +295,10 @@ describe('summaryClaudeClient', () => {
       });
 
       await callClaude('Test prompt', [], 'running', {
-        sessionId: 'sess-1',
-        callType: 'test',
+        logMeta: {
+          sessionId: 'sess-1',
+          callType: 'test',
+        },
       });
 
       expect(agentCallLogger.updateUsage).toHaveBeenCalledWith('mock-call-id', {
@@ -312,8 +324,10 @@ describe('summaryClaudeClient', () => {
       });
 
       await callClaude('Test prompt', [], 'running', {
-        sessionId: 'sess-1',
-        callType: 'test',
+        logMeta: {
+          sessionId: 'sess-1',
+          callType: 'test',
+        },
       });
 
       expect(agentCallLogger.updateUsage).not.toHaveBeenCalled();
