@@ -459,6 +459,78 @@ describe('MessageRepository', () => {
     });
   });
 
+  describe('create with options object signature', () => {
+    it('creates a message with options object containing toolUse', () => {
+      const toolUse = [{ name: 'bash', input: { command: 'ls' } }];
+      const message = repo.create(sessionId, 'assistant', 'Running...', { toolUse });
+
+      expect(message.toolUse).toEqual(toolUse);
+      expect(message.conversationId).toBeNull();
+      expect(message.model).toBeNull();
+    });
+
+    it('creates a message with options object containing conversationId', () => {
+      const message = repo.create(sessionId, 'user', 'Hello!', { conversationId });
+
+      expect(message.conversationId).toBe(conversationId);
+      expect(message.toolUse).toBeNull();
+      expect(message.model).toBeNull();
+    });
+
+    it('creates a message with options object containing model', () => {
+      const message = repo.create(sessionId, 'assistant', 'Response', { model: 'claude-opus-4-6' });
+
+      expect(message.model).toBe('claude-opus-4-6');
+      expect(message.toolUse).toBeNull();
+      expect(message.conversationId).toBeNull();
+    });
+
+    it('creates a message with all options', () => {
+      const toolUse = [{ name: 'read', input: { path: '/tmp/file' } }];
+      const message = repo.create(sessionId, 'assistant', 'Processing...', {
+        toolUse,
+        conversationId,
+        model: 'claude-sonnet-4-6',
+      });
+
+      expect(message.toolUse).toEqual(toolUse);
+      expect(message.conversationId).toBe(conversationId);
+      expect(message.model).toBe('claude-sonnet-4-6');
+    });
+
+    it('creates a message with empty options object (all defaults)', () => {
+      const message = repo.create(sessionId, 'user', 'Hello!', {});
+
+      expect(message.toolUse).toBeNull();
+      expect(message.conversationId).toBeNull();
+      expect(message.model).toBeNull();
+    });
+
+    it('creates a message with null toolUse in options', () => {
+      const message = repo.create(sessionId, 'user', 'Hello!', { toolUse: null, conversationId });
+
+      expect(message.toolUse).toBeNull();
+      expect(message.conversationId).toBe(conversationId);
+    });
+
+    it('preserves backward compatibility with legacy positional parameters', () => {
+      const toolUse = [{ name: 'bash', input: { command: 'pwd' } }];
+      const message = repo.create(sessionId, 'assistant', 'Output', toolUse, conversationId, 'claude-opus-4-6');
+
+      expect(message.toolUse).toEqual(toolUse);
+      expect(message.conversationId).toBe(conversationId);
+      expect(message.model).toBe('claude-opus-4-6');
+    });
+
+    it('detects array toolUse as legacy signature (not options object)', () => {
+      const toolUse = [{ name: 'bash', input: { command: 'ls' } }];
+      const message = repo.create(sessionId, 'assistant', 'Running', toolUse);
+
+      // Arrays should be treated as legacy toolUse parameter, not options object
+      expect(message.toolUse).toEqual(toolUse);
+    });
+  });
+
   describe('duplicateForConversations', () => {
     it('should copy all messages to new conversations', () => {
       // Create two conversations with messages for this session

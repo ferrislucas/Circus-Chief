@@ -232,7 +232,7 @@ describe('summaryClaudeClient', () => {
       expect(parsed.short_summary).toBe('structured version');
     });
 
-    it('captures usage data for logging', async () => {
+    it('captures usage data from modelUsage for logging', async () => {
       query.mockImplementationOnce(async function* () {
         yield {
           type: 'assistant',
@@ -264,6 +264,122 @@ describe('summaryClaudeClient', () => {
         cacheReadInputTokens: 10,
         cacheCreationInputTokens: 5,
       });
+    });
+
+    it('captures usage data from event.usage fallback when no modelUsage', async () => {
+      query.mockImplementationOnce(async function* () {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'tool_use', name: 'StructuredOutput', input: { short_summary: 'test' } }] },
+        };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          usage: {
+            input_tokens: 200,
+            output_tokens: 80,
+            cache_read_input_tokens: 15,
+            cache_creation_input_tokens: 8,
+          },
+        };
+      });
+
+      await callClaude('Test prompt', [], 'running', {
+        sessionId: 'sess-1',
+        callType: 'test',
+      });
+
+      expect(agentCallLogger.updateUsage).toHaveBeenCalledWith('mock-call-id', {
+        inputTokens: 200,
+        outputTokens: 80,
+        thinkingTokens: 0,
+        cacheReadInputTokens: 15,
+        cacheCreationInputTokens: 8,
+      });
+    });
+
+    it('does not log usage when neither modelUsage nor usage are present', async () => {
+      query.mockImplementationOnce(async function* () {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'tool_use', name: 'StructuredOutput', input: { short_summary: 'test' } }] },
+        };
+        yield {
+          type: 'result',
+          subtype: 'success',
+          // No modelUsage and no usage fields
+        };
+      });
+
+      await callClaude('Test prompt', [], 'running', {
+        sessionId: 'sess-1',
+        callType: 'test',
+      });
+
+      expect(agentCallLogger.updateUsage).not.toHaveBeenCalled();
+    });
+
+    it('ignores non-StructuredOutput tool_use blocks', async () => {
+      query.mockImplementationOnce(async function* () {
+        yield {
+          type: 'assistant',
+          message: {
+            content: [
+              { type: 'tool_use', name: 'SomeOtherTool', input: { foo: 'bar' } },
+              { type: 'text', text: 'fallback text response' },
+            ],
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      const result = await callClaude('Test prompt', [], 'running');
+      // Should only capture text, since tool_use is not StructuredOutput
+      expect(result).toBe('fallback text response');
+    });
+
+    it('handles empty content array gracefully', async () => {
+      query.mockImplementationOnce(async function* () {
+        yield {
+          type: 'assistant',
+          message: { content: [] },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      const result = await callClaude('Test prompt', [], 'running');
+      expect(result).toBe('');
+    });
+
+    it('handles missing message.content gracefully', async () => {
+      query.mockImplementationOnce(async function* () {
+        yield {
+          type: 'assistant',
+          message: {},
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      const result = await callClaude('Test prompt', [], 'running');
+      expect(result).toBe('');
+    });
+
+    it('concatenates text from multiple text blocks', async () => {
+      query.mockImplementationOnce(async function* () {
+        yield {
+          type: 'assistant',
+          message: {
+            content: [
+              { type: 'text', text: 'part one ' },
+              { type: 'text', text: 'part two' },
+            ],
+          },
+        };
+        yield { type: 'result', subtype: 'success' };
+      });
+
+      const result = await callClaude('Test prompt', [], 'running');
+      expect(result).toBe('part one part two');
     });
   });
 });
