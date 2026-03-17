@@ -104,6 +104,12 @@
       @templateChange="handleTemplateChange"
     />
 
+    <!-- Scheduling Info Panel (scheduled countdown + auto-reschedule status) -->
+    <SchedulingInfo
+      v-if="sessionsStore.currentSession"
+      :session="sessionsStore.currentSession"
+    />
+
     <!-- Quick Response Settings Modal -->
     <QuickResponseSettings
       :isOpen="quickResponseSettingsOpen"
@@ -161,6 +167,7 @@ import RunningState from './RunningState.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
 import ScheduleSessionModal from './ScheduleSessionModal.vue';
 import AutoRescheduleModal from './AutoRescheduleModal.vue';
+import SchedulingInfo from './SchedulingInfo.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useProjectsStore } from '../stores/projects.js';

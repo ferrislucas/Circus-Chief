@@ -123,6 +123,14 @@ vi.mock('./ModelSelector.vue', () => ({
   },
 }));
 
+vi.mock('./SchedulingInfo.vue', () => ({
+  default: {
+    name: 'SchedulingInfo',
+    props: ['session'],
+    template: '<div class="scheduling-info-stub">Scheduling Info</div>',
+  },
+}));
+
 vi.mock('@claudetools/shared', async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -3336,6 +3344,52 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       const modelLabel = wrapper.find('.running-model-label');
       expect(modelLabel.exists()).toBe(true);
       expect(modelLabel.text()).toBe('Deepseek Chat');
+    });
+  });
+
+  describe('SchedulingInfo rendering', () => {
+    it('renders SchedulingInfo when currentSession exists', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        autoRescheduleEnabled: true,
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
+      expect(schedulingInfo.exists()).toBe(true);
+    });
+
+    it('does not render SchedulingInfo when currentSession is null', async () => {
+      mockSessionsStore.currentSession = null;
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
+      expect(schedulingInfo.exists()).toBe(false);
+    });
+
+    it('passes current session as prop to SchedulingInfo', async () => {
+      const testSession = {
+        id: 'sess-456',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        autoRescheduleEnabled: false,
+      };
+      mockSessionsStore.currentSession = testSession;
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
+      expect(schedulingInfo.exists()).toBe(true);
+      expect(schedulingInfo.props('session')).toEqual(testSession);
     });
   });
 });
