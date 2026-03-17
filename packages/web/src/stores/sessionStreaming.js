@@ -6,6 +6,13 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
     partialThinkingBySession: {},
     _partialThrottleTimer: null,
     _pendingPartialText: null,
+
+    // Per-session streaming state for list view
+    sessionWorkLogs: {},           // { [sessionId]: workLogEntry[] }
+    sessionPartialText: {},        // { [sessionId]: string }
+
+    // UI preference: which sessions have logs collapsed
+    collapsedSessionLogs: new Set(),  // sessionIds where user closed the log panel
   }),
 
   getters: {
@@ -17,6 +24,33 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
     getPartialThinking: (state) => (sessionId) => {
       if (!sessionId) return null;
       return state.partialThinkingBySession[sessionId] || null;
+    },
+
+    /**
+     * Get work logs for a session (list view)
+     * @param {string} sessionId
+     * @returns {Array}
+     */
+    getSessionWorkLogs: (state) => (sessionId) => {
+      return state.sessionWorkLogs[sessionId] || [];
+    },
+
+    /**
+     * Get partial text for a session (list view)
+     * @param {string} sessionId
+     * @returns {string}
+     */
+    getSessionPartialText: (state) => (sessionId) => {
+      return state.sessionPartialText[sessionId] || '';
+    },
+
+    /**
+     * Check if a session's log panel is collapsed
+     * @param {string} sessionId
+     * @returns {boolean}
+     */
+    isSessionLogCollapsed: (state) => (sessionId) => {
+      return state.collapsedSessionLogs.has(sessionId);
     },
   },
 
@@ -84,6 +118,85 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
      */
     clearAllPartialThinking() {
       this.partialThinkingBySession = {};
+    },
+
+    /**
+     * Add a work log entry for a session (list view, capped at 15 entries)
+     * @param {string} sessionId
+     * @param {Object} log - The work log entry
+     */
+    addSessionWorkLog(sessionId, log) {
+      if (!this.sessionWorkLogs[sessionId]) {
+        this.sessionWorkLogs[sessionId] = [];
+      }
+      this.sessionWorkLogs[sessionId].push(log);
+      // Keep only last 15 entries
+      if (this.sessionWorkLogs[sessionId].length > 15) {
+        this.sessionWorkLogs[sessionId] = this.sessionWorkLogs[sessionId].slice(-15);
+      }
+      // Trigger reactivity
+      this.sessionWorkLogs = { ...this.sessionWorkLogs };
+    },
+
+    /**
+     * Set partial text for a session (list view)
+     * @param {string} sessionId
+     * @param {string} text
+     */
+    setSessionPartialText(sessionId, text) {
+      this.sessionPartialText = {
+        ...this.sessionPartialText,
+        [sessionId]: text,
+      };
+    },
+
+    /**
+     * Clear all streaming state for a session (list view)
+     * @param {string} sessionId
+     */
+    clearSessionStreamingState(sessionId) {
+      const { [sessionId]: _wl, ...restWorkLogs } = this.sessionWorkLogs;
+      this.sessionWorkLogs = restWorkLogs;
+
+      const { [sessionId]: _pt, ...restPartialText } = this.sessionPartialText;
+      this.sessionPartialText = restPartialText;
+
+      const { [sessionId]: _th, ...restThinking } = this.partialThinkingBySession;
+      this.partialThinkingBySession = restThinking;
+    },
+
+    /**
+     * Toggle collapsed state for a session's log panel
+     * @param {string} sessionId
+     */
+    toggleSessionLogCollapsed(sessionId) {
+      if (this.collapsedSessionLogs.has(sessionId)) {
+        this.collapsedSessionLogs.delete(sessionId);
+      } else {
+        this.collapsedSessionLogs.add(sessionId);
+      }
+      // Trigger reactivity by creating new Set
+      this.collapsedSessionLogs = new Set(this.collapsedSessionLogs);
+      this.saveCollapsedLogState();
+    },
+
+    /**
+     * Save collapsed log state to localStorage
+     */
+    saveCollapsedLogState() {
+      try {
+        localStorage.setItem('collapsedSessionLogs', JSON.stringify([...this.collapsedSessionLogs]));
+      } catch (e) { /* ignore */ }
+    },
+
+    /**
+     * Restore collapsed log state from localStorage
+     */
+    restoreCollapsedLogState() {
+      try {
+        const saved = localStorage.getItem('collapsedSessionLogs');
+        if (saved) this.collapsedSessionLogs = new Set(JSON.parse(saved));
+      } catch (e) { /* ignore */ }
     },
   },
 });

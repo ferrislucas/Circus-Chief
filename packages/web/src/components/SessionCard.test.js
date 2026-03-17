@@ -74,6 +74,17 @@ vi.mock('./PrIndicators.vue', () => ({
   }),
 }));
 
+// Mock SessionLogStream component
+vi.mock('./SessionLogStream.vue', () => ({
+  default: defineComponent({
+    name: 'SessionLogStream',
+    props: ['sessionId'],
+    setup(props) {
+      return () => h('div', { class: 'session-log-stream-mock', 'data-session-id': props.sessionId });
+    },
+  }),
+}));
+
 
 // Custom RouterLink stub that renders slot content
 const RouterLinkStub = defineComponent({
@@ -923,6 +934,51 @@ describe('SessionCard', () => {
       // Even though API was called, summary section should not exist
       const summarySection = wrapper.find('.session-summary');
       expect(summarySection.exists()).toBe(false);
+    });
+  });
+
+  describe('SessionLogStream integration', () => {
+    it('renders SessionLogStream when session status is "running"', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+    });
+
+    it('renders SessionLogStream when session status is "starting"', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'starting' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+    });
+
+    it('does NOT render SessionLogStream when session status is "completed"', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'completed' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(false);
+    });
+
+    it('does NOT render SessionLogStream when session status is "waiting"', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(false);
+    });
+
+    it('does NOT render SessionLogStream when session status is "error"', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'error' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(false);
+    });
+
+    it('passes correct session.id as sessionId prop', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, id: 'session-xyz', status: 'running' },
+      });
+      const logStream = wrapper.find('.session-log-stream-mock');
+      expect(logStream.attributes('data-session-id')).toBe('session-xyz');
     });
   });
 });
