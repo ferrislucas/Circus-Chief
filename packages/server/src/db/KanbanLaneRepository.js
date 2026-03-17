@@ -16,6 +16,7 @@ export class KanbanLaneRepository extends BaseRepository {
       name: row.name,
       sortOrder: row.sort_order,
       onEnterTemplateId: row.on_enter_template_id,
+      onEnterPrompt: row.on_enter_prompt,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -40,6 +41,7 @@ export class KanbanLaneRepository extends BaseRepository {
    * @param {string} data.name
    * @param {number} [data.sortOrder]
    * @param {string|null} [data.onEnterTemplateId]
+   * @param {string|null} [data.onEnterPrompt]
    * @returns {Object}
    */
   create(boardId, data) {
@@ -57,10 +59,10 @@ export class KanbanLaneRepository extends BaseRepository {
 
     this.db
       .prepare(
-        `INSERT INTO kanban_lanes (id, board_id, name, sort_order, on_enter_template_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO kanban_lanes (id, board_id, name, sort_order, on_enter_template_id, on_enter_prompt, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, boardId, data.name, sortOrder, data.onEnterTemplateId || null, now, now);
+      .run(id, boardId, data.name, sortOrder, data.onEnterTemplateId || null, data.onEnterPrompt || null, now, now);
 
     return this.getById(id);
   }
@@ -72,6 +74,7 @@ export class KanbanLaneRepository extends BaseRepository {
    * @param {string} [data.name]
    * @param {number} [data.sortOrder]
    * @param {string|null} [data.onEnterTemplateId]
+   * @param {string|null} [data.onEnterPrompt]
    * @returns {Object}
    */
   update(id, data) {
@@ -89,6 +92,10 @@ export class KanbanLaneRepository extends BaseRepository {
     if (data.onEnterTemplateId !== undefined) {
       updates.push('on_enter_template_id = ?');
       values.push(data.onEnterTemplateId);
+    }
+    if (data.onEnterPrompt !== undefined) {
+      updates.push('on_enter_prompt = ?');
+      values.push(data.onEnterPrompt);
     }
 
     if (updates.length === 0) return this.getById(id);
@@ -148,8 +155,9 @@ export class KanbanLaneRepository extends BaseRepository {
 
     if (!row) return null;
 
+    const mappedLane = this.map(row);
     return {
-      ...this.map(row),
+      ...mappedLane,
       template: row.template_name
         ? {
             id: row.on_enter_template_id,

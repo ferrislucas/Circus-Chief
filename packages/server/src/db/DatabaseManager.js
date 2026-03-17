@@ -605,6 +605,13 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_kanban_card_sessions_session ON kanban_card_sessions(session_id);
       CREATE INDEX IF NOT EXISTS idx_kanban_card_sessions_card ON kanban_card_sessions(card_id);
     `);
+
+    // Add on_enter_prompt column to kanban_lanes table
+    const kanbanLanesTableInfo = this.#db.prepare('PRAGMA table_info(kanban_lanes)').all();
+    const kanbanLanesColumns = kanbanLanesTableInfo.map((col) => col.name);
+    if (!kanbanLanesColumns.includes('on_enter_prompt')) {
+      this.#db.exec('ALTER TABLE kanban_lanes ADD COLUMN on_enter_prompt TEXT');
+    }
   }
 
   /**

@@ -298,10 +298,12 @@ vi.mock('../stores/commandButtons.js', () => ({
 // Mock API
 const mockGetSessionSummary = vi.fn();
 const mockGetSessionSummariesBatch = vi.fn();
+const mockGetKanbanBoard = vi.fn();
 vi.mock('../composables/useApi.js', () => ({
   api: {
     getSessionSummary: (...args) => mockGetSessionSummary(...args),
     getSessionSummariesBatch: (...args) => mockGetSessionSummariesBatch(...args),
+    getKanbanBoard: (...args) => mockGetKanbanBoard(...args),
   },
 }));
 
@@ -579,6 +581,8 @@ describe('SessionListView', () => {
     mockGetSessionSummary.mockResolvedValue(null);
     mockGetSessionSummariesBatch.mockReset();
     mockGetSessionSummariesBatch.mockResolvedValue({});
+    mockGetKanbanBoard.mockReset();
+    mockGetKanbanBoard.mockResolvedValue({ lanes: [], cards: [] });
 
     // Setup projects store mock
     mockProjectsStore = {
@@ -850,6 +854,8 @@ describe('Status filtering', () => {
     mockGetSessionSummary.mockResolvedValue(null);
     mockGetSessionSummariesBatch.mockReset();
     mockGetSessionSummariesBatch.mockResolvedValue({});
+    mockGetKanbanBoard.mockReset();
+    mockGetKanbanBoard.mockResolvedValue({ lanes: [], cards: [] });
 
     mockProjectsStore = {
       currentProject: { id: 'test-project-id', name: 'Test Project', workingDirectory: '/test/path' },
@@ -1462,6 +1468,7 @@ describe('SessionListView integration', () => {
 
     mockGetSessionSummary.mockResolvedValue(null);
     mockGetSessionSummariesBatch.mockResolvedValue({});
+    mockGetKanbanBoard.mockResolvedValue({ lanes: [], cards: [] });
   });
 
   it('receives real-time summary updates while viewing session list', async () => {
@@ -1532,6 +1539,7 @@ describe('SessionListView Archived Tab', () => {
 
     mockGetSessionSummary.mockResolvedValue(null);
     mockGetSessionSummariesBatch.mockResolvedValue({});
+    mockGetKanbanBoard.mockResolvedValue({ lanes: [], cards: [] });
   });
 
   // Helper to flush all async updates and force DOM re-render
@@ -2361,6 +2369,8 @@ describe('SessionListView batch summary fetching', () => {
     mockGetSessionSummary.mockResolvedValue(null);
     mockGetSessionSummariesBatch.mockReset();
     mockGetSessionSummariesBatch.mockResolvedValue({});
+    mockGetKanbanBoard.mockReset();
+    mockGetKanbanBoard.mockResolvedValue({ lanes: [], cards: [] });
 
     mockProjectsStore = {
       currentProject: { id: 'test-project-id', name: 'Test Project', workingDirectory: '/test/path' },

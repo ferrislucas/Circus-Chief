@@ -14,13 +14,37 @@ export const CreateKanbanLaneRequest = z.object({
   name: z.string().min(1),
   sortOrder: z.number().optional(),
   onEnterTemplateId: z.string().uuid().nullable().optional(),
-});
+  onEnterPrompt: z.string().nullable().optional(),
+}).refine(
+  (data) => {
+    // Mutual exclusivity: can't have both template and prompt set
+    const hasTemplate = data.onEnterTemplateId != null;
+    const hasPrompt = data.onEnterPrompt != null && data.onEnterPrompt.trim() !== '';
+    return !(hasTemplate && hasPrompt);
+  },
+  {
+    message: 'Cannot set both onEnterTemplateId and onEnterPrompt. Choose one automation type.',
+    path: ['onEnterPrompt'],
+  }
+);
 
 export const UpdateKanbanLaneRequest = z.object({
   name: z.string().min(1).optional(),
   sortOrder: z.number().optional(),
   onEnterTemplateId: z.string().uuid().nullable().optional(),
-});
+  onEnterPrompt: z.string().nullable().optional(),
+}).refine(
+  (data) => {
+    // Mutual exclusivity: can't have both template and prompt set
+    const hasTemplate = data.onEnterTemplateId != null;
+    const hasPrompt = data.onEnterPrompt != null && data.onEnterPrompt.trim() !== '';
+    return !(hasTemplate && hasPrompt);
+  },
+  {
+    message: 'Cannot set both onEnterTemplateId and onEnterPrompt. Choose one automation type.',
+    path: ['onEnterPrompt'],
+  }
+);
 
 export const ReorderKanbanLanesRequest = z.array(z.string().uuid());
 
@@ -30,6 +54,7 @@ export const KanbanLaneResponse = z.object({
   name: z.string(),
   sortOrder: z.number(),
   onEnterTemplateId: z.string().uuid().nullable(),
+  onEnterPrompt: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

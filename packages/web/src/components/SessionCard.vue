@@ -71,8 +71,21 @@
           <div class="session-date">
             {{ formatDate(dateToShow) }}
           </div>
-          <!-- Archive button and star button (always visible on root sessions, not on child sessions) -->
-          <div v-if="!isChild && (showArchive || showUnarchive)" class="archive-actions">
+          <!-- Action buttons (always visible on root sessions, not on child sessions) -->
+          <div v-if="!isChild" class="archive-actions">
+            <!-- Add to Board button (only show if session is not already on board) -->
+            <button
+              v-if="!isOnBoard"
+              class="add-to-board-btn"
+              title="Add to kanban board"
+              @click.stop.prevent="onAddToBoardClick"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="9" y1="3" x2="9" y2="21"></line>
+                <line x1="15" y1="3" x2="15" y2="21"></line>
+              </svg>
+            </button>
             <button
               v-if="showArchive && canArchive"
               class="archive-btn"
@@ -195,6 +208,7 @@ import { computed, ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { useKanbanStore } from '../stores/kanban.js';
 import { formatDate } from '../utils/formatters.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import PrIndicators from './PrIndicators.vue';
@@ -204,6 +218,7 @@ import { api } from '../composables/useApi.js';
 const router = useRouter();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
+const kanbanStore = useKanbanStore();
 const selectedButtonForModal = ref(null);
 const filesCount = ref(0);
 
@@ -262,12 +277,21 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['retrySummary', 'archive', 'unarchive']);
+const emit = defineEmits(['retrySummary', 'archive', 'unarchive', 'addToBoard']);
+
+// Check if session is already on the kanban board
+const isOnBoard = computed(() => {
+  return kanbanStore.isSessionOnBoard(props.session.id);
+});
 
 // Show archive for statuses that are no longer active (not running or starting)
 const canArchive = computed(() => {
   return props.session.status !== 'running' && props.session.status !== 'starting';
 });
+
+const onAddToBoardClick = () => {
+  emit('addToBoard', props.session);
+};
 
 const dateToShow = computed(() => {
   return props.session.lastActivityAt || props.session.updatedAt || props.session.createdAt;
@@ -558,6 +582,24 @@ const formatScheduledTime = (timestamp) => {
 }
 
 .archive-btn:hover {
+  color: var(--color-primary);
+  background-color: var(--color-bg-soft);
+}
+
+.add-to-board-btn {
+  background: none;
+  border: none;
+  padding: 0.25rem;
+  cursor: pointer;
+  color: var(--color-text-soft);
+  border-radius: var(--border-radius);
+  transition: color 0.15s, background-color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.add-to-board-btn:hover {
   color: var(--color-primary);
   background-color: var(--color-bg-soft);
 }

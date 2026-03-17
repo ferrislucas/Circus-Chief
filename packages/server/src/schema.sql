@@ -332,6 +332,7 @@ CREATE TABLE IF NOT EXISTS kanban_lanes (
   name TEXT NOT NULL,
   sort_order INTEGER NOT NULL DEFAULT 0,
   on_enter_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
+  on_enter_prompt TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

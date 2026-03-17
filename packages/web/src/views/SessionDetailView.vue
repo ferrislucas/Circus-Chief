@@ -66,6 +66,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
+import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { useSessionInitializer } from '../composables/useSessionInitializer.js';
 import ConversationTab from '../components/ConversationTab.vue';
@@ -85,6 +86,7 @@ const commandButtonsStore = useCommandButtonsStore();
 const canvasStore = useCanvasStore();
 const todosStore = useTodosStore();
 const uiStore = useUiStore();
+const kanbanStore = useKanbanStore();
 
 // Reactive session ID that tracks route changes
 // Used by the polling composable to track the current session
@@ -179,6 +181,14 @@ watch(
 onMounted(async () => {
   // Initialize the session with WebSocket subscription and data fetching
   await initializeSession(currentSessionId.value);
+
+  // Fetch kanban board so SessionHeaderPanel can show lane chip
+  const session = sessionsStore.currentSession;
+  if (session?.projectId) {
+    kanbanStore.fetchBoard(session.projectId).catch(err => {
+      console.warn('Failed to fetch kanban board:', err);
+    });
+  }
 });
 
 // Watch for session changes within the same component (e.g., navigating between sessions)

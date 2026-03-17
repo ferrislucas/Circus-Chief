@@ -24,8 +24,27 @@
         @drop="handleDrop($event, lane.id)"
       >
         <div class="lane-header">
-          <h3 class="lane-title">{{ lane.name }}</h3>
-          <span class="lane-count">{{ lane.cards?.length || 0 }}</span>
+          <div class="lane-title-row">
+            <h3 class="lane-title">{{ lane.name }}</h3>
+            <span v-if="lane.onEnterTemplateId || lane.onEnterPrompt" class="lane-automation-indicator" title="Automation enabled">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
+              </svg>
+            </span>
+          </div>
+          <div class="lane-header-actions">
+            <span class="lane-count">{{ lane.cards?.length || 0 }}</span>
+            <button
+              class="lane-settings-btn"
+              title="Lane settings"
+              @click="openLaneSettings(lane)"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div class="lane-cards">
@@ -72,11 +91,20 @@
           </div>
         </div>
 
-        <!-- Lane settings (on-enter template) -->
-        <div v-if="lane.onEnterTemplateId" class="lane-footer">
-          <span class="lane-automation">
+        <!-- Lane footer with automation info and add session button -->
+        <div class="lane-footer">
+          <span v-if="lane.onEnterTemplateId" class="lane-automation">
             Auto: triggers template on entry
           </span>
+          <span v-else-if="lane.onEnterPrompt" class="lane-automation">
+            Auto: runs custom prompt on entry
+          </span>
+          <button
+            class="add-session-btn"
+            @click="openAddSession(lane)"
+          >
+            + Add Session
+          </button>
         </div>
       </div>
 
@@ -101,12 +129,36 @@
         </div>
       </div>
     </div>
+
+    <!-- Add Session Modal -->
+    <AddSessionToLaneModal
+      :is-open="showAddSessionModal"
+      :project-id="projectId"
+      :lane-id="selectedLaneForAddSession?.id"
+      :lane-name="selectedLaneForAddSession?.name"
+      @update:is-open="showAddSessionModal = $event"
+      @close="closeAddSessionModal"
+      @added="onSessionAdded"
+    />
+
+    <!-- Lane Settings Modal -->
+    <LaneSettingsModal
+      :is-open="showLaneSettingsModal"
+      :project-id="projectId"
+      :lane="selectedLaneForSettings"
+      @update:is-open="showLaneSettingsModal = $event"
+      @close="closeLaneSettingsModal"
+      @updated="onLaneUpdated"
+      @deleted="onLaneDeleted"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import { useKanbanStore } from '../stores/kanban.js';
+import AddSessionToLaneModal from './AddSessionToLaneModal.vue';
+import LaneSettingsModal from './LaneSettingsModal.vue';
 
 const props = defineProps({
   projectId: {
@@ -121,6 +173,12 @@ const kanbanStore = useKanbanStore();
 const showAddLane = ref(false);
 const newLaneName = ref('');
 const draggedCard = ref(null);
+
+// Modal state
+const showAddSessionModal = ref(false);
+const selectedLaneForAddSession = ref(null);
+const showLaneSettingsModal = ref(false);
+const selectedLaneForSettings = ref(null);
 
 // Computed
 const board = computed(() => kanbanStore.board);
@@ -210,6 +268,40 @@ const handleAddLane = async () => {
 const cancelAddLane = () => {
   showAddLane.value = false;
   newLaneName.value = '';
+};
+
+// Modal handlers
+const openAddSession = (lane) => {
+  selectedLaneForAddSession.value = lane;
+  showAddSessionModal.value = true;
+};
+
+const closeAddSessionModal = () => {
+  showAddSessionModal.value = false;
+  selectedLaneForAddSession.value = null;
+};
+
+const onSessionAdded = () => {
+  // Session was added successfully, modal handles the close
+};
+
+const openLaneSettings = (lane) => {
+  selectedLaneForSettings.value = lane;
+  showLaneSettingsModal.value = true;
+};
+
+const closeLaneSettingsModal = () => {
+  showLaneSettingsModal.value = false;
+  selectedLaneForSettings.value = null;
+};
+
+const onLaneUpdated = () => {
+  // Lane was updated successfully, board will refresh via store
+};
+
+const onLaneDeleted = () => {
+  closeLaneSettingsModal();
+  // Lane was deleted, board will refresh via store
 };
 
 // Watch for project changes
@@ -315,11 +407,34 @@ onMounted(() => {
   border-bottom: 1px solid var(--color-border);
 }
 
+.lane-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex: 1;
+  min-width: 0;
+}
+
 .lane-title {
   margin: 0;
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lane-automation-indicator {
+  color: #f59e0b;
+  flex-shrink: 0;
+}
+
+.lane-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .lane-count {
@@ -328,6 +443,29 @@ onMounted(() => {
   background: var(--color-border);
   padding: 0.125rem 0.5rem;
   border-radius: 10px;
+}
+
+.lane-settings-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+  transition: opacity 0.15s, color 0.15s, background-color 0.15s;
+}
+
+.kanban-lane:hover .lane-settings-btn {
+  opacity: 1;
+}
+
+.lane-settings-btn:hover {
+  color: var(--color-primary);
+  background: var(--color-bg-soft);
 }
 
 .lane-cards {
@@ -457,16 +595,38 @@ onMounted(() => {
 }
 
 .lane-footer {
-  padding: 0.5rem 1rem;
+  padding: 0.5rem;
   border-top: 1px solid var(--color-border);
   font-size: 0.7rem;
   color: var(--color-text-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .lane-automation {
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  padding: 0 0.5rem;
+}
+
+.add-session-btn {
+  width: 100%;
+  padding: 0.5rem;
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  font-size: 0.75rem;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+
+.add-session-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: rgba(34, 197, 255, 0.05);
 }
 
 .add-lane-container {
