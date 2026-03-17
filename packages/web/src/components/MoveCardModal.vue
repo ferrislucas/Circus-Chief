@@ -77,7 +77,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useUiStore } from '../stores/ui.js';
 
@@ -192,6 +192,21 @@ watch(
     runOnEnterTemplate.value = true;
   }
 );
+
+// Handle Escape key to close modal
+function handleEscape(event) {
+  if (event.key === 'Escape' && props.isOpen) {
+    close();
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', handleEscape);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleEscape);
+});
 </script>
 
 <style scoped>

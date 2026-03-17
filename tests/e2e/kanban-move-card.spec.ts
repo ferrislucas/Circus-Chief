@@ -27,6 +27,11 @@ test.describe('Kanban Move Card Modal', () => {
   });
 
   test('move button is visible on cards', async ({ page }) => {
+    // Navigate to kanban board first
+    await navigateAndWait(page, `/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
     // Add session to the board first
     const lane = page.locator('.kanban-lane').filter({ hasText: 'To Do' });
     await lane.locator('.add-session-btn').click();
@@ -45,6 +50,11 @@ test.describe('Kanban Move Card Modal', () => {
   });
 
   test('move modal opens from kanban board', async ({ page }) => {
+    // Navigate to kanban board first
+    await navigateAndWait(page, `/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
     // Add session to the board
     const lane = page.locator('.kanban-lane').filter({ hasText: 'To Do' });
     await lane.locator('.add-session-btn').click();
@@ -73,6 +83,11 @@ test.describe('Kanban Move Card Modal', () => {
   });
 
   test('move card to different lane from kanban board', async ({ page }) => {
+    // Navigate to kanban board first
+    await navigateAndWait(page, `/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
     // Add session to the To Do lane
     const todoLane = page.locator('.kanban-lane').filter({ hasText: 'To Do' });
     await todoLane.locator('.add-session-btn').click();
@@ -105,6 +120,11 @@ test.describe('Kanban Move Card Modal', () => {
   });
 
   test('cannot select current lane in move modal', async ({ page }) => {
+    // Navigate to kanban board first
+    await navigateAndWait(page, `/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
     // Add session to the board
     const lane = page.locator('.kanban-lane').filter({ hasText: 'To Do' });
     await lane.locator('.add-session-btn').click();
@@ -129,6 +149,11 @@ test.describe('Kanban Move Card Modal', () => {
   });
 
   test('cancel and close behavior', async ({ page }) => {
+    // Navigate to kanban board first
+    await navigateAndWait(page, `/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
     // Add session to the board
     const lane = page.locator('.kanban-lane').filter({ hasText: 'To Do' });
     await lane.locator('.add-session-btn').click();
@@ -136,14 +161,16 @@ test.describe('Kanban Move Card Modal', () => {
     await page.waitForSelector('.session-item', { timeout: 10000 });
     await page.locator('.session-item').first().click();
     await page.click('.modal-footer .btn-primary');
-    await expect(page.locator('.modal-backdrop')).toBeHidden({ timeout: 5000 });
+    // Ensure ALL modals are closed (no backdrops visible)
+    await expect(page.locator('.modal-backdrop')).toHaveCount(0, { timeout: 5000 });
 
     // Test 1: Click backdrop to close
     const card = lane.locator('.kanban-card').first();
     await card.hover();
     await card.locator('.card-move-btn').click();
-    await page.locator('.modal-backdrop').click();
-    await expect(page.locator('.modal-backdrop')).toBeHidden({ timeout: 5000 });
+    // Click at the top-left corner of the viewport (guaranteed to be on the backdrop)
+    await page.mouse.click(10, 10);
+    await expect(page.locator('.modal-backdrop')).toHaveCount(0, { timeout: 5000 });
 
     // Test 2: Click Cancel button
     await card.hover();
@@ -173,7 +200,7 @@ test.describe('Kanban Move Card Modal', () => {
 
     // Navigate to session detail view
     await navigateAndWait(page, `/sessions/${session.id}`, {
-      waitFor: '.session-detail',
+      waitFor: '.session-header',
     });
 
     // Verify lane chip is clickable
@@ -204,7 +231,7 @@ test.describe('Kanban Move Card Modal', () => {
 
     // Navigate to session detail view
     await navigateAndWait(page, `/sessions/${session.id}`, {
-      waitFor: '.session-detail',
+      waitFor: '.session-header',
     });
 
     // Click lane chip to open move modal
@@ -265,6 +292,11 @@ test.describe('Kanban Move Card Modal', () => {
   });
 
   test('keyboard navigation in move modal', async ({ page }) => {
+    // Navigate to kanban board first
+    await navigateAndWait(page, `/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
     // Add session to the board
     const lane = page.locator('.kanban-lane').filter({ hasText: 'To Do' });
     await lane.locator('.add-session-btn').click();
@@ -285,6 +317,11 @@ test.describe('Kanban Move Card Modal', () => {
   });
 
   test('multiple cards can be moved independently', async ({ page }) => {
+    // Navigate to kanban board first
+    await navigateAndWait(page, `/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
     // Add first session
     const session2 = await seedSession(project.id, {
       prompt: 'Second session',
@@ -294,11 +331,19 @@ test.describe('Kanban Move Card Modal', () => {
 
     const todoLane = page.locator('.kanban-lane').filter({ hasText: 'To Do' });
 
-    // Add both sessions to the board
+    // Add first session to the board
     await todoLane.locator('.add-session-btn').click();
     await expect(page.locator('.modal-content')).toBeVisible();
     await page.waitForSelector('.session-item', { timeout: 10000 });
-    await page.locator('.session-item').first().click();
+    await page.locator('.session-item').filter({ hasText: 'Move Test Session' }).click();
+    await page.click('.modal-footer .btn-primary');
+    await expect(page.locator('.modal-backdrop')).toBeHidden({ timeout: 5000 });
+
+    // Add second session to the board
+    await todoLane.locator('.add-session-btn').click();
+    await expect(page.locator('.modal-content')).toBeVisible();
+    await page.waitForSelector('.session-item', { timeout: 10000 });
+    await page.locator('.session-item').filter({ hasText: 'Session 2' }).click();
     await page.click('.modal-footer .btn-primary');
     await expect(page.locator('.modal-backdrop')).toBeHidden({ timeout: 5000 });
 
@@ -322,7 +367,7 @@ test.describe('Kanban Move Card Modal', () => {
   test('no lane chip when session not on board', async ({ page }) => {
     // Navigate to session detail view (session not on board)
     await navigateAndWait(page, `/sessions/${session.id}`, {
-      waitFor: '.session-detail',
+      waitFor: '.session-header',
     });
 
     // Verify lane chip is not visible
