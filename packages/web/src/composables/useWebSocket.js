@@ -624,7 +624,14 @@ export function useProjectSubscription(projectId) {
   const onCommandRunComplete = (callback) => {
     const handler = (msg) => {
       if (msg.projectId === projectId) {
-        callback(msg.runId, msg.sessionId, msg.buttonId, msg.exitCode, msg.output, msg.status);
+        callback({
+          runId: msg.runId,
+          sessionId: msg.sessionId,
+          buttonId: msg.buttonId,
+          exitCode: msg.exitCode,
+          output: msg.output,
+          status: msg.status,
+        });
       }
     };
     on(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, handler);

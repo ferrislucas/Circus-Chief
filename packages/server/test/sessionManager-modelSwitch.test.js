@@ -75,7 +75,7 @@ describe('sessionManager model switching mid-conversation', () => {
       session = sessions.create(project.id, 'Test Session', 'initial prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponse('claude-sonnet-4-6'));
 
-      await continueSession(session.id, 'follow-up message', '/tmp/test', null, [], 'claude-sonnet-4-6');
+      await continueSession(session.id, 'follow-up message', '/tmp/test', { model: 'claude-sonnet-4-6' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -86,7 +86,7 @@ describe('sessionManager model switching mid-conversation', () => {
       session = sessions.create(project.id, 'Test Session', 'initial prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponse(null));
 
-      await continueSession(session.id, 'follow-up message', '/tmp/test', null, [], null);
+      await continueSession(session.id, 'follow-up message', '/tmp/test');
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -98,7 +98,7 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // First message - establishes the model
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
-      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-6');
+      await runSession(session.id, 'initial prompt', '/tmp/test', { model: 'claude-opus-4-6' });
 
       // Get the conversation and update its model (simulating what happens after SDK response)
       const conv = conversations.getActiveBySessionId(session.id);
@@ -106,7 +106,7 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // Second message with same model - should resume
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
-      await continueSession(session.id, 'follow-up message', '/tmp/test', null, [], 'claude-opus-4-6');
+      await continueSession(session.id, 'follow-up message', '/tmp/test', { model: 'claude-opus-4-6' });
 
       expect(mockQuery).toHaveBeenCalledTimes(2);
       const secondCallParams = mockQuery.mock.calls[1][0];
@@ -119,7 +119,7 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // First message with opus
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
-      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-6');
+      await runSession(session.id, 'initial prompt', '/tmp/test', { model: 'claude-opus-4-6' });
 
       // Get the conversation and update its model
       const conv = conversations.getActiveBySessionId(session.id);
@@ -127,7 +127,7 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // Second message with sonnet - model changed, should NOT resume
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-sonnet-4-6'));
-      await continueSession(session.id, 'follow-up message', '/tmp/test', null, [], 'claude-sonnet-4-6');
+      await continueSession(session.id, 'follow-up message', '/tmp/test', { model: 'claude-sonnet-4-6' });
 
       expect(mockQuery).toHaveBeenCalledTimes(2);
       const secondCallParams = mockQuery.mock.calls[1][0];
@@ -140,7 +140,7 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // First message with opus
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
-      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-6');
+      await runSession(session.id, 'initial prompt', '/tmp/test', { model: 'claude-opus-4-6' });
 
       // Get the conversation and update its model
       const conv = conversations.getActiveBySessionId(session.id);
@@ -148,7 +148,7 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // Second message with different model
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-sonnet-4-6'));
-      await continueSession(session.id, 'follow-up message', '/tmp/test', null, [], 'claude-sonnet-4-6');
+      await continueSession(session.id, 'follow-up message', '/tmp/test', { model: 'claude-sonnet-4-6' });
 
       expect(mockQuery).toHaveBeenCalledTimes(2);
       const secondCallParams = mockQuery.mock.calls[1][0];
@@ -163,7 +163,7 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // First message
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
-      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-6');
+      await runSession(session.id, 'initial prompt', '/tmp/test', { model: 'claude-opus-4-6' });
 
       // Get the conversation and update its model
       const conv = conversations.getActiveBySessionId(session.id);
@@ -171,7 +171,7 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // Second message with same model
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
-      await continueSession(session.id, 'follow-up message', '/tmp/test', null, [], 'claude-opus-4-6');
+      await continueSession(session.id, 'follow-up message', '/tmp/test', { model: 'claude-opus-4-6' });
 
       expect(mockQuery).toHaveBeenCalledTimes(2);
       const secondCallParams = mockQuery.mock.calls[1][0];
@@ -188,7 +188,7 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // First turn
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
-      await runSession(session.id, 'Hello, can you help me?', '/tmp/test', null, [], 'claude-opus-4-6');
+      await runSession(session.id, 'Hello, can you help me?', '/tmp/test', { model: 'claude-opus-4-6' });
 
       // Update conversation model
       const conv = conversations.getActiveBySessionId(session.id);
@@ -196,7 +196,7 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // Switch to different model
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-sonnet-4-6'));
-      await continueSession(session.id, 'Now use sonnet please', '/tmp/test', null, [], 'claude-sonnet-4-6');
+      await continueSession(session.id, 'Now use sonnet please', '/tmp/test', { model: 'claude-sonnet-4-6' });
 
       const secondCallParams = mockQuery.mock.calls[1][0];
 
@@ -216,7 +216,7 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // First turn with opus
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
-      await runSession(session.id, 'First message', '/tmp/test', null, [], 'claude-opus-4-6');
+      await runSession(session.id, 'First message', '/tmp/test', { model: 'claude-opus-4-6' });
 
       // The runSession creates the initial user message and processes it
       // For this test, we need to check that on first message there's no context
@@ -239,7 +239,7 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // Continue with a different model — modelChanged = true
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-sonnet-4-20250514'));
-      await continueSession(session.id, 'follow-up message', '/tmp/test', null, [], 'claude-sonnet-4-20250514');
+      await continueSession(session.id, 'follow-up message', '/tmp/test', { model: 'claude-sonnet-4-20250514' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const callParams = mockQuery.mock.calls[0][0];
@@ -259,7 +259,7 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // Continue with model: null — modelChanged should be false
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-20250514'));
-      await continueSession(session.id, 'follow-up with no model', '/tmp/test', null, [], null);
+      await continueSession(session.id, 'follow-up with no model', '/tmp/test');
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const callParams = mockQuery.mock.calls[0][0];
@@ -278,7 +278,7 @@ describe('sessionManager model switching mid-conversation', () => {
       // Create a session and run it once to set up conversation/messages
       session = sessions.create(project.id, 'Test Session', 'initial prompt', 'standard');
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-20250514'));
-      await runSession(session.id, 'initial prompt', '/tmp/test', null, [], 'claude-opus-4-20250514');
+      await runSession(session.id, 'initial prompt', '/tmp/test', { model: 'claude-opus-4-20250514' });
 
       // session.model is now 'claude-opus-4-20250514' (set by runSession)
       const updatedSession = sessions.getById(session.id);
@@ -294,8 +294,7 @@ describe('sessionManager model switching mid-conversation', () => {
         session.id,
         conv.id,
         '/tmp/test',
-        null,
-        'claude-sonnet-4-20250514'
+        { model: 'claude-sonnet-4-20250514' }
       );
 
       expect(mockQuery).toHaveBeenCalledTimes(2);
@@ -313,14 +312,14 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // First with opus
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
-      await runSession(session.id, 'start with opus', '/tmp/test', null, [], 'claude-opus-4-6');
+      await runSession(session.id, 'start with opus', '/tmp/test', { model: 'claude-opus-4-6' });
 
       const conv = conversations.getActiveBySessionId(session.id);
       conversations.update(conv.id, { model: 'claude-opus-4-6' });
 
       // Then sonnet
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-sonnet-4-6'));
-      await continueSession(session.id, 'now use sonnet', '/tmp/test', null, [], 'claude-sonnet-4-6');
+      await continueSession(session.id, 'now use sonnet', '/tmp/test', { model: 'claude-sonnet-4-6' });
 
       // Check models were passed correctly
       expect(mockQuery.mock.calls[0][0].options.model).toBe('claude-opus-4-6');
@@ -332,21 +331,21 @@ describe('sessionManager model switching mid-conversation', () => {
 
       // Opus
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-opus-4-6'));
-      await runSession(session.id, 'opus turn', '/tmp/test', null, [], 'claude-opus-4-6');
+      await runSession(session.id, 'opus turn', '/tmp/test', { model: 'claude-opus-4-6' });
 
       let conv = conversations.getActiveBySessionId(session.id);
       conversations.update(conv.id, { model: 'claude-opus-4-6' });
 
       // Sonnet - should not resume
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-sonnet-4-6'));
-      await continueSession(session.id, 'sonnet turn', '/tmp/test', null, [], 'claude-sonnet-4-6');
+      await continueSession(session.id, 'sonnet turn', '/tmp/test', { model: 'claude-sonnet-4-6' });
 
       conv = conversations.getActiveBySessionId(session.id);
       conversations.update(conv.id, { model: 'claude-sonnet-4-6' });
 
       // Haiku - should not resume
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('claude-3-5-haiku-latest'));
-      await continueSession(session.id, 'haiku turn', '/tmp/test', null, [], 'claude-3-5-haiku-latest');
+      await continueSession(session.id, 'haiku turn', '/tmp/test', { model: 'claude-3-5-haiku-latest' });
 
       expect(mockQuery).toHaveBeenCalledTimes(3);
 

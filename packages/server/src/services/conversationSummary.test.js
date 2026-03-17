@@ -113,10 +113,10 @@ describe('conversationSummary', () => {
       conversationId = conversation.id;
 
       // Add messages to meet minimum threshold (4 messages for conversation)
-      messages.create(sessionId, 'user', 'Message 1', null, conversationId);
-      messages.create(sessionId, 'assistant', 'Response 1', null, conversationId);
-      messages.create(sessionId, 'user', 'Message 2', null, conversationId);
-      messages.create(sessionId, 'assistant', 'Response 2', null, conversationId);
+      messages.create(sessionId, 'user', 'Message 1', { conversationId });
+      messages.create(sessionId, 'assistant', 'Response 1', { conversationId });
+      messages.create(sessionId, 'user', 'Message 2', { conversationId });
+      messages.create(sessionId, 'assistant', 'Response 2', { conversationId });
     });
 
     it('generates summary for a conversation', async () => {
@@ -162,8 +162,8 @@ describe('conversationSummary', () => {
     it('skips conversations with fewer than 4 messages', async () => {
       // Create a short conversation
       const shortConv = conversations.create(sessionId, 'Short Conversation');
-      messages.create(sessionId, 'user', 'Hello', null, shortConv.id);
-      messages.create(sessionId, 'assistant', 'Hi', null, shortConv.id);
+      messages.create(sessionId, 'user', 'Hello', { conversationId: shortConv.id });
+      messages.create(sessionId, 'assistant', 'Hi', { conversationId: shortConv.id });
 
       const result = await generateConversationSummary(sessionId, shortConv.id);
       expect(result).toBeNull();

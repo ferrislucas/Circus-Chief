@@ -24,31 +24,14 @@ export class MessageRepository extends BaseRepository {
 
   /**
    * Create a new message
-   * Supports both legacy and new signatures:
-   * - Legacy: create(sessionId, role, content, toolUse, conversationId, model)
-   * - New: create(sessionId, role, content, { toolUse, conversationId, model })
    * @param {string} sessionId - The session ID
    * @param {string} role - The message role (user, assistant, system)
    * @param {string} content - The message content
-   * @param {Object|null} optionsOrToolUse - Optional parameters object OR legacy toolUse parameter
-   * @param {string|null} legacyConversationId - Legacy conversation ID parameter
-   * @param {string|null} legacyModel - Legacy model parameter
+   * @param {{ toolUse?: Object|null, conversationId?: string|null, model?: string|null }} options - Optional parameters
    * @returns {Object} The created message
    */
-  create(sessionId, role, content, optionsOrToolUse = null, legacyConversationId = null, legacyModel = null) {
-    // Detect which signature is being used
-    let toolUse, conversationId, model;
-
-    if (optionsOrToolUse && typeof optionsOrToolUse === 'object' && !Array.isArray(optionsOrToolUse)) {
-      // New signature: options object
-      ({ toolUse = null, conversationId = null, model = null } = optionsOrToolUse);
-    } else {
-      // Legacy signature: individual parameters
-      toolUse = optionsOrToolUse;
-      conversationId = legacyConversationId;
-      model = legacyModel;
-    }
-
+  create(sessionId, role, content, options = {}) {
+    const { toolUse = null, conversationId = null, model = null } = options || {};
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db

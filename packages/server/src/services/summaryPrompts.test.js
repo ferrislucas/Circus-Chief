@@ -178,7 +178,7 @@ describe('summaryPrompts', () => {
     it('uses custom session title prompt when provided', () => {
       const customPrompt = 'Custom title guidelines!';
       const recentMessages = [{ role: 'user', content: 'Test' }];
-      const result = buildIncrementalPrompt(null, recentMessages, 'running', customPrompt);
+      const result = buildIncrementalPrompt(null, recentMessages, 'running', { projectTitlePrompt: customPrompt });
       expect(result).toContain(customPrompt);
       expect(result).not.toContain('STRATEGIC GOAL');
     });
@@ -212,7 +212,7 @@ describe('summaryPrompts', () => {
     it('includes child context when provided', () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
       const childContext = '\nCHILD SESSIONS (2):\n- Child 1 (running): Working on feature';
-      const result = buildIncrementalPrompt(null, recentMessages, 'running', null, childContext);
+      const result = buildIncrementalPrompt(null, recentMessages, 'running', { childContext });
       expect(result).toContain('CHILD SESSIONS (2)');
       expect(result).toContain('Child 1 (running)');
     });

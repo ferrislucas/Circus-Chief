@@ -124,6 +124,562 @@ export async function broadcastChangesUpdate(sessionId, projectId, workingDirect
   }
 }
 
+// ── Event-type-specific handlers ────────────────────────────────────────────
+
+/**
+ * Handle 'system' events (e.g. system.init)
+ * @param {string} sessionId
+ * @param {Object} event
+ */
+function handleSystemEvent(sessionId, event) {
+  // Store Claude's session info
+  if (event.subtype !== 'init') return;
+
+  // [MODEL AUDIT] Log model reported by SDK in system.init
+  console.log(`[MODEL AUDIT - SDK Event] system.init received:`, {
+    sessionId,
+    sdkSessionId: event.session_id,
+    modelFromSDK: event.model,
+  });
+
+  // Save Claude session ID to the active conversation for context isolation
+  const activeConversation = conversations.getActiveBySessionId(sessionId);
+  if (activeConversation) {
+    conversations.update(activeConversation.id, {
+      claudeSessionId: event.session_id,
+    });
+    console.log(`[MODEL AUDIT - SDK Event] Updated conversation ${activeConversation.id} claudeSessionId to ${event.session_id}`);
+  }
+  // Track current model for this session (used when creating messages)
+  currentModels.set(sessionId, event.model);
+  console.log(`[MODEL AUDIT - SDK Event] Set currentModels[${sessionId}] = "${event.model}"`);
+  // Capture available slash commands (do NOT update model here — session.model
+  // tracks the user-requested short format; this SDK model is stored in currentModels)
+  sessions.update(sessionId, {
+    slashCommands: JSON.stringify(event.slash_commands || []),
+  });
+  // Reset message tracking for new session
+  lastMessageIds.delete(sessionId);
+}
+
+/**
+ * Handle 'assistant' events — save messages, update todos, log tool use
+ * @param {string} sessionId
+ * @param {Object} event
+ */
+function handleAssistantEvent(sessionId, event) {
+  // Extract text content from assistant message
+  const textContent = event.message?.content
+    ?.filter((c) => c.type === 'text')
+    ?.map((c) => c.text)
+    ?.join('\n');
+
+  // Extract tool use for logging
+  const toolUseBlocks = event.message?.content?.filter((c) => c.type === 'tool_use') || [];
+
+  // NOTE: Do NOT use assistant event usage for broadcasting
+  // The stream events already provide real-time usage updates via message_start and message_delta
+  // Using assistant event would double-count the usage
+
+  if (textContent) {
+    handleAssistantTextContent(sessionId, textContent, toolUseBlocks);
+  }
+
+  // Check for TodoWrite tool and update todos
+  // NOTE: This must be OUTSIDE the if (textContent) block because Claude can call
+  // TodoWrite without any accompanying text content (tool-only messages)
+  handleTodoWriteIfPresent(sessionId, toolUseBlocks);
+
+  // Note: Thinking content is logged via stream_event -> content_block_stop
+  // to avoid duplicates (since includePartialMessages is always enabled)
+
+  // Log tool use inputs (dedup by tool_use ID to prevent duplicates from partial assistant events)
+  logToolUseInputs(sessionId, toolUseBlocks);
+}
+
+/**
+ * Save assistant text content as a message and broadcast it
+ * @param {string} sessionId
+ * @param {string} textContent
+ * @param {Array} toolUseBlocks
+ */
+function handleAssistantTextContent(sessionId, textContent, toolUseBlocks) {
+  const toolUse = toolUseBlocks.length > 0 ? toolUseBlocks : null;
+  const activeConversation = conversations.getActiveBySessionId(sessionId);
+  const conversationId = activeConversation?.id || null;
+  const currentModel = currentModels.get(sessionId) || null;
+  // [MODEL AUDIT] Log model being saved with message
+  console.log(`[MODEL AUDIT - Message Save] Creating assistant message with model: "${currentModel}"`);
+  const message = messages.create(sessionId, 'assistant', textContent, { toolUse, conversationId, model: currentModel });
+  console.log(`[MODEL AUDIT - Message Save] Created message ${message.id} in conversation ${conversationId} with model: "${currentModel}"`);
+  console.log(`[SESSION] assistant event: created assistant message ${message.id} in conversation ${conversationId} with model ${currentModel}`);
+
+  // Associate pending work logs with this message immediately
+  // This ensures work logs are attached to the correct message, not just the last one
+  associateAndBroadcastWorkLogs(sessionId, message.id);
+
+  // Track the message ID in case there are trailing work logs after the last message
+  lastMessageIds.set(sessionId, message.id);
+
+  // Broadcast message with conversationId for proper routing
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, {
+    message,
+    conversationId, // Include conversation context to prevent ambiguity
+  });
+  console.log(`[SESSION] assistant event: broadcast assistant message ${message.id} to conversation ${conversationId}`);
+
+  // Clear partial text on client now that complete message has been sent
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
+    sessionId,
+    text: '',
+  });
+
+  // Note: Per-message onSessionActivity removed to reduce redundant summary generation.
+  // Summary generation is triggered only on turn completion (waiting state) and session complete.
+}
+
+/**
+ * Check for TodoWrite tool in toolUseBlocks and update todos if present
+ * @param {string} sessionId
+ * @param {Array} toolUseBlocks
+ */
+function handleTodoWriteIfPresent(sessionId, toolUseBlocks) {
+  if (toolUseBlocks.length === 0) return;
+  const todoWrite = toolUseBlocks.find((t) => t.name === 'TodoWrite');
+  if (!todoWrite?.input?.todos) return;
+  // Get active conversation to scope todos to it
+  const activeConv = conversations.getActiveBySessionId(sessionId);
+  if (activeConv) {
+    updateTodos(sessionId, activeConv.id, todoWrite.input.todos);
+  }
+}
+
+/**
+ * Log tool use inputs, deduplicating by tool_use ID
+ * @param {string} sessionId
+ * @param {Array} toolUseBlocks
+ */
+function logToolUseInputs(sessionId, toolUseBlocks) {
+  if (!loggedToolUseIds.has(sessionId)) {
+    loggedToolUseIds.set(sessionId, new Set());
+  }
+  const loggedIds = loggedToolUseIds.get(sessionId);
+  for (const toolUse of toolUseBlocks) {
+    if (toolUse.id && loggedIds.has(toolUse.id)) continue;
+    if (toolUse.id) loggedIds.add(toolUse.id);
+    const toolInput = JSON.stringify(toolUse.input, null, 2);
+    createWorkLog(sessionId, 'tool_input', toolInput, toolUse.name);
+  }
+}
+
+/**
+ * Handle 'tool_result' events — log tool outputs
+ * @param {string} sessionId
+ * @param {Object} event
+ */
+function handleToolResultEvent(sessionId, event) {
+  // Log tool results/outputs
+  const content = event.content || event.result || '';
+  const toolName = event.tool_name || event.name || 'unknown';
+
+  // Handle different content formats
+  const logContent = formatToolResultContent(content);
+
+  if (logContent) {
+    createWorkLog(sessionId, 'tool_output', logContent, toolName);
+  }
+}
+
+/**
+ * Format tool result content for logging
+ * @param {*} content
+ * @returns {string}
+ */
+function formatToolResultContent(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((c) => (c.type === 'text' ? c.text : JSON.stringify(c)))
+      .join('\n');
+  }
+  return JSON.stringify(content, null, 2);
+}
+
+/**
+ * Handle 'stream_event' wrapper — dispatches to sub-handlers based on event.event.type
+ * @param {string} sessionId
+ * @param {Object} event
+ */
+function handleStreamEventType(sessionId, event) {
+  const innerType = event.event?.type;
+  const handler = streamSubHandlers[innerType];
+  if (handler) {
+    handler(sessionId, event);
+  }
+}
+
+/**
+ * Handle stream_event > message_start — initial usage (input tokens)
+ * @param {string} sessionId
+ * @param {Object} event
+ */
+function handleMessageStart(sessionId, event) {
+  // Clear text accumulator for fresh message
+  textAccumulators.delete(sessionId);
+
+  const usage = event.event?.message?.usage;
+  if (usage) {
+    const conversationId = activeConversationIds.get(sessionId);
+    const turnUsage = updateTurnUsage(conversationId, usage, 'message_start');
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
+      sessionId,
+      conversationId,
+      usage: turnUsage,
+      isFinal: false,
+    });
+  }
+}
+
+/**
+ * Handle stream_event > message_delta — streaming output tokens
+ * @param {string} sessionId
+ * @param {Object} event
+ */
+function handleMessageDelta(sessionId, event) {
+  const usage = event.event?.usage;
+  if (usage) {
+    const conversationId = activeConversationIds.get(sessionId);
+    const turnUsage = updateTurnUsage(conversationId, usage, 'message_delta');
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
+      sessionId,
+      conversationId,
+      usage: turnUsage,
+      isFinal: false,
+    });
+  }
+}
+
+/**
+ * Handle stream_event > content_block_delta — text and thinking deltas
+ * @param {string} sessionId
+ * @param {Object} event
+ */
+function handleContentBlockDelta(sessionId, event) {
+  const delta = event.event.delta;
+
+  if (delta?.type === 'text_delta' && delta.text) {
+    handleTextDelta(sessionId, delta);
+  }
+
+  // Handle thinking delta - accumulate and broadcast partial (don't create work log yet)
+  if (delta?.type === 'thinking_delta' && delta.thinking) {
+    handleThinkingDelta(sessionId, delta);
+  }
+}
+
+/**
+ * Handle text_delta within content_block_delta — accumulate text and estimate tokens
+ * @param {string} sessionId
+ * @param {Object} delta
+ */
+function handleTextDelta(sessionId, delta) {
+  // Accumulate text content
+  const current = textAccumulators.get(sessionId) || '';
+  const accumulated = current + delta.text;
+  textAccumulators.set(sessionId, accumulated);
+
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
+    sessionId,
+    text: accumulated,
+  });
+
+  // Estimate tokens from streamed content for real-time output token updates
+  const conversationId = activeConversationIds.get(sessionId);
+  if (!conversationId) return;
+
+  const currentEstimate = estimatedOutputTokens.get(conversationId) || 0;
+  const newEstimate = currentEstimate + estimateTokens(delta.text);
+  estimatedOutputTokens.set(conversationId, newEstimate);
+
+  // Get current turn usage and add estimated output
+  const turnData = currentTurnUsage.get(conversationId) || {
+    inputTokens: 0,
+    outputTokens: 0,
+    lastMessageOutput: 0,
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+  };
+
+  // Broadcast usage update with estimated tokens
+  const broadcastUsage = {
+    inputTokens: turnData.inputTokens,
+    outputTokens: turnData.outputTokens + Math.max(turnData.lastMessageOutput, newEstimate),
+    cacheReadInputTokens: turnData.cacheReadInputTokens,
+    cacheCreationInputTokens: turnData.cacheCreationInputTokens,
+  };
+
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
+    sessionId,
+    conversationId,
+    usage: broadcastUsage,
+    isFinal: false,
+    isEstimate: true,  // Flag so UI can show "~" prefix if desired
+  });
+}
+
+/**
+ * Handle thinking_delta within content_block_delta — accumulate thinking
+ * @param {string} sessionId
+ * @param {Object} delta
+ */
+function handleThinkingDelta(sessionId, delta) {
+  const current = thinkingAccumulators.get(sessionId) || '';
+  const accumulated = current + delta.thinking;
+  thinkingAccumulators.set(sessionId, accumulated);
+
+  // Broadcast partial thinking for real-time display
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL, {
+    sessionId,
+    thinking: accumulated,
+  });
+}
+
+/**
+ * Handle stream_event > content_block_stop — finalize accumulated thinking and text
+ * @param {string} sessionId
+ * @param {Object} _event
+ */
+function handleContentBlockStop(sessionId, _event) {
+  const accumulated = thinkingAccumulators.get(sessionId);
+  if (accumulated) {
+    // Create a single work log entry with the complete thinking content
+    createWorkLog(sessionId, 'thinking', accumulated);
+    thinkingAccumulators.delete(sessionId);
+
+    // Clear partial thinking on client
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL, {
+      sessionId,
+      thinking: null,
+    });
+  }
+
+  // Clear text accumulator when content block finishes
+  // The text has been finalized into a message
+  textAccumulators.delete(sessionId);
+}
+
+/**
+ * Handle 'result' events — errors and final usage
+ * @param {string} sessionId
+ * @param {Object} event
+ */
+function handleResultEvent(sessionId, event) {
+  if (event.subtype === 'error') {
+    handleResultError(sessionId, event);
+  } else {
+    handleResultSuccess(sessionId, event);
+  }
+  // Note: Don't clear lastMessageIds here - let the post-loop association code handle it.
+  // Clearing here was causing work logs to never be associated because the 'result' event
+  // arrives before the loop ends, deleting the messageId before association can happen.
+}
+
+/**
+ * Handle result error subtype
+ * @param {string} sessionId
+ * @param {Object} event
+ */
+function handleResultError(sessionId, event) {
+  sessions.update(sessionId, { status: 'error', error: event.error });
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: event.error });
+  // Broadcast error status to project subscribers for session list updates
+  broadcastSessionStatus(sessionId, 'error');
+  // Generate summary on error
+  summaryService.onSessionComplete(sessionId);
+}
+
+/**
+ * Handle result success subtype — store cost and usage
+ * @param {string} sessionId
+ * @param {Object} event
+ */
+function handleResultSuccess(sessionId, event) {
+  // Store cost info and broadcast to project subscribers
+  if (event.total_cost_usd !== undefined) {
+    sessions.update(sessionId, { costUsd: event.total_cost_usd });
+  }
+
+  // Store final usage stats to conversation (Issue #175)
+  if (event.usage || event.modelUsage) {
+    handleResultUsage(sessionId, event);
+  }
+}
+
+/**
+ * Handle final usage stats from result event — update conversation and session usage
+ * @param {string} sessionId
+ * @param {Object} event
+ */
+function handleResultUsage(sessionId, event) {
+  const turnUsage = extractTurnUsage(sessionId, event);
+
+  // [MODEL AUDIT] Log model from result event
+  console.log(`[MODEL AUDIT - Result Event] Turn usage model extraction:`, {
+    modelUsageKeys: Object.keys(event.modelUsage || {}),
+    primaryModelFromInit: currentModels.get(sessionId),
+    extractedModel: turnUsage.model,
+    rawModelUsage: event.modelUsage,
+  });
+
+  // Get the conversation ID for this session's current turn
+  const conversationId = activeConversationIds.get(sessionId);
+  const currentConversation = conversationId ? conversations.getById(conversationId) : null;
+
+  // Update conversation with cumulative usage (add to existing)
+  const updatedConversation = updateConversationUsage(conversationId, currentConversation, turnUsage);
+
+  // Also update session-level usage (aggregate of all conversations) for backward compatibility
+  const cumulativeSessionUsage = buildCumulativeSessionUsage(sessionId, turnUsage);
+  const updatedSession = sessions.updateUsage(sessionId, cumulativeSessionUsage);
+
+  // Broadcast final usage update with conversationId
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
+    sessionId,
+    conversationId,
+    usage: updatedConversation ? {
+      inputTokens: updatedConversation.inputTokens,
+      outputTokens: updatedConversation.outputTokens,
+      cacheReadInputTokens: updatedConversation.cacheReadInputTokens,
+      cacheCreationInputTokens: updatedConversation.cacheCreationInputTokens,
+      webSearchRequests: updatedConversation.webSearchRequests,
+      contextWindow: updatedConversation.contextWindow,
+    } : cumulativeSessionUsage,
+    turnUsage,
+    isFinal: true,
+  });
+
+  // Also broadcast session update for session list
+  broadcastToProject(updatedSession.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    projectId: updatedSession.projectId,
+    sessionId,
+    session: updatedSession,
+  });
+
+  // Broadcast conversation update for real-time UI updates
+  if (updatedConversation) {
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.CONVERSATION_UPDATED, {
+      sessionId,
+      conversation: updatedConversation,
+    });
+  }
+
+  // Clean up turn usage and estimated tokens
+  currentTurnUsage.delete(conversationId);
+  estimatedOutputTokens.delete(conversationId);
+  activeConversationIds.delete(sessionId);
+}
+
+/**
+ * Extract turn usage from result event's modelUsage or usage fields
+ * @param {string} sessionId
+ * @param {Object} event
+ * @returns {Object} turnUsage
+ */
+function extractTurnUsage(sessionId, event) {
+  // Extract from modelUsage if available (has more detail)
+  const modelUsageEntry = event.modelUsage
+    ? Object.values(event.modelUsage)[0]
+    : null;
+
+  // Use the model from system.init (stored in currentModels) rather than modelUsage keys
+  // because modelUsage can contain multiple models when sub-agents are used (e.g., Opus using Haiku)
+  // and Object.keys()[0] would pick the wrong model
+  const primaryModel = currentModels.get(sessionId) || Object.keys(event.modelUsage || {})[0] || null;
+
+  return {
+    inputTokens: modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
+    outputTokens: modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
+    cacheReadInputTokens: modelUsageEntry?.cacheReadInputTokens || event.usage?.cache_read_input_tokens || 0,
+    cacheCreationInputTokens: modelUsageEntry?.cacheCreationInputTokens || event.usage?.cache_creation_input_tokens || 0,
+    webSearchRequests: modelUsageEntry?.webSearchRequests || 0,
+    contextWindow: modelUsageEntry?.contextWindow || 200000,
+    model: primaryModel,
+  };
+}
+
+/**
+ * Build cumulative session-level usage by adding turn usage to existing session usage
+ * @param {string} sessionId
+ * @param {Object} turnUsage
+ * @returns {Object} cumulativeSessionUsage
+ */
+function buildCumulativeSessionUsage(sessionId, turnUsage) {
+  const currentSession = sessions.getById(sessionId);
+  return {
+    inputTokens: (currentSession.inputTokens || 0) + turnUsage.inputTokens,
+    outputTokens: (currentSession.outputTokens || 0) + turnUsage.outputTokens,
+    cacheReadInputTokens: (currentSession.cacheReadInputTokens || 0) + turnUsage.cacheReadInputTokens,
+    cacheCreationInputTokens: (currentSession.cacheCreationInputTokens || 0) + turnUsage.cacheCreationInputTokens,
+    webSearchRequests: (currentSession.webSearchRequests || 0) + turnUsage.webSearchRequests,
+    contextWindow: turnUsage.contextWindow,
+  };
+}
+
+/**
+ * Update conversation with cumulative usage from turn
+ * @param {string|undefined} conversationId
+ * @param {Object|null} currentConversation
+ * @param {Object} turnUsage
+ * @returns {Object|null} updatedConversation
+ */
+function updateConversationUsage(conversationId, currentConversation, turnUsage) {
+  if (!currentConversation) return null;
+
+  // [MODEL AUDIT] Log conversation model before update
+  console.log(`[MODEL AUDIT - Conversation Update] Before updateUsage:`, {
+    conversationId,
+    currentConversationModel: currentConversation.model,
+    newModelFromUsage: turnUsage.model,
+  });
+
+  const cumulativeConversationUsage = {
+    inputTokens: (currentConversation.inputTokens || 0) + turnUsage.inputTokens,
+    outputTokens: (currentConversation.outputTokens || 0) + turnUsage.outputTokens,
+    cacheReadInputTokens: (currentConversation.cacheReadInputTokens || 0) + turnUsage.cacheReadInputTokens,
+    cacheCreationInputTokens: (currentConversation.cacheCreationInputTokens || 0) + turnUsage.cacheCreationInputTokens,
+    webSearchRequests: (currentConversation.webSearchRequests || 0) + turnUsage.webSearchRequests,
+    contextWindow: turnUsage.contextWindow,
+  };
+
+  const updatedConversation = conversations.updateUsage(conversationId, cumulativeConversationUsage);
+  // [MODEL AUDIT] Log conversation model after update
+  console.log(`[MODEL AUDIT - Conversation Update] After updateUsage:`, {
+    conversationId,
+    updatedConversationModel: updatedConversation?.model,
+  });
+
+  return updatedConversation;
+}
+
+// ── Dispatch maps ───────────────────────────────────────────────────────────
+
+/** @type {Record<string, (sessionId: string, event: Object) => void>} */
+const streamSubHandlers = {
+  message_start: handleMessageStart,
+  message_delta: handleMessageDelta,
+  content_block_delta: handleContentBlockDelta,
+  content_block_stop: handleContentBlockStop,
+};
+
+/** @type {Record<string, (sessionId: string, event: Object) => void>} */
+const eventHandlers = {
+  system: handleSystemEvent,
+  assistant: handleAssistantEvent,
+  tool_result: handleToolResultEvent,
+  stream_event: handleStreamEventType,
+  result: handleResultEvent,
+};
+
 // ── Main stream event handler ──────────────────────────────────────────────
 
 /**
@@ -137,391 +693,9 @@ export async function handleStreamEvent(sessionId, event) {
     return;
   }
 
-  switch (event.type) {
-    case 'system': {
-      // Store Claude's session info
-      if (event.subtype === 'init') {
-        // [MODEL AUDIT] Log model reported by SDK in system.init
-        console.log(`[MODEL AUDIT - SDK Event] system.init received:`, {
-          sessionId,
-          sdkSessionId: event.session_id,
-          modelFromSDK: event.model,
-        });
-
-        // Save Claude session ID to the active conversation for context isolation
-        const activeConversation = conversations.getActiveBySessionId(sessionId);
-        if (activeConversation) {
-          conversations.update(activeConversation.id, {
-            claudeSessionId: event.session_id,
-          });
-          console.log(`[MODEL AUDIT - SDK Event] Updated conversation ${activeConversation.id} claudeSessionId to ${event.session_id}`);
-        }
-        // Track current model for this session (used when creating messages)
-        currentModels.set(sessionId, event.model);
-        console.log(`[MODEL AUDIT - SDK Event] Set currentModels[${sessionId}] = "${event.model}"`);
-        // Capture available slash commands (do NOT update model here — session.model
-        // tracks the user-requested short format; this SDK model is stored in currentModels)
-        sessions.update(sessionId, {
-          slashCommands: JSON.stringify(event.slash_commands || []),
-        });
-        // Reset message tracking for new session
-        lastMessageIds.delete(sessionId);
-      }
-      break;
-    }
-
-    case 'assistant': {
-      // Extract text content from assistant message
-      const textContent = event.message?.content
-        ?.filter((c) => c.type === 'text')
-        ?.map((c) => c.text)
-        ?.join('\n');
-
-      // Extract tool use for logging
-      const toolUseBlocks = event.message?.content?.filter((c) => c.type === 'tool_use') || [];
-
-      // NOTE: Do NOT use assistant event usage for broadcasting
-      // The stream events already provide real-time usage updates via message_start and message_delta
-      // Using assistant event would double-count the usage
-
-      if (textContent) {
-        const toolUse = toolUseBlocks.length > 0 ? toolUseBlocks : null;
-        const activeConversation = conversations.getActiveBySessionId(sessionId);
-        const conversationId = activeConversation?.id || null;
-        const currentModel = currentModels.get(sessionId) || null;
-        // [MODEL AUDIT] Log model being saved with message
-        console.log(`[MODEL AUDIT - Message Save] Creating assistant message with model: "${currentModel}"`);
-        const message = messages.create(sessionId, 'assistant', textContent, { toolUse, conversationId, model: currentModel });
-        console.log(`[MODEL AUDIT - Message Save] Created message ${message.id} in conversation ${conversationId} with model: "${currentModel}"`);
-        console.log(`[SESSION] assistant event: created assistant message ${message.id} in conversation ${conversationId} with model ${currentModel}`);
-
-        // Associate pending work logs with this message immediately
-        // This ensures work logs are attached to the correct message, not just the last one
-        associateAndBroadcastWorkLogs(sessionId, message.id);
-
-        // Track the message ID in case there are trailing work logs after the last message
-        lastMessageIds.set(sessionId, message.id);
-
-        // Broadcast message with conversationId for proper routing
-        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, {
-          message,
-          conversationId, // Include conversation context to prevent ambiguity
-        });
-        console.log(`[SESSION] assistant event: broadcast assistant message ${message.id} to conversation ${conversationId}`);
-
-        // Clear partial text on client now that complete message has been sent
-        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
-          sessionId,
-          text: '',
-        });
-
-        // Note: Per-message onSessionActivity removed to reduce redundant summary generation.
-        // Summary generation is triggered only on turn completion (waiting state) and session complete.
-      }
-
-      // Check for TodoWrite tool and update todos
-      // NOTE: This must be OUTSIDE the if (textContent) block because Claude can call
-      // TodoWrite without any accompanying text content (tool-only messages)
-      if (toolUseBlocks.length > 0) {
-        const todoWrite = toolUseBlocks.find((t) => t.name === 'TodoWrite');
-        if (todoWrite?.input?.todos) {
-          // Get active conversation to scope todos to it
-          const activeConv = conversations.getActiveBySessionId(sessionId);
-          if (activeConv) {
-            updateTodos(sessionId, activeConv.id, todoWrite.input.todos);
-          }
-        }
-      }
-
-      // Note: Thinking content is logged via stream_event -> content_block_stop
-      // to avoid duplicates (since includePartialMessages is always enabled)
-
-      // Log tool use inputs (dedup by tool_use ID to prevent duplicates from partial assistant events)
-      if (!loggedToolUseIds.has(sessionId)) {
-        loggedToolUseIds.set(sessionId, new Set());
-      }
-      const loggedIds = loggedToolUseIds.get(sessionId);
-      for (const toolUse of toolUseBlocks) {
-        if (toolUse.id && loggedIds.has(toolUse.id)) continue;
-        if (toolUse.id) loggedIds.add(toolUse.id);
-        const toolInput = JSON.stringify(toolUse.input, null, 2);
-        createWorkLog(sessionId, 'tool_input', toolInput, toolUse.name);
-      }
-      break;
-    }
-
-    case 'tool_result': {
-      // Log tool results/outputs
-      const content = event.content || event.result || '';
-      const toolName = event.tool_name || event.name || 'unknown';
-
-      // Handle different content formats
-      let logContent;
-      if (typeof content === 'string') {
-        logContent = content;
-      } else if (Array.isArray(content)) {
-        logContent = content
-          .map((c) => (c.type === 'text' ? c.text : JSON.stringify(c)))
-          .join('\n');
-      } else {
-        logContent = JSON.stringify(content, null, 2);
-      }
-
-      if (logContent) {
-        createWorkLog(sessionId, 'tool_output', logContent, toolName);
-      }
-      break;
-    }
-
-    case 'stream_event': {
-      // Handle message_start for initial usage (input tokens) - enables real-time token updates
-      if (event.event?.type === 'message_start') {
-        // Clear text accumulator for fresh message
-        textAccumulators.delete(sessionId);
-
-        const usage = event.event?.message?.usage;
-        if (usage) {
-          const conversationId = activeConversationIds.get(sessionId);
-          const turnUsage = updateTurnUsage(conversationId, usage, 'message_start');
-          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
-            sessionId,
-            conversationId,
-            usage: turnUsage,
-            isFinal: false,
-          });
-        }
-      }
-
-      // Handle message_delta for streaming output tokens
-      if (event.event?.type === 'message_delta') {
-        const usage = event.event?.usage;
-        if (usage) {
-          const conversationId = activeConversationIds.get(sessionId);
-          const turnUsage = updateTurnUsage(conversationId, usage, 'message_delta');
-          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
-            sessionId,
-            conversationId,
-            usage: turnUsage,
-            isFinal: false,
-          });
-        }
-      }
-
-      // Real-time streaming - handle content_block_delta events
-      if (event.event?.type === 'content_block_delta') {
-        const delta = event.event.delta;
-
-        if (delta?.type === 'text_delta' && delta.text) {
-          // Accumulate text content
-          const current = textAccumulators.get(sessionId) || '';
-          const accumulated = current + delta.text;
-          textAccumulators.set(sessionId, accumulated);
-
-          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
-            sessionId,
-            text: accumulated,
-          });
-
-          // ISSUE 2: Estimate tokens from streamed content for real-time output token updates
-          const conversationId = activeConversationIds.get(sessionId);
-          if (conversationId) {
-            const currentEstimate = estimatedOutputTokens.get(conversationId) || 0;
-            const newEstimate = currentEstimate + estimateTokens(delta.text);
-            estimatedOutputTokens.set(conversationId, newEstimate);
-
-            // Get current turn usage and add estimated output
-            const turnData = currentTurnUsage.get(conversationId) || {
-              inputTokens: 0,
-              outputTokens: 0,
-              lastMessageOutput: 0,
-              cacheReadInputTokens: 0,
-              cacheCreationInputTokens: 0,
-            };
-
-            // Broadcast usage update with estimated tokens
-            const broadcastUsage = {
-              inputTokens: turnData.inputTokens,
-              outputTokens: turnData.outputTokens + Math.max(turnData.lastMessageOutput, newEstimate),
-              cacheReadInputTokens: turnData.cacheReadInputTokens,
-              cacheCreationInputTokens: turnData.cacheCreationInputTokens,
-            };
-
-            broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
-              sessionId,
-              conversationId,
-              usage: broadcastUsage,
-              isFinal: false,
-              isEstimate: true,  // Flag so UI can show "~" prefix if desired
-            });
-          }
-        }
-
-        // Handle thinking delta - accumulate and broadcast partial (don't create work log yet)
-        if (delta?.type === 'thinking_delta' && delta.thinking) {
-          const current = thinkingAccumulators.get(sessionId) || '';
-          const accumulated = current + delta.thinking;
-          thinkingAccumulators.set(sessionId, accumulated);
-
-          // Broadcast partial thinking for real-time display
-          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL, {
-            sessionId,
-            thinking: accumulated,
-          });
-        }
-      }
-
-      // Handle content_block_stop - finalize accumulated thinking and text
-      if (event.event?.type === 'content_block_stop') {
-        const accumulated = thinkingAccumulators.get(sessionId);
-        if (accumulated) {
-          // Create a single work log entry with the complete thinking content
-          createWorkLog(sessionId, 'thinking', accumulated);
-          thinkingAccumulators.delete(sessionId);
-
-          // Clear partial thinking on client
-          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL, {
-            sessionId,
-            thinking: null,
-          });
-        }
-
-        // Clear text accumulator when content block finishes
-        // The text has been finalized into a message
-        textAccumulators.delete(sessionId);
-      }
-      break;
-    }
-
-    case 'result': {
-      if (event.subtype === 'error') {
-        sessions.update(sessionId, { status: 'error', error: event.error });
-        broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: event.error });
-        // Broadcast error status to project subscribers for session list updates
-        broadcastSessionStatus(sessionId, 'error');
-        // Generate summary on error
-        summaryService.onSessionComplete(sessionId);
-      } else {
-        // Store cost info and broadcast to project subscribers
-        if (event.total_cost_usd !== undefined) {
-          sessions.update(sessionId, { costUsd: event.total_cost_usd });
-        }
-
-        // Store final usage stats to conversation (Issue #175)
-        if (event.usage || event.modelUsage) {
-          // Extract from modelUsage if available (has more detail)
-          const modelUsageEntry = event.modelUsage
-            ? Object.values(event.modelUsage)[0]
-            : null;
-
-          // Use the model from system.init (stored in currentModels) rather than modelUsage keys
-          // because modelUsage can contain multiple models when sub-agents are used (e.g., Opus using Haiku)
-          // and Object.keys()[0] would pick the wrong model
-          const primaryModel = currentModels.get(sessionId) || Object.keys(event.modelUsage || {})[0] || null;
-
-          const turnUsage = {
-            inputTokens: modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
-            outputTokens: modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
-            cacheReadInputTokens: modelUsageEntry?.cacheReadInputTokens || event.usage?.cache_read_input_tokens || 0,
-            cacheCreationInputTokens: modelUsageEntry?.cacheCreationInputTokens || event.usage?.cache_creation_input_tokens || 0,
-            webSearchRequests: modelUsageEntry?.webSearchRequests || 0,
-            contextWindow: modelUsageEntry?.contextWindow || 200000,
-            model: primaryModel,
-          };
-
-          // [MODEL AUDIT] Log model from result event
-          console.log(`[MODEL AUDIT - Result Event] Turn usage model extraction:`, {
-            modelUsageKeys: Object.keys(event.modelUsage || {}),
-            primaryModelFromInit: currentModels.get(sessionId),
-            extractedModel: turnUsage.model,
-            rawModelUsage: event.modelUsage,
-          });
-
-          // Get the conversation ID for this session's current turn
-          const conversationId = activeConversationIds.get(sessionId);
-          const currentConversation = conversationId ? conversations.getById(conversationId) : null;
-
-          // Update conversation with cumulative usage (add to existing)
-          let updatedConversation = null;
-          if (currentConversation) {
-            // [MODEL AUDIT] Log conversation model before update
-            console.log(`[MODEL AUDIT - Conversation Update] Before updateUsage:`, {
-              conversationId,
-              currentConversationModel: currentConversation.model,
-              newModelFromUsage: turnUsage.model,
-            });
-
-            const cumulativeConversationUsage = {
-              inputTokens: (currentConversation.inputTokens || 0) + turnUsage.inputTokens,
-              outputTokens: (currentConversation.outputTokens || 0) + turnUsage.outputTokens,
-              cacheReadInputTokens: (currentConversation.cacheReadInputTokens || 0) + turnUsage.cacheReadInputTokens,
-              cacheCreationInputTokens: (currentConversation.cacheCreationInputTokens || 0) + turnUsage.cacheCreationInputTokens,
-              webSearchRequests: (currentConversation.webSearchRequests || 0) + turnUsage.webSearchRequests,
-              contextWindow: turnUsage.contextWindow,
-            };
-
-            updatedConversation = conversations.updateUsage(conversationId, cumulativeConversationUsage);
-            // [MODEL AUDIT] Log conversation model after update
-            console.log(`[MODEL AUDIT - Conversation Update] After updateUsage:`, {
-              conversationId,
-              updatedConversationModel: updatedConversation?.model,
-            });
-          }
-
-          // Also update session-level usage (aggregate of all conversations) for backward compatibility
-          const currentSession = sessions.getById(sessionId);
-          const cumulativeSessionUsage = {
-            inputTokens: (currentSession.inputTokens || 0) + turnUsage.inputTokens,
-            outputTokens: (currentSession.outputTokens || 0) + turnUsage.outputTokens,
-            cacheReadInputTokens: (currentSession.cacheReadInputTokens || 0) + turnUsage.cacheReadInputTokens,
-            cacheCreationInputTokens: (currentSession.cacheCreationInputTokens || 0) + turnUsage.cacheCreationInputTokens,
-            webSearchRequests: (currentSession.webSearchRequests || 0) + turnUsage.webSearchRequests,
-            contextWindow: turnUsage.contextWindow,
-          };
-
-          const updatedSession = sessions.updateUsage(sessionId, cumulativeSessionUsage);
-
-          // Broadcast final usage update with conversationId
-          broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, {
-            sessionId,
-            conversationId,
-            usage: updatedConversation ? {
-              inputTokens: updatedConversation.inputTokens,
-              outputTokens: updatedConversation.outputTokens,
-              cacheReadInputTokens: updatedConversation.cacheReadInputTokens,
-              cacheCreationInputTokens: updatedConversation.cacheCreationInputTokens,
-              webSearchRequests: updatedConversation.webSearchRequests,
-              contextWindow: updatedConversation.contextWindow,
-            } : cumulativeSessionUsage,
-            turnUsage,
-            isFinal: true,
-          });
-
-          // Also broadcast session update for session list
-          broadcastToProject(updatedSession.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-            projectId: updatedSession.projectId,
-            sessionId,
-            session: updatedSession,
-          });
-
-          // Broadcast conversation update for real-time UI updates
-          if (updatedConversation) {
-            broadcastToSession(sessionId, WS_MESSAGE_TYPES.CONVERSATION_UPDATED, {
-              sessionId,
-              conversation: updatedConversation,
-            });
-          }
-
-          // Clean up turn usage and estimated tokens
-          currentTurnUsage.delete(conversationId);
-          estimatedOutputTokens.delete(conversationId);
-          activeConversationIds.delete(sessionId);
-        }
-      }
-      // Note: Don't clear lastMessageIds here - let the post-loop association code handle it.
-      // Clearing here was causing work logs to never be associated because the 'result' event
-      // arrives before the loop ends, deleting the messageId before association can happen.
-      break;
-    }
+  const handler = eventHandlers[event.type];
+  if (handler) {
+    handler(sessionId, event);
   }
 }
 
@@ -547,10 +721,10 @@ export function cleanupSessionState(sessionId, includeConversationId = false) {
  * Encapsulates the duplicated completion block from runSession/continueSession/continueSessionWithExistingMessage
  * @param {string} sessionId
  * @param {string} workingDirectory
- * @param {Function} handleTemplateTriggerIfNeeded
- * @param {Function} _checkProactiveReschedule
+ * @param {{ handleTemplateTriggerIfNeeded?: Function, checkProactiveReschedule?: Function, handleAutoSendIfNeeded?: Function }} callbacks
  */
-export async function handleTurnCompletion(sessionId, workingDirectory, handleTemplateTriggerIfNeeded, _checkProactiveReschedule, handleAutoSendIfNeeded) {
+export async function handleTurnCompletion(sessionId, workingDirectory, callbacks = {}) {
+  const { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded } = callbacks;
   // Associate work logs with the last message now that the turn is complete
   const lastMessageId = lastMessageIds.get(sessionId);
   if (lastMessageId) {
@@ -565,9 +739,11 @@ export async function handleTurnCompletion(sessionId, workingDirectory, handleTe
     broadcastSessionStatus(sessionId, 'waiting');
 
     // Check if session should be proactively rescheduled based on token threshold
-    const wasRescheduled = await _checkProactiveReschedule(sessionId);
-    if (wasRescheduled) {
-      return true; // Session was rescheduled, don't continue with normal completion
+    if (_checkProactiveReschedule) {
+      const wasRescheduled = await _checkProactiveReschedule(sessionId);
+      if (wasRescheduled) {
+        return true; // Session was rescheduled, don't continue with normal completion
+      }
     }
 
     // Extract PR URL immediately (lightweight, no API call)
@@ -589,7 +765,7 @@ export async function handleTurnCompletion(sessionId, workingDirectory, handleTe
 
     // Only trigger next template if auto-send did NOT fire
     // (if auto-send fired, template will trigger after that turn completes)
-    if (!autoSendFired) {
+    if (!autoSendFired && handleTemplateTriggerIfNeeded) {
       await handleTemplateTriggerIfNeeded(sessionId);
     }
   }
@@ -601,13 +777,10 @@ export async function handleTurnCompletion(sessionId, workingDirectory, handleTe
  * Encapsulates the duplicated error handling block from runSession/continueSession/continueSessionWithExistingMessage
  * @param {string} sessionId
  * @param {Error} error
- * @param {AbortController} controller
- * @param {Function} shouldRescheduleOnError
- * @param {Object} schedulerService
- * @param {Object} [options]
- * @param {boolean} [options.broadcastConversationState] - Whether to broadcast final conversation state before error status
+ * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, cleanupConversationId?: boolean }} options
  */
-export async function handleSessionError(sessionId, error, controller, shouldRescheduleOnError, schedulerService, options = {}) {
+export async function handleSessionError(sessionId, error, options = {}) {
+  const { controller, shouldRescheduleOnError, schedulerService } = options;
   const errorLabel = options.errorLabel || 'Session error';
   console.error(`${errorLabel}:`, error);
   console.error('Error stack:', error.stack);

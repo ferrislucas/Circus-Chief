@@ -233,7 +233,7 @@ describe('SchedulerService', () => {
         sessionId: 'session-1',
         status: 'starting',
       });
-      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp', 'Be helpful', [], 'claude-sonnet-4-5');
+      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp', { systemPrompt: 'Be helpful', fileAttachments: [], model: 'claude-sonnet-4-5' });
     });
 
     it('uses gitWorktree for working directory when available', async () => {
@@ -248,7 +248,7 @@ describe('SchedulerService', () => {
 
       await scheduler.startScheduledSession(session);
 
-      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp/worktree', undefined, [], null);
+      expect(mockSessionManager.runSession).toHaveBeenCalledWith('session-1', 'Hello', '/tmp/worktree', { systemPrompt: undefined, fileAttachments: [], model: null });
     });
 
     it('continues session when there are existing assistant messages', async () => {
@@ -265,7 +265,7 @@ describe('SchedulerService', () => {
 
       await scheduler.startScheduledSession(session);
 
-      expect(mockSessionManager.continueSession).toHaveBeenCalledWith('session-1', 'Follow-up message', '/tmp', undefined, [], 'claude-opus-4-5');
+      expect(mockSessionManager.continueSession).toHaveBeenCalledWith('session-1', 'Follow-up message', '/tmp', { systemPrompt: undefined, fileAttachments: [], model: 'claude-opus-4-5' });
       expect(mockSessionManager.runSession).not.toHaveBeenCalled();
     });
   });

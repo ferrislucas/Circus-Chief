@@ -56,7 +56,7 @@ describe('MessageRepository', () => {
 
     it('creates message with toolUse as JSON', () => {
       const toolUse = [{ name: 'bash', input: { command: 'ls -la' } }];
-      const message = repo.create(sessionId, 'assistant', 'Running command...', toolUse);
+      const message = repo.create(sessionId, 'assistant', 'Running command...', { toolUse });
 
       expect(message.toolUse).toEqual(toolUse);
     });
@@ -66,7 +66,7 @@ describe('MessageRepository', () => {
         { name: 'read', input: { path: '/tmp/file.txt' } },
         { name: 'write', input: { path: '/tmp/out.txt', content: 'data' } },
       ];
-      const message = repo.create(sessionId, 'assistant', 'Processing...', toolUse);
+      const message = repo.create(sessionId, 'assistant', 'Processing...', { toolUse });
 
       expect(message.toolUse).toEqual(toolUse);
     });
@@ -134,7 +134,7 @@ describe('MessageRepository', () => {
 
   describe('create with conversationId', () => {
     it('creates a message with conversationId', () => {
-      const message = repo.create(sessionId, 'user', 'Hello!', null, conversationId);
+      const message = repo.create(sessionId, 'user', 'Hello!', { conversationId });
 
       expect(message.conversationId).toBe(conversationId);
       expect(message.sessionId).toBe(sessionId);
@@ -148,7 +148,7 @@ describe('MessageRepository', () => {
 
     it('creates a message with both toolUse and conversationId', () => {
       const toolUse = [{ name: 'read', input: { path: '/tmp/file.txt' } }];
-      const message = repo.create(sessionId, 'assistant', 'Reading...', toolUse, conversationId);
+      const message = repo.create(sessionId, 'assistant', 'Reading...', { toolUse, conversationId });
 
       expect(message.toolUse).toEqual(toolUse);
       expect(message.conversationId).toBe(conversationId);
@@ -157,7 +157,7 @@ describe('MessageRepository', () => {
 
   describe('create with model', () => {
     it('creates a message with model', () => {
-      const message = repo.create(sessionId, 'assistant', 'Response', null, null, 'claude-opus-4-6');
+      const message = repo.create(sessionId, 'assistant', 'Response', { model: 'claude-opus-4-6' });
 
       expect(message.model).toBe('claude-opus-4-6');
       expect(message.role).toBe('assistant');
@@ -170,7 +170,7 @@ describe('MessageRepository', () => {
     });
 
     it('creates a message with model and conversationId', () => {
-      const message = repo.create(sessionId, 'assistant', 'Response', null, conversationId, 'claude-haiku-4-5-20251001');
+      const message = repo.create(sessionId, 'assistant', 'Response', { conversationId, model: 'claude-haiku-4-5-20251001' });
 
       expect(message.model).toBe('claude-haiku-4-5-20251001');
       expect(message.conversationId).toBe(conversationId);
@@ -178,7 +178,7 @@ describe('MessageRepository', () => {
 
     it('creates a message with all parameters including model', () => {
       const toolUse = [{ name: 'bash', input: { command: 'ls' } }];
-      const message = repo.create(sessionId, 'assistant', 'Running command', toolUse, conversationId, 'claude-sonnet-4-6');
+      const message = repo.create(sessionId, 'assistant', 'Running command', { toolUse, conversationId, model: 'claude-sonnet-4-6' });
 
       expect(message.model).toBe('claude-sonnet-4-6');
       expect(message.toolUse).toEqual(toolUse);
@@ -187,7 +187,7 @@ describe('MessageRepository', () => {
     });
 
     it('preserves model when retrieving message by ID', () => {
-      const created = repo.create(sessionId, 'assistant', 'Response', null, null, 'claude-opus-4-6');
+      const created = repo.create(sessionId, 'assistant', 'Response', { model: 'claude-opus-4-6' });
       const retrieved = repo.getById(created.id);
 
       expect(retrieved.model).toBe('claude-opus-4-6');
@@ -195,8 +195,8 @@ describe('MessageRepository', () => {
     });
 
     it('includes model in messages retrieved by session', () => {
-      repo.create(sessionId, 'user', 'Question', null, null, null);
-      repo.create(sessionId, 'assistant', 'Answer', null, null, 'claude-opus-4-6');
+      repo.create(sessionId, 'user', 'Question');
+      repo.create(sessionId, 'assistant', 'Answer', { model: 'claude-opus-4-6' });
 
       const messages = repo.getBySessionId(sessionId);
 
@@ -206,9 +206,9 @@ describe('MessageRepository', () => {
     });
 
     it('includes model in messages retrieved by conversation', () => {
-      repo.create(sessionId, 'user', 'Question', null, conversationId, null);
-      repo.create(sessionId, 'assistant', 'Answer 1', null, conversationId, 'claude-opus-4-6');
-      repo.create(sessionId, 'assistant', 'Answer 2', null, conversationId, 'claude-haiku-4-5-20251001');
+      repo.create(sessionId, 'user', 'Question', { conversationId });
+      repo.create(sessionId, 'assistant', 'Answer 1', { conversationId, model: 'claude-opus-4-6' });
+      repo.create(sessionId, 'assistant', 'Answer 2', { conversationId, model: 'claude-haiku-4-5-20251001' });
 
       const messages = repo.getByConversationId(conversationId);
 
@@ -221,8 +221,8 @@ describe('MessageRepository', () => {
       const sourceConv = convRepo.create(sessionId, 'Source Conversation');
       const targetConv = convRepo.create(sessionId, 'Target Conversation');
 
-      repo.create(sessionId, 'user', 'Question', null, sourceConv.id, null);
-      repo.create(sessionId, 'assistant', 'Answer', null, sourceConv.id, 'claude-opus-4-6');
+      repo.create(sessionId, 'user', 'Question', { conversationId: sourceConv.id });
+      repo.create(sessionId, 'assistant', 'Answer', { conversationId: sourceConv.id, model: 'claude-opus-4-6' });
 
       const mapping = new Map([[sourceConv.id, targetConv.id]]);
       repo.duplicateForConversations(mapping, sessionId);
@@ -241,9 +241,9 @@ describe('MessageRepository', () => {
     });
 
     it('returns all messages for a conversation', () => {
-      repo.create(sessionId, 'user', 'Message 1', null, conversationId);
-      repo.create(sessionId, 'assistant', 'Message 2', null, conversationId);
-      repo.create(sessionId, 'user', 'Message 3', null, conversationId);
+      repo.create(sessionId, 'user', 'Message 1', { conversationId });
+      repo.create(sessionId, 'assistant', 'Message 2', { conversationId });
+      repo.create(sessionId, 'user', 'Message 3', { conversationId });
 
       const messages = repo.getByConversationId(conversationId);
 
@@ -251,9 +251,9 @@ describe('MessageRepository', () => {
     });
 
     it('returns messages in chronological order (ASC)', () => {
-      repo.create(sessionId, 'user', 'First', null, conversationId);
-      repo.create(sessionId, 'assistant', 'Second', null, conversationId);
-      repo.create(sessionId, 'user', 'Third', null, conversationId);
+      repo.create(sessionId, 'user', 'First', { conversationId });
+      repo.create(sessionId, 'assistant', 'Second', { conversationId });
+      repo.create(sessionId, 'user', 'Third', { conversationId });
 
       const messages = repo.getByConversationId(conversationId);
 
@@ -265,8 +265,8 @@ describe('MessageRepository', () => {
     it('does not return messages from other conversations', () => {
       const otherConv = convRepo.create(sessionId, 'Other Conversation', false);
 
-      repo.create(sessionId, 'user', 'Conv 1 message', null, conversationId);
-      repo.create(sessionId, 'user', 'Conv 2 message', null, otherConv.id);
+      repo.create(sessionId, 'user', 'Conv 1 message', { conversationId });
+      repo.create(sessionId, 'user', 'Conv 2 message', { conversationId: otherConv.id });
 
       const messages = repo.getByConversationId(conversationId);
 
@@ -275,8 +275,8 @@ describe('MessageRepository', () => {
     });
 
     it('does not return messages without conversationId', () => {
-      repo.create(sessionId, 'user', 'With conv', null, conversationId);
-      repo.create(sessionId, 'user', 'Without conv', null, null);
+      repo.create(sessionId, 'user', 'With conv', { conversationId });
+      repo.create(sessionId, 'user', 'Without conv');
 
       const messages = repo.getByConversationId(conversationId);
 
@@ -292,9 +292,9 @@ describe('MessageRepository', () => {
     });
 
     it('returns correct count for conversation', () => {
-      repo.create(sessionId, 'user', 'Message 1', null, conversationId);
-      repo.create(sessionId, 'assistant', 'Message 2', null, conversationId);
-      repo.create(sessionId, 'user', 'Message 3', null, conversationId);
+      repo.create(sessionId, 'user', 'Message 1', { conversationId });
+      repo.create(sessionId, 'assistant', 'Message 2', { conversationId });
+      repo.create(sessionId, 'user', 'Message 3', { conversationId });
 
       const count = repo.getCountByConversationId(conversationId);
 
@@ -304,9 +304,9 @@ describe('MessageRepository', () => {
     it('only counts messages for specified conversation', () => {
       const otherConv = convRepo.create(sessionId, 'Other Conversation', false);
 
-      repo.create(sessionId, 'user', 'Conv 1', null, conversationId);
-      repo.create(sessionId, 'user', 'Conv 1 again', null, conversationId);
-      repo.create(sessionId, 'user', 'Conv 2', null, otherConv.id);
+      repo.create(sessionId, 'user', 'Conv 1', { conversationId });
+      repo.create(sessionId, 'user', 'Conv 1 again', { conversationId });
+      repo.create(sessionId, 'user', 'Conv 2', { conversationId: otherConv.id });
 
       expect(repo.getCountByConversationId(conversationId)).toBe(2);
       expect(repo.getCountByConversationId(otherConv.id)).toBe(1);
@@ -315,8 +315,8 @@ describe('MessageRepository', () => {
 
   describe('deleteByConversationId', () => {
     it('deletes all messages for a conversation', () => {
-      repo.create(sessionId, 'user', 'Message 1', null, conversationId);
-      repo.create(sessionId, 'assistant', 'Message 2', null, conversationId);
+      repo.create(sessionId, 'user', 'Message 1', { conversationId });
+      repo.create(sessionId, 'assistant', 'Message 2', { conversationId });
 
       expect(repo.getByConversationId(conversationId)).toHaveLength(2);
 
@@ -328,8 +328,8 @@ describe('MessageRepository', () => {
     it('does not delete messages from other conversations', () => {
       const otherConv = convRepo.create(sessionId, 'Other Conversation', false);
 
-      repo.create(sessionId, 'user', 'Conv 1 message', null, conversationId);
-      repo.create(sessionId, 'user', 'Conv 2 message', null, otherConv.id);
+      repo.create(sessionId, 'user', 'Conv 1 message', { conversationId });
+      repo.create(sessionId, 'user', 'Conv 2 message', { conversationId: otherConv.id });
 
       repo.deleteByConversationId(conversationId);
 
@@ -342,8 +342,8 @@ describe('MessageRepository', () => {
     });
 
     it('does not affect messages without conversationId', () => {
-      repo.create(sessionId, 'user', 'With conv', null, conversationId);
-      repo.create(sessionId, 'user', 'Without conv', null, null);
+      repo.create(sessionId, 'user', 'With conv', { conversationId });
+      repo.create(sessionId, 'user', 'Without conv');
 
       repo.deleteByConversationId(conversationId);
 
@@ -373,7 +373,7 @@ describe('MessageRepository', () => {
     });
 
     it('returns updated message with all fields intact', () => {
-      const message = repo.create(sessionId, 'assistant', 'Original response', null, conversationId);
+      const message = repo.create(sessionId, 'assistant', 'Original response', { conversationId });
       const updated = repo.updateContent(message.id, 'New response');
 
       expect(updated.id).toBe(message.id);
@@ -402,7 +402,7 @@ describe('MessageRepository', () => {
 
     it('preserves other message fields on update', () => {
       const toolUse = [{ name: 'bash', input: { command: 'ls -la' } }];
-      const message = repo.create(sessionId, 'assistant', 'Original', toolUse, conversationId);
+      const message = repo.create(sessionId, 'assistant', 'Original', { toolUse, conversationId });
       const updated = repo.updateContent(message.id, 'New content');
 
       // Note: toolUse is not updated by this method, only content
@@ -513,22 +513,6 @@ describe('MessageRepository', () => {
       expect(message.conversationId).toBe(conversationId);
     });
 
-    it('preserves backward compatibility with legacy positional parameters', () => {
-      const toolUse = [{ name: 'bash', input: { command: 'pwd' } }];
-      const message = repo.create(sessionId, 'assistant', 'Output', toolUse, conversationId, 'claude-opus-4-6');
-
-      expect(message.toolUse).toEqual(toolUse);
-      expect(message.conversationId).toBe(conversationId);
-      expect(message.model).toBe('claude-opus-4-6');
-    });
-
-    it('detects array toolUse as legacy signature (not options object)', () => {
-      const toolUse = [{ name: 'bash', input: { command: 'ls' } }];
-      const message = repo.create(sessionId, 'assistant', 'Running', toolUse);
-
-      // Arrays should be treated as legacy toolUse parameter, not options object
-      expect(message.toolUse).toEqual(toolUse);
-    });
   });
 
   describe('duplicateForConversations', () => {
@@ -537,9 +521,9 @@ describe('MessageRepository', () => {
       const sourceConv1 = convRepo.create(sessionId, 'Conv 1');
       const sourceConv2 = convRepo.create(sessionId, 'Conv 2');
 
-      repo.create(sessionId, 'user', 'Question?', null, sourceConv1.id);
-      repo.create(sessionId, 'assistant', 'Answer!', null, sourceConv1.id);
-      repo.create(sessionId, 'user', 'Another Q', null, sourceConv2.id);
+      repo.create(sessionId, 'user', 'Question?', { conversationId: sourceConv1.id });
+      repo.create(sessionId, 'assistant', 'Answer!', { conversationId: sourceConv1.id });
+      repo.create(sessionId, 'user', 'Another Q', { conversationId: sourceConv2.id });
 
       // Simulate creating new conversations (normally done via duplicateForSession)
       const targetConv1 = convRepo.create(sessionId, 'Target Conv 1');
@@ -567,8 +551,8 @@ describe('MessageRepository', () => {
       const sourceConv = convRepo.create(sessionId, 'Test Conv');
       const toolUse = [{ name: 'bash', input: { command: 'ls -la' } }];
 
-      repo.create(sessionId, 'user', 'Q', null, sourceConv.id);
-      repo.create(sessionId, 'assistant', 'A', toolUse, sourceConv.id);
+      repo.create(sessionId, 'user', 'Q', { conversationId: sourceConv.id });
+      repo.create(sessionId, 'assistant', 'A', { toolUse, conversationId: sourceConv.id });
 
       const targetConv = convRepo.create(sessionId, 'Target Conv');
 
@@ -587,9 +571,9 @@ describe('MessageRepository', () => {
     it('should preserve message order', () => {
       const sourceConv = convRepo.create(sessionId, 'Test Conv');
 
-      repo.create(sessionId, 'user', 'First', null, sourceConv.id);
-      repo.create(sessionId, 'assistant', 'Second', null, sourceConv.id);
-      repo.create(sessionId, 'user', 'Third', null, sourceConv.id);
+      repo.create(sessionId, 'user', 'First', { conversationId: sourceConv.id });
+      repo.create(sessionId, 'assistant', 'Second', { conversationId: sourceConv.id });
+      repo.create(sessionId, 'user', 'Third', { conversationId: sourceConv.id });
 
       const targetConv = convRepo.create(sessionId, 'Target Conv');
 
@@ -602,7 +586,7 @@ describe('MessageRepository', () => {
 
     it('should generate new message IDs', () => {
       const sourceConv = convRepo.create(sessionId, 'Test Conv');
-      const originalMsg = repo.create(sessionId, 'user', 'Test', null, sourceConv.id);
+      const originalMsg = repo.create(sessionId, 'user', 'Test', { conversationId: sourceConv.id });
 
       const targetConv = convRepo.create(sessionId, 'Target Conv');
 

@@ -224,14 +224,16 @@ describe('File Attachments API', () => {
         expect.any(String), // sessionId
         'Analyze this', // prompt
         testTempDir, // workingDirectory (dynamic)
-        null, // systemPrompt
-        expect.arrayContaining([
-          expect.objectContaining({
-            filename: 'test.txt',
-            mimeType: 'text/plain',
-          }),
-        ]),
-        null // model (passed per-message now, not from session)
+        {
+          systemPrompt: null,
+          fileAttachments: expect.arrayContaining([
+            expect.objectContaining({
+              filename: 'test.txt',
+              mimeType: 'text/plain',
+            }),
+          ]),
+          model: null,
+        }
       );
     });
 
@@ -527,14 +529,16 @@ describe('File Attachments API', () => {
         session.id,
         'Analyze this',
         testTempDir, // Uses project workingDirectory since no gitWorktree
-        null, // systemPrompt
-        expect.arrayContaining([
-          expect.objectContaining({
-            filename: 'test.txt',
-            mimeType: 'text/plain',
-          }),
-        ]),
-        null // model (passed per-message now)
+        {
+          systemPrompt: null,
+          fileAttachments: expect.arrayContaining([
+            expect.objectContaining({
+              filename: 'test.txt',
+              mimeType: 'text/plain',
+            }),
+          ]),
+          model: null,
+        }
       );
     });
 
@@ -680,9 +684,11 @@ describe('File Attachments API', () => {
         session.id,
         'Using worktree',
         '/tmp/worktree/session-123', // Should use gitWorktree, not project.workingDirectory
-        null,
-        expect.any(Array),
-        null // model
+        {
+          systemPrompt: null,
+          fileAttachments: expect.any(Array),
+          model: null,
+        }
       );
     });
 
@@ -699,9 +705,11 @@ describe('File Attachments API', () => {
         session.id,
         'Form-data without files',
         expect.any(String),
-        null,
-        [], // Empty attachments
-        null // model
+        {
+          systemPrompt: null,
+          fileAttachments: [], // Empty attachments
+          model: null,
+        }
       );
     });
   });
@@ -802,7 +810,7 @@ describe('File Attachments API', () => {
       });
 
       // Create an assistant message in the same conversation without attachment
-      messages.create(session.id, 'assistant', 'Response without attachments', null, activeConv.id);
+      messages.create(session.id, 'assistant', 'Response without attachments', { conversationId: activeConv.id });
 
       const response = await request(app)
         .get(`/api/sessions/${session.id}/messages`)

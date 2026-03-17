@@ -147,8 +147,8 @@ describe('ConversationRepository', () => {
       const conv = repo.create(sessionId, 'Test');
 
       // Add some messages
-      messageRepo.create(sessionId, 'user', 'Hello', null, conv.id);
-      messageRepo.create(sessionId, 'assistant', 'Hi there', null, conv.id);
+      messageRepo.create(sessionId, 'user', 'Hello', { conversationId: conv.id });
+      messageRepo.create(sessionId, 'assistant', 'Hi there', { conversationId: conv.id });
 
       const convs = repo.getBySessionIdWithMessageCount(sessionId);
 
@@ -519,9 +519,9 @@ describe('ConversationRepository', () => {
     beforeEach(() => {
       conv = repo.create(sessionId, 'Original Conversation');
       // Create a conversation with 3 messages
-      msg1 = messageRepo.create(sessionId, 'user', 'First user message', null, conv.id);
-      msg2 = messageRepo.create(sessionId, 'assistant', 'First assistant response', null, conv.id);
-      msg3 = messageRepo.create(sessionId, 'user', 'Second user message', null, conv.id);
+      msg1 = messageRepo.create(sessionId, 'user', 'First user message', { conversationId: conv.id });
+      msg2 = messageRepo.create(sessionId, 'assistant', 'First assistant response', { conversationId: conv.id });
+      msg3 = messageRepo.create(sessionId, 'user', 'Second user message', { conversationId: conv.id });
 
       // Update timestamps to ensure proper ordering (messages created rapidly might have same timestamp)
       const db = databaseManager.get();

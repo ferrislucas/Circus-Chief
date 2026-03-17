@@ -36,7 +36,7 @@ describe('templateTriggerService', () => {
       const rootSession = parentSession; // Same as parent for single-level
       const rootSummary = parentSummary;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, parentSummary, rootSession, rootSummary);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary, rootSession, rootSummary });
 
       expect(rendered).toBe('Review the work: Built a new feature for user authentication.');
     });
@@ -50,7 +50,7 @@ describe('templateTriggerService', () => {
       };
       const rootSession = parentSession;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null, rootSession, null);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
 
       expect(rendered).toBe('Parent session ID: abc-123-def');
     });
@@ -64,7 +64,7 @@ describe('templateTriggerService', () => {
       };
       const rootSession = parentSession;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null, rootSession, null);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
 
       expect(rendered).toBe('Following up on: Build login page');
     });
@@ -78,7 +78,7 @@ describe('templateTriggerService', () => {
       };
       const rootSession = parentSession;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null, rootSession, null);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
 
       expect(rendered).toBe('Session ended with status: error');
     });
@@ -97,7 +97,7 @@ describe('templateTriggerService', () => {
       const rootSession = parentSession;
       const rootSummary = parentSummary;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, parentSummary, rootSession, rootSummary);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary, rootSession, rootSummary });
 
       expect(rendered).toBe('Summary: Short summary only');
     });
@@ -111,7 +111,7 @@ describe('templateTriggerService', () => {
       };
       const rootSession = parentSession;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null, rootSession, null);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
 
       expect(rendered).toBe('Summary: No summary available');
     });
@@ -129,7 +129,7 @@ describe('templateTriggerService', () => {
       const rootSession = parentSession;
       const rootSummary = parentSummary;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, parentSummary, rootSession, rootSummary);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary, rootSession, rootSummary });
 
       expect(rendered).toBe('Added login form, Updated API, Fixed bug, ');
     });
@@ -147,7 +147,7 @@ describe('templateTriggerService', () => {
       const rootSession = parentSession;
       const rootSummary = parentSummary;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, parentSummary, rootSession, rootSummary);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary, rootSession, rootSummary });
 
       expect(rendered).toBe('Modified: src/login.js, src/api.js');
     });
@@ -165,7 +165,7 @@ describe('templateTriggerService', () => {
       const rootSession = parentSession;
       const rootSummary = parentSummary;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, parentSummary, rootSession, rootSummary);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary, rootSession, rootSummary });
 
       expect(rendered).toBe('Outcome: partial');
     });
@@ -179,7 +179,7 @@ describe('templateTriggerService', () => {
       };
       const rootSession = parentSession;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null, rootSession, null);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
 
       expect(rendered).toBe('Outcome: error');
     });
@@ -205,7 +205,7 @@ Please review the above work.
       const rootSession = parentSession;
       const rootSummary = parentSummary;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, parentSummary, rootSession, rootSummary);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary, rootSession, rootSummary });
 
       expect(rendered).toContain('Review Session: Build feature X');
       expect(rendered).toContain('Status: stopped');
@@ -221,7 +221,7 @@ Please review the above work.
       };
       const rootSession = parentSession;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null, rootSession, null);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
 
       expect(rendered).toBe('This is a static prompt with no variables.');
     });
@@ -239,7 +239,7 @@ Please review the above work.
         status: 'stopped',
       };
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null, rootSession, null);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
 
       expect(rendered).toBe('Root session ID: root-123');
     });
@@ -257,7 +257,7 @@ Please review the above work.
         status: 'stopped',
       };
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null, rootSession, null);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
 
       expect(rendered).toBe('Root session name: Original Session');
     });
@@ -279,7 +279,7 @@ Please review the above work.
         shortSummary: 'Root summary',
       };
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null, rootSession, rootSummary);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary });
 
       expect(rendered).toBe('Root summary: This is the root session summary.');
     });
@@ -297,7 +297,7 @@ Please review the above work.
         status: 'completed',
       };
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null, rootSession, null);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
 
       expect(rendered).toBe('Root status: completed');
     });
@@ -311,7 +311,7 @@ Please review the above work.
       };
       const rootSession = parentSession; // Same as parent for single-level
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null, rootSession, null);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
 
       expect(rendered).toBe('Parent: session-123, Root: session-123');
     });
@@ -330,7 +330,7 @@ Please review the above work.
         parentSessionId: 'root-123',
       };
 
-      const rendered = await renderTemplatePrompt(templatePrompt, parentSession, null, rootSession, null);
+      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
 
       expect(rendered).toBe('Chain: Root Session -> Parent Session');
     });
@@ -475,9 +475,7 @@ Please review the above work.
         expect.any(String), // new session id
         expect.stringContaining('Follow up:'), // rendered prompt
         expect.stringContaining(tempDir), // working directory
-        null, // system prompt (project has none)
-        [], // attachments (empty for template-triggered sessions)
-        null // model (template has none set, so parent's model is not passed directly)
+        { systemPrompt: null, model: null } // options object
       );
     });
 
@@ -498,9 +496,7 @@ Please review the above work.
         expect.any(String),
         expect.stringContaining('Full summary of the parent session work'),
         expect.any(String),
-        null,
-        [], // attachments
-        null // model (template has none set)
+        { systemPrompt: null, model: null } // options object
       );
     });
 

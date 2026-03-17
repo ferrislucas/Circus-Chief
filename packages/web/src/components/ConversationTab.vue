@@ -3,53 +3,13 @@
     <!-- Unified Conversation Panel - selector + BTE cost display -->
     <ConversationPanel v-if="!isScheduledForFuture" :session-id="sessionId" />
 
-    <div class="messages" ref="messagesContainer">
-      <!-- Hide messages for draft and scheduled sessions (only show in input field) -->
-      <template v-if="!isDraft && !isScheduledDraft">
-      <MessageItem
-        v-for="message in sessionsStore.messages"
-        :key="message.id"
-        :message="message"
-        :can-branch="canBranch"
-        :is-branching="branchingMessageId === message.id"
-        :work-logs="sessionsStore.getWorkLogsForMessage(message.id)"
-        @openBranch="openBranchEditor"
-        @branchCreate="handleBranchCreate"
-        @closeBranch="closeBranchEditor"
-      />
-      </template>
-
-      <!-- Streaming partial message -->
-      <StreamingMessage v-if="!isDraft && partialText" :content="partialText" />
-
-      <!-- Jump to latest button (Slack-style) -->
-      <button
-        v-if="!isNearBottom && hasNewMessages && sessionsStore.messages.length > 0"
-        class="jump-to-latest"
-        @click="scrollToBottom(true)"
-      >
-        <svg class="jump-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <span>New messages</span>
-      </button>
-    </div>
-
-    <!-- Token cost panel - aligned with scroll-to-claude-btn -->
-    <div class="conversation-controls-row">
-      <TokenCostPanel :session-id="sessionId" />
-
-      <!-- Jump to Claude's turn button - shows when at bottom and it's user's turn -->
-      <button
-        v-if="hasAssistantMessages && isNearBottom && isUsersTurn"
-        class="scroll-to-claude-btn"
-        @click="scrollToClaudesTurn"
-        title="Jump to Claude's response"
-        aria-label="Scroll to Claude's latest response"
-      >
-        ↑
-      </button>
-    </div>
+    <ConversationMessages
+      ref="conversationMessagesRef"
+      :session-id="sessionId"
+      :is-draft="isDraft"
+      :is-scheduled-draft="isScheduledDraft"
+      :session-status="sessionsStore.currentSession?.status"
+    />
 
     <!-- Todo drawer - only shows when todos exist -->
     <TodoDrawer />
@@ -145,22 +105,18 @@
 
 <script setup>
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
-import { useRouter, useRoute } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { formatDistanceToNow } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
-import { useMessageScroll } from '../composables/useMessageScroll.js';
 import { useDraftSaving } from '../composables/useDraftSaving.js';
 import { useSessionControl } from '../composables/useSessionControl.js';
-import { api } from '../composables/useApi.js';
 import TodoDrawer from './TodoDrawer.vue';
 import ConversationPanel from './ConversationPanel.vue';
-import TokenCostPanel from './TokenCostPanel.vue';
-import MessageItem from './MessageItem.vue';
-import StreamingMessage from './StreamingMessage.vue';
+import ConversationMessages from './ConversationMessages.vue';
 import InputForm from './InputForm.vue';
 import RunningState from './RunningState.vue';
 import QuickResponseSettings from './QuickResponseSettings.vue';
@@ -182,15 +138,7 @@ const defaultsStore = useProjectDefaultsStore();
 const quickResponsesStore = useQuickResponsesStore();
 const projectsStore = useProjectsStore();
 const { getModelDisplayName } = useModelInfo();
-const router = useRouter();
 const route = useRoute();
-
-// Scroll management composable
-const { messagesContainer, isNearBottom, hasNewMessages, scrollToBottom, scrollToClaudesTurn } = useMessageScroll({
-  messages: computed(() => sessionsStore.messages),
-  partialText: computed(() => sessionsStore.partialText),
-  activeConversationId: computed(() => sessionsStore.activeConversationId),
-});
 
 // Session control composable
 const {
@@ -207,7 +155,7 @@ const showScheduleModal = ref(false);
 const showAutoRescheduleModal = ref(false);
 const showSlashCommandWizard = ref(false);
 const inputFormRef = ref(null);
-const branchingMessageId = ref(null);
+const conversationMessagesRef = ref(null);
 const attachedFiles = ref([]);
 const selectedModel = ref(null);
 
@@ -219,9 +167,6 @@ const { saveStatus, saveError, handleInput, savePendingPrompt } = useDraftSaving
   getSessionId: () => props.sessionId,
 });
 
-// partialText comes from the sessions store (set by SessionDetailView's WebSocket handlers)
-const partialText = computed(() => sessionsStore.partialText);
-
 const canSendMessage = computed(() => {
   const status = sessionsStore.currentSession?.status;
   return status === 'waiting' || status === 'scheduled' || status === 'stopped' || status === 'error';
@@ -229,16 +174,6 @@ const canSendMessage = computed(() => {
 
 const isRunning = computed(() => {
   return sessionsStore.currentSession?.status === 'running';
-});
-
-const canBranch = computed(() => {
-  const status = sessionsStore.currentSession?.status;
-  return status !== 'running' && status !== 'starting';
-});
-
-const isUsersTurn = computed(() => {
-  const status = sessionsStore.currentSession?.status;
-  return status === 'waiting' || status === 'stopped' || status === 'error';
 });
 
 const isDraft = computed(() => {
@@ -295,10 +230,6 @@ const sendButtonDisabledReason = computed(() => {
 
 const isScheduledForFuture = computed(() => {
   return sessionsStore.isScheduledDraft(sessionsStore.currentSession);
-});
-
-const hasAssistantMessages = computed(() => {
-  return sessionsStore.messages.some(msg => msg.role === 'assistant');
 });
 
 const nextTemplate = computed(() => {
@@ -376,7 +307,7 @@ onMounted(async () => {
     await sessionsStore.switchConversation(props.sessionId, convId);
   }
 
-  scrollToBottom(true);
+  conversationMessagesRef.value?.scrollToBottom(true);
 });
 
 onUnmounted(() => {
@@ -402,14 +333,10 @@ watch(
     }
 
     // If server consumed the pending prompt (auto-send), clear local input.
-    // The server broadcasts SESSION_UPDATED with cleared pendingPrompt/autoSendPendingPrompt
-    // BEFORE calling continueSession, so by the time the status watcher fires for
-    // running→waiting, the store should already reflect the cleared state.
     if (oldStatus === 'running' && newStatus !== 'running') {
       await nextTick();
       const session = sessionsStore.currentSession;
       if (session && !session.pendingPrompt && !session.autoSendPendingPrompt && input.value) {
-        // Server cleared the prompt — it was auto-sent
         input.value = '';
       }
     }
@@ -496,18 +423,15 @@ watch(selectedModel, async (newModel, oldModel) => {
 
 // Form submission handler
 async function handleFormSubmit() {
-  // Block submission during running — user must use auto-send instead
   if (isRunning.value) return;
 
   if (isDraft.value || isScheduledDraft.value) {
-    // Start draft session
     const textareaRef = inputFormRef.value?.textareaRef;
     const currentValue = textareaRef?.value || input.value;
     const sessionModel = sessionsStore.currentSession?.pendingModel
       || sessionsStore.currentSession?.model;
     await handleStart(currentValue, sessionModel);
   } else {
-    // Send follow-up message
     const textareaRef = inputFormRef.value?.textareaRef;
     const currentValue = textareaRef?.value || input.value;
     const success = await handleSend(currentValue, attachedFiles.value, selectedModel.value);
@@ -549,7 +473,6 @@ async function handleAutoSendToggle(enabled) {
   const sessionId = props.sessionId;
   try {
     if (enabled && input.value.trim()) {
-      // Save current text immediately so the server has it for auto-send
       await savePendingPrompt(input.value);
     }
     await sessionsStore.updateAutoSendPendingPrompt(sessionId, enabled);
@@ -571,7 +494,6 @@ function closeScheduleModal() {
 }
 
 function handleSlashCommandInsert({ text }) {
-  // Insert the slash command text into the input field instead of auto-executing
   const existing = input.value.trim();
   if (existing) {
     input.value = text + ' ' + existing;
@@ -579,64 +501,15 @@ function handleSlashCommandInsert({ text }) {
     input.value = text + ' ';
   }
 
-  // Sync to textarea DOM and focus so user can add context before submitting
   nextTick(() => {
     const textareaRef = inputFormRef.value?.textareaRef;
     if (textareaRef) {
       textareaRef.value = input.value;
       textareaRef.focus();
       textareaRef.selectionStart = textareaRef.selectionEnd = input.value.length;
-      // Trigger input event so ResizableTextarea auto-resizes
       textareaRef.dispatchEvent(new Event('input', { bubbles: true }));
     }
   });
-}
-
-// Branching methods
-function openBranchEditor(messageId) {
-  branchingMessageId.value = messageId;
-}
-
-function closeBranchEditor() {
-  branchingMessageId.value = null;
-}
-
-async function handleBranchCreate({ messageId, prompt }) {
-  let branchCreated = false;
-  try {
-    const activeConv = sessionsStore.activeConversation;
-    if (!activeConv) {
-      throw new Error('No active conversation');
-    }
-
-    if (!prompt) {
-      throw new Error('A prompt is required');
-    }
-
-    const branchConversation = await sessionsStore.branchConversation(
-      props.sessionId,
-      activeConv.id,
-      messageId,
-      null,
-      prompt
-    );
-
-    branchCreated = true;
-
-    router.push({
-      path: `/sessions/${props.sessionId}/conversation`,
-      query: { conv: branchConversation.id }
-    });
-
-    closeBranchEditor();
-  } catch (err) {
-    uiStore.error(err.message);
-  } finally {
-    if (!branchCreated) {
-      // Find the MessageItem for this message and reset its branch editor
-      // The MessageItem component handles its own branch editor ref
-    }
-  }
 }
 </script>
 
@@ -644,152 +517,5 @@ async function handleBranchCreate({ messageId, prompt }) {
 .conversation-tab {
   display: flex;
   flex-direction: column;
-}
-
-.messages {
-  padding: 0.25rem 0;
-  position: relative;
-  max-height: 65vh;
-  overflow-y: auto;
-  scroll-behavior: smooth;
-}
-
-.conversation-controls-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.25rem 0;
-  position: relative;
-  min-height: 32px;
-}
-
-.scroll-to-claude-btn {
-  padding: 0.375rem 0.75rem;
-  background: rgba(31, 41, 55, 0.85);
-  border: 1px solid rgba(75, 85, 99, 0.5);
-  border-radius: 6px;
-  color: rgba(156, 163, 175, 0.9);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  backdrop-filter: blur(4px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.875rem;
-  white-space: nowrap;
-  line-height: 1;
-  font-weight: 500;
-  min-width: 2rem;
-}
-
-.scroll-to-claude-btn:hover {
-  background: rgba(55, 65, 81, 0.95);
-  color: rgba(209, 213, 219, 1);
-}
-
-.scroll-to-claude-btn:active {
-  transform: scale(0.95);
-}
-
-/* Slack-style new messages button */
-.jump-to-latest {
-  position: sticky;
-  bottom: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  width: fit-content;
-  margin: 0 auto;
-  padding: 0.5rem 0.875rem;
-  background: #1a1d21;
-  color: #e8e8e8;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 24px;
-  cursor: pointer;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.3),
-    0 4px 12px rgba(0, 0, 0, 0.25);
-  z-index: 10;
-  animation: slideUp 0.15s ease-out;
-  transition: background 0.15s ease, box-shadow 0.15s ease;
-}
-
-.jump-to-latest:hover {
-  background: #222529;
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.35),
-    0 6px 16px rgba(0, 0, 0, 0.3);
-}
-
-.jump-to-latest:active {
-  transform: translateX(-50%) scale(0.97);
-}
-
-.jump-arrow {
-  flex-shrink: 0;
-  opacity: 0.9;
-}
-
-@keyframes slideUp {
-  from {
-    transform: translateX(-50%) translateY(8px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(-50%) translateY(0);
-    opacity: 1;
-  }
-}
-
-.status-message {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 1rem;
-  color: var(--color-text-soft);
-  border-top: 1px solid var(--color-border);
-}
-
-.status-error {
-  color: var(--color-danger, #ef4444);
-}
-
-.btn-restart {
-  min-width: 140px;
-}
-
-/* Responsive messages container height */
-@media (min-width: 1200px) {
-  .messages {
-    max-height: 70vh;
-  }
-}
-
-@media (max-height: 700px) {
-  .messages {
-    max-height: 50vh;
-  }
-}
-
-@media (max-height: 500px) {
-  .messages {
-    max-height: 40vh;
-  }
-}
-
-/* Mobile adjustments */
-@media (max-width: 600px) {
-  .scroll-to-claude-btn {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.75rem;
-    margin-right: 0.25rem;
-  }
 }
 </style>

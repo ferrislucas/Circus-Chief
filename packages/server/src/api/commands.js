@@ -123,8 +123,7 @@ router.post('/:name/execute', async (req, res) => {
         sessionId,
         userMessage,
         workingDirectory,
-        skillSystemPrompt,
-        [] // No file attachments for slash commands
+        { systemPrompt: skillSystemPrompt } // No file attachments for slash commands
       ).catch(err => {
         console.error('Error executing skill:', err);
       });
@@ -150,8 +149,7 @@ router.post('/:name/execute', async (req, res) => {
       sessionId,
       commandString,
       workingDirectory,
-      project.systemPrompt || null,
-      [] // No file attachments for slash commands
+      { systemPrompt: project.systemPrompt || null } // No file attachments for slash commands
     ).catch(err => {
       // Log but don't throw - continueSession runs asynchronously
       console.error('Error executing command:', err);
