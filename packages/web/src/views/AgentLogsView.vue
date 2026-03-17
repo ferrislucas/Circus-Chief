@@ -141,6 +141,13 @@
               </router-link>
               <span v-else>—</span>
             </td>
+            <!-- Effort Level -->
+            <td class="td">
+              <span v-if="getEffortLevel(log)" :class="['effort-badge', `effort-${getEffortLevel(log)}`]">
+                {{ getEffortLevelLabel(getEffortLevel(log)) }}
+              </span>
+              <span v-else>—</span>
+            </td>
             <!-- Tokens -->
             <td class="td text-right" :title="tokenTooltip(log)">
               {{ formatNumber(log.totalTokens) }}
@@ -238,6 +245,7 @@ const columns = [
   { key: 'call_type', label: 'Call Type', sortable: true },
   { key: 'model', label: 'Model', sortable: true },
   { key: 'session', label: 'Session', sortable: false },
+  { key: 'effort', label: 'Effort', sortable: false },
   { key: 'total_tokens', label: 'Tokens', sortable: true },
   { key: 'duration_ms', label: 'Duration', sortable: true },
   { key: 'started_at', label: 'Started', sortable: true },
@@ -328,6 +336,29 @@ function relativeTime(ts) {
   if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
   return `${Math.floor(diff / 86400000)}d ago`;
+}
+
+function getEffortLevel(log) {
+  try {
+    if (log.metadata) {
+      const metadata = typeof log.metadata === 'string' ? JSON.parse(log.metadata) : log.metadata;
+      return metadata.effortLevel || null;
+    }
+  } catch (e) {
+    // Invalid JSON, return null
+  }
+  return null;
+}
+
+function getEffortLevelLabel(level) {
+  const labels = {
+    'auto': 'Auto',
+    'low': 'Low',
+    'medium': 'Med',
+    'high': 'High',
+    'max': 'Max',
+  };
+  return labels[level] || level;
 }
 
 function onClearAll() {
@@ -679,5 +710,45 @@ onUnmounted(() => {
 .page-ellipsis {
   color: var(--color-text-soft, #9ca3af);
   padding: 0 0.25rem;
+}
+
+.effort-badge {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.effort-auto {
+  background-color: rgba(107, 114, 128, 0.2);
+  color: #9ca3af;
+  border: 1px solid rgba(107, 114, 128, 0.4);
+}
+
+.effort-low {
+  background-color: rgba(52, 211, 153, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.4);
+}
+
+.effort-medium {
+  background-color: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+}
+
+.effort-high {
+  background-color: rgba(251, 146, 60, 0.2);
+  color: #fb923c;
+  border: 1px solid rgba(251, 146, 60, 0.4);
+}
+
+.effort-max {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.4);
 }
 </style>

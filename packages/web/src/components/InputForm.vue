@@ -65,6 +65,8 @@
           v-if="workingDirectory"
           @open="$emit('openSlashCommand')"
         />
+        <EffortLevelSelector :sessionId="sessionId" />
+
         <div class="thinking-toggle">
           <label class="toggle-switch">
             <input
@@ -105,6 +107,7 @@ import ResizableTextarea from './ResizableTextarea.vue';
 import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';
+import EffortLevelSelector from './EffortLevelSelector.vue';
 import FileAttachment from './FileAttachment.vue';
 import SlashCommandButton from './SlashCommandButton.vue';
 import OrchestrationPanel from './OrchestrationPanel.vue';
