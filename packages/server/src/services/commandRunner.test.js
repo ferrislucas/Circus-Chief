@@ -199,6 +199,7 @@ describe('CommandRunner', () => {
           }
         );
 
+        expect(exitCode).toBe(0);
         expect(callbackCalled).toBe(true);
         expect(callbackExitCode).toBe(0);
         expect(callbackOutput).toContain('complete test');
@@ -285,6 +286,7 @@ describe('CommandRunner', () => {
         );
 
         expect(exitCode).not.toBe(0);
+        expect(errorCalled).toBe(false);
         // onError is only called for spawn errors, not non-zero exit codes
       });
 

@@ -147,7 +147,7 @@ class SchedulerService {
       }
 
       // Create the initial user message
-      const userMessage = messages.create(session.id, 'user', prompt, null, activeConv.id);
+      const userMessage = messages.create(session.id, 'user', prompt, { toolUse: null, conversationId: activeConv.id });
 
       // Broadcast the new message so UI updates
       broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_CREATED, {
