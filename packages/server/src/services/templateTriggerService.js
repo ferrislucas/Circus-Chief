@@ -117,12 +117,14 @@ export async function checkAndTriggerNextTemplate(sessionId) {
       session.projectId,
       newSessionName,
       renderedPrompt,
-      mode, // Use mode from template or parent
-      thinkingEnabled,
-      gitBranch,
-      null, // parentSessionId - will be set below
-      'starting',
-      model // Use model from template or parent
+      {
+        mode, // Use mode from template or parent
+        thinkingEnabled,
+        gitBranch,
+        parentSessionId: null, // Will be set below
+        status: 'starting',
+        model, // Use model from template or parent
+      }
     );
 
     // Set the parent session reference and inherit the template's next template for chaining

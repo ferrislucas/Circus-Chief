@@ -50,6 +50,27 @@ export class TerminalOutputProcessor {
   }
 
   /**
+   * Handle a CSI (Control Sequence Introducer) command
+   * Returns true if the current line should be cleared
+   * @param {string} cmd - The command character
+   * @param {string} params - The parameters string
+   * @returns {boolean} Whether to clear the current line
+   */
+  #shouldClearLineForCSI(cmd, params) {
+    // Erase in Line: [0K = to end, [1K = to start, [2K = entire line
+    if (cmd === 'K') return true;
+    // Cursor Character Absolute: [1G = go to column 1 (start of line)
+    if (cmd === 'G' && (params === '' || params === '1')) return true;
+    // Cursor Position: [n;mH or [n;mf moves cursor to row n, column m
+    if (cmd === 'H' || cmd === 'f') return true;
+    // Cursor movement: A=up, B=down, C=right, D=left
+    if (cmd === 'A' || cmd === 'B' || cmd === 'C' || cmd === 'D') return true;
+    // Erase in Display: [0J = to end, [1J = to start, [2J = entire screen
+    if (cmd === 'J') return true;
+    return false;
+  }
+
+  /**
    * Process a chunk of terminal output, simulating cursor control behavior
    *
    * @param {string} chunk - Raw terminal output chunk
@@ -77,27 +98,7 @@ export class TerminalOutputProcessor {
           const params = chunk.slice(i + 2, j);
 
           // Handle cursor control sequences that affect line content
-          if (cmd === 'K') {
-            // Erase in Line: [0K = to end, [1K = to start, [2K = entire line
-            // Any of these effectively means "this content will be replaced"
-            this.currentLine = '';
-          } else if (cmd === 'G') {
-            // Cursor Character Absolute: [nG moves cursor to column n
-            // [1G = go to column 1 (start of line) - used for overwriting
-            if (params === '' || params === '1') {
-              this.currentLine = '';
-            }
-          } else if (cmd === 'H' || cmd === 'f') {
-            // Cursor Position: [n;mH or [n;mf moves cursor to row n, column m
-            // Often used for repositioning - clear current line
-            this.currentLine = '';
-          } else if (cmd === 'A' || cmd === 'B' || cmd === 'C' || cmd === 'D') {
-            // Cursor movement: A=up, B=down, C=right, D=left
-            // These are used in progress animations - clear current line
-            this.currentLine = '';
-          } else if (cmd === 'J') {
-            // Erase in Display: [0J = to end, [1J = to start, [2J = entire screen
-            // Clear current line as screen is being redrawn
+          if (this.#shouldClearLineForCSI(cmd, params)) {
             this.currentLine = '';
           }
           // All other sequences (including color codes 'm') are just stripped
@@ -164,17 +165,38 @@ export class CommandRunner {
 
   /**
    * Run a command and stream output via callback
-   * @param {string} runId - Unique identifier for this run
-   * @param {string} command - The command to execute
-   * @param {string} workingDirectory - Directory to run command in
-   * @param {Function} onOutput - Callback for output: (text) => void
-   * @param {Function} onComplete - Callback for completion: (exitCode) => void
-   * @param {Function} onError - Callback for errors: (message) => void
-   * @param {Object} metadata - Optional metadata (sessionId, buttonId)
+   *
+   * New signature (preferred):
+   *   run({ runId, command, workingDirectory }, { onOutput, onComplete, onError }, metadata)
+   *
+   * Legacy signature (supported for backward compatibility):
+   *   run(runId, command, workingDirectory, onOutput, onComplete, onError, metadata)
+   *
    * @returns {Promise<number>} Exit code
    */
-  async run(runId, command, workingDirectory, onOutput, onComplete, onError, metadata = {}) {
-    const { sessionId, buttonId } = metadata;
+  async run(paramsOrRunId, callbacksOrCommand, metadataOrWorkingDirectory, legacyOnOutput, legacyOnComplete, legacyOnError, legacyMetadata) {
+    // Support legacy positional arguments for backward compatibility
+    let runId, command, workingDirectory, onOutput, onComplete, onError, sessionId, buttonId;
+
+    if (typeof paramsOrRunId === 'string') {
+      // Legacy call: run(runId, command, workingDirectory, onOutput, onComplete, onError?, metadata?)
+      runId = paramsOrRunId;
+      command = callbacksOrCommand;
+      workingDirectory = metadataOrWorkingDirectory;
+      onOutput = legacyOnOutput;
+      onComplete = legacyOnComplete;
+      onError = legacyOnError;
+      const metadata = legacyMetadata || {};
+      sessionId = metadata.sessionId;
+      buttonId = metadata.buttonId;
+    } else {
+      // New signature: run({ runId, command, workingDirectory }, { onOutput, onComplete, onError }, metadata)
+      ({ runId, command, workingDirectory } = paramsOrRunId);
+      const callbacks = callbacksOrCommand || {};
+      ({ onOutput, onComplete, onError } = callbacks);
+      const metadata = metadataOrWorkingDirectory || {};
+      ({ sessionId, buttonId } = metadata);
+    }
 
     return new Promise((resolve) => {
       try {
@@ -491,6 +513,52 @@ export class CommandRunner {
    * @param {string} sessionId
    * @returns {Array} Array of run info objects
    */
+  /**
+   * Mark an orphaned run as error in the database
+   * @param {Object} dbRun - The database run record
+   */
+  #markOrphanedRunAsError(dbRun) {
+    console.log(
+      `[commandRunner.getRunsBySession] Orphaned run detected: ${dbRun.id}, marking as error`
+    );
+    if (typeof commandRuns.complete === 'function') {
+      try {
+        commandRuns.complete(dbRun.id, -1, dbRun.output || '');
+      } catch (updateErr) {
+        console.warn(
+          `[commandRunner.getRunsBySession] Failed to update orphaned run: ${updateErr.message}`
+        );
+      }
+    }
+  }
+
+  /**
+   * Process a database run record and return a normalized run object
+   * @param {Object} dbRun - The database run record
+   * @returns {Object} Normalized run object
+   */
+  #processDbRun(dbRun) {
+    let status = dbRun.status;
+    let exitCode = dbRun.exitCode;
+
+    // If DB shows "running" but we don't have the process in memory,
+    // it's an orphaned run (server restarted, process died unexpectedly, etc.)
+    if (dbRun.status === 'running' && !this.processes.has(dbRun.id)) {
+      this.#markOrphanedRunAsError(dbRun);
+      status = 'error';
+      exitCode = -1;
+    }
+
+    return {
+      runId: dbRun.id,
+      buttonId: dbRun.buttonId,
+      status,
+      output: dbRun.output,
+      exitCode,
+      startedAt: dbRun.startedAt,
+    };
+  }
+
   getRunsBySession(sessionId) {
     const runs = [];
 
@@ -517,39 +585,7 @@ export class CommandRunner {
           // Don't duplicate running processes
           const isRunningInMemory = runs.some((r) => r.runId === dbRun.id);
           if (!isRunningInMemory) {
-            // FIX: If DB shows "running" but we don't have the process in memory,
-            // it's an orphaned run (server restarted, process died unexpectedly, etc.)
-            // Mark it as error in the database so the UI shows the correct state
-            let status = dbRun.status;
-            let exitCode = dbRun.exitCode;
-
-            if (dbRun.status === 'running' && !this.processes.has(dbRun.id)) {
-              console.log(
-                `[commandRunner.getRunsBySession] Orphaned run detected: ${dbRun.id}, marking as error`
-              );
-              status = 'error';
-              exitCode = -1;
-
-              // Update the database to reflect the actual state
-              if (typeof commandRuns.complete === 'function') {
-                try {
-                  commandRuns.complete(dbRun.id, exitCode, dbRun.output || '');
-                } catch (updateErr) {
-                  console.warn(
-                    `[commandRunner.getRunsBySession] Failed to update orphaned run: ${updateErr.message}`
-                  );
-                }
-              }
-            }
-
-            runs.push({
-              runId: dbRun.id,
-              buttonId: dbRun.buttonId,
-              status,
-              output: dbRun.output,
-              exitCode,
-              startedAt: dbRun.startedAt,
-            });
+            runs.push(this.#processDbRun(dbRun));
           }
         }
       } catch (err) {
