@@ -56,6 +56,9 @@ export class DatabaseManager {
     if (!sessionsColumns.includes('provider_id')) {
       this.#db.exec('ALTER TABLE sessions ADD COLUMN provider_id TEXT');
     }
+    if (!sessionsColumns.includes('effort_level')) {
+      this.#db.exec("ALTER TABLE sessions ADD COLUMN effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto'))");
+    }
 
     // Check if projects table has the system_prompt column, add it if not
     const projectsTableInfo = this.#db.prepare('PRAGMA table_info(projects)').all();
@@ -475,6 +478,9 @@ export class DatabaseManager {
       if (!defaultsProviderColumns.includes('provider_id')) {
         this.#db.exec('ALTER TABLE project_session_defaults ADD COLUMN provider_id TEXT REFERENCES providers(id)');
       }
+      if (!defaultsProviderColumns.includes('effort_level')) {
+        this.#db.exec("ALTER TABLE project_session_defaults ADD COLUMN effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto'))");
+      }
     }
 
     // Migrate built-in models to 4.6 versions
@@ -664,6 +670,7 @@ export class DatabaseManager {
         git_worktree TEXT,
         pr_url TEXT,
         error TEXT,
+        effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto')),
         cost_usd REAL DEFAULT 0,
         claude_session_id TEXT,
         model TEXT,
@@ -703,6 +710,7 @@ export class DatabaseManager {
       'git_worktree',
       'pr_url',
       'error',
+      'effort_level',
       'cost_usd',
       'claude_session_id',
       'model',

@@ -198,5 +198,36 @@ describe('sessionProvider', () => {
       const env = buildSessionEnv(null);
       expect(env.MAX_THINKING_TOKENS).toBeUndefined();
     });
+
+    it('sets CLAUDE_CODE_EFFORT_LEVEL when effortLevel is provided', () => {
+      const env = buildSessionEnv(null, false, 'high');
+      expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBe('high');
+    });
+
+    it('sets CLAUDE_CODE_EFFORT_LEVEL for all valid effort levels', () => {
+      for (const level of ['low', 'medium', 'high', 'max', 'auto']) {
+        const env = buildSessionEnv(null, false, level);
+        expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBe(level);
+      }
+    });
+
+    it('does not set CLAUDE_CODE_EFFORT_LEVEL when effortLevel is null', () => {
+      const env = buildSessionEnv(null, false, null);
+      expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
+    });
+
+    it('does not set CLAUDE_CODE_EFFORT_LEVEL when effortLevel is not provided', () => {
+      const env = buildSessionEnv(null, false);
+      expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
+    });
+
+    it('combines effortLevel with thinkingEnabled and provider env', () => {
+      delete process.env.VCR_MODE;
+      const provider = { name: 'P', baseUrl: 'https://test.com', authToken: 'sk-123' };
+      const env = buildSessionEnv(provider, true, 'max');
+      expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBe('max');
+      expect(env.MAX_THINKING_TOKENS).toBe('10240');
+      expect(env.ANTHROPIC_BASE_URL).toBe('https://test.com');
+    });
   });
 });

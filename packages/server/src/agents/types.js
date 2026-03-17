@@ -35,6 +35,7 @@
  * @property {string} callType - 'runSession' | 'continueSession' | 'continueSessionWithExistingMessage'
  * @property {string} [agentType]
  * @property {string} [model]
+ * @property {string} [effortLevel] - Effort level for the call
  * @property {boolean} [isResume] - Whether this call uses SDK session resume
  * @property {number} promptLength - Character length of prompt
  */
