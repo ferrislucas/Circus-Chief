@@ -72,20 +72,20 @@ describe('SessionLogStream', () => {
       expect(wrapper.find('.log-thinking').text()).toBe('Let me think about this...');
     });
 
-    it('truncates thinking preview to last 200 chars', () => {
-      const longThinking = 'A'.repeat(300);
+    it('truncates thinking preview to last 500 chars', () => {
+      const longThinking = 'A'.repeat(600);
       mockStreamingStore.getPartialThinking.mockReturnValue(longThinking);
 
       const wrapper = mountComponent();
-      expect(wrapper.find('.log-thinking').text()).toHaveLength(200);
+      expect(wrapper.find('.log-thinking').text()).toHaveLength(500);
     });
 
-    it('truncates partial text preview to last 200 chars', () => {
-      const longText = 'B'.repeat(300);
+    it('truncates partial text preview to last 500 chars', () => {
+      const longText = 'B'.repeat(600);
       mockStreamingStore.getSessionPartialText.mockReturnValue(longText);
 
       const wrapper = mountComponent();
-      expect(wrapper.find('.log-partial').text()).toHaveLength(200);
+      expect(wrapper.find('.log-partial').text()).toHaveLength(500);
     });
 
     it('shows "Live Output" header when expanded and has content', () => {
