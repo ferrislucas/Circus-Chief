@@ -367,47 +367,86 @@ async function discoverPluginSkills(workingDirectory) {
       if (!relevantInstall) continue;
 
       const namespace = pluginId.split('@')[0];
-
-      // Scan skills directory inside plugin
       const pluginSkillsDir = join(relevantInstall.installPath, 'skills');
-
-      try {
-        await access(pluginSkillsDir, constants.R_OK);
-        const entries = await readdir(pluginSkillsDir, { withFileTypes: true });
-
-        for (const entry of entries) {
-          if (!entry.isDirectory()) continue;
-
-          const skillMdPath = join(pluginSkillsDir, entry.name, 'SKILL.md');
-
-          try {
-            const content = await readFile(skillMdPath, 'utf-8');
-            const parsed = parseSkillFile(content, entry.name);
-
-            if (!parsed.userInvocable) continue;
-
-            skills.push({
-              name: `${namespace}:${parsed.name}`,
-              description: parsed.description,
-              arguments: [],
-              argumentHint: parsed.argumentHint,
-              source: 'plugin-skill',
-              filePath: skillMdPath,
-              isSkill: true,
-              disableModelInvocation: parsed.disableModelInvocation,
-            });
-          } catch {
-            // SKILL.md doesn't exist in this directory
-          }
-        }
-      } catch {
-        // Plugin has no skills directory
-      }
+      const pluginSkills = await scanSkillsDirectory(pluginSkillsDir, namespace);
+      skills.push(...pluginSkills);
     }
   } catch {
     // No installed plugins or file doesn't exist
   }
 
+  return skills;
+}
+
+/**
+ * Parse a single SKILL.md file and return skill object if valid
+ * @param {string} skillMdPath - Path to SKILL.md file
+ * @param {string} namespace - Plugin namespace
+ * @param {string} directoryName - Skill directory name
+ * @returns {Promise<Object|null>} Skill object or null
+ */
+async function parseSkillFromPath(skillMdPath, namespace, directoryName) {
+  try {
+    const skillContent = await readFile(skillMdPath, 'utf-8');
+    const parsed = parseSkillFile(skillContent, directoryName);
+    if (!parsed.userInvocable) return null;
+
+    return {
+      name: `${namespace}:${parsed.name}`,
+      description: parsed.description,
+      arguments: [],
+      argumentHint: parsed.argumentHint,
+      source: 'plugin-skill',
+      filePath: skillMdPath,
+      isSkill: true,
+      disableModelInvocation: parsed.disableModelInvocation,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Scan a skills directory and return all valid skills
+ * @param {string} skillsDir - Path to skills directory
+ * @param {string} namespace - Plugin namespace
+ * @returns {Promise<Array>} Array of skill objects
+ */
+async function scanSkillsDirectory(skillsDir, namespace) {
+  const skills = [];
+  try {
+    await access(skillsDir, constants.R_OK);
+    const entries = await readdir(skillsDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const skillMdPath = join(skillsDir, entry.name, 'SKILL.md');
+      const skill = await parseSkillFromPath(skillMdPath, namespace, entry.name);
+      if (skill) skills.push(skill);
+    }
+  } catch { /* skills directory doesn't exist */ }
+  return skills;
+}
+
+/**
+ * Scan a plugins directory for skills
+ * @param {string} pluginsDir - Path to plugins directory
+ * @returns {Promise<Array>} Array of skill objects
+ */
+async function scanPluginsDirForSkills(pluginsDir) {
+  const skills = [];
+  try {
+    await access(pluginsDir, constants.R_OK);
+    const pluginDirs = await readdir(pluginsDir, { withFileTypes: true });
+
+    for (const pluginEntry of pluginDirs) {
+      if (!pluginEntry.isDirectory()) continue;
+      const namespace = pluginEntry.name;
+      const skillsDir = join(pluginsDir, pluginEntry.name, 'skills');
+      const pluginSkills = await scanSkillsDirectory(skillsDir, namespace);
+      skills.push(...pluginSkills);
+    }
+  } catch { /* plugins directory doesn't exist */ }
   return skills;
 }
 
@@ -430,54 +469,37 @@ async function discoverMarketplaceSkills() {
       const basePath = marketplace.installLocation;
       if (!basePath) continue;
 
-      // Scan both plugins/ and external_plugins/ directories
       for (const subdir of ['plugins', 'external_plugins']) {
         const pluginsDir = join(basePath, subdir);
-
-        try {
-          await access(pluginsDir, constants.R_OK);
-          const pluginDirs = await readdir(pluginsDir, { withFileTypes: true });
-
-          for (const pluginEntry of pluginDirs) {
-            if (!pluginEntry.isDirectory()) continue;
-
-            const pluginPath = join(pluginsDir, pluginEntry.name);
-            const namespace = pluginEntry.name;
-            const skillsDir = join(pluginPath, 'skills');
-
-            try {
-              await access(skillsDir, constants.R_OK);
-              const skillEntries = await readdir(skillsDir, { withFileTypes: true });
-
-              for (const entry of skillEntries) {
-                if (!entry.isDirectory()) continue;
-
-                const skillMdPath = join(skillsDir, entry.name, 'SKILL.md');
-                try {
-                  const skillContent = await readFile(skillMdPath, 'utf-8');
-                  const parsed = parseSkillFile(skillContent, entry.name);
-                  if (!parsed.userInvocable) continue;
-
-                  skills.push({
-                    name: `${namespace}:${parsed.name}`,
-                    description: parsed.description,
-                    arguments: [],
-                    argumentHint: parsed.argumentHint,
-                    source: 'plugin-skill',
-                    filePath: skillMdPath,
-                    isSkill: true,
-                    disableModelInvocation: parsed.disableModelInvocation,
-                  });
-                } catch { /* no SKILL.md */ }
-              }
-            } catch { /* no skills dir */ }
-          }
-        } catch { /* subdir doesn't exist */ }
+        const subdirSkills = await scanPluginsDirForSkills(pluginsDir);
+        skills.push(...subdirSkills);
       }
     }
   } catch { /* no known_marketplaces.json */ }
 
   return skills;
+}
+
+/**
+ * Scan a plugins directory for commands
+ * @param {string} pluginsDir - Path to plugins directory
+ * @returns {Promise<Array>} Array of command objects
+ */
+async function scanPluginsDirForCommands(pluginsDir) {
+  const commands = [];
+  try {
+    await access(pluginsDir, constants.R_OK);
+    const pluginDirs = await readdir(pluginsDir, { withFileTypes: true });
+
+    for (const pluginEntry of pluginDirs) {
+      if (!pluginEntry.isDirectory()) continue;
+      const namespace = pluginEntry.name;
+      const pluginCommandsDir = join(pluginsDir, pluginEntry.name, 'commands');
+      const pluginCommands = await discoverCommandsFromDir(pluginCommandsDir, 'plugin', namespace);
+      commands.push(...pluginCommands);
+    }
+  } catch { /* plugins directory doesn't exist */ }
+  return commands;
 }
 
 /**
@@ -501,20 +523,8 @@ async function discoverMarketplaceCommands() {
 
       for (const subdir of ['plugins', 'external_plugins']) {
         const pluginsDir = join(basePath, subdir);
-
-        try {
-          await access(pluginsDir, constants.R_OK);
-          const pluginDirs = await readdir(pluginsDir, { withFileTypes: true });
-
-          for (const pluginEntry of pluginDirs) {
-            if (!pluginEntry.isDirectory()) continue;
-
-            const namespace = pluginEntry.name;
-            const pluginCommandsDir = join(pluginsDir, pluginEntry.name, 'commands');
-            const pluginCommands = await discoverCommandsFromDir(pluginCommandsDir, 'plugin', namespace);
-            commands.push(...pluginCommands);
-          }
-        } catch { /* subdir doesn't exist */ }
+        const subdirCommands = await scanPluginsDirForCommands(pluginsDir);
+        commands.push(...subdirCommands);
       }
     }
   } catch { /* no known_marketplaces.json */ }
