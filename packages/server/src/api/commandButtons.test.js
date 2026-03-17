@@ -381,20 +381,21 @@ describe('Command Buttons API', () => {
       // Verify commandRunner.run was called
       expect(commandRunner.run).toHaveBeenCalled();
 
+      // New signature: run({ runId, command, workingDirectory }, { onOutput, onComplete, onError }, metadata)
       const runCall = commandRunner.run.mock.calls[0];
-      expect(runCall[0]).toBe(res.body.runId); // runId
-      expect(runCall[1]).toBe('echo test'); // command
-      expect(typeof runCall[2]).toBe('string'); // workingDirectory
-      expect(typeof runCall[3]).toBe('function'); // onOutput callback
-      expect(typeof runCall[4]).toBe('function'); // onComplete callback
-      expect(typeof runCall[5]).toBe('function'); // onError callback
+      expect(runCall[0].runId).toBe(res.body.runId); // params.runId
+      expect(runCall[0].command).toBe('echo test'); // params.command
+      expect(typeof runCall[0].workingDirectory).toBe('string'); // params.workingDirectory
+      expect(typeof runCall[1].onOutput).toBe('function'); // callbacks.onOutput
+      expect(typeof runCall[1].onComplete).toBe('function'); // callbacks.onComplete
+      expect(typeof runCall[1].onError).toBe('function'); // callbacks.onError
     });
 
     it('broadcasts command output when commandRunner calls onOutput', async () => {
-      commandRunner.run.mockImplementation(async (_runId, _command, _wd, onOutput, _onComplete, _onError) => {
-        // Simulate command output
-        onOutput('Hello ');
-        onOutput('World\n');
+      commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
+        // Simulate command output (new signature uses callbacks object)
+        callbacks.onOutput('Hello ');
+        callbacks.onOutput('World\n');
       });
 
       await request(app).post(
@@ -413,8 +414,8 @@ describe('Command Buttons API', () => {
     });
 
     it('broadcasts completion when command exits successfully', async () => {
-      commandRunner.run.mockImplementation(async (_runId, _command, _wd, _onOutput, onComplete, _onError) => {
-        onComplete(0, 'output');
+      commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
+        callbacks.onComplete(0, 'output');
       });
 
       await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
@@ -439,8 +440,8 @@ describe('Command Buttons API', () => {
     });
 
     it('broadcasts error when command exits with non-zero code', async () => {
-      commandRunner.run.mockImplementation(async (_runId, _command, _wd, _onOutput, onComplete, _onError) => {
-        onComplete(1, 'error output');
+      commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
+        callbacks.onComplete(1, 'error output');
       });
 
       await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
@@ -479,8 +480,8 @@ describe('Command Buttons API', () => {
     });
 
     it('broadcasts error when onError callback is invoked', async () => {
-      commandRunner.run.mockImplementation(async (runId, command, wd, onOutput, onComplete, onError) => {
-        onError('Something went wrong');
+      commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
+        callbacks.onError('Something went wrong');
       });
 
       await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
@@ -521,9 +522,9 @@ describe('Command Buttons API', () => {
     });
 
     it('broadcasts command output to project when commandRunner calls onOutput', async () => {
-      commandRunner.run.mockImplementation(async (_runId, _command, _wd, onOutput, _onComplete, _onError) => {
+      commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
         // Simulate command output
-        onOutput('Project-visible output\n');
+        callbacks.onOutput('Project-visible output\n');
       });
 
       await request(app).post(
@@ -548,8 +549,8 @@ describe('Command Buttons API', () => {
     });
 
     it('broadcasts completion to project when command exits successfully', async () => {
-      commandRunner.run.mockImplementation(async (_runId, _command, _wd, _onOutput, onComplete, _onError) => {
-        onComplete(0, 'output');
+      commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
+        callbacks.onComplete(0, 'output');
       });
 
       await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
@@ -575,8 +576,8 @@ describe('Command Buttons API', () => {
     });
 
     it('broadcasts error to project when command fails', async () => {
-      commandRunner.run.mockImplementation(async (_runId, _command, _wd, _onOutput, onComplete, _onError) => {
-        onComplete(1, 'error output');
+      commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
+        callbacks.onComplete(1, 'error output');
       });
 
       await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
@@ -627,8 +628,8 @@ describe('Command Buttons API', () => {
     });
 
     it('broadcasts error to project when onError callback is invoked', async () => {
-      commandRunner.run.mockImplementation(async (runId, command, wd, onOutput, onComplete, onError) => {
-        onError('Command runner error');
+      commandRunner.run.mockImplementation(async (_params, callbacks, _metadata) => {
+        callbacks.onError('Command runner error');
       });
 
       await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);

@@ -67,7 +67,7 @@ export async function startDraft(session, options = {}) {
     }
 
     // Create the initial message
-    initialMessage = messages.create(session.id, 'user', promptToUse, null, activeConv.id);
+    initialMessage = messages.create(session.id, 'user', promptToUse, { toolUse: null, conversationId: activeConv.id });
 
     // Clear pendingPrompt since we've created the message
     sessions.update(session.id, { pendingPrompt: null });
