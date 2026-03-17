@@ -195,7 +195,7 @@ router.post('/:id/conversations/:convId/branch', requireSession, async (req, res
           req.params.id,
           branchConversation.id,
           workingDirectory,
-          project?.systemPrompt
+          { systemPrompt: project?.systemPrompt }
         );
       }
     } catch (err) {

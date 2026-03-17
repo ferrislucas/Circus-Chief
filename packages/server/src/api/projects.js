@@ -29,6 +29,244 @@ function generateInitialName(prompt) {
   return (lastSpace > 20 ? truncated.substring(0, lastSpace) : truncated) + '...';
 }
 
+/**
+ * Parse a boolean-like value from a request body field.
+ * Handles true, false, 'true', 'false', and undefined/null.
+ * @param {*} value - The raw value from request body
+ * @returns {{ explicit: boolean, provided: boolean }} parsed result
+ */
+function parseBooleanField(value) {
+  if (value === true || value === 'true') return { explicit: true, provided: true };
+  if (value === false || value === 'false') return { explicit: false, provided: true };
+  return { explicit: undefined, provided: false };
+}
+
+/**
+ * Resolve a value with cascading defaults: explicit > project default > system default
+ * @param {*} explicit - Explicitly provided value
+ * @param {*} projectDefault - Project-level default
+ * @param {*} systemDefault - System-level default
+ * @returns {*} The resolved value
+ */
+function resolveDefault(explicit, projectDefault, systemDefault) {
+  if (explicit) return explicit;
+  if (projectDefault) return projectDefault;
+  return systemDefault;
+}
+
+/**
+ * Build session configuration from request body, project defaults, and system defaults.
+ * @param {object} body - The request body
+ * @param {object|null} projectDefs - Project-level defaults
+ * @param {object} systemDefaults - System-level defaults
+ * @returns {object} Session configuration
+ */
+function prepareSessionConfig(body, projectDefs, systemDefaults) {
+  const config = {};
+
+  config.prompt = body.prompt;
+  config.name = body.name;
+  config.mode = resolveDefault(body.mode, projectDefs?.mode, systemDefaults.mode);
+  config.model = resolveDefault(body.model, projectDefs?.model, systemDefaults.model || null);
+  config.effortLevel = resolveDefault(body.effortLevel || null, projectDefs?.effortLevel, systemDefaults.effortLevel);
+  // Normalize 'auto' to null
+  if (config.effortLevel === 'auto') {
+    config.effortLevel = null;
+  }
+  config.gitBranch = resolveDefault(body.gitBranch, projectDefs?.gitBranch, null);
+  config.gitMode = resolveDefault(body.gitMode, projectDefs?.gitMode, null);
+  config.templateId = body.templateId;
+  config.parentSessionId = body.parentSessionId || null;
+  config.files = [];
+
+  // thinkingEnabled requires special boolean handling
+  const thinkingParsed = parseBooleanField(body.thinkingEnabled);
+  if (thinkingParsed.provided) {
+    config.thinkingEnabled = thinkingParsed.explicit;
+  } else if (projectDefs?.thinkingEnabled !== undefined && projectDefs?.thinkingEnabled !== null) {
+    config.thinkingEnabled = projectDefs.thinkingEnabled;
+  } else {
+    config.thinkingEnabled = systemDefaults.thinkingEnabled;
+  }
+
+  // startImmediately requires special boolean handling (defaults to true)
+  config.startImmediately = resolveStartImmediately(body, projectDefs, systemDefaults);
+
+  // Scheduling fields
+  config.scheduledAt = body.scheduledAt ? parseInt(body.scheduledAt, 10) : undefined;
+  config.autoRescheduleEnabled = body.autoRescheduleEnabled === true || body.autoRescheduleEnabled === 'true';
+  config.rescheduleDelayMinutes = body.rescheduleDelayMinutes ? parseInt(body.rescheduleDelayMinutes, 10) : 15;
+  config.rescheduleOnTokenLimit = body.rescheduleOnTokenLimit !== false && body.rescheduleOnTokenLimit !== 'false';
+  config.rescheduleOnServiceError = body.rescheduleOnServiceError !== false && body.rescheduleOnServiceError !== 'false';
+  config.maxRescheduleCount = body.maxRescheduleCount ? parseInt(body.maxRescheduleCount, 10) : null;
+  config.maxTotalTokens = body.maxTotalTokens ? parseInt(body.maxTotalTokens, 10) : null;
+  config.rescheduleAtTokenCount = body.rescheduleAtTokenCount ? parseInt(body.rescheduleAtTokenCount, 10) : null;
+
+  return config;
+}
+
+/**
+ * Resolve startImmediately with special boolean handling.
+ * Default is true unless overridden by project/system defaults.
+ * @param {object} body - Request body
+ * @param {object|null} projectDefs - Project defaults
+ * @param {object} systemDefaults - System defaults
+ * @returns {boolean}
+ */
+function resolveStartImmediately(body, projectDefs, systemDefaults) {
+  let startImmediately = body.startImmediately !== false && body.startImmediately !== 'false';
+  if (body.startImmediately === undefined || body.startImmediately === null) {
+    if (projectDefs?.startImmediately !== undefined && projectDefs?.startImmediately !== null) {
+      startImmediately = projectDefs.startImmediately;
+    } else {
+      startImmediately = systemDefaults.startImmediately;
+    }
+  }
+  return startImmediately;
+}
+
+/**
+ * Apply template overrides to session config.
+ * Mutates the config object in place.
+ * @param {object} config - Session config to modify
+ */
+function applyTemplateOverrides(config) {
+  if (!config.templateId) return;
+
+  const template = sessionTemplates.getById(config.templateId);
+  if (!template) return;
+
+  if (template.thinkingEnabled !== null && template.thinkingEnabled !== undefined) {
+    config.thinkingEnabled = template.thinkingEnabled;
+  }
+  if (template.gitBranch) {
+    config.gitBranch = template.gitBranch;
+  }
+  if (template.gitMode) {
+    config.gitMode = template.gitMode;
+  }
+  config.nextTemplateId = config.templateId;
+}
+
+/**
+ * Resolve the nextTemplateId from explicit body value or template-derived value.
+ * @param {object} body - Request body
+ * @param {string|null} derivedNextTemplateId - nextTemplateId derived from templateId
+ * @returns {{ nextTemplateId: string|null, error: string|null }}
+ */
+function resolveNextTemplateId(body, derivedNextTemplateId) {
+  if (body.nextTemplateId === undefined) {
+    return { nextTemplateId: derivedNextTemplateId, error: null };
+  }
+
+  if (body.nextTemplateId === null) {
+    return { nextTemplateId: null, error: null };
+  }
+
+  const nextTemplate = sessionTemplates.getById(body.nextTemplateId);
+  if (!nextTemplate) {
+    return { nextTemplateId: null, error: 'nextTemplateId references a non-existent template' };
+  }
+  return { nextTemplateId: body.nextTemplateId, error: null };
+}
+
+/**
+ * Determine the initial session status based on config.
+ * @param {object} config - Session config
+ * @returns {string|undefined} Initial status, or undefined for default
+ */
+function determineInitialStatus(config) {
+  if (config.scheduledAt && config.scheduledAt > Date.now()) return 'scheduled';
+  if (!config.startImmediately) return 'waiting';
+  return undefined;
+}
+
+/**
+ * Build the scheduling update object from config.
+ * @param {object} config - Session config
+ * @param {string|undefined} initialStatus - Initial session status
+ * @returns {object} Fields to update on the session for scheduling
+ */
+function buildSchedulingUpdate(config, initialStatus) {
+  const update = {};
+  if (config.scheduledAt !== undefined) update.scheduledAt = config.scheduledAt;
+  if (config.autoRescheduleEnabled !== undefined) update.autoRescheduleEnabled = config.autoRescheduleEnabled;
+  if (config.rescheduleDelayMinutes !== undefined) update.rescheduleDelayMinutes = config.rescheduleDelayMinutes;
+  if (config.rescheduleOnTokenLimit !== undefined) update.rescheduleOnTokenLimit = config.rescheduleOnTokenLimit;
+  if (config.rescheduleOnServiceError !== undefined) update.rescheduleOnServiceError = config.rescheduleOnServiceError;
+  if (config.maxRescheduleCount !== undefined) update.maxRescheduleCount = config.maxRescheduleCount;
+  if (config.maxTotalTokens !== undefined) update.maxTotalTokens = config.maxTotalTokens;
+  if (config.rescheduleAtTokenCount !== undefined) update.rescheduleAtTokenCount = config.rescheduleAtTokenCount;
+
+  if (initialStatus === 'waiting' || initialStatus === 'scheduled') {
+    update.pendingPrompt = config.prompt;
+    update.pendingModel = config.model;
+  }
+
+  return update;
+}
+
+/**
+ * Handle git setup, session start, broadcasts, and hooks after session creation.
+ * @param {object} params
+ * @param {object} params.session - The created session record
+ * @param {object} params.config - Session config
+ * @param {object} params.project - Project record
+ * @param {string} params.projectId - Project ID
+ * @param {Array} params.files - Uploaded files
+ * @returns {Promise<{ updatedSession: object }>}
+ */
+async function setupAndStartSession({ session, config, project, projectId, files }) {
+  const { workingDirectory, gitWorktree } = await setupGitForSession({
+    projectDir: project.workingDirectory,
+    gitMode: config.gitMode || null,
+    gitBranch: config.gitBranch || null,
+    sessionId: session.id,
+  });
+
+  if (gitWorktree) {
+    sessions.update(session.id, { gitWorktree });
+  }
+
+  const sessionAttachments = attachments.createBatch(session.id, null, files, workingDirectory);
+
+  const isScheduled = config.scheduledAt && config.scheduledAt > Date.now();
+  if (config.startImmediately && !isScheduled) {
+    const resolved = await slashCommandService.resolvePromptSkillOrCommand(
+      workingDirectory, config.prompt, project.systemPrompt
+    );
+    const finalPrompt = resolved ? resolved.userMessage : config.prompt;
+    const finalSystemPrompt = resolved ? resolved.systemPrompt : project.systemPrompt;
+
+    const { runSession } = await import('../services/sessionManager.js');
+    runSession(session.id, finalPrompt, workingDirectory, {
+      systemPrompt: finalSystemPrompt,
+      fileAttachments: sessionAttachments,
+      model: config.model,
+    }).catch((error) => {
+      console.error('Session error:', error);
+      sessions.update(session.id, { status: 'error', error: error.message });
+    });
+  }
+
+  const updatedSession = sessions.getById(session.id);
+
+  broadcastToProject(projectId, WS_MESSAGE_TYPES.SESSION_CREATED, {
+    projectId,
+    session: updatedSession,
+  });
+
+  if (project.onSessionCreated) {
+    executeHookAsync(project.onSessionCreated, workingDirectory, {
+      sessionId: session.id,
+      projectId: project.id,
+      sessionName: session.name,
+    });
+  }
+
+  return { updatedSession };
+}
+
 // GET /api/projects - List all projects
 router.get('/', (_req, res) => {
   const allProjects = projects.getAll();
@@ -197,130 +435,27 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
     return res.status(404).json({ error: 'Project not found' });
   }
 
-  // Get project defaults and system defaults
   const projectDefs = projectDefaults.getByProjectId(req.params.id);
   const systemDefaults = ProjectDefaultsRepository.getSystemDefaults();
+  const config = prepareSessionConfig(req.body, projectDefs, systemDefaults);
+  config.files = req.files || [];
 
-  // Handle both JSON and form-data - parse booleans from form-data strings
-  const prompt = req.body.prompt;
-  const name = req.body.name;
-
-  // Apply defaults priority: explicit param > project default > system default
-  let mode = req.body.mode;
-  if (!mode && projectDefs?.mode) mode = projectDefs.mode;
-  if (!mode) mode = systemDefaults.mode;
-
-  // Model for the first message (optional - SDK will use default if not provided)
-  let model = req.body.model;
-  if (!model && projectDefs?.model) model = projectDefs.model;
-  if (!model) model = systemDefaults.model || null;
-
-  let thinkingEnabled = req.body.thinkingEnabled === true || req.body.thinkingEnabled === 'true';
-  if (!thinkingEnabled && req.body.thinkingEnabled !== false && req.body.thinkingEnabled !== 'false') {
-    // No explicit value provided, use defaults
-    if (projectDefs?.thinkingEnabled !== undefined && projectDefs?.thinkingEnabled !== null) {
-      thinkingEnabled = projectDefs.thinkingEnabled;
-    } else {
-      thinkingEnabled = systemDefaults.thinkingEnabled;
-    }
-  }
-
-  // Effort level defaults cascade: explicit param > project default > system default
-  let effortLevel = req.body.effortLevel || null;
-  if (!effortLevel) {
-    if (projectDefs?.effortLevel) {
-      effortLevel = projectDefs.effortLevel;
-    } else {
-      effortLevel = systemDefaults.effortLevel;
-    }
-  }
-  // Normalize 'auto' to null (auto means "let the SDK/API decide")
-  if (effortLevel === 'auto') effortLevel = null;
-
-  let gitBranch = req.body.gitBranch;
-  if (!gitBranch && projectDefs?.gitBranch) gitBranch = projectDefs.gitBranch;
-
-  let gitMode = req.body.gitMode;
-  if (!gitMode && projectDefs?.gitMode) gitMode = projectDefs.gitMode;
-
-  const templateId = req.body.templateId;
-  const parentSessionId = req.body.parentSessionId || null; // Optional: parent session ID for child sessions
-
-  let startImmediately = req.body.startImmediately !== false && req.body.startImmediately !== 'false';
-  if (req.body.startImmediately === undefined || req.body.startImmediately === null) {
-    // No explicit value provided, use defaults
-    if (projectDefs?.startImmediately !== undefined && projectDefs?.startImmediately !== null) {
-      startImmediately = projectDefs.startImmediately;
-    } else {
-      startImmediately = systemDefaults.startImmediately;
-    }
-  }
-
-  const files = req.files || [];
-
-  if (!prompt) {
+  if (!config.prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
-  // Apply template settings if templateId is provided
-  let nextTemplateId = null;
-  if (templateId) {
-    const template = sessionTemplates.getById(templateId);
-    if (template) {
-      // Template settings override project defaults if set (not null/undefined)
-      if (template.thinkingEnabled !== null && template.thinkingEnabled !== undefined) {
-        thinkingEnabled = template.thinkingEnabled;
-      }
-      if (template.gitBranch) {
-        gitBranch = template.gitBranch;
-      }
-      if (template.gitMode) {
-        gitMode = template.gitMode;
-      }
-      // Set nextTemplateId so template triggers after Claude finishes
-      nextTemplateId = templateId;
-    }
+  // Apply template overrides and resolve nextTemplateId
+  applyTemplateOverrides(config);
+  const { nextTemplateId, error: nextTemplateError } = resolveNextTemplateId(req.body, config.nextTemplateId || null);
+  if (nextTemplateError) {
+    return res.status(400).json({ error: nextTemplateError });
   }
+  config.nextTemplateId = nextTemplateId;
 
-  // Honor explicit nextTemplateId from request body
-  if (req.body.nextTemplateId !== undefined) {
-    // Explicit body value always wins (even over templateId-derived value).
-    // Allows callers to:
-    //   a) set a chain template without applying any template settings
-    //   b) apply a template's settings via templateId but chain to a *different* template
-    //   c) explicitly clear it by passing null
-    if (req.body.nextTemplateId === null) {
-      nextTemplateId = null;
-    } else {
-      // Validate that the referenced template actually exists
-      const nextTemplate = sessionTemplates.getById(req.body.nextTemplateId);
-      if (!nextTemplate) {
-        return res.status(400).json({ error: 'nextTemplateId references a non-existent template' });
-      }
-      nextTemplateId = req.body.nextTemplateId;
-    }
-  }
+  const initialStatus = determineInitialStatus(config);
 
-  // Extract scheduling fields from request
-  const scheduledAt = req.body.scheduledAt ? parseInt(req.body.scheduledAt, 10) : undefined;
-  const autoRescheduleEnabled = req.body.autoRescheduleEnabled === true || req.body.autoRescheduleEnabled === 'true';
-  const rescheduleDelayMinutes = req.body.rescheduleDelayMinutes ? parseInt(req.body.rescheduleDelayMinutes, 10) : 15;
-  const rescheduleOnTokenLimit = req.body.rescheduleOnTokenLimit !== false && req.body.rescheduleOnTokenLimit !== 'false';
-  const rescheduleOnServiceError = req.body.rescheduleOnServiceError !== false && req.body.rescheduleOnServiceError !== 'false';
-  const maxRescheduleCount = req.body.maxRescheduleCount ? parseInt(req.body.maxRescheduleCount, 10) : null;
-  const maxTotalTokens = req.body.maxTotalTokens ? parseInt(req.body.maxTotalTokens, 10) : null;
-  const rescheduleAtTokenCount = req.body.rescheduleAtTokenCount ? parseInt(req.body.rescheduleAtTokenCount, 10) : null;
-
-  const sessionName = name || generateInitialName(prompt);
-  // Determine initial status: scheduled > waiting > starting
-  let initialStatus;
-  if (scheduledAt && scheduledAt > Date.now()) {
-    initialStatus = 'scheduled';
-  } else if (!startImmediately) {
-    initialStatus = 'waiting';
-  }
   // Validate git settings for git repos
-  if (!gitMode || !gitBranch) {
+  if (!config.gitMode || !config.gitBranch) {
     const isGit = await isGitRepo(project.workingDirectory);
     if (isGit) {
       return res.status(400).json({
@@ -329,101 +464,36 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
     }
   }
 
-  const session = sessions.create(req.params.id, sessionName, prompt, {
-    mode,
-    thinkingEnabled,
-    gitBranch,
-    parentSessionId,
+  const sessionName = config.name || generateInitialName(config.prompt);
+  const session = sessions.create(req.params.id, sessionName, config.prompt, {
+    mode: config.mode,
+    thinkingEnabled: config.thinkingEnabled,
+    gitBranch: config.gitBranch,
+    parentSessionId: config.parentSessionId,
     status: initialStatus,
-    model,
-    effortLevel,
+    model: config.model,
+    effortLevel: config.effortLevel,
   });
 
-  // Set nextTemplateId if template was selected
   if (nextTemplateId) {
     sessions.update(session.id, { nextTemplateId });
   }
 
-  // Set scheduling fields if provided
-  const schedulingUpdate = {};
-  if (scheduledAt !== undefined) schedulingUpdate.scheduledAt = scheduledAt;
-  if (autoRescheduleEnabled !== undefined) schedulingUpdate.autoRescheduleEnabled = autoRescheduleEnabled;
-  if (rescheduleDelayMinutes !== undefined) schedulingUpdate.rescheduleDelayMinutes = rescheduleDelayMinutes;
-  if (rescheduleOnTokenLimit !== undefined) schedulingUpdate.rescheduleOnTokenLimit = rescheduleOnTokenLimit;
-  if (rescheduleOnServiceError !== undefined) schedulingUpdate.rescheduleOnServiceError = rescheduleOnServiceError;
-  if (maxRescheduleCount !== undefined) schedulingUpdate.maxRescheduleCount = maxRescheduleCount;
-  if (maxTotalTokens !== undefined) schedulingUpdate.maxTotalTokens = maxTotalTokens;
-  if (rescheduleAtTokenCount !== undefined) schedulingUpdate.rescheduleAtTokenCount = rescheduleAtTokenCount;
-
-  // For draft/waiting/scheduled sessions, set pendingPrompt and pendingModel so they can be edited before starting
-  if (initialStatus === 'waiting' || initialStatus === 'scheduled') {
-    schedulingUpdate.pendingPrompt = prompt;
-    schedulingUpdate.pendingModel = model;
-  }
-
+  const schedulingUpdate = buildSchedulingUpdate(config, initialStatus);
   if (Object.keys(schedulingUpdate).length > 0) {
     sessions.update(session.id, schedulingUpdate);
   }
 
-  // Setup git environment (branch checkout or worktree creation)
+  // Setup git environment, start session, and broadcast
   try {
-    const { workingDirectory, gitWorktree } = await setupGitForSession({
-      projectDir: project.workingDirectory,
-      gitMode: gitMode || null,
-      gitBranch: gitBranch || null,
-      sessionId: session.id,
+    const { updatedSession } = await setupAndStartSession({
+      session, config, project, projectId: req.params.id, files: config.files,
     });
-
-    // Update session with worktree path if created
-    if (gitWorktree) {
-      sessions.update(session.id, { gitWorktree });
-    }
-
-    // Store file attachments if any - saves to disk in workingDirectory/.attachments
-    const sessionAttachments = attachments.createBatch(session.id, null, files, workingDirectory);
-
-    // Only start session manager if startImmediately is true AND not scheduled
-    const isScheduled = scheduledAt && scheduledAt > Date.now();
-    if (startImmediately && !isScheduled) {
-      // Resolve skill/command invocations so skill body goes into system prompt
-      const resolved = await slashCommandService.resolvePromptSkillOrCommand(
-        workingDirectory, prompt, project.systemPrompt
-      );
-      const finalPrompt = resolved ? resolved.userMessage : prompt;
-      const finalSystemPrompt = resolved ? resolved.systemPrompt : project.systemPrompt;
-
-      // Start session manager (non-blocking) - pass attachments for context
-      const { runSession } = await import('../services/sessionManager.js');
-      runSession(session.id, finalPrompt, workingDirectory, finalSystemPrompt, sessionAttachments, model).catch((error) => {
-        console.error('Session error:', error);
-        sessions.update(session.id, { status: 'error', error: error.message });
-      });
-    }
-
-    // Return updated session with gitWorktree if set
-    const updatedSession = sessions.getById(session.id);
-
-    // Broadcast session created to project subscribers
-    broadcastToProject(req.params.id, WS_MESSAGE_TYPES.SESSION_CREATED, {
-      projectId: req.params.id,
-      session: updatedSession,
-    });
-
-    // Execute on_session_created hook if configured (non-blocking)
-    if (project.onSessionCreated) {
-      executeHookAsync(project.onSessionCreated, workingDirectory, {
-        sessionId: session.id,
-        projectId: project.id,
-        sessionName: session.name,
-      });
-    }
-
     res.status(201).json(updatedSession);
   } catch (error) {
     console.error('Git setup error:', error);
     const updatedSession = sessions.update(session.id, { status: 'error', error: error.message });
 
-    // Broadcast error status to project subscribers for session list updates
     broadcastToProject(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
       projectId: req.params.id,
       sessionId: session.id,

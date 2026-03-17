@@ -16,13 +16,13 @@ describe('CommandRunner', () => {
       let exitCode = null;
 
       const result = await runner.run(
-        'test-run-1',
-        'echo "Hello, World!"',
-        process.cwd(),
-        (text) => outputs.push(text),
-        (code) => {
-          completed = true;
-          exitCode = code;
+        { runId: 'test-run-1', command: 'echo "Hello, World!"', workingDirectory: process.cwd() },
+        {
+          onOutput: (text) => outputs.push(text),
+          onComplete: (code) => {
+            completed = true;
+            exitCode = code;
+          },
         }
       );
 
@@ -34,11 +34,8 @@ describe('CommandRunner', () => {
 
     it('returns exit code 0 for successful command', async () => {
       const exitCode = await runner.run(
-        'test-run-2',
-        'true',
-        process.cwd(),
-        () => {},
-        () => {}
+        { runId: 'test-run-2', command: 'true', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {} }
       );
 
       expect(exitCode).toBe(0);
@@ -46,11 +43,8 @@ describe('CommandRunner', () => {
 
     it('returns non-zero exit code for failed command', async () => {
       const exitCode = await runner.run(
-        'test-run-3',
-        'false',
-        process.cwd(),
-        () => {},
-        () => {}
+        { runId: 'test-run-3', command: 'false', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {} }
       );
 
       expect(exitCode).not.toBe(0);
@@ -61,13 +55,13 @@ describe('CommandRunner', () => {
       const tmpDir = process.cwd();
 
       await runner.run(
-        'test-run-4',
-        'pwd',
-        tmpDir,
-        (text) => {
-          output += text;
-        },
-        () => {}
+        { runId: 'test-run-4', command: 'pwd', workingDirectory: tmpDir },
+        {
+          onOutput: (text) => {
+            output += text;
+          },
+          onComplete: () => {},
+        }
       );
 
       // pwd output should contain the working directory path
@@ -78,13 +72,13 @@ describe('CommandRunner', () => {
       let output = '';
 
       await runner.run(
-        'test-run-5',
-        'echo "stdout"; >&2 echo "stderr"',
-        process.cwd(),
-        (text) => {
-          output += text;
-        },
-        () => {}
+        { runId: 'test-run-5', command: 'echo "stdout"; >&2 echo "stderr"', workingDirectory: process.cwd() },
+        {
+          onOutput: (text) => {
+            output += text;
+          },
+          onComplete: () => {},
+        }
       );
 
       expect(output.length).toBeGreaterThan(0);
@@ -95,13 +89,13 @@ describe('CommandRunner', () => {
       let callbackExitCode = null;
 
       await runner.run(
-        'test-run-6',
-        'echo test',
-        process.cwd(),
-        () => {},
-        (code) => {
-          callbackCalled = true;
-          callbackExitCode = code;
+        { runId: 'test-run-6', command: 'echo test', workingDirectory: process.cwd() },
+        {
+          onOutput: () => {},
+          onComplete: (code) => {
+            callbackCalled = true;
+            callbackExitCode = code;
+          },
         }
       );
 
@@ -111,11 +105,8 @@ describe('CommandRunner', () => {
 
     it('handles command execution', async () => {
       const exitCode = await runner.run(
-        'test-run-7',
-        'echo "test"',
-        process.cwd(),
-        () => {},
-        () => {}
+        { runId: 'test-run-7', command: 'echo "test"', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {} }
       );
 
       expect(exitCode).toBe(0);
@@ -255,100 +246,6 @@ describe('CommandRunner', () => {
       });
     });
 
-    // Backward compatibility tests for legacy positional parameters
-    describe('backward compatibility with legacy positional parameters', () => {
-      it('supports legacy signature with all positional parameters', async () => {
-        const outputs = [];
-        let completed = false;
-
-        const result = await runner.run(
-          'test-legacy-1',
-          'echo "legacy test"',
-          process.cwd(),
-          (text) => outputs.push(text),
-          () => { completed = true; }
-        );
-
-        expect(result).toBe(0);
-        expect(completed).toBe(true);
-        expect(outputs.join('').length).toBeGreaterThan(0);
-      });
-
-      it('supports legacy signature with onError callback', async () => {
-        let errorCalled = false;
-        const exitCode = await runner.run(
-          'test-legacy-2',
-          'false',
-          process.cwd(),
-          () => {},
-          () => {},
-          () => { errorCalled = true; }
-        );
-
-        expect(exitCode).not.toBe(0);
-        expect(errorCalled).toBe(false);
-        // onError is only called for spawn errors, not non-zero exit codes
-      });
-
-      it('supports legacy signature with metadata object', async () => {
-        const runPromise = runner.run(
-          'test-legacy-3',
-          'sleep 0.1',
-          process.cwd(),
-          () => {},
-          () => {},
-          () => {},
-          { sessionId: 'legacy-session', buttonId: 'legacy-button' }
-        );
-
-        // Check active runs
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        const activeRuns = runner.getActiveRuns();
-
-        if (activeRuns.has('test-legacy-3')) {
-          const entry = activeRuns.get('test-legacy-3');
-          expect(entry.sessionId).toBe('legacy-session');
-          expect(entry.buttonId).toBe('legacy-button');
-        }
-
-        await runPromise;
-      });
-
-      it('supports legacy signature without metadata', async () => {
-        const exitCode = await runner.run(
-          'test-legacy-4',
-          'echo "no metadata"',
-          process.cwd(),
-          () => {},
-          () => {}
-        );
-
-        expect(exitCode).toBe(0);
-      });
-
-      it('mixed legacy and new calls work correctly', async () => {
-        // First call with legacy signature
-        const legacyPromise = runner.run(
-          'test-mixed-legacy',
-          'sleep 0.1',
-          process.cwd(),
-          () => {},
-          () => {}
-        );
-
-        // Second call with new signature
-        const newPromise = runner.run(
-          { runId: 'test-mixed-new', command: 'sleep 0.1', workingDirectory: process.cwd() },
-          { onOutput: () => {}, onComplete: () => {} }
-        );
-
-        // Both should complete successfully
-        const [legacyExit, newExit] = await Promise.all([legacyPromise, newPromise]);
-
-        expect(legacyExit).toBe(0);
-        expect(newExit).toBe(0);
-      });
-    });
   });
 
   describe('kill', () => {
@@ -384,12 +281,8 @@ describe('CommandRunner', () => {
 
       // Start a long-running command
       const runPromise = runner.run(
-        'run-1',
-        'sleep 1',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId: 'run-1', command: 'sleep 1', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId, buttonId: 'btn-1' }
       );
 
@@ -417,22 +310,14 @@ describe('CommandRunner', () => {
 
       // Start commands in different projects
       const run1Promise = runner.run(
-        'run-1',
-        'sleep 1',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId: 'run-1', command: 'sleep 1', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId: 'session-1', buttonId: 'btn-1' }
       );
 
       const run2Promise = runner.run(
-        'run-2',
-        'sleep 1',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId: 'run-2', command: 'sleep 1', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId: 'session-2', buttonId: 'btn-2' }
       );
 
@@ -456,22 +341,14 @@ describe('CommandRunner', () => {
 
       // Start multiple commands
       const run1Promise = runner.run(
-        'run-1',
-        'sleep 1',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId: 'run-1', command: 'sleep 1', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId, buttonId: 'btn-1' }
       );
 
       const run2Promise = runner.run(
-        'run-2',
-        'sleep 1',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId: 'run-2', command: 'sleep 1', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId, buttonId: 'btn-2' }
       );
 
@@ -498,12 +375,8 @@ describe('CommandRunner', () => {
       const getSessionById = (id) => (id === sessionId ? { id: sessionId, projectId: 'proj-1' } : null);
 
       const runPromise = runner.run(
-        'run-1',
-        'sleep 0.5 && echo "test output"',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId: 'run-1', command: 'sleep 0.5 && echo "test output"', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId, buttonId: 'btn-1' }
       );
 
@@ -529,15 +402,15 @@ describe('CommandRunner', () => {
 
       // Start a command that gives us time to check state
       const runPromise = runner.run(
-        runId,
-        'echo "test" && sleep 0.1',
-        process.cwd(),
-        () => {
-          // Check active runs while command is running
-          activeRunsDuringExecution = runner.getActiveRuns();
+        { runId, command: 'echo "test" && sleep 0.1', workingDirectory: process.cwd() },
+        {
+          onOutput: () => {
+            // Check active runs while command is running
+            activeRunsDuringExecution = runner.getActiveRuns();
+          },
+          onComplete: () => {},
+          onError: () => {},
         },
-        () => {},
-        () => {},
         { sessionId: 'session-123', buttonId: 'button-456' }
       );
 
@@ -556,14 +429,14 @@ describe('CommandRunner', () => {
       let capturedOutput = '';
 
       await runner.run(
-        runId,
-        'echo "buffered output"',
-        process.cwd(),
-        () => {},
-        (exitCode, output) => {
-          capturedOutput = output;
+        { runId, command: 'echo "buffered output"', workingDirectory: process.cwd() },
+        {
+          onOutput: () => {},
+          onComplete: (exitCode, output) => {
+            capturedOutput = output;
+          },
+          onError: () => {},
         },
-        () => {},
         { sessionId: 'session-1', buttonId: 'button-1' }
       );
 
@@ -574,14 +447,14 @@ describe('CommandRunner', () => {
       let completeOutput = null;
 
       await runner.run(
-        'test-complete-output',
-        'echo "line1"; echo "line2"',
-        process.cwd(),
-        () => {},
-        (exitCode, output) => {
-          completeOutput = output;
+        { runId: 'test-complete-output', command: 'echo "line1"; echo "line2"', workingDirectory: process.cwd() },
+        {
+          onOutput: () => {},
+          onComplete: (exitCode, output) => {
+            completeOutput = output;
+          },
+          onError: () => {},
         },
-        () => {},
         { sessionId: 's1', buttonId: 'b1' }
       );
 
@@ -589,13 +462,10 @@ describe('CommandRunner', () => {
       expect(completeOutput).toContain('line2');
     });
 
-    it('works without metadata (backward compatible)', async () => {
+    it('works without metadata', async () => {
       const exitCode = await runner.run(
-        'test-no-metadata',
-        'echo "test"',
-        process.cwd(),
-        () => {},
-        () => {}
+        { runId: 'test-no-metadata', command: 'echo "test"', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {} }
       );
 
       expect(exitCode).toBe(0);
@@ -614,12 +484,8 @@ describe('CommandRunner', () => {
 
       // Start a longer-running command
       const runPromise = runner.run(
-        runId,
-        'sleep 0.2 && echo "done"',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId, command: 'sleep 0.2 && echo "done"', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId: 'target-session', buttonId: 'btn-1' }
       );
 
@@ -637,12 +503,8 @@ describe('CommandRunner', () => {
 
     it('does not return runs for different session', async () => {
       const runPromise = runner.run(
-        'test-other-session',
-        'sleep 0.2',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId: 'test-other-session', command: 'sleep 0.2', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId: 'session-A', buttonId: 'btn-1' }
       );
 
@@ -659,12 +521,8 @@ describe('CommandRunner', () => {
       let runsWithOutput = [];
 
       const runPromise = runner.run(
-        runId,
-        'echo "captured" && sleep 0.2',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId, command: 'echo "captured" && sleep 0.2', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId: 'output-session', buttonId: 'btn-1' }
       );
 
@@ -686,12 +544,8 @@ describe('CommandRunner', () => {
 
       // Start and complete a run
       await runner.run(
-        runId,
-        'echo "done"',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId, command: 'echo "done"', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId: 'db-session', buttonId: 'btn-1' }
       );
 
@@ -709,12 +563,8 @@ describe('CommandRunner', () => {
       const runId = 'test-started-at';
 
       const runPromise = runner.run(
-        runId,
-        'sleep 0.1 && echo "test"',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId, command: 'sleep 0.1 && echo "test"', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId: 'time-session', buttonId: 'btn-1' }
       );
 
@@ -735,12 +585,8 @@ describe('CommandRunner', () => {
 
       // Run should still work even if database is not fully initialized
       const exitCode = await runner.run(
-        runId,
-        'echo "test"',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId, command: 'echo "test"', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId: 'robust-session', buttonId: 'btn-1' }
       );
 
@@ -758,12 +604,8 @@ describe('CommandRunner', () => {
 
       // Create multiple runs for the same button
       const run1Promise = runner.run(
-        'run-1',
-        'echo "first"',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId: 'run-1', command: 'echo "first"', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId, buttonId }
       );
 
@@ -773,12 +615,8 @@ describe('CommandRunner', () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       const run2Promise = runner.run(
-        'run-2',
-        'echo "second"',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId: 'run-2', command: 'echo "second"', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId, buttonId }
       );
 
@@ -818,12 +656,8 @@ describe('CommandRunner', () => {
       // Note: This test assumes we can manipulate timestamps
       // In a real database scenario, we'd need to manually update the DB
       const exitCode = await runner.run(
-        'old-run',
-        'echo "old"',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId: 'old-run', command: 'echo "old"', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId, buttonId }
       );
 
@@ -847,14 +681,14 @@ describe('CommandRunner', () => {
       let collectedOutput = '';
 
       await runner.run(
-        runId,
-        'echo "line1"; echo "line2"; echo "line3"',
-        process.cwd(),
-        (text) => {
-          collectedOutput += text;
+        { runId, command: 'echo "line1"; echo "line2"; echo "line3"', workingDirectory: process.cwd() },
+        {
+          onOutput: (text) => {
+            collectedOutput += text;
+          },
+          onComplete: () => {},
+          onError: () => {},
         },
-        () => {},
-        () => {},
         { sessionId: 'buffer-session', buttonId: 'btn-1' }
       );
 
@@ -868,14 +702,14 @@ describe('CommandRunner', () => {
       let completeOutput = '';
 
       await runner.run(
-        'test-complete-buffer',
-        'echo "output1"; echo "output2"',
-        process.cwd(),
-        () => {},
-        (exitCode, output) => {
-          completeOutput = output;
+        { runId: 'test-complete-buffer', command: 'echo "output1"; echo "output2"', workingDirectory: process.cwd() },
+        {
+          onOutput: () => {},
+          onComplete: (exitCode, output) => {
+            completeOutput = output;
+          },
+          onError: () => {},
         },
-        () => {},
         { sessionId: 'complete-session', buttonId: 'btn-1' }
       );
 
@@ -891,16 +725,16 @@ describe('CommandRunner', () => {
       const largeCommand = `for i in {1..100}; do echo "Line $i with some text"; done`;
 
       await runner.run(
-        'test-large-output',
-        largeCommand,
-        process.cwd(),
-        (text) => {
-          totalOutputLength += text.length;
+        { runId: 'test-large-output', command: largeCommand, workingDirectory: process.cwd() },
+        {
+          onOutput: (text) => {
+            totalOutputLength += text.length;
+          },
+          onComplete: (exitCode, output) => {
+            totalOutputLength = output.length;
+          },
+          onError: () => {},
         },
-        (exitCode, output) => {
-          totalOutputLength = output.length;
-        },
-        () => {},
         { sessionId: 'large-session', buttonId: 'btn-1' }
       );
 
@@ -912,15 +746,15 @@ describe('CommandRunner', () => {
       const capturedChunks = [];
 
       const runPromise = runner.run(
-        'test-periodic-flush',
-        'for i in {1..10}; do echo "Output $i"; sleep 0.05; done',
-        process.cwd(),
-        (text) => {
-          callCount++;
-          capturedChunks.push(text);
+        { runId: 'test-periodic-flush', command: 'for i in {1..10}; do echo "Output $i"; sleep 0.05; done', workingDirectory: process.cwd() },
+        {
+          onOutput: (text) => {
+            callCount++;
+            capturedChunks.push(text);
+          },
+          onComplete: () => {},
+          onError: () => {},
         },
-        () => {},
-        () => {},
         { sessionId: 'flush-session', buttonId: 'btn-1' }
       );
 
@@ -937,12 +771,12 @@ describe('CommandRunner', () => {
       const runId = 'test-cmd-error';
 
       const exitCode = await runner.run(
-        runId,
-        'nonexistent_command_12345',
-        process.cwd(),
-        () => {},
-        (_code, _output) => {},
-        (_msg) => {},
+        { runId, command: 'nonexistent_command_12345', workingDirectory: process.cwd() },
+        {
+          onOutput: () => {},
+          onComplete: (_code, _output) => {},
+          onError: (_msg) => {},
+        },
         { sessionId: 'error-session', buttonId: 'btn-1' }
       );
 
@@ -954,13 +788,12 @@ describe('CommandRunner', () => {
       const runId = 'test-signal';
 
       const runPromise = runner.run(
-        runId,
-        'sleep 10',
-        process.cwd(),
-        () => {},
-        (_code, _output) => {
+        { runId, command: 'sleep 10', workingDirectory: process.cwd() },
+        {
+          onOutput: () => {},
+          onComplete: (_code, _output) => {},
+          onError: () => {},
         },
-        () => {},
         { sessionId: 'signal-session', buttonId: 'btn-1' }
       );
 
@@ -979,22 +812,14 @@ describe('CommandRunner', () => {
     it('continues functioning after errors', async () => {
       // First command fails
       await runner.run(
-        'test-error-1',
-        'false',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {}
+        { runId: 'test-error-1', command: 'false', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} }
       );
 
       // Second command succeeds
       const result = await runner.run(
-        'test-error-2',
-        'true',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {}
+        { runId: 'test-error-2', command: 'true', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} }
       );
 
       expect(result).toBe(0);
@@ -1006,13 +831,13 @@ describe('CommandRunner', () => {
 
       // Run with invalid working directory to trigger error
       const exitCode = await runner.run(
-        runId,
-        'echo test',
-        '/nonexistent/directory/that/does/not/exist',
-        () => {},
-        () => {},
-        (msg) => {
-          errorMessage = msg;
+        { runId, command: 'echo test', workingDirectory: '/nonexistent/directory/that/does/not/exist' },
+        {
+          onOutput: () => {},
+          onComplete: () => {},
+          onError: (msg) => {
+            errorMessage = msg;
+          },
         },
         { sessionId: 'error-callback-session', buttonId: 'btn-1' }
       );
@@ -1031,13 +856,13 @@ describe('CommandRunner', () => {
 
       // Run with invalid working directory to trigger error
       await runner.run(
-        runId,
-        'echo test',
-        '/nonexistent/path/xyz',
-        () => {},
-        () => {},
-        (msg) => {
-          errorMessage = msg;
+        { runId, command: 'echo test', workingDirectory: '/nonexistent/path/xyz' },
+        {
+          onOutput: () => {},
+          onComplete: () => {},
+          onError: (msg) => {
+            errorMessage = msg;
+          },
         },
         { sessionId: 'error-persistence-session', buttonId: 'btn-1' }
       );
@@ -1059,12 +884,8 @@ describe('CommandRunner', () => {
       let capturedMetadata = null;
 
       const runPromise = runner.run(
-        runId,
-        'sleep 0.1 && echo "done"',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {},
+        { runId, command: 'sleep 0.1 && echo "done"', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} },
         { sessionId, buttonId }
       );
 
@@ -1094,14 +915,14 @@ describe('CommandRunner', () => {
       let output = '';
 
       const exitCode = await runner.run(
-        runId,
-        'echo "platform test"',
-        process.cwd(),
-        (text) => {
-          output += text;
+        { runId, command: 'echo "platform test"', workingDirectory: process.cwd() },
+        {
+          onOutput: (text) => {
+            output += text;
+          },
+          onComplete: () => {},
+          onError: () => {},
         },
-        () => {},
-        () => {},
         { sessionId: 'platform-session', buttonId: 'btn-1' }
       );
 
@@ -1113,12 +934,8 @@ describe('CommandRunner', () => {
       const runId = 'test-platform-failure';
 
       const exitCode = await runner.run(
-        runId,
-        'exit 42',
-        process.cwd(),
-        () => {},
-        () => {},
-        () => {}
+        { runId, command: 'exit 42', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} }
       );
 
       expect(exitCode).not.toBe(0);
@@ -1145,14 +962,14 @@ describe('CommandRunner', () => {
       let output = '';
 
       const exitCode = await runner.run(
-        runId,
-        'echo "hello" && echo "world"',
-        process.cwd(),
-        (text) => {
-          output += text;
+        { runId, command: 'echo "hello" && echo "world"', workingDirectory: process.cwd() },
+        {
+          onOutput: (text) => {
+            output += text;
+          },
+          onComplete: () => {},
+          onError: () => {},
         },
-        () => {},
-        () => {},
         { sessionId: 'args-platform-session', buttonId: 'btn-1' }
       );
 
@@ -1228,15 +1045,14 @@ describe('CommandRunner', () => {
       const output = [];
 
       const result = await runner.run(
-        'test-ansi-strip',
-        // Create output with ANSI codes
-        `echo "\\x1b[31mRed Text\\x1b[0m" && echo "\\x1b[1;32mBold Green\\x1b[0m"`,
-        process.cwd(),
-        (text) => {
-          outputs.push(text);
-        },
-        (code, fullOutput) => {
-          output.push(fullOutput);
+        { runId: 'test-ansi-strip', command: `echo "\\x1b[31mRed Text\\x1b[0m" && echo "\\x1b[1;32mBold Green\\x1b[0m"`, workingDirectory: process.cwd() },
+        {
+          onOutput: (text) => {
+            outputs.push(text);
+          },
+          onComplete: (code, fullOutput) => {
+            output.push(fullOutput);
+          },
         }
       );
 

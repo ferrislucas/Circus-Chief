@@ -236,10 +236,10 @@ describe('draftSessionService', () => {
       // options.model takes priority
       await startDraft(sessionWithModel, { model: 'claude-3-opus' });
 
-      // The runSession call should get the model from options
+      // The runSession call should get the model from options (4th arg is options object)
       const { runSession } = await import('./sessionManager.js');
       const lastCallArgs = runSession.mock.calls[runSession.mock.calls.length - 1];
-      expect(lastCallArgs[5]).toBe('claude-3-opus');
+      expect(lastCallArgs[3].model).toBe('claude-3-opus');
     });
 
     it('uses gitWorktree as working directory when set', async () => {

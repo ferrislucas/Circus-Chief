@@ -87,7 +87,7 @@ describe('sessionManager custom provider integration', () => {
       mockQuery.mockImplementation(() => createMockQueryResponse('custom-sonnet-v1'));
 
       // Pass the custom provider's model directly
-      await runSession(session.id, 'test prompt', '/tmp/test', null, [], 'custom-sonnet-v1');
+      await runSession(session.id, 'test prompt', '/tmp/test', { model: 'custom-sonnet-v1' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -98,7 +98,7 @@ describe('sessionManager custom provider integration', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponse('custom-sonnet-v1'));
 
-      await runSession(session.id, 'test prompt', '/tmp/test', null, [], 'custom-sonnet-v1');
+      await runSession(session.id, 'test prompt', '/tmp/test', { model: 'custom-sonnet-v1' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -110,7 +110,7 @@ describe('sessionManager custom provider integration', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponse('custom-sonnet-v1'));
 
-      await runSession(session.id, 'test prompt', '/tmp/test', null, [], 'custom-sonnet-v1');
+      await runSession(session.id, 'test prompt', '/tmp/test', { model: 'custom-sonnet-v1' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -121,7 +121,7 @@ describe('sessionManager custom provider integration', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponse('custom-sonnet-v1'));
 
-      await runSession(session.id, 'test prompt', '/tmp/test', null, [], 'custom-sonnet-v1');
+      await runSession(session.id, 'test prompt', '/tmp/test', { model: 'custom-sonnet-v1' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -134,7 +134,7 @@ describe('sessionManager custom provider integration', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponse('custom-opus-v2'));
 
-      await runSession(session.id, 'test prompt', '/tmp/test', null, [], 'custom-opus-v2');
+      await runSession(session.id, 'test prompt', '/tmp/test', { model: 'custom-opus-v2' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -146,7 +146,7 @@ describe('sessionManager custom provider integration', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponse('custom-haiku-lite'));
 
-      await runSession(session.id, 'test prompt', '/tmp/test', null, [], 'custom-haiku-lite');
+      await runSession(session.id, 'test prompt', '/tmp/test', { model: 'custom-haiku-lite' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -165,7 +165,7 @@ describe('sessionManager custom provider integration', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponse('my-custom-model-v3'));
 
-      await runSession(session.id, 'test prompt', '/tmp/test', null, [], 'my-custom-model-v3');
+      await runSession(session.id, 'test prompt', '/tmp/test', { model: 'my-custom-model-v3' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -181,7 +181,7 @@ describe('sessionManager custom provider integration', () => {
       sessions.update(session.id, { claudeSessionId: 'claude-session-123' });
       mockQuery.mockImplementation(() => createMockQueryResponse('custom-sonnet-v1'));
 
-      await continueSession(session.id, 'follow-up message', '/tmp/test', null, [], 'custom-sonnet-v1');
+      await continueSession(session.id, 'follow-up message', '/tmp/test', { model: 'custom-sonnet-v1' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -193,7 +193,7 @@ describe('sessionManager custom provider integration', () => {
       sessions.update(session.id, { claudeSessionId: 'claude-session-123' });
       mockQuery.mockImplementation(() => createMockQueryResponse('custom-haiku-lite'));
 
-      await continueSession(session.id, 'follow-up message', '/tmp/test', null, [], 'custom-haiku-lite');
+      await continueSession(session.id, 'follow-up message', '/tmp/test', { model: 'custom-haiku-lite' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -207,13 +207,13 @@ describe('sessionManager custom provider integration', () => {
 
       // First message with sonnet
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('custom-sonnet-v1'));
-      await continueSession(session.id, 'first message', '/tmp/test', null, [], 'custom-sonnet-v1');
+      await continueSession(session.id, 'first message', '/tmp/test', { model: 'custom-sonnet-v1' });
 
       expect(mockQuery.mock.calls[0][0].options.model).toBe('custom-sonnet-v1');
 
       // Second message with opus
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('custom-opus-v2'));
-      await continueSession(session.id, 'second message', '/tmp/test', null, [], 'custom-opus-v2');
+      await continueSession(session.id, 'second message', '/tmp/test', { model: 'custom-opus-v2' });
 
       expect(mockQuery.mock.calls[1][0].options.model).toBe('custom-opus-v2');
     });
@@ -225,7 +225,7 @@ describe('sessionManager custom provider integration', () => {
       mockQuery.mockImplementation(() => createMockQueryResponse('sonnet'));
 
       // Pass tier name - no provider lookup, passed directly to SDK
-      await runSession(session.id, 'test prompt', '/tmp/test', null, [], 'sonnet');
+      await runSession(session.id, 'test prompt', '/tmp/test', { model: 'sonnet' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -237,7 +237,7 @@ describe('sessionManager custom provider integration', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponse('claude-sonnet-4-6'));
 
-      await runSession(session.id, 'test prompt', '/tmp/test', null, [], 'claude-sonnet-4-6');
+      await runSession(session.id, 'test prompt', '/tmp/test', { model: 'claude-sonnet-4-6' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -248,7 +248,7 @@ describe('sessionManager custom provider integration', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponse('sonnet'));
 
-      await runSession(session.id, 'test prompt', '/tmp/test', null, [], 'sonnet');
+      await runSession(session.id, 'test prompt', '/tmp/test', { model: 'sonnet' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -262,7 +262,7 @@ describe('sessionManager custom provider integration', () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
       mockQuery.mockImplementation(() => createMockQueryResponse(null));
 
-      await runSession(session.id, 'test prompt', '/tmp/test', null, [], null);
+      await runSession(session.id, 'test prompt', '/tmp/test');
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -287,7 +287,7 @@ describe('sessionManager custom provider integration', () => {
       mockQuery.mockImplementation(() => createMockQueryResponse('extras-sonnet'));
 
       // Use the extras-sonnet model which maps to providerWithExtras
-      await runSession(session.id, 'test prompt', '/tmp/test', null, [], 'extras-sonnet');
+      await runSession(session.id, 'test prompt', '/tmp/test', { model: 'extras-sonnet' });
 
       expect(mockQuery).toHaveBeenCalledTimes(1);
       const queryParams = mockQuery.mock.calls[0][0];
@@ -313,14 +313,14 @@ describe('sessionManager custom provider integration', () => {
 
       // Use model from first provider
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('custom-sonnet-v1'));
-      await runSession(session.id, 'test prompt', '/tmp/test', null, [], 'custom-sonnet-v1');
+      await runSession(session.id, 'test prompt', '/tmp/test', { model: 'custom-sonnet-v1' });
 
       expect(mockQuery.mock.calls[0][0].options.env.ANTHROPIC_BASE_URL).toBe('https://api.custom-provider.com');
       expect(mockQuery.mock.calls[0][0].options.env.ANTHROPIC_API_KEY).toBe('custom-auth-token');
 
       // Use model from second provider
       mockQuery.mockImplementationOnce(() => createMockQueryResponse('second-sonnet-model'));
-      await runSession(session.id, 'another prompt', '/tmp/test', null, [], 'second-sonnet-model');
+      await runSession(session.id, 'another prompt', '/tmp/test', { model: 'second-sonnet-model' });
 
       expect(mockQuery.mock.calls[1][0].options.env.ANTHROPIC_BASE_URL).toBe('https://api.second-provider.com');
       expect(mockQuery.mock.calls[1][0].options.env.ANTHROPIC_API_KEY).toBe('second-auth-token');

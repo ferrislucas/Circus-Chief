@@ -93,8 +93,8 @@ describe('Sessions API - Conversation Endpoints', () => {
       const initialConv = conversations.getActiveBySessionId(session.id);
       const conv2 = conversations.create(session.id, 'Conv 2', false);
 
-      messages.create(session.id, 'assistant', 'Hi', null, initialConv.id);
-      messages.create(session.id, 'user', 'Test', null, conv2.id);
+      messages.create(session.id, 'assistant', 'Hi', { conversationId: initialConv.id });
+      messages.create(session.id, 'user', 'Test', { conversationId: conv2.id });
 
       const result = conversations.getBySessionIdWithMessageCount(session.id);
 
@@ -147,8 +147,8 @@ describe('Sessions API - Conversation Endpoints', () => {
   describe('GET /sessions/:id/conversations/:convId', () => {
     it('returns conversation with message count', () => {
       const conv = conversations.create(session.id, 'Test', true);
-      messages.create(session.id, 'user', 'Hello', null, conv.id);
-      messages.create(session.id, 'assistant', 'Hi', null, conv.id);
+      messages.create(session.id, 'user', 'Hello', { conversationId: conv.id });
+      messages.create(session.id, 'assistant', 'Hi', { conversationId: conv.id });
 
       const retrieved = conversations.getById(conv.id);
       const messageCount = messages.getCountByConversationId(conv.id);
@@ -252,8 +252,8 @@ describe('Sessions API - Conversation Endpoints', () => {
       const conv1 = conversations.create(session.id, 'Conv 1', true);
       const conv2 = conversations.create(session.id, 'Conv 2', false);
 
-      messages.create(session.id, 'user', 'Conv 1 msg', null, conv1.id);
-      messages.create(session.id, 'user', 'Conv 2 msg', null, conv2.id);
+      messages.create(session.id, 'user', 'Conv 1 msg', { conversationId: conv1.id });
+      messages.create(session.id, 'user', 'Conv 2 msg', { conversationId: conv2.id });
 
       const conv1Messages = messages.getByConversationId(conv1.id);
       const conv2Messages = messages.getByConversationId(conv2.id);
@@ -268,8 +268,8 @@ describe('Sessions API - Conversation Endpoints', () => {
       const activeConv = conversations.create(session.id, 'Active', true);
       const inactiveConv = conversations.create(session.id, 'Inactive', false);
 
-      messages.create(session.id, 'user', 'Active msg', null, activeConv.id);
-      messages.create(session.id, 'user', 'Inactive msg', null, inactiveConv.id);
+      messages.create(session.id, 'user', 'Active msg', { conversationId: activeConv.id });
+      messages.create(session.id, 'user', 'Inactive msg', { conversationId: inactiveConv.id });
 
       // Simulating API behavior: get active conversation then its messages
       const active = conversations.getActiveBySessionId(session.id);
@@ -296,8 +296,8 @@ describe('Sessions API - Conversation Endpoints', () => {
   describe('POST /sessions/:id/conversations/:convId/summary', () => {
     it('generates and stores summary for conversation', async () => {
       const conv = conversations.create(session.id, 'Test', true);
-      messages.create(session.id, 'user', 'Hello', null, conv.id);
-      messages.create(session.id, 'assistant', 'Hi', null, conv.id);
+      messages.create(session.id, 'user', 'Hello', { conversationId: conv.id });
+      messages.create(session.id, 'assistant', 'Hi', { conversationId: conv.id });
 
       // Simulate summary update
       const updatedConv = conversations.update(conv.id, {
@@ -323,8 +323,8 @@ describe('Sessions API - Conversation Endpoints', () => {
     describe('conversation branching behavior', () => {
       it('branches conversation correctly', async () => {
         const conv = conversations.create(session.id, 'Original', true);
-        const userMsg = messages.create(session.id, 'user', 'Original message', null, conv.id);
-        messages.create(session.id, 'assistant', 'Original response', null, conv.id);
+        const userMsg = messages.create(session.id, 'user', 'Original message', { conversationId: conv.id });
+        messages.create(session.id, 'assistant', 'Original response', { conversationId: conv.id });
 
         // Branch the conversation
         const branchConv = conversations.branch(
@@ -341,7 +341,7 @@ describe('Sessions API - Conversation Endpoints', () => {
 
       it('creates new conversation and marks it as active', () => {
         const activeConv = conversations.create(session.id, 'Active', true);
-        messages.create(session.id, 'user', 'Message', null, activeConv.id);
+        messages.create(session.id, 'user', 'Message', { conversationId: activeConv.id });
 
         // Create new conversation
         const newConv = conversations.create(session.id, 'New', true);

@@ -99,7 +99,7 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
   describe('GET /api/sessions/:id/conversations/:convId', () => {
     it('returns conversation with message count', async () => {
       const conv = conversations.create(session.id, 'Test Conv', true);
-      messages.create(session.id, 'user', 'Hello', null, conv.id);
+      messages.create(session.id, 'user', 'Hello', { conversationId: conv.id });
 
       const res = await request(app)
         .get(`/api/sessions/${session.id}/conversations/${conv.id}`);

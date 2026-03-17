@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { readFileSync, existsSync } from 'fs';
 import { extname, resolve, normalize } from 'path';
-import { sessions, messages, projects, todos, workLogs, sessionTemplates, conversations, attachments, commandRuns, modelProviders, sessionSummaries } from '../database.js';
+import { sessions, messages, projects, todos, workLogs, conversations, attachments, commandRuns, sessionSummaries } from '../database.js';
 import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
 import { getChanges, getChangesBranch } from '../services/diffService.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
@@ -21,6 +21,7 @@ import { configureSchedule, ScheduleError } from '../services/scheduleService.js
 import notesRouter from './sessions-notes.js';
 import conversationsRouter from './sessions-conversations.js';
 import commandsRouter from './sessions-commands.js';
+import patchRouter from './sessions-patch.js';
 
 const router = Router();
 
@@ -28,6 +29,7 @@ const router = Router();
 router.use('/', notesRouter);
 router.use('/', conversationsRouter);
 router.use('/', commandsRouter);
+router.use('/', patchRouter);
 
 // TTL cache for files-count endpoint (60 second TTL)
 const filesCountCache = new Map();
@@ -355,14 +357,14 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
     );
 
     if (resolved) {
-      continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, resolved.systemPrompt, messageAttachments, model).catch((error) => {
+      continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, { systemPrompt: resolved.systemPrompt, fileAttachments: messageAttachments, model }).catch((error) => {
         console.error(`Continue session error (${resolved.type}):`, error);
       });
       return res.json({ success: true });
     }
 
     // Standard plain text message
-    continueSession(req.session_.id, content, req.workingDirectory, req.project.systemPrompt, messageAttachments, model).catch((error) => {
+    continueSession(req.session_.id, content, req.workingDirectory, { systemPrompt: req.project.systemPrompt, fileAttachments: messageAttachments, model }).catch((error) => {
       console.error('Continue session error:', error);
     });
     res.json({ success: true });
@@ -485,208 +487,7 @@ router.get('/:id/todos', requireSession, (req, res) => {
   res.json(sessionTodos);
 });
 
-// PATCH /api/sessions/:id - Update session settings
-router.patch('/:id', requireSession, (req, res) => {
-  const {
-    name,
-    manuallyNamed,
-    thinkingEnabled,
-    effortLevel,
-    status,
-    mode,
-    nextTemplateId,
-    model,
-    providerId,
-    prUrl,
-    pendingModel,
-    autoSendPendingPrompt,
-    // Scheduling fields
-    scheduledAt,
-    autoRescheduleEnabled,
-    rescheduleDelayMinutes,
-    rescheduleOnTokenLimit,
-    rescheduleOnServiceError,
-    maxRescheduleCount,
-    maxTotalTokens,
-    rescheduleCount,
-    rescheduleAtTokenCount,
-  } = req.body;
-
-  // Build update object with only provided fields
-  const updateData = {};
-  if (name !== undefined) {
-    updateData.name = name;
-    // Auto-set manuallyNamed when name is updated via user-facing PATCH endpoint
-    // (unless manuallyNamed is explicitly provided)
-    if (manuallyNamed === undefined) {
-      updateData.manuallyNamed = true;
-    }
-  }
-  if (manuallyNamed !== undefined) {
-    updateData.manuallyNamed = Boolean(manuallyNamed);
-  }
-  if (thinkingEnabled !== undefined) {
-    updateData.thinkingEnabled = Boolean(thinkingEnabled);
-  }
-  if (effortLevel !== undefined) {
-    if (effortLevel !== null) {
-      const validEffortLevels = ['low', 'medium', 'high', 'max', 'auto'];
-      if (!validEffortLevels.includes(effortLevel)) {
-        return res.status(400).json({ error: 'Invalid effort level. Must be one of: low, medium, high, max, auto' });
-      }
-    }
-    // Normalize 'auto' to null (auto means "let the SDK/API decide")
-    updateData.effortLevel = effortLevel === 'auto' ? null : effortLevel;
-  }
-  if (status !== undefined) {
-    const validStatuses = ['starting', 'running', 'waiting', 'error', 'stopped', 'scheduled'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ error: 'Invalid status' });
-    }
-    updateData.status = status;
-  }
-  if (mode !== undefined) {
-    const validModes = ['plan', 'standard', 'yolo'];
-    if (!validModes.includes(mode)) {
-      return res.status(400).json({ error: 'Invalid mode. Must be one of: plan, standard, yolo' });
-    }
-    updateData.mode = mode;
-  }
-  if (nextTemplateId !== undefined) {
-    // Validate template exists if not null
-    if (nextTemplateId !== null) {
-      const template = sessionTemplates.getById(nextTemplateId);
-      if (!template) {
-        return res.status(400).json({ error: 'Template not found' });
-      }
-    }
-    updateData.nextTemplateId = nextTemplateId;
-  }
-  if (model !== undefined) {
-    updateData.model = model;
-  }
-  if (pendingModel !== undefined) {
-    updateData.pendingModel = pendingModel;
-  }
-  if (autoSendPendingPrompt !== undefined) {
-    updateData.autoSendPendingPrompt = autoSendPendingPrompt;
-  }
-  // Provider ID - allow setting, updating, or clearing (null clears it to use Anthropic)
-  if (providerId !== undefined) {
-    if (providerId !== null) {
-      const provider = modelProviders.getById(providerId);
-      if (!provider) {
-        return res.status(400).json({ error: 'Provider not found' });
-      }
-    }
-    updateData.providerId = providerId;
-  }
-  // PR URL - allow setting, updating, or clearing (null or empty string clears it)
-  if (prUrl !== undefined) {
-    if (prUrl === null || prUrl === '') {
-      // Allow clearing the PR URL
-      updateData.prUrl = null;
-    } else if (typeof prUrl === 'string') {
-      // Validate PR URL format if provided
-      const prUrlPattern = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/;
-      if (!prUrlPattern.test(prUrl)) {
-        return res.status(400).json({ error: 'Invalid PR URL format. Must be a valid GitHub PR URL (e.g., https://github.com/owner/repo/pull/123)' });
-      }
-      updateData.prUrl = prUrl;
-    } else {
-      return res.status(400).json({ error: 'prUrl must be a string or null' });
-    }
-  }
-  // Scheduling fields
-  if (scheduledAt !== undefined) {
-    updateData.scheduledAt = scheduledAt;
-  }
-  if (autoRescheduleEnabled !== undefined) {
-    updateData.autoRescheduleEnabled = Boolean(autoRescheduleEnabled);
-  }
-  if (rescheduleDelayMinutes !== undefined) {
-    updateData.rescheduleDelayMinutes = parseInt(rescheduleDelayMinutes, 10);
-  }
-  if (rescheduleOnTokenLimit !== undefined) {
-    updateData.rescheduleOnTokenLimit = Boolean(rescheduleOnTokenLimit);
-  }
-  if (rescheduleOnServiceError !== undefined) {
-    updateData.rescheduleOnServiceError = Boolean(rescheduleOnServiceError);
-  }
-  if (maxRescheduleCount !== undefined) {
-    updateData.maxRescheduleCount = maxRescheduleCount ? parseInt(maxRescheduleCount, 10) : null;
-  }
-  if (maxTotalTokens !== undefined) {
-    updateData.maxTotalTokens = maxTotalTokens ? parseInt(maxTotalTokens, 10) : null;
-  }
-  if (rescheduleCount !== undefined) {
-    updateData.rescheduleCount = parseInt(rescheduleCount, 10);
-  }
-  if (rescheduleAtTokenCount !== undefined) {
-    updateData.rescheduleAtTokenCount = rescheduleAtTokenCount ? parseInt(rescheduleAtTokenCount, 10) : null;
-  }
-
-  if (Object.keys(updateData).length === 0) {
-    return res.status(400).json({ error: 'No valid fields to update' });
-  }
-
-  const updated = sessions.update(req.params.id, updateData);
-
-  // Propagate PR URL to parent session if set (not when clearing)
-  if (updateData.prUrl) {
-    summaryService.propagatePrUrlToParent(req.params.id, updateData.prUrl);
-  }
-
-  // Broadcast status update if status changed
-  if (updateData.status) {
-    broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_STATUS, {
-      sessionId: req.params.id,
-      status: updateData.status,
-    });
-  }
-
-  // Broadcast session update to session subscribers (e.g. detail view)
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-    sessionId: req.params.id,
-    session: updated,
-  });
-
-  // Broadcast session update to project subscribers for real-time list updates
-  broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-    projectId: req.session_.projectId,
-    sessionId: req.params.id,
-    session: updated,
-  });
-
-  res.json(updated);
-});
-
-// PATCH /api/sessions/:id/pending-prompt - Update pending prompt for auto-save
-router.patch('/:id/pending-prompt', requireSession, (req, res) => {
-  const { pendingPrompt } = req.body;
-
-  // Allow null or string (including empty string for clearing)
-  if (pendingPrompt !== null && typeof pendingPrompt !== 'string') {
-    return res.status(400).json({ error: 'pendingPrompt must be a string or null' });
-  }
-
-  const updated = sessions.update(req.params.id, { pendingPrompt });
-
-  // Broadcast update to session subscribers
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-    sessionId: req.params.id,
-    session: updated,
-  });
-
-  // Broadcast to project subscribers for real-time updates
-  broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-    projectId: req.session_.projectId,
-    sessionId: req.params.id,
-    session: updated,
-  });
-
-  res.json(updated);
-});
+// PATCH /:id and PATCH /:id/pending-prompt are handled by sessions-patch.js sub-router
 
 // GET /api/sessions/:id/summary - Get session summary
 router.get('/:id/summary', requireSession, async (req, res) => {

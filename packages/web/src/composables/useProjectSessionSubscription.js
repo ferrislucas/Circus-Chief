@@ -144,7 +144,7 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
 
       // Handle command run complete
       cleanups.push(
-        onCommandRunComplete((runId, sessionId, buttonId, exitCode, output) => {
+        onCommandRunComplete(({ runId, sessionId, buttonId, exitCode, output }) => {
           if (!commandButtonsStore.runs[runId]) {
             commandButtonsStore.runs[runId] = {
               runId,

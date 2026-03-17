@@ -261,136 +261,79 @@ export class SessionRepository extends BaseRepository {
     return current?.id ?? null;
   }
 
-  update(id, data) {
+  /**
+   * Mapping of camelCase field names to their snake_case column names.
+   * Values are passed through to SQLite as-is.
+   */
+  static #DIRECT_FIELD_MAP = {
+    name: 'name',
+    status: 'status',
+    mode: 'mode',
+    gitBranch: 'git_branch',
+    gitWorktree: 'git_worktree',
+    prUrl: 'pr_url',
+    error: 'error',
+    costUsd: 'cost_usd',
+    claudeSessionId: 'claude_session_id',
+    model: 'model',
+    nextTemplateId: 'next_template_id',
+    parentSessionId: 'parent_session_id',
+    scheduledAt: 'scheduled_at',
+    rescheduleDelayMinutes: 'reschedule_delay_minutes',
+    maxRescheduleCount: 'max_reschedule_count',
+    maxTotalTokens: 'max_total_tokens',
+    rescheduleCount: 'reschedule_count',
+    rescheduleAtTokenCount: 'reschedule_at_token_count',
+    pendingPrompt: 'pending_prompt',
+    pendingModel: 'pending_model',
+    effortLevel: 'effort_level',
+    targetLaneId: 'target_lane_id',
+    laneTriggerDepth: 'lane_trigger_depth',
+  };
+
+  /**
+   * Mapping of camelCase boolean field names to their snake_case column names.
+   * Values are converted to 1/0 for SQLite storage.
+   */
+  static #BOOLEAN_FIELD_MAP = {
+    thinkingEnabled: 'thinking_enabled',
+    archived: 'archived',
+    starred: 'starred',
+    manuallyNamed: 'manually_named',
+    autoRescheduleEnabled: 'auto_reschedule_enabled',
+    rescheduleOnTokenLimit: 'reschedule_on_token_limit',
+    rescheduleOnServiceError: 'reschedule_on_service_error',
+    autoSendPendingPrompt: 'auto_send_pending_prompt',
+  };
+
+  /**
+   * Build the SET clause entries and parameter values from the provided data object.
+   * @param {Object} data - The update data with camelCase keys
+   * @returns {{ updates: string[], values: any[] }}
+   */
+  static #buildUpdateClauses(data) {
     const updates = [];
     const values = [];
 
-    if (data.name !== undefined) {
-      updates.push('name = ?');
-      values.push(data.name);
+    for (const [field, column] of Object.entries(SessionRepository.#DIRECT_FIELD_MAP)) {
+      if (data[field] !== undefined) {
+        updates.push(`${column} = ?`);
+        values.push(data[field]);
+      }
     }
-    if (data.status !== undefined) {
-      updates.push('status = ?');
-      values.push(data.status);
+
+    for (const [field, column] of Object.entries(SessionRepository.#BOOLEAN_FIELD_MAP)) {
+      if (data[field] !== undefined) {
+        updates.push(`${column} = ?`);
+        values.push(data[field] ? 1 : 0);
+      }
     }
-    if (data.mode !== undefined) {
-      updates.push('mode = ?');
-      values.push(data.mode);
-    }
-    if (data.gitBranch !== undefined) {
-      updates.push('git_branch = ?');
-      values.push(data.gitBranch);
-    }
-    if (data.gitWorktree !== undefined) {
-      updates.push('git_worktree = ?');
-      values.push(data.gitWorktree);
-    }
-    if (data.prUrl !== undefined) {
-      updates.push('pr_url = ?');
-      values.push(data.prUrl);
-    }
-    if (data.error !== undefined) {
-      updates.push('error = ?');
-      values.push(data.error);
-    }
-    if (data.costUsd !== undefined) {
-      updates.push('cost_usd = ?');
-      values.push(data.costUsd);
-    }
-    if (data.claudeSessionId !== undefined) {
-      updates.push('claude_session_id = ?');
-      values.push(data.claudeSessionId);
-    }
-    if (data.thinkingEnabled !== undefined) {
-      updates.push('thinking_enabled = ?');
-      values.push(data.thinkingEnabled ? 1 : 0);
-    }
-    if (data.model !== undefined) {
-      updates.push('model = ?');
-      values.push(data.model);
-    }
-    if (data.nextTemplateId !== undefined) {
-      updates.push('next_template_id = ?');
-      values.push(data.nextTemplateId);
-    }
-    if (data.parentSessionId !== undefined) {
-      updates.push('parent_session_id = ?');
-      values.push(data.parentSessionId);
-    }
-    if (data.archived !== undefined) {
-      updates.push('archived = ?');
-      values.push(data.archived ? 1 : 0);
-    }
-    if (data.starred !== undefined) {
-      updates.push('starred = ?');
-      values.push(data.starred ? 1 : 0);
-    }
-    if (data.manuallyNamed !== undefined) {
-      updates.push('manually_named = ?');
-      values.push(data.manuallyNamed ? 1 : 0);
-    }
-    // Scheduling fields
-    if (data.scheduledAt !== undefined) {
-      updates.push('scheduled_at = ?');
-      values.push(data.scheduledAt);
-    }
-    if (data.rescheduleDelayMinutes !== undefined) {
-      updates.push('reschedule_delay_minutes = ?');
-      values.push(data.rescheduleDelayMinutes);
-    }
-    if (data.autoRescheduleEnabled !== undefined) {
-      updates.push('auto_reschedule_enabled = ?');
-      values.push(data.autoRescheduleEnabled ? 1 : 0);
-    }
-    if (data.rescheduleOnTokenLimit !== undefined) {
-      updates.push('reschedule_on_token_limit = ?');
-      values.push(data.rescheduleOnTokenLimit ? 1 : 0);
-    }
-    if (data.rescheduleOnServiceError !== undefined) {
-      updates.push('reschedule_on_service_error = ?');
-      values.push(data.rescheduleOnServiceError ? 1 : 0);
-    }
-    if (data.maxRescheduleCount !== undefined) {
-      updates.push('max_reschedule_count = ?');
-      values.push(data.maxRescheduleCount);
-    }
-    if (data.maxTotalTokens !== undefined) {
-      updates.push('max_total_tokens = ?');
-      values.push(data.maxTotalTokens);
-    }
-    if (data.rescheduleCount !== undefined) {
-      updates.push('reschedule_count = ?');
-      values.push(data.rescheduleCount);
-    }
-    if (data.rescheduleAtTokenCount !== undefined) {
-      updates.push('reschedule_at_token_count = ?');
-      values.push(data.rescheduleAtTokenCount);
-    }
-    if (data.pendingPrompt !== undefined) {
-      updates.push('pending_prompt = ?');
-      values.push(data.pendingPrompt);
-    }
-    if (data.pendingModel !== undefined) {
-      updates.push('pending_model = ?');
-      values.push(data.pendingModel);
-    }
-    if (data.autoSendPendingPrompt !== undefined) {
-      updates.push('auto_send_pending_prompt = ?');
-      values.push(data.autoSendPendingPrompt ? 1 : 0);
-    }
-    // Kanban fields
-    if (data.targetLaneId !== undefined) {
-      updates.push('target_lane_id = ?');
-      values.push(data.targetLaneId);
-    }
-    if (data.laneTriggerDepth !== undefined) {
-      updates.push('lane_trigger_depth = ?');
-      values.push(data.laneTriggerDepth);
-    }
-    if (data.effortLevel !== undefined) {
-      updates.push('effort_level = ?');
-      values.push(data.effortLevel);
-    }
+
+    return { updates, values };
+  }
+
+  update(id, data) {
+    const { updates, values } = SessionRepository.#buildUpdateClauses(data);
 
     if (updates.length === 0) return this.getById(id);
 

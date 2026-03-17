@@ -25,13 +25,11 @@ export function getRootSession(session) {
 /**
  * Render a template prompt with parent session and root session context
  * @param {string} templatePrompt - The Liquid template string
- * @param {Object} parentSession - The parent session object
- * @param {Object|null} parentSummary - The parent session's summary
- * @param {Object} rootSession - The root session object
- * @param {Object|null} rootSummary - The root session's summary
+ * @param {{ parentSession: Object, parentSummary: Object|null, rootSession: Object, rootSummary: Object|null }} sessionContext - Session context objects
  * @returns {Promise<string>} The rendered prompt
  */
-export async function renderTemplatePrompt(templatePrompt, parentSession, parentSummary, rootSession, rootSummary) {
+export async function renderTemplatePrompt(templatePrompt, sessionContext) {
+  const { parentSession, parentSummary, rootSession, rootSummary } = sessionContext;
   const context = {
     parentSession: {
       id: parentSession.id,
@@ -100,7 +98,7 @@ export async function checkAndTriggerNextTemplate(sessionId) {
     const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
 
     // Render the template prompt with parent and root session context
-    const renderedPrompt = await renderTemplatePrompt(template.prompt, session, parentSummary, rootSession, rootSummary);
+    const renderedPrompt = await renderTemplatePrompt(template.prompt, { parentSession: session, parentSummary, rootSession, rootSummary });
 
     // Determine settings: use template overrides if set, otherwise inherit from parent session
     const thinkingEnabled = template.thinkingEnabled !== null ? template.thinkingEnabled : session.thinkingEnabled;
@@ -167,7 +165,7 @@ export async function checkAndTriggerNextTemplate(sessionId) {
     });
 
     // Start the new session (non-blocking)
-    runSession(newSession.id, renderedPrompt, workingDirectory, project.systemPrompt, [], template.model).catch((error) => {
+    runSession(newSession.id, renderedPrompt, workingDirectory, { systemPrompt: project.systemPrompt, model: template.model }).catch((error) => {
       console.error(`Template trigger: Error running session ${newSession.id}:`, error);
       const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
       // Broadcast error status to project subscribers for session list updates
