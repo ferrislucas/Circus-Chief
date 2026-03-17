@@ -99,7 +99,7 @@ describe('streamEventHandler', () => {
 
       const result = createWorkLog('sess-1', 'thinking', 'pondering...');
 
-      expect(workLogs.create).toHaveBeenCalledWith('sess-1', 'thinking', 'pondering...', null, null);
+      expect(workLogs.create).toHaveBeenCalledWith('sess-1', 'thinking', 'pondering...', { messageId: null, toolName: null });
       expect(broadcastToSession).toHaveBeenCalledWith(
         'sess-1',
         WS_MESSAGE_TYPES.SESSION_WORK_LOG,
@@ -112,15 +112,15 @@ describe('streamEventHandler', () => {
       workLogs.create.mockReturnValue({ id: 'wl-2' });
       createWorkLog('sess-1', 'tool_input', '{}', 'Read');
 
-      expect(workLogs.create).toHaveBeenCalledWith('sess-1', 'tool_input', '{}', null, 'Read');
+      expect(workLogs.create).toHaveBeenCalledWith('sess-1', 'tool_input', '{}', { messageId: null, toolName: 'Read' });
     });
 
     it('always passes null for messageId (unassociated)', () => {
       workLogs.create.mockReturnValue({ id: 'wl-3' });
       createWorkLog('sess-1', 'tool_output', 'result', 'Write');
 
-      // 4th arg (messageId) should always be null
-      expect(workLogs.create.mock.calls[0][3]).toBeNull();
+      // 4th arg is now an options object; messageId should always be null
+      expect(workLogs.create.mock.calls[0][3].messageId).toBeNull();
     });
   });
 
