@@ -234,6 +234,8 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
       effortLevel = systemDefaults.effortLevel;
     }
   }
+  // Normalize 'auto' to null (auto means "let the SDK/API decide")
+  if (effortLevel === 'auto') effortLevel = null;
 
   let gitBranch = req.body.gitBranch;
   if (!gitBranch && projectDefs?.gitBranch) gitBranch = projectDefs.gitBranch;

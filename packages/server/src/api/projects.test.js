@@ -315,7 +315,9 @@ describe('Projects API', () => {
           });
 
           expect(res.status).toBe(201);
-          expect(res.body.effortLevel).toBe(effortLevel);
+          // 'auto' is normalized to null
+          const expectedValue = effortLevel === 'auto' ? null : effortLevel;
+          expect(res.body.effortLevel).toBe(expectedValue);
         }
       });
     });
