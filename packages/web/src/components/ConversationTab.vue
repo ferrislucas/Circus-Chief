@@ -135,10 +135,9 @@
     <!-- Slash Command Wizard Modal -->
     <SlashCommandWizard
       v-model:isOpen="showSlashCommandWizard"
-      :sessionId="sessionId"
       :workingDirectory="workingDirectory"
-      mode="execute"
-      @executed="handleSlashCommandExecuted"
+      mode="insert"
+      @insert="handleSlashCommandInsert"
     />
 
   </div>
@@ -571,8 +570,26 @@ function closeScheduleModal() {
   showScheduleModal.value = false;
 }
 
-function handleSlashCommandExecuted({ command, args }) {
-  scrollToBottom(true);
+function handleSlashCommandInsert({ text }) {
+  // Insert the slash command text into the input field instead of auto-executing
+  const existing = input.value.trim();
+  if (existing) {
+    input.value = text + ' ' + existing;
+  } else {
+    input.value = text + ' ';
+  }
+
+  // Sync to textarea DOM and focus so user can add context before submitting
+  nextTick(() => {
+    const textareaRef = inputFormRef.value?.textareaRef;
+    if (textareaRef) {
+      textareaRef.value = input.value;
+      textareaRef.focus();
+      textareaRef.selectionStart = textareaRef.selectionEnd = input.value.length;
+      // Trigger input event so ResizableTextarea auto-resizes
+      textareaRef.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  });
 }
 
 // Branching methods
