@@ -36,6 +36,7 @@ export class SessionRepository extends BaseRepository {
       parentSessionId: row.parent_session_id,
       pendingPrompt: row.pending_prompt || null,
       pendingModel: row.pending_model || null,
+      effortLevel: row.effort_level || null,
       autoSendPendingPrompt: Boolean(row.auto_send_pending_prompt),
       slashCommands: row.slash_commands || null,
       // Token usage fields
@@ -90,6 +91,7 @@ export class SessionRepository extends BaseRepository {
    * @param {string|null} [options.parentSessionId=null] - Parent session ID
    * @param {string} [options.status='starting'] - Initial status
    * @param {string|null} [options.model=null] - Model to use
+   * @param {string|null} [options.effortLevel=null] - Effort level
    * @returns {Object} Created session
    */
   create(projectId, name, prompt, options = {}) {
@@ -97,10 +99,11 @@ export class SessionRepository extends BaseRepository {
     // If options is a string, it's the old 'mode' parameter
     let config;
     if (typeof options === 'string') {
-      // Legacy call: create(projectId, name, prompt, mode, thinkingEnabled, gitBranch, parentSessionId, status, model)
+      // Legacy call: create(projectId, name, prompt, mode, thinkingEnabled, gitBranch, parentSessionId, status, model, { effortLevel })
       const [mode, thinkingEnabled, gitBranch, parentSessionId, status, model] = [
         options, arguments[4], arguments[5], arguments[6], arguments[7], arguments[8]
       ];
+      const legacyOpts = arguments[9] || {};
       config = {
         mode: mode || 'standard',
         thinkingEnabled: thinkingEnabled || false,
@@ -108,6 +111,7 @@ export class SessionRepository extends BaseRepository {
         parentSessionId: parentSessionId || null,
         status: status || 'starting',
         model: model || null,
+        effortLevel: legacyOpts.effortLevel || null,
       };
     } else {
       config = {
@@ -117,6 +121,7 @@ export class SessionRepository extends BaseRepository {
         parentSessionId: options.parentSessionId || null,
         status: options.status || 'starting',
         model: options.model || null,
+        effortLevel: options.effortLevel || null,
       };
     }
 
@@ -124,10 +129,10 @@ export class SessionRepository extends BaseRepository {
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, effort_level, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, projectId, name, config.status, config.mode, config.thinkingEnabled ? 1 : 0, config.gitBranch, config.parentSessionId, config.model, now, now);
+      .run(id, projectId, name, config.status, config.mode, config.thinkingEnabled ? 1 : 0, config.gitBranch, config.parentSessionId, config.model, config.effortLevel, now, now);
 
     // Create initial conversation
     const conversation = conversations.create(id, 'Initial', true);
@@ -370,6 +375,10 @@ export class SessionRepository extends BaseRepository {
       updates.push('auto_send_pending_prompt = ?');
       values.push(data.autoSendPendingPrompt ? 1 : 0);
     }
+    if (data.effortLevel !== undefined) {
+      updates.push('effort_level = ?');
+      values.push(data.effortLevel);
+    }
 
     if (updates.length === 0) return this.getById(id);
 
@@ -405,10 +414,10 @@ export class SessionRepository extends BaseRepository {
     // Insert new session with same settings but new ID and status
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, context_window,
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, model, effort_level, context_window,
                                input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
                                web_search_requests, cost_usd, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -418,6 +427,8 @@ export class SessionRepository extends BaseRepository {
         source.mode,
         source.thinkingEnabled ? 1 : 0,
         source.gitBranch,  // Copy branch name (NOT worktree path)
+        source.model,
+        source.effortLevel,
         source.contextWindow,
         source.inputTokens,
         source.outputTokens,

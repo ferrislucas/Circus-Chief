@@ -225,6 +225,16 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
     }
   }
 
+  // Effort level defaults cascade: explicit param > project default > system default
+  let effortLevel = req.body.effortLevel || null;
+  if (!effortLevel) {
+    if (projectDefs?.effortLevel) {
+      effortLevel = projectDefs.effortLevel;
+    } else {
+      effortLevel = systemDefaults.effortLevel;
+    }
+  }
+
   let gitBranch = req.body.gitBranch;
   if (!gitBranch && projectDefs?.gitBranch) gitBranch = projectDefs.gitBranch;
 
@@ -324,6 +334,7 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
     parentSessionId,
     status: initialStatus,
     model,
+    effortLevel,
   });
 
   // Set nextTemplateId if template was selected

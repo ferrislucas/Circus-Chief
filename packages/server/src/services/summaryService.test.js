@@ -2563,7 +2563,7 @@ describe('summaryService', () => {
       settings.setSummarySettings({ disableSessionSummaries: false });
     });
 
-    it('onSessionComplete does lightweight outcome update when disabled but skips LLM', async () => {
+    it('onSessionComplete skips lightweight outcome update when disabled', async () => {
       // Get the current session state to create a matching non-stale summary
       const allMessages = messages.getBySessionId(sessionId);
       const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
@@ -2586,18 +2586,18 @@ describe('summaryService', () => {
       // Disable session summaries
       settings.setSummarySettings({ disableSessionSummaries: true });
 
-      // Call onSessionComplete - should do lightweight update but skip LLM
+      // Call onSessionComplete - should skip ALL summary work (including lightweight path)
       summaryService.onSessionComplete(sessionId);
 
       // Wait for any async operations
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // Verify outcome was updated to 'completed' (lightweight path ran)
+      // Verify outcome was NOT updated (early return skipped the lightweight path)
       const updatedSummary = sessionSummaries.getBySessionId(sessionId);
       expect(updatedSummary).not.toBeNull();
-      expect(updatedSummary.outcome).toBe('completed');
+      expect(updatedSummary.outcome).toBe('in_progress'); // unchanged
 
-      // Verify no new LLM call was made (summary content should be unchanged)
+      // Verify no new LLM call was made
       expect(updatedSummary.fullSummary).toBe('Full test summary content');
 
       // Re-enable for other tests
@@ -2623,6 +2623,70 @@ describe('summaryService', () => {
 
       // Re-enable for other tests
       settings.setSummarySettings({ disableSessionSummaries: false });
+    });
+
+    it('onSessionComplete skips all summary work for child sessions when disabled', async () => {
+      // Create a child session
+      const childSession = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
+      sessions.update(childSession.id, { parentSessionId: sessionId });
+
+      // Add enough messages for the child
+      messages.create(childSession.id, 'assistant', 'Child response 1');
+      messages.create(childSession.id, 'user', 'Child follow-up');
+
+      // Disable session summaries
+      settings.setSummarySettings({ disableSessionSummaries: true });
+
+      // Complete the child session
+      sessions.update(childSession.id, { status: 'completed' });
+      summaryService.onSessionComplete(childSession.id);
+
+      // Wait for async operations
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Verify no summary was generated for the child
+      const childSummary = sessionSummaries.getBySessionId(childSession.id);
+      expect(childSummary).toBeNull();
+
+      // Verify no summary was generated for the parent either
+      const parentSummary = sessionSummaries.getBySessionId(sessionId);
+      expect(parentSummary).toBeNull();
+
+      // Re-enable for other tests
+      settings.setSummarySettings({ disableSessionSummaries: false });
+
+      // Clean up
+      summaryService.cleanupSession(childSession.id);
+    });
+
+    it('propagateToParent does not generate parent summary when disabled', async () => {
+      // Create a child session
+      const childSession = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
+      sessions.update(childSession.id, { parentSessionId: sessionId });
+
+      // Disable session summaries
+      settings.setSummarySettings({ disableSessionSummaries: true });
+
+      vi.clearAllMocks();
+
+      // Call propagateToParent directly
+      await summaryService.propagateToParent(childSession.id);
+
+      // Wait for async operations
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // No LLM calls should have been made
+      expect(agentCallLogger.startCall).not.toHaveBeenCalled();
+
+      // No summary should exist for the parent
+      const parentSummary = sessionSummaries.getBySessionId(sessionId);
+      expect(parentSummary).toBeNull();
+
+      // Re-enable for other tests
+      settings.setSummarySettings({ disableSessionSummaries: false });
+
+      // Clean up
+      summaryService.cleanupSession(childSession.id);
     });
   });
 

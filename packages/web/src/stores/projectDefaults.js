@@ -54,6 +54,7 @@ export const useProjectDefaultsStore = defineStore('projectDefaults', {
         this.defaultsByProjectId[projectId] = {
           mode: null,
           thinkingEnabled: null,
+          effortLevel: null,
           startImmediately: null,
           gitMode: null,
           gitBranch: null,
