@@ -34,14 +34,18 @@ export class AgentCallLogRepository extends BaseRepository {
   /**
    * Create a new call log entry
    */
-  create({ id, sessionId, conversationId, agentType, model, callType, promptLength }) {
+  create({ id, sessionId, conversationId, agentType, model, callType, promptLength, metadata = {} }) {
     const now = Date.now();
+    const metadataJson = Object.keys(metadata).length > 0
+      ? JSON.stringify(metadata)
+      : null;
+
     this.db
       .prepare(
-        `INSERT INTO agent_call_logs (id, session_id, conversation_id, agent_type, model, call_type, prompt_length, started_at, status, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+        `INSERT INTO agent_call_logs (id, session_id, conversation_id, agent_type, model, call_type, prompt_length, metadata, started_at, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
       )
-      .run(id, sessionId, conversationId, agentType, model, callType, promptLength, now, now);
+      .run(id, sessionId, conversationId, agentType, model, callType, promptLength, metadataJson, now, now);
     return this.getById(id);
   }
 

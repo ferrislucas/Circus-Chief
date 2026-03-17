@@ -126,6 +126,20 @@
         </div>
 
         <div class="form-group">
+          <label class="form-label" for="defaultEffortLevel">Default Effort Level</label>
+          <select id="defaultEffortLevel" v-model="defaultEffortLevel" class="form-input">
+            <option value="">Auto (default)</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="max">Max</option>
+          </select>
+          <p class="form-help">
+            Set the default effort level for new sessions. Controls how much effort Claude puts into responses.
+          </p>
+        </div>
+
+        <div class="form-group">
           <label class="checkbox-label">
             <input
               type="checkbox"
@@ -256,6 +270,7 @@ const onSessionDeleted = ref('');
 // Session defaults refs
 const defaultMode = ref('');
 const defaultThinkingEnabled = ref(false);
+const defaultEffortLevel = ref('');
 const defaultStartImmediately = ref(true);
 const defaultGitMode = ref('');
 const defaultGitBranch = ref('');
@@ -287,6 +302,7 @@ watch(() => defaultsStore.getDefaultsForProject(route.params.id), (defaults) => 
   if (defaults) {
     defaultMode.value = defaults.mode || '';
     defaultThinkingEnabled.value = defaults.thinkingEnabled || false;
+    defaultEffortLevel.value = defaults.effortLevel ?? '';
     defaultStartImmediately.value = defaults.startImmediately !== false;
     defaultGitMode.value = defaults.gitMode || '';
     defaultGitBranch.value = defaults.gitBranch || '';
@@ -314,6 +330,7 @@ async function handleSubmit() {
     const defaultsData = {};
     if (defaultMode.value) defaultsData.mode = defaultMode.value;
     if (defaultThinkingEnabled.value) defaultsData.thinkingEnabled = true;
+    if (defaultEffortLevel.value) defaultsData.effortLevel = defaultEffortLevel.value;
     if (!defaultStartImmediately.value) defaultsData.startImmediately = false;
     if (defaultGitMode.value) defaultsData.gitMode = defaultGitMode.value;
     if (defaultGitBranch.value) defaultsData.gitBranch = defaultGitBranch.value;
@@ -342,6 +359,7 @@ async function handleResetDefaults() {
     await defaultsStore.resetDefaults(route.params.id);
     defaultMode.value = '';
     defaultThinkingEnabled.value = false;
+    defaultEffortLevel.value = '';
     defaultStartImmediately.value = true;
     defaultGitMode.value = '';
     defaultGitBranch.value = '';

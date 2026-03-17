@@ -275,7 +275,7 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
 
   // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
   const provider = resolveProviderFromModel(model);
-  const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled);
+  const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
   const queryParams = buildQueryParams({
     prompt: promptWithAttachments,
@@ -304,6 +304,7 @@ export async function runSession(sessionId, prompt, workingDirectory, systemProm
     callType: 'runSession',
     agentType,
     model,
+    effortLevel: session.effortLevel,
     promptLength: promptWithAttachments.length,
   };
 
@@ -380,7 +381,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
 
   // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
   const provider = resolveProviderFromModel(model);
-  const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled);
+  const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
   // Check if model changed from the session's last requested model
   // When model changes, we can't resume the previous session - thinking blocks and
@@ -445,6 +446,7 @@ export async function continueSession(sessionId, content, workingDirectory, syst
     callType: 'continueSession',
     agentType,
     model,
+    effortLevel: session.effortLevel,
     isResume: canResume,
     promptLength: promptWithContext.length,
   };
@@ -518,7 +520,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
 
   // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
   const provider = resolveProviderFromModel(model);
-  const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled);
+  const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
   // Check if model changed from the session's last requested model
   // When model changes, we can't resume the previous session - thinking blocks and
@@ -576,6 +578,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     callType: 'continueSessionWithExistingMessage',
     agentType,
     model,
+    effortLevel: session.effortLevel,
     isResume: canResume,
     promptLength: promptWithContext.length,
   };

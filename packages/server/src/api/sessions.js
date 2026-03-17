@@ -491,6 +491,7 @@ router.patch('/:id', requireSession, (req, res) => {
     name,
     manuallyNamed,
     thinkingEnabled,
+    effortLevel,
     status,
     mode,
     nextTemplateId,
@@ -526,6 +527,15 @@ router.patch('/:id', requireSession, (req, res) => {
   }
   if (thinkingEnabled !== undefined) {
     updateData.thinkingEnabled = Boolean(thinkingEnabled);
+  }
+  if (effortLevel !== undefined) {
+    if (effortLevel !== null) {
+      const validEffortLevels = ['low', 'medium', 'high', 'max', 'auto'];
+      if (!validEffortLevels.includes(effortLevel)) {
+        return res.status(400).json({ error: 'Invalid effort level. Must be one of: low, medium, high, max, auto' });
+      }
+    }
+    updateData.effortLevel = effortLevel;
   }
   if (status !== undefined) {
     const validStatuses = ['starting', 'running', 'waiting', 'error', 'stopped', 'scheduled'];

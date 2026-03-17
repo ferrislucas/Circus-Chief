@@ -41,6 +41,7 @@ describe('AgentCallLogger', () => {
       const callId = logger.startCall(meta);
 
       expect(callId).toBeTruthy();
+      // Updated expectation - agentCallLogger always passes metadata object (may be empty)
       expect(agentCallLogs.create).toHaveBeenCalledWith({
         id: callId,
         sessionId: 'session-1',
@@ -49,6 +50,7 @@ describe('AgentCallLogger', () => {
         model: 'claude-sonnet-4-20250514',
         callType: 'runSession',
         promptLength: 500,
+        metadata: {}, // No effortLevel or thinkingEnabled in meta
       });
       expect(logger.activeCalls.has(callId)).toBe(true);
     });
@@ -64,6 +66,76 @@ describe('AgentCallLogger', () => {
 
       expect(agentCallLogs.create).toHaveBeenCalledWith(
         expect.objectContaining({ agentType: 'claude-code' })
+      );
+    });
+  });
+
+  describe('startCall with metadata', () => {
+    it('includes effortLevel in metadata when provided', () => {
+      const meta = {
+        sessionId: 'session-1',
+        callType: 'runSession',
+        promptLength: 100,
+        effortLevel: 'high',
+      };
+
+      logger.startCall(meta);
+
+      expect(agentCallLogs.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: { effortLevel: 'high' },
+        })
+      );
+    });
+
+    it('includes thinkingEnabled in metadata when provided', () => {
+      const meta = {
+        sessionId: 'session-1',
+        callType: 'runSession',
+        promptLength: 100,
+        thinkingEnabled: true,
+      };
+
+      logger.startCall(meta);
+
+      expect(agentCallLogs.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: { thinkingEnabled: true },
+        })
+      );
+    });
+
+    it('includes both effortLevel and thinkingEnabled in metadata when both provided', () => {
+      const meta = {
+        sessionId: 'session-1',
+        callType: 'runSession',
+        promptLength: 100,
+        effortLevel: 'max',
+        thinkingEnabled: true,
+      };
+
+      logger.startCall(meta);
+
+      expect(agentCallLogs.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: { effortLevel: 'max', thinkingEnabled: true },
+        })
+      );
+    });
+
+    it('passes empty metadata object when no effortLevel or thinkingEnabled', () => {
+      const meta = {
+        sessionId: 'session-1',
+        callType: 'runSession',
+        promptLength: 100,
+      };
+
+      logger.startCall(meta);
+
+      expect(agentCallLogs.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: {},
+        })
       );
     });
   });
