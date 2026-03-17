@@ -217,7 +217,9 @@ export const useKanbanStore = defineStore('kanban', {
           const lane = this.board.lanes.find((l) => l.id === laneId);
           if (lane) {
             lane.cards = lane.cards || [];
-            lane.cards.push(card);
+            if (!lane.cards.some((c) => c.id === card.id)) {
+              lane.cards.push(card);
+            }
           }
         }
         return card;

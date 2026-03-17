@@ -81,13 +81,14 @@
         <!-- Custom Prompt -->
         <div v-if="automationType === 'prompt'" class="form-group">
           <label for="custom-prompt" class="form-label">Custom Prompt</label>
-          <textarea
+          <ResizableTextarea
             id="custom-prompt"
             v-model="form.onEnterPrompt"
             class="form-input form-textarea"
             placeholder="Enter the prompt to run when a session enters this lane..."
             rows="4"
-          ></textarea>
+            :min-height="80"
+          />
           <InterpolationHelp />
         </div>
 
@@ -127,6 +128,7 @@ import { useKanbanStore } from '../stores/kanban.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
 import InterpolationHelp from './InterpolationHelp.vue';
+import ResizableTextarea from './ResizableTextarea.vue';
 
 const props = defineProps({
   isOpen: Boolean,
@@ -358,7 +360,6 @@ watch(
 }
 
 .form-textarea {
-  resize: vertical;
   min-height: 80px;
   font-family: var(--font-mono, monospace);
   font-size: 0.875rem;
