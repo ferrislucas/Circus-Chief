@@ -75,6 +75,15 @@
             <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
           </svg>
         </button>
+        <!-- Kanban lane indicator -->
+        <span v-if="sessionLane" class="lane-chip" :title="`In kanban lane: ${sessionLane.name}`">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+            <line x1="15" y1="3" x2="15" y2="21"></line>
+          </svg>
+          {{ sessionLane.name }}
+        </span>
         <PrUrlEditor
           :session-id="sessionId"
           :pr-url="session.prUrl"
@@ -89,12 +98,13 @@
 </template>
 
 <script setup>
-import { ref, nextTick } from 'vue';
+import { ref, nextTick, computed } from 'vue';
 import OverflowMenu from './OverflowMenu.vue';
 import PrUrlEditor from './PrUrlEditor.vue';
 import CommandButtonStatusBar from './CommandButtonStatusBar.vue';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useKanbanStore } from '../stores/kanban.js';
 import { api } from '../composables/useApi.js';
 
 const props = defineProps({
@@ -129,6 +139,15 @@ const emit = defineEmits(['duplicate', 'copySessionId', 'archive', 'delete', 'st
 
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
+const kanbanStore = useKanbanStore();
+
+// Get the lane name if this session is on the kanban board
+const sessionLane = computed(() => {
+  const card = kanbanStore.getCardBySessionId(props.sessionId);
+  if (!card) return null;
+  const lane = kanbanStore.getLaneById(card.laneId);
+  return lane;
+});
 
 // Name editing state
 const isEditingName = ref(false);
@@ -238,6 +257,23 @@ defineExpose({ isEditingName, editNameValue, startEditName, cancelEditName, clea
 
 .btn-star.is-starred {
   color: var(--color-warning, #f0ad4e);
+}
+
+.lane-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--color-bg-soft, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.lane-chip svg {
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .session-name {

@@ -139,11 +139,13 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
       card: movedCard,
     });
 
-    // Trigger on-enter template if configured
+    // Trigger on-enter automation if configured (template or custom prompt)
     if (runOnEnterTemplate) {
       const targetLane = kanbanLanes.getByIdWithTemplate(targetLaneId);
       if (targetLane?.onEnterTemplateId) {
         await triggerOnEnterTemplate(sessionId, targetLane, { depth });
+      } else if (targetLane?.onEnterPrompt) {
+        await triggerOnEnterPrompt(sessionId, targetLane, { depth });
       }
     }
   }
@@ -296,6 +298,137 @@ async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
   } catch (error) {
     console.error(
       `Kanban: Failed to trigger on-enter template for session ${sessionId}:`,
+      error
+    );
+  }
+}
+
+/**
+ * Trigger a custom prompt for a lane when a session enters it.
+ *
+ * @param {string} sessionId - The session that entered the lane
+ * @param {Object} lane - The lane with prompt info
+ * @param {Object} [options] - Options
+ * @param {number} [options.depth=0] - Current recursion depth
+ */
+async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
+  const { depth = 0 } = options;
+
+  // Check depth limit to prevent infinite loops
+  if (depth >= MAX_LANE_TRIGGER_DEPTH) {
+    console.warn(
+      `Lane trigger depth limit (${MAX_LANE_TRIGGER_DEPTH}) reached for session ${sessionId} in lane ${lane.id}. Skipping prompt execution.`
+    );
+    return;
+  }
+
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    console.warn(`Kanban: Session ${sessionId} not found for on-enter prompt trigger`);
+    return;
+  }
+
+  const project = projects.getById(session.projectId);
+  if (!project) {
+    console.warn(`Kanban: Project ${session.projectId} not found for session ${sessionId}`);
+    return;
+  }
+
+  console.log(
+    `Kanban: Triggering on-enter prompt for session "${session.name}" entering lane "${lane.name}"`
+  );
+
+  try {
+    // Get the parent session's summary for the prompt context
+    const parentSummary = sessionSummaries.getBySessionId(sessionId);
+
+    // Get the root session and its summary
+    const rootSession = getRootSession(session);
+    const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
+
+    // Render the custom prompt with parent and root session context (same as templates)
+    const renderedPrompt = await renderTemplatePrompt(
+      lane.onEnterPrompt,
+      session,
+      parentSummary,
+      rootSession,
+      rootSummary
+    );
+
+    // Use parent session's settings since there's no template to inherit from
+    const thinkingEnabled = session.thinkingEnabled;
+    const gitBranch = session.gitBranch;
+    const model = session.model;
+    const mode = session.mode;
+
+    // Generate a name for the new session
+    const newSessionName = `Lane prompt (lane: ${lane.name})`;
+
+    // Create the new session
+    const newSession = sessions.create(
+      session.projectId,
+      newSessionName,
+      renderedPrompt,
+      mode,
+      thinkingEnabled,
+      gitBranch,
+      null, // parentSessionId - will be set below
+      'starting',
+      model
+    );
+
+    // Set the parent session reference and depth
+    sessions.update(newSession.id, {
+      parentSessionId: session.id,
+      laneTriggerDepth: depth + 1, // Track depth for child sessions
+    });
+
+    // Determine working directory: inherit from parent if it has a worktree
+    let workingDirectory;
+    let gitWorktree = null;
+
+    if (session.gitWorktree) {
+      // Parent is in a worktree - child should run in the same worktree
+      workingDirectory = session.gitWorktree;
+      gitWorktree = session.gitWorktree;
+      console.log(`Kanban: Inheriting parent worktree: ${gitWorktree}`);
+    } else {
+      // Parent is not in a worktree - use project's working directory
+      workingDirectory = project.workingDirectory;
+    }
+
+    // Update session with worktree path if set
+    if (gitWorktree) {
+      sessions.update(newSession.id, { gitWorktree });
+    }
+
+    // Get the fully updated session and broadcast to project subscribers
+    const updatedSession = sessions.getById(newSession.id);
+    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_CREATED, {
+      projectId: session.projectId,
+      session: updatedSession,
+    });
+
+    // Start the new session (non-blocking)
+    runSession(newSession.id, renderedPrompt, workingDirectory, project.systemPrompt, [], model).catch(
+      (error) => {
+        console.error(`Kanban: Error running on-enter prompt session ${newSession.id}:`, error);
+        const errorSession = sessions.update(newSession.id, {
+          status: 'error',
+          error: error.message,
+        });
+        broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+          projectId: session.projectId,
+          sessionId: newSession.id,
+          session: errorSession,
+        });
+      }
+    );
+
+    console.log(`Kanban: Created and started on-enter prompt session ${newSession.id}`);
+  } catch (error) {
+    console.error(
+      `Kanban: Failed to trigger on-enter prompt for session ${sessionId}:`,
       error
     );
   }
