@@ -19,6 +19,34 @@
           />
         </div>
 
+        <!-- Lane Position -->
+        <div v-if="totalLanes > 1" class="form-group">
+          <label class="form-label">Position</label>
+          <div class="lane-position-controls">
+            <button
+              class="btn btn-icon"
+              :disabled="laneIndex <= 0"
+              title="Move left"
+              @click="handleMoveLane(laneIndex - 1)"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="15 18 9 12 15 6"></polyline>
+              </svg>
+            </button>
+            <span class="lane-position-label">{{ laneIndex + 1 }} of {{ totalLanes }}</span>
+            <button
+              class="btn btn-icon"
+              :disabled="laneIndex >= totalLanes - 1"
+              title="Move right"
+              @click="handleMoveLane(laneIndex + 1)"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+            </button>
+          </div>
+        </div>
+
         <!-- Automation Type -->
         <div class="form-group">
           <label class="form-label">On-Enter Automation</label>
@@ -268,6 +296,10 @@ const showAgentSettings = ref(false);
 const showSlashCommandWizard = ref(false);
 const promptTextareaRef = ref(null);
 
+// Local position state to track pending position changes
+const initialLaneIndex = ref(-1);
+const currentLaneIndex = ref(-1);
+
 const form = reactive({
   name: '',
   onEnterTemplateId: null,
@@ -293,6 +325,14 @@ const globalTemplates = computed(() => templatesStore.globalTemplates);
 const workingDirectory = computed(() => {
   const project = projectsStore.getProjectById(props.projectId);
   return project?.workingDirectory || null;
+});
+
+const laneIndex = computed(() => {
+  return currentLaneIndex.value;
+});
+
+const totalLanes = computed(() => {
+  return kanbanStore.board?.lanes?.length || 0;
 });
 
 const isValid = computed(() => {
@@ -338,6 +378,11 @@ function resetForm() {
       form.onEnterThinkingEnabled !== null ||
       form.onEnterAutoRescheduleEnabled
     );
+
+    // Initialize position tracking
+    const index = kanbanStore.board?.lanes?.findIndex((l) => l.id === props.lane.id) ?? -1;
+    initialLaneIndex.value = index;
+    currentLaneIndex.value = index;
   } else {
     form.name = '';
     form.onEnterTemplateId = null;
@@ -355,10 +400,14 @@ function resetForm() {
     form.onEnterRescheduleAtTokenCount = null;
     automationType.value = 'none';
     showAgentSettings.value = false;
+    initialLaneIndex.value = -1;
+    currentLaneIndex.value = -1;
   }
 }
 
 function close() {
+  // Reset position to initial on cancel
+  currentLaneIndex.value = initialLaneIndex.value;
   emit('update:isOpen', false);
   emit('close');
 }
@@ -376,6 +425,12 @@ function handleSlashCommandInsert({ text }) {
       textarea.focus();
     });
   }
+}
+
+function handleMoveLane(toIndex) {
+  const fromIndex = currentLaneIndex.value;
+  if (fromIndex < 0 || fromIndex === toIndex) return;
+  currentLaneIndex.value = toIndex;
 }
 
 async function handleSave() {
@@ -435,6 +490,20 @@ async function handleSave() {
       data.onEnterRescheduleAtTokenCount = null;
     }
 
+    // Check if position changed
+    if (currentLaneIndex.value !== initialLaneIndex.value && currentLaneIndex.value >= 0) {
+      const lanes = kanbanStore.board?.lanes;
+      if (lanes && lanes.length > 1) {
+        const newOrder = lanes.map((l) => l.id);
+        const laneId = props.lane.id;
+        const [movedId] = newOrder.splice(initialLaneIndex.value, 1);
+        newOrder.splice(currentLaneIndex.value, 0, movedId);
+
+        // Reorder lanes first, then update lane properties
+        await kanbanStore.reorderLanes(props.projectId, newOrder);
+      }
+    }
+
     await kanbanStore.updateLane(props.projectId, props.lane.id, data);
     uiStore.success('Lane settings saved');
     emit('updated');
@@ -491,6 +560,22 @@ watch(
       resetForm();
     }
   }
+);
+
+// Handle board updates from WebSocket (e.g., another user reorders lanes)
+watch(
+  () => kanbanStore.board?.lanes,
+  (newLanes) => {
+    if (props.isOpen && props.lane && newLanes) {
+      // Update our tracked indices if the board changed externally
+      const currentIndex = newLanes.findIndex((l) => l.id === props.lane.id);
+      if (currentIndex >= 0) {
+        initialLaneIndex.value = currentIndex;
+        currentLaneIndex.value = currentIndex;
+      }
+    }
+  },
+  { deep: true }
 );
 </script>
 
@@ -817,6 +902,45 @@ watch(
 
 .btn-danger:disabled {
   opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Lane position controls */
+.lane-position-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.lane-position-label {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+  min-width: 3.5rem;
+  text-align: center;
+}
+
+.btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+
+.btn-icon:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.btn-icon:disabled {
+  opacity: 0.3;
   cursor: not-allowed;
 }
 </style>

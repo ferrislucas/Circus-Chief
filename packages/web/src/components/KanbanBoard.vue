@@ -20,7 +20,7 @@
         v-for="lane in board.lanes"
         :key="lane.id"
         class="kanban-lane"
-        @dragover.prevent
+        @dragover.prevent="handleCardDragOver($event, lane.id, lane.cards?.length || 0)"
         @drop="handleDrop($event, lane.id)"
       >
         <div class="lane-header">
@@ -48,52 +48,89 @@
         </div>
 
         <div class="lane-cards">
+          <template v-for="(card, cardIndex) in lane.cards" :key="card.id">
+            <!-- Card drop indicator -->
+            <div
+              v-if="dragType === 'card' && dropCardLaneId === lane.id && dropCardIndex === cardIndex"
+              class="card-drop-indicator"
+            ></div>
+
+            <div
+              class="kanban-card"
+              :class="{ 'dragging': dragType === 'card' && draggedCard?.id === card.id }"
+              draggable="true"
+              @dragstart.stop="handleCardDragStart($event, card, lane.id, cardIndex)"
+              @dragover.prevent.stop="handleCardDragOver($event, lane.id, cardIndex)"
+              @dragend="handleDragEnd"
+            >
+              <router-link
+                v-if="card.sessions?.[0]"
+                :to="`/sessions/${card.sessions[0].id}`"
+                class="card-link"
+              >
+                <div class="card-header">
+                  <span class="card-status" :class="`status-${card.sessions[0].status}`">
+                    {{ getStatusIndicator(card.sessions[0].status) }}
+                  </span>
+                  <h4 class="card-title">{{ card.sessions[0].name }}</h4>
+                </div>
+                <div class="card-meta">
+                  <span v-if="card.sessions[0].mode" class="card-mode">
+                    {{ card.sessions[0].mode }}
+                  </span>
+                </div>
+              </router-link>
+              <!-- Card reorder arrows -->
+              <div class="card-reorder-arrows">
+                <button
+                  v-if="cardIndex > 0"
+                  class="card-reorder-btn"
+                  title="Move card up"
+                  @click.prevent="moveCardInLane(lane.id, cardIndex, cardIndex - 1)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="18 15 12 9 6 15"></polyline>
+                  </svg>
+                </button>
+                <button
+                  v-if="cardIndex < lane.cards.length - 1"
+                  class="card-reorder-btn"
+                  title="Move card down"
+                  @click.prevent="moveCardInLane(lane.id, cardIndex, cardIndex + 1)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+              </div>
+              <button
+                class="card-move-btn"
+                title="Move to lane"
+                @click.prevent="openMoveCardModal(card, lane.id)"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="15 4 19 4 19 8"></polyline>
+                  <line x1="14" y1="10" x2="19" y2="4"></line>
+                  <polyline points="9 20 5 20 5 16"></polyline>
+                  <line x1="10" y1="14" x2="5" y2="20"></line>
+                </svg>
+              </button>
+              <button
+                class="card-remove-btn"
+                title="Remove from board"
+                @click.prevent="handleRemoveCard(card.id)"
+              >
+                &times;
+              </button>
+            </div>
+          </template>
+
+          <!-- Card drop indicator at end of list -->
           <div
-            v-for="card in lane.cards"
-            :key="card.id"
-            class="kanban-card"
-            draggable="true"
-            @dragstart="handleDragStart($event, card)"
-            @dragend="handleDragEnd"
-          >
-            <router-link
-              v-if="card.sessions?.[0]"
-              :to="`/sessions/${card.sessions[0].id}`"
-              class="card-link"
-            >
-              <div class="card-header">
-                <span class="card-status" :class="`status-${card.sessions[0].status}`">
-                  {{ getStatusIndicator(card.sessions[0].status) }}
-                </span>
-                <h4 class="card-title">{{ card.sessions[0].name }}</h4>
-              </div>
-              <div class="card-meta">
-                <span v-if="card.sessions[0].mode" class="card-mode">
-                  {{ card.sessions[0].mode }}
-                </span>
-              </div>
-            </router-link>
-            <button
-              class="card-move-btn"
-              title="Move to lane"
-              @click.prevent="openMoveCardModal(card, lane.id)"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="15 4 19 4 19 8"></polyline>
-                <line x1="14" y1="10" x2="19" y2="4"></line>
-                <polyline points="9 20 5 20 5 16"></polyline>
-                <line x1="10" y1="14" x2="5" y2="20"></line>
-              </svg>
-            </button>
-            <button
-              class="card-remove-btn"
-              title="Remove from board"
-              @click.prevent="handleRemoveCard(card.id)"
-            >
-              &times;
-            </button>
-          </div>
+            v-if="dragType === 'card' && dropCardLaneId === lane.id && dropCardIndex === (lane.cards?.length || 0)"
+            class="card-drop-indicator"
+          ></div>
 
           <!-- Empty lane placeholder -->
           <div v-if="!lane.cards?.length" class="lane-empty">
@@ -196,7 +233,14 @@ const kanbanStore = useKanbanStore();
 // Local state
 const showAddLane = ref(false);
 const newLaneName = ref('');
+
+// Drag state (cards only)
+const dragType = ref(null); // 'card'
 const draggedCard = ref(null);
+const draggedCardLaneId = ref(null);
+const draggedCardIndex = ref(-1);
+const dropCardLaneId = ref(null);
+const dropCardIndex = ref(-1);
 
 // Modal state
 const showAddSessionModal = ref(false);
@@ -241,31 +285,105 @@ const getStatusIndicator = (status) => {
   }
 };
 
-const handleDragStart = (event, card) => {
+// --- Card drag-and-drop ---
+const handleCardDragStart = (event, card, laneId, cardIndex) => {
+  dragType.value = 'card';
   draggedCard.value = card;
+  draggedCardLaneId.value = laneId;
+  draggedCardIndex.value = cardIndex;
   event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setData('text/plain', card.id);
 };
 
-const handleDragEnd = () => {
-  draggedCard.value = null;
+const handleCardDragOver = (event, laneId, cardIndex) => {
+  if (dragType.value !== 'card') return;
+  // Determine if above or below midpoint
+  const rect = event.currentTarget.getBoundingClientRect();
+  const midY = rect.top + rect.height / 2;
+  const index = event.clientY < midY ? cardIndex : cardIndex + 1;
+
+  // Don't show indicator at the card's current position
+  if (laneId === draggedCardLaneId.value &&
+      (index === draggedCardIndex.value || index === draggedCardIndex.value + 1)) {
+    dropCardLaneId.value = null;
+    dropCardIndex.value = -1;
+  } else {
+    dropCardLaneId.value = laneId;
+    dropCardIndex.value = index;
+  }
 };
 
+// --- Drag end ---
+const handleDragEnd = () => {
+  dragType.value = null;
+  draggedCard.value = null;
+  draggedCardLaneId.value = null;
+  draggedCardIndex.value = -1;
+  dropCardLaneId.value = null;
+  dropCardIndex.value = -1;
+};
+
+// --- Drop handler (card drops only) ---
 const handleDrop = async (event, targetLaneId) => {
   event.preventDefault();
+
+  if (dragType.value !== 'card') {
+    handleDragEnd();
+    return;
+  }
+
   const cardId = event.dataTransfer.getData('text/plain');
+  if (!cardId || !draggedCard.value) {
+    handleDragEnd();
+    return;
+  }
 
-  if (!cardId || !draggedCard.value) return;
+  const sourceLaneId = draggedCardLaneId.value;
+  const sourceIndex = draggedCardIndex.value;
 
-  // Don't move if already in this lane
-  if (draggedCard.value.laneId === targetLaneId) return;
+  if (sourceLaneId === targetLaneId) {
+    // Same lane — reorder
+    const lane = board.value?.lanes?.find((l) => l.id === targetLaneId);
+    if (lane?.cards) {
+      let targetIndex = dropCardIndex.value >= 0 ? dropCardIndex.value : lane.cards.length;
+      // Adjust for removal of source card
+      if (targetIndex > sourceIndex) targetIndex--;
+      if (targetIndex !== sourceIndex) {
+        const newOrder = lane.cards.map((c) => c.id);
+        const [movedId] = newOrder.splice(sourceIndex, 1);
+        newOrder.splice(targetIndex, 0, movedId);
+        try {
+          await kanbanStore.reorderCards(props.projectId, targetLaneId, newOrder);
+        } catch (err) {
+          console.error('Failed to reorder cards:', err);
+        }
+      }
+    }
+  } else {
+    // Different lane — move card
+    try {
+      await kanbanStore.moveCard(props.projectId, cardId, targetLaneId, {
+        runOnEnterTemplate: true,
+      });
+    } catch (err) {
+      console.error('Failed to move card:', err);
+    }
+  }
 
+  handleDragEnd();
+};
+
+// --- Card reorder arrow handler ---
+const moveCardInLane = async (laneId, fromIndex, toIndex) => {
+  const lane = board.value?.lanes?.find((l) => l.id === laneId);
+  if (!lane?.cards) return;
+  const newOrder = lane.cards.map((c) => c.id);
+  const [movedId] = newOrder.splice(fromIndex, 1);
+  newOrder.splice(toIndex, 0, movedId);
   try {
-    await kanbanStore.moveCard(props.projectId, cardId, targetLaneId, {
-      runOnEnterTemplate: true,
-    });
+    await kanbanStore.reorderCards(props.projectId, laneId, newOrder);
   } catch (err) {
-    console.error('Failed to move card:', err);
+    console.error('Failed to reorder cards:', err);
   }
 };
 

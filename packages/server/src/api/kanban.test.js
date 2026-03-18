@@ -14,8 +14,14 @@ vi.mock('../websocket.js', () => ({
   broadcastToProject: vi.fn(),
 }));
 
+// Mock kanbanService before importing the router
+vi.mock('../services/kanbanService.js', () => ({
+  moveCard: vi.fn(),
+}));
+
 import kanbanRouter from './kanban.js';
 import { broadcastToProject } from '../websocket.js';
+import { moveCard as moveCardService } from '../services/kanbanService.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
 describe('Kanban API', () => {
@@ -353,39 +359,41 @@ describe('Kanban API', () => {
   });
 
   describe('PATCH /api/projects/:projectId/kanban/cards/:cardId/move', () => {
-    it('moves a card to a different lane', async () => {
+    it('delegates to moveCardService with correct arguments', async () => {
       setupBoard();
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
+      const movedCard = { ...card, laneId: lanes[1].id };
+      moveCardService.mockResolvedValueOnce(movedCard);
 
       const res = await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
         .send({ targetLaneId: lanes[1].id });
 
       expect(res.status).toBe(200);
-
-      const movedCards = kanbanCards.getByLaneId(lanes[1].id);
-      expect(movedCards).toHaveLength(1);
-      expect(movedCards[0].id).toBe(card.id);
+      expect(res.body.laneId).toBe(lanes[1].id);
+      expect(moveCardService).toHaveBeenCalledWith(
+        card.id,
+        lanes[1].id,
+        expect.objectContaining({ sortOrder: undefined, runOnEnterTemplate: true })
+      );
     });
 
-    it('broadcasts KANBAN_CARD_MOVED', async () => {
+    it('passes runOnEnterTemplate: false to service when specified', async () => {
       setupBoard();
       const session = createSession();
       const card = kanbanCards.create(lanes[0].id, session.id);
+      const movedCard = { ...card, laneId: lanes[1].id };
+      moveCardService.mockResolvedValueOnce(movedCard);
 
       await request(app)
         .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
-        .send({ targetLaneId: lanes[1].id });
+        .send({ targetLaneId: lanes[1].id, runOnEnterTemplate: false });
 
-      expect(broadcastToProject).toHaveBeenCalledWith(
-        projectId,
-        WS_MESSAGE_TYPES.KANBAN_CARD_MOVED,
-        expect.objectContaining({
-          cardId: card.id,
-          fromLaneId: lanes[0].id,
-          toLaneId: lanes[1].id,
-        })
+      expect(moveCardService).toHaveBeenCalledWith(
+        card.id,
+        lanes[1].id,
+        expect.objectContaining({ runOnEnterTemplate: false })
       );
     });
 
@@ -397,6 +405,7 @@ describe('Kanban API', () => {
         .send({ targetLaneId: lanes[0].id });
 
       expect(res.status).toBe(404);
+      expect(moveCardService).not.toHaveBeenCalled();
     });
 
     it('returns 404 for non-existent target lane', async () => {
@@ -410,6 +419,7 @@ describe('Kanban API', () => {
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Target lane not found');
+      expect(moveCardService).not.toHaveBeenCalled();
     });
 
     it('returns 400 for invalid body', async () => {
@@ -420,6 +430,21 @@ describe('Kanban API', () => {
         .send({});
 
       expect(res.status).toBe(400);
+      expect(moveCardService).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 when service throws', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      moveCardService.mockRejectedValueOnce(new Error('Service failure'));
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/${card.id}/move`)
+        .send({ targetLaneId: lanes[1].id });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe('Service failure');
     });
   });
 

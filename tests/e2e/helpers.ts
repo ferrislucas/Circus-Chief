@@ -2332,3 +2332,34 @@ export async function getAgentCallFilterOptions() {
   if (!response.ok) throw new Error('Failed to fetch filter options');
   return response.json();
 }
+
+// ============================================================
+// Kanban Helpers
+// ============================================================
+
+/**
+ * Seed a kanban lane for testing
+ * Lanes are cleaned up automatically when the project is deleted (CASCADE)
+ */
+export async function seedKanbanLane(
+  projectId: string,
+  data: {
+    name: string;
+    sortOrder?: number;
+  }
+) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban/lanes`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to create lane: ${response.status} ${errorText}`);
+  }
+
+  return await response.json();
+}
