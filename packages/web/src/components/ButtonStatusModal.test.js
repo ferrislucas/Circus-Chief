@@ -845,4 +845,242 @@ describe('ButtonStatusModal.vue', () => {
       expect(runIdValue.classes()).toContain('monospace');
     });
   });
+
+  describe('start time display', () => {
+    it('displays started time for success status', () => {
+      const startedAt = Date.now() - 5000;
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: {
+            ...baseRun,
+            status: 'success',
+            startedAt,
+            completedAt: Date.now(),
+          },
+          isOpen: true,
+        },
+      });
+
+      const detailText = wrapper.text();
+      expect(detailText).toContain('Started');
+    });
+
+    it('displays started time for error status', () => {
+      const startedAt = Date.now() - 5000;
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: {
+            ...baseRun,
+            status: 'error',
+            startedAt,
+            completedAt: Date.now(),
+          },
+          isOpen: true,
+        },
+      });
+
+      const detailText = wrapper.text();
+      expect(detailText).toContain('Started');
+    });
+
+    it('displays both started and completed times for success', () => {
+      const startedAt = Date.now() - 10000;
+      const completedAt = Date.now();
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: {
+            ...baseRun,
+            status: 'success',
+            startedAt,
+            completedAt,
+          },
+          isOpen: true,
+        },
+      });
+
+      const detailText = wrapper.text();
+      expect(detailText).toContain('Started');
+      expect(detailText).toContain('Completed');
+    });
+
+    it('displays both started and failed times for error', () => {
+      const startedAt = Date.now() - 10000;
+      const completedAt = Date.now();
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: {
+            ...baseRun,
+            status: 'error',
+            startedAt,
+            completedAt,
+          },
+          isOpen: true,
+        },
+      });
+
+      const detailText = wrapper.text();
+      expect(detailText).toContain('Started');
+      expect(detailText).toContain('Failed');
+    });
+  });
+
+  describe('output section', () => {
+    it('does not render output section when output is empty', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, output: '' },
+          isOpen: true,
+        },
+      });
+
+      expect(wrapper.find('.output-section').exists()).toBe(false);
+    });
+
+    it('does not render output section when output is null', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, output: null },
+          isOpen: true,
+        },
+      });
+
+      expect(wrapper.find('.output-section').exists()).toBe(false);
+    });
+
+    it('renders output section when output exists', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, output: 'Build successful' },
+          isOpen: true,
+        },
+      });
+
+      expect(wrapper.find('.output-section').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="output-header"]').exists()).toBe(true);
+    });
+
+    it('output section is collapsed by default', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, output: 'Some output' },
+          isOpen: true,
+        },
+      });
+
+      expect(wrapper.find('[data-testid="output-content"]').exists()).toBe(false);
+      expect(wrapper.find('.expand-icon').text()).toBe('▶');
+    });
+
+    it('expands output section when header is clicked', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, output: 'Some output' },
+          isOpen: true,
+        },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await nextTick();
+
+      expect(wrapper.find('[data-testid="output-content"]').exists()).toBe(true);
+      expect(wrapper.find('.expand-icon').text()).toBe('▼');
+    });
+
+    it('collapses output section when clicked again', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, output: 'Some output' },
+          isOpen: true,
+        },
+      });
+
+      // First click to expand
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await nextTick();
+      expect(wrapper.find('[data-testid="output-content"]').exists()).toBe(true);
+
+      // Second click to collapse
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await nextTick();
+      expect(wrapper.find('[data-testid="output-content"]').exists()).toBe(false);
+    });
+
+    it('displays output text when expanded', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, output: 'Build successful' },
+          isOpen: true,
+        },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await nextTick();
+
+      expect(wrapper.find('[data-testid="output-text"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="output-text"]').html()).toContain('Build successful');
+    });
+
+    it('shows truncation indicator for output over 200 lines', async () => {
+      const longOutput = Array(250).fill('Line of output').join('\n');
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, output: longOutput },
+          isOpen: true,
+        },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await nextTick();
+
+      expect(wrapper.find('[data-testid="output-truncated"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="output-truncated"]').text()).toContain('200 lines');
+    });
+
+    it('does not show truncation indicator for output under 200 lines', async () => {
+      const shortOutput = 'Short output\n'.repeat(10);
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, output: shortOutput },
+          isOpen: true,
+        },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await nextTick();
+
+      expect(wrapper.find('[data-testid="output-truncated"]').exists()).toBe(false);
+    });
+
+    it('converts ANSI codes to HTML', async () => {
+      const ansiOutput = '\x1b[31mError\x1b[0m\n\x1b[32mSuccess\x1b[0m';
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, output: ansiOutput },
+          isOpen: true,
+        },
+      });
+
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await nextTick();
+
+      const outputHtml = wrapper.find('[data-testid="output-text"]').html();
+      // ANSI codes should be converted to span elements with styles
+      expect(outputHtml).toContain('<span');
+      expect(outputHtml).not.toContain('\x1b[');
+    });
+  });
 });

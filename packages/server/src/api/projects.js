@@ -386,6 +386,7 @@ router.get('/:id/sessions', (req, res) => {
       status: run.status,
       exitCode: run.exitCode,
       runId: run.id,
+      startedAt: run.startedAt,
       completedAt: run.completedAt,
     };
   }
