@@ -189,7 +189,11 @@ export function parseDfOutput(stdout) {
 
   const totalGB = Math.round((totalKB / (1024 ** 2)) * 10) / 10;
   const freeGB = Math.round((availKB / (1024 ** 2)) * 10) / 10;
-  const usedPercent = Math.round((usedKB / totalKB) * 1000) / 10;
+  // Use (total - available) instead of "used" column for usedPercent.
+  // On macOS APFS, the Used column only reports one volume snapshot, not total usage.
+  // On Linux, Used + Available ≠ Total due to reserved blocks.
+  const effectiveUsedKB = totalKB - availKB;
+  const usedPercent = Math.round((effectiveUsedKB / totalKB) * 1000) / 10;
 
   return { usedPercent, freeGB, totalGB };
 }
