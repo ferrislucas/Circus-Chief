@@ -71,9 +71,6 @@
                 <span v-if="card.sessions[0].mode" class="card-mode">
                   {{ card.sessions[0].mode }}
                 </span>
-                <span v-if="card.sessions[0].costUsd" class="card-cost">
-                  ${{ card.sessions[0].costUsd.toFixed(2) }}
-                </span>
               </div>
             </router-link>
             <button

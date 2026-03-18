@@ -114,10 +114,7 @@ export const useKanbanStore = defineStore('kanban', {
 
       try {
         const lane = await api.createKanbanLane(projectId, data);
-        // Add lane to board state
-        if (this.board) {
-          this.board.lanes.push({ ...lane, cards: [] });
-        }
+        // Lane will be added via WebSocket KANBAN_BOARD_UPDATED message
         return lane;
       } catch (err) {
         this.error = err.message;
@@ -136,14 +133,7 @@ export const useKanbanStore = defineStore('kanban', {
 
       try {
         const updated = await api.updateKanbanLane(projectId, laneId, data);
-        // Update lane in state
-        if (this.board) {
-          const index = this.board.lanes.findIndex((l) => l.id === laneId);
-          if (index !== -1) {
-            const existingCards = this.board.lanes[index].cards;
-            this.board.lanes[index] = { ...updated, cards: existingCards };
-          }
-        }
+        // Lane will be updated via WebSocket KANBAN_BOARD_UPDATED message
         return updated;
       } catch (err) {
         this.error = err.message;
@@ -162,10 +152,7 @@ export const useKanbanStore = defineStore('kanban', {
 
       try {
         await api.deleteKanbanLane(projectId, laneId);
-        // Remove lane from state
-        if (this.board) {
-          this.board.lanes = this.board.lanes.filter((l) => l.id !== laneId);
-        }
+        // Lane will be removed via WebSocket KANBAN_BOARD_UPDATED message
       } catch (err) {
         this.error = err.message;
         throw err;
