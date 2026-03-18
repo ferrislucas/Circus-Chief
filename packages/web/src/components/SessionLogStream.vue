@@ -136,7 +136,7 @@ function toggleCollapse() {
   color: var(--color-text-soft, #d1d5db);
   line-height: 1.5;
   overflow: hidden;
-  max-height: 15em;
+  max-height: 25em;
   min-height: 3em;
 }
 
@@ -165,7 +165,7 @@ function toggleCollapse() {
   font-style: italic;
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 8;
   -webkit-box-orient: vertical;
   word-break: break-word;
 }
@@ -175,7 +175,7 @@ function toggleCollapse() {
   opacity: 0.7;
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 8;
   -webkit-box-orient: vertical;
   word-break: break-word;
 }
