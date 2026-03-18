@@ -458,14 +458,14 @@ describe('CommandRunRepository', () => {
   });
 
   describe('output exclusion in lightweight queries', () => {
-    it('getLatestRunsForSession returns empty output (excludes output column)', () => {
+    it('getLatestRunsForSession includes output (needed for status modal)', () => {
       repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
       repository.complete('run-1', 0, 'full output content');
 
       const latestRuns = repository.getLatestRunsForSession(testSessionId);
       expect(latestRuns.length).toBe(1);
       expect(latestRuns[0].id).toBe('run-1');
-      expect(latestRuns[0].output).toBe('');
+      expect(latestRuns[0].output).toBe('full output content');
     });
 
     it('getLatestRunsForProject returns empty output (excludes output column)', () => {
