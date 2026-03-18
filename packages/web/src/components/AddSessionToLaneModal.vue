@@ -101,6 +101,9 @@ const filteredSessions = computed(() => {
     return !kanbanStore.isSessionOnBoard(s.id);
   });
 
+  // Filter to only root sessions (no parent)
+  sessions = sessions.filter((s) => !s.parentSessionId);
+
   // Apply search filter
   if (searchQuery.value.trim()) {
     const query = searchQuery.value.toLowerCase();
