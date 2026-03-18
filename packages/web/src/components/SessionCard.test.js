@@ -59,6 +59,16 @@ vi.mock('../stores/kanban.js', () => ({
   })),
 }));
 
+// Mock streaming store
+const mockStreamingStore = {
+  getSessionFileCount: vi.fn(() => 0),
+  setSessionFileCount: vi.fn(),
+};
+
+vi.mock('../stores/sessionStreaming.js', () => ({
+  useSessionStreamingStore: vi.fn(() => mockStreamingStore),
+}));
+
 // Mock ButtonStatusModal component
 vi.mock('./ButtonStatusModal.vue', () => ({
   default: defineComponent({
@@ -116,6 +126,11 @@ describe('SessionCard', () => {
     // Reset and configure API mock
     mockApi.getSessionFilesCount.mockReset();
     mockApi.getSessionFilesCount.mockResolvedValue({ count: 0 });
+
+    // Reset streaming store mock
+    mockStreamingStore.getSessionFileCount.mockReset();
+    mockStreamingStore.getSessionFileCount.mockReturnValue(0);
+    mockStreamingStore.setSessionFileCount.mockReset();
   });
   const baseSession = {
     id: 'session-123',
@@ -993,6 +1008,117 @@ describe('SessionCard', () => {
       });
       const logStream = wrapper.find('.session-log-stream-mock');
       expect(logStream.attributes('data-session-id')).toBe('session-xyz');
+    });
+  });
+
+  describe('scheduled time display', () => {
+    it('shows scheduled time when session status is "scheduled" and scheduledAt is set', () => {
+      // Schedule for 2 hours in the future
+      const scheduledAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'scheduled', scheduledAt },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(true);
+      expect(scheduledTime.text()).toContain('in');
+      expect(scheduledTime.text()).toContain('hour');
+    });
+
+    it('shows absolute time in title attribute', () => {
+      const scheduledAt = '2024-03-15T14:30:00Z';
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'scheduled', scheduledAt },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(true);
+      // Format is "MMM d, h:mm a" - just check for date and time pattern
+      expect(scheduledTime.attributes('title')).toMatch(/Mar.*15/);
+      expect(scheduledTime.attributes('title')).toMatch(/\d{1,2}:\d{2}/);
+    });
+
+    it('hides scheduled time when session status is not "scheduled"', () => {
+      const scheduledAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running', scheduledAt },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(false);
+    });
+
+    it('hides scheduled time when scheduledAt is null', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'scheduled', scheduledAt: null },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(false);
+    });
+
+    it('hides scheduled time when scheduledAt is undefined', () => {
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'scheduled' },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(false);
+    });
+  });
+
+  describe('files changed badge in session meta', () => {
+    it('shows badge when sessionFileCount is greater than 0', () => {
+      mockStreamingStore.getSessionFileCount.mockReturnValue(5);
+
+      const wrapper = mountComponent();
+
+      const badge = wrapper.find('.files-changed-badge');
+      expect(badge.exists()).toBe(true);
+      expect(badge.text()).toContain('5 files');
+    });
+
+    it('hides badge when sessionFileCount is 0', () => {
+      mockStreamingStore.getSessionFileCount.mockReturnValue(0);
+
+      const wrapper = mountComponent();
+
+      const badge = wrapper.find('.files-changed-badge');
+      expect(badge.exists()).toBe(false);
+    });
+
+    it('uses singular "file" when count is 1', () => {
+      mockStreamingStore.getSessionFileCount.mockReturnValue(1);
+
+      const wrapper = mountComponent();
+
+      const badge = wrapper.find('.files-changed-badge');
+      expect(badge.exists()).toBe(true);
+      expect(badge.text()).toContain('1 file');
+      expect(badge.text()).not.toContain('1 files');
+    });
+
+    it('uses plural "files" when count is not 1', () => {
+      mockStreamingStore.getSessionFileCount.mockReturnValue(3);
+
+      const wrapper = mountComponent();
+
+      const badge = wrapper.find('.files-changed-badge');
+      expect(badge.exists()).toBe(true);
+      expect(badge.text()).toContain('3 files');
+    });
+
+    it('renders file icon SVG', () => {
+      mockStreamingStore.getSessionFileCount.mockReturnValue(2);
+
+      const wrapper = mountComponent();
+
+      const badge = wrapper.find('.files-changed-badge');
+      const icon = badge.find('.files-icon');
+      expect(icon.exists()).toBe(true);
     });
   });
 });
