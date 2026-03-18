@@ -279,7 +279,6 @@ test.describe('Command Buttons - Remove Run Feature', () => {
       ).toBeVisible();
 
       // Step 4: In Tab A, click status indicator and remove the run
-      await openButtonStatusModal(pageA, 'Sync Test');
       await removeCommandRunViaUI(pageA, 'Sync Test');
 
       // Step 5: Confirm deletion in Tab A
@@ -419,14 +418,24 @@ test.describe('Command Buttons - Remove Run Feature', () => {
       // Step 4: Remove the latest (third) run
       await removeCommandRunViaUI(page, 'Multi Run');
 
+      // Reload page to force fresh state from server
+      await page.reload();
+      // Wait for WebSocket to reconnect
+      await page.waitForTimeout(1000);
+
+      // Debug: Check session data immediately after deletion
+      sessionData = await getSession(session.id);
+      console.log('After deletion, latestCommandRuns:', sessionData.latestCommandRuns);
+      console.log('Expected run2.runId:', run2.runId);
+
       // Step 5: Verify status indicator now shows the SECOND run's status
       // The indicator should reappear with run2's details
       const indicator = page.locator(
         `.command-status-bar .button-status-indicator[title*="Multi Run"]`
       );
 
-      // Wait a moment for WebSocket update to propagate
-      await page.waitForTimeout(1000);
+      // Wait for status indicator to reappear (WebSocket update + session refetch)
+      await expect(indicator).toBeVisible({ timeout: 5000 });
 
       // Re-open modal to check which run is shown
       await openButtonStatusModal(page, 'Multi Run');

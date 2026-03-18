@@ -279,9 +279,23 @@ export function useSessionInitializer({
     );
 
     cleanups.push(
-      onCommandRunDeleted((runId, buttonId) => {
+      onCommandRunDeleted(async (runId, buttonId) => {
+        console.log('[onCommandRunDeleted] Run deleted:', runId, 'for button:', buttonId);
         commandButtonsStore.clearRun(runId);
-        sessionsStore.removeSessionCommandRun(sessionId, buttonId);
+
+        // Refetch the session to get the updated latestCommandRuns array
+        // (which will include the previous run for this button if it exists)
+        try {
+          await sessionsStore.fetchSession(sessionId, false);
+          console.log('[onCommandRunDeleted] Session refetched, latestCommandRuns:', sessionsStore.currentSession?.latestCommandRuns);
+          // Increment commandRunVersion to trigger UI reactivity
+          sessionsStore.commandRunVersion++;
+          console.log('[onCommandRunDeleted] commandRunVersion incremented to:', sessionsStore.commandRunVersion);
+        } catch (error) {
+          console.error('Failed to fetch session after run deletion:', error);
+          // Fallback: just remove the deleted run from the array
+          sessionsStore.removeSessionCommandRun(sessionId, buttonId);
+        }
       })
     );
 

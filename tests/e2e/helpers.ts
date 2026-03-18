@@ -993,6 +993,10 @@ export async function waitForCommandCompletion(
         return 'error';
       }
 
+      if (className && className.includes('button-status-killed')) {
+        return 'error';
+      }
+
       if (className && className.includes('button-status-running')) {
         // Still running, wait and check again
         await page.waitForTimeout(500);

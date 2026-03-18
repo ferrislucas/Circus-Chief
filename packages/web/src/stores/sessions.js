@@ -350,6 +350,11 @@ export const useSessionsStore = defineStore('sessions', {
       this.commandRunVersion++;
     },
 
+    updateSessionCommandRuns(sessionId, runs) {
+      this._updateSessionInAllLists(sessionId, { latestCommandRuns: runs });
+      this.commandRunVersion++;
+    },
+
     // ==================== MESSAGE ACTIONS ====================
 
     async fetchMessages(sessionId, showLoading = true, conversationId = null) {
