@@ -15,6 +15,17 @@ export const CreateKanbanLaneRequest = z.object({
   sortOrder: z.number().optional(),
   onEnterTemplateId: z.string().uuid().nullable().optional(),
   onEnterPrompt: z.string().nullable().optional(),
+  onEnterMode: z.enum(['plan', 'standard', 'yolo']).nullable().optional(),
+  onEnterModel: z.string().nullable().optional(),
+  onEnterEffortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable().optional(),
+  onEnterThinkingEnabled: z.boolean().nullable().optional(),
+  onEnterAutoRescheduleEnabled: z.boolean().optional(),
+  onEnterRescheduleDelayMinutes: z.number().optional(),
+  onEnterRescheduleOnTokenLimit: z.boolean().optional(),
+  onEnterRescheduleOnServiceError: z.boolean().optional(),
+  onEnterMaxRescheduleCount: z.number().nullable().optional(),
+  onEnterMaxTotalTokens: z.number().nullable().optional(),
+  onEnterRescheduleAtTokenCount: z.number().nullable().optional(),
 }).refine(
   (data) => {
     // Mutual exclusivity: can't have both template and prompt set
@@ -33,6 +44,17 @@ export const UpdateKanbanLaneRequest = z.object({
   sortOrder: z.number().optional(),
   onEnterTemplateId: z.string().uuid().nullable().optional(),
   onEnterPrompt: z.string().nullable().optional(),
+  onEnterMode: z.enum(['plan', 'standard', 'yolo']).nullable().optional(),
+  onEnterModel: z.string().nullable().optional(),
+  onEnterEffortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable().optional(),
+  onEnterThinkingEnabled: z.boolean().nullable().optional(),
+  onEnterAutoRescheduleEnabled: z.boolean().optional(),
+  onEnterRescheduleDelayMinutes: z.number().optional(),
+  onEnterRescheduleOnTokenLimit: z.boolean().optional(),
+  onEnterRescheduleOnServiceError: z.boolean().optional(),
+  onEnterMaxRescheduleCount: z.number().nullable().optional(),
+  onEnterMaxTotalTokens: z.number().nullable().optional(),
+  onEnterRescheduleAtTokenCount: z.number().nullable().optional(),
 }).refine(
   (data) => {
     // Mutual exclusivity: can't have both template and prompt set
@@ -55,6 +77,17 @@ export const KanbanLaneResponse = z.object({
   sortOrder: z.number(),
   onEnterTemplateId: z.string().uuid().nullable(),
   onEnterPrompt: z.string().nullable(),
+  onEnterMode: z.enum(['plan', 'standard', 'yolo']).nullable(),
+  onEnterModel: z.string().nullable(),
+  onEnterEffortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable(),
+  onEnterThinkingEnabled: z.boolean().nullable(),
+  onEnterAutoRescheduleEnabled: z.boolean(),
+  onEnterRescheduleDelayMinutes: z.number().nullable(),
+  onEnterRescheduleOnTokenLimit: z.boolean().nullable(),
+  onEnterRescheduleOnServiceError: z.boolean().nullable(),
+  onEnterMaxRescheduleCount: z.number().nullable(),
+  onEnterMaxTotalTokens: z.number().nullable(),
+  onEnterRescheduleAtTokenCount: z.number().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
