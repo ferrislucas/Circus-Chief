@@ -15,6 +15,9 @@ export function useRunningSessionSubscriptions() {
   // Track active subscriptions: { [sessionId]: { subscription, cleanup } }
   const activeSubscriptions = ref({});
 
+  // Track pending clear timeouts so stale ones can be cancelled: { [sessionId]: timeoutId }
+  const clearTimeouts = {};
+
   function subscribeToSession(sessionId) {
     if (activeSubscriptions.value[sessionId]) return; // already subscribed
 
@@ -38,14 +41,27 @@ export function useRunningSessionSubscriptions() {
       streamingStore.setPartialThinking(thinking, sessionId);
     }));
 
+    // Listen for file change count updates (real-time)
+    cleanups.push(sub.onChangesUpdate((changeCount) => {
+      streamingStore.setSessionFileCount(sessionId, changeCount);
+    }));
+
     // Listen for status changes (to clean up when session stops running)
     // NOTE: onStatus callback receives a string (status), not { status }
     cleanups.push(sub.onStatus((status) => {
       if (!['running', 'starting'].includes(status)) {
-        // Session stopped — clear streaming state after a brief delay
-        setTimeout(() => {
+        // Session stopped — clear streaming state after a brief delay.
+        // Store the timeout ID so it can be cancelled if the session resumes.
+        clearTimeouts[sessionId] = setTimeout(() => {
+          delete clearTimeouts[sessionId];
           streamingStore.clearSessionStreamingState(sessionId);
         }, 2000);
+      } else {
+        // Session returned to running/starting — cancel any stale clear timeout
+        if (clearTimeouts[sessionId]) {
+          clearTimeout(clearTimeouts[sessionId]);
+          delete clearTimeouts[sessionId];
+        }
       }
     }));
 
@@ -65,6 +81,11 @@ export function useRunningSessionSubscriptions() {
     if (entry) {
       entry.cleanup();
       delete activeSubscriptions.value[sessionId];
+    }
+    // Also cancel any pending clear timeout
+    if (clearTimeouts[sessionId]) {
+      clearTimeout(clearTimeouts[sessionId]);
+      delete clearTimeouts[sessionId];
     }
   }
 
