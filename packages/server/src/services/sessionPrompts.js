@@ -326,6 +326,26 @@ CRITICAL: Do NOT use \`cd\` to navigate to the main repository. Your working dir
 }
 
 /**
+ * Build child session context for system prompt
+ * @param {Object} session - Session object
+ * @returns {string} Child session context or empty string
+ */
+function buildChildSessionContext(session) {
+  if (!session || !session.parentSessionId) {
+    return '';
+  }
+
+  // Get root session ID using existing method
+  const rootSessionId = sessions.getRootSessionId(session.id);
+
+  return `## Child Session
+
+This session is part of a multi-session workflow:
+- Parent Session ID: ${session.parentSessionId}
+- Root Session ID: ${rootSessionId}`;
+}
+
+/**
  * Build the full system prompt configuration
  * @param {string} sessionId
  * @param {string} projectId
@@ -340,15 +360,23 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
   const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
   const attachmentsContext = getSessionAttachmentsContext(sessionId);
   const worktreeContext = buildWorktreeContext(session);
+  const childSessionContext = buildChildSessionContext(session);
   const basePrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
 
   // Prepend plan mode instructions if in plan mode
   const modePrompt = mode === 'plan' ? PLAN_MODE_PROMPT : '';
 
   // Build prompt parts, filtering out empty sections
-  const parts = [modePrompt, basePrompt, worktreeContext, attachmentsContext, canvasWriteInstructions, canvasReadInstructions, sessionApiInstructions].filter(
-    Boolean
-  );
+  const parts = [
+    modePrompt,
+    basePrompt,
+    childSessionContext,
+    worktreeContext,
+    attachmentsContext,
+    canvasWriteInstructions,
+    canvasReadInstructions,
+    sessionApiInstructions
+  ].filter(Boolean);
 
   return parts.join('\n\n');
 }
