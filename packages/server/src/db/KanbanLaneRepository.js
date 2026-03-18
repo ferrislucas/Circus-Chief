@@ -17,6 +17,17 @@ export class KanbanLaneRepository extends BaseRepository {
       sortOrder: row.sort_order,
       onEnterTemplateId: row.on_enter_template_id,
       onEnterPrompt: row.on_enter_prompt,
+      onEnterMode: row.on_enter_mode,
+      onEnterModel: row.on_enter_model,
+      onEnterEffortLevel: row.on_enter_effort_level,
+      onEnterThinkingEnabled: row.on_enter_thinking_enabled === null ? null : !!row.on_enter_thinking_enabled,
+      onEnterAutoRescheduleEnabled: !!row.on_enter_auto_reschedule_enabled,
+      onEnterRescheduleDelayMinutes: row.on_enter_reschedule_delay_minutes,
+      onEnterRescheduleOnTokenLimit: row.on_enter_reschedule_on_token_limit === null ? null : !!row.on_enter_reschedule_on_token_limit,
+      onEnterRescheduleOnServiceError: row.on_enter_reschedule_on_service_error === null ? null : !!row.on_enter_reschedule_on_service_error,
+      onEnterMaxRescheduleCount: row.on_enter_max_reschedule_count,
+      onEnterMaxTotalTokens: row.on_enter_max_total_tokens,
+      onEnterRescheduleAtTokenCount: row.on_enter_reschedule_at_token_count,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -59,10 +70,33 @@ export class KanbanLaneRepository extends BaseRepository {
 
     this.db
       .prepare(
-        `INSERT INTO kanban_lanes (id, board_id, name, sort_order, on_enter_template_id, on_enter_prompt, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO kanban_lanes (
+          id, board_id, name, sort_order, on_enter_template_id, on_enter_prompt,
+          on_enter_mode, on_enter_model, on_enter_effort_level, on_enter_thinking_enabled,
+          on_enter_auto_reschedule_enabled, on_enter_reschedule_delay_minutes,
+          on_enter_reschedule_on_token_limit, on_enter_reschedule_on_service_error,
+          on_enter_max_reschedule_count, on_enter_max_total_tokens,
+          on_enter_reschedule_at_token_count,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, boardId, data.name, sortOrder, data.onEnterTemplateId || null, data.onEnterPrompt || null, now, now);
+      .run(
+        id, boardId, data.name, sortOrder,
+        data.onEnterTemplateId || null,
+        data.onEnterPrompt || null,
+        data.onEnterMode || null,
+        data.onEnterModel || null,
+        data.onEnterEffortLevel || null,
+        data.onEnterThinkingEnabled === undefined ? null : (data.onEnterThinkingEnabled ? 1 : 0),
+        data.onEnterAutoRescheduleEnabled ? 1 : 0,
+        data.onEnterRescheduleDelayMinutes ?? 15,
+        data.onEnterRescheduleOnTokenLimit === undefined ? 1 : (data.onEnterRescheduleOnTokenLimit ? 1 : 0),
+        data.onEnterRescheduleOnServiceError === undefined ? 1 : (data.onEnterRescheduleOnServiceError ? 1 : 0),
+        data.onEnterMaxRescheduleCount ?? null,
+        data.onEnterMaxTotalTokens ?? null,
+        data.onEnterRescheduleAtTokenCount ?? null,
+        now, now
+      );
 
     return this.getById(id);
   }
@@ -96,6 +130,50 @@ export class KanbanLaneRepository extends BaseRepository {
     if (data.onEnterPrompt !== undefined) {
       updates.push('on_enter_prompt = ?');
       values.push(data.onEnterPrompt);
+    }
+    if (data.onEnterMode !== undefined) {
+      updates.push('on_enter_mode = ?');
+      values.push(data.onEnterMode);
+    }
+    if (data.onEnterModel !== undefined) {
+      updates.push('on_enter_model = ?');
+      values.push(data.onEnterModel);
+    }
+    if (data.onEnterEffortLevel !== undefined) {
+      updates.push('on_enter_effort_level = ?');
+      values.push(data.onEnterEffortLevel);
+    }
+    if (data.onEnterThinkingEnabled !== undefined) {
+      updates.push('on_enter_thinking_enabled = ?');
+      values.push(data.onEnterThinkingEnabled === null ? null : (data.onEnterThinkingEnabled ? 1 : 0));
+    }
+    if (data.onEnterAutoRescheduleEnabled !== undefined) {
+      updates.push('on_enter_auto_reschedule_enabled = ?');
+      values.push(data.onEnterAutoRescheduleEnabled ? 1 : 0);
+    }
+    if (data.onEnterRescheduleDelayMinutes !== undefined) {
+      updates.push('on_enter_reschedule_delay_minutes = ?');
+      values.push(data.onEnterRescheduleDelayMinutes);
+    }
+    if (data.onEnterRescheduleOnTokenLimit !== undefined) {
+      updates.push('on_enter_reschedule_on_token_limit = ?');
+      values.push(data.onEnterRescheduleOnTokenLimit ? 1 : 0);
+    }
+    if (data.onEnterRescheduleOnServiceError !== undefined) {
+      updates.push('on_enter_reschedule_on_service_error = ?');
+      values.push(data.onEnterRescheduleOnServiceError ? 1 : 0);
+    }
+    if (data.onEnterMaxRescheduleCount !== undefined) {
+      updates.push('on_enter_max_reschedule_count = ?');
+      values.push(data.onEnterMaxRescheduleCount);
+    }
+    if (data.onEnterMaxTotalTokens !== undefined) {
+      updates.push('on_enter_max_total_tokens = ?');
+      values.push(data.onEnterMaxTotalTokens);
+    }
+    if (data.onEnterRescheduleAtTokenCount !== undefined) {
+      updates.push('on_enter_reschedule_at_token_count = ?');
+      values.push(data.onEnterRescheduleAtTokenCount);
     }
 
     if (updates.length === 0) return this.getById(id);

@@ -229,12 +229,13 @@ async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
       session.projectId,
       newSessionName,
       renderedPrompt,
-      mode,
-      thinkingEnabled,
-      gitBranch,
-      null, // parentSessionId - will be set below
-      'starting',
-      model
+      {
+        mode,
+        thinkingEnabled,
+        gitBranch,
+        status: 'starting',
+        model,
+      }
     );
 
     // Set the parent session reference, template chaining, target lane, and depth
@@ -279,7 +280,10 @@ async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
     });
 
     // Start the new session (non-blocking)
-    runSession(newSession.id, renderedPrompt, workingDirectory, project.systemPrompt, [], model).catch(
+    runSession(newSession.id, renderedPrompt, workingDirectory, {
+      systemPrompt: project.systemPrompt,
+      model,
+    }).catch(
       (error) => {
         console.error(`Kanban: Error running on-enter session ${newSession.id}:`, error);
         const errorSession = sessions.update(newSession.id, {
@@ -355,11 +359,12 @@ async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
       rootSummary
     );
 
-    // Use parent session's settings since there's no template to inherit from
-    const thinkingEnabled = session.thinkingEnabled;
+    // Lane overrides take precedence; fall back to parent session's settings
+    const thinkingEnabled = lane.onEnterThinkingEnabled ?? session.thinkingEnabled;
     const gitBranch = session.gitBranch;
-    const model = session.model;
-    const mode = session.mode;
+    const model = lane.onEnterModel || session.model;
+    const mode = lane.onEnterMode || session.mode;
+    const effortLevel = lane.onEnterEffortLevel || session.effortLevel || null;
 
     // Generate a name for the new session
     const newSessionName = `Lane prompt (lane: ${lane.name})`;
@@ -369,12 +374,14 @@ async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
       session.projectId,
       newSessionName,
       renderedPrompt,
-      mode,
-      thinkingEnabled,
-      gitBranch,
-      null, // parentSessionId - will be set below
-      'starting',
-      model
+      {
+        mode,
+        thinkingEnabled,
+        gitBranch,
+        status: 'starting',
+        model,
+        effortLevel,
+      }
     );
 
     // Set the parent session reference and depth
@@ -382,6 +389,19 @@ async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
       parentSessionId: session.id,
       laneTriggerDepth: depth + 1, // Track depth for child sessions
     });
+
+    // Apply auto-reschedule settings if lane has them configured
+    if (lane.onEnterAutoRescheduleEnabled) {
+      sessions.update(newSession.id, {
+        autoRescheduleEnabled: true,
+        rescheduleDelayMinutes: lane.onEnterRescheduleDelayMinutes || 15,
+        rescheduleOnTokenLimit: lane.onEnterRescheduleOnTokenLimit ?? true,
+        rescheduleOnServiceError: lane.onEnterRescheduleOnServiceError ?? true,
+        maxRescheduleCount: lane.onEnterMaxRescheduleCount || null,
+        maxTotalTokens: lane.onEnterMaxTotalTokens || null,
+        rescheduleAtTokenCount: lane.onEnterRescheduleAtTokenCount || null,
+      });
+    }
 
     // Determine working directory: inherit from parent if it has a worktree
     let workingDirectory;
@@ -410,7 +430,10 @@ async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
     });
 
     // Start the new session (non-blocking)
-    runSession(newSession.id, renderedPrompt, workingDirectory, project.systemPrompt, [], model).catch(
+    runSession(newSession.id, renderedPrompt, workingDirectory, {
+      systemPrompt: project.systemPrompt,
+      model,
+    }).catch(
       (error) => {
         console.error(`Kanban: Error running on-enter prompt session ${newSession.id}:`, error);
         const errorSession = sessions.update(newSession.id, {

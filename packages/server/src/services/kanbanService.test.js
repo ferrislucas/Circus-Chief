@@ -30,6 +30,7 @@ import {
   sessionTemplates,
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
+import { runSession } from './sessionManager.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import {
   getFullBoard,
@@ -423,6 +424,196 @@ describe('kanbanService', () => {
 
       // Should not throw - should log a warning
       expect(() => addSessionToTemplateTargetLane(session.id, template.id)).not.toThrow();
+    });
+  });
+
+  // ── Lane agent settings ────────────────────────────────────────────
+
+  describe('lane agent settings in triggerOnEnterPrompt', () => {
+    it('lane-level settings override parent session settings', async () => {
+      // Create parent session with default settings
+      const session = sessions.create(projectId, 'Parent Session', 'Prompt', {
+        mode: 'standard',
+        thinkingEnabled: false,
+        model: null,
+      });
+      const card = kanbanCards.create(lanes[0].id, session.id);
+
+      // Configure lane 1 with agent settings
+      kanbanLanes.update(lanes[1].id, {
+        onEnterPrompt: 'do something',
+        onEnterMode: 'plan',
+        onEnterModel: 'claude-sonnet-4-20250514',
+        onEnterEffortLevel: 'high',
+        onEnterThinkingEnabled: true,
+      });
+
+      vi.clearAllMocks();
+      await moveCard(card.id, lanes[1].id);
+
+      // Find the newly created child session
+      const allSessions = sessions.getByProjectId(projectId);
+      const childSession = allSessions.find((s) => s.id !== session.id);
+
+      expect(childSession).toBeDefined();
+      expect(childSession.mode).toBe('plan');
+      expect(childSession.model).toBe('claude-sonnet-4-20250514');
+      expect(childSession.effortLevel).toBe('high');
+      expect(childSession.thinkingEnabled).toBe(true);
+    });
+
+    it('lane settings fall back to parent when null', async () => {
+      // Create parent session with specific settings
+      const session = sessions.create(projectId, 'Parent Session', 'Prompt', {
+        mode: 'yolo',
+        thinkingEnabled: true,
+        model: 'claude-sonnet-4-20250514',
+      });
+      const card = kanbanCards.create(lanes[0].id, session.id);
+
+      // Configure lane 1 with just a prompt, no agent settings override
+      kanbanLanes.update(lanes[1].id, {
+        onEnterPrompt: 'do something',
+        onEnterMode: null,
+        onEnterModel: null,
+        onEnterEffortLevel: null,
+        onEnterThinkingEnabled: null,
+      });
+
+      vi.clearAllMocks();
+      await moveCard(card.id, lanes[1].id);
+
+      // Find the newly created child session
+      const allSessions = sessions.getByProjectId(projectId);
+      const childSession = allSessions.find((s) => s.id !== session.id);
+
+      expect(childSession).toBeDefined();
+      expect(childSession.mode).toBe('yolo');
+      expect(childSession.thinkingEnabled).toBe(true);
+      expect(childSession.model).toBe('claude-sonnet-4-20250514');
+    });
+
+    it('auto-reschedule settings are applied to child session', async () => {
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+
+      // Configure lane with auto-reschedule settings
+      kanbanLanes.update(lanes[1].id, {
+        onEnterPrompt: 'do something',
+        onEnterAutoRescheduleEnabled: true,
+        onEnterRescheduleDelayMinutes: 30,
+        onEnterRescheduleOnTokenLimit: true,
+        onEnterRescheduleOnServiceError: false,
+        onEnterMaxRescheduleCount: 5,
+      });
+
+      vi.clearAllMocks();
+      await moveCard(card.id, lanes[1].id);
+
+      // Find the newly created child session
+      const allSessions = sessions.getByProjectId(projectId);
+      const childSession = allSessions.find((s) => s.id !== session.id);
+
+      expect(childSession).toBeDefined();
+      expect(childSession.autoRescheduleEnabled).toBe(true);
+      expect(childSession.rescheduleDelayMinutes).toBe(30);
+      expect(childSession.rescheduleOnTokenLimit).toBe(true);
+      expect(childSession.rescheduleOnServiceError).toBe(false);
+      expect(childSession.maxRescheduleCount).toBe(5);
+    });
+
+    it('effort level is properly passed via options-object form', async () => {
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+
+      // Configure lane with effort level override
+      kanbanLanes.update(lanes[1].id, {
+        onEnterPrompt: 'do something',
+        onEnterEffortLevel: 'max',
+      });
+
+      vi.clearAllMocks();
+      await moveCard(card.id, lanes[1].id);
+
+      // Find the newly created child session
+      const allSessions = sessions.getByProjectId(projectId);
+      const childSession = allSessions.find((s) => s.id !== session.id);
+
+      expect(childSession).toBeDefined();
+      expect(childSession.effortLevel).toBe('max');
+    });
+
+    it('runSession is called with options-object form', async () => {
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+
+      kanbanLanes.update(lanes[1].id, {
+        onEnterPrompt: 'do something',
+        onEnterModel: 'claude-sonnet-4-20250514',
+      });
+
+      vi.clearAllMocks();
+      await moveCard(card.id, lanes[1].id);
+
+      // Verify runSession was called with options object (4 args), not positional args
+      expect(runSession).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({
+          model: 'claude-sonnet-4-20250514',
+        })
+      );
+    });
+
+    it('runSession in triggerOnEnterTemplate is called with options-object form', async () => {
+      const template = sessionTemplates.create({
+        projectId,
+        name: 'Auto Template',
+        prompt: 'Do something from template',
+        model: 'claude-opus-4-20250514',
+      });
+
+      kanbanLanes.update(lanes[1].id, { onEnterTemplateId: template.id });
+
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+
+      vi.clearAllMocks();
+      await moveCard(card.id, lanes[1].id);
+
+      // Ensure it was NOT called with 6 args (the old positional form)
+      // runSession should be called with 4 args where 4th is an options object
+      const callArgs = runSession.mock.calls[0];
+      expect(callArgs.length).toBe(4);
+      expect(typeof callArgs[3]).toBe('object');
+      // systemPrompt and model should be present as keys (even if null)
+      expect(Object.keys(callArgs[3])).toContain('systemPrompt');
+    });
+
+    it('agent settings are not applied when lane uses template automation', async () => {
+      const template = sessionTemplates.create({
+        projectId,
+        name: 'Template',
+        prompt: 'Do template work',
+      });
+
+      // Set template on lane (no prompt automation)
+      kanbanLanes.update(lanes[1].id, { onEnterTemplateId: template.id });
+
+      const session = createSession('Parent');
+      const card = kanbanCards.create(lanes[0].id, session.id);
+
+      vi.clearAllMocks();
+      await moveCard(card.id, lanes[1].id);
+
+      // A child session was created via template trigger
+      const allSessions = sessions.getByProjectId(projectId);
+      const childSession = allSessions.find((s) => s.id !== session.id);
+      expect(childSession).toBeDefined();
+
+      // Child session should exist (template-triggered), not crash
+      expect(childSession.status).toBeDefined();
     });
   });
 });

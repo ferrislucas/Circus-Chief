@@ -83,13 +83,127 @@
           <label for="custom-prompt" class="form-label">Custom Prompt</label>
           <ResizableTextarea
             id="custom-prompt"
+            ref="promptTextareaRef"
             v-model="form.onEnterPrompt"
             class="form-input form-textarea"
             placeholder="Enter the prompt to run when a session enters this lane..."
             rows="4"
             :min-height="80"
           />
-          <InterpolationHelp />
+          <div class="prompt-actions-row">
+            <InterpolationHelp />
+            <SlashCommandButton
+              v-if="workingDirectory"
+              @open="showSlashCommandWizard = true"
+            />
+          </div>
+        </div>
+
+        <!-- Slash Command Wizard Modal -->
+        <SlashCommandWizard
+          v-if="automationType === 'prompt'"
+          v-model:isOpen="showSlashCommandWizard"
+          :workingDirectory="workingDirectory || ''"
+          mode="insert"
+          :hide-builtin="true"
+          @insert="handleSlashCommandInsert"
+        />
+
+        <!-- Agent Settings (only for custom prompt) -->
+        <div v-if="automationType === 'prompt'" class="agent-settings-section">
+          <button type="button" @click="showAgentSettings = !showAgentSettings" class="section-toggle">
+            <span class="toggle-chevron" :class="{ open: showAgentSettings }">&#9654;</span>
+            Session Settings
+          </button>
+
+          <div v-if="showAgentSettings" class="agent-settings-body">
+            <SessionFormOptions
+              :mode="form.onEnterMode || 'standard'"
+              :model="form.onEnterModel"
+              :effortLevel="form.onEnterEffortLevel"
+              :thinkingEnabled="form.onEnterThinkingEnabled ?? false"
+              :hideStartImmediately="true"
+              @update:mode="form.onEnterMode = $event"
+              @update:model="form.onEnterModel = $event"
+              @update:effortLevel="form.onEnterEffortLevel = $event"
+              @update:thinkingEnabled="form.onEnterThinkingEnabled = $event"
+            />
+
+            <!-- Auto-Reschedule Settings -->
+            <div class="form-group">
+              <label class="toggle-switch-row">
+                <label class="toggle-switch">
+                  <input type="checkbox" v-model="form.onEnterAutoRescheduleEnabled" />
+                  <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Auto-reschedule on errors</span>
+              </label>
+            </div>
+
+            <div v-if="form.onEnterAutoRescheduleEnabled" class="reschedule-settings">
+              <!-- Reschedule Triggers -->
+              <div class="form-group">
+                <p class="settings-label">Reschedule Triggers</p>
+                <label class="checkbox-option">
+                  <input type="checkbox" v-model="form.onEnterRescheduleOnTokenLimit" />
+                  <span>Token limit errors</span>
+                </label>
+                <label class="checkbox-option">
+                  <input type="checkbox" v-model="form.onEnterRescheduleOnServiceError" />
+                  <span>Service unavailability</span>
+                </label>
+              </div>
+
+              <!-- Delay -->
+              <div class="form-group">
+                <label class="form-label">Reschedule Delay</label>
+                <select v-model.number="form.onEnterRescheduleDelayMinutes" class="form-input">
+                  <option :value="5">5 minutes</option>
+                  <option :value="15">15 minutes</option>
+                  <option :value="30">30 minutes</option>
+                  <option :value="60">1 hour</option>
+                  <option :value="120">2 hours</option>
+                </select>
+              </div>
+
+              <!-- Limits -->
+              <div class="form-group">
+                <label class="form-label">Max Reschedule Count</label>
+                <input
+                  type="number"
+                  v-model.number="form.onEnterMaxRescheduleCount"
+                  min="1"
+                  max="100"
+                  class="form-input"
+                  placeholder="Unlimited"
+                />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Max Total Tokens</label>
+                <input
+                  type="number"
+                  v-model.number="form.onEnterMaxTotalTokens"
+                  min="1000"
+                  step="1000"
+                  class="form-input"
+                  placeholder="Unlimited"
+                />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Reschedule At Token Count</label>
+                <input
+                  type="number"
+                  v-model.number="form.onEnterRescheduleAtTokenCount"
+                  min="10000"
+                  step="10000"
+                  class="form-input"
+                  placeholder="None"
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Delete Lane Section -->
@@ -123,12 +237,16 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
+import { useProjectsStore } from '../stores/projects.js';
 import InterpolationHelp from './InterpolationHelp.vue';
 import ResizableTextarea from './ResizableTextarea.vue';
+import SessionFormOptions from './SessionFormOptions.vue';
+import SlashCommandButton from './SlashCommandButton.vue';
+import SlashCommandWizard from './SlashCommandWizard.vue';
 
 const props = defineProps({
   isOpen: Boolean,
@@ -141,19 +259,41 @@ const emit = defineEmits(['close', 'update:isOpen', 'updated', 'deleted']);
 const kanbanStore = useKanbanStore();
 const templatesStore = useTemplatesStore();
 const uiStore = useUiStore();
+const projectsStore = useProjectsStore();
 
 const saving = ref(false);
 const deleting = ref(false);
 const automationType = ref('none');
+const showAgentSettings = ref(false);
+const showSlashCommandWizard = ref(false);
+const promptTextareaRef = ref(null);
 
 const form = reactive({
   name: '',
   onEnterTemplateId: null,
   onEnterPrompt: '',
+  // Agent settings
+  onEnterMode: null,
+  onEnterModel: null,
+  onEnterEffortLevel: null,
+  onEnterThinkingEnabled: null,
+  // Auto-reschedule
+  onEnterAutoRescheduleEnabled: false,
+  onEnterRescheduleDelayMinutes: 15,
+  onEnterRescheduleOnTokenLimit: true,
+  onEnterRescheduleOnServiceError: true,
+  onEnterMaxRescheduleCount: null,
+  onEnterMaxTotalTokens: null,
+  onEnterRescheduleAtTokenCount: null,
 });
 
 const projectTemplates = computed(() => templatesStore.projectTemplates);
 const globalTemplates = computed(() => templatesStore.globalTemplates);
+
+const workingDirectory = computed(() => {
+  const project = projectsStore.getProjectById(props.projectId);
+  return project?.workingDirectory || null;
+});
 
 const isValid = computed(() => {
   if (!form.name.trim()) return false;
@@ -168,6 +308,19 @@ function resetForm() {
     form.onEnterTemplateId = props.lane.onEnterTemplateId || null;
     form.onEnterPrompt = props.lane.onEnterPrompt || '';
 
+    // Agent settings
+    form.onEnterMode = props.lane.onEnterMode || null;
+    form.onEnterModel = props.lane.onEnterModel || null;
+    form.onEnterEffortLevel = props.lane.onEnterEffortLevel || null;
+    form.onEnterThinkingEnabled = props.lane.onEnterThinkingEnabled ?? null;
+    form.onEnterAutoRescheduleEnabled = props.lane.onEnterAutoRescheduleEnabled || false;
+    form.onEnterRescheduleDelayMinutes = props.lane.onEnterRescheduleDelayMinutes || 15;
+    form.onEnterRescheduleOnTokenLimit = props.lane.onEnterRescheduleOnTokenLimit ?? true;
+    form.onEnterRescheduleOnServiceError = props.lane.onEnterRescheduleOnServiceError ?? true;
+    form.onEnterMaxRescheduleCount = props.lane.onEnterMaxRescheduleCount || null;
+    form.onEnterMaxTotalTokens = props.lane.onEnterMaxTotalTokens || null;
+    form.onEnterRescheduleAtTokenCount = props.lane.onEnterRescheduleAtTokenCount || null;
+
     // Determine automation type from current values
     if (props.lane.onEnterTemplateId) {
       automationType.value = 'template';
@@ -176,17 +329,53 @@ function resetForm() {
     } else {
       automationType.value = 'none';
     }
+
+    // Auto-expand settings section if any agent settings are already configured
+    showAgentSettings.value = !!(
+      form.onEnterMode ||
+      form.onEnterModel ||
+      form.onEnterEffortLevel ||
+      form.onEnterThinkingEnabled !== null ||
+      form.onEnterAutoRescheduleEnabled
+    );
   } else {
     form.name = '';
     form.onEnterTemplateId = null;
     form.onEnterPrompt = '';
+    form.onEnterMode = null;
+    form.onEnterModel = null;
+    form.onEnterEffortLevel = null;
+    form.onEnterThinkingEnabled = null;
+    form.onEnterAutoRescheduleEnabled = false;
+    form.onEnterRescheduleDelayMinutes = 15;
+    form.onEnterRescheduleOnTokenLimit = true;
+    form.onEnterRescheduleOnServiceError = true;
+    form.onEnterMaxRescheduleCount = null;
+    form.onEnterMaxTotalTokens = null;
+    form.onEnterRescheduleAtTokenCount = null;
     automationType.value = 'none';
+    showAgentSettings.value = false;
   }
 }
 
 function close() {
   emit('update:isOpen', false);
   emit('close');
+}
+
+function handleSlashCommandInsert({ text }) {
+  const textarea = promptTextareaRef.value;
+  if (textarea) {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const before = form.onEnterPrompt.substring(0, start);
+    const after = form.onEnterPrompt.substring(end);
+    form.onEnterPrompt = before + text + after;
+    nextTick(() => {
+      textarea.selectionStart = textarea.selectionEnd = start + text.length;
+      textarea.focus();
+    });
+  }
 }
 
 async function handleSave() {
@@ -202,13 +391,48 @@ async function handleSave() {
     if (automationType.value === 'template') {
       data.onEnterTemplateId = form.onEnterTemplateId;
       data.onEnterPrompt = null; // Clear prompt when using template
+      // Clear agent settings when using template
+      data.onEnterMode = null;
+      data.onEnterModel = null;
+      data.onEnterEffortLevel = null;
+      data.onEnterThinkingEnabled = null;
+      data.onEnterAutoRescheduleEnabled = false;
+      data.onEnterRescheduleDelayMinutes = 15;
+      data.onEnterRescheduleOnTokenLimit = true;
+      data.onEnterRescheduleOnServiceError = true;
+      data.onEnterMaxRescheduleCount = null;
+      data.onEnterMaxTotalTokens = null;
+      data.onEnterRescheduleAtTokenCount = null;
     } else if (automationType.value === 'prompt') {
       data.onEnterTemplateId = null; // Clear template when using prompt
       data.onEnterPrompt = form.onEnterPrompt.trim();
+      // Include agent settings
+      data.onEnterMode = form.onEnterMode;
+      data.onEnterModel = form.onEnterModel;
+      data.onEnterEffortLevel = form.onEnterEffortLevel;
+      data.onEnterThinkingEnabled = form.onEnterThinkingEnabled;
+      data.onEnterAutoRescheduleEnabled = form.onEnterAutoRescheduleEnabled;
+      data.onEnterRescheduleDelayMinutes = form.onEnterRescheduleDelayMinutes;
+      data.onEnterRescheduleOnTokenLimit = form.onEnterRescheduleOnTokenLimit;
+      data.onEnterRescheduleOnServiceError = form.onEnterRescheduleOnServiceError;
+      data.onEnterMaxRescheduleCount = form.onEnterMaxRescheduleCount;
+      data.onEnterMaxTotalTokens = form.onEnterMaxTotalTokens;
+      data.onEnterRescheduleAtTokenCount = form.onEnterRescheduleAtTokenCount;
     } else {
       // None - clear both
       data.onEnterTemplateId = null;
       data.onEnterPrompt = null;
+      data.onEnterMode = null;
+      data.onEnterModel = null;
+      data.onEnterEffortLevel = null;
+      data.onEnterThinkingEnabled = null;
+      data.onEnterAutoRescheduleEnabled = false;
+      data.onEnterRescheduleDelayMinutes = 15;
+      data.onEnterRescheduleOnTokenLimit = true;
+      data.onEnterRescheduleOnServiceError = true;
+      data.onEnterMaxRescheduleCount = null;
+      data.onEnterMaxTotalTokens = null;
+      data.onEnterRescheduleAtTokenCount = null;
     }
 
     await kanbanStore.updateLane(props.projectId, props.lane.id, data);
@@ -285,7 +509,7 @@ watch(
   background: var(--color-background-secondary, #1f2937);
   border-radius: 0.5rem;
   width: 100%;
-  max-width: 500px;
+  max-width: 600px;
   max-height: 90vh;
   overflow-y: auto;
   border: 1px solid var(--color-border);
@@ -387,6 +611,143 @@ watch(
 }
 
 .radio-option input {
+  cursor: pointer;
+}
+
+.prompt-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.5rem;
+}
+
+/* Agent Settings Section */
+.agent-settings-section {
+  margin-bottom: 1.25rem;
+}
+
+.section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--color-text-soft);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0.5rem 0;
+  transition: color 0.15s;
+}
+
+.section-toggle:hover {
+  color: var(--color-text);
+}
+
+.toggle-chevron {
+  display: inline-block;
+  font-size: 0.65rem;
+  transition: transform 0.2s;
+}
+
+.toggle-chevron.open {
+  transform: rotate(90deg);
+}
+
+.agent-settings-body {
+  padding: 1rem;
+  margin-top: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  background: var(--color-background, rgba(255, 255, 255, 0.02));
+}
+
+/* Reschedule settings styles (matching AutoRescheduleModal) */
+.toggle-switch-row {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  gap: 0.75rem;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--color-border);
+  border-radius: 22px;
+  transition: 0.2s;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 3px;
+  background-color: white;
+  border-radius: 50%;
+  transition: 0.2s;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: var(--color-primary);
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+  transform: translateX(18px);
+}
+
+.toggle-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.reschedule-settings {
+  padding: 1rem;
+  margin-top: 1rem;
+  border-left: 2px solid var(--color-primary);
+  background: var(--color-background, rgba(255, 255, 255, 0.02));
+  border-radius: 0 0.25rem 0.25rem 0;
+}
+
+.settings-label {
+  margin-bottom: 0.75rem;
+  font-weight: 500;
+  font-size: 0.95rem;
+  color: var(--color-text);
+}
+
+.checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.checkbox-option input {
+  width: 1rem;
+  height: 1rem;
   cursor: pointer;
 }
 

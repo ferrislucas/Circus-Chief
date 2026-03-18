@@ -191,4 +191,5 @@ export const allMigrations = validateMigrations([
   k.get('sessions-add-lane_trigger_depth'),
   k.get('session_templates-add-target_lane_id'),
   k.get('kanban_lanes-add-on_enter_prompt'),
+  k.get('kanban_lanes-add-agent-settings'),
 ]);
