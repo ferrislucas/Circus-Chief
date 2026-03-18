@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
   seedProject,
   seedSession,
+  seedChildSession,
   cleanupCreatedResources,
   navigateAndWait,
 } from './helpers';
@@ -60,6 +61,43 @@ test.describe('Kanban Board', () => {
     // Assert the To Do lane contains exactly ONE card (not two from the race condition)
     const cards = lane.locator('.kanban-card');
     await expect(cards).toHaveCount(1);
+  });
+
+  test('child sessions should not appear in "Add Session" modal', async ({ page }) => {
+    // Create a root session
+    const rootSession = await seedSession(project.id, {
+      prompt: 'Root session',
+      name: 'Root Session',
+      startImmediately: false,
+    });
+
+    // Create a child session
+    const childSession = await seedChildSession(project.id, rootSession.id, {
+      prompt: 'Child session',
+      name: 'Child Session',
+    });
+
+    // Navigate to kanban tab
+    await navigateAndWait(page, `/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
+    // Open "Add Session" modal
+    const lane = page.locator('.kanban-lane').filter({ hasText: 'To Do' });
+    await lane.locator('.add-session-btn').click();
+
+    // Wait for modal and sessions to load
+    await expect(page.locator('.modal-content')).toBeVisible();
+    await page.waitForSelector('.session-item', { timeout: 10000 });
+
+    // Get all session names in the list
+    const sessionNames = await page.locator('.session-name').allTextContents();
+
+    // Assert root session is visible
+    expect(sessionNames).toContain('Root Session');
+
+    // Assert child session is NOT visible
+    expect(sessionNames).not.toContain('Child Session');
   });
 
   test('lane settings custom prompt textarea uses resizable handle', async ({ page }) => {
