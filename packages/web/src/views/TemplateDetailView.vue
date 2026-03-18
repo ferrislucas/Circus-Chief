@@ -61,7 +61,6 @@
         <div class="form-group">
           <label for="thinkingEnabled">Extended Thinking</label>
           <select id="thinkingEnabled" v-model="formData.thinkingEnabled" class="form-input">
-            <option :value="null">Inherit from root session</option>
             <option :value="true">Enabled</option>
             <option :value="false">Disabled</option>
           </select>
@@ -77,7 +76,6 @@
         <div class="form-group">
           <label for="mode">Mode</label>
           <select id="mode" v-model="formData.mode" class="form-input">
-            <option :value="null">Inherit from root session</option>
             <option value="plan">Plan</option>
             <option value="standard">Standard</option>
             <option value="yolo">YOLO</option>
@@ -190,10 +188,10 @@ const loadTemplate = async () => {
         prompt: template.prompt,
         isGlobal: !template.projectId,
         nextTemplateId: template.nextTemplateId || null,
-        thinkingEnabled: template.thinkingEnabled,  // null | true | false — do NOT use `|| false`
+        thinkingEnabled: template.thinkingEnabled ?? false,  // null | true | false — default to false
         gitBranch: template.gitBranch || '',
         model: template.model,                      // null means "inherit" — do NOT use `|| null` (already null)
-        mode: template.mode,                        // null means "inherit" — do NOT use `|| 'yolo'`
+        mode: template.mode ?? 'yolo',              // null means "inherit" — default to 'yolo'
       };
     }
   } catch (err) {

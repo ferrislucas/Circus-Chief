@@ -68,7 +68,6 @@
         <div class="form-group">
           <label class="form-label" for="create-mode">Mode</label>
           <select id="create-mode" v-model="formData.mode" class="form-input" data-testid="mode-select">
-            <option :value="null">Inherit from root session</option>
             <option value="plan">Plan</option>
             <option value="standard">Standard</option>
             <option value="yolo">YOLO</option>
@@ -78,7 +77,6 @@
         <div class="form-group">
           <label class="form-label" for="create-thinking">Extended Thinking</label>
           <select id="create-thinking" v-model="formData.thinkingEnabled" class="form-input" data-testid="thinking-select">
-            <option :value="null">Inherit from root session</option>
             <option :value="true">Enabled</option>
             <option :value="false">Disabled</option>
           </select>
@@ -203,10 +201,10 @@ const formData = ref({
   prompt: '',
   isGlobal: false,
   nextTemplateId: null,
-  thinkingEnabled: null,
+  thinkingEnabled: false,
   gitBranch: '',
   model: null,
-  mode: null,
+  mode: 'yolo',
 });
 
 const loading = computed(() => templatesStore.loading);
@@ -260,10 +258,10 @@ function resetForm() {
     prompt: '',
     isGlobal: false,
     nextTemplateId: null,
-    thinkingEnabled: null,
+    thinkingEnabled: false,
     gitBranch: '',
     model: null,
-    mode: null,
+    mode: 'yolo',
   };
 }
 
@@ -285,10 +283,10 @@ async function handleSubmit() {
       name: formData.value.name,
       prompt: formData.value.prompt,
       nextTemplateId: formData.value.nextTemplateId || undefined,
-      thinkingEnabled: formData.value.thinkingEnabled,  // null = inherit, true/false = explicit
+      thinkingEnabled: formData.value.thinkingEnabled || undefined,  // Send undefined if false (default)
       gitBranch: formData.value.gitBranch || undefined,
-      model: formData.value.model,                      // null = inherit
-      mode: formData.value.mode,                        // null = inherit
+      model: formData.value.model || undefined,                      // Send undefined if null (default)
+      mode: formData.value.mode === 'yolo' ? undefined : formData.value.mode,  // Send undefined if 'yolo' (default)
     };
 
     if (formData.value.isGlobal) {
