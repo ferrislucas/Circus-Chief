@@ -12,6 +12,7 @@ const mockStreamingStore = {
   addSessionWorkLog: vi.fn(),
   setSessionPartialText: vi.fn(),
   setPartialThinking: vi.fn(),
+  setSessionFileCount: vi.fn(),
   clearSessionStreamingState: vi.fn(),
 };
 
@@ -23,6 +24,7 @@ function createMockSubscription(sessionId) {
     onPartial: [],
     onThinkingPartial: [],
     onStatus: [],
+    onChangesUpdate: [],
   };
   const sub = {
     subscribe: vi.fn(),
@@ -31,6 +33,7 @@ function createMockSubscription(sessionId) {
     onPartial: vi.fn((cb) => { handlers.onPartial.push(cb); return vi.fn(); }),
     onThinkingPartial: vi.fn((cb) => { handlers.onThinkingPartial.push(cb); return vi.fn(); }),
     onStatus: vi.fn((cb) => { handlers.onStatus.push(cb); return vi.fn(); }),
+    onChangesUpdate: vi.fn((cb) => { handlers.onChangesUpdate.push(cb); return vi.fn(); }),
     _handlers: handlers,
   };
   mockSubscriptionInstances[sessionId] = sub;
@@ -68,6 +71,7 @@ describe('useRunningSessionSubscriptions', () => {
     mockStreamingStore.addSessionWorkLog.mockReset();
     mockStreamingStore.setSessionPartialText.mockReset();
     mockStreamingStore.setPartialThinking.mockReset();
+    mockStreamingStore.setSessionFileCount.mockReset();
     mockStreamingStore.clearSessionStreamingState.mockReset();
 
     // Create test component to use the composable
@@ -269,6 +273,69 @@ describe('useRunningSessionSubscriptions', () => {
     expect(useSessionSubscription).not.toHaveBeenCalledWith('session-waiting');
     expect(useSessionSubscription).not.toHaveBeenCalledWith('session-completed');
     expect(useSessionSubscription).not.toHaveBeenCalledWith('session-error');
+  });
+
+  it('calls streamingStore.setSessionFileCount when onChangesUpdate fires', async () => {
+    mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+    wrapper = mount(testComponent, {
+      global: { plugins: [createPinia()] },
+    });
+
+    await nextTick();
+
+    const sub = mockSubscriptionInstances['session-1'];
+    const changesHandler = sub._handlers.onChangesUpdate[0];
+    changesHandler(5, true);
+
+    expect(mockStreamingStore.setSessionFileCount).toHaveBeenCalledWith('session-1', 5);
+  });
+
+  it('cancels stale clear timeout if session returns to running before 2s elapses', async () => {
+    mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+    wrapper = mount(testComponent, {
+      global: { plugins: [createPinia()] },
+    });
+
+    await nextTick();
+
+    const sub = mockSubscriptionInstances['session-1'];
+    const statusHandler = sub._handlers.onStatus[0];
+
+    // Session stops
+    statusHandler('completed');
+    expect(mockStreamingStore.clearSessionStreamingState).not.toHaveBeenCalled();
+
+    // Advance 1 second (less than 2s timeout)
+    vi.advanceTimersByTime(1000);
+
+    // Session returns to running — should cancel the timeout
+    statusHandler('running');
+
+    // Advance past the original 2s mark
+    vi.advanceTimersByTime(2000);
+
+    // clearSessionStreamingState should NOT have been called because the timeout was cancelled
+    expect(mockStreamingStore.clearSessionStreamingState).not.toHaveBeenCalled();
+  });
+
+  it('clears streaming state when clear timeout fires (no cancellation)', async () => {
+    mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+    wrapper = mount(testComponent, {
+      global: { plugins: [createPinia()] },
+    });
+
+    await nextTick();
+
+    const sub = mockSubscriptionInstances['session-1'];
+    const statusHandler = sub._handlers.onStatus[0];
+
+    statusHandler('completed');
+    vi.advanceTimersByTime(2000);
+
+    expect(mockStreamingStore.clearSessionStreamingState).toHaveBeenCalledWith('session-1');
   });
 
   it('cleans up all subscriptions on unmount', async () => {
