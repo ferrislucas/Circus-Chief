@@ -23,7 +23,7 @@ import {
  * 2. Reschedule limit enforcement
  * 3. Scheduled session lifecycle
  * 4. Scheduled sessions API endpoint
- * 5. Auto-reschedule UI components
+ * 5. Scheduling UI components
  * 6. Reschedule triggers configuration
  */
 
@@ -490,10 +490,10 @@ test.describe('Category 4: Scheduled Sessions API Endpoint', () => {
 });
 
 // ============================================================
-// Category 5: Auto-Reschedule UI Components (4 tests)
+// Category 5: Scheduling UI Components (2 tests)
 // ============================================================
 
-test.describe('Category 5: Auto-Reschedule UI Components', () => {
+test.describe('Category 5: Scheduling UI Components', () => {
   test.describe.configure({ timeout: 60000 });
 
   let project: any;
@@ -504,46 +504,6 @@ test.describe('Category 5: Auto-Reschedule UI Components', () => {
 
   test.afterEach(async () => {
     await cleanupCreatedResources();
-  });
-
-  test('scheduling info panel shows reschedule settings for running session', async ({ page }) => {
-    // Create a session with auto-reschedule enabled
-    const session = await seedSession(project.id, {
-      prompt: 'Session with auto-reschedule',
-      startImmediately: false,
-    });
-
-    // Update to waiting status with auto-reschedule settings
-    await updateSessionScheduling(session.id, {
-      status: 'waiting',
-      autoRescheduleEnabled: true,
-      rescheduleDelayMinutes: 30,
-      rescheduleOnTokenLimit: true,
-      rescheduleOnServiceError: true,
-      maxRescheduleCount: 5,
-      maxTotalTokens: 500000,
-      rescheduleAtTokenCount: 100000,
-    });
-
-    // Navigate to session detail
-    await navigateAndWait(page, `/sessions/${session.id}`);
-
-    // Verify SchedulingInfo component shows auto-reschedule panel
-    const reschedulePanel = page.locator('.auto-reschedule-panel');
-    await expect(reschedulePanel).toBeVisible({ timeout: 10000 });
-
-    // Verify header shows auto-reschedule enabled
-    await expect(page.getByText('Auto-Reschedule Enabled')).toBeVisible();
-
-    // Verify delay is displayed
-    await expect(page.getByText('30 min')).toBeVisible();
-
-    // Verify attempts counter
-    await expect(page.getByText('0/5')).toBeVisible();
-
-    // Verify trigger badges
-    await expect(page.locator('.trigger-badge').filter({ hasText: 'Tokens' })).toBeVisible();
-    await expect(page.locator('.trigger-badge').filter({ hasText: 'Service' })).toBeVisible();
   });
 
   test('scheduled session card shows countdown and edit button', async ({ page }) => {
@@ -614,46 +574,6 @@ test.describe('Category 5: Auto-Reschedule UI Components', () => {
     }
   });
 
-  test('auto-reschedule toggle shows/hides configuration fields', async ({ page }) => {
-    // Create a waiting session so we can see the auto-reschedule modal
-    const session = await seedSession(project.id, {
-      prompt: 'Session for toggle test',
-      startImmediately: false,
-    });
-
-    // Set to waiting with auto-reschedule enabled to show panel
-    await updateSessionScheduling(session.id, {
-      status: 'waiting',
-      autoRescheduleEnabled: true,
-    });
-
-    // Navigate to session detail
-    await navigateAndWait(page, `/sessions/${session.id}`);
-
-    // The auto-reschedule panel should be visible
-    const panel = page.locator('.auto-reschedule-panel');
-    await expect(panel).toBeVisible({ timeout: 10000 });
-
-    // Verify the grid with settings is showing
-    const grid = page.locator('.reschedule-grid');
-    await expect(grid).toBeVisible();
-
-    // Delay, Attempts, and Triggers sections should be visible
-    await expect(page.getByText('Delay:')).toBeVisible();
-    await expect(page.getByText('Attempts:')).toBeVisible();
-    await expect(page.getByText('Triggers:')).toBeVisible();
-
-    // Now disable auto-reschedule
-    await updateSessionScheduling(session.id, {
-      autoRescheduleEnabled: false,
-    });
-
-    // Reload page to see the change
-    await navigateAndWait(page, `/sessions/${session.id}`);
-
-    // The auto-reschedule panel should no longer be visible
-    await expect(page.locator('.auto-reschedule-panel')).not.toBeVisible({ timeout: 5000 });
-  });
 });
 
 // ============================================================
