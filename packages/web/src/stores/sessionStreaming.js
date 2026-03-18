@@ -10,6 +10,7 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
     // Per-session streaming state for list view
     sessionWorkLogs: {},           // { [sessionId]: workLogEntry[] }
     sessionPartialText: {},        // { [sessionId]: string }
+    sessionFileCounts: {},         // { [sessionId]: number }
 
     // UI preference: which sessions have logs collapsed
     collapsedSessionLogs: new Set(),  // sessionIds where user closed the log panel
@@ -42,6 +43,15 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
      */
     getSessionPartialText: (state) => (sessionId) => {
       return state.sessionPartialText[sessionId] || '';
+    },
+
+    /**
+     * Get the file change count for a session
+     * @param {string} sessionId
+     * @returns {number}
+     */
+    getSessionFileCount: (state) => (sessionId) => {
+      return state.sessionFileCounts[sessionId] || 0;
     },
 
     /**
@@ -89,12 +99,14 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
     },
 
     /**
-     * Set partial thinking content for streaming display (per-session)
+     * Set partial thinking content for streaming display (per-session).
+     * Ignores null/empty updates to keep the last visible thinking.
      * @param {string} thinking - The thinking content
      * @param {string} sessionId - Session ID
      */
     setPartialThinking(thinking, sessionId) {
       if (!sessionId) return;
+      if (!thinking) return;
       this.partialThinkingBySession = {
         ...this.partialThinkingBySession,
         [sessionId]: thinking,
@@ -139,14 +151,28 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
     },
 
     /**
-     * Set partial text for a session (list view)
+     * Set partial text for a session (list view).
+     * Ignores empty-string updates to keep the last visible text.
      * @param {string} sessionId
      * @param {string} text
      */
     setSessionPartialText(sessionId, text) {
+      if (!text) return;
       this.sessionPartialText = {
         ...this.sessionPartialText,
         [sessionId]: text,
+      };
+    },
+
+    /**
+     * Set the file change count for a session
+     * @param {string} sessionId
+     * @param {number} count
+     */
+    setSessionFileCount(sessionId, count) {
+      this.sessionFileCounts = {
+        ...this.sessionFileCounts,
+        [sessionId]: count,
       };
     },
 
@@ -163,6 +189,9 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
 
       const { [sessionId]: _th, ...restThinking } = this.partialThinkingBySession;
       this.partialThinkingBySession = restThinking;
+
+      const { [sessionId]: _fc, ...restFileCounts } = this.sessionFileCounts;
+      this.sessionFileCounts = restFileCounts;
     },
 
     /**
