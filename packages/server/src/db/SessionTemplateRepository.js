@@ -58,7 +58,7 @@ export class SessionTemplateRepository extends BaseRepository {
         data.gitBranch || null,
         data.gitMode || null,
         data.model || null,
-        data.mode !== undefined && data.mode !== null ? data.mode : 'yolo',
+        data.mode !== undefined && data.mode !== null ? data.mode : null,
         now,
         now
       );
@@ -93,7 +93,7 @@ export class SessionTemplateRepository extends BaseRepository {
     }
     if (data.gitBranch !== undefined) {
       updates.push('git_branch = ?');
-      values.push(data.gitBranch);
+      values.push(data.gitBranch || null);  // Match create() behavior: empty string -> null
     }
     if (data.gitMode !== undefined) {
       updates.push('git_mode = ?');
