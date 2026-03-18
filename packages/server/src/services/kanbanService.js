@@ -207,10 +207,7 @@ async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
     // Render the template prompt with parent and root session context
     const renderedPrompt = await renderTemplatePrompt(
       template.prompt,
-      session,
-      parentSummary,
-      rootSession,
-      rootSummary
+      { parentSession: session, parentSummary, rootSession, rootSummary }
     );
 
     // Determine settings: use template overrides if set, otherwise inherit from parent session
@@ -353,10 +350,7 @@ async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
     // Render the custom prompt with parent and root session context (same as templates)
     const renderedPrompt = await renderTemplatePrompt(
       lane.onEnterPrompt,
-      session,
-      parentSummary,
-      rootSession,
-      rootSummary
+      { parentSession: session, parentSummary, rootSession, rootSummary }
     );
 
     // Lane overrides take precedence; fall back to parent session's settings

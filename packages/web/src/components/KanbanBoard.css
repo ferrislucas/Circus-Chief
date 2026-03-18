@@ -249,7 +249,7 @@
 .card-move-btn {
   position: absolute;
   top: 0.25rem;
-  right: 2rem;
+  right: 1.75rem;
   background: none;
   border: none;
   color: var(--color-text-soft);
@@ -395,4 +395,52 @@
 .add-lane-cancel {
   background: var(--color-border);
   color: var(--color-text);
+}
+
+/* ==================== Card reorder arrow buttons ==================== */
+
+.card-reorder-arrows {
+  position: absolute;
+  bottom: 0.25rem;
+  right: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.kanban-card:hover .card-reorder-arrows {
+  opacity: 1;
+}
+
+.card-reorder-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  padding: 0.125rem;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.card-reorder-btn:hover {
+  color: var(--color-primary);
+  background: var(--color-bg-soft);
+}
+
+/* ==================== Drag-and-drop indicators ==================== */
+
+.kanban-card.dragging {
+  opacity: 0.4;
+}
+
+.card-drop-indicator {
+  height: 3px;
+  background: var(--color-primary);
+  border-radius: 2px;
+  margin: -0.125rem 0;
 }

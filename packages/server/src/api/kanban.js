@@ -10,6 +10,7 @@ import {
   MoveKanbanCardRequest,
   ReorderKanbanCardsRequest,
 } from '@claudetools/shared/contracts/kanban';
+import { moveCard as moveCardService } from '../services/kanbanService.js';
 
 const router = Router({ mergeParams: true });
 
@@ -251,8 +252,8 @@ router.post('/cards', (req, res) => {
  * PATCH /api/projects/:projectId/kanban/cards/:cardId/move
  * Move card to a different lane
  */
-router.patch('/cards/:cardId/move', (req, res) => {
-  const { projectId, cardId } = req.params;
+router.patch('/cards/:cardId/move', async (req, res) => {
+  const { cardId } = req.params;
 
   const result = MoveKanbanCardRequest.safeParse(req.body);
   if (!result.success) {
@@ -264,8 +265,7 @@ router.patch('/cards/:cardId/move', (req, res) => {
     return res.status(404).json({ error: 'Card not found' });
   }
 
-  const { targetLaneId, sortOrder } = result.data;
-  const fromLaneId = card.laneId;
+  const { targetLaneId, sortOrder, runOnEnterTemplate } = result.data;
 
   // Verify target lane exists
   const targetLane = kanbanLanes.getById(targetLaneId);
@@ -273,20 +273,16 @@ router.patch('/cards/:cardId/move', (req, res) => {
     return res.status(404).json({ error: 'Target lane not found' });
   }
 
-  const movedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
-
-  broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
-    projectId,
-    cardId,
-    fromLaneId,
-    toLaneId: targetLaneId,
-    card: movedCard,
-  });
-
-  // Note: runOnEnterTemplate handling is done in kanbanService, not here in basic route
-  // This route just handles the move. The service layer handles template triggers.
-
-  res.json(movedCard);
+  try {
+    const movedCard = await moveCardService(cardId, targetLaneId, {
+      sortOrder,
+      runOnEnterTemplate,
+    });
+    res.json(movedCard);
+  } catch (error) {
+    console.error('Failed to move kanban card:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 /**
