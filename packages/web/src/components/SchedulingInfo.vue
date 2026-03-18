@@ -32,63 +32,6 @@
     </div>
   </div>
 
-  <!-- Auto-Reschedule Info (for running/waiting sessions with auto-reschedule enabled) -->
-  <div
-    v-else-if="(session.status === 'running' || session.status === 'waiting') && session.autoRescheduleEnabled"
-    class="auto-reschedule-panel"
-  >
-    <div class="info-header">
-      <span class="info-icon">🔄</span>
-      <h3 class="info-title">Auto-Reschedule Enabled</h3>
-      <button @click="showEditModal = true" class="edit-btn" title="Edit settings">
-        ✏️
-      </button>
-    </div>
-
-    <div class="reschedule-grid">
-      <div class="grid-item">
-        <span class="grid-label">Delay:</span>
-        <span class="grid-value">{{ session.rescheduleDelayMinutes }} min</span>
-      </div>
-
-      <div class="grid-item">
-        <span class="grid-label">Attempts:</span>
-        <span class="grid-value">
-          {{ session.rescheduleCount }}/{{ session.maxRescheduleCount || '∞' }}
-        </span>
-      </div>
-
-      <div class="grid-item">
-        <span class="grid-label">Triggers:</span>
-        <div class="triggers-list">
-          <span v-if="session.rescheduleOnTokenLimit" class="trigger-badge">✓ Tokens</span>
-          <span v-if="session.rescheduleOnServiceError" class="trigger-badge">✓ Service</span>
-        </div>
-      </div>
-
-      <div v-if="session.maxTotalTokens" class="grid-item">
-        <span class="grid-label">Token Budget:</span>
-        <span class="grid-value">
-          {{ formatTokenCount(session.inputTokens + session.outputTokens) }} /
-          {{ formatTokenCount(session.maxTotalTokens) }}
-        </span>
-      </div>
-
-      <div v-if="session.rescheduleAtTokenCount" class="grid-item">
-        <span class="grid-label">Soft Threshold:</span>
-        <span class="grid-value">
-          {{ formatTokenCount(session.rescheduleAtTokenCount) }}
-        </span>
-      </div>
-    </div>
-
-    <div v-if="session.status === 'waiting'" class="actions">
-      <button @click="handleDisableReschedule" class="btn btn-secondary">
-        Disable Auto-Reschedule
-      </button>
-    </div>
-  </div>
-
   <!-- Edit Modal for scheduled sessions -->
   <SchedulingEditModal
     v-if="session.status === 'scheduled'"
@@ -98,14 +41,6 @@
     @saved="handleSaved"
   />
 
-  <!-- Edit Modal for non-scheduled sessions (auto-reschedule only) -->
-  <AutoRescheduleModal
-    v-else
-    :is-open="showEditModal"
-    :session="session"
-    @close="showEditModal = false"
-    @saved="handleSaved"
-  />
 </template>
 
 <script setup>
@@ -114,7 +49,6 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import SchedulingEditModal from './SchedulingEditModal.vue';
-import AutoRescheduleModal from './AutoRescheduleModal.vue';
 
 const props = defineProps({
   session: {
@@ -138,11 +72,6 @@ const absoluteTimeDisplay = computed(() => {
   return format(new Date(props.session.scheduledAt), 'EEEE, MMMM d, yyyy h:mm a');
 });
 
-function formatTokenCount(count) {
-  if (!count) return '0';
-  return count.toLocaleString();
-}
-
 async function handleCancelSchedule() {
   if (!confirm('Cancel the scheduled session?')) return;
 
@@ -157,17 +86,6 @@ async function handleCancelSchedule() {
     uiStore.showToast('Failed to cancel schedule: ' + error.message, 'error');
   } finally {
     loading.value = false;
-  }
-}
-
-async function handleDisableReschedule() {
-  try {
-    await sessionsStore.updateSessionFields(props.session.id, {
-      autoRescheduleEnabled: false,
-    });
-    uiStore.showToast('Auto-reschedule disabled', 'success');
-  } catch (error) {
-    uiStore.showToast('Failed to update settings: ' + error.message, 'error');
   }
 }
 
@@ -200,14 +118,6 @@ onUnmounted(() => {
   background: linear-gradient(135deg, rgba(34, 197, 255, 0.1) 0%, rgba(34, 197, 255, 0.05) 100%);
   border: 1px solid rgba(34, 197, 255, 0.3);
   border-left: 4px solid var(--color-primary);
-}
-
-.auto-reschedule-panel {
-  background: linear-gradient(135deg, rgba(34, 197, 255, 0.08) 0%, rgba(34, 197, 255, 0.02) 100%);
-  border: 1px solid rgba(34, 197, 255, 0.2);
-  border-radius: var(--border-radius, 6px);
-  padding: 1.5rem;
-  margin-bottom: 1rem;
 }
 
 .configure-reschedule-panel {
@@ -277,20 +187,6 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--color-text);
   flex: 1;
-}
-
-.edit-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1rem;
-  padding: 0.25rem 0.5rem;
-  border-radius: var(--border-radius, 4px);
-  transition: background 0.2s;
-}
-
-.edit-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
 }
 
 .info-content {
@@ -413,52 +309,6 @@ onUnmounted(() => {
   font-size: 0.85rem;
 }
 
-.reschedule-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  background: var(--color-background, rgba(255, 255, 255, 0.02));
-  padding: 1rem;
-  border-radius: var(--border-radius, 4px);
-  border: 1px solid rgba(34, 197, 255, 0.1);
-}
-
-.grid-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.grid-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--color-text-soft);
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
-
-.grid-value {
-  font-size: 0.95rem;
-  color: var(--color-text);
-  font-weight: 500;
-}
-
-.triggers-list {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.trigger-badge {
-  display: inline-block;
-  padding: 0.25rem 0.5rem;
-  background: rgba(34, 197, 255, 0.2);
-  border-radius: 0.25rem;
-  font-size: 0.8rem;
-  color: #22c5ff;
-  font-weight: 500;
-}
-
 @media (max-width: 640px) {
   .scheduling-info {
     padding: 1rem;
@@ -475,10 +325,6 @@ onUnmounted(() => {
 
   .info-title {
     font-size: 1rem;
-  }
-
-  .reschedule-grid {
-    grid-template-columns: 1fr;
   }
 }
 </style>
