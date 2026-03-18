@@ -87,7 +87,7 @@ export function useSessionInitializer({
       onUsageUpdate, onChangesUpdate,
       onWorkLog, onWorkLogsAssociated,
       onThinkingPartial,
-      onCommandOutput, onCommandComplete, onCommandError,
+      onCommandOutput, onCommandComplete, onCommandError, onCommandRunDeleted,
     } = currentSubscription;
 
     // STEP 2: Subscribe via the subscription object AND await connection
@@ -275,6 +275,13 @@ export function useSessionInitializer({
           runId,
           completedAt: Date.now(),
         });
+      })
+    );
+
+    cleanups.push(
+      onCommandRunDeleted((runId, buttonId) => {
+        commandButtonsStore.clearRun(runId);
+        sessionsStore.removeSessionCommandRun(sessionId, buttonId);
       })
     );
 

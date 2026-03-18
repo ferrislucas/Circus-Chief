@@ -70,6 +70,7 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
         onCommandRunOutput,
         onCommandRunComplete,
         onCommandRunError,
+        onCommandRunDeleted,
       } = useProjectSubscription(newProjectId);
 
       currentUnsubscribe = unsubscribe;
@@ -187,6 +188,14 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
             runId,
             completedAt: Date.now(),
           });
+        })
+      );
+
+      // Handle command run deleted
+      cleanups.push(
+        onCommandRunDeleted((runId, sessionId, buttonId) => {
+          commandButtonsStore.clearRun(runId);
+          sessionsStore.removeSessionCommandRun(sessionId, buttonId);
         })
       );
     },

@@ -464,6 +464,16 @@ export function useSessionSubscription(sessionId) {
     return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);
   };
 
+  const onCommandRunDeleted = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.runId, msg.buttonId);
+      }
+    };
+    on(WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, handler);
+    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, handler);
+  };
+
   const onChangesUpdate = (callback) => {
     const handler = (msg) => {
       if (msg.sessionId === sessionId) {
@@ -502,6 +512,7 @@ export function useSessionSubscription(sessionId) {
     onCommandOutput,
     onCommandComplete,
     onCommandError,
+    onCommandRunDeleted,
     onChangesUpdate,
   };
 }
@@ -648,6 +659,16 @@ export function useProjectSubscription(projectId) {
     return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);
   };
 
+  const onCommandRunDeleted = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) {
+        callback(msg.runId, msg.sessionId, msg.buttonId);
+      }
+    };
+    on(WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, handler);
+    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, handler);
+  };
+
   // Auto-cleanup on unmount
   onUnmounted(() => {
     unsubscribe();
@@ -663,6 +684,7 @@ export function useProjectSubscription(projectId) {
     onCommandRunOutput,
     onCommandRunComplete,
     onCommandRunError,
+    onCommandRunDeleted,
   };
 }
 
