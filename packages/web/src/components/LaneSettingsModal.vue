@@ -265,6 +265,7 @@
 </template>
 
 <script setup>
+/* eslint-disable max-lines */
 import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useTemplatesStore } from '../stores/templates.js';
@@ -342,6 +343,7 @@ const isValid = computed(() => {
   return true;
 });
 
+/* eslint-disable-next-line complexity */
 function resetForm() {
   if (props.lane) {
     form.name = props.lane.name || '';
