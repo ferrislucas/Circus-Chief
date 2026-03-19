@@ -122,6 +122,34 @@ describe('CreateSessionTemplateRequest', () => {
     ).toBe(false);
   });
 
+  it('validates effortLevel enum', () => {
+    for (const level of ['low', 'medium', 'high', 'max', 'auto']) {
+      expect(
+        CreateSessionTemplateRequest.safeParse({
+          name: 'Test',
+          prompt: 'Test',
+          effortLevel: level,
+        }).success
+      ).toBe(true);
+    }
+    expect(
+      CreateSessionTemplateRequest.safeParse({
+        name: 'Test',
+        prompt: 'Test',
+        effortLevel: 'invalid',
+      }).success
+    ).toBe(false);
+  });
+
+  it('allows null effortLevel', () => {
+    const result = CreateSessionTemplateRequest.safeParse({
+      name: 'Test',
+      prompt: 'Test',
+      effortLevel: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
   it('validates nextTemplateId as UUID', () => {
     const result = CreateSessionTemplateRequest.safeParse({
       name: 'Template',
@@ -225,6 +253,31 @@ describe('UpdateSessionTemplateRequest', () => {
       }).success
     ).toBe(false);
   });
+
+  it('validates effortLevel update', () => {
+    const result = UpdateSessionTemplateRequest.safeParse({
+      effortLevel: 'high',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates effortLevel enum in update', () => {
+    for (const level of ['low', 'medium', 'high', 'max', 'auto']) {
+      expect(
+        UpdateSessionTemplateRequest.safeParse({ effortLevel: level }).success
+      ).toBe(true);
+    }
+    expect(
+      UpdateSessionTemplateRequest.safeParse({ effortLevel: 'invalid' }).success
+    ).toBe(false);
+  });
+
+  it('allows null effortLevel in update', () => {
+    const result = UpdateSessionTemplateRequest.safeParse({
+      effortLevel: null,
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe('SessionTemplateResponse', () => {
@@ -239,6 +292,7 @@ describe('SessionTemplateResponse', () => {
     gitMode: null,
     model: null,
     mode: null,
+    effortLevel: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -301,6 +355,14 @@ describe('SessionTemplateResponse', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('validates template with effortLevel set', () => {
+    const result = SessionTemplateResponse.safeParse({
+      ...validTemplate,
+      effortLevel: 'high',
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe('SessionTemplateListResponse', () => {
@@ -322,6 +384,7 @@ describe('SessionTemplateListResponse', () => {
         gitMode: null,
         model: null,
         mode: null,
+        effortLevel: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       },
@@ -336,6 +399,7 @@ describe('SessionTemplateListResponse', () => {
         gitMode: 'branch',
         model: 'claude-sonnet-4-20250514',
         mode: 'plan',
+        effortLevel: 'high',
         createdAt: Date.now(),
         updatedAt: Date.now(),
       },
@@ -367,6 +431,7 @@ describe('AvailableTemplatesResponse', () => {
           gitMode: null,
           model: null,
           mode: null,
+          effortLevel: null,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -391,6 +456,7 @@ describe('AvailableTemplatesResponse', () => {
           gitMode: null,
           model: null,
           mode: null,
+          effortLevel: null,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -411,6 +477,7 @@ describe('AvailableTemplatesResponse', () => {
       gitMode: null,
       model: null,
       mode: null,
+      effortLevel: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
