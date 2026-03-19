@@ -89,15 +89,13 @@ detect_or_start_server() {
                 print_info "Removing stale .server-port and starting a new server..."
                 rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode"
             else
-                # Server belongs to us — check VCR_MODE
-                local vcr_mode_file="$PROJECT_ROOT/.vcr-mode"
-                local server_vcr_mode=""
-                if [ -f "$vcr_mode_file" ]; then
-                    server_vcr_mode=$(cat "$vcr_mode_file")
-                fi
-
-                if [ "${VCR_MODE:-}" != "$server_vcr_mode" ]; then
-                    print_warning "Server VCR_MODE mismatch: server='$server_vcr_mode', needed='${VCR_MODE:-}'. Restarting..."
+                # Server belongs to us - always restart it
+                if [ "$detected_port" = "5000" ]; then
+                    # Never kill port 5000 - just start a new server on a different port
+                    print_warning "Server on port 5000 is protected. Starting on a new port..."
+                    rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode"
+                else
+                    print_info "Restarting server on port $detected_port..."
                     local server_pid
                     server_pid=$(lsof -t -i:"$detected_port" 2>/dev/null)
                     if [ -n "$server_pid" ]; then
@@ -109,11 +107,7 @@ detect_or_start_server() {
                             ((wait_count++))
                         done
                     fi
-                    rm -f "$port_file" "$vcr_mode_file"
-                else
-                    print_success "Server is already running on port $detected_port (VCR_MODE=$server_vcr_mode)"
-                    echo "$detected_port"
-                    return 0
+                    rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode"
                 fi
             fi
         else
