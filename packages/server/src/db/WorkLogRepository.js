@@ -99,6 +99,20 @@ export class WorkLogRepository extends BaseRepository {
   }
 
   /**
+   * Get recent pending (unassociated) work logs for a session.
+   * These are logs from the current turn that haven't been finalized to a message yet.
+   * @param {string} sessionId - Session ID
+   * @param {number} limit - Maximum number of logs to return (default 15)
+   * @returns {Array} Work logs ordered by timestamp DESC, limited
+   */
+  getRecentPendingBySessionId(sessionId, limit = 15) {
+    const rows = this.db
+      .prepare('SELECT * FROM work_logs WHERE session_id = ? AND message_id IS NULL ORDER BY timestamp DESC LIMIT ?')
+      .all(sessionId, limit);
+    return this.mapAll(rows);
+  }
+
+  /**
    * Delete all work logs for a session
    * @param {string} sessionId - Session ID
    */
