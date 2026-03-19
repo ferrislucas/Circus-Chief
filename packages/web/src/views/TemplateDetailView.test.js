@@ -138,13 +138,15 @@ describe('TemplateDetailView - New Form Fields', () => {
 
       // Check mode options
       const options = modeSelect.findAll('option');
-      expect(options.length).toBe(3);
-      expect(options[0].attributes('value')).toBe('plan');
-      expect(options[0].text()).toBe('Plan');
-      expect(options[1].attributes('value')).toBe('standard');
-      expect(options[1].text()).toBe('Standard');
-      expect(options[2].attributes('value')).toBe('yolo');
-      expect(options[2].text()).toBe('YOLO');
+      expect(options.length).toBe(4);
+      expect(options[0].attributes('value')).toBeUndefined(); // null renders as no value attribute
+      expect(options[0].text()).toBe('Inherit from root session');
+      expect(options[1].attributes('value')).toBe('plan');
+      expect(options[1].text()).toBe('Plan');
+      expect(options[2].attributes('value')).toBe('standard');
+      expect(options[2].text()).toBe('Standard');
+      expect(options[3].attributes('value')).toBe('yolo');
+      expect(options[3].text()).toBe('YOLO');
     });
   });
 
@@ -176,7 +178,8 @@ describe('TemplateDetailView - New Form Fields', () => {
       expect(modelSelector.props('modelValue')).toBeNull();
 
       const modeSelect = wrapper.find('#mode');
-      expect(modeSelect.element.value).toBe('yolo');
+      // When null is selected, element.value is the text of the first option
+      expect(modeSelect.element.value).toBe('Inherit from root session');
     });
   });
 
