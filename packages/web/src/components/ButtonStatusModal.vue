@@ -56,6 +56,10 @@
               <span class="detail-value">{{ latestRun.exitCode ?? 'N/A' }}</span>
             </div>
             <div class="detail-row">
+              <span class="detail-label">Started:</span>
+              <span class="detail-value">{{ formatTime(latestRun.startedAt) }}</span>
+            </div>
+            <div class="detail-row">
               <span class="detail-label">Completed:</span>
               <span class="detail-value">{{ formatTime(latestRun.completedAt) }}</span>
             </div>
@@ -76,6 +80,10 @@
               <span class="detail-value">{{ latestRun.exitCode ?? 'N/A' }}</span>
             </div>
             <div class="detail-row">
+              <span class="detail-label">Started:</span>
+              <span class="detail-value">{{ formatTime(latestRun.startedAt) }}</span>
+            </div>
+            <div class="detail-row">
               <span class="detail-label">Failed:</span>
               <span class="detail-value">{{ formatTime(latestRun.completedAt) }}</span>
             </div>
@@ -83,6 +91,26 @@
               <span class="detail-label">Run ID:</span>
               <span class="detail-value monospace">{{ latestRun.runId }}</span>
             </div>
+          </div>
+        </div>
+
+        <!-- Output Section (collapsible) -->
+        <div v-if="latestRun && latestRun.output" class="output-section">
+          <div class="output-header" @click="showOutput = !showOutput" data-testid="output-header">
+            <span class="expand-icon">{{ showOutput ? '▼' : '▶' }}</span>
+            <span class="output-label">Process Output</span>
+          </div>
+
+          <div v-if="showOutput" class="output-content" data-testid="output-content">
+            <div v-if="outputIsTruncatedForDisplay" class="output-truncated" data-testid="output-truncated">
+              ↑ Showing last 200 lines of output
+            </div>
+            <div
+              ref="outputContainerRef"
+              class="output-text"
+              v-html="formattedOutput || '(no output)'"
+              data-testid="output-text"
+            ></div>
           </div>
         </div>
       </div>
@@ -120,6 +148,7 @@
 
 <script setup>
 import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ansiToHtml } from '../utils/ansi.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 
 const commandButtonsStore = useCommandButtonsStore();
@@ -149,6 +178,43 @@ const elapsedTime = ref('0:00');
 const showConfirmation = ref(false);
 const deleting = ref(false);
 let timerInterval = null;
+
+// Output section state
+const showOutput = ref(false);
+const formattedOutput = ref('');
+const outputIsTruncatedForDisplay = ref(false);
+const outputContainerRef = ref(null);
+const DISPLAY_LINE_LIMIT = 200;
+
+const updateFormattedOutput = () => {
+  const output = props.latestRun?.output || '';
+  if (!output) {
+    formattedOutput.value = '';
+    outputIsTruncatedForDisplay.value = false;
+    return;
+  }
+
+  const lines = output.split('\n');
+  if (lines.length > DISPLAY_LINE_LIMIT) {
+    outputIsTruncatedForDisplay.value = true;
+    const displayOutput = lines.slice(-DISPLAY_LINE_LIMIT).join('\n');
+    formattedOutput.value = ansiToHtml(displayOutput);
+  } else {
+    outputIsTruncatedForDisplay.value = false;
+    formattedOutput.value = ansiToHtml(output);
+  }
+};
+
+// Simple debounce for output updates
+const debounce = (fn, delay) => {
+  let timeoutId;
+  return (...args) => {
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => fn(...args), delay);
+  };
+};
+
+const debouncedUpdateOutput = debounce(updateFormattedOutput, 250);
 
 const canRemoveRun = computed(() => {
   return props.latestRun && props.latestRun.status !== 'running';
@@ -260,6 +326,22 @@ watch(
   }
 );
 
+// Watch for output changes and update formatted output
+let isFirstOutputUpdate = true;
+watch(
+  () => props.latestRun?.output,
+  () => {
+    // Call immediately on first update to avoid delay, debounce subsequent updates
+    if (isFirstOutputUpdate) {
+      isFirstOutputUpdate = false;
+      updateFormattedOutput();
+    } else {
+      debouncedUpdateOutput();
+    }
+  },
+  { immediate: true }
+);
+
 onMounted(() => {
   if (props.isOpen && props.latestRun?.status === 'running') {
     startTimer();
@@ -289,7 +371,7 @@ onBeforeUnmount(() => {
   background-color: var(--color-background-soft);
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
-  max-width: 400px;
+  max-width: 600px;
   width: 90%;
   overflow: hidden;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
@@ -523,5 +605,71 @@ onBeforeUnmount(() => {
 .btn-secondary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.output-section {
+  margin-top: 1rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 1rem;
+}
+
+.output-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.output-header:hover {
+  background-color: rgba(0, 0, 0, 0.3);
+}
+
+.expand-icon {
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+  transition: transform 0.2s;
+}
+
+.output-label {
+  font-weight: 600;
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.output-content {
+  margin-top: 0.5rem;
+  max-height: 400px;
+  overflow-y: auto;
+  background-color: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  padding: 0.75rem;
+}
+
+.output-truncated {
+  padding: 0.5rem;
+  background-color: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 4px;
+  color: #60a5fa;
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.output-text {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Consolas', monospace;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text);
+}
+
+.output-text :deep(span) {
+  display: inline;
 }
 </style>

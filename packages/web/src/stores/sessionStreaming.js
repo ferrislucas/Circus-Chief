@@ -100,16 +100,15 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
 
     /**
      * Set partial thinking content for streaming display (per-session).
-     * Ignores null/empty updates to keep the last visible thinking.
+     * Empty/null/falsy values clear the thinking (set to null).
      * @param {string} thinking - The thinking content
      * @param {string} sessionId - Session ID
      */
     setPartialThinking(thinking, sessionId) {
       if (!sessionId) return;
-      if (!thinking) return;
       this.partialThinkingBySession = {
         ...this.partialThinkingBySession,
-        [sessionId]: thinking,
+        [sessionId]: thinking || null,
       };
     },
 
@@ -152,15 +151,14 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
 
     /**
      * Set partial text for a session (list view).
-     * Ignores empty-string updates to keep the last visible text.
+     * Empty/null/falsy values clear the text (set to '').
      * @param {string} sessionId
      * @param {string} text
      */
     setSessionPartialText(sessionId, text) {
-      if (!text) return;
       this.sessionPartialText = {
         ...this.sessionPartialText,
-        [sessionId]: text,
+        [sessionId]: text || '',
       };
     },
 
@@ -174,6 +172,31 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
         ...this.sessionFileCounts,
         [sessionId]: count,
       };
+    },
+
+    /**
+     * Hydrate streaming state from a REST snapshot (used when subscribing to a running session).
+     * Only populates if the store doesn't already have data for that session,
+     * to avoid overwriting more recent WebSocket data.
+     * @param {string} sessionId
+     * @param {{ workLogs?: Array, partialText?: string, thinking?: string|null }} snapshot
+     */
+    hydrateSessionState(sessionId, { workLogs, partialText, thinking } = {}) {
+      if (!this.sessionWorkLogs[sessionId]?.length) {
+        if (workLogs?.length) {
+          this.sessionWorkLogs = { ...this.sessionWorkLogs, [sessionId]: workLogs };
+        }
+      }
+      if (!this.sessionPartialText[sessionId]) {
+        if (partialText) {
+          this.sessionPartialText = { ...this.sessionPartialText, [sessionId]: partialText };
+        }
+      }
+      if (!this.partialThinkingBySession[sessionId]) {
+        if (thinking) {
+          this.partialThinkingBySession = { ...this.partialThinkingBySession, [sessionId]: thinking };
+        }
+      }
     },
 
     /**
