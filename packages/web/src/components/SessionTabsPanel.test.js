@@ -146,6 +146,28 @@ describe('SessionTabsPanel', () => {
       expect(option.text()).toContain('...');
     });
 
+    it('shows loading spinner when isSessionActive is true in mobile', () => {
+      const wrapper = mountPanel({ isSessionActive: true });
+      expect(wrapper.find('.tabs-mobile .loading-spinner').exists()).toBe(true);
+    });
+
+    it('hides loading spinner when isSessionActive is false in mobile', () => {
+      const wrapper = mountPanel({ isSessionActive: false });
+      expect(wrapper.find('.tabs-mobile .loading-spinner').exists()).toBe(false);
+    });
+
+    it('shows "Session running..." tooltip when status is running', () => {
+      const wrapper = mountPanel({ isSessionActive: true, sessionStatus: 'running' });
+      const spinner = wrapper.find('.tabs-mobile .loading-spinner');
+      expect(spinner.attributes('title')).toBe('Session running...');
+    });
+
+    it('shows "Session starting..." tooltip when status is starting', () => {
+      const wrapper = mountPanel({ isSessionActive: true, sessionStatus: 'starting' });
+      const spinner = wrapper.find('.tabs-mobile .loading-spinner');
+      expect(spinner.attributes('title')).toBe('Session starting...');
+    });
+
     it('navigates when mobile select changes', async () => {
       const pushSpy = vi.spyOn(router, 'push');
       const wrapper = mountPanel();
