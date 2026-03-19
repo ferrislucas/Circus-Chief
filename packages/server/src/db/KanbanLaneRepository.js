@@ -112,68 +112,44 @@ export class KanbanLaneRepository extends BaseRepository {
    * @returns {Object}
    */
   update(id, data) {
+    // Field mapping: camelCase -> snake_case
+    const fieldMap = {
+      name: 'name',
+      sortOrder: 'sort_order',
+      onEnterTemplateId: 'on_enter_template_id',
+      onEnterPrompt: 'on_enter_prompt',
+      onEnterMode: 'on_enter_mode',
+      onEnterModel: 'on_enter_model',
+      onEnterEffortLevel: 'on_enter_effort_level',
+      onEnterThinkingEnabled: 'on_enter_thinking_enabled',
+      onEnterAutoRescheduleEnabled: 'on_enter_auto_reschedule_enabled',
+      onEnterRescheduleDelayMinutes: 'on_enter_reschedule_delay_minutes',
+      onEnterRescheduleOnTokenLimit: 'on_enter_reschedule_on_token_limit',
+      onEnterRescheduleOnServiceError: 'on_enter_reschedule_on_service_error',
+      onEnterMaxRescheduleCount: 'on_enter_max_reschedule_count',
+      onEnterMaxTotalTokens: 'on_enter_max_total_tokens',
+      onEnterRescheduleAtTokenCount: 'on_enter_reschedule_at_token_count',
+    };
+
     const updates = [];
     const values = [];
 
-    if (data.name !== undefined) {
-      updates.push('name = ?');
-      values.push(data.name);
-    }
-    if (data.sortOrder !== undefined) {
-      updates.push('sort_order = ?');
-      values.push(data.sortOrder);
-    }
-    if (data.onEnterTemplateId !== undefined) {
-      updates.push('on_enter_template_id = ?');
-      values.push(data.onEnterTemplateId);
-    }
-    if (data.onEnterPrompt !== undefined) {
-      updates.push('on_enter_prompt = ?');
-      values.push(data.onEnterPrompt);
-    }
-    if (data.onEnterMode !== undefined) {
-      updates.push('on_enter_mode = ?');
-      values.push(data.onEnterMode);
-    }
-    if (data.onEnterModel !== undefined) {
-      updates.push('on_enter_model = ?');
-      values.push(data.onEnterModel);
-    }
-    if (data.onEnterEffortLevel !== undefined) {
-      updates.push('on_enter_effort_level = ?');
-      values.push(data.onEnterEffortLevel);
-    }
-    if (data.onEnterThinkingEnabled !== undefined) {
-      updates.push('on_enter_thinking_enabled = ?');
-      values.push(data.onEnterThinkingEnabled === null ? null : (data.onEnterThinkingEnabled ? 1 : 0));
-    }
-    if (data.onEnterAutoRescheduleEnabled !== undefined) {
-      updates.push('on_enter_auto_reschedule_enabled = ?');
-      values.push(data.onEnterAutoRescheduleEnabled ? 1 : 0);
-    }
-    if (data.onEnterRescheduleDelayMinutes !== undefined) {
-      updates.push('on_enter_reschedule_delay_minutes = ?');
-      values.push(data.onEnterRescheduleDelayMinutes);
-    }
-    if (data.onEnterRescheduleOnTokenLimit !== undefined) {
-      updates.push('on_enter_reschedule_on_token_limit = ?');
-      values.push(data.onEnterRescheduleOnTokenLimit ? 1 : 0);
-    }
-    if (data.onEnterRescheduleOnServiceError !== undefined) {
-      updates.push('on_enter_reschedule_on_service_error = ?');
-      values.push(data.onEnterRescheduleOnServiceError ? 1 : 0);
-    }
-    if (data.onEnterMaxRescheduleCount !== undefined) {
-      updates.push('on_enter_max_reschedule_count = ?');
-      values.push(data.onEnterMaxRescheduleCount);
-    }
-    if (data.onEnterMaxTotalTokens !== undefined) {
-      updates.push('on_enter_max_total_tokens = ?');
-      values.push(data.onEnterMaxTotalTokens);
-    }
-    if (data.onEnterRescheduleAtTokenCount !== undefined) {
-      updates.push('on_enter_reschedule_at_token_count = ?');
-      values.push(data.onEnterRescheduleAtTokenCount);
+    // Build update clauses dynamically
+    for (const [camelKey, snakeKey] of Object.entries(fieldMap)) {
+      if (data[camelKey] !== undefined) {
+        updates.push(`${snakeKey} = ?`);
+
+        // Handle boolean conversions for specific fields
+        if (camelKey === 'onEnterThinkingEnabled') {
+          values.push(data[camelKey] === null ? null : (data[camelKey] ? 1 : 0));
+        } else if (camelKey === 'onEnterAutoRescheduleEnabled' ||
+                   camelKey === 'onEnterRescheduleOnTokenLimit' ||
+                   camelKey === 'onEnterRescheduleOnServiceError') {
+          values.push(data[camelKey] ? 1 : 0);
+        } else {
+          values.push(data[camelKey]);
+        }
+      }
     }
 
     if (updates.length === 0) return this.getById(id);
