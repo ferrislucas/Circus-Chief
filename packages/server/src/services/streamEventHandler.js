@@ -783,7 +783,7 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
  * Encapsulates the duplicated error handling block from runSession/continueSession/continueSessionWithExistingMessage
  * @param {string} sessionId
  * @param {Error} error
- * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, cleanupConversationId?: boolean }} options
+ * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function }} options
  */
 export async function handleSessionError(sessionId, error, options = {}) {
   const { controller, shouldRescheduleOnError, schedulerService } = options;
@@ -826,6 +826,17 @@ export async function handleSessionError(sessionId, error, options = {}) {
     summaryService.extractPrUrlIfNeeded(sessionId);
     // Trigger summary generation on error
     summaryService.onSessionComplete(sessionId);
+
+    // Trigger next template if configured (e.g., session completed work but process exited with error code)
+    // Wrapped in try/catch because we are already in the error path — a template failure
+    // must not mask the original error or prevent handleSessionError from returning.
+    if (options.handleTemplateTriggerIfNeeded) {
+      try {
+        await options.handleTemplateTriggerIfNeeded(sessionId);
+      } catch (templateError) {
+        console.error(`[handleSessionError] Template trigger failed for session ${sessionId}:`, templateError);
+      }
+    }
   }
   return false; // Not rescheduled
 }
