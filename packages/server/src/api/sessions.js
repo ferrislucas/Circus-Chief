@@ -16,6 +16,7 @@ import { duplicateSession } from '../services/sessionDuplicator.js';
 import * as slashCommandService from '../services/slashCommandService.js';
 import { validateDraftSession, startDraft, DraftSessionError } from '../services/draftSessionService.js';
 import { configureSchedule, ScheduleError } from '../services/scheduleService.js';
+import { textAccumulators, thinkingAccumulators } from '../services/streamEventHandler.js';
 
 // Import sub-routers
 import notesRouter from './sessions-notes.js';
@@ -306,6 +307,21 @@ router.get('/:id/work-logs', requireSession, (req, res) => {
   // Return work logs grouped by message ID
   const grouped = workLogs.getBySessionIdGrouped(req.params.id);
   res.json(grouped);
+});
+
+// GET /api/sessions/:id/streaming-state - Get current streaming snapshot for a running session
+// Returns recent pending work logs, accumulated partial text, and thinking
+router.get('/:id/streaming-state', requireSession, (req, res) => {
+  const sessionId = req.params.id;
+  const pendingWorkLogs = workLogs.getRecentPendingBySessionId(sessionId);
+  const partialText = textAccumulators.get(sessionId) || '';
+  const thinking = thinkingAccumulators.get(sessionId) || null;
+
+  res.json({
+    workLogs: pendingWorkLogs,
+    partialText,
+    thinking,
+  });
 });
 
 // POST /api/sessions/:id/work-logs - Create work log (for testing)

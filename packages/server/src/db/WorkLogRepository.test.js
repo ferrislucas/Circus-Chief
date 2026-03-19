@@ -192,6 +192,69 @@ describe('WorkLogRepository', () => {
     });
   });
 
+  describe('getRecentPendingBySessionId', () => {
+    it('returns only work logs with message_id IS NULL', () => {
+      repo.create(sessionId, 'thinking', 'Pending 1');
+      repo.create(sessionId, 'thinking', 'Pending 2');
+      repo.create(sessionId, 'thinking', 'Associated', { messageId });
+
+      const pending = repo.getRecentPendingBySessionId(sessionId);
+      expect(pending).toHaveLength(2);
+      expect(pending.every(l => l.messageId === null)).toBe(true);
+    });
+
+    it('does not return work logs that have a message_id set', () => {
+      repo.create(sessionId, 'thinking', 'Associated 1', { messageId });
+      repo.create(sessionId, 'thinking', 'Associated 2', { messageId });
+
+      const pending = repo.getRecentPendingBySessionId(sessionId);
+      expect(pending).toEqual([]);
+    });
+
+    it('respects the limit parameter', () => {
+      for (let i = 0; i < 20; i++) {
+        repo.create(sessionId, 'thinking', `Pending ${i}`);
+      }
+
+      const pending = repo.getRecentPendingBySessionId(sessionId);
+      expect(pending).toHaveLength(15); // default limit
+    });
+
+    it('returns results ordered by timestamp DESC (newest first)', () => {
+      // Insert logs with explicit different timestamps to ensure ordering
+      const db = databaseManager.get();
+      const baseTime = Date.now();
+      const ids = [databaseManager.generateId(), databaseManager.generateId(), databaseManager.generateId()];
+
+      db.prepare('INSERT INTO work_logs (id, session_id, message_id, type, tool_name, content, timestamp) VALUES (?, ?, NULL, ?, NULL, ?, ?)').run(ids[0], sessionId, 'thinking', 'First', baseTime);
+      db.prepare('INSERT INTO work_logs (id, session_id, message_id, type, tool_name, content, timestamp) VALUES (?, ?, NULL, ?, NULL, ?, ?)').run(ids[1], sessionId, 'thinking', 'Second', baseTime + 1000);
+      db.prepare('INSERT INTO work_logs (id, session_id, message_id, type, tool_name, content, timestamp) VALUES (?, ?, NULL, ?, NULL, ?, ?)').run(ids[2], sessionId, 'thinking', 'Third', baseTime + 2000);
+
+      const pending = repo.getRecentPendingBySessionId(sessionId);
+      // Newest first
+      expect(pending[0].content).toBe('Third');
+      expect(pending[1].content).toBe('Second');
+      expect(pending[2].content).toBe('First');
+    });
+
+    it('returns empty array when all logs are associated with messages', () => {
+      repo.create(sessionId, 'thinking', 'Log 1', { messageId });
+      repo.create(sessionId, 'thinking', 'Log 2', { messageId });
+
+      const pending = repo.getRecentPendingBySessionId(sessionId);
+      expect(pending).toEqual([]);
+    });
+
+    it('allows custom limit', () => {
+      for (let i = 0; i < 10; i++) {
+        repo.create(sessionId, 'thinking', `Pending ${i}`);
+      }
+
+      const pending = repo.getRecentPendingBySessionId(sessionId, 3);
+      expect(pending).toHaveLength(3);
+    });
+  });
+
   describe('deleteBySessionId', () => {
     it('deletes all logs for a session', () => {
       repo.create(sessionId, 'thinking', 'Log 1');
