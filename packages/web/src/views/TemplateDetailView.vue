@@ -40,9 +40,7 @@
             rows="6"
             required
           ></textarea>
-          <p class="form-help">
-            Available variables: <code v-pre>{{parentSession.summary}}</code>, <code v-pre>{{parentSession.status}}</code>, <code v-pre>{{parentSession.name}}</code>, <code v-pre>{{rootSession.id}}</code>, <code v-pre>{{rootSession.name}}</code>, <code v-pre>{{rootSession.summary}}</code>, <code v-pre>{{rootSession.status}}</code>
-          </p>
+          <InterpolationHelp />
         </div>
 
         <!-- Next Template Field -->
@@ -146,6 +144,7 @@ import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
 import { api } from '../api/index.js';
 import ModelSelector from '../components/ModelSelector.vue';
+import InterpolationHelp from '../components/InterpolationHelp.vue';
 
 const route = useRoute();
 const router = useRouter();

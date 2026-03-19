@@ -55,10 +55,15 @@ vi.mock('./usageTracker.js', () => ({
   estimateTokens: vi.fn(),
 }));
 
+vi.mock('./kanbanService.js', () => ({
+  handleTurnCompletion: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { sessions, workLogs, conversations } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import * as summaryService from './summaryService.js';
 import * as diffService from './diffService.js';
+import * as kanbanService from './kanbanService.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import {
   createWorkLog,
@@ -429,6 +434,44 @@ describe('streamEventHandler', () => {
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
     });
 
+    it('calls kanbanService.handleTurnCompletion with sessionId', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+
+      expect(kanbanService.handleTurnCompletion).toHaveBeenCalledWith('sess-1');
+    });
+
+    it('does not call kanbanService.handleTurnCompletion when session was aborted', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: true } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn();
+
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+
+      expect(kanbanService.handleTurnCompletion).not.toHaveBeenCalled();
+    });
+
+    it('does not call kanbanService.handleTurnCompletion when rescheduled', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(true);
+      const mockHandleTemplate = vi.fn();
+
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+
+      expect(kanbanService.handleTurnCompletion).not.toHaveBeenCalled();
+    });
+
     it('skips template trigger when auto-send fires', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
@@ -735,6 +778,156 @@ describe('streamEventHandler', () => {
       expect(result).toBe(true);
       expect(summaryService.extractPrUrlIfNeeded).not.toHaveBeenCalled();
       expect(summaryService.onSessionComplete).not.toHaveBeenCalled();
+    });
+
+    it('calls handleTemplateTriggerIfNeeded when session errors (not rescheduled)', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('Process exited with code 1');
+      sessions.getById.mockReturnValue({ autoRescheduleEnabled: false });
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(false);
+      const mockScheduler = { rescheduleSession: vi.fn() };
+      const mockTemplateTrigger = vi.fn().mockResolvedValue(undefined);
+
+      await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
+        handleTemplateTriggerIfNeeded: mockTemplateTrigger,
+      });
+
+      expect(mockTemplateTrigger).toHaveBeenCalledWith('sess-1');
+    });
+
+    it('does not call handleTemplateTriggerIfNeeded when session is rescheduled', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('token limit exceeded');
+      const mockSession = { autoRescheduleEnabled: true, rescheduleOnTokenLimit: true };
+      sessions.getById.mockReturnValue(mockSession);
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(true);
+      const mockScheduler = { rescheduleSession: vi.fn().mockResolvedValue(true) };
+      const mockTemplateTrigger = vi.fn().mockResolvedValue(undefined);
+
+      const result = await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
+        handleTemplateTriggerIfNeeded: mockTemplateTrigger,
+      });
+
+      expect(result).toBe(true);
+      expect(mockTemplateTrigger).not.toHaveBeenCalled();
+    });
+
+    it('does not call handleTemplateTriggerIfNeeded when controller is aborted', async () => {
+      const controller = { signal: { aborted: true } };
+      const error = new Error('Aborted');
+
+      const mockShouldReschedule = vi.fn();
+      const mockScheduler = { rescheduleSession: vi.fn() };
+      const mockTemplateTrigger = vi.fn().mockResolvedValue(undefined);
+
+      await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
+        handleTemplateTriggerIfNeeded: mockTemplateTrigger,
+      });
+
+      expect(mockTemplateTrigger).not.toHaveBeenCalled();
+    });
+
+    it('calls handleTemplateTriggerIfNeeded when reschedule was attempted but failed (limits reached)', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('token limit exceeded');
+      const mockSession = { autoRescheduleEnabled: true, rescheduleOnTokenLimit: true };
+      sessions.getById.mockReturnValue(mockSession);
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(true);
+      const mockScheduler = { rescheduleSession: vi.fn().mockResolvedValue(false) };
+      const mockTemplateTrigger = vi.fn().mockResolvedValue(undefined);
+
+      await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
+        handleTemplateTriggerIfNeeded: mockTemplateTrigger,
+      });
+
+      expect(mockTemplateTrigger).toHaveBeenCalledWith('sess-1');
+    });
+
+    it('calls handleTemplateTriggerIfNeeded after both extractPrUrlIfNeeded and onSessionComplete', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('Process exited with code 1');
+      sessions.getById.mockReturnValue({ autoRescheduleEnabled: false });
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(false);
+      const mockScheduler = { rescheduleSession: vi.fn() };
+      const mockTemplateTrigger = vi.fn().mockResolvedValue(undefined);
+
+      await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
+        handleTemplateTriggerIfNeeded: mockTemplateTrigger,
+      });
+
+      // Verify invocation order: extractPrUrlIfNeeded < onSessionComplete < handleTemplateTriggerIfNeeded
+      expect(summaryService.extractPrUrlIfNeeded.mock.invocationCallOrder[0]).toBeLessThan(
+        summaryService.onSessionComplete.mock.invocationCallOrder[0]
+      );
+      expect(summaryService.onSessionComplete.mock.invocationCallOrder[0]).toBeLessThan(
+        mockTemplateTrigger.mock.invocationCallOrder[0]
+      );
+    });
+
+    it('handles missing handleTemplateTriggerIfNeeded gracefully', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('Failed');
+      sessions.getById.mockReturnValue({ autoRescheduleEnabled: false });
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(false);
+      const mockScheduler = { rescheduleSession: vi.fn() };
+
+      // Do NOT pass handleTemplateTriggerIfNeeded
+      const result = await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
+      });
+
+      expect(result).toBe(false);
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: error.message });
+    });
+
+    it('catches and logs errors from handleTemplateTriggerIfNeeded without rethrowing', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('Original error');
+      sessions.getById.mockReturnValue({ autoRescheduleEnabled: false });
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(false);
+      const mockScheduler = { rescheduleSession: vi.fn() };
+      const mockTemplateTrigger = vi.fn().mockRejectedValue(new Error('template boom'));
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const result = await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
+        handleTemplateTriggerIfNeeded: mockTemplateTrigger,
+      });
+
+      expect(result).toBe(false);
+      // sessions.update should have been called with the original error (before template trigger)
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'Original error' });
+      // console.error should have been called with the template error
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[handleSessionError] Template trigger failed for session sess-1:'),
+        expect.any(Error)
+      );
+      consoleSpy.mockRestore();
     });
   });
 

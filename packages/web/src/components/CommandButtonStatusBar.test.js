@@ -171,4 +171,32 @@ describe('CommandButtonStatusBar', () => {
     expect(modal.exists()).toBe(true);
     expect(modal.props('button')).toEqual({ label: 'Build', command: 'npm run build' });
   });
+
+  it('passes sessionId prop to ButtonStatusModal', async () => {
+    const buttonStatuses = [
+      {
+        buttonId: 'btn-1',
+        label: 'Build',
+        command: 'npm run build',
+        status: 'success',
+        latestRun: { runId: 'run-1', status: 'success', exitCode: 0 },
+      },
+    ];
+
+    const wrapper = mount(CommandButtonStatusBar, {
+      props: { buttonStatuses, sessionId: 'session-abc' },
+      global: {
+        stubs: {
+          ButtonStatusModal: true,
+        },
+      },
+    });
+
+    const indicator = wrapper.find('.button-status-indicator');
+    await indicator.trigger('click');
+
+    const modal = wrapper.findComponent({ name: 'ButtonStatusModal' });
+    expect(modal.exists()).toBe(true);
+    expect(modal.props('sessionId')).toBe('session-abc');
+  });
 });

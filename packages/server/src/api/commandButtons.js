@@ -278,6 +278,42 @@ router.get('/runs/:runId', (req, res) => {
   });
 });
 
+// DELETE /api/sessions/:sessionId/command-buttons/runs/:runId - Delete a command run record
+router.delete('/runs/:runId', (req, res) => {
+  const { sessionId, runId } = req.params;
+
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const run = commandRuns.getById(runId);
+  if (!run || run.sessionId !== sessionId) {
+    return res.status(404).json({ error: 'Run not found' });
+  }
+
+  if (commandRunner.isRunning(runId)) {
+    return res.status(409).json({ error: 'Cannot delete a running command. Kill it first.' });
+  }
+
+  commandRuns.deleteById(runId);
+
+  // Broadcast deletion to session and project subscribers
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, {
+    runId,
+    buttonId: run.buttonId,
+    sessionId,
+  });
+  broadcastToProject(session.projectId, WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, {
+    runId,
+    buttonId: run.buttonId,
+    sessionId,
+    projectId: session.projectId,
+  });
+
+  res.status(204).send();
+});
+
 // POST /api/sessions/:sessionId/command-buttons/runs/:runId/kill - Kill running command
 router.post('/runs/:runId/kill', (req, res) => {
   const { sessionId, runId } = req.params;

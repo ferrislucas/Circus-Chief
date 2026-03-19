@@ -224,6 +224,7 @@ async function _executeSession({
       schedulerService,
       broadcastConversationState: broadcastConversationStateOnError,
       errorLabel,
+      handleTemplateTriggerIfNeeded,
     });
     if (rescheduled) {
       return; // Don't throw - session was rescheduled

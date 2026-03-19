@@ -23,6 +23,9 @@ export {
   ModelProviderRepository,
   SettingsRepository,
   AgentCallLogRepository,
+  KanbanBoardRepository,
+  KanbanLaneRepository,
+  KanbanCardRepository,
   // Singleton instances
   databaseManager,
   projects,
@@ -43,6 +46,9 @@ export {
   modelProviders,
   settings,
   agentCallLogs,
+  kanbanBoards,
+  kanbanLanes,
+  kanbanCards,
   // Legacy functions
   initDatabase,
   getDatabase,

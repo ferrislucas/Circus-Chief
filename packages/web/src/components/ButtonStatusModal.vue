@@ -115,7 +115,31 @@
         </div>
       </div>
 
-      <div class="modal-footer">
+      <div class="modal-footer" :class="{ 'modal-footer-spaced': canRemoveRun }">
+        <div v-if="canRemoveRun" class="remove-run-area">
+          <template v-if="!showConfirmation">
+            <button
+              class="btn btn-danger"
+              data-testid="remove-run-button"
+              @click="showConfirmation = true"
+            >Remove Run</button>
+          </template>
+          <template v-else>
+            <span class="confirm-text">Are you sure?</span>
+            <button
+              class="btn btn-danger"
+              data-testid="confirm-remove-button"
+              :disabled="deleting"
+              @click="handleRemoveRun"
+            >{{ deleting ? 'Removing...' : 'Confirm' }}</button>
+            <button
+              class="btn btn-secondary"
+              data-testid="cancel-remove-button"
+              :disabled="deleting"
+              @click="showConfirmation = false"
+            >Cancel</button>
+          </template>
+        </div>
         <button class="btn btn-primary" @click="close">Close</button>
       </div>
     </div>
@@ -125,6 +149,9 @@
 <script setup>
 import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import { ansiToHtml } from '../utils/ansi.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
+
+const commandButtonsStore = useCommandButtonsStore();
 
 const props = defineProps({
   button: {
@@ -139,11 +166,17 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  sessionId: {
+    type: String,
+    default: '',
+  },
 });
 
 const emit = defineEmits(['close']);
 
 const elapsedTime = ref('0:00');
+const showConfirmation = ref(false);
+const deleting = ref(false);
 let timerInterval = null;
 
 // Output section state
@@ -182,6 +215,10 @@ const debounce = (fn, delay) => {
 };
 
 const debouncedUpdateOutput = debounce(updateFormattedOutput, 250);
+
+const canRemoveRun = computed(() => {
+  return props.latestRun && props.latestRun.status !== 'running';
+});
 
 const statusDisplay = computed(() => {
   if (!props.latestRun) {
@@ -252,6 +289,19 @@ const stopTimer = () => {
 
 const close = () => {
   emit('close');
+};
+
+const handleRemoveRun = async () => {
+  deleting.value = true;
+  try {
+    await commandButtonsStore.deleteRun(props.sessionId, props.latestRun.runId);
+    emit('close');
+  } catch (err) {
+    console.error('Failed to remove run:', err);
+  } finally {
+    deleting.value = false;
+    showConfirmation.value = false;
+  }
 };
 
 watch(
@@ -486,6 +536,22 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--color-border);
   display: flex;
   justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.modal-footer-spaced {
+  justify-content: space-between;
+}
+
+.remove-run-area {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.confirm-text {
+  font-size: 0.85rem;
+  color: var(--color-text-soft);
 }
 
 .btn {
@@ -509,6 +575,36 @@ onBeforeUnmount(() => {
 
 .btn-primary:active {
   opacity: 0.9;
+}
+
+.btn-danger {
+  background-color: rgba(248, 81, 73, 0.2);
+  color: #f85149;
+  border-color: rgba(248, 81, 73, 0.4);
+}
+
+.btn-danger:hover {
+  background-color: rgba(248, 81, 73, 0.3);
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background-color: rgba(75, 85, 99, 0.3);
+  color: var(--color-text-soft);
+  border-color: rgba(75, 85, 99, 0.5);
+}
+
+.btn-secondary:hover {
+  background-color: rgba(75, 85, 99, 0.4);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .output-section {

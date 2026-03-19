@@ -120,3 +120,48 @@ export const CLAUDE_MODELS = [
   { id: 'claude-opus-4-6', name: 'Opus 4.6', description: 'Most capable (default)' },
 ];
 export const DEFAULT_MODEL = 'claude-opus-4-6';
+
+/**
+ * @typedef {Object} KanbanBoard
+ * @property {string} id
+ * @property {string} projectId
+ * @property {KanbanLane[]} lanes
+ * @property {number} createdAt
+ * @property {number} updatedAt
+ */
+
+/**
+ * @typedef {Object} KanbanLane
+ * @property {string} id
+ * @property {string} boardId
+ * @property {string} name
+ * @property {number} sortOrder
+ * @property {string|null} onEnterTemplateId
+ * @property {number} createdAt
+ * @property {number} updatedAt
+ */
+
+/**
+ * @typedef {Object} KanbanCard
+ * @property {string} id
+ * @property {string} laneId
+ * @property {number} sortOrder
+ * @property {KanbanCardSession[]} sessions
+ * @property {number} createdAt
+ * @property {number} updatedAt
+ */
+
+/**
+ * @typedef {Object} KanbanCardSession
+ * @property {string} id
+ * @property {string} name
+ * @property {SessionStatus} status
+ * @property {SessionMode} [mode]
+ * @property {number} [costUsd]
+ * @property {boolean} [starred]
+ * @property {string|null} [prUrl]
+ * @property {number} createdAt
+ * @property {number} updatedAt
+ */
+
+export const DEFAULT_KANBAN_LANES = ['To Do', 'In Progress', 'Review', 'Done'];
