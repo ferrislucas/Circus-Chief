@@ -181,7 +181,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       expect(modeLabel).toContain('Mode');
     });
 
-    it('renders all three mode options', () => {
+    it('renders all mode options including inherit', () => {
       const wrapper = mount(TemplatesPanel, {
         props: { projectId: 'proj-1' },
         global: {
@@ -191,7 +191,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       });
 
       // Check that formData.mode accepts all valid values
-      expect(wrapper.vm.formData.mode).toBe('yolo'); // default
+      expect(wrapper.vm.formData.mode).toBe(null); // default (inherit)
 
       wrapper.vm.formData.mode = 'plan';
       expect(wrapper.vm.formData.mode).toBe('plan');
@@ -201,9 +201,12 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
 
       wrapper.vm.formData.mode = 'yolo';
       expect(wrapper.vm.formData.mode).toBe('yolo');
+
+      wrapper.vm.formData.mode = null;
+      expect(wrapper.vm.formData.mode).toBe(null);
     });
 
-    it('pre-selects yolo as default mode', () => {
+    it('pre-selects inherit as default mode', () => {
       const wrapper = mount(TemplatesPanel, {
         props: { projectId: 'proj-1' },
         global: {
@@ -212,7 +215,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
         },
       });
 
-      expect(wrapper.vm.formData.mode).toBe('yolo');
+      expect(wrapper.vm.formData.mode).toBe(null);
     });
   });
 
@@ -319,7 +322,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       );
     });
 
-    it('sends undefined when mode equals default', async () => {
+    it('sends null when mode is inherit (default)', async () => {
       templatesStoreMock.createProjectTemplate.mockResolvedValue({});
 
       const wrapper = mount(TemplatesPanel, {
@@ -333,10 +336,10 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       // Open create form
       await wrapper.find('[data-testid="new-template-btn"]').trigger('click');
 
-      // Set form data with default mode
+      // Set form data with default mode (inherit)
       wrapper.vm.formData.name = 'Test Template';
       wrapper.vm.formData.prompt = 'Test prompt';
-      wrapper.vm.formData.mode = 'yolo'; // default
+      // mode is already null by default
 
       // Submit form
       await wrapper.find('form').trigger('submit');
@@ -345,7 +348,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       expect(templatesStoreMock.createProjectTemplate).toHaveBeenCalledWith(
         'proj-1',
         expect.objectContaining({
-          mode: undefined, // Should be undefined when equal to default
+          mode: null, // Should be null when inheriting
         })
       );
     });
@@ -538,7 +541,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       expect(wrapper.vm.formData.model).toBeNull();
     });
 
-    it('resets mode to default after cancel', () => {
+    it('resets mode to inherit after cancel', () => {
       const wrapper = mount(TemplatesPanel, {
         props: { projectId: 'proj-1' },
         global: {
@@ -553,12 +556,12 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       // Reset form
       wrapper.vm.resetForm();
 
-      expect(wrapper.vm.formData.mode).toBe('yolo');
+      expect(wrapper.vm.formData.mode).toBe(null);
     });
   });
 
   describe('Form Initialization', () => {
-    it('initializes formData with null model and default mode', () => {
+    it('initializes formData with null model and inherit defaults', () => {
       const wrapper = mount(TemplatesPanel, {
         props: { projectId: 'proj-1' },
         global: {
@@ -572,10 +575,10 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
         prompt: '',
         isGlobal: false,
         nextTemplateId: null,
-        thinkingEnabled: false,
+        thinkingEnabled: null,
         gitBranch: '',
         model: null,
-        mode: 'yolo',
+        mode: null,
       });
     });
   });

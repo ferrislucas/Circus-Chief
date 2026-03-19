@@ -114,14 +114,14 @@ describe('SessionTemplateRepository', () => {
       expect(template.mode).toBe('standard');
     });
 
-    it('defaults mode to yolo when not provided', () => {
+    it('defaults mode to null when not provided (inherits from root session)', () => {
       const template = repo.create({
         projectId: null,
         name: 'Default Mode',
         prompt: 'Prompt',
       });
 
-      expect(template.mode).toBe('yolo');
+      expect(template.mode).toBeNull();
     });
   });
 
