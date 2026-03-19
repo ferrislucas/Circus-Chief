@@ -494,6 +494,8 @@ function handleResultError(sessionId, event) {
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: event.error });
   // Broadcast error status to project subscribers for session list updates
   broadcastSessionStatus(sessionId, 'error');
+  // Extract PR URL before generating summary (PR may have been created before error)
+  summaryService.extractPrUrlIfNeeded(sessionId);
   // Generate summary on error
   summaryService.onSessionComplete(sessionId);
 }
@@ -816,6 +818,8 @@ export async function handleSessionError(sessionId, error, options = {}) {
       broadcastSessionStatus(sessionId, 'error');
     }
 
+    // Extract PR URL before generating summary (PR may have been created before error)
+    summaryService.extractPrUrlIfNeeded(sessionId);
     // Trigger summary generation on error
     summaryService.onSessionComplete(sessionId);
   }
