@@ -62,11 +62,19 @@
       </div>
 
       <div class="modal-footer">
-        <button @click="close" class="btn btn-secondary">Cancel</button>
+        <button @click="close" class="btn btn-secondary" :disabled="removing">Cancel</button>
+        <button
+          @click="handleRemove"
+          class="btn btn-danger"
+          :disabled="removing"
+          :aria-label="`Remove ${displayName} from board`"
+        >
+          {{ removing ? 'Removing...' : 'Remove from Board' }}
+        </button>
         <button
           @click="handleMove"
           class="btn btn-primary"
-          :disabled="!canMove || moving"
+          :disabled="!canMove || moving || removing"
           aria-label="Move card to selected lane"
         >
           {{ moving ? 'Moving...' : 'Move' }}
@@ -109,6 +117,7 @@ const uiStore = useUiStore();
 const selectedLaneId = ref(null);
 const runOnEnterTemplate = ref(true);
 const moving = ref(false);
+const removing = ref(false);
 
 // Computed
 const lanes = computed(() => kanbanStore.board?.lanes || []);
@@ -167,6 +176,22 @@ async function handleMove() {
     uiStore.error(err.message || 'Failed to move card');
   } finally {
     moving.value = false;
+  }
+}
+
+async function handleRemove() {
+  if (!confirm('Remove this session from the board?')) return;
+
+  removing.value = true;
+  try {
+    await kanbanStore.removeCard(props.projectId, props.cardId);
+    uiStore.success('Session removed from board');
+    emit('close');
+  } catch (err) {
+    console.error('Failed to remove card:', err);
+    uiStore.error(err.message || 'Failed to remove session');
+  } finally {
+    removing.value = false;
   }
 }
 
@@ -425,5 +450,19 @@ onUnmounted(() => {
 
 .btn-secondary:hover {
   background: var(--color-background-secondary);
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>
