@@ -14,6 +14,7 @@ const mockStreamingStore = {
   setPartialThinking: vi.fn(),
   setSessionFileCount: vi.fn(),
   clearSessionStreamingState: vi.fn(),
+  hydrateSessionState: vi.fn(),
 };
 
 // Mock useSessionSubscription - track instances by sessionId
@@ -73,6 +74,15 @@ describe('useRunningSessionSubscriptions', () => {
     mockStreamingStore.setPartialThinking.mockReset();
     mockStreamingStore.setSessionFileCount.mockReset();
     mockStreamingStore.clearSessionStreamingState.mockReset();
+    mockStreamingStore.hydrateSessionState.mockReset();
+
+    // Default fetch mock: returns empty streaming state
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ workLogs: [], partialText: '', thinking: null }),
+      })
+    );
 
     // Create test component to use the composable
     testComponent = {
@@ -336,6 +346,63 @@ describe('useRunningSessionSubscriptions', () => {
     vi.advanceTimersByTime(2000);
 
     expect(mockStreamingStore.clearSessionStreamingState).toHaveBeenCalledWith('session-1');
+  });
+
+  it('makes a REST call to /api/sessions/:id/streaming-state after subscribing', async () => {
+    mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+    wrapper = mount(testComponent, {
+      global: { plugins: [createPinia()] },
+    });
+
+    await nextTick();
+
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/sessions/session-1/streaming-state');
+  });
+
+  it('calls hydrateSessionState when streaming-state REST call resolves', async () => {
+    const snapshot = {
+      workLogs: [{ id: '1', type: 'tool_use', content: 'test' }],
+      partialText: 'hello',
+      thinking: 'hmm',
+    };
+
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(snapshot),
+      })
+    );
+
+    mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+    wrapper = mount(testComponent, {
+      global: { plugins: [createPinia()] },
+    });
+
+    await nextTick();
+    // Wait for fetch promise chain to resolve
+    await vi.waitFor(() => {
+      expect(mockStreamingStore.hydrateSessionState).toHaveBeenCalledWith('session-1', snapshot);
+    });
+  });
+
+  it('does not throw when streaming-state REST call fails', async () => {
+    globalThis.fetch = vi.fn(() => Promise.reject(new Error('Network error')));
+
+    mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+    wrapper = mount(testComponent, {
+      global: { plugins: [createPinia()] },
+    });
+
+    await nextTick();
+
+    // Should not throw or break the subscription
+    const sub = mockSubscriptionInstances['session-1'];
+    expect(sub.subscribe).toHaveBeenCalled();
+    // hydrateSessionState should not have been called
+    expect(mockStreamingStore.hydrateSessionState).not.toHaveBeenCalled();
   });
 
   it('cleans up all subscriptions on unmount', async () => {

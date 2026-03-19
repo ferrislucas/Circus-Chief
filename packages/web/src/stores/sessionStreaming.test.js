@@ -113,18 +113,18 @@ describe('SessionStreaming Store', () => {
       expect(store.partialThinkingBySession).toEqual({});
     });
 
-    it('ignores null updates — keeps the previous thinking value', () => {
+    it('clears thinking when null is passed', () => {
       const store = useSessionStreamingStore();
       store.setPartialThinking('Previous thinking', 'session-1');
       store.setPartialThinking(null, 'session-1');
-      expect(store.getPartialThinking('session-1')).toBe('Previous thinking');
+      expect(store.getPartialThinking('session-1')).toBeNull();
     });
 
-    it('ignores empty string updates — keeps the previous thinking value', () => {
+    it('clears thinking when empty string is passed', () => {
       const store = useSessionStreamingStore();
       store.setPartialThinking('Previous thinking', 'session-1');
       store.setPartialThinking('', 'session-1');
-      expect(store.getPartialThinking('session-1')).toBe('Previous thinking');
+      expect(store.getPartialThinking('session-1')).toBeNull();
     });
 
     it('updates thinking normally for non-null non-empty strings', () => {
@@ -198,11 +198,25 @@ describe('SessionStreaming Store', () => {
       expect(store.getSessionPartialText('session-2')).toBe('Text 2');
     });
 
-    it('ignores empty string updates — keeps the previous value', () => {
+    it('clears text when empty string is passed', () => {
       const store = useSessionStreamingStore();
       store.setSessionPartialText('session-1', 'Visible text');
       store.setSessionPartialText('session-1', '');
-      expect(store.getSessionPartialText('session-1')).toBe('Visible text');
+      expect(store.getSessionPartialText('session-1')).toBe('');
+    });
+
+    it('clears text when null is passed', () => {
+      const store = useSessionStreamingStore();
+      store.setSessionPartialText('session-1', 'Visible text');
+      store.setSessionPartialText('session-1', null);
+      expect(store.getSessionPartialText('session-1')).toBe('');
+    });
+
+    it('clears text when undefined is passed', () => {
+      const store = useSessionStreamingStore();
+      store.setSessionPartialText('session-1', 'Visible text');
+      store.setSessionPartialText('session-1', undefined);
+      expect(store.getSessionPartialText('session-1')).toBe('');
     });
 
     it('sets text normally for non-empty strings', () => {
@@ -367,6 +381,67 @@ describe('SessionStreaming Store', () => {
     it('returns false for uncollapsed session', () => {
       const store = useSessionStreamingStore();
       expect(store.isSessionLogCollapsed('session-1')).toBe(false);
+    });
+  });
+
+  describe('hydrateSessionState', () => {
+    it('populates workLogs, partialText, and thinking when store is empty for that session', () => {
+      const store = useSessionStreamingStore();
+      const workLogs = [{ id: '1', type: 'tool_use', content: 'test' }];
+      store.hydrateSessionState('session-1', { workLogs, partialText: 'hello', thinking: 'hmm' });
+
+      expect(store.getSessionWorkLogs('session-1')).toEqual(workLogs);
+      expect(store.getSessionPartialText('session-1')).toBe('hello');
+      expect(store.getPartialThinking('session-1')).toBe('hmm');
+    });
+
+    it('does NOT overwrite existing workLogs if WebSocket data already arrived', () => {
+      const store = useSessionStreamingStore();
+      store.addSessionWorkLog('session-1', { id: 'ws-1', type: 'tool_use', content: 'ws data' });
+
+      store.hydrateSessionState('session-1', {
+        workLogs: [{ id: 'rest-1', type: 'tool_use', content: 'rest data' }],
+        partialText: 'rest text',
+        thinking: 'rest thinking',
+      });
+
+      // Work logs should NOT be overwritten
+      expect(store.getSessionWorkLogs('session-1')).toHaveLength(1);
+      expect(store.getSessionWorkLogs('session-1')[0].id).toBe('ws-1');
+    });
+
+    it('does NOT overwrite existing partialText if WebSocket data already arrived', () => {
+      const store = useSessionStreamingStore();
+      store.setSessionPartialText('session-1', 'ws text');
+
+      store.hydrateSessionState('session-1', { partialText: 'rest text' });
+
+      expect(store.getSessionPartialText('session-1')).toBe('ws text');
+    });
+
+    it('does NOT overwrite existing thinking if WebSocket data already arrived', () => {
+      const store = useSessionStreamingStore();
+      store.setPartialThinking('ws thinking', 'session-1');
+
+      store.hydrateSessionState('session-1', { thinking: 'rest thinking' });
+
+      expect(store.getPartialThinking('session-1')).toBe('ws thinking');
+    });
+
+    it('handles null/empty snapshot fields gracefully', () => {
+      const store = useSessionStreamingStore();
+      store.hydrateSessionState('session-1', { workLogs: [], partialText: '', thinking: null });
+
+      expect(store.getSessionWorkLogs('session-1')).toEqual([]);
+      expect(store.getSessionPartialText('session-1')).toBe('');
+      expect(store.getPartialThinking('session-1')).toBeNull();
+    });
+
+    it('handles undefined snapshot gracefully', () => {
+      const store = useSessionStreamingStore();
+      // Should not throw
+      store.hydrateSessionState('session-1');
+      expect(store.getSessionWorkLogs('session-1')).toEqual([]);
     });
   });
 });
