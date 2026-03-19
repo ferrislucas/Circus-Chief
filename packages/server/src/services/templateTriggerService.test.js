@@ -515,13 +515,13 @@ Please review the above work.
       expect(sessionCreatedCalls[0][2].session.model).toBe('claude-opus-4-20250514');
     });
 
-    it('inherits model from parent session when template has no model', async () => {
+    it('inherits model from root session when template has no model', async () => {
       // Template has no model set (null)
       // Parent session has model: 'claude-sonnet-4-20250514'
 
       await checkAndTriggerNextTemplate(parentSessionId);
 
-      // Verify the broadcasted session has the parent's model
+      // Verify the broadcasted session has the root session's model
       const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
         (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
       );
@@ -545,21 +545,21 @@ Please review the above work.
       expect(sessionCreatedCalls[0][2].session.mode).toBe('standard');
     });
 
-    it('inherits mode from parent session when template has no mode', async () => {
-      // Template has no mode set (defaults to 'yolo' in DB)
-      // But the service should use template.mode if it exists, or fall back to session.mode
-      // Parent session has mode: 'plan'
+    it('inherits mode from root session when template has no mode', async () => {
+      // Template has no mode set (defaults to null in DB after create() fix)
+      // Parent session has mode: 'plan' — which is also the root session
+      // So the child should inherit 'plan' from root session
 
       await checkAndTriggerNextTemplate(parentSessionId);
 
-      // Verify the broadcasted session has the template's mode (or parent's if template is null)
+      // Verify the broadcasted session has the root session's mode
       const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
         (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
       );
 
       expect(sessionCreatedCalls.length).toBe(1);
-      // Template defaults to 'yolo', so the new session should have 'yolo' mode
-      expect(sessionCreatedCalls[0][2].session.mode).toBe('yolo');
+      // Template mode is null, so child inherits mode from root session ('plan')
+      expect(sessionCreatedCalls[0][2].session.mode).toBe('plan');
     });
 
     it('uses both model and mode from template when both are set', async () => {
@@ -632,6 +632,275 @@ Please review the above work.
       const root = getRootSession(updatedC);
       expect(root.id).toBe(sessionB.id);
       expect(root.name).toBe('Session B');
+    });
+
+    // ============================================================
+    // Rescheduling inheritance tests
+    // ============================================================
+
+    it('inherits rescheduling properties from root session', async () => {
+      sessions.update(parentSessionId, {
+        autoRescheduleEnabled: true,
+        rescheduleOnTokenLimit: true,
+        rescheduleOnServiceError: true,
+        rescheduleDelayMinutes: 30,
+        rescheduleAtTokenCount: 150000,
+        maxRescheduleCount: 5,
+        maxTotalTokens: 1000000,
+      });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+
+      expect(sessionCreatedCalls.length).toBe(1);
+      const childSession = sessionCreatedCalls[0][2].session;
+      expect(childSession.autoRescheduleEnabled).toBe(true);
+      expect(childSession.rescheduleOnTokenLimit).toBe(true);
+      expect(childSession.rescheduleOnServiceError).toBe(true);
+      expect(childSession.rescheduleDelayMinutes).toBe(30);
+      expect(childSession.rescheduleAtTokenCount).toBe(150000);
+      expect(childSession.maxRescheduleCount).toBe(5);
+      expect(childSession.maxTotalTokens).toBe(1000000);
+    });
+
+    it('inherits rescheduling defaults from root when rescheduling is not configured', async () => {
+      // Root session uses DB defaults (no rescheduling updates)
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+
+      expect(sessionCreatedCalls.length).toBe(1);
+      const childSession = sessionCreatedCalls[0][2].session;
+      expect(childSession.autoRescheduleEnabled).toBe(false);
+      expect(childSession.rescheduleOnTokenLimit).toBe(true);
+      expect(childSession.rescheduleOnServiceError).toBe(true);
+      expect(childSession.rescheduleDelayMinutes).toBe(15);
+    });
+
+    it('does not inherit rescheduleCount from root (resets to 0)', async () => {
+      sessions.update(parentSessionId, { rescheduleCount: 3 });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+
+      expect(sessionCreatedCalls.length).toBe(1);
+      const childSession = sessionCreatedCalls[0][2].session;
+      expect(childSession.rescheduleCount).toBe(0);
+    });
+
+    // ============================================================
+    // Root-vs-parent inheritance tests (multi-level chain)
+    // ============================================================
+
+    it('inherits settings from root session, not intermediate parent, in a chain', async () => {
+      // Create a 3-level chain: root (A) -> parent (B) -> child (C)
+      // Session A is the root already set up as parentSessionId with mode: 'plan', model: 'claude-sonnet-4-20250514'
+      // Explicitly set thinkingEnabled: true on root A to distinguish from B's templateB override of false
+      sessions.update(parentSessionId, { thinkingEnabled: true });
+
+      // Create template B (with mode: 'standard', thinkingEnabled: false overrides)
+      const templateB = sessionTemplates.create({
+        projectId,
+        name: 'Template B',
+        prompt: 'Template B prompt',
+      });
+      sessionTemplates.update(templateB.id, { mode: 'standard', thinkingEnabled: false });
+
+      // Create session B by triggering template B from session A
+      // First set A to use templateB
+      sessions.update(parentSessionId, { nextTemplateId: templateB.id });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      // Get the created session B
+      const sessionBCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      expect(sessionBCreatedCalls.length).toBe(1);
+      const sessionB = sessionBCreatedCalls[0][2].session;
+
+      // Verify B got template overrides
+      expect(sessionB.mode).toBe('standard');
+      expect(sessionB.thinkingEnabled).toBe(false);
+      expect(sessionB.model).toBe('claude-sonnet-4-20250514'); // inherited from root A
+
+      // Now create template C (all null settings — should inherit from root A, not parent B)
+      const templateC = sessionTemplates.create({
+        projectId,
+        name: 'Template C',
+        prompt: 'Template C prompt',
+      });
+
+      // Set session B to trigger template C
+      sessions.update(sessionB.id, {
+        nextTemplateId: templateC.id,
+        status: 'stopped',
+      });
+
+      // Clear broadcast calls
+      broadcastToProject.mockClear();
+
+      // Trigger from B -> creates C
+      await checkAndTriggerNextTemplate(sessionB.id);
+
+      const sessionCCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      expect(sessionCCreatedCalls.length).toBe(1);
+      const sessionC = sessionCCreatedCalls[0][2].session;
+
+      // C should inherit from root A, not intermediate parent B
+      expect(sessionC.mode).toBe('plan');             // from root A, not B's 'standard'
+      expect(sessionC.thinkingEnabled).toBe(true);    // from root A (true), not B's false (templateB override)
+      expect(sessionC.model).toBe('claude-sonnet-4-20250514'); // from root A
+    });
+
+    it('template overrides still take precedence over root session in a chain', async () => {
+      // Create template B
+      const templateB = sessionTemplates.create({
+        projectId,
+        name: 'Template B Override',
+        prompt: 'Template B prompt',
+      });
+      sessionTemplates.update(templateB.id, { mode: 'standard', thinkingEnabled: false });
+
+      sessions.update(parentSessionId, { nextTemplateId: templateB.id });
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      const sessionBCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      const sessionB = sessionBCalls[0][2].session;
+
+      // Create template C with explicit mode override
+      const templateC = sessionTemplates.create({
+        projectId,
+        name: 'Template C Override',
+        prompt: 'Template C prompt',
+      });
+      sessionTemplates.update(templateC.id, { mode: 'yolo' });
+
+      sessions.update(sessionB.id, { nextTemplateId: templateC.id, status: 'stopped' });
+      broadcastToProject.mockClear();
+
+      await checkAndTriggerNextTemplate(sessionB.id);
+
+      const sessionCCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      expect(sessionCCalls.length).toBe(1);
+      const sessionC = sessionCCalls[0][2].session;
+
+      // C's template overrides root A's mode
+      expect(sessionC.mode).toBe('yolo');
+      // model is null in template C, so inherits from root A
+      expect(sessionC.model).toBe('claude-sonnet-4-20250514');
+    });
+
+    // ============================================================
+    // Template-vs-root precedence tests (single-level, root = parent)
+    // ============================================================
+
+    it('inherits mode from root when template mode is null', async () => {
+      // Template already has null mode (default after create() fix)
+      // Root session has mode: 'plan'
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      expect(sessionCreatedCalls[0][2].session.mode).toBe('plan');
+    });
+
+    it('template mode overrides root mode when set', async () => {
+      sessionTemplates.update(templateId, { mode: 'standard' });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      expect(sessionCreatedCalls[0][2].session.mode).toBe('standard');
+    });
+
+    it('inherits thinkingEnabled from root when template thinkingEnabled is null', async () => {
+      // Template has null thinkingEnabled by default
+      // Update root with thinkingEnabled: true
+      sessions.update(parentSessionId, { thinkingEnabled: true });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      expect(sessionCreatedCalls[0][2].session.thinkingEnabled).toBe(true);
+    });
+
+    it('template thinkingEnabled=false overrides root thinkingEnabled=true', async () => {
+      // Update template to explicitly disable thinking
+      sessionTemplates.update(templateId, { thinkingEnabled: false });
+      // Update root session to enable thinking
+      sessions.update(parentSessionId, { thinkingEnabled: true });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      // Explicit false from template overrides root's true
+      expect(sessionCreatedCalls[0][2].session.thinkingEnabled).toBe(false);
+    });
+
+    it('inherits gitBranch from root when template gitBranch is null', async () => {
+      // Template has null gitBranch
+      sessions.update(parentSessionId, { gitBranch: 'feature/my-branch' });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      expect(sessionCreatedCalls[0][2].session.gitBranch).toBe('feature/my-branch');
+    });
+
+    it('template gitBranch overrides root gitBranch when set', async () => {
+      sessionTemplates.update(templateId, { gitBranch: 'template-branch' });
+      sessions.update(parentSessionId, { gitBranch: 'root-branch' });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      expect(sessionCreatedCalls[0][2].session.gitBranch).toBe('template-branch');
+    });
+
+    it('empty string gitBranch update coerces to null and inherits from root', async () => {
+      // After update() fix, gitBranch: '' is stored as null
+      sessionTemplates.update(templateId, { gitBranch: '' });
+
+      // Verify the template now has null gitBranch
+      const template = sessionTemplates.getById(templateId);
+      expect(template.gitBranch).toBeNull();
+
+      // Set root gitBranch
+      sessions.update(parentSessionId, { gitBranch: 'root-branch' });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      // Template gitBranch is null, so inherits from root
+      expect(sessionCreatedCalls[0][2].session.gitBranch).toBe('root-branch');
     });
   });
 });

@@ -62,25 +62,36 @@
 
         <div class="form-group">
           <label class="form-label">Model</label>
-          <ModelSelector v-model="formData.model" />
+          <ModelSelector v-model="formData.model" :allowEmpty="true" emptyLabel="Inherit from root session" />
         </div>
 
         <div class="form-group">
-          <label class="form-label">Mode</label>
-          <select v-model="formData.mode" class="form-input">
+          <label class="form-label" for="create-mode">Mode</label>
+          <select id="create-mode" v-model="formData.mode" class="form-input" data-testid="mode-select">
+            <option :value="null">Inherit from root session</option>
             <option value="plan">Plan</option>
             <option value="standard">Standard</option>
             <option value="yolo">YOLO</option>
           </select>
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-check">
-              <input type="checkbox" v-model="formData.thinkingEnabled" />
-              Enable Extended Thinking
-            </label>
-          </div>
+        <div class="form-group">
+          <label class="form-label" for="create-thinking">Extended Thinking</label>
+          <select id="create-thinking" v-model="formData.thinkingEnabled" class="form-input" data-testid="thinking-select">
+            <option :value="null">Inherit from root session</option>
+            <option :value="true">Enabled</option>
+            <option :value="false">Disabled</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Git Branch (Optional)</label>
+          <input
+            v-model="formData.gitBranch"
+            type="text"
+            class="form-input"
+            placeholder="Leave empty to inherit from root session"
+          />
         </div>
 
         <div class="form-actions">
@@ -192,10 +203,10 @@ const formData = ref({
   prompt: '',
   isGlobal: false,
   nextTemplateId: null,
-  thinkingEnabled: false,
+  thinkingEnabled: null,
   gitBranch: '',
   model: null,
-  mode: 'yolo',
+  mode: null,
 });
 
 const loading = computed(() => templatesStore.loading);
@@ -249,10 +260,10 @@ function resetForm() {
     prompt: '',
     isGlobal: false,
     nextTemplateId: null,
-    thinkingEnabled: false,
+    thinkingEnabled: null,
     gitBranch: '',
     model: null,
-    mode: 'yolo',
+    mode: null,
   };
 }
 
@@ -274,10 +285,10 @@ async function handleSubmit() {
       name: formData.value.name,
       prompt: formData.value.prompt,
       nextTemplateId: formData.value.nextTemplateId || undefined,
-      thinkingEnabled: formData.value.thinkingEnabled || undefined,
+      thinkingEnabled: formData.value.thinkingEnabled,  // null = inherit, true/false = explicit
       gitBranch: formData.value.gitBranch || undefined,
-      model: formData.value.model,
-      mode: formData.value.mode === 'yolo' ? undefined : formData.value.mode,
+      model: formData.value.model,                      // null = inherit
+      mode: formData.value.mode,                        // null = inherit
     };
 
     if (formData.value.isGlobal) {
