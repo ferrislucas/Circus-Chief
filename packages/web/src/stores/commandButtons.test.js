@@ -1350,4 +1350,82 @@ describe('CommandButtons Store', () => {
       expect(store.error).toBeNull();
     });
   });
+
+  describe('deleteRun', () => {
+    it('calls api.deleteCommandRun with correct parameters', async () => {
+      const store = useCommandButtonsStore();
+      api.deleteCommandRun = vi.fn().mockResolvedValue(null);
+
+      store.runs['run-1'] = {
+        runId: 'run-1',
+        buttonId: 'btn-1',
+        sessionId: 'session-1',
+        status: 'success',
+        output: 'output',
+        exitCode: 0,
+      };
+
+      await store.deleteRun('session-1', 'run-1');
+
+      expect(api.deleteCommandRun).toHaveBeenCalledWith('session-1', 'run-1');
+    });
+
+    it('clears run from local state on success', async () => {
+      const store = useCommandButtonsStore();
+      api.deleteCommandRun = vi.fn().mockResolvedValue(null);
+
+      store.runs['run-1'] = {
+        runId: 'run-1',
+        buttonId: 'btn-1',
+        sessionId: 'session-1',
+        status: 'success',
+        output: 'output',
+        exitCode: 0,
+      };
+
+      await store.deleteRun('session-1', 'run-1');
+
+      expect(store.runs['run-1']).toBeUndefined();
+    });
+
+    it('cleans up timers, buffers, and collapsed states', async () => {
+      const store = useCommandButtonsStore();
+      api.deleteCommandRun = vi.fn().mockResolvedValue(null);
+
+      const runId = 'run-cleanup';
+      store.runs[runId] = {
+        runId,
+        buttonId: 'btn-1',
+        sessionId: 'session-1',
+        status: 'success',
+        output: 'output',
+        exitCode: 0,
+      };
+      store._flushTimers[runId] = setTimeout(() => {}, 10000);
+      store._outputBuffers[runId] = 'buffered text';
+      store.collapsedStates[runId] = true;
+
+      await store.deleteRun('session-1', runId);
+
+      expect(store._flushTimers[runId]).toBeUndefined();
+      expect(store._outputBuffers[runId]).toBeUndefined();
+      expect(store.collapsedStates[runId]).toBeUndefined();
+    });
+
+    it('propagates API errors', async () => {
+      const store = useCommandButtonsStore();
+      api.deleteCommandRun = vi.fn().mockRejectedValue(new Error('Server error'));
+
+      store.runs['run-1'] = {
+        runId: 'run-1',
+        buttonId: 'btn-1',
+        sessionId: 'session-1',
+        status: 'success',
+        output: 'output',
+        exitCode: 0,
+      };
+
+      await expect(store.deleteRun('session-1', 'run-1')).rejects.toThrow('Server error');
+    });
+  });
 });

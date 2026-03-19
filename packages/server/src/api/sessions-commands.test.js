@@ -146,6 +146,50 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
     });
   });
 
+  describe('DELETE /api/sessions/:id/command-buttons/runs/:runId', () => {
+    it('returns 204 when run is deleted successfully', async () => {
+      const { commandRuns } = await import('../database.js');
+      const button = commandButtons.create({ projectId: project.id, label: 'Del Button', command: 'echo del' });
+      commandRuns.create({ id: 'run-del', sessionId: session.id, buttonId: button.id });
+      commandRuns.complete('run-del', 0, 'output');
+
+      const res = await request(app)
+        .delete(`/api/sessions/${session.id}/command-buttons/runs/run-del`);
+
+      expect(res.status).toBe(204);
+      expect(commandRuns.getById('run-del')).toBeNull();
+    });
+
+    it('returns 404 when run not found', async () => {
+      const res = await request(app)
+        .delete(`/api/sessions/${session.id}/command-buttons/runs/non-existent`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Run not found');
+    });
+
+    it('returns 409 when run is still running', async () => {
+      const { commandRuns } = await import('../database.js');
+      const button = commandButtons.create({ projectId: project.id, label: 'Running Button', command: 'sleep 10' });
+      commandRuns.create({ id: 'run-active', sessionId: session.id, buttonId: button.id });
+
+      commandRunner.isRunning.mockReturnValue(true);
+
+      const res = await request(app)
+        .delete(`/api/sessions/${session.id}/command-buttons/runs/run-active`);
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('Cannot delete a running command. Kill it first.');
+    });
+
+    it('returns 404 for non-existent session', async () => {
+      const res = await request(app)
+        .delete('/api/sessions/non-existent/command-buttons/runs/run-1');
+
+      expect(res.status).toBe(404);
+    });
+  });
+
   describe('POST /api/sessions/:id/command-buttons/runs/:runId/kill', () => {
     it('kills a running command', async () => {
       commandRunner.kill.mockReturnValue(true);
