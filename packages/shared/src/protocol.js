@@ -40,6 +40,7 @@ export const WS_MESSAGE_TYPES = {
   COMMAND_RUN_OUTPUT: 'command:run:output',
   COMMAND_RUN_COMPLETE: 'command:run:complete',
   COMMAND_RUN_ERROR: 'command:run:error',
+  COMMAND_RUN_DELETED: 'command:run:deleted',
 
   // System metrics events
   SYSTEM_METRICS: 'system:metrics',

@@ -98,6 +98,7 @@ vi.mock('../composables/useWebSocket.js', () => {
       onCommandOutput: h(),
       onCommandComplete: h(),
       onCommandError: h(),
+      onCommandRunDeleted: h(),
     })),
   };
 });

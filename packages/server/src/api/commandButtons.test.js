@@ -725,6 +725,124 @@ describe('Command Buttons API', () => {
     });
   });
 
+  describe('DELETE /api/sessions/:sessionId/command-buttons/runs/:runId', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      // Restore default mock implementations after clearAllMocks
+      commandRunner.isRunning.mockReturnValue(false);
+    });
+
+    it('returns 204 when run is deleted successfully', async () => {
+      // Create a run in the database first
+      const { commandRuns } = await import('../database.js');
+      commandRuns.create({ id: 'run-to-delete', sessionId, buttonId });
+      commandRuns.complete('run-to-delete', 0, 'output');
+
+      const res = await request(app).delete(
+        `/api/sessions/${sessionId}/command-buttons/runs/run-to-delete`
+      );
+
+      expect(res.status).toBe(204);
+    });
+
+    it('returns 404 when session not found', async () => {
+      const res = await request(app).delete(
+        `/api/sessions/nonexistent/command-buttons/runs/run-123`
+      );
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Session not found');
+    });
+
+    it('returns 404 when run not found', async () => {
+      const res = await request(app).delete(
+        `/api/sessions/${sessionId}/command-buttons/runs/nonexistent`
+      );
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Run not found');
+    });
+
+    it('returns 404 when run belongs to different session', async () => {
+      // Create a second session
+      const session2 = sessions.create(projectId, 'Session 2', 'prompt 2');
+
+      // Create a run in the second session
+      const { commandRuns } = await import('../database.js');
+      commandRuns.create({ id: 'run-other', sessionId: session2.id, buttonId });
+      commandRuns.complete('run-other', 0, 'output');
+
+      // Try to delete via the first session
+      const res = await request(app).delete(
+        `/api/sessions/${sessionId}/command-buttons/runs/run-other`
+      );
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Run not found');
+    });
+
+    it('returns 409 when run is still running', async () => {
+      // Create a run in the database
+      const { commandRuns } = await import('../database.js');
+      commandRuns.create({ id: 'run-running', sessionId, buttonId });
+
+      // Mock isRunning to return true
+      commandRunner.isRunning.mockReturnValue(true);
+
+      const res = await request(app).delete(
+        `/api/sessions/${sessionId}/command-buttons/runs/run-running`
+      );
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('Cannot delete a running command. Kill it first.');
+    });
+
+    it('broadcasts COMMAND_RUN_DELETED to session and project', async () => {
+      const { commandRuns } = await import('../database.js');
+      commandRuns.create({ id: 'run-broadcast', sessionId, buttonId });
+      commandRuns.complete('run-broadcast', 0, 'output');
+
+      await request(app).delete(
+        `/api/sessions/${sessionId}/command-buttons/runs/run-broadcast`
+      );
+
+      // Verify session broadcast
+      const sessionBroadcasts = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_DELETED
+      );
+      expect(sessionBroadcasts.length).toBe(1);
+      expect(sessionBroadcasts[0][2]).toEqual({
+        runId: 'run-broadcast',
+        buttonId,
+        sessionId,
+      });
+
+      // Verify project broadcast
+      const projectBroadcasts = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_DELETED
+      );
+      expect(projectBroadcasts.length).toBe(1);
+      expect(projectBroadcasts[0][2]).toEqual({
+        runId: 'run-broadcast',
+        buttonId,
+        sessionId,
+        projectId,
+      });
+    });
+
+    it('actually deletes the run from the database', async () => {
+      const { commandRuns } = await import('../database.js');
+      commandRuns.create({ id: 'run-verify-delete', sessionId, buttonId });
+      commandRuns.complete('run-verify-delete', 0, 'output');
+
+      await request(app).delete(
+        `/api/sessions/${sessionId}/command-buttons/runs/run-verify-delete`
+      );
+
+      expect(commandRuns.getById('run-verify-delete')).toBeNull();
+    });
+  });
+
   describe('GET /api/sessions/:sessionId/command-buttons/runs/:runId', () => {
     beforeEach(() => {
       // Clear mocks before each test

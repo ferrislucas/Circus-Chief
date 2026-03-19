@@ -339,6 +339,22 @@ export const useSessionsStore = defineStore('sessions', {
       this.commandRunVersion++;
     },
 
+    removeSessionCommandRun(sessionId, buttonId) {
+      const source = this.sessions.find(s => s.id === sessionId)
+        || this.archivedSessions.find(s => s.id === sessionId)
+        || this.activeSessions.find(s => s.id === sessionId)
+        || this.currentSession;
+      if (!source) return;
+      const runs = (source.latestCommandRuns || []).filter(r => r.buttonId !== buttonId);
+      this._updateSessionInAllLists(sessionId, { latestCommandRuns: runs });
+      this.commandRunVersion++;
+    },
+
+    updateSessionCommandRuns(sessionId, runs) {
+      this._updateSessionInAllLists(sessionId, { latestCommandRuns: runs });
+      this.commandRunVersion++;
+    },
+
     // ==================== MESSAGE ACTIONS ====================
 
     async fetchMessages(sessionId, showLoading = true, conversationId = null) {
