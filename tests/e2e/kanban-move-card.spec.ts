@@ -374,4 +374,93 @@ test.describe('Kanban Move Card Modal', () => {
     const laneChip = page.locator('.lane-chip');
     await expect(laneChip).not.toBeVisible();
   });
+
+  test('remove from board button is visible in move modal', async ({ page }) => {
+    await navigateAndWait(page, `/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
+    // Add session to the board
+    const lane = page.locator('.kanban-lane').filter({ hasText: 'To Do' });
+    await lane.locator('.add-session-btn').click();
+    await page.waitForSelector('.session-item', { timeout: 10000 });
+    await page.locator('.session-item').first().click();
+    await page.click('.modal-footer .btn-primary');
+
+    // Open move modal
+    const card = lane.locator('.kanban-card').first();
+    await card.hover();
+    await card.locator('.card-move-btn').click();
+
+    // Verify remove button is present
+    const removeButton = page.locator('.btn-danger');
+    await expect(removeButton).toBeVisible();
+    await expect(removeButton).toContainText('Remove from Board');
+  });
+
+  test('remove session from board via move modal', async ({ page }) => {
+    await navigateAndWait(page, `/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
+    // Add session to the board
+    const lane = page.locator('.kanban-lane').filter({ hasText: 'To Do' });
+    await lane.locator('.add-session-btn').click();
+    await page.waitForSelector('.session-item', { timeout: 10000 });
+    await page.locator('.session-item').first().click();
+    await page.click('.modal-footer .btn-primary');
+
+    // Verify card is on board
+    const cards = lane.locator('.kanban-card');
+    await expect(cards).toHaveCount(1);
+
+    // Open move modal
+    const card = lane.locator('.kanban-card').first();
+    await card.hover();
+    await card.locator('.card-move-btn').click();
+
+    // Setup dialog handler BEFORE clicking the remove button
+    page.on('dialog', dialog => dialog.accept());
+
+    // Click remove button
+    await page.locator('.btn-danger').click();
+    await page.waitForTimeout(100);
+
+    // Verify modal closes and card is removed
+    await expect(page.locator('.modal-backdrop')).toBeHidden({ timeout: 5000 });
+    await expect(cards).toHaveCount(0);
+  });
+
+  test('cancel remove dialog keeps card on board', async ({ page }) => {
+    await navigateAndWait(page, `/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
+    // Add session to the board
+    const lane = page.locator('.kanban-lane').filter({ hasText: 'To Do' });
+    await lane.locator('.add-session-btn').click();
+    await page.waitForSelector('.session-item', { timeout: 10000 });
+    await page.locator('.session-item').first().click();
+    await page.click('.modal-footer .btn-primary');
+
+    // Verify card is on board
+    const cards = lane.locator('.kanban-card');
+    await expect(cards).toHaveCount(1);
+
+    // Open move modal
+    const card = lane.locator('.kanban-card').first();
+    await card.hover();
+    await card.locator('.card-move-btn').click();
+
+    // Setup dialog handler BEFORE clicking the remove button
+    page.on('dialog', dialog => dialog.dismiss());
+
+    // Click remove button
+    await page.locator('.btn-danger').click();
+    await page.waitForTimeout(100);
+
+    // Verify modal stays open and card is still on board
+    await expect(page.locator('.modal-content')).toBeVisible();
+    await expect(cards).toHaveCount(1);
+  });
 });
