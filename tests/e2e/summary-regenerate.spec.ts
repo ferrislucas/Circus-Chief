@@ -43,8 +43,9 @@ test.describe('Summary Regenerate', () => {
     await expect(page.locator('.summary-content')).toBeVisible();
     await expect(page.locator('.full-summary')).toContainText('Initial summary text');
 
-    // Click the Regenerate button
-    const regenerateButton = page.locator('.overview-header .btn-link');
+    // Click the Regenerate button in the summary footer
+    // (The overview-header regenerate button was removed during the summary tab refactoring)
+    const regenerateButton = page.locator('.summary-footer .btn-link').filter({ hasText: 'Regenerate' });
     await expect(regenerateButton).toBeVisible();
     await regenerateButton.click();
 
@@ -80,8 +81,9 @@ test.describe('Summary Regenerate', () => {
     // Navigate to the summary tab
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
-    // Click the Regenerate button
-    const regenerateButton = page.locator('.overview-header .btn-link');
+    // Click the Regenerate button in the summary footer
+    const regenerateButton = page.locator('.summary-footer .btn-link').filter({ hasText: 'Regenerate' });
+    await expect(regenerateButton).toBeVisible();
     await regenerateButton.click();
 
     // The generating state should be shown briefly

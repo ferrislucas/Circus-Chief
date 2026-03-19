@@ -1,5 +1,5 @@
 <template>
-  <div class="workflow-sessions-panel">
+  <div :class="['workflow-sessions-panel', variant === 'detail' && 'workflow-sessions-panel--detail']">
     <div class="workflow-sessions-list">
       <!-- Root session entry -->
       <div class="workflow-session-item root-session">
@@ -56,6 +56,10 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  variant: {
+    type: String,
+    default: 'list', // 'list' | 'detail'
+  },
 });
 
 const rootSummaryText = computed(() => {
@@ -80,6 +84,13 @@ const getSessionDepth = (sessionId) => {
   border-bottom-right-radius: 6px;
   background: var(--color-background-secondary, rgba(0, 0, 0, 0.1));
   animation: slideIn 0.2s ease-out;
+}
+
+.workflow-sessions-panel--detail {
+  border-top: 1px solid var(--color-border);
+  border-radius: 6px;
+  animation: none;
+  margin-bottom: 1.5rem;
 }
 
 .workflow-sessions-list {
