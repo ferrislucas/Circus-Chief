@@ -67,6 +67,17 @@ export function useRunningSessionSubscriptions() {
 
     sub.subscribe();
 
+    // Hydrate current streaming state from the server (fire-and-forget).
+    // This ensures we see content for sessions already running before we subscribed.
+    fetch(`/api/sessions/${sessionId}/streaming-state`)
+      .then(res => res.ok ? res.json() : null)
+      .then(snapshot => {
+        if (snapshot) {
+          streamingStore.hydrateSessionState(sessionId, snapshot);
+        }
+      })
+      .catch(() => { /* Hydration failure is non-fatal */ });
+
     activeSubscriptions.value[sessionId] = {
       subscription: sub,
       cleanup: () => {
