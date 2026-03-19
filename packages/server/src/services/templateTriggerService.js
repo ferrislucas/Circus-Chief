@@ -100,12 +100,21 @@ export async function checkAndTriggerNextTemplate(sessionId) {
     // Render the template prompt with parent and root session context
     const renderedPrompt = await renderTemplatePrompt(template.prompt, { parentSession: session, parentSummary, rootSession, rootSummary });
 
-    // Determine settings: use template overrides if set, otherwise inherit from parent session
-    const thinkingEnabled = template.thinkingEnabled !== null ? template.thinkingEnabled : session.thinkingEnabled;
-    const gitBranch = template.gitBranch || session.gitBranch;
+    // Determine settings: use template overrides if set, otherwise inherit from root session
+    const thinkingEnabled = template.thinkingEnabled !== null ? template.thinkingEnabled : rootSession.thinkingEnabled;
+    const gitBranch = template.gitBranch || rootSession.gitBranch;
     const gitMode = template.gitMode || null;
-    const model = template.model || session.model;
-    const mode = template.mode || session.mode;
+    const model = template.model !== null ? template.model : rootSession.model;
+    const mode = template.mode !== null ? template.mode : rootSession.mode;
+
+    // Inherit rescheduling settings from root session (templates have no rescheduling fields)
+    const autoRescheduleEnabled = rootSession.autoRescheduleEnabled;
+    const rescheduleOnTokenLimit = rootSession.rescheduleOnTokenLimit;
+    const rescheduleOnServiceError = rootSession.rescheduleOnServiceError;
+    const rescheduleDelayMinutes = rootSession.rescheduleDelayMinutes;
+    const rescheduleAtTokenCount = rootSession.rescheduleAtTokenCount;
+    const maxRescheduleCount = rootSession.maxRescheduleCount;
+    const maxTotalTokens = rootSession.maxTotalTokens;
 
     // Generate a name for the new session
     const newSessionName = `${template.name} (from: ${session.name})`;
@@ -129,6 +138,13 @@ export async function checkAndTriggerNextTemplate(sessionId) {
     sessions.update(newSession.id, {
       parentSessionId: session.id,
       nextTemplateId: template.nextTemplateId || null,
+      autoRescheduleEnabled,
+      rescheduleOnTokenLimit,
+      rescheduleOnServiceError,
+      rescheduleDelayMinutes,
+      rescheduleAtTokenCount,
+      maxRescheduleCount,
+      maxTotalTokens,
     });
 
     // Determine working directory: inherit from parent if it has a worktree
