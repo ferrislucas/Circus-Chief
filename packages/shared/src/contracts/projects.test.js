@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CreateProjectRequest,
   UpdateProjectRequest,
+  ProjectResponse,
   ProjectSessionDefaultsRequest,
   ProjectSessionDefaultsResponse,
 } from './projects.js';
@@ -56,6 +57,48 @@ describe('Projects Contracts', () => {
       expect(valid.success).toBe(true);
       expect(valid.data.systemPrompt).toBeNull();
     });
+
+    it('accepts kanbanEnabled: true', () => {
+      const valid = CreateProjectRequest.safeParse({
+        name: 'Test Project',
+        workingDirectory: '/tmp/test',
+        kanbanEnabled: true,
+      });
+
+      expect(valid.success).toBe(true);
+      expect(valid.data.kanbanEnabled).toBe(true);
+    });
+
+    it('accepts kanbanEnabled: false', () => {
+      const valid = CreateProjectRequest.safeParse({
+        name: 'Test Project',
+        workingDirectory: '/tmp/test',
+        kanbanEnabled: false,
+      });
+
+      expect(valid.success).toBe(true);
+      expect(valid.data.kanbanEnabled).toBe(false);
+    });
+
+    it('allows omitting kanbanEnabled', () => {
+      const valid = CreateProjectRequest.safeParse({
+        name: 'Test Project',
+        workingDirectory: '/tmp/test',
+      });
+
+      expect(valid.success).toBe(true);
+      expect(valid.data.kanbanEnabled).toBeUndefined();
+    });
+
+    it('rejects non-boolean kanbanEnabled', () => {
+      const invalid = CreateProjectRequest.safeParse({
+        name: 'Test Project',
+        workingDirectory: '/tmp/test',
+        kanbanEnabled: 'yes',
+      });
+
+      expect(invalid.success).toBe(false);
+    });
   });
 
   describe('UpdateProjectRequest', () => {
@@ -80,6 +123,89 @@ describe('Projects Contracts', () => {
       });
 
       expect(invalid.success).toBe(false);
+    });
+
+    it('accepts kanbanEnabled: true', () => {
+      const valid = UpdateProjectRequest.safeParse({
+        kanbanEnabled: true,
+      });
+
+      expect(valid.success).toBe(true);
+      expect(valid.data.kanbanEnabled).toBe(true);
+    });
+
+    it('accepts kanbanEnabled: false', () => {
+      const valid = UpdateProjectRequest.safeParse({
+        kanbanEnabled: false,
+      });
+
+      expect(valid.success).toBe(true);
+      expect(valid.data.kanbanEnabled).toBe(false);
+    });
+
+    it('allows omitting kanbanEnabled', () => {
+      const valid = UpdateProjectRequest.safeParse({});
+
+      expect(valid.success).toBe(true);
+      expect(valid.data.kanbanEnabled).toBeUndefined();
+    });
+
+    it('rejects non-boolean kanbanEnabled', () => {
+      const invalid = UpdateProjectRequest.safeParse({
+        kanbanEnabled: 'yes',
+      });
+
+      expect(invalid.success).toBe(false);
+    });
+  });
+
+  describe('ProjectResponse', () => {
+    const validProject = {
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      name: 'Test Project',
+      workingDirectory: '/tmp/test',
+      systemPrompt: null,
+      onSessionCreated: null,
+      onSessionDeleted: null,
+      prPollInterval: 60000,
+      kanbanEnabled: true,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    it('validates complete project response', () => {
+      const result = ProjectResponse.safeParse(validProject);
+      expect(result.success).toBe(true);
+    });
+
+    it('validates project with kanbanEnabled: true', () => {
+      const result = ProjectResponse.safeParse({
+        ...validProject,
+        kanbanEnabled: true,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('validates project with kanbanEnabled: false', () => {
+      const result = ProjectResponse.safeParse({
+        ...validProject,
+        kanbanEnabled: false,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects project missing kanbanEnabled field', () => {
+      const { kanbanEnabled: _kanbanEnabled, ...withoutKanbanEnabled } = validProject;
+      const result = ProjectResponse.safeParse(withoutKanbanEnabled);
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects non-boolean kanbanEnabled in response', () => {
+      const result = ProjectResponse.safeParse({
+        ...validProject,
+        kanbanEnabled: 'yes',
+      });
+      expect(result.success).toBe(false);
     });
   });
 
