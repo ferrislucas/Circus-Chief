@@ -112,6 +112,27 @@ describe('SessionStreaming Store', () => {
       store.setPartialThinking('thinking...');
       expect(store.partialThinkingBySession).toEqual({});
     });
+
+    it('ignores null updates — keeps the previous thinking value', () => {
+      const store = useSessionStreamingStore();
+      store.setPartialThinking('Previous thinking', 'session-1');
+      store.setPartialThinking(null, 'session-1');
+      expect(store.getPartialThinking('session-1')).toBe('Previous thinking');
+    });
+
+    it('ignores empty string updates — keeps the previous thinking value', () => {
+      const store = useSessionStreamingStore();
+      store.setPartialThinking('Previous thinking', 'session-1');
+      store.setPartialThinking('', 'session-1');
+      expect(store.getPartialThinking('session-1')).toBe('Previous thinking');
+    });
+
+    it('updates thinking normally for non-null non-empty strings', () => {
+      const store = useSessionStreamingStore();
+      store.setPartialThinking('First thought', 'session-1');
+      store.setPartialThinking('Second thought', 'session-1');
+      expect(store.getPartialThinking('session-1')).toBe('Second thought');
+    });
   });
 
   describe('addSessionWorkLog', () => {
@@ -176,6 +197,20 @@ describe('SessionStreaming Store', () => {
       expect(store.getSessionPartialText('session-1')).toBe('Text 1');
       expect(store.getSessionPartialText('session-2')).toBe('Text 2');
     });
+
+    it('ignores empty string updates — keeps the previous value', () => {
+      const store = useSessionStreamingStore();
+      store.setSessionPartialText('session-1', 'Visible text');
+      store.setSessionPartialText('session-1', '');
+      expect(store.getSessionPartialText('session-1')).toBe('Visible text');
+    });
+
+    it('sets text normally for non-empty strings', () => {
+      const store = useSessionStreamingStore();
+      store.setSessionPartialText('session-1', 'Initial');
+      store.setSessionPartialText('session-1', 'Updated text');
+      expect(store.getSessionPartialText('session-1')).toBe('Updated text');
+    });
   });
 
   describe('clearSessionStreamingState', () => {
@@ -192,12 +227,24 @@ describe('SessionStreaming Store', () => {
       expect(store.getPartialThinking('session-1')).toBeNull();
     });
 
+    it('clears file count for the session', () => {
+      const store = useSessionStreamingStore();
+      store.setSessionFileCount('session-1', 7);
+      expect(store.getSessionFileCount('session-1')).toBe(7);
+
+      store.clearSessionStreamingState('session-1');
+
+      expect(store.getSessionFileCount('session-1')).toBe(0);
+    });
+
     it('does not affect other sessions', () => {
       const store = useSessionStreamingStore();
       store.addSessionWorkLog('session-1', { id: '1', type: 'tool_use' });
       store.addSessionWorkLog('session-2', { id: '2', type: 'tool_use' });
       store.setSessionPartialText('session-1', 'Text 1');
       store.setSessionPartialText('session-2', 'Text 2');
+      store.setSessionFileCount('session-1', 3);
+      store.setSessionFileCount('session-2', 5);
 
       store.clearSessionStreamingState('session-1');
 
@@ -205,6 +252,44 @@ describe('SessionStreaming Store', () => {
       expect(store.getSessionWorkLogs('session-2')).toHaveLength(1);
       expect(store.getSessionPartialText('session-1')).toBe('');
       expect(store.getSessionPartialText('session-2')).toBe('Text 2');
+      expect(store.getSessionFileCount('session-1')).toBe(0);
+      expect(store.getSessionFileCount('session-2')).toBe(5);
+    });
+  });
+
+  describe('setSessionFileCount', () => {
+    it('stores count per session', () => {
+      const store = useSessionStreamingStore();
+      store.setSessionFileCount('session-1', 4);
+      expect(store.getSessionFileCount('session-1')).toBe(4);
+    });
+
+    it('overwrites previous count for same sessionId', () => {
+      const store = useSessionStreamingStore();
+      store.setSessionFileCount('session-1', 2);
+      store.setSessionFileCount('session-1', 9);
+      expect(store.getSessionFileCount('session-1')).toBe(9);
+    });
+
+    it('does not affect other sessions', () => {
+      const store = useSessionStreamingStore();
+      store.setSessionFileCount('session-1', 3);
+      store.setSessionFileCount('session-2', 6);
+      expect(store.getSessionFileCount('session-1')).toBe(3);
+      expect(store.getSessionFileCount('session-2')).toBe(6);
+    });
+  });
+
+  describe('getSessionFileCount', () => {
+    it('returns 0 for unknown session', () => {
+      const store = useSessionStreamingStore();
+      expect(store.getSessionFileCount('nonexistent')).toBe(0);
+    });
+
+    it('returns the stored count for a known session', () => {
+      const store = useSessionStreamingStore();
+      store.setSessionFileCount('session-1', 12);
+      expect(store.getSessionFileCount('session-1')).toBe(12);
     });
   });
 
