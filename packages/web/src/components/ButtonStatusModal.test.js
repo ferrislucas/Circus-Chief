@@ -1,7 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import { createPinia, setActivePinia } from 'pinia';
 import ButtonStatusModal from './ButtonStatusModal.vue';
+
+// Mock the commandButtons store
+const mockDeleteRun = vi.fn().mockResolvedValue(undefined);
+const mockCommandButtonsStore = { deleteRun: mockDeleteRun };
+
+vi.mock('../stores/commandButtons.js', () => ({
+  useCommandButtonsStore: vi.fn(() => mockCommandButtonsStore),
+}));
+
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 
 async function flushAll(wrapper) {
   await flushPromises();
@@ -394,7 +405,7 @@ describe('ButtonStatusModal.vue', () => {
         },
       });
 
-      const closeBtn = wrapper.find('.modal-footer .btn');
+      const closeBtn = wrapper.find('.modal-footer .btn-primary');
       expect(closeBtn.exists()).toBe(true);
       expect(closeBtn.text()).toBe('Close');
     });
@@ -843,6 +854,156 @@ describe('ButtonStatusModal.vue', () => {
       expect(runIdRow).toBeDefined();
       const runIdValue = runIdRow.find('.detail-value');
       expect(runIdValue.classes()).toContain('monospace');
+    });
+  });
+
+  describe('remove run button', () => {
+    it('shows remove button for completed runs', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, status: 'success' },
+          isOpen: true,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      expect(wrapper.find('[data-testid="remove-run-button"]').exists()).toBe(true);
+    });
+
+    it('shows remove button for error runs', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, status: 'error', exitCode: 1 },
+          isOpen: true,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      expect(wrapper.find('[data-testid="remove-run-button"]').exists()).toBe(true);
+    });
+
+    it('shows remove button for killed runs', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, status: 'killed' },
+          isOpen: true,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      expect(wrapper.find('[data-testid="remove-run-button"]').exists()).toBe(true);
+    });
+
+    it('does not show remove button for running runs', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, status: 'running' },
+          isOpen: true,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      expect(wrapper.find('[data-testid="remove-run-button"]').exists()).toBe(false);
+    });
+
+    it('does not show remove button when no run exists', () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: null,
+          isOpen: true,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      expect(wrapper.find('[data-testid="remove-run-button"]').exists()).toBe(false);
+    });
+
+    it('shows confirmation when remove button is clicked', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, status: 'success' },
+          isOpen: true,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      await wrapper.find('[data-testid="remove-run-button"]').trigger('click');
+
+      expect(wrapper.find('[data-testid="confirm-remove-button"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="cancel-remove-button"]').exists()).toBe(true);
+      expect(wrapper.find('.confirm-text').text()).toBe('Are you sure?');
+    });
+
+    it('cancels confirmation when cancel is clicked', async () => {
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, status: 'success' },
+          isOpen: true,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      await wrapper.find('[data-testid="remove-run-button"]').trigger('click');
+      await wrapper.find('[data-testid="cancel-remove-button"]').trigger('click');
+
+      expect(wrapper.find('[data-testid="remove-run-button"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="confirm-remove-button"]').exists()).toBe(false);
+    });
+
+    it('calls deleteRun on store when confirm is clicked', async () => {
+      mockDeleteRun.mockClear();
+
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, status: 'success' },
+          isOpen: true,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      await wrapper.find('[data-testid="remove-run-button"]').trigger('click');
+      await wrapper.find('[data-testid="confirm-remove-button"]').trigger('click');
+      await flushAll(wrapper);
+
+      expect(mockDeleteRun).toHaveBeenCalledWith('test-session-1', 'run-1');
+    });
+
+    it('calls deleteRun and closes modal after successful deletion', async () => {
+      mockDeleteRun.mockClear();
+      mockDeleteRun.mockResolvedValue(undefined);
+
+      // Track close emission manually since async click handlers in Vue
+      // can be tricky with test utils event tracking
+      let closeEmitted = false;
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, status: 'success' },
+          isOpen: true,
+          sessionId: 'test-session-1',
+          'onClose': () => { closeEmitted = true; },
+        },
+      });
+
+      await wrapper.find('[data-testid="remove-run-button"]').trigger('click');
+      await nextTick();
+      await wrapper.find('[data-testid="confirm-remove-button"]').trigger('click');
+
+      // Wait for the async click handler to complete
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+
+      expect(mockDeleteRun).toHaveBeenCalledWith('test-session-1', 'run-1');
+      expect(closeEmitted).toBe(true);
     });
   });
 });

@@ -52,6 +52,11 @@ const routes = [
     component: () => import('./views/SessionListView.vue'),
   },
   {
+    path: '/projects/:id/kanban',
+    name: 'ProjectKanban',
+    component: () => import('./views/SessionListView.vue'),
+  },
+  {
     path: '/projects/:projectId/templates/:templateId',
     name: 'TemplateDetail',
     component: () => import('./views/TemplateDetailView.vue'),

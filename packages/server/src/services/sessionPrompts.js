@@ -1,4 +1,4 @@
-import { sessions, attachments } from '../database.js';
+import { sessions, attachments, projects, kanbanBoards, kanbanLanes } from '../database.js';
 import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
 
 /**
@@ -307,6 +307,79 @@ curl -X POST ${apiUrl}/api/sessions/<session_id>/summary
 }
 
 /**
+ * Build Kanban API instructions for system prompt if Kanban is enabled for the project
+ * @param {string} sessionId - Current session ID
+ * @param {string} projectId - Current project ID
+ * @returns {string} Kanban instructions or empty string if disabled
+ */
+function buildKanbanApiInstructions(sessionId, projectId) {
+  const project = projects.getById(projectId);
+  if (!project || !project.kanbanEnabled) {
+    return '';
+  }
+
+  const apiUrl = getApiBaseUrl();
+  const board = kanbanBoards.getByProjectId(projectId);
+
+  // Get lane names for context
+  let laneContext = '';
+  if (board) {
+    const lanes = kanbanLanes.getByBoardId(board.id);
+    if (lanes && lanes.length > 0) {
+      const laneList = lanes.map((l) => `  - "${l.name}" (ID: ${l.id})`).join('\n');
+      laneContext = `\n### Available Lanes\n${laneList}\n`;
+    }
+  }
+
+  return `## Kanban Board API
+
+This project has a Kanban board enabled for organizing sessions visually. You can manage the board using these API endpoints.
+${laneContext}
+### Get Board with All Lanes and Cards
+\`\`\`bash
+curl ${apiUrl}/api/projects/${projectId}/kanban
+\`\`\`
+
+### Add This Session to the Board
+\`\`\`bash
+curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
+  -H "Content-Type: application/json" \\
+  -d '{"sessionId": "${sessionId}", "laneId": "<lane_id>"}'
+\`\`\`
+
+### Move a Card to a Different Lane
+\`\`\`bash
+curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/<card_id>/move \\
+  -H "Content-Type: application/json" \\
+  -d '{"targetLaneId": "<lane_id>"}'
+\`\`\`
+
+### Remove a Card from the Board
+\`\`\`bash
+curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/cards/<card_id>
+\`\`\`
+
+### Create a New Lane
+\`\`\`bash
+curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/lanes \\
+  -H "Content-Type: application/json" \\
+  -d '{"name": "Lane Name"}'
+\`\`\`
+
+### Update a Lane
+\`\`\`bash
+curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id> \\
+  -H "Content-Type: application/json" \\
+  -d '{"name": "New Name"}'
+\`\`\`
+
+### Delete a Lane
+\`\`\`bash
+curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/lanes/<lane_id>
+\`\`\``;
+}
+
+/**
  * Build worktree context for system prompt if session uses git worktree
  * @param {Object} session - Session object
  * @returns {string} Worktree context or empty string
@@ -358,6 +431,7 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
   const canvasWriteInstructions = buildCanvasWriteSystemPrompt(sessionId);
   const canvasReadInstructions = buildCanvasReadSystemPrompt(sessionId);
   const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
+  const kanbanApiInstructions = buildKanbanApiInstructions(sessionId, projectId);
   const attachmentsContext = getSessionAttachmentsContext(sessionId);
   const worktreeContext = buildWorktreeContext(session);
   const childSessionContext = buildChildSessionContext(session);
@@ -375,7 +449,8 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
     attachmentsContext,
     canvasWriteInstructions,
     canvasReadInstructions,
-    sessionApiInstructions
+    sessionApiInstructions,
+    kanbanApiInstructions
   ].filter(Boolean);
 
   return parts.join('\n\n');

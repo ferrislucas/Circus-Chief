@@ -10,6 +10,7 @@ import settingsRouter from './settings.js';
 import providersRouter from './providers.js';
 import commandsRouter from './commands.js';
 import metricsRouter from './metrics.js';
+import kanbanRouter from './kanban.js';
 
 const router = Router();
 
@@ -30,6 +31,9 @@ router.use('/commands', commandsRouter)
 
 // Canvas routes are nested under sessions
 router.use('/sessions', canvasRouter);
+
+// Kanban routes are nested under projects
+router.use('/projects/:projectId/kanban', kanbanRouter);
 
 // Metrics routes (agent call stats)
 router.use('/', metricsRouter);

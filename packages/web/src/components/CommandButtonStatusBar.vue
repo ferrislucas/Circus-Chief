@@ -14,6 +14,7 @@
       :button="{ label: selectedButtonForModal.label, command: selectedButtonForModal.command }"
       :latest-run="selectedButtonForModal.latestRun"
       :is-open="!!selectedButtonForModal"
+      :session-id="sessionId"
       @close="selectedButtonForModal = null"
     />
   </div>
@@ -27,6 +28,10 @@ const props = defineProps({
   buttonStatuses: {
     type: Array,
     default: () => [],
+  },
+  sessionId: {
+    type: String,
+    default: '',
   },
 });
 

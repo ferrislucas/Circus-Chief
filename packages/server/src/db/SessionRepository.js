@@ -56,6 +56,9 @@ export class SessionRepository extends BaseRepository {
       maxTotalTokens: row.max_total_tokens,
       rescheduleCount: row.reschedule_count || 0,
       rescheduleAtTokenCount: row.reschedule_at_token_count,
+      // Kanban fields
+      targetLaneId: row.target_lane_id || null,
+      laneTriggerDepth: row.lane_trigger_depth || 0,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       lastActivityAt: row.last_activity_at || row.updated_at || row.created_at,
@@ -284,6 +287,8 @@ export class SessionRepository extends BaseRepository {
     pendingPrompt: 'pending_prompt',
     pendingModel: 'pending_model',
     effortLevel: 'effort_level',
+    targetLaneId: 'target_lane_id',
+    laneTriggerDepth: 'lane_trigger_depth',
   };
 
   /**
