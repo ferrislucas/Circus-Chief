@@ -71,6 +71,8 @@ test.describe('Command Buttons', () => {
     await page.click('text=Conversation');
     await expect(page.locator('.commands-tab')).toBeHidden();
     await page.click('text=Commands');
+    // Wait for component to fully remount and restore state from store
+    await page.waitForTimeout(100);
     await expect(page.locator('.output-text')).toBeVisible({ timeout: 5000 });
 
     // Output should still be there
