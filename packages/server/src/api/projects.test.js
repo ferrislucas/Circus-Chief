@@ -437,6 +437,82 @@ describe('Projects API', () => {
         // Clean up
         sessionTemplates.delete(minimalTemplate.id);
       });
+
+      it('applies template effortLevel when provided', async () => {
+        // Create template with effortLevel (include git settings since project is a git repo)
+        const effortTemplate = sessionTemplates.create({
+          name: 'Effort Level Template',
+          prompt: 'Template with effort level',
+          projectId: projectId,
+          effortLevel: 'high',
+          gitBranch: 'feature/effort',
+          gitMode: 'worktree',
+        });
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: effortTemplate.id,
+        });
+
+        expect(res.status).toBe(201);
+
+        // Session should have effortLevel from template
+        const session = sessions.getById(res.body.id);
+        expect(session.effortLevel).toBe('high');
+
+        // Clean up
+        sessionTemplates.delete(effortTemplate.id);
+      });
+
+      it('applies template effortLevel="max" when provided', async () => {
+        const effortTemplate = sessionTemplates.create({
+          name: 'Max Effort Template',
+          prompt: 'Template with max effort',
+          projectId: projectId,
+          effortLevel: 'max',
+          gitBranch: 'feature/max',
+          gitMode: 'worktree',
+        });
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: effortTemplate.id,
+        });
+
+        expect(res.status).toBe(201);
+
+        const session = sessions.getById(res.body.id);
+        expect(session.effortLevel).toBe('max');
+
+        // Clean up
+        sessionTemplates.delete(effortTemplate.id);
+      });
+
+      it('does not override explicit effortLevel when template has null', async () => {
+        const nullEffortTemplate = sessionTemplates.create({
+          name: 'Null Effort Template',
+          prompt: 'Template with null effort',
+          projectId: projectId,
+          effortLevel: null,
+          gitBranch: 'feature/null-effort',
+          gitMode: 'worktree',
+        });
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: nullEffortTemplate.id,
+          effortLevel: 'medium',
+        });
+
+        expect(res.status).toBe(201);
+
+        // Should keep provided value since template has null
+        const session = sessions.getById(res.body.id);
+        expect(session.effortLevel).toBe('medium');
+
+        // Clean up
+        sessionTemplates.delete(nullEffortTemplate.id);
+      });
     });
 
     describe('with nextTemplateId', () => {
