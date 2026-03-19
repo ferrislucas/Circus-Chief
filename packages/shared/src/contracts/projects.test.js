@@ -195,7 +195,7 @@ describe('Projects Contracts', () => {
     });
 
     it('rejects project missing kanbanEnabled field', () => {
-      const { kanbanEnabled, ...withoutKanbanEnabled } = validProject;
+      const { kanbanEnabled: _kanbanEnabled, ...withoutKanbanEnabled } = validProject;
       const result = ProjectResponse.safeParse(withoutKanbanEnabled);
       expect(result.success).toBe(false);
     });

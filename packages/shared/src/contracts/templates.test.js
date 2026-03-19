@@ -385,7 +385,7 @@ describe('SessionTemplateResponse', () => {
   });
 
   it('rejects template missing targetLaneId field', () => {
-    const { targetLaneId, ...withoutTargetLaneId } = validTemplate;
+    const { targetLaneId: _targetLaneId, ...withoutTargetLaneId } = validTemplate;
     const result = SessionTemplateResponse.safeParse(withoutTargetLaneId);
     expect(result.success).toBe(false);
   });
