@@ -2,6 +2,7 @@ import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { useKanbanStore } from '../stores/kanban.js';
 import { useProjectSubscription } from './useWebSocket.js';
 
 /**
@@ -22,6 +23,7 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
   const projectsStore = useProjectsStore();
   const sessionsStore = useSessionsStore();
   const commandButtonsStore = useCommandButtonsStore();
+  const kanbanStore = useKanbanStore();
 
   const { fetchSummariesBatch, updateSummary, cleanupSummary } = summaryCallbacks;
 
@@ -71,6 +73,10 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
         onCommandRunComplete,
         onCommandRunError,
         onCommandRunDeleted,
+        onKanbanBoardUpdated,
+        onKanbanCardMoved,
+        onKanbanCardAdded,
+        onKanbanCardRemoved,
       } = useProjectSubscription(newProjectId);
 
       currentUnsubscribe = unsubscribe;
@@ -196,6 +202,34 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
         onCommandRunDeleted((runId, sessionId, buttonId) => {
           commandButtonsStore.clearRun(runId);
           sessionsStore.removeSessionCommandRun(sessionId, buttonId);
+        })
+      );
+
+      // Handle kanban board updated (full board refresh)
+      cleanups.push(
+        onKanbanBoardUpdated((board) => {
+          kanbanStore.handleBoardUpdated(board);
+        })
+      );
+
+      // Handle kanban card moved
+      cleanups.push(
+        onKanbanCardMoved((cardId, fromLaneId, toLaneId, card) => {
+          kanbanStore.handleCardMoved(cardId, fromLaneId, toLaneId, card);
+        })
+      );
+
+      // Handle kanban card added
+      cleanups.push(
+        onKanbanCardAdded((card, laneId) => {
+          kanbanStore.handleCardAdded(card, laneId);
+        })
+      );
+
+      // Handle kanban card removed
+      cleanups.push(
+        onKanbanCardRemoved((cardId, laneId) => {
+          kanbanStore.handleCardRemoved(cardId, laneId);
         })
       );
     },

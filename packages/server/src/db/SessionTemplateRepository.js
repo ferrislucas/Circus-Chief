@@ -22,6 +22,7 @@ export class SessionTemplateRepository extends BaseRepository {
       model: row.model || null,
       mode: row.mode || null,
       effortLevel: row.effort_level || null,
+      targetLaneId: row.target_lane_id || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -47,8 +48,8 @@ export class SessionTemplateRepository extends BaseRepository {
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO session_templates (id, project_id, name, prompt, next_template_id, thinking_enabled, git_branch, git_mode, model, mode, effort_level, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO session_templates (id, project_id, name, prompt, next_template_id, thinking_enabled, git_branch, git_mode, model, mode, effort_level, target_lane_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -62,6 +63,7 @@ export class SessionTemplateRepository extends BaseRepository {
         data.model || null,
         data.mode !== undefined && data.mode !== null ? data.mode : null,
         data.effortLevel || null,
+        data.targetLaneId || null,
         now,
         now
       );
@@ -113,6 +115,10 @@ export class SessionTemplateRepository extends BaseRepository {
     if (data.effortLevel !== undefined) {
       updates.push('effort_level = ?');
       values.push(data.effortLevel);
+    }
+    if (data.targetLaneId !== undefined) {
+      updates.push('target_lane_id = ?');
+      values.push(data.targetLaneId);
     }
 
     if (updates.length === 0) return this.getById(id);

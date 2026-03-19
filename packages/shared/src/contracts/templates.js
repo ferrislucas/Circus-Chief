@@ -10,6 +10,7 @@ export const CreateSessionTemplateRequest = z.object({
   model: z.string().nullable().optional(),
   mode: z.enum(['plan', 'standard', 'yolo']).nullable().optional(),
   effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable().optional(),
+  targetLaneId: z.string().uuid().nullable().optional(), // Lane to place session in when created from this template
 });
 
 export const UpdateSessionTemplateRequest = z.object({
@@ -22,6 +23,7 @@ export const UpdateSessionTemplateRequest = z.object({
   model: z.string().nullable().optional(),
   mode: z.enum(['plan', 'standard', 'yolo']).nullable().optional(),
   effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable().optional(),
+  targetLaneId: z.string().uuid().nullable().optional(),
 });
 
 export const SessionTemplateResponse = z.object({
@@ -36,6 +38,7 @@ export const SessionTemplateResponse = z.object({
   model: z.string().nullable(),
   mode: z.string().nullable(),
   effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable(),
+  targetLaneId: z.string().uuid().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

@@ -9,6 +9,7 @@ import {
   TemplatesApi,
   QuickResponsesApi,
   MiscApi,
+  KanbanApi,
 } from './resources/index.js';
 
 /**
@@ -170,6 +171,7 @@ ConversationsApi(ApiClient);
 TemplatesApi(ApiClient);
 QuickResponsesApi(ApiClient);
 MiscApi(ApiClient);
+KanbanApi(ApiClient);
 
 // Singleton instance
 export const api = new ApiClient();
