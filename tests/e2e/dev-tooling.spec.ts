@@ -15,7 +15,7 @@ import { API_URL, getAPIURL } from './helpers';
  * Categories:
  *   1. start-server.sh Script Behavior (5 tests)
  *   2. Port Isolation & Server Liveness (3 tests)
- *   3. pw.sh Enhancements (3 tests)
+ *   3. pw.sh Enhancements (7 tests)
  */
 
 // ---------------------------------------------------------------------------
@@ -301,5 +301,75 @@ test.describe('Category 4: pw.sh Enhancements', () => {
     expect(curlPos).toBeGreaterThan(-1);
     expect(rmPos).toBeGreaterThan(curlPos);
     expect(startPos).toBeGreaterThan(rmPos);
+  });
+
+  // Test 16
+  test('pw.sh detect_or_start_server always restarts (no reuse shortcut)', () => {
+    const pwshSource = readFileSync(
+      join(process.cwd(), 'scripts', 'pw.sh'),
+      'utf-8'
+    );
+
+    // Extract detect_or_start_server function body
+    const funcStart = pwshSource.indexOf('detect_or_start_server()');
+    expect(funcStart).toBeGreaterThan(-1);
+    const funcBody = pwshSource.slice(funcStart, funcStart + 4000);
+
+    // The old reuse shortcut message should NOT exist in the function body
+    expect(funcBody).not.toContain('Server is already running on port');
+  });
+
+  // Test 17
+  test('pw.sh detect_or_start_server has port 5000 protection', () => {
+    const pwshSource = readFileSync(
+      join(process.cwd(), 'scripts', 'pw.sh'),
+      'utf-8'
+    );
+
+    // Extract detect_or_start_server function body
+    const funcStart = pwshSource.indexOf('detect_or_start_server()');
+    expect(funcStart).toBeGreaterThan(-1);
+    const funcBody = pwshSource.slice(funcStart, funcStart + 4000);
+
+    // Should contain the port 5000 safety check
+    expect(funcBody).toContain('"5000"');
+    expect(funcBody).toContain('port 5000 is protected');
+  });
+
+  // Test 18
+  test('pw.sh detect_or_start_server unconditionally kills non-5000 server', () => {
+    const pwshSource = readFileSync(
+      join(process.cwd(), 'scripts', 'pw.sh'),
+      'utf-8'
+    );
+
+    // Extract detect_or_start_server function body
+    const funcStart = pwshSource.indexOf('detect_or_start_server()');
+    expect(funcStart).toBeGreaterThan(-1);
+    const funcBody = pwshSource.slice(funcStart, funcStart + 4000);
+
+    // Should contain 'Restarting server' message followed by kill command
+    expect(funcBody).toContain('Restarting server');
+    expect(funcBody).toContain('kill');
+
+    // The kill should NOT be gated by VCR_MODE - no VCR_MODE comparison logic
+    expect(funcBody).not.toContain('VCR_MODE mismatch');
+  });
+
+  // Test 19
+  test('pw.sh detect_or_start_server removes VCR_MODE matching logic', () => {
+    const pwshSource = readFileSync(
+      join(process.cwd(), 'scripts', 'pw.sh'),
+      'utf-8'
+    );
+
+    // Extract detect_or_start_server function body
+    const funcStart = pwshSource.indexOf('detect_or_start_server()');
+    expect(funcStart).toBeGreaterThan(-1);
+    const funcBody = pwshSource.slice(funcStart, funcStart + 4000);
+
+    // The old VCR_MODE server-side comparison variables should be removed
+    expect(funcBody).not.toContain('server_vcr_mode');
+    expect(funcBody).not.toContain('vcr_mode_file');
   });
 });
