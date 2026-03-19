@@ -53,6 +53,7 @@ vi.mock('./useWebSocket.js', () => {
         onCommandOutput: mockHandlerFactory(),
         onCommandComplete: mockHandlerFactory(),
         onCommandError: mockHandlerFactory(),
+        onCommandRunDeleted: mockHandlerFactory(),
       };
       return mockSubscription;
     }),

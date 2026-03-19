@@ -5,6 +5,7 @@ import { updateTodos } from './todoStore.js';
 import * as summaryService from './summaryService.js';
 import * as diffService from './diffService.js';
 import { updateTurnUsage, currentTurnUsage, estimatedOutputTokens, estimateTokens } from './usageTracker.js';
+import * as kanbanService from './kanbanService.js';
 
 // ── Shared module-level state ──────────────────────────────────────────────
 
@@ -759,6 +760,9 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
       await broadcastChangesUpdate(sessionId, currentSession.projectId, workingDirectory);
     }
 
+    // Handle kanban lane movements based on targetLaneId
+    await kanbanService.handleTurnCompletion(sessionId);
+
     // Auto-send queued prompt if enabled (runs BEFORE template trigger)
     let autoSendFired = false;
     if (handleAutoSendIfNeeded) {
@@ -779,7 +783,7 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
  * Encapsulates the duplicated error handling block from runSession/continueSession/continueSessionWithExistingMessage
  * @param {string} sessionId
  * @param {Error} error
- * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, cleanupConversationId?: boolean }} options
+ * @param {{ controller: AbortController, shouldRescheduleOnError: Function, schedulerService: Object, errorLabel?: string, broadcastConversationState?: boolean, handleTemplateTriggerIfNeeded?: Function }} options
  */
 export async function handleSessionError(sessionId, error, options = {}) {
   const { controller, shouldRescheduleOnError, schedulerService } = options;
@@ -822,6 +826,17 @@ export async function handleSessionError(sessionId, error, options = {}) {
     summaryService.extractPrUrlIfNeeded(sessionId);
     // Trigger summary generation on error
     summaryService.onSessionComplete(sessionId);
+
+    // Trigger next template if configured (e.g., session completed work but process exited with error code)
+    // Wrapped in try/catch because we are already in the error path — a template failure
+    // must not mask the original error or prevent handleSessionError from returning.
+    if (options.handleTemplateTriggerIfNeeded) {
+      try {
+        await options.handleTemplateTriggerIfNeeded(sessionId);
+      } catch (templateError) {
+        console.error(`[handleSessionError] Template trigger failed for session ${sessionId}:`, templateError);
+      }
+    }
   }
   return false; // Not rescheduled
 }

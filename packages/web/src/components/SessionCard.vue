@@ -80,6 +80,7 @@
         <SessionCardHeaderActions
           :date-to-show="dateToShow"
           :is-child="isChild"
+          :is-on-board="isOnBoard"
           :show-archive="showArchive"
           :show-unarchive="showUnarchive"
           :session-status="session.status"
@@ -87,6 +88,7 @@
           @archive="$emit('archive', session.id)"
           @unarchive="$emit('unarchive', session.id)"
           @star="onStarClick"
+          @add-to-board="onAddToBoardClick"
         />
       </div>
 
@@ -143,6 +145,7 @@ import { computed, ref, onMounted } from 'vue';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import { api } from '../composables/useApi.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
@@ -154,6 +157,7 @@ import SessionLogStream from './SessionLogStream.vue';
 
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
+const kanbanStore = useKanbanStore();
 const streamingStore = useSessionStreamingStore();
 const selectedButtonForModal = ref(null);
 
@@ -212,7 +216,16 @@ const props = defineProps({
   },
 });
 
-defineEmits(['retrySummary', 'archive', 'unarchive']);
+const emit = defineEmits(['retrySummary', 'archive', 'unarchive', 'addToBoard']);
+
+// Check if session is already on the kanban board
+const isOnBoard = computed(() => {
+  return kanbanStore.isSessionOnBoard(props.session.id);
+});
+
+const onAddToBoardClick = () => {
+  emit('addToBoard', props.session);
+};
 
 const isRunning = computed(() => ['running', 'starting'].includes(props.session.status));
 

@@ -130,6 +130,42 @@ describe('CreateSessionTemplateRequest', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('accepts valid UUID for targetLaneId', () => {
+    const result = CreateSessionTemplateRequest.safeParse({
+      name: 'Template',
+      prompt: 'Prompt',
+      targetLaneId: '550e8400-e29b-41d4-a716-446655440000',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts null targetLaneId', () => {
+    const result = CreateSessionTemplateRequest.safeParse({
+      name: 'Template',
+      prompt: 'Prompt',
+      targetLaneId: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects invalid UUID for targetLaneId', () => {
+    const result = CreateSessionTemplateRequest.safeParse({
+      name: 'Template',
+      prompt: 'Prompt',
+      targetLaneId: 'not-a-uuid',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('allows omitting targetLaneId', () => {
+    const result = CreateSessionTemplateRequest.safeParse({
+      name: 'Template',
+      prompt: 'Prompt',
+    });
+    expect(result.success).toBe(true);
+    expect(result.data.targetLaneId).toBeUndefined();
+  });
 });
 
 describe('UpdateSessionTemplateRequest', () => {
@@ -225,6 +261,27 @@ describe('UpdateSessionTemplateRequest', () => {
       }).success
     ).toBe(false);
   });
+
+  it('accepts valid UUID for targetLaneId', () => {
+    const result = UpdateSessionTemplateRequest.safeParse({
+      targetLaneId: '550e8400-e29b-41d4-a716-446655440000',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts null targetLaneId', () => {
+    const result = UpdateSessionTemplateRequest.safeParse({
+      targetLaneId: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects invalid UUID for targetLaneId', () => {
+    const result = UpdateSessionTemplateRequest.safeParse({
+      targetLaneId: 'not-a-uuid',
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('SessionTemplateResponse', () => {
@@ -239,6 +296,7 @@ describe('SessionTemplateResponse', () => {
     gitMode: null,
     model: null,
     mode: null,
+    targetLaneId: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -301,6 +359,36 @@ describe('SessionTemplateResponse', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('validates template with targetLaneId set', () => {
+    const result = SessionTemplateResponse.safeParse({
+      ...validTemplate,
+      targetLaneId: '550e8400-e29b-41d4-a716-446655440005',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates template with targetLaneId null', () => {
+    const result = SessionTemplateResponse.safeParse({
+      ...validTemplate,
+      targetLaneId: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects template with invalid targetLaneId', () => {
+    const result = SessionTemplateResponse.safeParse({
+      ...validTemplate,
+      targetLaneId: 'not-a-uuid',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects template missing targetLaneId field', () => {
+    const { targetLaneId: _targetLaneId, ...withoutTargetLaneId } = validTemplate;
+    const result = SessionTemplateResponse.safeParse(withoutTargetLaneId);
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('SessionTemplateListResponse', () => {
@@ -322,6 +410,7 @@ describe('SessionTemplateListResponse', () => {
         gitMode: null,
         model: null,
         mode: null,
+        targetLaneId: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       },
@@ -336,6 +425,7 @@ describe('SessionTemplateListResponse', () => {
         gitMode: 'branch',
         model: 'claude-sonnet-4-20250514',
         mode: 'plan',
+        targetLaneId: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       },
@@ -367,6 +457,7 @@ describe('AvailableTemplatesResponse', () => {
           gitMode: null,
           model: null,
           mode: null,
+          targetLaneId: null,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -391,6 +482,7 @@ describe('AvailableTemplatesResponse', () => {
           gitMode: null,
           model: null,
           mode: null,
+          targetLaneId: null,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -411,6 +503,7 @@ describe('AvailableTemplatesResponse', () => {
       gitMode: null,
       model: null,
       mode: null,
+      targetLaneId: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };

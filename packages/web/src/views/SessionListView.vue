@@ -56,6 +56,14 @@
           >
             Scheduled
           </button>
+          <button
+            v-if="projectsStore.currentProject?.kanbanEnabled"
+            class="tab"
+            :class="{ active: activeTab === 'kanban' }"
+            @click="router.push(`/projects/${route.params.id}/kanban`)"
+          >
+            Kanban
+          </button>
         </div>
         <router-link v-if="activeTab === 'sessions'" :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary desktop-only">
           New Session
@@ -70,6 +78,7 @@
           <option value="templates">Templates</option>
           <option value="commands">Commands</option>
           <option value="scheduled">Scheduled</option>
+          <option v-if="projectsStore.currentProject?.kanbanEnabled" value="kanban">Kanban</option>
         </select>
       </div>
     </div>
@@ -127,6 +136,7 @@
             :pr-summary="summaries[group.parent.id]"
             @retry-summary="retryFetchSummary"
             @archive="handleArchive"
+            @add-to-board="handleAddToBoard"
           />
         </template>
       </div>
@@ -159,6 +169,52 @@
       :sessions="scheduledSessions"
       :loading="loadingScheduled"
     />
+
+    <!-- Kanban Tab -->
+    <KanbanBoard
+      v-if="activeTab === 'kanban'"
+      :project-id="route.params.id"
+    />
+
+    <!-- Add Session to Lane Modal (for SessionCard add-to-board action) -->
+    <AddSessionToLaneModal
+      :is-open="showAddToLaneModal"
+      :project-id="route.params.id"
+      :lane-id="selectedLaneForAdd?.id"
+      :lane-name="selectedLaneForAdd?.name"
+      @update:is-open="showAddToLaneModal = $event"
+      @close="closeAddToLaneModal"
+    />
+
+    <!-- Lane Selector Modal (to select which lane to add session to) -->
+    <div v-if="showLaneSelectorModal" class="modal-backdrop" @click.self="closeLaneSelectorModal">
+      <div class="modal-content lane-selector-modal">
+        <div class="modal-header">
+          <h2 class="modal-title">Add to Kanban Board</h2>
+          <button @click="closeLaneSelectorModal" class="close-btn" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-description">Select a lane to add "{{ sessionToAdd?.name }}" to:</p>
+          <div class="lane-options">
+            <button
+              v-for="lane in kanbanStore.board?.lanes"
+              :key="lane.id"
+              class="lane-option-btn"
+              @click="addSessionToLane(lane)"
+            >
+              <span class="lane-option-name">{{ lane.name }}</span>
+              <span class="lane-option-count">{{ lane.cards?.length || 0 }} cards</span>
+            </button>
+          </div>
+          <p v-if="!kanbanStore.board?.lanes?.length" class="empty-lanes">
+            No lanes available. Go to the Kanban tab to create lanes first.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeLaneSelectorModal" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -167,6 +223,7 @@ import { onMounted, onUnmounted, watch, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useKanbanStore } from '../stores/kanban.js';
 import { useSummaries } from '../composables/useSummaries.js';
 import { useSessionFiltering } from '../composables/useSessionFiltering.js';
 import { useProjectSessionSubscription } from '../composables/useProjectSessionSubscription.js';
@@ -178,11 +235,15 @@ import ArchivedTabContent from '../components/ArchivedTabContent.vue';
 import ScheduledTabContent from '../components/ScheduledTabContent.vue';
 import TemplatesPanel from '../components/TemplatesPanel.vue';
 import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
+import KanbanBoard from '../components/KanbanBoard.vue';
+import AddSessionToLaneModal from '../components/AddSessionToLaneModal.vue';
+import './SessionListView.css';
 
 const route = useRoute();
 const router = useRouter();
 const projectsStore = useProjectsStore();
 const sessionsStore = useSessionsStore();
+const kanbanStore = useKanbanStore();
 const streamingStore = useSessionStreamingStore();
 
 // Auto-subscribe to all running sessions' WebSocket streams for live output
@@ -197,6 +258,7 @@ const activeTab = computed(() => {
     case 'ProjectTemplates': return 'templates';
     case 'ProjectCommands': return 'commands';
     case 'ScheduledSessions': return 'scheduled';
+    case 'ProjectKanban': return 'kanban';
     default: return 'sessions';
   }
 });
@@ -210,6 +272,7 @@ function handleTabChange(tab) {
     templates: `/projects/${projectId}/templates`,
     commands: `/projects/${projectId}/commands`,
     scheduled: `/projects/${projectId}/scheduled`,
+    kanban: `/projects/${projectId}/kanban`,
   };
   router.push(routes[tab]);
 }
@@ -316,12 +379,57 @@ async function handleUnarchive(sessionId) {
   }
 }
 
+// Add to Board modal state
+import { ref } from 'vue';
+import { useUiStore } from '../stores/ui.js';
+const uiStore = useUiStore();
+const showAddToLaneModal = ref(false);
+const selectedLaneForAdd = ref(null);
+const showLaneSelectorModal = ref(false);
+const sessionToAdd = ref(null);
+
+function handleAddToBoard(session) {
+  sessionToAdd.value = session;
+  showLaneSelectorModal.value = true;
+}
+
+function closeLaneSelectorModal() {
+  showLaneSelectorModal.value = false;
+  sessionToAdd.value = null;
+}
+
+async function addSessionToLane(lane) {
+  if (!sessionToAdd.value || !lane) return;
+
+  try {
+    await kanbanStore.addSessionToBoard(route.params.id, sessionToAdd.value.id, lane.id);
+    uiStore.success(`Session added to "${lane.name}"`);
+    closeLaneSelectorModal();
+  } catch (err) {
+    console.error('Failed to add session to board:', err);
+    uiStore.error(err.message || 'Failed to add session to board');
+  }
+}
+
+function closeAddToLaneModal() {
+  showAddToLaneModal.value = false;
+  selectedLaneForAdd.value = null;
+}
+
 // Restore expanded sessions state from localStorage on mount
 onMounted(() => {
   sessionsStore.restoreExpandedState();
   sessionsStore.restoreStatusFilter();
   sessionsStore.restoreStarredFilter();
   sessionsStore.restoreScheduledFilter();
+
+  // Fetch kanban board for SessionCard "Add to Board" button and lane indicators
+  const projectId = route.params.id;
+  if (projectId) {
+    kanbanStore.fetchBoard(projectId).catch(err => {
+      console.warn('Failed to fetch kanban board:', err);
+    });
+  }
 });
 
 // Save expanded state and cleanup on unmount
@@ -330,201 +438,3 @@ onUnmounted(() => {
   clearTimeout(fetchSummariesTimer);
 });
 </script>
-
-<style scoped>
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 1rem;
-}
-
-.page-header h1 {
-  margin: 0;
-}
-
-.project-title {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.repo-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  color: var(--color-primary);
-  transition: color 0.15s, transform 0.15s;
-  padding: 0.25rem;
-}
-
-.repo-link:hover {
-  color: var(--color-primary-bright, #06ffff);
-  transform: scale(1.1);
-}
-
-.repo-icon {
-  width: 100%;
-  height: 100%;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.tabs {
-  display: flex;
-  gap: 0;
-  border-bottom: 1px solid var(--color-border);
-  margin-bottom: 1.5rem;
-  /* Sticky positioning - accounts for header + safe area on iOS */
-  position: -webkit-sticky; /* Safari prefix */
-  position: sticky;
-  /* Default for phones/small screens */
-  top: calc(var(--header-height-computed, 51px) + var(--viewport-offset-top, 0px));
-  background-color: var(--color-background);
-  z-index: 99;
-  padding: 0.5rem 0.5rem 0 0.5rem;
-}
-
-/* iPad and larger screens - account for safe area */
-@media (min-width: 768px) {
-  .tabs {
-    top: calc(var(--header-height-computed, 80px) + var(--viewport-offset-top, 0px));
-  }
-}
-
-.tabs-desktop {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-}
-
-.tabs-mobile {
-  display: none;
-  width: 100%;
-}
-
-.tab-select {
-  width: 100%;
-  padding: 0.75rem;
-  font-size: 0.9rem;
-  background: var(--color-bg);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
-  cursor: pointer;
-}
-
-.tabs-left {
-  display: flex;
-  gap: 0;
-}
-
-.tab {
-  background: none;
-  border: none;
-  padding: 0.75rem 1.25rem;
-  font-size: 0.9rem;
-  color: var(--color-text-soft);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  transition: color 0.15s, border-color 0.15s;
-}
-
-.tab:hover {
-  color: var(--color-text);
-}
-
-.tab.active {
-  color: var(--color-primary);
-  border-bottom-color: var(--color-primary);
-  font-weight: 500;
-}
-
-.skeleton-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.error-message {
-  color: var(--color-error);
-  padding: 1rem;
-  background-color: rgba(248, 81, 73, 0.1);
-  border-radius: var(--border-radius);
-}
-
-.empty-state {
-  text-align: center;
-  padding: 3rem;
-  color: var(--color-text-soft);
-}
-
-.empty-state p {
-  margin-bottom: 1rem;
-}
-
-.session-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.tab-spacer {
-  height: 1rem;
-}
-
-@media (max-width: 480px) {
-  .page-header {
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .page-header .btn {
-    width: 100%;
-    justify-content: center;
-  }
-
-  /* Hide desktop tabs on mobile */
-  .tabs-desktop {
-    display: none !important;
-  }
-
-  /* Show mobile tabs on mobile */
-  .tabs-mobile {
-    display: block;
-  }
-
-  /* Hide desktop-only elements on mobile */
-  .desktop-only {
-    display: none !important;
-  }
-}
-
-/* Responsive utility classes */
-.mobile-only {
-  display: block;
-}
-
-/* Hide desktop-only elements by default (mobile) */
-.desktop-only {
-  display: none;
-}
-
-/* Hide mobile-only elements on desktop */
-@media (min-width: 481px) {
-  .mobile-only {
-    display: none !important;
-  }
-}
-
-/* Show desktop-only elements on desktop */
-@media (min-width: 481px) {
-  .desktop-only {
-    display: inline-flex !important;
-  }
-}
-</style>

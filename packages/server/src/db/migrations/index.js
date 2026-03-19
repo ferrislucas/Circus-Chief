@@ -13,6 +13,7 @@ import { projectsMigrations } from './projectsMigrations.js';
 import { conversationsMigrations } from './conversationsMigrations.js';
 import { canvasItemsMigrations } from './canvasItemsMigrations.js';
 import { miscMigrations } from './miscMigrations.js';
+import { kanbanMigrations } from './kanbanMigrations.js';
 
 /**
  * Build a lookup map from a migrations array keyed by migration name.
@@ -32,6 +33,7 @@ const p = toLookup(projectsMigrations);
 const c = toLookup(conversationsMigrations);
 const ci = toLookup(canvasItemsMigrations);
 const m = toLookup(miscMigrations);
+const k = toLookup(kanbanMigrations);
 
 /**
  * Flat, ordered list of every migration, matching the original execution order
@@ -181,4 +183,13 @@ export const allMigrations = validateMigrations([
 
   // --- Agent call logs table ---
   m.get('agent_call_logs-create-table'),
+
+  // --- Kanban feature ---
+  k.get('projects-add-kanban_enabled'),
+  k.get('kanban-create-tables'),
+  k.get('sessions-add-target_lane_id'),
+  k.get('sessions-add-lane_trigger_depth'),
+  k.get('session_templates-add-target_lane_id'),
+  k.get('kanban_lanes-add-on_enter_prompt'),
+  k.get('kanban_lanes-add-agent-settings'),
 ]);
