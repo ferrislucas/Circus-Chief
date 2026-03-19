@@ -100,6 +100,16 @@ export function useProjectSubscription(projectId) {
     return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);
   };
 
+  const onCommandRunDeleted = (callback) => {
+    const handler = (msg) => {
+      if (msg.projectId === projectId) {
+        callback(msg.runId, msg.sessionId, msg.buttonId);
+      }
+    };
+    on(WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, handler);
+    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, handler);
+  };
+
   // Kanban event handlers
   const onKanbanBoardUpdated = (callback) => {
     const handler = (msg) => {
@@ -156,6 +166,7 @@ export function useProjectSubscription(projectId) {
     onCommandRunOutput,
     onCommandRunComplete,
     onCommandRunError,
+    onCommandRunDeleted,
     onKanbanBoardUpdated,
     onKanbanCardMoved,
     onKanbanCardAdded,

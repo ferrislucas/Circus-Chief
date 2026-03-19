@@ -98,7 +98,7 @@
       </div>
 
       <!-- Command button status indicators for real-time status updates -->
-      <CommandButtonStatusBar :button-statuses="buttonStatuses" />
+      <CommandButtonStatusBar :button-statuses="buttonStatuses" :session-id="sessionId" />
     </div>
 
     <!-- Move Card Modal -->

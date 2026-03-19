@@ -247,6 +247,16 @@ export function useSessionSubscription(sessionId) {
     return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);
   };
 
+  const onCommandRunDeleted = (callback) => {
+    const handler = (msg) => {
+      if (msg.sessionId === sessionId) {
+        callback(msg.runId, msg.buttonId);
+      }
+    };
+    on(WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, handler);
+    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, handler);
+  };
+
   const onChangesUpdate = (callback) => {
     const handler = (msg) => {
       if (msg.sessionId === sessionId) {
@@ -285,6 +295,7 @@ export function useSessionSubscription(sessionId) {
     onCommandOutput,
     onCommandComplete,
     onCommandError,
+    onCommandRunDeleted,
     onChangesUpdate,
   };
 }

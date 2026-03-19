@@ -877,6 +877,148 @@ export async function runCommandButtonAndWait(
   return waitForCommandRunComplete(sessionId, runId, timeout);
 }
 
+/**
+ * Delete a command run via the API.
+ * Returns the fetch response for testing error cases.
+ */
+export async function deleteCommandRun(sessionId: string, runId: string): Promise<Response> {
+  return fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/runs/${runId}`, {
+    method: 'DELETE',
+  });
+}
+
+/**
+ * Click a status indicator in SessionHeaderPanel to open the button status modal.
+ * Uses the clickable status indicators in .command-status-bar.
+ * @param page - Playwright page object
+ * @param buttonLabel - Label of the button to click (used for title matching)
+ */
+export async function openButtonStatusModal(page: Page, buttonLabel: string) {
+  // First, wait for the command status bar to be attached to the DOM
+  await page.locator('.command-status-bar').waitFor({ state: 'attached', timeout: 10000 });
+
+  // Find the status indicator for the specific button by its title attribute
+  // The title format is "Label: status" (e.g., "Test Button: success")
+  const statusIndicator = page.locator(
+    `.command-status-bar .button-status-indicator[title*="${buttonLabel}"]`
+  ).first();
+
+  // Wait for the indicator to be visible before clicking
+  await statusIndicator.waitFor({ state: 'visible', timeout: 15000 });
+
+  // Click the indicator to open the modal
+  await statusIndicator.click();
+
+  // Wait for the modal to appear
+  await page.locator('[data-testid="button-status-modal"]').waitFor({ state: 'visible', timeout: 5000 });
+}
+
+/**
+ * Remove a command run via the UI (clicks remove, confirms).
+ * @param page - Playwright page object
+ * @param buttonLabel - Label of the button whose run should be removed
+ */
+export async function removeCommandRunViaUI(page: Page, buttonLabel: string) {
+  // Open the modal first
+  await openButtonStatusModal(page, buttonLabel);
+
+  // Click "Remove Run" button
+  await page.locator('[data-testid="remove-run-button"]').click();
+
+  // Wait for confirmation dialog to appear
+  await page.locator('[data-testid="confirm-remove-button"]').waitFor({ state: 'visible', timeout: 3000 });
+
+  // Click "Confirm" button
+  await page.locator('[data-testid="confirm-remove-button"]').click();
+
+  // Wait for modal to close (it should close after successful deletion)
+  await page.locator('[data-testid="button-status-modal"]').waitFor({ state: 'hidden', timeout: 5000 });
+}
+
+/**
+ * Verify a run is deleted from the database.
+ * Checks both the command_runs table and the session's latestCommandRuns array.
+ * @param sessionId - Session ID
+ * @param runId - Run ID that should be deleted
+ */
+export async function verifyRunDeleted(sessionId: string, runId: string) {
+  // Check command_runs table - run should not exist
+  const run = await getCommandRun(sessionId, runId);
+  if (run !== null) {
+    throw new Error(`Run ${runId} still exists in command_runs table`);
+  }
+
+  // Check session's latestCommandRuns array - run should not be present
+  const session = await getSession(sessionId);
+  if (!session) {
+    throw new Error(`Session ${sessionId} not found`);
+  }
+
+  // latestCommandRuns may be null or an array
+  const latestRuns = session.latestCommandRuns || [];
+  const runInLatest = latestRuns.find((r: any) => r.runId === runId);
+  if (runInLatest) {
+    throw new Error(`Run ${runId} still exists in session's latestCommandRuns array`);
+  }
+}
+
+/**
+ * Wait for command completion in the UI and verify status.
+ * Waits for the status indicator to show success or error (not running).
+ * @param page - Playwright page object
+ * @param buttonLabel - Label of the button to check
+ * @param timeout - Maximum time to wait in ms (default 15000)
+ * @returns The final status ('success' or 'error')
+ */
+export async function waitForCommandCompletion(
+  page: Page,
+  buttonLabel: string,
+  timeout = 15000
+): Promise<'success' | 'error'> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < timeout) {
+    // Wait for the status indicator to appear first
+    try {
+      const statusIndicator = page.locator(
+        `.command-status-bar .button-status-indicator[title*="${buttonLabel}"]`
+      ).first();
+
+      // Wait for the indicator to be attached to DOM (not necessarily visible yet)
+      await statusIndicator.waitFor({ state: 'attached', timeout: 2000 });
+
+      // Get the current class list to determine status
+      const className = await statusIndicator.getAttribute('class');
+
+      if (className && className.includes('button-status-success')) {
+        return 'success';
+      }
+
+      if (className && className.includes('button-status-error')) {
+        return 'error';
+      }
+
+      if (className && className.includes('button-status-killed')) {
+        return 'error';
+      }
+
+      if (className && className.includes('button-status-running')) {
+        // Still running, wait and check again
+        await page.waitForTimeout(500);
+        continue;
+      }
+
+      // Status indicator exists but no recognized status class yet
+      await page.waitForTimeout(500);
+    } catch (e) {
+      // Indicator not attached yet, wait and retry
+      await page.waitForTimeout(500);
+    }
+  }
+
+  throw new Error(`Command "${buttonLabel}" did not complete within ${timeout}ms`);
+}
+
 // ============================================================
 // Model Provider Helpers
 // ============================================================
