@@ -165,7 +165,7 @@ const onSendToCanvas = async (buttonLabel, output) => {
  * Setup WebSocket handlers for command events
  */
 const setupWebSocketHandlers = () => {
-  const { subscribe, unsubscribe, onCommandOutput, onCommandComplete, onCommandError } =
+  const { subscribe, unsubscribe, onCommandOutput, onCommandComplete, onCommandError, onCommandRunDeleted } =
     useSessionSubscription(props.sessionId);
 
   // Subscribe to session updates
@@ -189,6 +189,13 @@ const setupWebSocketHandlers = () => {
   cleanups.push(
     onCommandError((runId, buttonId, error) => {
       commandButtonsStore.errorRun(runId, error);
+    })
+  );
+
+  // Handle command run deletion
+  cleanups.push(
+    onCommandRunDeleted((runId, buttonId) => {
+      commandButtonsStore.clearRun(runId);
     })
   );
 

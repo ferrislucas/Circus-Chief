@@ -391,6 +391,11 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       this.collapsedStates[runId] = isCollapsed;
     },
 
+    async deleteRun(sessionId, runId) {
+      await api.deleteCommandRun(sessionId, runId);
+      this.clearRun(runId);
+    },
+
     clearRun(runId) {
       // Clean up any pending timers/buffers
       if (this._flushTimers[runId]) {

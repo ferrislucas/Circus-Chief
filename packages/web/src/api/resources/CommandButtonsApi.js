@@ -102,5 +102,15 @@ export function CommandButtonsApi(ApiClient) {
     async killCommandRun(sessionId, runId) {
       return this._post(`/sessions/${sessionId}/command-buttons/runs/${runId}/kill`);
     },
+
+    /**
+     * Delete a command run record
+     * @param {string} sessionId - Session ID
+     * @param {string} runId - Run ID
+     * @returns {Promise<null>}
+     */
+    async deleteCommandRun(sessionId, runId) {
+      return this._delete(`/sessions/${sessionId}/command-buttons/runs/${runId}`);
+    },
   });
 }
