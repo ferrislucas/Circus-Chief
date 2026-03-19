@@ -317,6 +317,69 @@ describe('sessionPrompts', () => {
       expect(planIdx).toBeLessThan(canvasIdx);
     });
 
+    describe('child session context', () => {
+      it('includes child session context when session has parentSessionId', () => {
+        sessions.getById.mockReturnValue({
+          id: 'child-789',
+          gitWorktree: null,
+          gitBranch: null,
+          parentSessionId: 'parent-123',
+        });
+        // Mock getRootSessionId to return a root ID
+        sessions.getRootSessionId = vi.fn().mockReturnValue('root-456');
+
+        const result = buildSystemPromptConfig('child-789', 'proj-xyz', null, 'standard');
+
+        expect(result).toContain('## Child Session');
+        expect(result).toContain('Parent Session ID: parent-123');
+        expect(result).toContain('Root Session ID: root-456');
+        expect(sessions.getRootSessionId).toHaveBeenCalledWith('child-789');
+      });
+
+      it('excludes child session context when session has no parentSessionId', () => {
+        sessions.getById.mockReturnValue({
+          gitWorktree: null,
+          gitBranch: null,
+          parentSessionId: null,
+        });
+
+        const result = buildSystemPromptConfig('session-123', 'proj-xyz', null, 'standard');
+
+        expect(result).not.toContain('## Child Session');
+        expect(result).not.toContain('Parent Session ID:');
+      });
+
+      it('excludes child session context when session is null', () => {
+        sessions.getById.mockReturnValue(null);
+
+        const result = buildSystemPromptConfig('session-123', 'proj-xyz', null, 'standard');
+
+        expect(result).not.toContain('## Child Session');
+      });
+
+      it('places child context after base prompt and before worktree context', () => {
+        sessions.getById.mockReturnValue({
+          id: 'child-789',
+          gitWorktree: '/path/to/worktree',
+          gitBranch: 'feature',
+          parentSessionId: 'parent-123',
+        });
+        sessions.getRootSessionId = vi.fn().mockReturnValue('root-456');
+
+        const result = buildSystemPromptConfig('child-789', 'proj-xyz', null, 'standard');
+
+        const basePromptIdx = result.indexOf('You are Claude Code');
+        const childCtxIdx = result.indexOf('## Child Session');
+        const worktreeIdx = result.indexOf('## Git Worktree Session');
+
+        expect(basePromptIdx).toBeGreaterThanOrEqual(0);
+        expect(childCtxIdx).toBeGreaterThanOrEqual(0);
+        expect(worktreeIdx).toBeGreaterThanOrEqual(0);
+        expect(basePromptIdx).toBeLessThan(childCtxIdx);
+        expect(childCtxIdx).toBeLessThan(worktreeIdx);
+      });
+    });
+
     it('includes kanban API instructions when kanban is enabled', () => {
       projects.getById.mockReturnValue({ kanbanEnabled: true });
       kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
