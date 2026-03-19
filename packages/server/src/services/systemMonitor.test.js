@@ -210,7 +210,9 @@ MemFree:         1024000 kB`;
     it('parses valid df -k output correctly', () => {
       const result = parseDfOutput(validDfOutput);
       expect(result).not.toBeNull();
-      expect(result.usedPercent).toBeGreaterThan(0);
+      // Test data: total=536870912, used=290000000, avail=246870912
+      // Expected usedPercent = (536870912 - 246870912) / 536870912 * 100 = 54.0%
+      expect(result.usedPercent).toBe(54);
       expect(result.freeGB).toBeGreaterThan(0);
       expect(result.totalGB).toBeGreaterThan(0);
       // 536870912 KB = 512 GB, 246870912 KB ~ 235.5 GB free
@@ -245,15 +247,37 @@ MemFree:         1024000 kB`;
       const result = parseDfOutput(output);
       expect(result).not.toBeNull();
       expect(result.totalGB).toBeCloseTo(1000000 / 1024 ** 2, 1);
+      // Test data: total=1000000, used=500000, avail=500000
+      // Expected usedPercent = (1000000 - 500000) / 1000000 * 100 = 50.0%
+      expect(result.usedPercent).toBe(50);
     });
 
-    it('handles macOS-style df output', () => {
-      const output = `Filesystem 512-blocks      Used Available Capacity iused      ifree %iused  Mounted on
-/dev/disk3s1s1 1953525168 286756640 981462232    23%  4113907 4906311160    0%   /`;
-      // This has more columns - parseDfOutput uses columns 1,2,3 which are the 512-block counts
-      // The result should be not null (it can parse something from the numbers)
-      // Note: We just verify it doesn't throw
-      expect(() => parseDfOutput(output)).not.toThrow();
+    it('computes usedPercent from total-available on macOS APFS (Used + Available ≠ Total)', () => {
+      // Real macOS APFS: Used column (15067708) is only one snapshot,
+      // but total - available gives the real usage.
+      const output = `Filesystem     1024-blocks     Used Available Capacity  Mounted on
+/dev/disk1s5s1   244912536 15067708  43023028    26%     /`;
+      const result = parseDfOutput(output);
+      expect(result).not.toBeNull();
+      // Expected: (244912536 - 43023028) / 244912536 * 100 = 82.4%
+      expect(result.usedPercent).toBe(82.4);
+      // Expected: 43023028 / 1024^2 ≈ 41.0 GB
+      expect(result.freeGB).toBeCloseTo(41.0, 0);
+      // Expected: 244912536 / 1024^2 ≈ 233.5 GB
+      expect(result.totalGB).toBeCloseTo(233.5, 0);
+    });
+
+    it('computes usedPercent correctly when Used + Available < Total (Linux reserved blocks)', () => {
+      // 500GB disk, 5% reserved: total=524288000, used=209715200, avail=288358400
+      // used + avail = 498073600 (26214400 KB / ~25GB reserved)
+      const output = `Filesystem     1K-blocks      Used Available Use% Mounted on
+/dev/sda1      524288000 209715200 288358400   43% /`;
+      const result = parseDfOutput(output);
+      expect(result).not.toBeNull();
+      // Expected: (524288000 - 288358400) / 524288000 * 100 = 45.0%
+      expect(result.usedPercent).toBe(45);
+      expect(result.freeGB).toBeCloseTo(275.0, 0);
+      expect(result.totalGB).toBeCloseTo(500.0, 0);
     });
   });
 

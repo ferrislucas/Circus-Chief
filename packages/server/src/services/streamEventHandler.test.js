@@ -677,6 +677,65 @@ describe('streamEventHandler', () => {
       expect(consoleSpy).toHaveBeenCalledWith('Continue session error:', error);
       consoleSpy.mockRestore();
     });
+
+    it('calls extractPrUrlIfNeeded before onSessionComplete', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('Failed after creating PR');
+      sessions.getById.mockReturnValue({ autoRescheduleEnabled: false });
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(false);
+      const mockScheduler = { rescheduleSession: vi.fn() };
+
+      await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
+      });
+
+      expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
+      expect(summaryService.onSessionComplete).toHaveBeenCalledWith('sess-1');
+      // Verify call order: extractPrUrlIfNeeded should be called before onSessionComplete
+      expect(summaryService.extractPrUrlIfNeeded.mock.invocationCallOrder[0]).toBeLessThan(
+        summaryService.onSessionComplete.mock.invocationCallOrder[0]
+      );
+    });
+
+    it('does not call extractPrUrlIfNeeded when controller is aborted', async () => {
+      const controller = { signal: { aborted: true } };
+      const error = new Error('Aborted');
+
+      const mockShouldReschedule = vi.fn();
+      const mockScheduler = { rescheduleSession: vi.fn() };
+
+      await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
+      });
+
+      expect(summaryService.extractPrUrlIfNeeded).not.toHaveBeenCalled();
+      expect(summaryService.onSessionComplete).not.toHaveBeenCalled();
+    });
+
+    it('does not call extractPrUrlIfNeeded when session is rescheduled', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('token limit exceeded');
+      const mockSession = { autoRescheduleEnabled: true, rescheduleOnTokenLimit: true };
+      sessions.getById.mockReturnValue(mockSession);
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(true);
+      const mockScheduler = { rescheduleSession: vi.fn().mockResolvedValue(true) };
+
+      const result = await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
+      });
+
+      expect(result).toBe(true);
+      expect(summaryService.extractPrUrlIfNeeded).not.toHaveBeenCalled();
+      expect(summaryService.onSessionComplete).not.toHaveBeenCalled();
+    });
   });
 
   // ── Module-level Maps ─────────────────────────────────────────────────
