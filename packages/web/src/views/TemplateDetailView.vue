@@ -57,33 +57,43 @@
           <p class="form-help">Chain another template to run after this one completes.</p>
         </div>
 
-        <!-- Thinking Enabled Checkbox -->
-        <div class="form-group form-group-checkbox">
-          <label for="thinkingEnabled" class="checkbox-label">
-            <input
-              id="thinkingEnabled"
-              v-model="formData.thinkingEnabled"
-              type="checkbox"
-              class="form-checkbox"
-            />
-            <span>Enable Extended Thinking</span>
-          </label>
+        <!-- Thinking Enabled Select -->
+        <div class="form-group">
+          <label for="thinkingEnabled">Extended Thinking</label>
+          <select id="thinkingEnabled" v-model="formData.thinkingEnabled" class="form-input">
+            <option :value="null">Inherit from root session</option>
+            <option :value="true">Enabled</option>
+            <option :value="false">Disabled</option>
+          </select>
         </div>
 
         <!-- Model Field -->
         <div class="form-group">
           <label for="model">Model</label>
-          <ModelSelector v-model="formData.model" />
+          <ModelSelector v-model="formData.model" :allowEmpty="true" emptyLabel="Inherit from root session" />
         </div>
 
         <!-- Mode Field -->
         <div class="form-group">
           <label for="mode">Mode</label>
           <select id="mode" v-model="formData.mode" class="form-input">
+            <option :value="null">Inherit from root session</option>
             <option value="plan">Plan</option>
             <option value="standard">Standard</option>
             <option value="yolo">YOLO</option>
           </select>
+        </div>
+
+        <!-- Git Branch Field -->
+        <div class="form-group">
+          <label for="gitBranch">Git Branch (Optional)</label>
+          <input
+            id="gitBranch"
+            v-model="formData.gitBranch"
+            type="text"
+            class="form-input"
+            placeholder="Leave empty to inherit from root session"
+          />
         </div>
 
         <!-- Form Actions -->
@@ -153,9 +163,10 @@ const formData = ref({
   prompt: '',
   isGlobal: false,
   nextTemplateId: null,
-  thinkingEnabled: false,
+  thinkingEnabled: null,
+  gitBranch: '',
   model: null,
-  mode: 'yolo',
+  mode: null,
 });
 
 const projectId = computed(() => route.params.projectId);
@@ -179,9 +190,10 @@ const loadTemplate = async () => {
         prompt: template.prompt,
         isGlobal: !template.projectId,
         nextTemplateId: template.nextTemplateId || null,
-        thinkingEnabled: template.thinkingEnabled || false,
-        model: template.model || null,
-        mode: template.mode || 'yolo',
+        thinkingEnabled: template.thinkingEnabled,  // Preserve null (inherit), true, or false
+        gitBranch: template.gitBranch || '',
+        model: template.model,                      // Preserve null (inherit) or model ID
+        mode: template.mode,                        // Preserve null (inherit), 'plan', 'standard', or 'yolo'
       };
     }
   } catch (err) {
@@ -200,9 +212,10 @@ const onSubmit = async () => {
       name: formData.value.name,
       prompt: formData.value.prompt,
       nextTemplateId: formData.value.nextTemplateId || undefined,
-      thinkingEnabled: formData.value.thinkingEnabled || undefined,
-      model: formData.value.model,
-      mode: formData.value.mode,
+      thinkingEnabled: formData.value.thinkingEnabled,  // null = inherit, true/false = explicit
+      gitBranch: formData.value.gitBranch || undefined,
+      model: formData.value.model,                      // null = inherit
+      mode: formData.value.mode,                        // null = inherit
     };
 
     await templatesStore.updateTemplate(templateId.value, data);
