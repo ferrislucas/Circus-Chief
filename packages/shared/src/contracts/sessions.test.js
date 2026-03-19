@@ -434,13 +434,13 @@ describe('SessionResponse', () => {
   });
 
   it('rejects session missing targetLaneId field', () => {
-    const { targetLaneId, ...withoutTargetLaneId } = validSession;
+    const { targetLaneId: _targetLaneId, ...withoutTargetLaneId } = validSession;
     const result = SessionResponse.safeParse(withoutTargetLaneId);
     expect(result.success).toBe(false);
   });
 
   it('rejects session missing laneTriggerDepth field', () => {
-    const { laneTriggerDepth, ...withoutLaneTriggerDepth } = validSession;
+    const { laneTriggerDepth: _laneTriggerDepth, ...withoutLaneTriggerDepth } = validSession;
     const result = SessionResponse.safeParse(withoutLaneTriggerDepth);
     expect(result.success).toBe(false);
   });
