@@ -577,7 +577,7 @@ export async function updateSessionFields(sessionId: string, fields: Record<stri
 
 export async function seedProjectTemplate(
   projectId: string,
-  data: { name: string; prompt: string; nextTemplateId?: string; thinkingEnabled?: boolean; gitBranch?: string }
+  data: { name: string; prompt: string; nextTemplateId?: string; thinkingEnabled?: boolean | null; gitBranch?: string; model?: string; mode?: string | null; gitMode?: string }
 ) {
   const response = await fetch(`${API_URL}/api/projects/${projectId}/templates`, {
     method: 'POST',
@@ -592,8 +592,11 @@ export async function seedGlobalTemplate(data: {
   name: string;
   prompt: string;
   nextTemplateId?: string;
-  thinkingEnabled?: boolean;
+  thinkingEnabled?: boolean | null;
   gitBranch?: string;
+  model?: string;
+  mode?: string | null;
+  gitMode?: string;
 }) {
   const response = await fetch(`${API_URL}/api/templates`, {
     method: 'POST',
@@ -613,7 +616,9 @@ export async function getTemplate(id: string) {
 export async function getProjectTemplates(projectId: string) {
   const response = await fetch(`${API_URL}/api/projects/${projectId}/templates`);
   if (!response.ok) return [];
-  return response.json();
+  const data = await response.json();
+  // API returns { project: Array, global: Array }, return just project templates
+  return Array.isArray(data) ? data : (data.project || []);
 }
 
 export async function getGlobalTemplates() {
@@ -1654,7 +1659,7 @@ export async function updateTemplate(
     gitBranch?: string | null;
     gitMode?: string | null;
     model?: string | null;
-    mode?: string;
+    mode?: string | null;
   }
 ): Promise<any> {
   const response = await fetch(`${API_URL}/api/templates/${id}`, {
