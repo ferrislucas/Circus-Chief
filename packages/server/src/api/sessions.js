@@ -126,7 +126,9 @@ router.get('/:id', requireSession, (req, res) => {
       status: run.status,
       exitCode: run.exitCode,
       runId: run.id,
+      startedAt: run.startedAt,
       completedAt: run.completedAt,
+      output: run.output || null,
     };
   }
 
