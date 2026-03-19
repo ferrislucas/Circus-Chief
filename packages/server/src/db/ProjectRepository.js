@@ -19,6 +19,7 @@ export class ProjectRepository extends BaseRepository {
       onSessionDeleted: row.on_session_deleted,
       prPollInterval: row.pr_poll_interval,
       repoUrl: row.repo_url,
+      kanbanEnabled: row.kanban_enabled === undefined ? true : Boolean(row.kanban_enabled),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -32,11 +33,12 @@ export class ProjectRepository extends BaseRepository {
       onSessionDeleted = null,
       prPollInterval = 60000,
       repoUrl = null,
+      kanbanEnabled = true,
     } = options;
     this.db
       .prepare(
-        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, pr_poll_interval, repo_url, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, pr_poll_interval, repo_url, kanban_enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -47,6 +49,7 @@ export class ProjectRepository extends BaseRepository {
         onSessionDeleted,
         prPollInterval,
         repoUrl,
+        kanbanEnabled ? 1 : 0,
         now,
         now
       );
@@ -89,6 +92,10 @@ export class ProjectRepository extends BaseRepository {
     if (data.repoUrl !== undefined) {
       updates.push('repo_url = ?');
       values.push(data.repoUrl);
+    }
+    if (data.kanbanEnabled !== undefined) {
+      updates.push('kanban_enabled = ?');
+      values.push(data.kanbanEnabled ? 1 : 0);
     }
     if (updates.length === 0) return this.getById(id);
 
