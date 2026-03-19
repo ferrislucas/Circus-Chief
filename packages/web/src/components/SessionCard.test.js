@@ -52,6 +52,13 @@ vi.mock('../stores/sessions.js', () => ({
   })),
 }));
 
+// Mock kanban store
+vi.mock('../stores/kanban.js', () => ({
+  useKanbanStore: vi.fn(() => ({
+    isSessionOnBoard: vi.fn(() => false),
+  })),
+}));
+
 // Mock streaming store
 const mockStreamingStore = {
   getSessionFileCount: vi.fn(() => 0),
@@ -684,7 +691,9 @@ describe('SessionCard', () => {
           session: { ...baseSession, status: 'completed', archived: true },
           showUnarchive: false,
         });
-        expect(wrapper.find('.archive-actions').exists()).toBe(false);
+        // The unarchive button specifically should not exist
+        const unarchiveBtn = wrapper.find('.archive-btn[title="Unarchive session"]');
+        expect(unarchiveBtn.exists()).toBe(false);
       });
 
       it('unarchive button is clickable', async () => {
@@ -716,13 +725,18 @@ describe('SessionCard', () => {
         expect(wrapper.find('.archive-actions').exists()).toBe(true);
       });
 
-      it('hides archive-actions container when both showArchive and showUnarchive are false', () => {
+      it('hides archive and unarchive buttons when both showArchive and showUnarchive are false', () => {
         const wrapper = mountComponent({
           session: { ...baseSession, status: 'completed' },
           showArchive: false,
           showUnarchive: false,
         });
-        expect(wrapper.find('.archive-actions').exists()).toBe(false);
+        // Archive and unarchive buttons should not exist
+        const archiveBtn = wrapper.find('.archive-btn[title="Archive session"]');
+        const unarchiveBtn = wrapper.find('.archive-btn[title="Unarchive session"]');
+        expect(archiveBtn.exists()).toBe(false);
+        expect(unarchiveBtn.exists()).toBe(false);
+        // Note: The archive-actions container may still exist if other buttons are shown (e.g., Add to Board)
       });
     });
 

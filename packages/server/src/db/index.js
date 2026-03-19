@@ -25,6 +25,9 @@ export { SettingsRepository } from './SettingsRepository.js';
 export { ProviderRepository } from './ProviderRepository.js';
 export { ProviderRepository as ModelProviderRepository } from './ProviderRepository.js';
 export { AgentCallLogRepository } from './AgentCallLogRepository.js';
+export { KanbanBoardRepository } from './KanbanBoardRepository.js';
+export { KanbanLaneRepository } from './KanbanLaneRepository.js';
+export { KanbanCardRepository } from './KanbanCardRepository.js';
 
 // Singleton instances
 import { ProjectRepository } from './ProjectRepository.js';
@@ -44,6 +47,9 @@ import { QuickResponseRepository } from './QuickResponseRepository.js';
 import { SettingsRepository } from './SettingsRepository.js';
 import { ProviderRepository } from './ProviderRepository.js';
 import { AgentCallLogRepository } from './AgentCallLogRepository.js';
+import { KanbanBoardRepository } from './KanbanBoardRepository.js';
+import { KanbanLaneRepository } from './KanbanLaneRepository.js';
+import { KanbanCardRepository } from './KanbanCardRepository.js';
 
 export const projects = new ProjectRepository();
 export const projectDefaults = new ProjectDefaultsRepository();
@@ -62,6 +68,9 @@ export const quickResponses = new QuickResponseRepository();
 export const settings = new SettingsRepository();
 export const modelProviders = new ProviderRepository();
 export const agentCallLogs = new AgentCallLogRepository();
+export const kanbanBoards = new KanbanBoardRepository();
+export const kanbanLanes = new KanbanLaneRepository();
+export const kanbanCards = new KanbanCardRepository();
 
 // SessionRepository needs to be instantiated after messages is available
 import { SessionRepository } from './SessionRepository.js';

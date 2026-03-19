@@ -3,8 +3,21 @@
     <div class="session-date">
       {{ formatDate(dateToShow) }}
     </div>
-    <!-- Archive button and star button (always visible on root sessions, not on child sessions) -->
-    <div v-if="!isChild && (showArchive || showUnarchive)" class="archive-actions">
+    <!-- Action buttons (always visible on root sessions, not on child sessions) -->
+    <div v-if="!isChild" class="archive-actions">
+      <!-- Add to Board button (only show if session is not already on board) -->
+      <button
+        v-if="!isOnBoard"
+        class="add-to-board-btn"
+        title="Add to kanban board"
+        @click.stop.prevent="$emit('addToBoard')"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="9" y1="3" x2="9" y2="21"></line>
+          <line x1="15" y1="3" x2="15" y2="21"></line>
+        </svg>
+      </button>
       <button
         v-if="showArchive && canArchive"
         class="archive-btn"
@@ -60,6 +73,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  isOnBoard: {
+    type: Boolean,
+    default: false,
+  },
   showArchive: {
     type: Boolean,
     default: false,
@@ -78,7 +95,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['archive', 'unarchive', 'star']);
+const emit = defineEmits(['archive', 'unarchive', 'star', 'addToBoard']);
 
 const canArchive = computed(() => {
   return props.sessionStatus !== 'running' && props.sessionStatus !== 'starting';
@@ -130,6 +147,24 @@ const onUnarchiveClick = () => {
 }
 
 .archive-btn:hover {
+  color: var(--color-primary);
+  background-color: var(--color-bg-soft);
+}
+
+.add-to-board-btn {
+  background: none;
+  border: none;
+  padding: 0.25rem;
+  cursor: pointer;
+  color: var(--color-text-soft);
+  border-radius: var(--border-radius);
+  transition: color 0.15s, background-color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.add-to-board-btn:hover {
   color: var(--color-primary);
   background-color: var(--color-bg-soft);
 }

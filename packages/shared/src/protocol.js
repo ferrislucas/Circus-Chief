@@ -44,6 +44,12 @@ export const WS_MESSAGE_TYPES = {
 
   // System metrics events
   SYSTEM_METRICS: 'system:metrics',
+
+  // Kanban events
+  KANBAN_BOARD_UPDATED: 'kanban:board_updated',
+  KANBAN_CARD_MOVED: 'kanban:card_moved',
+  KANBAN_CARD_ADDED: 'kanban:card_added',
+  KANBAN_CARD_REMOVED: 'kanban:card_removed',
 };
 
 /**

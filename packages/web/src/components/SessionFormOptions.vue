@@ -29,7 +29,7 @@
         </div>
       </div>
 
-      <div class="thinking-toggle">
+      <div v-if="!hideStartImmediately" class="thinking-toggle">
         <div class="field-with-badge">
           <label class="toggle-switch">
             <input
@@ -71,6 +71,10 @@ defineProps({
   startImmediately: {
     type: Boolean,
     default: true,
+  },
+  hideStartImmediately: {
+    type: Boolean,
+    default: false,
   },
 });
 
