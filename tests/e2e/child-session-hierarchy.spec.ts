@@ -15,13 +15,13 @@ import {
  * E2E Tests for Parent/Child Session Hierarchy
  *
  * Covers:
- * - ChildSessionsPanel on Session Detail (Summary tab)
+ * - SessionCardWorkflowPanel on Session Detail (Summary tab) — replaces ChildSessionsPanel
  * - SessionCard workflow expansion on Session List
  * - Workflow navigation
  * - Complex hierarchy scenarios (grandchildren, status aggregation)
  */
 
-test.describe('ChildSessionsPanel on Session Detail', () => {
+test.describe('SessionCardWorkflowPanel on Session Detail', () => {
   test.describe.configure({ timeout: 60000 });
 
   let project: any;
@@ -40,7 +40,7 @@ test.describe('ChildSessionsPanel on Session Detail', () => {
     await cleanupCreatedResources();
   });
 
-  test('shows child sessions panel on parent session detail', async ({ page }) => {
+  test('shows workflow panel on parent session detail with children', async ({ page }) => {
     // Seed 2 children
     const child1 = await seedChildSession(project.id, parentSession.id, {
       prompt: 'Child 1 prompt',
@@ -54,59 +54,22 @@ test.describe('ChildSessionsPanel on Session Detail', () => {
     await waitForSessionToExist(child2.id);
 
     // Navigate to parent session detail (Summary tab)
-    // waitFor ensures async child-session fetch completes before assertions
+    // The new component uses SessionCardWorkflowPanel with variant="detail"
     await navigateAndWait(page, `/sessions/${parentSession.id}/summary`, {
-      waitFor: '.child-sessions-panel',
+      waitFor: '.workflow-sessions-panel--detail',
       timeout: 15000,
     });
 
-    // Verify child sessions panel is visible
-    const panel = page.locator('.child-sessions-panel');
+    // Verify workflow sessions panel is visible
+    const panel = page.locator('.workflow-sessions-panel--detail');
     await expect(panel).toBeVisible();
 
-    // Verify panel title shows correct count
-    const panelTitle = panel.locator('.panel-title');
-    await expect(panelTitle).toContainText('Child Sessions (2)');
+    // Verify it shows root + 2 children = 3 workflow items
+    const workflowItems = panel.locator('.workflow-session-item');
+    await expect(workflowItems).toHaveCount(3, { timeout: 10000 });
   });
 
-  test('child sessions panel is expandable and collapsible', async ({ page }) => {
-    // Seed 1 child
-    const child = await seedChildSession(project.id, parentSession.id, {
-      prompt: 'Child prompt',
-      name: 'Child Session',
-    });
-    await waitForSessionToExist(child.id);
-
-    // Navigate to parent session detail (Summary tab)
-    await navigateAndWait(page, `/sessions/${parentSession.id}/summary`, {
-      waitFor: '.child-sessions-panel',
-      timeout: 15000,
-    });
-
-    const panel = page.locator('.child-sessions-panel');
-    await expect(panel).toBeVisible();
-
-    // Panel should start expanded (isExpanded defaults to true in ChildSessionsPanel)
-    const panelContent = panel.locator('.panel-content');
-    await expect(panelContent).toBeVisible();
-
-    // Click panel header to collapse
-    const panelHeader = panel.locator('.panel-header');
-    await panelHeader.click();
-    await page.waitForTimeout(300);
-
-    // Verify collapsed
-    await expect(panelContent).not.toBeVisible();
-
-    // Click again to re-expand
-    await panelHeader.click();
-    await page.waitForTimeout(300);
-
-    // Verify re-expanded
-    await expect(panelContent).toBeVisible();
-  });
-
-  test('clicking child session navigates to child detail', async ({ page }) => {
+  test('clicking child session in workflow panel navigates to child detail', async ({ page }) => {
     const child = await seedChildSession(project.id, parentSession.id, {
       prompt: 'Child prompt',
       name: 'Child Session Nav',
@@ -115,17 +78,18 @@ test.describe('ChildSessionsPanel on Session Detail', () => {
 
     // Navigate to parent session detail
     await navigateAndWait(page, `/sessions/${parentSession.id}/summary`, {
-      waitFor: '.child-sessions-panel',
+      waitFor: '.workflow-sessions-panel--detail',
       timeout: 15000,
     });
 
-    const panel = page.locator('.child-sessions-panel');
+    const panel = page.locator('.workflow-sessions-panel--detail');
     await expect(panel).toBeVisible();
 
-    // Click the child session item link
-    const childItem = panel.locator('.child-session-item').first();
-    await expect(childItem).toBeVisible();
-    await childItem.click();
+    // Click the child session's workflow link (not the root)
+    const childWorkflowItem = panel.locator('.workflow-session-item').filter({ hasText: 'Child Session Nav' });
+    await expect(childWorkflowItem).toBeVisible();
+    const childLink = childWorkflowItem.locator('.workflow-session-link');
+    await childLink.click();
 
     // Verify URL changes to child session
     await expect(page).toHaveURL(new RegExp(`/sessions/${child.id}`), { timeout: 10000 });
@@ -134,46 +98,42 @@ test.describe('ChildSessionsPanel on Session Detail', () => {
     await expect(page.locator('.session-name')).toContainText('Child Session Nav');
   });
 
-  test('child sessions show correct status badges', async ({ page }) => {
-    // Seed 2 children with different statuses
+  test('child sessions are listed with their names in workflow panel', async ({ page }) => {
+    // Seed 2 children
     const child1 = await seedChildSession(project.id, parentSession.id, {
       prompt: 'Child 1 prompt',
-      name: 'Waiting Child',
+      name: 'First Child',
     });
     const child2 = await seedChildSession(project.id, parentSession.id, {
       prompt: 'Child 2 prompt',
-      name: 'Stopped Child',
+      name: 'Second Child',
     });
     await waitForSessionToExist(child1.id);
     await waitForSessionToExist(child2.id);
 
-    // Update child2 to stopped (valid status; 'completed' is not a valid PATCH status)
-    await updateSessionStatus(child2.id, 'stopped');
-
     // Navigate to parent session detail
     await navigateAndWait(page, `/sessions/${parentSession.id}/summary`, {
-      waitFor: '.child-sessions-panel',
+      waitFor: '.workflow-sessions-panel--detail',
       timeout: 15000,
     });
 
-    const panel = page.locator('.child-sessions-panel');
+    const panel = page.locator('.workflow-sessions-panel--detail');
     await expect(panel).toBeVisible();
 
-    // Verify status badges exist
-    const statusBadges = panel.locator('.status-badge');
-    await expect(statusBadges).toHaveCount(2, { timeout: 10000 });
+    // Verify both child session names are visible in the workflow panel
+    await expect(panel.locator('.workflow-session-name').filter({ hasText: 'First Child' })).toBeVisible();
+    await expect(panel.locator('.workflow-session-name').filter({ hasText: 'Second Child' })).toBeVisible();
 
-    // Verify one has status-waiting and one has status-stopped
-    await expect(panel.locator('.status-waiting')).toBeVisible();
-    await expect(panel.locator('.status-stopped')).toBeVisible();
+    // Verify the root session is also shown
+    await expect(panel.locator('.root-session')).toBeVisible();
   });
 
-  test('child sessions panel hidden when no children', async ({ page }) => {
+  test('workflow panel hidden when no children', async ({ page }) => {
     // Navigate to parent session detail (which has no children yet)
     await navigateAndWait(page, `/sessions/${parentSession.id}/summary`);
 
-    // Verify child sessions panel is NOT visible
-    const panel = page.locator('.child-sessions-panel');
+    // Verify workflow sessions panel is NOT visible
+    const panel = page.locator('.workflow-sessions-panel--detail');
     await expect(panel).not.toBeVisible({ timeout: 5000 });
   });
 });
