@@ -489,6 +489,36 @@ describe('CommandRunRepository', () => {
     });
   });
 
+  describe('deleteById', () => {
+    it('deletes a single run by ID', () => {
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.deleteById('run-1');
+      expect(repository.getById('run-1')).toBeNull();
+    });
+
+    it('returns 1 when run is deleted', () => {
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      const result = repository.deleteById('run-1');
+      expect(result).toBe(1);
+    });
+
+    it('returns 0 for non-existent run', () => {
+      const result = repository.deleteById('nonexistent');
+      expect(result).toBe(0);
+    });
+
+    it('does not affect other runs', () => {
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.create({ id: 'run-2', sessionId: testSessionId, buttonId: testButtonId });
+
+      repository.deleteById('run-1');
+
+      expect(repository.getById('run-1')).toBeNull();
+      expect(repository.getById('run-2')).toBeDefined();
+      expect(repository.getById('run-2').id).toBe('run-2');
+    });
+  });
+
   describe('data mapping', () => {
     it('maps database snake_case to camelCase', () => {
       repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });

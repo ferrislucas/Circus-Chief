@@ -53,7 +53,7 @@ import { ref, computed, watch, onMounted, toRef } from 'vue';
 import { useTemplatesStore } from '../stores/templates.js';
 
 const props = defineProps({
-  sessionId: { type: String, required: true },
+  sessionId: { type: String, required: false, default: null },
   projectId: { type: String, required: true },
   currentTemplateId: { type: String, default: null },
   disabled: { type: Boolean, default: false },

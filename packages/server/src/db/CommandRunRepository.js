@@ -127,6 +127,16 @@ export class CommandRunRepository extends BaseRepository {
   }
 
   /**
+   * Delete a single run by ID
+   * @param {string} id - Run ID
+   * @returns {number} Number of rows deleted (0 or 1)
+   */
+  deleteById(id) {
+    const result = this.db.prepare('DELETE FROM command_runs WHERE id = ?').run(id);
+    return result.changes;
+  }
+
+  /**
    * Delete all runs for a session (useful for testing or cleanup)
    */
   deleteBySessionId(sessionId) {

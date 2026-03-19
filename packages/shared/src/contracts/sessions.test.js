@@ -201,6 +201,35 @@ describe('UpdateSessionRequest', () => {
     });
   });
 
+  describe('targetLaneId validation', () => {
+    it('accepts valid UUID for targetLaneId', () => {
+      const result = UpdateSessionRequest.safeParse({
+        targetLaneId: '550e8400-e29b-41d4-a716-446655440000',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts null targetLaneId to clear it', () => {
+      const result = UpdateSessionRequest.safeParse({
+        targetLaneId: null,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects invalid UUID for targetLaneId', () => {
+      const result = UpdateSessionRequest.safeParse({
+        targetLaneId: 'not-a-uuid',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('allows omitting targetLaneId', () => {
+      const result = UpdateSessionRequest.safeParse({});
+      expect(result.success).toBe(true);
+      expect(result.data.targetLaneId).toBeUndefined();
+    });
+  });
+
   describe('name validation', () => {
     it('accepts valid name', () => {
       const result = UpdateSessionRequest.safeParse({
@@ -289,6 +318,8 @@ describe('SessionResponse', () => {
     maxTotalTokens: 200000,
     rescheduleCount: 0,
     rescheduleAtTokenCount: 150000,
+    targetLaneId: null,
+    laneTriggerDepth: 0,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     lastActivityAt: Date.now(),
@@ -369,6 +400,50 @@ describe('SessionResponse', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('validates session with targetLaneId set', () => {
+    const result = SessionResponse.safeParse({
+      ...validSession,
+      targetLaneId: '550e8400-e29b-41d4-a716-446655440005',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates session with targetLaneId null', () => {
+    const result = SessionResponse.safeParse({
+      ...validSession,
+      targetLaneId: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects session with invalid targetLaneId', () => {
+    const result = SessionResponse.safeParse({
+      ...validSession,
+      targetLaneId: 'not-a-uuid',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('validates session with laneTriggerDepth', () => {
+    const result = SessionResponse.safeParse({
+      ...validSession,
+      laneTriggerDepth: 3,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects session missing targetLaneId field', () => {
+    const { targetLaneId: _targetLaneId, ...withoutTargetLaneId } = validSession;
+    const result = SessionResponse.safeParse(withoutTargetLaneId);
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects session missing laneTriggerDepth field', () => {
+    const { laneTriggerDepth: _laneTriggerDepth, ...withoutLaneTriggerDepth } = validSession;
+    const result = SessionResponse.safeParse(withoutLaneTriggerDepth);
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('SessionListResponse', () => {
@@ -404,6 +479,8 @@ describe('SessionListResponse', () => {
         maxTotalTokens: 200000,
         rescheduleCount: 0,
         rescheduleAtTokenCount: 150000,
+        targetLaneId: null,
+        laneTriggerDepth: 0,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         lastActivityAt: Date.now(),

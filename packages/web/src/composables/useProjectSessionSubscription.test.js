@@ -15,6 +15,7 @@ const mockSessionsStore = {
   updateSession: vi.fn(),
   removeSessionFromList: vi.fn(),
   updateSessionCommandRun: vi.fn(),
+  removeSessionCommandRun: vi.fn(),
 };
 
 const mockCommandButtonsStore = {
@@ -23,6 +24,15 @@ const mockCommandButtonsStore = {
   appendOutput: vi.fn(),
   completeRun: vi.fn(),
   errorRun: vi.fn(),
+  clearRun: vi.fn(),
+};
+
+
+const mockKanbanStore = {
+  handleBoardUpdated: vi.fn(),
+  handleCardMoved: vi.fn(),
+  handleCardAdded: vi.fn(),
+  handleCardRemoved: vi.fn(),
 };
 
 // Mock useProjectSubscription
@@ -34,7 +44,12 @@ const mockOnSessionDeleted = vi.fn();
 const mockOnSessionSummaryUpdated = vi.fn();
 const mockOnCommandRunOutput = vi.fn();
 const mockOnCommandRunComplete = vi.fn();
+const mockOnKanbanBoardUpdated = vi.fn(() => vi.fn());
+const mockOnKanbanCardMoved = vi.fn(() => vi.fn());
+const mockOnKanbanCardAdded = vi.fn(() => vi.fn());
+const mockOnKanbanCardRemoved = vi.fn(() => vi.fn());
 const mockOnCommandRunError = vi.fn();
+const mockOnCommandRunDeleted = vi.fn();
 
 vi.mock('../stores/projects.js', () => ({
   useProjectsStore: vi.fn(() => mockProjectsStore),
@@ -48,6 +63,10 @@ vi.mock('../stores/commandButtons.js', () => ({
   useCommandButtonsStore: vi.fn(() => mockCommandButtonsStore),
 }));
 
+vi.mock('../stores/kanban.js', () => ({
+  useKanbanStore: vi.fn(() => mockKanbanStore),
+}));
+
 vi.mock('./useWebSocket.js', () => ({
   useProjectSubscription: vi.fn(() => ({
     subscribe: mockSubscribe,
@@ -59,6 +78,11 @@ vi.mock('./useWebSocket.js', () => ({
     onCommandRunOutput: mockOnCommandRunOutput,
     onCommandRunComplete: mockOnCommandRunComplete,
     onCommandRunError: mockOnCommandRunError,
+    onCommandRunDeleted: mockOnCommandRunDeleted,
+    onKanbanBoardUpdated: mockOnKanbanBoardUpdated,
+    onKanbanCardMoved: mockOnKanbanCardMoved,
+    onKanbanCardAdded: mockOnKanbanCardAdded,
+    onKanbanCardRemoved: mockOnKanbanCardRemoved,
   })),
 }));
 
@@ -66,6 +90,7 @@ import { useProjectSessionSubscription } from './useProjectSessionSubscription.j
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { useKanbanStore } from '../stores/kanban.js';
 import { useProjectSubscription } from './useWebSocket.js';
 
 describe('useProjectSessionSubscription', () => {
@@ -87,10 +112,19 @@ describe('useProjectSessionSubscription', () => {
     mockSessionsStore.updateSession.mockReset();
     mockSessionsStore.removeSessionFromList.mockReset();
     mockSessionsStore.updateSessionCommandRun.mockReset();
+    mockSessionsStore.removeSessionCommandRun.mockReset();
+    mockSessionsStore.removeSessionCommandRun.mockReset();
     mockCommandButtonsStore.fetchButtons.mockResolvedValue();
     mockCommandButtonsStore.appendOutput.mockReset();
     mockCommandButtonsStore.completeRun.mockReset();
     mockCommandButtonsStore.errorRun.mockReset();
+    mockCommandButtonsStore.clearRun.mockReset();
+    mockCommandButtonsStore.clearRun.mockReset();
+
+    mockKanbanStore.handleBoardUpdated.mockReset();
+    mockKanbanStore.handleCardMoved.mockReset();
+    mockKanbanStore.handleCardAdded.mockReset();
+    mockKanbanStore.handleCardRemoved.mockReset();
 
     mockSubscribe.mockReset();
     mockUnsubscribe.mockReset();
@@ -101,6 +135,11 @@ describe('useProjectSessionSubscription', () => {
     mockOnCommandRunOutput.mockReset();
     mockOnCommandRunComplete.mockReset();
     mockOnCommandRunError.mockReset();
+    mockOnCommandRunDeleted.mockReset();
+    mockOnKanbanBoardUpdated.mockReset();
+    mockOnKanbanCardMoved.mockReset();
+    mockOnKanbanCardAdded.mockReset();
+    mockOnKanbanCardRemoved.mockReset();
 
     // Setup summary callbacks
     summaryCallbacks = {
