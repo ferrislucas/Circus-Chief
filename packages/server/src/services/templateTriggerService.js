@@ -71,6 +71,7 @@ function resolveTemplateSettings(template, rootSession) {
     gitMode: template.gitMode || null,
     model: template.model !== null ? template.model : rootSession.model,
     mode: template.mode !== null ? template.mode : rootSession.mode,
+    effortLevel: template.effortLevel !== null ? template.effortLevel : rootSession.effortLevel,
   };
 }
 
@@ -190,6 +191,7 @@ export async function checkAndTriggerNextTemplate(sessionId) {
     const newSession = sessions.create(session.projectId, `${template.name} (from: ${session.name})`, renderedPrompt, {
       mode: settings.mode, thinkingEnabled: settings.thinkingEnabled,
       gitBranch: settings.gitBranch, parentSessionId: null, status: 'starting', model: settings.model,
+      effortLevel: settings.effortLevel,
     });
 
     sessions.update(newSession.id, {
