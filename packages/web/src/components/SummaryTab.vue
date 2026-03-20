@@ -4,25 +4,6 @@
     <div class="session-overview card">
       <div class="overview-header">
         <h3>Session Overview</h3>
-        <button class="btn-link" @click="handleRegenerate" :disabled="generatingManual || generating">
-          <span v-if="generatingManual" class="loading-spinner"></span>
-          Regenerate
-        </button>
-      </div>
-
-      <div class="overview-stats">
-        <div class="stat-item">
-          <span class="stat-value">{{ conversations.length }}</span>
-          <span class="stat-label">Conversations</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-value">{{ totalMessages }}</span>
-          <span class="stat-label">Messages</span>
-        </div>
-        <div v-if="session" class="stat-item">
-          <span class="stat-value status-badge" :class="`status-${session.status}`">{{ session.status }}</span>
-          <span class="stat-label">Status</span>
-        </div>
       </div>
 
       <!-- PR Info in Overview -->
@@ -38,6 +19,16 @@
         </span>
       </div>
     </div>
+
+    <!-- Child Sessions Section -->
+    <SessionCardWorkflowPanel
+      v-if="childSessions.length > 0"
+      variant="detail"
+      :session="session"
+      :summaries="childSessionSummaries"
+      :summary="summary"
+      :command-buttons="commandButtons"
+    />
 
     <!-- Session Summary Section -->
     <div v-if="loading" class="loading-state">
@@ -59,42 +50,23 @@
       :pr-url="prUrl"
       @regenerate="handleRegenerate"
     />
-
-    <!-- Child Sessions Section -->
-    <ChildSessionsPanel
-      v-if="childSessions.length > 0"
-      :sessions="childSessions"
-      :parent-session-id="props.sessionId"
-      :summaries="childSessionSummaries"
-      :command-buttons="commandButtons"
-    />
-
-    <!-- Conversations Section -->
-    <SummaryConversationList
-      :conversations="conversations"
-      :loading="loadingConversations"
-      @view-conversation="viewConversation"
-    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
-import ChildSessionsPanel from './ChildSessionsPanel.vue';
+import SessionCardWorkflowPanel from './SessionCardWorkflowPanel.vue';
 import SummaryContent from './SummaryContent.vue';
-import SummaryConversationList from './SummaryConversationList.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
 });
 
-const router = useRouter();
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
@@ -105,8 +77,6 @@ const childSessionSummaries = ref({});
 const loading = ref(false);
 const generating = ref(false);
 const generatingManual = ref(false);
-const loadingConversations = ref(false);
-const conversations = ref([]);
 
 // Computed property to get the session's prUrl
 // Check both sessions array and currentSession (the latter is always populated on session detail page)
@@ -129,11 +99,6 @@ const commandButtons = computed(() => {
   return commandButtonsStore.getButtonsByProjectId(projectId);
 });
 
-// Calculate total messages across all conversations
-const totalMessages = computed(() => {
-  return conversations.value.reduce((sum, conv) => sum + (conv.messageCount || 0), 0);
-});
-
 // Fetch summaries for child sessions
 async function fetchChildSummaries() {
   const children = sessionsStore.getChildSessions(props.sessionId);
@@ -147,18 +112,6 @@ async function fetchChildSummaries() {
       }
     }
   }
-}
-
-// Navigate to conversation tab with specific conversation
-function viewConversation(conversationId) {
-  sessionsStore.switchConversation(props.sessionId, conversationId).then(() => {
-    router.push({
-      name: 'session-detail',
-      params: { id: props.sessionId, tab: 'conversation' },
-    });
-  }).catch((err) => {
-    uiStore.error(err.message);
-  });
 }
 
 function formatPrState(state) {
@@ -178,16 +131,6 @@ function extractPrNumber(url) {
 }
 
 onMounted(async () => {
-  // Fetch conversations
-  loadingConversations.value = true;
-  try {
-    conversations.value = await api.getConversations(props.sessionId);
-  } catch (err) {
-    console.error('Failed to load conversations:', err);
-  } finally {
-    loadingConversations.value = false;
-  }
-
   // Fetch summaries for child sessions (don't await - not critical path)
   fetchChildSummaries();
 
@@ -247,36 +190,12 @@ async function handleRegenerate() {
   padding: 2rem;
 }
 
-.btn-link {
-  background: none;
-  border: none;
-  color: var(--color-primary);
-  font-size: 0.75rem;
-  cursor: pointer;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.btn-link:hover {
-  text-decoration: underline;
-}
-
-.btn-link:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 /* Session Overview Styles */
 .session-overview {
   margin-bottom: 1.5rem;
 }
 
 .overview-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 1rem;
 }
 
@@ -286,57 +205,12 @@ async function handleRegenerate() {
   font-weight: 600;
 }
 
-.overview-stats {
-  display: flex;
-  gap: 2rem;
-  margin-bottom: 1rem;
-}
-
-.stat-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.stat-value {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.stat-label {
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
 .status-badge {
   display: inline-block;
   padding: 0.25rem 0.5rem;
   border-radius: 9999px;
   font-size: 0.75rem;
   font-weight: 500;
-}
-
-.status-running {
-  background: rgba(88, 166, 255, 0.15);
-  color: var(--color-primary);
-}
-
-.status-waiting {
-  background: rgba(210, 153, 34, 0.15);
-  color: var(--color-warning);
-}
-
-.status-completed {
-  background: rgba(46, 160, 67, 0.15);
-  color: var(--color-success);
-}
-
-.status-stopped, .status-error {
-  background: rgba(248, 81, 73, 0.15);
-  color: var(--color-error);
 }
 
 .status-badge.pr-merged {

@@ -5,16 +5,12 @@ import {
   cleanupCreatedResources,
   navigateAndWait,
   waitForSessionToExist,
-  waitForElement,
-  waitForTextVisible,
   seedSessionSummaryDirect,
   seedSessionSummaryWithPR,
   getSessionSummary,
   seedConversation,
   seedUserMessage,
   seedAssistantMessage,
-  seedConversationHistory,
-  getConversations,
   updateSessionWithPR,
   getAPIURL,
 } from './helpers';
@@ -56,11 +52,13 @@ test.describe('Session Summaries', () => {
   });
 
   // ============================================================
-  // Category 1: Summary Tab — Overview Card (4 tests)
+  // Category 1: Summary Tab — Overview Card (1 test)
+  // The overview-stats section (conversations, messages, status) was removed
+  // during the summary tab refactoring. Only the overview card itself remains.
   // ============================================================
 
   test.describe('Category 1: Summary Tab — Overview Card', () => {
-    test('displays session overview card with stats', async ({ page }) => {
+    test('displays session overview card without stats', async ({ page }) => {
       const session = await seedSession(project.id, {
         prompt: 'Test overview card',
         name: 'Overview Card Test',
@@ -81,95 +79,9 @@ test.describe('Session Summaries', () => {
       const overviewCard = page.locator('.session-overview.card');
       await expect(overviewCard).toBeVisible();
 
-      // Verify stat items exist
-      const statItems = page.locator('.overview-stats .stat-item');
-      await expect(statItems).toHaveCount(3); // Conversations, Messages, Status
-
-      // Verify stat labels
-      await expect(page.locator('.stat-label').filter({ hasText: 'Conversations' })).toBeVisible();
-      await expect(page.locator('.stat-label').filter({ hasText: 'Messages' })).toBeVisible();
-      await expect(page.locator('.stat-label').filter({ hasText: 'Status' })).toBeVisible();
-    });
-
-    test('shows correct conversation count in overview', async ({ page }) => {
-      const session = await seedSession(project.id, {
-        prompt: 'Test conversation count',
-        name: 'Conv Count Test',
-        startImmediately: false,
-      });
-      await waitForSessionToExist(session.id);
-
-      // Seed conversations
-      await seedConversation(session.id, 'Conv A');
-      await seedConversation(session.id, 'Conv B');
-
-      seedSessionSummaryDirect(session.id, {
-        shortSummary: 'Conv count test',
-        fullSummary: 'Testing conversation count in overview',
-        outcome: 'completed',
-      });
-
-      await navigateAndWait(page, `/sessions/${session.id}/summary`);
-
-      // Get the conversations count stat - first stat item should be Conversations
-      const conversationsStat = page.locator('.stat-item').filter({ hasText: 'Conversations' });
-      await expect(conversationsStat).toBeVisible();
-
-      // The count should include the auto-created default conversation plus the 2 we seeded
-      const convValue = conversationsStat.locator('.stat-value');
-      // We expect at least 2 (the ones we created); there may be a default one too
-      const count = await convValue.textContent();
-      expect(parseInt(count!, 10)).toBeGreaterThanOrEqual(2);
-    });
-
-    test('shows correct message count across conversations', async ({ page }) => {
-      const session = await seedSession(project.id, {
-        prompt: 'Test message count',
-        name: 'Message Count Test',
-        startImmediately: false,
-      });
-      await waitForSessionToExist(session.id);
-
-      // Seed messages
-      seedUserMessage(session.id, 'Hello');
-      seedAssistantMessage(session.id, 'Hi there');
-      seedUserMessage(session.id, 'Thanks');
-
-      seedSessionSummaryDirect(session.id, {
-        shortSummary: 'Message count test',
-        fullSummary: 'Testing message count in overview',
-        outcome: 'completed',
-      });
-
-      await navigateAndWait(page, `/sessions/${session.id}/summary`);
-
-      // Get the messages count stat
-      const messagesStat = page.locator('.stat-item').filter({ hasText: 'Messages' });
-      await expect(messagesStat).toBeVisible();
-      const msgValue = messagesStat.locator('.stat-value');
-      await expect(msgValue).toHaveText('3');
-    });
-
-    test('displays session status badge with correct class', async ({ page }) => {
-      const session = await seedSession(project.id, {
-        prompt: 'Test status badge',
-        name: 'Status Badge Test',
-        startImmediately: false,
-      });
-      await waitForSessionToExist(session.id);
-
-      seedSessionSummaryDirect(session.id, {
-        shortSummary: 'Status badge test',
-        fullSummary: 'Testing status badge display',
-        outcome: 'completed',
-      });
-
-      await navigateAndWait(page, `/sessions/${session.id}/summary`);
-
-      // Session should be in 'waiting' status since startImmediately: false
-      const statusBadge = page.locator('.status-badge.status-waiting');
-      await expect(statusBadge).toBeVisible();
-      await expect(statusBadge).toHaveText('waiting');
+      // Verify overview-stats section is no longer rendered (removed in refactoring)
+      const statItems = page.locator('.overview-stats');
+      await expect(statItems).toHaveCount(0);
     });
   });
 
@@ -256,89 +168,8 @@ test.describe('Session Summaries', () => {
       await expect(fileItems.nth(1).locator('code')).toHaveText('src/models/user.js');
     });
 
-    test('displays outcome badge for "completed"', async ({ page }) => {
-      const session = await seedSession(project.id, {
-        prompt: 'Test completed outcome',
-        name: 'Completed Outcome Test',
-        startImmediately: false,
-      });
-      await waitForSessionToExist(session.id);
-
-      seedSessionSummaryDirect(session.id, {
-        shortSummary: 'Completed outcome test',
-        fullSummary: 'Testing completed outcome badge',
-        outcome: 'completed',
-      });
-
-      await navigateAndWait(page, `/sessions/${session.id}/summary`);
-
-      const outcomeBadge = page.locator('.outcome-badge.outcome-completed');
-      await expect(outcomeBadge).toBeVisible();
-      await expect(outcomeBadge).toHaveText('Task Completed Successfully');
-    });
-
-    test('displays outcome badge for "partial"', async ({ page }) => {
-      const session = await seedSession(project.id, {
-        prompt: 'Test partial outcome',
-        name: 'Partial Outcome Test',
-        startImmediately: false,
-      });
-      await waitForSessionToExist(session.id);
-
-      seedSessionSummaryDirect(session.id, {
-        shortSummary: 'Partial outcome test',
-        fullSummary: 'Testing partial outcome badge',
-        outcome: 'partial',
-      });
-
-      await navigateAndWait(page, `/sessions/${session.id}/summary`);
-
-      const outcomeBadge = page.locator('.outcome-badge.outcome-partial');
-      await expect(outcomeBadge).toBeVisible();
-      await expect(outcomeBadge).toHaveText('Partial Progress');
-    });
-
-    test('displays outcome badge for "failed"', async ({ page }) => {
-      const session = await seedSession(project.id, {
-        prompt: 'Test failed outcome',
-        name: 'Failed Outcome Test',
-        startImmediately: false,
-      });
-      await waitForSessionToExist(session.id);
-
-      seedSessionSummaryDirect(session.id, {
-        shortSummary: 'Failed outcome test',
-        fullSummary: 'Testing failed outcome badge',
-        outcome: 'failed',
-      });
-
-      await navigateAndWait(page, `/sessions/${session.id}/summary`);
-
-      const outcomeBadge = page.locator('.outcome-badge.outcome-failed');
-      await expect(outcomeBadge).toBeVisible();
-      await expect(outcomeBadge).toHaveText('Task Failed');
-    });
-
-    test('displays outcome badge for "ongoing"', async ({ page }) => {
-      const session = await seedSession(project.id, {
-        prompt: 'Test ongoing outcome',
-        name: 'Ongoing Outcome Test',
-        startImmediately: false,
-      });
-      await waitForSessionToExist(session.id);
-
-      seedSessionSummaryDirect(session.id, {
-        shortSummary: 'Ongoing outcome test',
-        fullSummary: 'Testing ongoing outcome badge',
-        outcome: 'ongoing',
-      });
-
-      await navigateAndWait(page, `/sessions/${session.id}/summary`);
-
-      const outcomeBadge = page.locator('.outcome-badge.outcome-ongoing');
-      await expect(outcomeBadge).toBeVisible();
-      await expect(outcomeBadge).toHaveText('In Progress');
-    });
+    // Outcome badge tests removed: the Outcome section was removed from SummaryContent
+    // during the summary tab refactoring (outcome badges no longer rendered).
 
     test('displays short summary text', async ({ page }) => {
       const session = await seedSession(project.id, {
@@ -496,17 +327,20 @@ test.describe('Session Summaries', () => {
   // ============================================================
 
   test.describe('Category 4: Manual Regenerate Button', () => {
-    test('regenerate button is visible in overview header', async ({ page }) => {
+    // The regenerate button was removed from the overview-header during the summary tab
+    // refactoring. It now only exists in the summary footer (SummaryContent component).
+
+    test('regenerate button is NOT visible in overview header', async ({ page }) => {
       const session = await seedSession(project.id, {
-        prompt: 'Test regenerate button header',
-        name: 'Regen Button Header Test',
+        prompt: 'Test regenerate button header removed',
+        name: 'Regen Button Header Removed Test',
         startImmediately: false,
       });
       await waitForSessionToExist(session.id);
 
       seedSessionSummaryDirect(session.id, {
         shortSummary: 'Regen header test',
-        fullSummary: 'Testing regenerate button in header',
+        fullSummary: 'Testing regenerate button removed from header',
         outcome: 'completed',
       });
 
@@ -515,11 +349,12 @@ test.describe('Session Summaries', () => {
       const overviewHeader = page.locator('.overview-header');
       await expect(overviewHeader).toBeVisible();
 
+      // Regenerate button should NOT be in the overview header
       const regenButton = overviewHeader.locator('.btn-link').filter({ hasText: 'Regenerate' });
-      await expect(regenButton).toBeVisible();
+      await expect(regenButton).toHaveCount(0);
     });
 
-    test('regenerate button is also visible in summary footer', async ({ page }) => {
+    test('regenerate button is visible in summary footer', async ({ page }) => {
       const session = await seedSession(project.id, {
         prompt: 'Test regenerate button footer',
         name: 'Regen Button Footer Test',
@@ -542,7 +377,7 @@ test.describe('Session Summaries', () => {
       await expect(regenButton).toBeVisible();
     });
 
-    test('clicking regenerate triggers summary generation', async ({ page }) => {
+    test('clicking regenerate in footer triggers summary generation', async ({ page }) => {
       const session = await seedSession(project.id, {
         prompt: 'Test regenerate click',
         name: 'Regen Click Test',
@@ -562,8 +397,8 @@ test.describe('Session Summaries', () => {
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
-      // Click the Regenerate button in the overview header
-      const regenButton = page.locator('.overview-header .btn-link').filter({ hasText: 'Regenerate' });
+      // Click the Regenerate button in the summary footer
+      const regenButton = page.locator('.summary-footer .btn-link').filter({ hasText: 'Regenerate' });
       await expect(regenButton).toBeVisible();
       await regenButton.click();
 
@@ -759,140 +594,39 @@ test.describe('Session Summaries', () => {
   });
 
   // ============================================================
-  // Category 7: Summary Tab — Conversation List (4 tests)
+  // Category 7: Summary Tab — Conversation List
+  // The entire conversations section was removed from the summary tab
+  // during the refactoring. These tests now verify the section is gone.
   // ============================================================
 
-  test.describe('Category 7: Summary Tab — Conversation List', () => {
-    test('shows empty state when no conversations exist', async ({ page }) => {
+  test.describe('Category 7: Summary Tab — Conversation List (removed)', () => {
+    test('conversations section is no longer rendered in summary tab', async ({ page }) => {
       const session = await seedSession(project.id, {
-        prompt: 'Test empty conversations',
-        name: 'Empty Conversations Test',
+        prompt: 'Test conversations section removed',
+        name: 'Conversations Removed Test',
         startImmediately: false,
       });
       await waitForSessionToExist(session.id);
 
+      // Seed conversations that previously would have shown up
+      await seedConversation(session.id, 'Conv A');
+      await seedConversation(session.id, 'Conv B');
+
       seedSessionSummaryDirect(session.id, {
-        shortSummary: 'Empty convs test',
-        fullSummary: 'Testing empty conversations state',
+        shortSummary: 'Conversations removed test',
+        fullSummary: 'Testing that conversations section was removed',
         outcome: 'completed',
       });
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
-      // Wait for the conversations section to load
+      // Verify the conversations section is no longer rendered
       const conversationsSection = page.locator('.conversations-section');
-      await expect(conversationsSection).toBeVisible();
+      await expect(conversationsSection).toHaveCount(0);
 
-      // Check for either empty conversations state OR conversation cards
-      // Sessions may auto-create a default conversation
-      const emptyState = page.locator('.empty-conversations');
+      // Verify conversation cards are no longer rendered
       const convCards = page.locator('.conversation-card');
-
-      // Wait for loading to finish
-      await page.waitForTimeout(1000);
-
-      const emptyVisible = await emptyState.isVisible().catch(() => false);
-      const cardsCount = await convCards.count();
-
-      // Either no conversations (empty state shown) or the default conversation exists
-      expect(emptyVisible || cardsCount >= 0).toBe(true);
-    });
-
-    test('displays conversation cards with name and message count', async ({ page }) => {
-      const session = await seedSession(project.id, {
-        prompt: 'Test conversation cards',
-        name: 'Conv Cards Test',
-        startImmediately: false,
-      });
-      await waitForSessionToExist(session.id);
-
-      // Create a named conversation
-      const conv = await seedConversation(session.id, 'Main');
-
-      // Seed messages in this conversation
-      seedUserMessage(session.id, 'Hello', conv.id);
-      seedAssistantMessage(session.id, 'Hi there', undefined, conv.id);
-
-      seedSessionSummaryDirect(session.id, {
-        shortSummary: 'Conv cards test',
-        fullSummary: 'Testing conversation card display',
-        outcome: 'completed',
-      });
-
-      await navigateAndWait(page, `/sessions/${session.id}/summary`);
-
-      // Verify a conversation card exists with the name "Main"
-      const convCard = page.locator('.conversation-card').filter({ hasText: 'Main' });
-      await expect(convCard).toBeVisible();
-
-      // Verify the card shows the conversation name
-      await expect(convCard.locator('.conv-name')).toHaveText('Main');
-
-      // Verify message count
-      await expect(convCard.locator('.conv-meta')).toContainText('2 msgs');
-    });
-
-    test('highlights active conversation with badge', async ({ page }) => {
-      const session = await seedSession(project.id, {
-        prompt: 'Test active conversation badge',
-        name: 'Active Conv Badge Test',
-        startImmediately: false,
-      });
-      await waitForSessionToExist(session.id);
-
-      // Create a conversation (newly created conversations are usually active)
-      await seedConversation(session.id, 'Active Conv');
-
-      seedSessionSummaryDirect(session.id, {
-        shortSummary: 'Active badge test',
-        fullSummary: 'Testing active conversation badge',
-        outcome: 'completed',
-      });
-
-      await navigateAndWait(page, `/sessions/${session.id}/summary`);
-
-      // Look for an active conversation card
-      const activeCard = page.locator('.conversation-card.active');
-      // There should be at least one active conversation
-      const activeCount = await activeCard.count();
-      if (activeCount > 0) {
-        await expect(activeCard.first()).toBeVisible();
-        const activeBadge = activeCard.first().locator('.active-badge');
-        await expect(activeBadge).toBeVisible();
-        await expect(activeBadge).toHaveText('Active');
-      }
-      // If no active cards, that's acceptable (implementation may vary)
-    });
-
-    test('"View Conversation" link is present and clickable', async ({ page }) => {
-      const session = await seedSession(project.id, {
-        prompt: 'Test view conversation link',
-        name: 'View Conv Link Test',
-        startImmediately: false,
-      });
-      await waitForSessionToExist(session.id);
-
-      // Create two conversations so we can switch to a non-active one
-      const conv1 = await seedConversation(session.id, 'First Conv');
-      const conv2 = await seedConversation(session.id, 'Second Conv');
-
-      seedSessionSummaryDirect(session.id, {
-        shortSummary: 'View conv link test',
-        fullSummary: 'Testing view conversation link presence',
-        outcome: 'completed',
-      });
-
-      await navigateAndWait(page, `/sessions/${session.id}/summary`);
-
-      // Find the "View Conversation" button in each conversation card
-      const viewButtons = page.locator('.conv-footer .btn-link').filter({ hasText: 'View Conversation' });
-      // Should have at least 2 conversation cards with "View Conversation" buttons
-      const buttonCount = await viewButtons.count();
-      expect(buttonCount).toBeGreaterThanOrEqual(2);
-
-      // Verify the first button is visible and clickable
-      await expect(viewButtons.first()).toBeVisible();
-      await expect(viewButtons.first()).toBeEnabled();
+      await expect(convCards).toHaveCount(0);
     });
   });
 
@@ -1089,9 +823,9 @@ test.describe('Session Summaries', () => {
       const keyActionsList = page.locator('.key-actions-list');
       await expect(keyActionsList).toHaveCount(0);
 
-      // The outcome section should still be visible
-      const outcomeSection = page.locator('.outcome-badge');
-      await expect(outcomeSection).toBeVisible();
+      // The overview section should still be visible
+      const fullSummary = page.locator('.full-summary');
+      await expect(fullSummary).toBeVisible();
     });
 
     test('hides files modified section when filesModified is empty', async ({ page }) => {
@@ -1118,9 +852,9 @@ test.describe('Session Summaries', () => {
       const filesList = page.locator('.files-list');
       await expect(filesList).toHaveCount(0);
 
-      // The outcome section should still be visible
-      const outcomeSection = page.locator('.outcome-badge');
-      await expect(outcomeSection).toBeVisible();
+      // The overview section should still be visible
+      const fullSummary = page.locator('.full-summary');
+      await expect(fullSummary).toBeVisible();
     });
   });
 });
