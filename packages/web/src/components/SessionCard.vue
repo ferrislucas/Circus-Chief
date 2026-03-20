@@ -109,6 +109,13 @@
         data-testid="session-log-stream"
       />
 
+      <!-- Live output from a running child session (when parent is collapsed & not running itself) -->
+      <SessionLogStream
+        v-if="runningChildSessionId"
+        :session-id="runningChildSessionId"
+        data-testid="child-session-log-stream"
+      />
+
       <!-- Expand/collapse toggle for sessions with children -->
       <div v-if="hasChildren && !isChild" class="expand-toggle-row">
         <button
@@ -236,6 +243,18 @@ const dateToShow = computed(() => {
 const hasChildren = computed(() => props.children && props.children.length > 0);
 
 const isExpanded = computed(() => sessionsStore.isSessionExpanded(props.session.id));
+
+// Find first running child/descendant session to show live output on parent card
+const runningChildSessionId = computed(() => {
+  if (isRunning.value) return null;       // Parent is already showing its own output
+  if (isExpanded.value) return null;      // Children are visible in expanded panel
+  if (!hasChildren.value) return null;    // No children to show
+
+  // Find first running/starting child from all descendants
+  const descendants = sessionsStore.getAllDescendants(props.session.id);
+  const running = descendants.find(s => ['running', 'starting'].includes(s.status));
+  return running?.id || null;
+});
 
 // Get aggregated workflow status for display
 const workflowStatus = computed(() => {
