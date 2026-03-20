@@ -1,5 +1,13 @@
 <template>
   <div class="summary-tab">
+    <!-- What Just Happened Card -->
+    <WhatJustHappenedCard
+      v-if="session"
+      :session="session"
+      :summary="summary"
+      :descendant-summaries="descendantSummaries"
+    />
+
     <!-- Session Overview Section -->
     <div class="session-overview card">
       <div class="overview-header">
@@ -25,7 +33,7 @@
       v-if="childSessions.length > 0"
       variant="detail"
       :session="session"
-      :summaries="childSessionSummaries"
+      :summaries="descendantSummaries"
       :summary="summary"
       :command-buttons="commandButtons"
     />
@@ -54,12 +62,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { useSummaries } from '../composables/useSummaries.js';
+import WhatJustHappenedCard from './WhatJustHappenedCard.vue';
 import SessionCardWorkflowPanel from './SessionCardWorkflowPanel.vue';
 import SummaryContent from './SummaryContent.vue';
 
@@ -71,9 +81,9 @@ const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
 const { onSummaryUpdate, onSummaryGenerating } = useSessionSubscription(props.sessionId);
+const { summaries: descendantSummaries, fetchSummariesBatch } = useSummaries();
 
 const summary = ref(null);
-const childSessionSummaries = ref({});
 const loading = ref(false);
 const generating = ref(false);
 const generatingManual = ref(false);
@@ -99,18 +109,11 @@ const commandButtons = computed(() => {
   return commandButtonsStore.getButtonsByProjectId(projectId);
 });
 
-// Fetch summaries for child sessions
-async function fetchChildSummaries() {
-  const children = sessionsStore.getChildSessions(props.sessionId);
-  for (const child of children) {
-    if (!childSessionSummaries.value[child.id]) {
-      try {
-        const summaryData = await api.getSessionSummary(child.id);
-        childSessionSummaries.value[child.id] = summaryData;
-      } catch (e) {
-        // Ignore - summary may not exist
-      }
-    }
+// Fetch summaries for all descendant sessions
+async function fetchDescendantSummaries() {
+  const descendants = sessionsStore.getAllDescendants(props.sessionId);
+  if (descendants.length > 0) {
+    await fetchSummariesBatch(descendants);
   }
 }
 
@@ -131,8 +134,8 @@ function extractPrNumber(url) {
 }
 
 onMounted(async () => {
-  // Fetch summaries for child sessions (don't await - not critical path)
-  fetchChildSummaries();
+  // Fetch summaries for descendant sessions (don't await - not critical path)
+  fetchDescendantSummaries();
 
   // Fetch session summary
   loading.value = true;
@@ -158,6 +161,17 @@ onMounted(async () => {
     generating.value = isGenerating;
   });
 });
+
+// Watch for changes in descendants and fetch summaries reactively
+watch(
+  () => sessionsStore.getAllDescendants(props.sessionId),
+  (descendants) => {
+    if (descendants.length > 0) {
+      fetchDescendantSummaries();
+    }
+  },
+  { deep: true }
+);
 
 onUnmounted(() => {
   // Clean up if needed
