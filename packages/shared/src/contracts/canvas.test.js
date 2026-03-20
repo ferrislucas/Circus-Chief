@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CreateCanvasItemRequest, CanvasItemResponse } from './canvas.js';
+import { CreateCanvasItemRequest, CanvasItemResponse, UpdateCanvasItemRequest } from './canvas.js';
 
 describe('Canvas Contracts', () => {
   describe('CreateCanvasItemRequest', () => {
@@ -111,6 +111,36 @@ describe('Canvas Contracts', () => {
         updatedAt: now,
       });
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('UpdateCanvasItemRequest', () => {
+    it('accepts valid content string', () => {
+      const result = UpdateCanvasItemRequest.safeParse({ content: 'hello' });
+      expect(result.success).toBe(true);
+      expect(result.data.content).toBe('hello');
+    });
+
+    it('accepts empty string content', () => {
+      const result = UpdateCanvasItemRequest.safeParse({ content: '' });
+      expect(result.success).toBe(true);
+      expect(result.data.content).toBe('');
+    });
+
+    it('rejects missing content field', () => {
+      const result = UpdateCanvasItemRequest.safeParse({});
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects non-string content', () => {
+      const result = UpdateCanvasItemRequest.safeParse({ content: 123 });
+      expect(result.success).toBe(false);
+    });
+
+    it('strips extra fields', () => {
+      const result = UpdateCanvasItemRequest.safeParse({ content: 'ok', extra: 'bad' });
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ content: 'ok' });
     });
   });
 });

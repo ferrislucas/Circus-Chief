@@ -15,6 +15,7 @@
     "dompurify": "^3.3.1",
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.1.0",
+    "md-editor-v3": "^6.4.0",
     "pinia": "^2.1.7",
     "posthog-js": "^1.356.1",
     "vite": "^5.0.12",

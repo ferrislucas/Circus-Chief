@@ -24,6 +24,23 @@ export function getItems(sessionId) {
 }
 
 /**
+ * Update the content of an existing canvas item
+ * @param {string} sessionId
+ * @param {string} itemId
+ * @param {string} content
+ * @returns {Object}
+ */
+export function updateItemContent(sessionId, itemId, content) {
+  const item = canvasItems.getById(itemId);
+  if (!item || item.sessionId !== sessionId) {
+    throw new Error('Canvas item not found');
+  }
+  const updatedItem = canvasItems.updateContent(itemId, content);
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.CANVAS_UPDATE, { item: updatedItem });
+  return updatedItem;
+}
+
+/**
  * Remove an item from the canvas
  * @param {string} sessionId
  * @param {string} itemId

@@ -84,6 +84,7 @@ vi.mock('../composables/useWebSocket.js', () => {
       onError: h(),
       onCanvasAdd: h(),
       onCanvasRemove: h(),
+      onCanvasUpdate: h(),
       onTodosUpdate: h(),
       onSessionUpdate: h(),
       onSummaryUpdate: h(),

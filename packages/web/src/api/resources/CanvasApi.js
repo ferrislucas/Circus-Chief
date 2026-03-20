@@ -59,6 +59,18 @@ export function CanvasApi(ApiClient) {
     },
 
     /**
+     * Update a canvas item's content in-place
+     * @param {string} sessionId - Session ID
+     * @param {string} itemId - Canvas item ID
+     * @param {Object} data - Update data
+     * @param {string} data.content - New content
+     * @returns {Promise<Object>}
+     */
+    async updateCanvasItem(sessionId, itemId, data) {
+      return this._put(`/sessions/${sessionId}/canvas/${itemId}`, data);
+    },
+
+    /**
      * Delete a canvas item (soft delete - move to trash)
      * @param {string} sessionId - Session ID
      * @param {string} itemId - Canvas item ID

@@ -17,6 +17,15 @@
     </div>
 
     <div class="viewer-header-right">
+      <!-- Edit/Done toggle for markdown files -->
+      <button
+        v-if="item.type === 'markdown'"
+        class="btn-edit-toggle"
+        @click="$emit('edit')"
+      >
+        {{ isEditing ? 'Done' : 'Edit' }}
+      </button>
+
       <!-- Version dropdown -->
       <details
         v-if="versions.length > 1"
@@ -115,9 +124,13 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  isEditing: {
+    type: Boolean,
+    default: false,
+  },
 });
 
-const emit = defineEmits(['back', 'selectVersion', 'deleteAll']);
+const emit = defineEmits(['back', 'selectVersion', 'deleteAll', 'edit']);
 
 const menuOpen = ref(false);
 const menuHighlightedIndex = ref(null);
@@ -330,6 +343,29 @@ function formatLastModified(timestamp) {
   .viewer-meta {
     font-size: 0.6875rem;
   }
+}
+
+/* Edit/Done toggle button */
+.btn-edit-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #374151);
+  background: transparent;
+  color: var(--color-primary, #22d3ee);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+  min-height: 28px;
+}
+
+.btn-edit-toggle:hover {
+  background: rgba(34, 211, 238, 0.1);
+  border-color: var(--color-primary, #22d3ee);
 }
 
 /* Version dropdown */

@@ -5,13 +5,24 @@
       :item="item"
       :versions="versions"
       :showBackButton="showBackButton"
+      :isEditing="isEditing"
       @back="handleBack"
       @selectVersion="selectVersion"
       @deleteAll="handleDeleteAll"
+      @edit="toggleEditing"
     />
 
     <!-- Content -->
-    <div class="viewer-content">
+    <div v-if="isEditing && item.type === 'markdown'" class="viewer-content viewer-content-editing">
+      <MarkdownEditor
+        :content="item.content || ''"
+        :sessionId="sessionId"
+        :filename="item.filename"
+        :itemId="item.id"
+        @save="handleSave"
+      />
+    </div>
+    <div v-else class="viewer-content">
       <!-- Loading state while fetching content -->
       <div v-if="contentLoading" class="content-loading">
         <span class="loading-spinner"></span>
@@ -43,11 +54,15 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onBeforeUnmount, defineAsyncComponent } from 'vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import CanvasFileViewerHeader from './CanvasFileViewerHeader.vue';
 import hljs from 'highlight.js';
 import { useCanvasStore } from '../stores/canvas.js';
+
+const MarkdownEditor = defineAsyncComponent(() =>
+  import('./MarkdownEditor.vue')
+);
 
 // Map file extensions to highlight.js language names
 const EXT_TO_LANG = {
@@ -116,6 +131,7 @@ const canvasStore = useCanvasStore();
 const emit = defineEmits(['back', 'selectVersion', 'deleteAll']);
 
 const contentLoading = ref(false);
+const isEditing = ref(false);
 
 // Watch the item's id to handle both initial load AND version switching.
 // Cannot watch just a `needsContent` computed because switching between two
@@ -133,6 +149,14 @@ watch(() => props.item.id, async () => {
   }
 }, { immediate: true });
 
+function toggleEditing() {
+  isEditing.value = !isEditing.value;
+}
+
+function handleSave(content) {
+  canvasStore.saveMarkdownContent(props.sessionId, props.item.filename, content);
+}
+
 function handleBack() {
   emit('back');
 }
@@ -140,6 +164,13 @@ function handleBack() {
 function handleDeleteAll(filename) {
   emit('deleteAll', filename);
 }
+
+// Ensure endEditing is called when navigating away while editing
+onBeforeUnmount(() => {
+  if (isEditing.value && props.item.filename) {
+    canvasStore.endEditing(props.item.filename);
+  }
+});
 
 const highlightedCode = computed(() => {
   const content = props.item.content || '';
@@ -212,6 +243,13 @@ function selectVersion(itemId) {
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   padding: 1rem;
+}
+
+.viewer-content-editing {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 400px;
 }
 
 .viewer-image {
