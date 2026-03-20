@@ -19,6 +19,8 @@ export const CreateSessionRequest = z.object({
   maxRescheduleCount: z.number().min(1).max(100).nullable().optional(),
   maxTotalTokens: z.number().min(1000).nullable().optional(),
   rescheduleAtTokenCount: z.number().min(10000).nullable().optional(), // e.g., 100k, 150k tokens
+  // Kanban fields
+  targetLaneId: z.string().uuid().nullable().optional(), // Lane to place session in when created
 });
 
 export const UpdateSessionRequest = z.object({

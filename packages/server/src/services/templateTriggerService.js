@@ -4,6 +4,7 @@ import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { addSessionToTemplateTargetLane } from './kanbanService.js';
 
 const liquid = new Liquid();
 
@@ -179,6 +180,9 @@ export async function checkAndTriggerNextTemplate(sessionId) {
       projectId: session.projectId,
       session: updatedSession,
     });
+
+    // Add the new session to the kanban board if the template has a target lane
+    addSessionToTemplateTargetLane(newSession.id, template.id);
 
     // Start the new session (non-blocking)
     runSession(newSession.id, renderedPrompt, workingDirectory, { systemPrompt: project.systemPrompt, model: template.model }).catch((error) => {

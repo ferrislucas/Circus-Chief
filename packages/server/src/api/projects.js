@@ -12,6 +12,7 @@ import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { handleUploadError, uploadMiddleware } from '../middleware/upload.js';
+import { addSessionToTemplateTargetLane } from '../services/kanbanService.js';
 
 const router = Router();
 
@@ -483,6 +484,11 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
   const schedulingUpdate = buildSchedulingUpdate(config, initialStatus);
   if (Object.keys(schedulingUpdate).length > 0) {
     sessions.update(session.id, schedulingUpdate);
+  }
+
+  // Add session to kanban board if created from a template with a target lane
+  if (config.templateId) {
+    addSessionToTemplateTargetLane(session.id, config.templateId);
   }
 
   // Setup git environment, start session, and broadcast

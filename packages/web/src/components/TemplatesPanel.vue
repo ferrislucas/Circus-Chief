@@ -92,6 +92,17 @@
           />
         </div>
 
+        <div v-if="kanbanLanes.length > 0" class="form-group">
+          <label class="form-label">Target Kanban Lane (Optional)</label>
+          <select v-model="formData.targetLaneId" class="form-input">
+            <option :value="null">None</option>
+            <option v-for="lane in kanbanLanes" :key="lane.id" :value="lane.id">
+              {{ lane.name }}
+            </option>
+          </select>
+          <p class="form-help">When a session is created from this template, place it in this lane on the Kanban board.</p>
+        </div>
+
         <div class="form-actions">
           <button type="button" class="btn" @click="cancelForm" data-testid="cancel-btn">Cancel</button>
           <button type="submit" class="btn btn-primary" :disabled="saving" data-testid="submit-btn">
@@ -133,6 +144,9 @@
               <span v-if="template.nextTemplateId" class="meta-badge meta-badge-chain">
                 Chains to: {{ getTemplateName(template.nextTemplateId) }}
               </span>
+              <span v-if="template.targetLaneId" class="meta-badge meta-badge-lane">
+                Lane: {{ getLaneName(template.targetLaneId) }}
+              </span>
             </div>
           </router-link>
         </div>
@@ -162,6 +176,9 @@
               <span v-if="template.nextTemplateId" class="meta-badge meta-badge-chain">
                 Chains to: {{ getTemplateName(template.nextTemplateId) }}
               </span>
+              <span v-if="template.targetLaneId" class="meta-badge meta-badge-lane">
+                Lane: {{ getLaneName(template.targetLaneId) }}
+              </span>
             </div>
           </router-link>
         </div>
@@ -183,6 +200,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
 import { useProvidersStore } from '../stores/providers.js';
+import { useKanbanStore } from '../stores/kanban.js';
 import ModelSelector from './ModelSelector.vue';
 import InterpolationHelp from './InterpolationHelp.vue';
 
@@ -193,6 +211,7 @@ const props = defineProps({
 const templatesStore = useTemplatesStore();
 const uiStore = useUiStore();
 const providersStore = useProvidersStore();
+const kanbanStore = useKanbanStore();
 
 const showCreateForm = ref(false);
 const saving = ref(false);
@@ -206,6 +225,7 @@ const formData = ref({
   gitBranch: '',
   model: null,
   mode: null,
+  targetLaneId: null,
 });
 
 const loading = computed(() => templatesStore.loading);
@@ -217,12 +237,20 @@ const availableNextTemplates = computed(() => {
   return all;
 });
 
+const kanbanLanes = computed(() => {
+  return kanbanStore.board?.lanes || [];
+});
+
 onMounted(async () => {
   // Ensure providers with models are loaded
   if (providersStore.providers.length === 0) {
     await providersStore.fetchProviders();
   }
   templatesStore.fetchProjectTemplates(props.projectId);
+  // Fetch kanban board to populate target lane selector
+  kanbanStore.fetchBoard(props.projectId).catch(() => {
+    // Kanban may not be enabled - ignore errors
+  });
 });
 
 watch(
@@ -240,6 +268,11 @@ function truncatePrompt(prompt, maxLength = 100) {
 function getTemplateName(templateId) {
   const template = templatesStore.getTemplateById(templateId);
   return template?.name || 'Unknown';
+}
+
+function getLaneName(laneId) {
+  const lane = kanbanStore.board?.lanes?.find(l => l.id === laneId);
+  return lane?.name || 'Unknown';
 }
 
 function getModelName(modelId) {
@@ -263,6 +296,7 @@ function resetForm() {
     gitBranch: '',
     model: null,
     mode: null,
+    targetLaneId: null,
   };
 }
 
@@ -288,6 +322,7 @@ async function handleSubmit() {
       gitBranch: formData.value.gitBranch || undefined,
       model: formData.value.model,                      // null = inherit
       mode: formData.value.mode,                        // null = inherit
+      targetLaneId: formData.value.targetLaneId || null,
     };
 
     if (formData.value.isGlobal) {
@@ -467,6 +502,11 @@ defineExpose({
 .meta-badge-chain {
   background: var(--color-warning, #f0ad4e);
   color: #333;
+}
+
+.meta-badge-lane {
+  background: rgba(34, 211, 238, 0.15);
+  color: rgb(34, 211, 238);
 }
 
 .empty-state {

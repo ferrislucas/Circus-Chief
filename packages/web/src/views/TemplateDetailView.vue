@@ -94,6 +94,18 @@
           />
         </div>
 
+        <!-- Target Lane Field -->
+        <div v-if="kanbanLanes.length > 0" class="form-group">
+          <label for="targetLane">Target Kanban Lane (Optional)</label>
+          <select id="targetLane" v-model="formData.targetLaneId" class="form-input">
+            <option :value="null">None</option>
+            <option v-for="lane in kanbanLanes" :key="lane.id" :value="lane.id">
+              {{ lane.name }}
+            </option>
+          </select>
+          <p class="form-help">When a session is created from this template, place it in this lane on the Kanban board.</p>
+        </div>
+
         <!-- Form Actions -->
         <div class="form-actions">
           <button type="button" class="btn btn-outline-secondary" @click="onCancel">
@@ -142,6 +154,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
+import { useKanbanStore } from '../stores/kanban.js';
 import { api } from '../api/index.js';
 import ModelSelector from '../components/ModelSelector.vue';
 import InterpolationHelp from '../components/InterpolationHelp.vue';
@@ -150,6 +163,7 @@ const route = useRoute();
 const router = useRouter();
 const templatesStore = useTemplatesStore();
 const uiStore = useUiStore();
+const kanbanStore = useKanbanStore();
 
 const isLoading = ref(false);
 const isSaving = ref(false);
@@ -166,6 +180,7 @@ const formData = ref({
   gitBranch: '',
   model: null,
   mode: null,
+  targetLaneId: null,
 });
 
 const projectId = computed(() => route.params.projectId);
@@ -175,6 +190,10 @@ const availableNextTemplates = computed(() => {
   const all = [...templatesStore.projectTemplates, ...templatesStore.globalTemplates];
   // Exclude the current template being edited
   return all.filter((t) => t.id !== templateId.value);
+});
+
+const kanbanLanes = computed(() => {
+  return kanbanStore.board?.lanes || [];
 });
 
 const loadTemplate = async () => {
@@ -193,6 +212,7 @@ const loadTemplate = async () => {
         gitBranch: template.gitBranch || '',
         model: template.model,                      // Preserve null (inherit) or model ID
         mode: template.mode,                        // Preserve null (inherit), 'plan', 'standard', or 'yolo'
+        targetLaneId: template.targetLaneId || null,
       };
     }
   } catch (err) {
@@ -215,6 +235,7 @@ const onSubmit = async () => {
       gitBranch: formData.value.gitBranch || undefined,
       model: formData.value.model,                      // null = inherit
       mode: formData.value.mode,                        // null = inherit
+      targetLaneId: formData.value.targetLaneId || null,
     };
 
     await templatesStore.updateTemplate(templateId.value, data);
@@ -256,6 +277,12 @@ const confirmDelete = async () => {
 
 onMounted(async () => {
   await loadTemplate();
+  // Fetch kanban board to populate target lane selector
+  if (projectId.value) {
+    kanbanStore.fetchBoard(projectId.value).catch(() => {
+      // Kanban may not be enabled - ignore errors
+    });
+  }
 });
 </script>
 

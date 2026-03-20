@@ -16,6 +16,22 @@ import {
 const UUID = '550e8400-e29b-41d4-a716-446655440000';
 const UUID2 = '550e8400-e29b-41d4-a716-446655440001';
 
+// Default on-enter automation fields required by KanbanLaneResponse
+const DEFAULT_ON_ENTER_FIELDS = {
+  onEnterPrompt: null,
+  onEnterMode: null,
+  onEnterModel: null,
+  onEnterEffortLevel: null,
+  onEnterThinkingEnabled: null,
+  onEnterAutoRescheduleEnabled: false,
+  onEnterRescheduleDelayMinutes: null,
+  onEnterRescheduleOnTokenLimit: null,
+  onEnterRescheduleOnServiceError: null,
+  onEnterMaxRescheduleCount: null,
+  onEnterMaxTotalTokens: null,
+  onEnterRescheduleAtTokenCount: null,
+};
+
 describe('Kanban Contracts', () => {
   // ── CreateKanbanLaneRequest ──────────────────────────────────────
 
@@ -208,6 +224,7 @@ describe('Kanban Contracts', () => {
         name: 'To Do',
         sortOrder: 0,
         onEnterTemplateId: null,
+        ...DEFAULT_ON_ENTER_FIELDS,
         createdAt: 1234567890,
         updatedAt: 1234567890,
       });
@@ -221,6 +238,7 @@ describe('Kanban Contracts', () => {
         name: 'Test',
         sortOrder: 0,
         onEnterTemplateId: null,
+        ...DEFAULT_ON_ENTER_FIELDS,
         createdAt: 1234567890,
         updatedAt: 1234567890,
       });
@@ -314,6 +332,7 @@ describe('Kanban Contracts', () => {
             name: 'To Do',
             sortOrder: 0,
             onEnterTemplateId: null,
+            ...DEFAULT_ON_ENTER_FIELDS,
             createdAt: 1234567890,
             updatedAt: 1234567890,
           },
@@ -350,6 +369,7 @@ describe('Kanban Contracts', () => {
             name: 'To Do',
             sortOrder: 0,
             onEnterTemplateId: null,
+            ...DEFAULT_ON_ENTER_FIELDS,
             createdAt: 1234567890,
             updatedAt: 1234567890,
             cards: [

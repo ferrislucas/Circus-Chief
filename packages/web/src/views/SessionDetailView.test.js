@@ -47,7 +47,7 @@ vi.mock('../components/SessionTabsPanel.vue', () => ({
   default: {
     name: 'SessionTabsPanel',
     template: '<div class="tabs"><span v-for="tab in tabs" :key="tab.id">{{ tab.label }}</span></div>',
-    props: ['sessionId', 'projectId', 'activeTab', 'tabs', 'hasChanges', 'canvasCount', 'isSessionActive', 'sessionStatus'],
+    props: ['sessionId', 'projectId', 'activeTab', 'tabs', 'hasChanges', 'canvasCount', 'changesFileCount', 'isSessionActive', 'sessionStatus'],
   }
 }));
 vi.mock('../composables/useApi.js', () => ({

@@ -36,6 +36,7 @@ describe('SessionTabsPanel', () => {
         tabs: defaultTabs,
         hasChanges: false,
         canvasCount: 0,
+        changesFileCount: 0,
         isSessionActive: false,
         sessionStatus: '',
         ...props,
@@ -134,10 +135,10 @@ describe('SessionTabsPanel', () => {
       expect(option.text()).toContain('\u2022');
     });
 
-    it('shows dot indicator for canvas items in mobile', () => {
+    it('shows canvas count in mobile option when canvasCount > 0', () => {
       const wrapper = mountPanel({ canvasCount: 2 });
       const option = wrapper.findAll('.tab-select option').find(o => o.text().includes('Canvas'));
-      expect(option.text()).toContain('\u2022');
+      expect(option.text()).toContain('(2)');
     });
 
     it('shows ellipsis for active session in mobile', () => {
@@ -174,6 +175,59 @@ describe('SessionTabsPanel', () => {
       const select = wrapper.find('.tab-select');
       await select.setValue('canvas');
       expect(pushSpy).toHaveBeenCalledWith('/sessions/session-1/canvas');
+    });
+  });
+
+  describe('counts display', () => {
+    it('always renders all 5 options in mobile select regardless of canvas/changes counts', () => {
+      const wrapper = mountPanel({ canvasCount: 5, changesFileCount: 3, hasChanges: true });
+      const options = wrapper.findAll('.tab-select option');
+      expect(options.length).toBe(5);
+      expect(options.map(o => o.attributes('value'))).toEqual([
+        'summary', 'conversation', 'changes', 'canvas', 'commands'
+      ]);
+    });
+
+    it('shows changes file count in mobile option text when changesFileCount > 0', () => {
+      const wrapper = mountPanel({ changesFileCount: 3, hasChanges: true });
+      const option = wrapper.findAll('.tab-select option').find(o => o.attributes('value') === 'changes');
+      expect(option.text()).toContain('(3)');
+    });
+
+    it('shows canvas count in mobile option text when canvasCount > 0', () => {
+      const wrapper = mountPanel({ canvasCount: 7 });
+      const option = wrapper.findAll('.tab-select option').find(o => o.attributes('value') === 'canvas');
+      expect(option.text()).toContain('(7)');
+    });
+
+    it('shows changes file count in desktop tab label when changesFileCount > 0', () => {
+      const wrapper = mountPanel({ changesFileCount: 4 });
+      const desktopTabs = wrapper.findAll('.tabs-desktop .tab');
+      const changesTab = desktopTabs.find(t => t.text().includes('Changes'));
+      expect(changesTab.text()).toContain('(4)');
+    });
+
+    it('shows canvas count in desktop tab label when canvasCount > 0', () => {
+      const wrapper = mountPanel({ canvasCount: 2 });
+      const desktopTabs = wrapper.findAll('.tabs-desktop .tab');
+      const canvasTab = desktopTabs.find(t => t.text().includes('Canvas'));
+      expect(canvasTab.text()).toContain('(2)');
+    });
+
+    it('does not show counts when changesFileCount and canvasCount are 0', () => {
+      const wrapper = mountPanel({ changesFileCount: 0, canvasCount: 0 });
+      const options = wrapper.findAll('.tab-select option');
+      const changesOption = options.find(o => o.attributes('value') === 'changes');
+      const canvasOption = options.find(o => o.attributes('value') === 'canvas');
+      expect(changesOption.text()).toBe('Changes');
+      expect(canvasOption.text()).toBe('Canvas');
+    });
+
+    it('shows dot indicator for changes in mobile alongside count', () => {
+      const wrapper = mountPanel({ hasChanges: true, changesFileCount: 2 });
+      const option = wrapper.findAll('.tab-select option').find(o => o.attributes('value') === 'changes');
+      expect(option.text()).toContain('(2)');
+      expect(option.text()).toContain('\u2022');
     });
   });
 

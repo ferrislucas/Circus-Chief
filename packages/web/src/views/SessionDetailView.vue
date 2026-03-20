@@ -42,6 +42,7 @@
         :tabs="tabs"
         :has-changes="hasChanges"
         :canvas-count="canvasStore.groupedItems.length"
+        :changes-file-count="changesFileCount"
         :is-session-active="isSessionActive"
         :session-status="sessionsStore.currentSession?.status"
       />
@@ -157,13 +158,14 @@ const isSessionActive = computed(() => {
   return status === 'running' || status === 'starting';
 });
 
-const tabs = computed(() => [
+// Static tab definitions - never changes, never triggers re-renders of <select> options
+const tabs = [
   { id: 'summary', label: 'Summary' },
   { id: 'conversation', label: 'Conversations' },
-  { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
-  { id: 'canvas', label: canvasStore.groupedItems.length > 0 ? `Canvas (${canvasStore.groupedItems.length})` : 'Canvas' },
-  { id: 'commands', label: 'Commands' }
-]);
+  { id: 'changes', label: 'Changes' },
+  { id: 'canvas', label: 'Canvas' },
+  { id: 'commands', label: 'Commands' },
+];
 
 // Watch for status changes from any source (optimistic updates, WebSocket, etc.)
 // This ensures polling starts even when status is updated directly in the store

@@ -17,6 +17,8 @@
         :class="['tab', { active: activeTab === tab.id }]"
       >
         {{ tab.label }}
+        <template v-if="tab.id === 'changes' && changesFileCount > 0"> ({{ changesFileCount }})</template>
+        <template v-if="tab.id === 'canvas' && canvasCount > 0"> ({{ canvasCount }})</template>
         <span
           v-if="tab.id === 'changes' && hasChanges"
           class="changes-indicator"
@@ -48,7 +50,7 @@
       ></span>
       <select :value="activeTab" @change="navigateToTab($event.target.value)" class="tab-select">
         <option v-for="tab in tabs" :key="tab.id" :value="tab.id">
-          {{ tab.label }}{{ tab.id === 'changes' && hasChanges ? ' \u2022' : '' }}{{ tab.id === 'canvas' && canvasCount > 0 ? ' \u2022' : '' }}{{ tab.id === 'conversation' && isSessionActive ? ' ...' : '' }}
+          {{ tab.label }}{{ tab.id === 'changes' && changesFileCount > 0 ? ` (${changesFileCount})` : '' }}{{ tab.id === 'changes' && hasChanges ? ' \u2022' : '' }}{{ tab.id === 'canvas' && canvasCount > 0 ? ` (${canvasCount})` : '' }}{{ tab.id === 'conversation' && isSessionActive ? ' ...' : '' }}
         </option>
       </select>
     </div>
@@ -87,6 +89,11 @@ const props = defineProps({
   },
   /** Number of canvas items */
   canvasCount: {
+    type: Number,
+    default: 0,
+  },
+  /** Number of files with changes */
+  changesFileCount: {
     type: Number,
     default: 0,
   },
@@ -152,9 +159,12 @@ function navigateToTab(tabId) {
   }
 }
 
-.tabs-mobile {
-  align-items: center;
-  gap: 0.5rem;
+@media (max-width: 640px) {
+  .tabs-mobile {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
 }
 
 .tabs-mobile .loading-spinner {
