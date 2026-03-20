@@ -55,6 +55,19 @@
         <CanvasTab v-else-if="activeTab === 'canvas'" :key="route.params.id" :session-id="route.params.id" />
         <CommandsTab v-else-if="activeTab === 'commands'" :key="route.params.id" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
       </div>
+
+      <!-- Session Tree Handle (only shown when session has parent or children) -->
+      <SessionTreeHandle
+        v-if="showTreeHandle"
+        @open="treeOverlayOpen = true"
+      />
+
+      <!-- Session Tree Overlay -->
+      <SessionTreeOverlay
+        v-if="treeOverlayOpen"
+        :session-id="currentSessionId"
+        @close="treeOverlayOpen = false"
+      />
     </template>
   </div>
 </template>
@@ -77,6 +90,8 @@ import CommandsTab from '../components/CommandsTab.vue';
 import SessionHeaderPanel from '../components/SessionHeaderPanel.vue';
 import SessionTabsPanel from '../components/SessionTabsPanel.vue';
 import SessionHierarchyBreadcrumb from '../components/SessionHierarchyBreadcrumb.vue';
+import SessionTreeHandle from '../components/SessionTreeHandle.vue';
+import SessionTreeOverlay from '../components/SessionTreeOverlay.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 
 const route = useRoute();
@@ -108,6 +123,14 @@ const {
 
 const summary = ref(null);
 const isDeleting = ref(false);
+const treeOverlayOpen = ref(false);
+
+// Show the tree handle when session has parent or children
+const showTreeHandle = computed(() => {
+  const session = sessionsStore.currentSession;
+  if (!session) return false;
+  return !!session.parentSessionId || sessionsStore.hasChildren(session.id);
+});
 
 // Use composable for session initialization and WebSocket management
 const { cleanup, initializeSession } = useSessionInitializer({
