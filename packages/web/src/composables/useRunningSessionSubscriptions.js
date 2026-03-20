@@ -18,6 +18,59 @@ export function useRunningSessionSubscriptions() {
   // Track pending clear timeouts so stale ones can be cancelled: { [sessionId]: timeoutId }
   const clearTimeouts = {};
 
+  // Track pending hydration retry timeouts: { [sessionId]: timeoutId }
+  const hydrationRetryTimeouts = {};
+
+  /**
+   * Fetch streaming state from the server and hydrate the store.
+   * If the initial fetch returns no data and the session is still running,
+   * retry once after a delay to cover the race where a child session
+   * has just started but hasn't populated its streaming state yet.
+   * @param {string} sessionId
+   */
+  function hydrateStreamingState(sessionId) {
+    fetch(`/api/sessions/${sessionId}/streaming-state`)
+      .then(res => res.ok ? res.json() : null)
+      .then(snapshot => {
+        if (snapshot && (snapshot.workLogs?.length || snapshot.partialText || snapshot.thinking)) {
+          streamingStore.hydrateSessionState(sessionId, snapshot);
+        } else {
+          // No data yet — schedule a retry for sessions that just started.
+          // This covers the race where a child session was just created
+          // but hasn't emitted any streaming events yet.
+          scheduleHydrationRetry(sessionId);
+        }
+      })
+      .catch(() => {
+        // Hydration failure is non-fatal — retry in case the session
+        // hasn't registered streaming state on the server yet.
+        scheduleHydrationRetry(sessionId);
+      });
+  }
+
+  /**
+   * Retry hydration after a delay if the session is still running/starting.
+   * @param {string} sessionId
+   */
+  function scheduleHydrationRetry(sessionId) {
+    hydrationRetryTimeouts[sessionId] = setTimeout(() => {
+      delete hydrationRetryTimeouts[sessionId];
+      // Only retry if still subscribed and the session is still active
+      if (!activeSubscriptions.value[sessionId]) return;
+      const session = sessionsStore.sessions.find(s => s.id === sessionId);
+      if (session && ['running', 'starting'].includes(session.status)) {
+        fetch(`/api/sessions/${sessionId}/streaming-state`)
+          .then(res => res.ok ? res.json() : null)
+          .then(retrySnapshot => {
+            if (retrySnapshot) {
+              streamingStore.hydrateSessionState(sessionId, retrySnapshot);
+            }
+          })
+          .catch(() => { /* Retry failure is non-fatal */ });
+      }
+    }, 1500);
+  }
+
   function subscribeToSession(sessionId) {
     if (activeSubscriptions.value[sessionId]) return; // already subscribed
 
@@ -67,17 +120,6 @@ export function useRunningSessionSubscriptions() {
 
     sub.subscribe();
 
-    // Hydrate current streaming state from the server (fire-and-forget).
-    // This ensures we see content for sessions already running before we subscribed.
-    fetch(`/api/sessions/${sessionId}/streaming-state`)
-      .then(res => res.ok ? res.json() : null)
-      .then(snapshot => {
-        if (snapshot) {
-          streamingStore.hydrateSessionState(sessionId, snapshot);
-        }
-      })
-      .catch(() => { /* Hydration failure is non-fatal */ });
-
     activeSubscriptions.value[sessionId] = {
       subscription: sub,
       cleanup: () => {
@@ -85,6 +127,11 @@ export function useRunningSessionSubscriptions() {
         sub.unsubscribe();
       },
     };
+
+    // Hydrate current streaming state from the server (fire-and-forget).
+    // This ensures we see content for sessions already running before we subscribed.
+    // Uses retry logic to handle child sessions that just started.
+    hydrateStreamingState(sessionId);
   }
 
   function unsubscribeFromSession(sessionId) {
@@ -97,6 +144,11 @@ export function useRunningSessionSubscriptions() {
     if (clearTimeouts[sessionId]) {
       clearTimeout(clearTimeouts[sessionId]);
       delete clearTimeouts[sessionId];
+    }
+    // Cancel any pending hydration retry
+    if (hydrationRetryTimeouts[sessionId]) {
+      clearTimeout(hydrationRetryTimeouts[sessionId]);
+      delete hydrationRetryTimeouts[sessionId];
     }
   }
 

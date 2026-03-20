@@ -101,8 +101,7 @@ const statusLabel = computed(() => {
   const status = props.session.status;
   if (status === 'running' || status === 'starting') return '● Running';
   if (status === 'scheduled') return '⏰ Scheduled';
-  if (status === 'error') return '⚠ Error';
-  // Remove "waiting" status - don't show a label for waiting sessions
+  // Remove "waiting" and "error" status - don't show a label for these sessions
   return null;
 });
 

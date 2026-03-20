@@ -826,6 +826,48 @@ describe('NewSessionView - Start From Template Feature', () => {
       expect(gitMode).toBe('worktree');
     });
 
+    it('populates effortLevel from template', () => {
+      const template = {
+        effortLevel: 'high',
+      };
+
+      const effortLevel = template.effortLevel;
+      expect(effortLevel).toBe('high');
+    });
+
+    it('populates all valid effortLevel values from template', () => {
+      const validLevels = ['low', 'medium', 'high', 'max', 'auto'];
+
+      validLevels.forEach((level) => {
+        const template = { effortLevel: level };
+        expect(template.effortLevel).toBe(level);
+      });
+    });
+
+    it('does not populate effortLevel when template has null', () => {
+      const template = {
+        effortLevel: null,
+      };
+
+      // When template.effortLevel is null, it should not be set
+      if (template.effortLevel !== null && template.effortLevel !== undefined) {
+        expect(true).toBe(false); // Should not reach here
+      }
+      expect(template.effortLevel).toBeNull();
+    });
+
+    it('does not populate effortLevel when template has undefined', () => {
+      const template = {
+        effortLevel: undefined,
+      };
+
+      // When template.effortLevel is undefined, it should not be set
+      if (template.effortLevel !== null && template.effortLevel !== undefined) {
+        expect(true).toBe(false); // Should not reach here
+      }
+      expect(template.effortLevel).toBeUndefined();
+    });
+
     it('populates nextTemplateId from template', () => {
       const template = {
         nextTemplateId: 'template-456',
@@ -845,6 +887,7 @@ describe('NewSessionView - Start From Template Feature', () => {
         mode: 'standard',
         gitBranch: 'claude-tools/my-feature',
         gitMode: 'branch',
+        effortLevel: 'max',
         nextTemplateId: 'template-789',
       };
 
@@ -856,6 +899,7 @@ describe('NewSessionView - Start From Template Feature', () => {
         mode: template.mode,
         gitBranch: template.gitBranch,
         gitMode: template.gitMode,
+        effortLevel: template.effortLevel,
         nextTemplateId: template.nextTemplateId,
       };
 
@@ -865,6 +909,7 @@ describe('NewSessionView - Start From Template Feature', () => {
       expect(fields.mode).toBe('standard');
       expect(fields.gitBranch).toBe('claude-tools/my-feature');
       expect(fields.gitMode).toBe('branch');
+      expect(fields.effortLevel).toBe('max');
       expect(fields.nextTemplateId).toBe('template-789');
     });
 

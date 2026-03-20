@@ -32,6 +32,16 @@ vi.mock('../components/ModelSelector.vue', () => ({
   },
 }));
 
+// Mock EffortLevelSelector component
+vi.mock('../components/EffortLevelSelector.vue', () => ({
+  default: {
+    name: 'EffortLevelSelector',
+    template: '<select :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><option value="">Auto</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="max">Max</option></select>',
+    props: ['modelValue'],
+    emits: ['update:modelValue'],
+  },
+}));
+
 describe('TemplateDetailView - New Form Fields', () => {
   let pinia;
   let router;
@@ -148,6 +158,21 @@ describe('TemplateDetailView - New Form Fields', () => {
       expect(options[3].attributes('value')).toBe('yolo');
       expect(options[3].text()).toBe('YOLO');
     });
+
+    it('displays effort level selector', async () => {
+      const wrapper = mount(TemplateDetailView, {
+        global: {
+          plugins: [pinia, router],
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Find EffortLevelSelector component
+      const effortSelector = wrapper.findComponent({ name: 'EffortLevelSelector' });
+      expect(effortSelector.exists()).toBe(true);
+    });
   });
 
   describe('Loading Template Data', () => {
@@ -180,6 +205,56 @@ describe('TemplateDetailView - New Form Fields', () => {
       const modeSelect = wrapper.find('#mode');
       // When null is selected, element.value is the text of the first option
       expect(modeSelect.element.value).toBe('Inherit from root session');
+    });
+
+    it('loads effort level from template', async () => {
+      api.getTemplate.mockResolvedValueOnce({
+        id: 'template-2',
+        name: 'High Effort Template',
+        prompt: 'Test prompt',
+        projectId: 'proj-1',
+        effortLevel: 'high',
+      });
+
+      const wrapper = mount(TemplateDetailView, {
+        global: {
+          plugins: [pinia, router],
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+      await nextTick();
+
+      // Check that effortLevel is loaded
+      const effortSelector = wrapper.findComponent({ name: 'EffortLevelSelector' });
+      expect(effortSelector.props('modelValue')).toBe('high');
+    });
+
+    it('loads null effort level when template has null', async () => {
+      api.getTemplate.mockResolvedValueOnce({
+        id: 'template-2',
+        name: 'Auto Effort Template',
+        prompt: 'Test prompt',
+        projectId: 'proj-1',
+        effortLevel: null,
+      });
+
+      const wrapper = mount(TemplateDetailView, {
+        global: {
+          plugins: [pinia, router],
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+      await nextTick();
+
+      // Check that effortLevel is null
+      const effortSelector = wrapper.findComponent({ name: 'EffortLevelSelector' });
+      expect(effortSelector.props('modelValue')).toBeNull();
     });
   });
 
@@ -240,6 +315,34 @@ describe('TemplateDetailView - New Form Fields', () => {
       expect(callArgs[1].mode).toBe('plan');
     });
 
+    it('submits form with effort level', async () => {
+      const wrapper = mount(TemplateDetailView, {
+        global: {
+          plugins: [pinia, router],
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+      await nextTick();
+
+      // Change effort level
+      const effortSelector = wrapper.findComponent({ name: 'EffortLevelSelector' });
+      await effortSelector.vm.$emit('update:modelValue', 'max');
+      await nextTick();
+
+      // Submit form
+      const form = wrapper.find('form');
+      await form.trigger('submit.prevent');
+      await flushPromises();
+
+      // Verify updateTemplate was called with the effort level
+      expect(templatesStore.updateTemplate).toHaveBeenCalled();
+      const callArgs = templatesStore.updateTemplate.mock.calls[0];
+      expect(callArgs[1].effortLevel).toBe('max');
+    });
+
     it('submits form with all new fields', async () => {
       const wrapper = mount(TemplateDetailView, {
         global: {
@@ -260,6 +363,10 @@ describe('TemplateDetailView - New Form Fields', () => {
       const modeSelect = wrapper.find('#mode');
       await modeSelect.setValue('standard');
 
+      const effortSelector = wrapper.findComponent({ name: 'EffortLevelSelector' });
+      await effortSelector.vm.$emit('update:modelValue', 'high');
+      await nextTick();
+
       // Submit form
       const form = wrapper.find('form');
       await form.trigger('submit.prevent');
@@ -270,6 +377,7 @@ describe('TemplateDetailView - New Form Fields', () => {
       const callArgs = templatesStore.updateTemplate.mock.calls[0];
       expect(callArgs[1].model).toBe('claude-sonnet-4-6');
       expect(callArgs[1].mode).toBe('standard');
+      expect(callArgs[1].effortLevel).toBe('high');
     });
 
     it('submits form with current model value from ModelSelector', async () => {
@@ -302,6 +410,42 @@ describe('TemplateDetailView - New Form Fields', () => {
       expect(callArgs[1].model).toBe('claude-opus-4-20250529');
       // Mode should be sent explicitly (even yolo), not omitted
       expect(callArgs[1].mode).toBe('yolo');
+    });
+
+    it('submits form with null effort level when set to auto', async () => {
+      api.getTemplate.mockResolvedValueOnce({
+        id: 'template-2',
+        name: 'Template with High Effort',
+        prompt: 'Test prompt',
+        projectId: 'proj-1',
+        effortLevel: 'high',
+      });
+
+      const wrapper = mount(TemplateDetailView, {
+        global: {
+          plugins: [pinia, router],
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+      await nextTick();
+
+      // Change effort level to null (auto)
+      const effortSelector = wrapper.findComponent({ name: 'EffortLevelSelector' });
+      await effortSelector.vm.$emit('update:modelValue', null);
+      await nextTick();
+
+      // Submit form
+      const form = wrapper.find('form');
+      await form.trigger('submit.prevent');
+      await flushPromises();
+
+      // Verify updateTemplate was called with null effort level
+      expect(templatesStore.updateTemplate).toHaveBeenCalled();
+      const callArgs = templatesStore.updateTemplate.mock.calls[0];
+      expect(callArgs[1].effortLevel).toBeNull();
     });
   });
 
@@ -341,6 +485,48 @@ describe('TemplateDetailView - New Form Fields', () => {
       await modeSelect.setValue('plan');
 
       expect(modeSelect.element.value).toBe('plan');
+    });
+
+    it('allows changing effort level selection', async () => {
+      const wrapper = mount(TemplateDetailView, {
+        global: {
+          plugins: [pinia, router],
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+      await nextTick();
+
+      const effortSelector = wrapper.findComponent({ name: 'EffortLevelSelector' });
+      await effortSelector.vm.$emit('update:modelValue', 'medium');
+      await nextTick();
+
+      expect(effortSelector.props('modelValue')).toBe('medium');
+    });
+
+    it('allows setting effort level to all valid values', async () => {
+      const validLevels = ['low', 'medium', 'high', 'max', null];
+
+      for (const level of validLevels) {
+        const wrapper = mount(TemplateDetailView, {
+          global: {
+            plugins: [pinia, router],
+          },
+        });
+
+        await flushPromises();
+        await nextTick();
+        await flushPromises();
+        await nextTick();
+
+        const effortSelector = wrapper.findComponent({ name: 'EffortLevelSelector' });
+        await effortSelector.vm.$emit('update:modelValue', level);
+        await nextTick();
+
+        expect(effortSelector.props('modelValue')).toBe(level);
+      }
     });
   });
 

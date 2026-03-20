@@ -122,6 +122,34 @@ describe('CreateSessionTemplateRequest', () => {
     ).toBe(false);
   });
 
+  it('validates effortLevel enum', () => {
+    for (const level of ['low', 'medium', 'high', 'max', 'auto']) {
+      expect(
+        CreateSessionTemplateRequest.safeParse({
+          name: 'Test',
+          prompt: 'Test',
+          effortLevel: level,
+        }).success
+      ).toBe(true);
+    }
+    expect(
+      CreateSessionTemplateRequest.safeParse({
+        name: 'Test',
+        prompt: 'Test',
+        effortLevel: 'invalid',
+      }).success
+    ).toBe(false);
+  });
+
+  it('allows null effortLevel', () => {
+    const result = CreateSessionTemplateRequest.safeParse({
+      name: 'Test',
+      prompt: 'Test',
+      effortLevel: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
   it('validates nextTemplateId as UUID', () => {
     const result = CreateSessionTemplateRequest.safeParse({
       name: 'Template',
@@ -262,6 +290,31 @@ describe('UpdateSessionTemplateRequest', () => {
     ).toBe(false);
   });
 
+  it('validates effortLevel update', () => {
+    const result = UpdateSessionTemplateRequest.safeParse({
+      effortLevel: 'high',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates effortLevel enum in update', () => {
+    for (const level of ['low', 'medium', 'high', 'max', 'auto']) {
+      expect(
+        UpdateSessionTemplateRequest.safeParse({ effortLevel: level }).success
+      ).toBe(true);
+    }
+    expect(
+      UpdateSessionTemplateRequest.safeParse({ effortLevel: 'invalid' }).success
+    ).toBe(false);
+  });
+
+  it('allows null effortLevel in update', () => {
+    const result = UpdateSessionTemplateRequest.safeParse({
+      effortLevel: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
   it('accepts valid UUID for targetLaneId', () => {
     const result = UpdateSessionTemplateRequest.safeParse({
       targetLaneId: '550e8400-e29b-41d4-a716-446655440000',
@@ -296,6 +349,7 @@ describe('SessionTemplateResponse', () => {
     gitMode: null,
     model: null,
     mode: null,
+    effortLevel: null,
     targetLaneId: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -360,6 +414,14 @@ describe('SessionTemplateResponse', () => {
     expect(result.success).toBe(true);
   });
 
+  it('validates template with effortLevel set', () => {
+    const result = SessionTemplateResponse.safeParse({
+      ...validTemplate,
+      effortLevel: 'high',
+    });
+    expect(result.success).toBe(true);
+  });
+
   it('validates template with targetLaneId set', () => {
     const result = SessionTemplateResponse.safeParse({
       ...validTemplate,
@@ -410,6 +472,7 @@ describe('SessionTemplateListResponse', () => {
         gitMode: null,
         model: null,
         mode: null,
+        effortLevel: null,
         targetLaneId: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -425,6 +488,7 @@ describe('SessionTemplateListResponse', () => {
         gitMode: 'branch',
         model: 'claude-sonnet-4-20250514',
         mode: 'plan',
+        effortLevel: 'high',
         targetLaneId: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -457,6 +521,7 @@ describe('AvailableTemplatesResponse', () => {
           gitMode: null,
           model: null,
           mode: null,
+          effortLevel: null,
           targetLaneId: null,
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -482,6 +547,7 @@ describe('AvailableTemplatesResponse', () => {
           gitMode: null,
           model: null,
           mode: null,
+          effortLevel: null,
           targetLaneId: null,
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -503,6 +569,7 @@ describe('AvailableTemplatesResponse', () => {
       gitMode: null,
       model: null,
       mode: null,
+      effortLevel: null,
       targetLaneId: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
