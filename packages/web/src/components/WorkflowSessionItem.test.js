@@ -145,11 +145,9 @@ describe('WorkflowSessionItem', () => {
       expect(statusEl.text()).toBe('⏰ Scheduled');
     });
 
-    it('shows "⚠ Error" for error status', () => {
+    it('does not show status label for error status', () => {
       const wrapper = mountComponent({ status: 'error' });
-      const statusEl = wrapper.find('.workflow-session-status');
-      expect(statusEl.exists()).toBe(true);
-      expect(statusEl.text()).toBe('⚠ Error');
+      expect(wrapper.find('.workflow-session-status').exists()).toBe(false);
     });
 
     it('does not show status label for waiting status', () => {
