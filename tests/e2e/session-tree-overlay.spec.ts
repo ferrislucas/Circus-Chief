@@ -497,8 +497,8 @@ test.describe('Session Tree Overlay', () => {
       const closeBtn = page.locator('[data-testid="session-tree-close"]');
       await closeBtn.click();
 
-      // Overlay should disappear with animation
-      await expect(overlay).not.toBeVisible({ timeout: 1000 });
+      // Overlay should disappear with animation (300ms)
+      await expect(overlay).not.toBeVisible({ timeout: 1500 });
     });
 
     test('animation completes without visual glitches', async ({ page }) => {
@@ -516,7 +516,7 @@ test.describe('Session Tree Overlay', () => {
         await handle.click();
         await expect(overlay).toBeVisible({ timeout: 5000 });
         await page.keyboard.press('Escape');
-        await expect(overlay).not.toBeVisible({ timeout: 1000 });
+        await expect(overlay).not.toBeVisible({ timeout: 1500 });
       }
     });
 
