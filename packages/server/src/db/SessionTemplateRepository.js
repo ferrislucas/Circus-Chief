@@ -21,7 +21,7 @@ export class SessionTemplateRepository extends BaseRepository {
       gitMode: row.git_mode,
       model: row.model || null,
       mode: row.mode || null,
-      effortLevel: row.effort_level || null,
+      effortLevel: row.effort_level ?? null,
       targetLaneId: row.target_lane_id || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -62,7 +62,7 @@ export class SessionTemplateRepository extends BaseRepository {
         data.gitMode || null,
         data.model || null,
         data.mode !== undefined && data.mode !== null ? data.mode : null,
-        data.effortLevel || null,
+        data.effortLevel ?? null,
         data.targetLaneId || null,
         now,
         now

@@ -201,7 +201,7 @@ const loadTemplate = async () => {
         gitBranch: template.gitBranch || '',
         model: template.model,                      // Preserve null (inherit) or model ID
         mode: template.mode,                        // Preserve null (inherit), 'plan', 'standard', or 'yolo'
-        effortLevel: template.effortLevel || null,
+        effortLevel: template.effortLevel ?? null,
       };
     }
   } catch (err) {
