@@ -50,15 +50,6 @@
               {{ scheduledTimeDisplay }}
             </span>
 
-            <!-- Files changed badge -->
-            <span v-if="sessionFileCount > 0" class="files-changed-badge">
-              <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="files-icon">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                <polyline points="14 2 14 8 20 8"></polyline>
-              </svg>
-              {{ sessionFileCount }} {{ sessionFileCount === 1 ? 'file' : 'files' }}
-            </span>
-
             <!-- PR Indicators -->
             <PrIndicators v-if="prUrl && !isChild" :pr-url="prUrl" :summary="prSummary" data-testid="session-card-pr-indicators" />
 
@@ -148,7 +139,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue';
+import { computed, ref } from 'vue';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
@@ -279,21 +270,6 @@ const scheduledTimeDisplay = computed(() => {
 const scheduledAbsoluteTime = computed(() => {
   if (props.session.status !== 'scheduled' || !props.session.scheduledAt) return null;
   return format(new Date(props.session.scheduledAt), 'MMM d, h:mm a');
-});
-
-// Files changed count — reactive via streaming store (updated by WebSocket for running sessions)
-const sessionFileCount = computed(() => streamingStore.getSessionFileCount(props.session.id));
-
-// Fetch initial file count on mount for sessions that already have changes
-onMounted(async () => {
-  try {
-    const result = await api.getSessionFilesCount(props.session.id);
-    if (result.count > 0) {
-      streamingStore.setSessionFileCount(props.session.id, result.count);
-    }
-  } catch {
-    // Silently ignore — file count badge is optional
-  }
 });
 
 const toggleExpand = () => {
@@ -449,19 +425,6 @@ const onStarClick = () => {
 .scheduled-time {
   font-size: 0.75rem;
   color: var(--color-text-soft);
-}
-
-.files-changed-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
-}
-
-.files-icon {
-  flex-shrink: 0;
-  opacity: 0.7;
 }
 
 /* Expand toggle row at bottom of card */
