@@ -5,11 +5,6 @@
       Updating summary...
     </div>
 
-    <section class="summary-section">
-      <h3>Overview</h3>
-      <p class="full-summary">{{ summary.fullSummary }}</p>
-    </section>
-
     <section v-if="summary.keyActions && summary.keyActions.length > 0" class="summary-section">
       <h3>Key Actions</h3>
       <ul class="key-actions-list">
@@ -20,6 +15,11 @@
       </ul>
     </section>
 
+    <section class="summary-section">
+      <h3>Overview</h3>
+      <p class="full-summary">{{ summary.fullSummary }}</p>
+    </section>
+
     <section v-if="summary.filesModified && summary.filesModified.length > 0" class="summary-section">
       <h3>Files Modified</h3>
       <ul class="files-list">
@@ -28,13 +28,6 @@
           <code>{{ file }}</code>
         </li>
       </ul>
-    </section>
-
-    <section class="summary-section">
-      <h3>Outcome</h3>
-      <span :class="['outcome-badge', `outcome-${summary.outcome}`]">
-        {{ formatOutcome(summary.outcome) }}
-      </span>
     </section>
 
     <section v-if="hasPrInfo" class="summary-section" data-testid="pr-section">
@@ -105,16 +98,6 @@ function formatDate(timestamp) {
     hour: '2-digit',
     minute: '2-digit',
   });
-}
-
-function formatOutcome(outcome) {
-  const labels = {
-    completed: 'Task Completed Successfully',
-    partial: 'Partial Progress',
-    failed: 'Task Failed',
-    ongoing: 'In Progress',
-  };
-  return labels[outcome] || outcome;
 }
 
 function formatPrState(state) {
@@ -213,34 +196,6 @@ function extractPrNumber(url) {
   background-color: var(--color-bg-soft);
   padding: 0.125rem 0.375rem;
   border-radius: 4px;
-}
-
-.outcome-badge {
-  display: inline-block;
-  padding: 0.25rem 0.75rem;
-  border-radius: 9999px;
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
-.outcome-completed {
-  background-color: rgba(46, 160, 67, 0.15);
-  color: var(--color-success);
-}
-
-.outcome-partial {
-  background-color: rgba(210, 153, 34, 0.15);
-  color: var(--color-warning);
-}
-
-.outcome-failed {
-  background-color: rgba(248, 81, 73, 0.15);
-  color: var(--color-error);
-}
-
-.outcome-ongoing {
-  background-color: rgba(88, 166, 255, 0.15);
-  color: var(--color-primary);
 }
 
 .summary-footer {

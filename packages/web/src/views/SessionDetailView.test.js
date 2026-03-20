@@ -2416,9 +2416,9 @@ describe('SessionDetailView', () => {
       expect(wrapper.exists()).toBe(true);
     });
 
-    it.skip('ChildSessionsPanel receives summaries prop', async () => {
+    it.skip('SessionCardWorkflowPanel receives summaries prop', async () => {
       // SKIPPED: This test requires unmocking SummaryTab which is complex with Vitest.
-      // The ChildSessionsPanel functionality is tested in ChildSessionsPanel.test.js
+      // The SessionCardWorkflowPanel functionality is tested independently
       // and SummaryTab integration is verified through E2E tests.
       // Import real SummaryTab component for this test
       vi.doUnmock('../components/SummaryTab.vue');
@@ -2436,7 +2436,6 @@ describe('SessionDetailView', () => {
       vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => [childSession]);
 
       api.getSessionSummary.mockResolvedValue({ shortSummary: 'Test summary' });
-      api.getConversations.mockResolvedValue([]);
 
       // Set up commandButtonsStore (needed by SummaryTab)
       const commandButtonsStore = useCommandButtonsStore();
@@ -2465,15 +2464,15 @@ describe('SessionDetailView', () => {
             SummaryTab: RealSummaryTab, // Use real SummaryTab component
             CommandsTab: true,
             PrIndicators: true,
-            ChildSessionsPanel: false, // Don't stub to verify prop passing
+            SessionCardWorkflowPanel: false, // Don't stub to verify prop passing
           },
         },
       });
 
       await flushPromises();
 
-      // Verify ChildSessionsPanel is rendered
-      const childPanel = wrapper.findComponent({ name: 'ChildSessionsPanel' });
+      // Verify SessionCardWorkflowPanel is rendered
+      const childPanel = wrapper.findComponent({ name: 'SessionCardWorkflowPanel' });
       expect(childPanel.exists()).toBe(true);
 
       // Verify summaries prop is passed (it should be defined, even if empty)
