@@ -153,6 +153,9 @@ function applyTemplateOverrides(config) {
       config.effortLevel = null;
     }
   }
+  if (template.targetLaneId) {
+    config.targetLaneId = template.targetLaneId;
+  }
   config.nextTemplateId = config.templateId;
 }
 
@@ -486,6 +489,11 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
 
   if (nextTemplateId) {
     sessions.update(session.id, { nextTemplateId });
+  }
+
+  // Persist targetLaneId on the session (set by applyTemplateOverrides from template)
+  if (config.targetLaneId) {
+    sessions.update(session.id, { targetLaneId: config.targetLaneId });
   }
 
   const schedulingUpdate = buildSchedulingUpdate(config, initialStatus);

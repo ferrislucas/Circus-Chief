@@ -577,7 +577,7 @@ export async function updateSessionFields(sessionId: string, fields: Record<stri
 
 export async function seedProjectTemplate(
   projectId: string,
-  data: { name: string; prompt: string; nextTemplateId?: string; thinkingEnabled?: boolean | null; gitBranch?: string; model?: string; mode?: string | null; gitMode?: string; effortLevel?: string | null }
+  data: { name: string; prompt: string; nextTemplateId?: string; thinkingEnabled?: boolean | null; gitBranch?: string; model?: string; mode?: string | null; gitMode?: string; effortLevel?: string | null; targetLaneId?: string | null }
 ) {
   const response = await fetch(`${API_URL}/api/projects/${projectId}/templates`, {
     method: 'POST',
@@ -2485,6 +2485,16 @@ export async function getAgentCallFilterOptions() {
 // ============================================================
 // Kanban Helpers
 // ============================================================
+
+/**
+ * Get the full kanban board (lanes + cards) for a project.
+ * Also triggers auto-creation of default lanes if none exist.
+ */
+export async function getKanbanBoard(projectId: string) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban`);
+  if (!response.ok) throw new Error(`Failed to get kanban board: ${response.status}`);
+  return response.json();
+}
 
 /**
  * Seed a kanban lane for testing
