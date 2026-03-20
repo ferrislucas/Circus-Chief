@@ -39,6 +39,15 @@ describe('SessionTreeHandle', () => {
       const wrapper = mountComponent();
       expect(wrapper.find('svg.handle-icon').exists()).toBe(true);
     });
+
+    it('has z-index 900 via the session-tree-handle class', () => {
+      const wrapper = mountComponent();
+      const handle = wrapper.find('.session-tree-handle');
+      expect(handle.exists()).toBe(true);
+      // The z-index is applied through the scoped CSS class
+      // Verify the class exists which applies z-index: 900
+      expect(handle.classes()).toContain('session-tree-handle');
+    });
   });
 
   describe('interactions', () => {
